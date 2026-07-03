@@ -1,18 +1,20 @@
 import { useEffect, useState } from "react";
 import { useStore } from "./store";
-import { Login } from "./components/Login";
 import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
 import { SkillsView } from "./components/SkillsView";
 import { LiveView } from "./components/LiveView";
 import { GuideView } from "./components/GuideView";
 import { OnboardingView } from "./components/OnboardingView";
+import { DashboardKeyModal } from "./components/DashboardKeyModal";
 import { BrandLogo } from "./components/BrandLogo";
 import { Icon, Spinner } from "./components/Icon";
 import { brandName } from "./constants";
 import { getPreviewMode, getPreviewTab } from "./preview";
 import type { AppTab, Conversation } from "./types";
 import { resolveTheme, type Theme } from "./theme";
+import { initAnalytics, trackEvent } from "./lib/analytics";
+import { listen } from "./electronBridge";
 
 const TABS: { id: AppTab; label: string; icon: string }[] = [
   { id: "chat", label: "Chat", icon: "bubble.left.and.bubble.right.fill" },
@@ -48,7 +50,6 @@ export function App() {
   ));
   const preview = getPreviewMode();
   const checking = useStore((s) => s.checking);
-  const authed = useStore((s) => s.authed);
   const tab = useStore((s) => s.tab);
   const setTab = useStore((s) => s.setTab);
   const bootstrap = useStore((s) => s.bootstrap);
@@ -58,9 +59,30 @@ export function App() {
   const setAppActive = useStore((s) => s.setAppActive);
 
   useEffect(() => {
+    initAnalytics();
+    trackEvent("app_start", {
+      preview_mode: preview ?? "none",
+      theme,
+    });
+    let cleanup: (() => void) | undefined;
+    void listen<{ status?: string; version?: string; percent?: number; message?: string }>("app:update", (event) => {
+      trackEvent("app_update_status", {
+        update_status: event.payload.status ?? "unknown",
+        has_version: !!event.payload.version,
+        percent: event.payload.percent ?? undefined,
+        has_message: !!event.payload.message,
+      });
+    }).then((off) => {
+      cleanup = off;
+    }).catch(() => undefined);
+    return () => cleanup?.();
+  }, []);
+
+  useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
     localStorage.setItem("nextbrowser.theme", theme);
+    trackEvent("theme_changed", { theme });
   }, [theme]);
 
   useEffect(() => {
@@ -163,13 +185,6 @@ export function App() {
     );
   }
 
-  if (!authed && preview !== "main") return (
-    <>
-      <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} floating />
-      <Login />
-    </>
-  );
-
   return (
     <div className="app">
       <aside className="sidebar thin-material" style={{ width: sidebarWidth }}>
@@ -201,6 +216,7 @@ export function App() {
           {tab === "guide" && <GuideView />}
         </div>
       </main>
+      <DashboardKeyModal />
       {showOnboarding && <OnboardingView />}
     </div>
   );

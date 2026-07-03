@@ -26,6 +26,21 @@ npm test
 npm run dev
 ```
 
+## Analytics
+
+GA4 is enabled by default for the NextBrowser stream (`G-GH09J7KP5R`). Set
+`VITE_GA4_MEASUREMENT_ID` only when you need to override the stream for a
+specific build:
+
+```sh
+VITE_GA4_MEASUREMENT_ID=G-GH09J7KP5R npm run dev
+```
+
+In Google Analytics, find this value under **Admin → Property settings → Data
+streams → Web stream → Stream details → Measurement ID**. The value starts with
+`G-`. Events use a generated anonymous app instance ID and do not send API keys,
+prompt text, target URLs, or page domains.
+
 Production checks and packages:
 
 ```sh

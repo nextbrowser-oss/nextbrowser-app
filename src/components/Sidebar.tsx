@@ -43,14 +43,14 @@ export function Sidebar() {
             <div className="section">PROXY USAGE</div>
             <button
               className="plain-icon-btn plain-icon-btn-compact"
-              title="Refresh proxy usage"
+              title={s.proxy ? "Refresh proxy usage" : "Unlock proxy usage"}
               disabled={s.isRefreshing}
-              onClick={() => s.refreshProxyData()}
+              onClick={() => s.proxy ? s.refreshProxyData() : s.setDashboardKeyPromptOpen(true)}
             >
               {s.isRefreshing ? (
                 <Spinner size={12} />
               ) : (
-                <Icon name="arrow.clockwise" size={12} className="muted" />
+                <Icon name={s.proxy ? "arrow.clockwise" : "lock"} size={12} className="muted" />
               )}
             </button>
           </div>
@@ -92,7 +92,13 @@ export function Sidebar() {
               )}
             </>
           ) : (
-            <div className="muted small">Loading…</div>
+            <button className="proxy-locked" onClick={() => s.setDashboardKeyPromptOpen(true)}>
+              <Icon name="lock.fill" size={16} />
+              <span>
+                <strong>Dashboard key required</strong>
+                <span className="muted small">Unlock proxy usage and profile traffic stats.</span>
+              </span>
+            </button>
           )}
         </div>
 
@@ -212,6 +218,12 @@ export function Sidebar() {
           </div>
           <div className="profile-list">
             {s.profiles.length === 0 && <div className="muted small">No profiles found.</div>}
+            {s.profiles.length === 0 && !s.proxy && (
+              <button className="btn-bordered full" onClick={() => s.setDashboardKeyPromptOpen(true)}>
+                <Icon name="lock" size={14} />
+                Enter dashboard key before first profile
+              </button>
+            )}
             {s.profiles.length > 0 && profiles.length === 0 && (
               <div className="muted small">No matches for “{s.profileSearch}”.</div>
             )}

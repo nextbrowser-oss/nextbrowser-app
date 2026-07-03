@@ -220,9 +220,16 @@ export function ChatView() {
                 <button className="btn-bordered" onClick={() => s.setTab("skills")}>
                   Open Skills
                 </button>
-                <button className="btn-bordered" onClick={() => s.startDefaultSession()}>
-                  Start session
-                </button>
+                {s.proxy ? (
+                  <button className="btn-bordered" onClick={() => s.startDefaultSession()}>
+                    Start session
+                  </button>
+                ) : (
+                  <button className="btn-bordered" onClick={() => s.setDashboardKeyPromptOpen(true)}>
+                    <Icon name="lock" size={14} />
+                    Create first profile
+                  </button>
+                )}
               </div>
               <button
                 className="link empty-link"

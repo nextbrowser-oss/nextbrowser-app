@@ -424,6 +424,32 @@ button, input, textarea, select { color: var(--text); }
 }
 .proxy-stats { font-size: 13px; }
 .proxy-state { font-size: 12px; color: var(--accent); text-transform: capitalize; }
+.proxy-locked {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  background: var(--surface-4);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 10px;
+  min-height: 58px;
+}
+.proxy-locked > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.dashboard-key-modal { width: min(420px, calc(100vw - 32px)); }
+.modal-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
 
 /* Agent picker */
 .agent-primary { display: flex; gap: 8px; margin: 8px 0; }
