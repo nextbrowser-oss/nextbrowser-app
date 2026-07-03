@@ -1,0 +1,10 @@
+node_modules
+dist
+release
+src-tauri/target
+src-tauri/gen
+.DS_Store
+*.log
+screenshots
+.xwin-cache
+xwin-cache

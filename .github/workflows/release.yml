@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Sync version from tag
+        if: github.ref_type == 'tag'
+        run: node scripts/sync-version.mjs ${{ github.ref_name }}
+      - run: npm test
+      - run: npm run dist:mac
+      - name: Publish DMG
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.dmg
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+      - uses: actions/upload-artifact@v5
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          name: NextBrowser-macOS
+          path: release/*.dmg
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Sync version from tag
+        if: github.ref_type == 'tag'
+        run: node scripts/sync-version.mjs ${{ github.ref_name }}
+      - run: npm test
+      - run: npm run dist:win
+      - name: Publish NSIS installer
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.exe
+          fail_on_unmatched_files: true
+      - uses: actions/upload-artifact@v5
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          name: NextBrowser-Windows
+          path: release/*.exe
