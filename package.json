@@ -14,11 +14,13 @@
     "start": "electron .",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder --publish never",
+    "dist:publish": "npm run build && electron-builder --publish always",
     "dist:mac": "npm run build && electron-builder --mac dmg --publish never",
     "dist:win": "npm run build && electron-builder --win nsis --publish never",
     "icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "lucide-react": "^1.22.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -42,6 +44,13 @@
     "appId": "com.nextbrowser.desktop",
     "productName": "NextBrowser",
     "asar": true,
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "nextbrowser-oss",
+        "repo": "nextbrowser-app"
+      }
+    ],
     "files": [
       "dist/**/*",
       "electron/**/*",

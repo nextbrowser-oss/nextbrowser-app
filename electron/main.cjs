@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, shell, nativeImage, dialog } = require("electron");
+const { autoUpdater } = require("electron-updater");
 const { spawn, execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const fs = require("node:fs/promises");
@@ -9,6 +10,9 @@ const { randomUUID } = require("node:crypto");
 
 const execFileAsync = promisify(execFile);
 const children = new Map();
+const APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+let appUpdateStatus = { status: "idle" };
+let appUpdateTimer = null;
 
 function home() { return os.homedir(); }
 function executableNames(name) {
@@ -89,9 +93,52 @@ function safeName(name) {
 }
 function emit(channel, payload) { for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channel, payload); }
 function quotePosix(value) { return `'${String(value).replaceAll("'", "'\\''")}'`; }
+function setAppUpdateStatus(status, patch = {}) {
+  appUpdateStatus = { status, ...patch, updatedAt: Date.now() };
+  emit("app:update", appUpdateStatus);
+}
+function configureAutoUpdater() {
+  if (!app.isPackaged || !["darwin", "win32"].includes(process.platform)) return;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on("checking-for-update", () => setAppUpdateStatus("checking"));
+  autoUpdater.on("update-available", (info) => setAppUpdateStatus("available", { version: info.version }));
+  autoUpdater.on("update-not-available", (info) => setAppUpdateStatus("not-available", { version: info.version }));
+  autoUpdater.on("download-progress", (progress) => setAppUpdateStatus("downloading", { percent: Math.round(progress.percent ?? 0) }));
+  autoUpdater.on("update-downloaded", (info) => setAppUpdateStatus("downloaded", { version: info.version }));
+  autoUpdater.on("error", (error) => setAppUpdateStatus("error", { message: error?.message || String(error) }));
+}
+function checkForAppUpdate() {
+  if (!app.isPackaged || !["darwin", "win32"].includes(process.platform)) {
+    setAppUpdateStatus("disabled", { message: "App updates run only in packaged macOS/Windows builds." });
+    return null;
+  }
+  return autoUpdater.checkForUpdatesAndNotify().catch((error) => {
+    setAppUpdateStatus("error", { message: error?.message || String(error) });
+    return null;
+  });
+}
+function startAutoUpdater() {
+  configureAutoUpdater();
+  if (!app.isPackaged || !["darwin", "win32"].includes(process.platform)) return;
+  setTimeout(() => { void checkForAppUpdate(); }, 3000);
+  if (appUpdateTimer) clearInterval(appUpdateTimer);
+  appUpdateTimer = setInterval(() => { void checkForAppUpdate(); }, APP_UPDATE_CHECK_INTERVAL_MS);
+}
 
 async function invokeCommand(command, args = {}) {
   switch (command) {
+    case "app_update_status": return appUpdateStatus;
+    case "app_check_for_update": {
+      await checkForAppUpdate();
+      return appUpdateStatus;
+    }
+    case "app_install_update": {
+      if (appUpdateStatus.status !== "downloaded") return false;
+      autoUpdater.quitAndInstall(false, true);
+      return true;
+    }
+    case "clawctl_resolve": return await resolveClawctl();
     case "clawctl_run": {
       const bin = await resolveClawctl(); if (!bin) throw new Error("clawctl not found. Install Clawbrowser CLI or set CLAWCTL_BIN.");
       return run(bin, args.args || [], args.extraEnv || {});
@@ -230,7 +277,11 @@ app.whenReady().then(() => {
   applyAppIcon();
   ipcMain.handle("nextbrowser:invoke", (_event, command, args) => invokeCommand(command, args));
   createWindow();
+  startAutoUpdater();
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
-app.on("before-quit", () => { for (const child of children.values()) child.kill(); });
+app.on("before-quit", () => {
+  if (appUpdateTimer) clearInterval(appUpdateTimer);
+  for (const child of children.values()) child.kill();
+});

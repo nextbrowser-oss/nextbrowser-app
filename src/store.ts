@@ -19,6 +19,7 @@ import { activityFromText, extractToolEvents } from "./lib/activityParser";
 import { composePrompt } from "./lib/composePrompt";
 import { promptWithAttachments } from "./lib/chatAttachments";
 import { normalizeClawctlVersion } from "./lib/version";
+import { setAnalyticsUserId, trackEvent, trackTiming } from "./lib/analytics";
 import { loadJson, saveJson } from "./lib/storage";
 import {
   normalizeConversation,
@@ -89,6 +90,45 @@ const STALL_MS = 120_000;
 const WATCHDOG_MS = 5_000;
 const PROXY_REFRESH_MS = 120_000;
 const SCHEDULE_TICK_MS = 30_000;
+const CLAWCTL_DAILY_UPDATE_MS = 24 * 60 * 60 * 1000;
+const CLAWCTL_DAILY_UPDATE_POLL_MS = 60 * 60 * 1000;
+const CLAWCTL_UPDATE_STATE_FILE = "clawctl-update.json";
+
+function clawbrowserInstallPrompt(agentAdapter: string): string {
+  return `NextBrowser cannot find local clawctl/Clawbrowser components. Install them for this machine before doing browser work.
+
+Use the official clawctl release bootstrap, then install the browser runtime and this agent integration.
+
+On macOS/Linux:
+
+\`\`\`bash
+case "$(uname -s):$(uname -m)" in
+  Linux:x86_64|Linux:amd64) platform="linux-amd64" ;;
+  Linux:arm64|Linux:aarch64) platform="linux-arm64" ;;
+  Darwin:arm64) platform="macos-arm64" ;;
+  *) echo "unsupported host: $(uname -s) $(uname -m)" >&2; exit 1 ;;
+esac
+archive="clawctl-\${platform}.tar.gz"
+url="https://github.com/clawbrowser/clawctl/releases/latest/download/\${archive}"
+curl -fL --retry 3 --retry-delay 2 -o "$archive" "$url"
+tar -xzf "$archive"
+"./clawctl-\${platform}/clawctl" install --agent ${agentAdapter} --no-api-key-prompt --json
+\`\`\`
+
+On Windows PowerShell:
+
+\`\`\`powershell
+$archive = "clawctl-win-amd64.zip"
+$url = "https://github.com/clawbrowser/clawctl/releases/latest/download/$archive"
+Invoke-WebRequest -Uri $url -OutFile $archive
+Remove-Item -Recurse -Force ".\\clawctl-win-amd64" -ErrorAction SilentlyContinue
+Expand-Archive -Force $archive .
+$clawctl = ".\\clawctl-win-amd64\\clawctl.exe"
+& $clawctl install --agent ${agentAdapter} --no-api-key-prompt --json
+\`\`\`
+
+If Windows asks for administrator approval, tell the user exactly that approval is needed. After install, run \`clawctl version\` and report the installed path. Do not invent backend API calls.`;
+}
 
 // Bound a single streamed reply so a looping/stuck agent that streams for hours
 // cannot grow memory without bound; keep only the most recent output once over.
@@ -188,10 +228,12 @@ interface State {
   showOnboarding: boolean;
   sidebarWidth: number;
   chatListCollapsed: boolean;
+  dashboardKeyPromptOpen: boolean;
   clawctlVersion: string;
   clawctlUpdating: boolean;
   clawctlUpdateStatus?: string;
   clawctlSupportsSkill: boolean;
+  clawctlAvailable: boolean;
   skillCategories: SkillCategory[];
   appActive: boolean;
   connectAnnounced: Set<string>;
@@ -227,6 +269,7 @@ interface State {
   setProfileSearch: (q: string) => void;
   setSidebarWidth: (w: number) => void;
   setChatListCollapsed: (v: boolean) => void;
+  setDashboardKeyPromptOpen: (v: boolean) => void;
   finishOnboarding: () => void;
   showOnboardingAgain: () => void;
   checkClawctlUpdate: () => Promise<void>;
@@ -285,6 +328,7 @@ interface State {
   makeStepMessage: (cid: string) => string;
   appendStep: (cid: string, mid: string, step: string) => void;
   startSessionPoll: () => void;
+  tickClawctlDailyUpdate: () => Promise<void>;
   ensureConversation: (agentId: string) => void;
   announceConnect: (agentId: string, version: string, loggedIn: boolean | null) => void;
 }
@@ -292,12 +336,19 @@ interface State {
 let proxyTimer: ReturnType<typeof setInterval> | null = null;
 let scheduleTimer: ReturnType<typeof setInterval> | null = null;
 let sessionPollTimer: ReturnType<typeof setInterval> | null = null;
+let clawctlDailyUpdateTimer: ReturnType<typeof setInterval> | null = null;
 // Guard bootstrap against re-entry. React StrictMode invokes effects twice in
 // dev, and without this each agent:* listener would be registered again, so a
 // single agent reply would be appended once per registration (duplicate output).
 // Mirrors AppState.didBootstrap in the Swift app.
 let didBootstrap = false;
 type AgentDone = { code: number; stderr: string };
+interface ClawctlUpdateState { lastAutoCheckAt?: number }
+interface APIKeyIdentity {
+  valid: boolean;
+  key_id?: string;
+  owner_id?: string;
+}
 const completionResolvers = new Map<string, (result: AgentDone) => void>();
 
 function persistConvs(conversations: Conversation[]) {
@@ -310,6 +361,16 @@ function persistSchedules(runs: ScheduledRun[]) {
 
 function persistScripts(scripts: CustomScript[]) {
   void saveJson("custom-scripts.json", serializeScripts(scripts));
+}
+
+async function refreshAnalyticsIdentity(): Promise<void> {
+  const wrap = await clawctlJson<{ identity: APIKeyIdentity }>(["identity"]);
+  const ownerId = wrap.identity.owner_id?.trim();
+  setAnalyticsUserId(ownerId || undefined);
+  trackEvent("analytics_identity_loaded", {
+    has_owner_id: !!ownerId,
+    has_key_id: !!wrap.identity.key_id,
+  });
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -334,9 +395,11 @@ export const useStore = create<State>((set, get) => ({
   showOnboarding: false,
   sidebarWidth: Number(localStorage.getItem("sidebarWidth") ?? 300),
   chatListCollapsed: localStorage.getItem("chatListCollapsed") === "true",
+  dashboardKeyPromptOpen: false,
   clawctlVersion: "",
   clawctlUpdating: false,
   clawctlSupportsSkill: true,
+  clawctlAvailable: true,
   appActive: true,
   connectAnnounced: new Set(),
   workingDir: "",
@@ -377,6 +440,8 @@ export const useStore = create<State>((set, get) => ({
   bootstrap: async () => {
     if (didBootstrap) return;
     didBootstrap = true;
+    const startedAt = performance.now();
+    trackEvent("bootstrap_started");
     const [rawConvs, rawSchedules, rawScripts, rawHistory, wd] = await Promise.all([
       loadJson<Conversation[]>("conversations.json", []),
       loadJson<ScheduledRun[]>("scheduled-runs.json", []),
@@ -498,6 +563,10 @@ export const useStore = create<State>((set, get) => ({
         persistConvs(conversations);
         return { conversations, runtime };
       });
+      trackEvent(stopped ? "agent_turn_cancelled" : code === 0 ? "agent_turn_completed" : "agent_turn_failed", {
+        agent: agentId,
+        exit_code: code,
+      });
       try {
         await get().refreshAll();
       } finally {
@@ -507,25 +576,42 @@ export const useStore = create<State>((set, get) => ({
       }
     });
 
+    const clawctlPath = await invoke<string | null>("clawctl_resolve").catch(() => null);
+    set({ clawctlAvailable: !!clawctlPath });
+    trackEvent("clawctl_resolve", { found: !!clawctlPath });
     try {
       const ver = await invoke<string>("clawctl_version");
       const supportsSkill = await invoke<boolean>("clawctl_supports_skill");
-      set({ clawctlVersion: normalizeClawctlVersion(ver), clawctlSupportsSkill: supportsSkill });
+      set({ clawctlVersion: normalizeClawctlVersion(ver), clawctlSupportsSkill: supportsSkill, clawctlAvailable: true });
+      trackEvent("clawctl_detected", { supports_skill: supportsSkill });
+      await refreshAnalyticsIdentity().catch(() => {
+        trackEvent("analytics_identity_unavailable", { phase: "bootstrap" });
+      });
     } catch {
-      set({ clawctlVersion: "not found", clawctlSupportsSkill: false });
+      set({ clawctlVersion: "not found", clawctlSupportsSkill: false, clawctlAvailable: false });
+      trackEvent("clawctl_missing");
     }
+    set({ authed: true });
+    get().startTimers();
+    void get().tickClawctlDailyUpdate();
 
     try {
-      await get().loadProxy();
-      set({ authed: true });
-      get().startTimers();
       await get().refreshAll();
       await get().authorizeAgent();
       if (!localStorage.getItem("onboardingComplete")) {
         set({ showOnboarding: true });
       }
+      trackTiming("bootstrap_completed", startedAt, {
+        clawctl_available: get().clawctlAvailable,
+        profile_count: get().profiles.length,
+        conversation_count: get().conversations.length,
+      });
     } catch {
-      /* manual login */
+      /* app remains usable without dashboard credentials or local clawctl */
+      trackTiming("bootstrap_completed", startedAt, {
+        clawctl_available: get().clawctlAvailable,
+        partial: true,
+      });
     } finally {
       set({ checking: false });
     }
@@ -540,6 +626,21 @@ export const useStore = create<State>((set, get) => ({
     }, PROXY_REFRESH_MS);
     if (scheduleTimer) clearInterval(scheduleTimer);
     scheduleTimer = setInterval(() => get().tickScheduledRuns(), SCHEDULE_TICK_MS);
+    if (clawctlDailyUpdateTimer) clearInterval(clawctlDailyUpdateTimer);
+    clawctlDailyUpdateTimer = setInterval(
+      () => void get().tickClawctlDailyUpdate(),
+      CLAWCTL_DAILY_UPDATE_POLL_MS,
+    );
+  },
+
+  tickClawctlDailyUpdate: async () => {
+    if (!get().clawctlAvailable) return;
+    if (get().clawctlUpdating) return;
+    const state = await loadJson<ClawctlUpdateState>(CLAWCTL_UPDATE_STATE_FILE, {});
+    const lastAutoCheckAt = Number(state.lastAutoCheckAt ?? 0);
+    if (lastAutoCheckAt > 0 && now() - lastAutoCheckAt < CLAWCTL_DAILY_UPDATE_MS) return;
+    await saveJson(CLAWCTL_UPDATE_STATE_FILE, { lastAutoCheckAt: now() });
+    await get().checkClawctlUpdate();
   },
 
   tickScheduledRuns: async () => {
@@ -565,6 +666,10 @@ export const useStore = create<State>((set, get) => ({
       );
       set({ scheduledRuns: runs });
       persistSchedules(runs);
+      trackEvent("scheduled_run_fired", {
+        agent: run.agent,
+        has_conversation: !!run.conversationId,
+      });
       const prev = get().agentId;
       get().switchAgent(run.agent);
       if (!get().agentReady()) await get().authorizeAgent();
@@ -687,6 +792,11 @@ export const useStore = create<State>((set, get) => ({
       },
     }));
     get().setMessageStatus(item.conversationId, item.replyId, "streaming");
+    trackEvent("agent_turn_started", {
+      agent: agentId,
+      has_profile: !!get().selectedProfile,
+      queue_depth: get().runtime[agentId]?.queue.length ?? 0,
+    });
     get().startSessionPoll();
 
     const prompt = composePrompt(
@@ -695,6 +805,7 @@ export const useStore = create<State>((set, get) => ({
       item.replyId,
       item.rawText,
       get().selectedProfile,
+      { clawctlAvailable: get().clawctlAvailable },
     );
     const a = agentById(agentId);
     const { args, stdin } = agentInvocation(a, prompt);
@@ -706,6 +817,7 @@ export const useStore = create<State>((set, get) => ({
       const last = msg.lastActivityAt ?? msg.runStartedAt ?? msg.createdAt;
       const stalled = now() - last >= STALL_MS;
       if (msg.stalled !== stalled) {
+        if (stalled) trackEvent("agent_turn_stalled", { agent: agentId });
         set((s) => {
           const conversations = s.conversations.map((c) => ({
             ...c,
@@ -738,6 +850,7 @@ export const useStore = create<State>((set, get) => ({
       completionResolvers.delete(item.replyId);
       get().appendToMessage(item.conversationId, item.replyId, `\n[error] ${e}`);
       get().setMessageStatus(item.conversationId, item.replyId, "failed");
+      trackEvent("agent_turn_spawn_failed", { agent: agentId });
       set((s) => ({
         runtime: {
           ...s.runtime,
@@ -863,23 +976,32 @@ export const useStore = create<State>((set, get) => ({
   },
 
   login: async (key) => {
+    const startedAt = performance.now();
+    trackEvent("dashboard_key_save_started");
     set({ loginError: undefined, isLoggingIn: true });
     try {
       await clawctlRun(["config", "set", "--api-key", key.trim()]);
+      await refreshAnalyticsIdentity().catch(() => {
+        trackEvent("analytics_identity_unavailable", { phase: "login" });
+      });
       await get().loadProxy();
-      set({ authed: true });
+      set({ authed: true, clawctlAvailable: true });
       get().startTimers();
       await get().refreshAll();
       await get().authorizeAgent();
       if (!localStorage.getItem("onboardingComplete")) set({ showOnboarding: true });
+      trackTiming("dashboard_key_save_succeeded", startedAt);
     } catch (e) {
       set({ loginError: String(e) });
+      trackTiming("dashboard_key_save_failed", startedAt);
     } finally {
       set({ isLoggingIn: false });
     }
   },
 
   logout: () => {
+    trackEvent("dashboard_logout");
+    setAnalyticsUserId(undefined);
     if (proxyTimer) clearInterval(proxyTimer);
     if (scheduleTimer) clearInterval(scheduleTimer);
     if (sessionPollTimer) clearInterval(sessionPollTimer);
@@ -899,6 +1021,8 @@ export const useStore = create<State>((set, get) => ({
   },
 
   refreshAll: async () => {
+    const startedAt = performance.now();
+    trackEvent("refresh_all_started");
     set({ isRefreshing: true });
     try {
       await get().loadProxy().catch(() => {});
@@ -907,25 +1031,37 @@ export const useStore = create<State>((set, get) => ({
       await get().loadSkillCatalog();
     } finally {
       set({ isRefreshing: false });
+      trackTiming("refresh_all_completed", startedAt, {
+        profile_count: get().profiles.length,
+        has_proxy: !!get().proxy,
+      });
     }
   },
 
   refreshProxyData: async () => {
+    const startedAt = performance.now();
+    trackEvent("proxy_refresh_started");
     set({ isRefreshing: true });
     try {
       await get().loadProxy();
+      trackTiming("proxy_refresh_succeeded", startedAt, { proxy_state: get().proxy?.state ?? "unknown" });
+    } catch {
+      trackTiming("proxy_refresh_failed", startedAt);
     } finally {
       set({ isRefreshing: false });
     }
   },
 
   refreshSessions: async () => {
+    const startedAt = performance.now();
+    trackEvent("sessions_refresh_started");
     set({ isRefreshing: true });
     try {
       await get().loadProfiles();
       await get().loadDefaultSession();
     } finally {
       set({ isRefreshing: false });
+      trackTiming("sessions_refresh_completed", startedAt, { profile_count: get().profiles.length });
     }
   },
 
@@ -965,12 +1101,23 @@ export const useStore = create<State>((set, get) => ({
     if (history.length > 96) history.splice(0, history.length - 96);
     void saveJson("usage-history.json", serializeUsage(history));
     set({ proxy: p, proxyWarning, usageHistory: history });
+    trackEvent("proxy_loaded", {
+      proxy_state: p.state,
+      limited: p.limited,
+      percent_used_bucket: p.percent_used == null ? "unknown" : Math.min(100, Math.floor(p.percent_used / 10) * 10),
+      has_limit: p.limit_bytes != null,
+      warning: proxyWarning != null,
+    });
   },
 
   loadProfiles: async () => {
     try {
       const list = await clawctlJson<{ profiles: Profile[] }>(["profiles", "ls"]);
       set({ profiles: list.profiles });
+      trackEvent("profiles_loaded", {
+        profile_count: list.profiles.length,
+        country_count: new Set(list.profiles.map((p) => p.country).filter(Boolean)).size,
+      });
       for (const p of list.profiles) {
         try {
           const st = await clawctlJson<SessionStatus>(["status", "--profile", p.name]);
@@ -988,8 +1135,10 @@ export const useStore = create<State>((set, get) => ({
     try {
       const st = await clawctlJson<SessionStatus>(["status"]);
       set({ defaultSession: st });
+      trackEvent("default_session_loaded", { session_status: st.status, backend: st.backend ?? "unknown" });
     } catch {
       set({ defaultSession: undefined });
+      trackEvent("default_session_unavailable");
     }
   },
 
@@ -1011,53 +1160,81 @@ export const useStore = create<State>((set, get) => ({
             })),
         })),
       });
+      trackEvent("skill_catalog_loaded", {
+        category_count: catalog.categories.length,
+        skill_count: catalog.categories.reduce((total, category) => total + category.skills.length, 0),
+      });
     } catch {
       set({ skillCategories: [] });
+      trackEvent("skill_catalog_failed");
     }
   },
 
   startDefaultSession: async () => {
+    const startedAt = performance.now();
+    trackEvent("session_start_requested", { scope: "default" });
     await clawctlRun(["start", "--format", "json"]);
     await get().loadDefaultSession();
+    trackTiming("session_start_completed", startedAt, { scope: "default", session_status: get().defaultSession?.status ?? "unknown" });
   },
 
   stopDefaultSession: async () => {
+    const startedAt = performance.now();
+    trackEvent("session_stop_requested", { scope: "default" });
     await clawctlRun(["stop", "--format", "json"]);
     await get().loadDefaultSession();
+    trackTiming("session_stop_completed", startedAt, { scope: "default", session_status: get().defaultSession?.status ?? "unknown" });
   },
 
   rotateDefaultSession: async () => {
+    const startedAt = performance.now();
+    trackEvent("session_rotate_requested", { scope: "default" });
     await clawctlRun(["rotate", "--format", "json"]);
     await get().loadDefaultSession();
     await get().loadProxy().catch(() => {});
+    trackTiming("session_rotate_completed", startedAt, { scope: "default" });
   },
 
   rotateDefaultSessionCountry: async (country) => {
+    const startedAt = performance.now();
+    trackEvent("session_rotate_requested", { scope: "default", country });
     await clawctlRun(["rotate", "--country", country, "--verify", "--format", "json"]);
     await get().loadDefaultSession();
     await get().loadProxy().catch(() => {});
+    trackTiming("session_rotate_completed", startedAt, { scope: "default", country });
   },
 
   startProfile: async (n) => {
+    const startedAt = performance.now();
+    trackEvent("profile_start_requested");
     set((s) => ({ statuses: { ...s.statuses, [n]: "starting" } }));
     await clawctlRun(["start", "--profile", n, "--format", "json"]);
     await get().loadProfiles();
+    trackTiming("profile_start_completed", startedAt, { status: get().statuses[n] ?? "unknown" });
   },
 
   stopProfile: async (n) => {
+    const startedAt = performance.now();
+    trackEvent("profile_stop_requested");
     set((s) => ({ statuses: { ...s.statuses, [n]: "stopping" } }));
     await clawctlRun(["stop", "--profile", n, "--format", "json"]);
     await get().loadProfiles();
+    trackTiming("profile_stop_completed", startedAt, { status: get().statuses[n] ?? "unknown" });
   },
 
   rotateProfile: async (n) => {
+    const startedAt = performance.now();
+    trackEvent("profile_rotate_requested");
     set((s) => ({ statuses: { ...s.statuses, [n]: "rotating" } }));
     await clawctlRun(["rotate", "--profile", n, "--format", "json"]);
     await get().loadProfiles();
     await get().loadProxy().catch(() => {});
+    trackTiming("profile_rotate_completed", startedAt, { status: get().statuses[n] ?? "unknown" });
   },
 
   rotateProfileCountry: async (n, country) => {
+    const startedAt = performance.now();
+    trackEvent("profile_rotate_requested", { country });
     set((s) => ({ statuses: { ...s.statuses, [n]: "rotating" } }));
     await clawctlRun([
       "rotate",
@@ -1071,9 +1248,12 @@ export const useStore = create<State>((set, get) => ({
     ]);
     await get().loadProfiles();
     await get().loadProxy().catch(() => {});
+    trackTiming("profile_rotate_completed", startedAt, { country, status: get().statuses[n] ?? "unknown" });
   },
 
   deleteProfile: async (n) => {
+    const startedAt = performance.now();
+    trackEvent("profile_delete_requested", { was_running: get().statuses[n] === "running" });
     if (get().statuses[n] === "running") {
       await clawctlRun(["stop", "--profile", n, "--format", "json"]);
     }
@@ -1085,12 +1265,17 @@ export const useStore = create<State>((set, get) => ({
       return { statuses };
     });
     await get().loadProfiles();
+    trackTiming("profile_delete_completed", startedAt);
   },
 
-  selectProfile: (n) => set({ selectedProfile: n }),
+  selectProfile: (n) => {
+    trackEvent("profile_selected", { selected: !!n });
+    set({ selectedProfile: n });
+  },
 
   switchAgent: (id) => {
     if (id === get().agentId) return;
+    trackEvent("agent_switched", { from_agent: get().agentId, to_agent: id });
     localStorage.setItem("lastAgent", id);
     set({ agentId: id });
     get().ensureConversation(id);
@@ -1110,6 +1295,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   authorizeAgent: async () => {
+    const startedAt = performance.now();
     const agentId = get().agentId;
     const rt = get().runtime[agentId];
     if (rt?.ready || rt?.authorizing) return;
@@ -1120,6 +1306,7 @@ export const useStore = create<State>((set, get) => ({
       },
     }));
     const a = agentById(agentId);
+    trackEvent("agent_connect_started", { agent: agentId });
     try {
       const version = await invoke<string>("agent_authorize", {
         binary: a.binary,
@@ -1145,17 +1332,32 @@ export const useStore = create<State>((set, get) => ({
       }));
       get().ensureConversation(agentId);
       get().announceConnect(agentId, version, loggedIn);
+      trackTiming("agent_connect_succeeded", startedAt, {
+        agent: agentId,
+        logged_in: loggedIn === true,
+        clawctl_available: get().clawctlAvailable,
+      });
       get().reconcileQueues();
       get().startConsumer(agentId);
+      const adapter = clawctlAgentAdapter(agentId);
+      if (!get().clawctlAvailable) {
+        const conv = get().activeConversation();
+        const alreadyQueued = conv?.messages.some((message) =>
+          message.text.includes("NextBrowser cannot find local clawctl/Clawbrowser components"),
+        );
+        if (!alreadyQueued) get().enqueue(clawbrowserInstallPrompt(adapter));
+        trackEvent("install_prompt_sent", { agent: agentId, adapter });
+        return;
+      }
       // Installation is idempotent. Keep connection fast and refresh the
       // agent's bundled clawctl skill/integration in the background.
-      const adapter = clawctlAgentAdapter(agentId);
       void clawctlRun(["install", "--agent", adapter, "--no-api-key-prompt"]).then((result) => {
         if (result.code !== 0) {
           console.warn(`Could not install clawctl skill for ${adapter}: ${clawctlErrorMessage(result)}`);
         }
       }).catch((error) => console.warn(`Could not install clawctl skill for ${adapter}:`, error));
     } catch (e) {
+      trackTiming("agent_connect_failed", startedAt, { agent: agentId });
       set((s) => ({
         runtime: {
           ...s.runtime,
@@ -1204,6 +1406,7 @@ export const useStore = create<State>((set, get) => ({
   loginAgent: async () => {
     const agentId = get().agentId;
     const a = agentById(agentId);
+    trackEvent("agent_login_started", { agent: agentId });
     try {
       await invoke("open_terminal_login", {
         binary: a.binary,
@@ -1241,10 +1444,13 @@ export const useStore = create<State>((set, get) => ({
               [agentId]: { ...s.runtime[agentId], loggedIn: true },
             },
           }));
+          trackEvent("agent_login_succeeded", { agent: agentId });
           return;
         }
       }
+      trackEvent("agent_login_timeout", { agent: agentId });
     } catch (e) {
+      trackEvent("agent_login_failed", { agent: agentId });
       set((s) => ({
         runtime: {
           ...s.runtime,
@@ -1263,6 +1469,7 @@ export const useStore = create<State>((set, get) => ({
     const agentId = get().agentId;
     const a = agentById(agentId);
     if (!a.logoutArgs.length) return;
+    trackEvent("agent_logout_started", { agent: agentId });
     try {
       await invoke("open_terminal_login", {
         binary: a.binary,
@@ -1297,10 +1504,13 @@ export const useStore = create<State>((set, get) => ({
           set((s) => ({
             runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], loggedIn } },
           }));
+          trackEvent("agent_logout_succeeded", { agent: agentId, login_state: loggedIn === false ? "logged_out" : "unknown" });
           return;
         }
       }
+      trackEvent("agent_logout_timeout", { agent: agentId });
     } catch (e) {
+      trackEvent("agent_logout_failed", { agent: agentId });
       set((s) => ({
         runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], error: String(e) } },
       }));
@@ -1324,7 +1534,10 @@ export const useStore = create<State>((set, get) => ({
     }));
   },
 
-  setTab: (t) => set({ tab: t }),
+  setTab: (t) => {
+    trackEvent("tab_opened", { tab: t });
+    set({ tab: t });
+  },
   setAppActive: (v) => set({ appActive: v }),
   setProfileSearch: (q) => set({ profileSearch: q }),
   setSidebarWidth: (w) => {
@@ -1335,6 +1548,10 @@ export const useStore = create<State>((set, get) => ({
     localStorage.setItem("chatListCollapsed", String(v));
     set({ chatListCollapsed: v });
   },
+  setDashboardKeyPromptOpen: (v) => {
+    trackEvent(v ? "dashboard_key_prompt_opened" : "dashboard_key_prompt_closed");
+    set({ dashboardKeyPromptOpen: v, loginError: v ? undefined : get().loginError });
+  },
   finishOnboarding: () => {
     localStorage.setItem("onboardingComplete", "true");
     set({ showOnboarding: false });
@@ -1342,6 +1559,8 @@ export const useStore = create<State>((set, get) => ({
   showOnboardingAgain: () => set({ showOnboarding: true }),
 
   checkClawctlUpdate: async () => {
+    const startedAt = performance.now();
+    trackEvent("clawctl_update_started");
     set({ clawctlUpdating: true, clawctlUpdateStatus: undefined });
     try {
       const res = await clawctlRun(["update"]);
@@ -1354,17 +1573,22 @@ export const useStore = create<State>((set, get) => ({
             ? `updated → ${normalizeClawctlVersion(to)}`
             : "updated",
         });
+        trackEvent("clawctl_update_available", { updated: true });
       } else if (res.code === 0) {
         // Already current — keep the footer on one line; show nothing.
         set({ clawctlUpdateStatus: undefined });
+        trackEvent("clawctl_update_not_available");
       } else {
         set({ clawctlUpdateStatus: "update failed" });
+        trackEvent("clawctl_update_failed", { exit_code: res.code });
       }
       const ver = await invoke<string>("clawctl_version");
       const supportsSkill = await invoke<boolean>("clawctl_supports_skill");
-      set({ clawctlVersion: normalizeClawctlVersion(ver), clawctlSupportsSkill: supportsSkill });
+      set({ clawctlVersion: normalizeClawctlVersion(ver), clawctlSupportsSkill: supportsSkill, clawctlAvailable: true });
+      trackTiming("clawctl_update_completed", startedAt, { supports_skill: supportsSkill });
     } catch {
-      set({ clawctlUpdateStatus: "update failed" });
+      set({ clawctlUpdateStatus: "update failed", clawctlAvailable: false });
+      trackTiming("clawctl_update_failed", startedAt);
     } finally {
       set({ clawctlUpdating: false });
     }
@@ -1387,6 +1611,7 @@ export const useStore = create<State>((set, get) => ({
       conversations,
       activeConvId: { ...get().activeConvId, [agentId]: c.id },
     });
+    trackEvent("chat_created", { agent: agentId, conversation_count: conversations.length });
     return c.id;
   },
 
@@ -1409,11 +1634,13 @@ export const useStore = create<State>((set, get) => ({
       conversations,
       activeConvId: { ...get().activeConvId, [agentId]: get().activeConvId[agentId] ?? c.id },
     });
+    trackEvent("chat_created", { agent: agentId, named: true, conversation_count: conversations.length });
     return c.id;
   },
 
   selectConversation: (id) => {
     const agentId = get().agentId;
+    trackEvent("chat_selected", { agent: agentId });
     set({ activeConvId: { ...get().activeConvId, [agentId]: id } });
   },
 
@@ -1425,6 +1652,7 @@ export const useStore = create<State>((set, get) => ({
         c.id === id ? { ...c, title: t } : c,
       );
       persistConvs(conversations);
+      trackEvent("chat_renamed", { agent: get().agentId });
       return { conversations };
     });
   },
@@ -1440,6 +1668,7 @@ export const useStore = create<State>((set, get) => ({
     }
     persistConvs(conversations);
     set({ conversations, activeConvId });
+    trackEvent("chat_deleted", { agent: agentId, conversation_count: conversations.length });
   },
 
   forkConversation: (atMessageId) => {
@@ -1466,6 +1695,7 @@ export const useStore = create<State>((set, get) => ({
       conversations,
       activeConvId: { ...get().activeConvId, [conv.agent]: fork.id },
     });
+    trackEvent("chat_forked", { agent: conv.agent, message_count: messages.length, partial: !!atMessageId });
   },
 
   clearChat: () => {
@@ -1477,6 +1707,7 @@ export const useStore = create<State>((set, get) => ({
         c.id === cid ? { ...c, messages: [], updatedAt: now() } : c,
       );
       persistConvs(conversations);
+      trackEvent("chat_cleared", { agent: get().agentId });
       return { conversations };
     });
   },
@@ -1508,6 +1739,13 @@ export const useStore = create<State>((set, get) => ({
       status: "queued",
       createdAt: now(),
     };
+    trackEvent("chat_message_queued", {
+      agent: agentId,
+      has_chip: !!chip,
+      chip_kind: chip?.kind ?? "none",
+      attachment_count: attachments.length,
+      prompt_length_bucket: Math.min(5000, Math.ceil(prompt.length / 250) * 250),
+    });
     set((s) => {
       const conversations = s.conversations.map((c) =>
         c.id === cid
@@ -1538,6 +1776,7 @@ export const useStore = create<State>((set, get) => ({
     const agentId = get().agentId;
     const replyId = get().runtime[agentId]?.runningReplyId;
     if (!replyId) return;
+    trackEvent("agent_turn_stop_requested", { agent: agentId });
     set((s) => ({
       runtime: {
         ...s.runtime,
@@ -1562,6 +1801,7 @@ export const useStore = create<State>((set, get) => ({
   cancelQueuedReply: (replyId) => {
     if (!get().canManageQueuedReply(replyId)) return false;
     const agentId = get().agentId;
+    trackEvent("queued_reply_cancelled", { agent: agentId });
     set((s) => {
       const runtime = {
         ...s.runtime,
@@ -1588,6 +1828,7 @@ export const useStore = create<State>((set, get) => ({
     const text = newText.trim();
     if (!text || !get().canManageQueuedReply(replyId)) return false;
     const agentId = get().agentId;
+    trackEvent("queued_reply_edited", { agent: agentId });
     set((s) => {
       const runtime = {
         ...s.runtime,
@@ -1619,16 +1860,22 @@ export const useStore = create<State>((set, get) => ({
   },
 
   tryGuidePrompt: async (text, tab = "chat") => {
+    trackEvent("guide_prompt_used", { tab });
     set({ tab });
     if (!get().agentReady()) await get().authorizeAgent();
     if (get().agentReady()) get().enqueue(text);
   },
 
   applySkill: async (entry) => {
-    const targets = [
-      { id: "claude", adapter: "claude-code" },
-      { id: "codex", adapter: "codex" },
-    ];
+    const startedAt = performance.now();
+    trackEvent("skill_apply_started", {
+      category: entry.category,
+      selector_kind: entry.selector.kind,
+    });
+    const targets = AGENTS.map((agent) => ({
+      id: agent.id,
+      adapter: clawctlAgentAdapter(agent.id),
+    }));
     set((s) => {
       const skillState = { ...s.skillState };
       for (const target of targets) skillState[skillKey(target.id, entry.id)] = "applying";
@@ -1639,6 +1886,10 @@ export const useStore = create<State>((set, get) => ({
         const skillState = { ...s.skillState };
         for (const target of targets) skillState[skillKey(target.id, entry.id)] = "failed";
         return { skillState };
+      });
+      trackTiming("skill_apply_failed", startedAt, {
+        category: entry.category,
+        reason: "unsupported_clawctl",
       });
       return undefined;
     }
@@ -1671,13 +1922,26 @@ export const useStore = create<State>((set, get) => ({
       }
     }
     if (!activeRef && !anyRef && failures.length) {
+      trackTiming("skill_apply_failed", startedAt, {
+        category: entry.category,
+        selector_kind: entry.selector.kind,
+      });
       throw new Error(`Skill installation failed. ${failures.join(" · ")}`);
     }
+    trackTiming("skill_apply_completed", startedAt, {
+      category: entry.category,
+      selector_kind: entry.selector.kind,
+      installed: !!(activeRef ?? anyRef),
+    });
     return activeRef ?? anyRef;
   },
 
   useSkillInChat: async (entry) => {
     if (!get().agentReady()) return;
+    trackEvent("skill_used_in_chat", {
+      category: entry.category,
+      selector_kind: entry.selector.kind,
+    });
     set({ tab: "chat" });
     const target =
       entry.selector.kind === "domain" ? entry.selector.value : entry.selector.value;
@@ -1710,6 +1974,11 @@ export const useStore = create<State>((set, get) => ({
 
   runScript: async (entry, host = "") => {
     const onHost = host.trim();
+    trackEvent("script_run_started", {
+      script_type: entry.js ? "local_eval" : "agent_skill",
+      has_host: !!onHost,
+      category: entry.category,
+    });
     if (entry.js) {
       set({ tab: "chat" });
       const cid = get().activeConversation()?.id ?? get().newChat();
@@ -1754,8 +2023,10 @@ export const useStore = create<State>((set, get) => ({
           get().appendStep(cid, stepId, "Done");
           const on = prep.host ?? get().currentSessionDisplayName();
           result = `✓ Ran "${entry.title}" on ${on}.`;
+          trackEvent("script_run_completed", { script_type: "local_eval", has_host: !!onHost });
         } else {
           result = `Couldn't run "${entry.title}": ${clawctlErrorMessage(res)}`;
+          trackEvent("script_run_failed", { script_type: "local_eval", exit_code: res.code });
         }
         const resultMsg: ChatMessage = {
           id: uid(),
@@ -1772,6 +2043,7 @@ export const useStore = create<State>((set, get) => ({
           return { conversations };
         });
       } catch (e) {
+        trackEvent("script_run_failed", { script_type: "local_eval" });
         const errMsg: ChatMessage = {
           id: uid(),
           role: "system",
@@ -1824,6 +2096,7 @@ export const useStore = create<State>((set, get) => ({
       },
       cid,
     );
+    trackEvent("script_run_queued", { script_type: "agent_skill", has_host: !!onHost });
     await get().loadDefaultSession();
   },
 
@@ -1842,6 +2115,12 @@ export const useStore = create<State>((set, get) => ({
     const scheduledRuns = [...get().scheduledRuns, run];
     persistSchedules(scheduledRuns);
     set({ scheduledRuns });
+    trackEvent("scheduled_run_created", {
+      agent: run.agent,
+      weekday_count: run.weekdays.length,
+      has_conversation: !!run.conversationId,
+      scheduled_count: scheduledRuns.length,
+    });
   },
 
   updateScheduledRun: (id, patch) => {
@@ -1850,12 +2129,18 @@ export const useStore = create<State>((set, get) => ({
     );
     persistSchedules(scheduledRuns);
     set({ scheduledRuns });
+    trackEvent("scheduled_run_updated", {
+      enabled_changed: patch.enabled != null,
+      time_changed: patch.hour != null || patch.minute != null,
+      weekday_changed: patch.weekdays != null,
+    });
   },
 
   deleteScheduledRun: (id) => {
     const scheduledRuns = get().scheduledRuns.filter((r) => r.id !== id);
     persistSchedules(scheduledRuns);
     set({ scheduledRuns });
+    trackEvent("scheduled_run_deleted", { scheduled_count: scheduledRuns.length });
   },
 
   setScheduledRunEnabled: (id, enabled) => {
@@ -1864,6 +2149,7 @@ export const useStore = create<State>((set, get) => ({
     );
     persistSchedules(scheduledRuns);
     set({ scheduledRuns });
+    trackEvent("scheduled_run_toggled", { enabled });
   },
 
   scheduledRunChatTitle: (run) => {
@@ -1873,6 +2159,11 @@ export const useStore = create<State>((set, get) => ({
 
   saveCustomScript: async (script) => {
     const existing = get().customScripts.find((s) => s.id === script.id);
+    const startedAt = performance.now();
+    trackEvent("custom_script_save_started", {
+      existing: !!existing,
+      has_domain: !!script.domain.trim(),
+    });
     const updated: CustomScript = {
       ...script,
       updatedAt: now(),
@@ -1919,10 +2210,18 @@ export const useStore = create<State>((set, get) => ({
         customScripts: final,
         scriptSync: { ...get().scriptSync, [script.id]: "synced" },
       });
+      trackTiming("custom_script_save_completed", startedAt, {
+        existing: !!existing,
+        has_domain: !!script.domain.trim(),
+      });
     } catch {
       set((s) => ({
         scriptSync: { ...s.scriptSync, [script.id]: "failed" },
       }));
+      trackTiming("custom_script_save_failed", startedAt, {
+        existing: !!existing,
+        has_domain: !!script.domain.trim(),
+      });
     } finally {
       if (tempPath) void invoke("remove_temp_file", { path: tempPath });
     }
