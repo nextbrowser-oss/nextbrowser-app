@@ -23,7 +23,24 @@ function executableNames(name) {
 function searchDirs() {
   const h = home();
   const dirs = process.platform === "win32"
-    ? [".local/bin", ".cargo/bin", ".bun/bin", ".volta/bin", ".openclaw/bin", "scoop/shims"].map((p) => path.join(h, p))
+    ? [
+        ".local/bin",
+        ".cargo/bin",
+        ".bun/bin",
+        ".volta/bin",
+        ".openclaw/bin",
+        ".codex",
+        ".codex/bin",
+        ".codex/local",
+        ".codex/local/bin",
+        ".codex/local/node_modules/.bin",
+        ".claude",
+        ".claude/bin",
+        ".claude/local",
+        ".claude/local/bin",
+        ".claude/local/node_modules/.bin",
+        "scoop/shims",
+      ].map((p) => path.join(h, p))
     : [".local/bin", ".openclaw/bin", ".npm-global/bin", ".bun/bin", "Library/pnpm", ".local/share/pnpm", ".yarn/bin", ".volta/bin", ".cargo/bin", "go/bin", ".asdf/shims", ".local/share/mise/shims", ".nodenv/shims"].map((p) => path.join(h, p)).concat(["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]);
   if (process.env.APPDATA) dirs.push(path.join(process.env.APPDATA, "npm"));
   if (process.env.LOCALAPPDATA) dirs.push(path.join(process.env.LOCALAPPDATA, "pnpm"), path.join(process.env.LOCALAPPDATA, "Microsoft", "WinGet", "Links"));
@@ -40,10 +57,43 @@ function expand(raw) {
   if (raw.startsWith("~/") || raw.startsWith("~\\")) return path.join(home(), raw.slice(2));
   return raw;
 }
+function findBinaryUnderRoots(name, roots) {
+  const names = new Set(executableNames(name).map((candidate) => candidate.toLowerCase()));
+  const queue = roots.filter((root) => fsSync.existsSync(root)).map((root) => ({ dir: root, depth: 0 }));
+  const seen = new Set();
+  let visited = 0;
+  while (queue.length && visited < 500) {
+    const { dir, depth } = queue.shift();
+    const key = dir.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    visited += 1;
+    for (const candidate of executableNames(name)) {
+      const file = path.join(dir, candidate);
+      if (launchable(file)) return file;
+    }
+    if (depth >= 5) continue;
+    let entries = [];
+    try { entries = fsSync.readdirSync(dir, { withFileTypes: true }); }
+    catch { continue; }
+    for (const entry of entries) {
+      if (entry.isFile() && names.has(entry.name.toLowerCase())) {
+        const file = path.join(dir, entry.name);
+        if (launchable(file)) return file;
+      }
+      if (entry.isDirectory()) queue.push({ dir: path.join(dir, entry.name), depth: depth + 1 });
+    }
+  }
+  return null;
+}
 function resolveBinary(name, envVar) {
   if (envVar && process.env[envVar] && launchable(expand(process.env[envVar]))) return expand(process.env[envVar]);
   for (const dir of searchDirs()) for (const candidate of executableNames(name)) {
     const file = path.join(dir, candidate); if (launchable(file)) return file;
+  }
+  if (process.platform === "win32" && ["codex", "claude"].includes(name)) {
+    const found = findBinaryUnderRoots(name, [path.join(home(), ".codex"), path.join(home(), ".claude")]);
+    if (found) return found;
   }
   if (process.platform === "darwin" && name === "codex") {
     for (const file of ["/Applications/Codex.app/Contents/Resources/codex", path.join(home(), "Applications/Codex.app/Contents/Resources/codex")]) if (launchable(file)) return file;

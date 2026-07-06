@@ -84,12 +84,33 @@ function buildIcns(source1024) {
 function buildIco(source1024) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nextbrowser-ico-"));
   try {
-    const sizes = ICO_SIZES.map((size) => {
+    const images = ICO_SIZES.map((size) => {
       const file = path.join(tmpDir, `icon-${size}.png`);
       resizePng(source1024, size, file);
-      return file;
+      return { size, data: fs.readFileSync(file) };
     });
-    const ico = execFileSync("npx", ["--yes", "png-to-ico", ...sizes], { encoding: "buffer" });
+    const headerSize = 6;
+    const entrySize = 16;
+    const imageOffset = headerSize + entrySize * images.length;
+    const totalSize = imageOffset + images.reduce((sum, image) => sum + image.data.length, 0);
+    const ico = Buffer.alloc(totalSize);
+    ico.writeUInt16LE(0, 0);
+    ico.writeUInt16LE(1, 2);
+    ico.writeUInt16LE(images.length, 4);
+    let offset = imageOffset;
+    images.forEach((image, index) => {
+      const entry = headerSize + index * entrySize;
+      ico.writeUInt8(image.size === 256 ? 0 : image.size, entry);
+      ico.writeUInt8(image.size === 256 ? 0 : image.size, entry + 1);
+      ico.writeUInt8(0, entry + 2);
+      ico.writeUInt8(0, entry + 3);
+      ico.writeUInt16LE(1, entry + 4);
+      ico.writeUInt16LE(32, entry + 6);
+      ico.writeUInt32LE(image.data.length, entry + 8);
+      ico.writeUInt32LE(offset, entry + 12);
+      image.data.copy(ico, offset);
+      offset += image.data.length;
+    });
     fs.writeFileSync(iconIco, ico);
     console.log(`Wrote ${path.relative(root, iconIco)}`);
   } finally {
