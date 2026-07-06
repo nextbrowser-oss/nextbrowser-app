@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useStore } from "../store";
-import { brandName } from "../constants";
+import { brandName, dashboardUrl } from "../constants";
 import { BrandLogo } from "./BrandLogo";
 import { Spinner } from "./Icon";
 
@@ -9,6 +9,7 @@ export function Login() {
   const error = useStore((s) => s.loginError);
   const loading = useStore((s) => s.isLoggingIn);
   const [key, setKey] = useState("");
+  const canSubmit = !!key.trim() && !loading;
 
   return (
     <div className="login">
@@ -24,22 +25,24 @@ export function Login() {
           placeholder="nextbrowser API key"
           value={key}
           onChange={(e) => setKey(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && login(key)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && canSubmit) void login(key);
+          }}
         />
         {error && <div className="error small login-error">{error}</div>}
       </div>
 
       <button
         className="btn-bordered-prominent login-submit"
-        disabled={loading}
-        onClick={() => login(key)}
+        disabled={!canSubmit}
+        onClick={() => void login(key)}
       >
         {loading ? <Spinner size={16} /> : "Sign in"}
       </button>
 
       <a
         className="login-link"
-        href="https://app.nextbrowser.com/dashboard"
+        href={dashboardUrl}
         target="_blank"
         rel="noreferrer"
       >

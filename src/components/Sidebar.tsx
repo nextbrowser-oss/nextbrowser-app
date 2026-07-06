@@ -5,6 +5,7 @@ import { BrandHeader } from "./BrandLogo";
 import { ScheduledRunsPanel } from "./ScheduledRunsPanel";
 import { Icon, Spinner } from "./Icon";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
+import { trackEvent } from "../lib/analytics";
 import { humanBytes, proxyFraction } from "../types";
 
 export function Sidebar() {
@@ -86,7 +87,26 @@ export function Sidebar() {
                 </div>
               )}
               {s.proxy.dashboard_url && (
-                <a className="link small" href={s.proxy.dashboard_url} target="_blank" rel="noreferrer">
+                <a
+                  className="link small"
+                  href={s.proxy.dashboard_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => {
+                    const params = {
+                      proxy_state: s.proxy?.state ?? "unknown",
+                      limited: s.proxy?.limited ?? false,
+                      percent_used_bucket:
+                        s.proxy?.percent_used == null
+                          ? "unknown"
+                          : Math.min(100, Math.floor(s.proxy.percent_used / 10) * 10),
+                    };
+                    trackEvent("proxy_top_up_requested", params);
+                    trackEvent("proxy_top_up_clicked", {
+                      ...params,
+                    });
+                  }}
+                >
                   Top up in dashboard →
                 </a>
               )}

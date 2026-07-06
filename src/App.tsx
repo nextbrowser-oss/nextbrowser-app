@@ -9,7 +9,7 @@ import { OnboardingView } from "./components/OnboardingView";
 import { DashboardKeyModal } from "./components/DashboardKeyModal";
 import { BrandLogo } from "./components/BrandLogo";
 import { Icon, Spinner } from "./components/Icon";
-import { brandName } from "./constants";
+import { brandName, dashboardUrl } from "./constants";
 import { getPreviewMode, getPreviewTab } from "./preview";
 import type { AppTab, Conversation } from "./types";
 import { resolveTheme, type Theme } from "./theme";
@@ -128,7 +128,7 @@ export function App() {
           limit_bytes: 5_000_000_000,
           percent_used: 24,
           state: "active",
-          dashboard_url: "https://app.nextbrowser.com/dashboard",
+          dashboard_url: dashboardUrl,
         },
         showOnboarding: false,
         ...(tabParam && PREVIEW_TABS.has(tabParam) ? { tab: tabParam as AppTab } : {}),
