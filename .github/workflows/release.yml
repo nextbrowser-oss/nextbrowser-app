@@ -27,14 +27,20 @@ jobs:
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          files: release/*.dmg
+          files: |
+            release/*.dmg
+            release/*.dmg.blockmap
+            release/latest-mac.yml
           fail_on_unmatched_files: true
           generate_release_notes: true
       - uses: actions/upload-artifact@v5
         if: github.event_name == 'workflow_dispatch'
         with:
           name: NextBrowser-macOS
-          path: release/*.dmg
+          path: |
+            release/*.dmg
+            release/*.dmg.blockmap
+            release/latest-mac.yml
 
   windows:
     runs-on: windows-latest
@@ -54,10 +60,16 @@ jobs:
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          files: release/*.exe
+          files: |
+            release/*.exe
+            release/*.exe.blockmap
+            release/latest.yml
           fail_on_unmatched_files: true
       - uses: actions/upload-artifact@v5
         if: github.event_name == 'workflow_dispatch'
         with:
           name: NextBrowser-Windows
-          path: release/*.exe
+          path: |
+            release/*.exe
+            release/*.exe.blockmap
+            release/latest.yml
