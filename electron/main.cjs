@@ -17,7 +17,7 @@ let appUpdateTimer = null;
 function home() { return os.homedir(); }
 function executableNames(name) {
   return process.platform === "win32"
-    ? [`${name}.exe`, `${name}.cmd`, `${name}.bat`, `${name}.com`, name]
+    ? [`${name}.exe`, `${name}.cmd`, `${name}.bat`, `${name}.ps1`, `${name}.com`, name]
     : [name];
 }
 function searchDirs() {
