@@ -977,10 +977,16 @@ export const useStore = create<State>((set, get) => ({
 
   login: async (key) => {
     const startedAt = performance.now();
+    const apiKey = key.trim();
     trackEvent("dashboard_key_save_started");
+    if (!apiKey) {
+      set({ loginError: "Enter your dashboard API key before signing in.", isLoggingIn: false });
+      trackTiming("dashboard_key_save_failed", startedAt, { reason: "empty_key" });
+      return;
+    }
     set({ loginError: undefined, isLoggingIn: true });
     try {
-      await clawctlRun(["config", "set", "--api-key", key.trim()]);
+      await clawctlRun(["config", "set", "--api-key", apiKey]);
       await refreshAnalyticsIdentity().catch(() => {
         trackEvent("analytics_identity_unavailable", { phase: "login" });
       });
@@ -1172,9 +1178,11 @@ export const useStore = create<State>((set, get) => ({
 
   startDefaultSession: async () => {
     const startedAt = performance.now();
+    trackEvent("session_create_requested", { scope: "default" });
     trackEvent("session_start_requested", { scope: "default" });
     await clawctlRun(["start", "--format", "json"]);
     await get().loadDefaultSession();
+    trackTiming("session_create_completed", startedAt, { scope: "default", session_status: get().defaultSession?.status ?? "unknown" });
     trackTiming("session_start_completed", startedAt, { scope: "default", session_status: get().defaultSession?.status ?? "unknown" });
   },
 
@@ -1188,28 +1196,34 @@ export const useStore = create<State>((set, get) => ({
 
   rotateDefaultSession: async () => {
     const startedAt = performance.now();
+    trackEvent("proxy_ip_change_requested", { scope: "default_session" });
     trackEvent("session_rotate_requested", { scope: "default" });
     await clawctlRun(["rotate", "--format", "json"]);
     await get().loadDefaultSession();
     await get().loadProxy().catch(() => {});
+    trackTiming("proxy_ip_change_completed", startedAt, { scope: "default_session" });
     trackTiming("session_rotate_completed", startedAt, { scope: "default" });
   },
 
   rotateDefaultSessionCountry: async (country) => {
     const startedAt = performance.now();
+    trackEvent("proxy_country_change_requested", { scope: "default_session", country });
     trackEvent("session_rotate_requested", { scope: "default", country });
     await clawctlRun(["rotate", "--country", country, "--verify", "--format", "json"]);
     await get().loadDefaultSession();
     await get().loadProxy().catch(() => {});
+    trackTiming("proxy_country_change_completed", startedAt, { scope: "default_session", country });
     trackTiming("session_rotate_completed", startedAt, { scope: "default", country });
   },
 
   startProfile: async (n) => {
     const startedAt = performance.now();
+    trackEvent("profile_session_create_requested", { scope: "profile" });
     trackEvent("profile_start_requested");
     set((s) => ({ statuses: { ...s.statuses, [n]: "starting" } }));
     await clawctlRun(["start", "--profile", n, "--format", "json"]);
     await get().loadProfiles();
+    trackTiming("profile_session_create_completed", startedAt, { status: get().statuses[n] ?? "unknown" });
     trackTiming("profile_start_completed", startedAt, { status: get().statuses[n] ?? "unknown" });
   },
 
@@ -1224,16 +1238,19 @@ export const useStore = create<State>((set, get) => ({
 
   rotateProfile: async (n) => {
     const startedAt = performance.now();
+    trackEvent("proxy_ip_change_requested", { scope: "profile" });
     trackEvent("profile_rotate_requested");
     set((s) => ({ statuses: { ...s.statuses, [n]: "rotating" } }));
     await clawctlRun(["rotate", "--profile", n, "--format", "json"]);
     await get().loadProfiles();
     await get().loadProxy().catch(() => {});
+    trackTiming("proxy_ip_change_completed", startedAt, { scope: "profile", status: get().statuses[n] ?? "unknown" });
     trackTiming("profile_rotate_completed", startedAt, { status: get().statuses[n] ?? "unknown" });
   },
 
   rotateProfileCountry: async (n, country) => {
     const startedAt = performance.now();
+    trackEvent("proxy_country_change_requested", { scope: "profile", country });
     trackEvent("profile_rotate_requested", { country });
     set((s) => ({ statuses: { ...s.statuses, [n]: "rotating" } }));
     await clawctlRun([
@@ -1248,11 +1265,13 @@ export const useStore = create<State>((set, get) => ({
     ]);
     await get().loadProfiles();
     await get().loadProxy().catch(() => {});
+    trackTiming("proxy_country_change_completed", startedAt, { scope: "profile", country, status: get().statuses[n] ?? "unknown" });
     trackTiming("profile_rotate_completed", startedAt, { country, status: get().statuses[n] ?? "unknown" });
   },
 
   deleteProfile: async (n) => {
     const startedAt = performance.now();
+    trackEvent("profile_session_delete_requested", { was_running: get().statuses[n] === "running" });
     trackEvent("profile_delete_requested", { was_running: get().statuses[n] === "running" });
     if (get().statuses[n] === "running") {
       await clawctlRun(["stop", "--profile", n, "--format", "json"]);
@@ -1265,6 +1284,7 @@ export const useStore = create<State>((set, get) => ({
       return { statuses };
     });
     await get().loadProfiles();
+    trackTiming("profile_session_delete_completed", startedAt);
     trackTiming("profile_delete_completed", startedAt);
   },
 
@@ -1746,6 +1766,13 @@ export const useStore = create<State>((set, get) => ({
       attachment_count: attachments.length,
       prompt_length_bucket: Math.min(5000, Math.ceil(prompt.length / 250) * 250),
     });
+    trackEvent("chat_request_submitted", {
+      agent: agentId,
+      has_chip: !!chip,
+      chip_kind: chip?.kind ?? "none",
+      attachment_count: attachments.length,
+      prompt_length_bucket: Math.min(5000, Math.ceil(prompt.length / 250) * 250),
+    });
     set((s) => {
       const conversations = s.conversations.map((c) =>
         c.id === cid
@@ -1938,6 +1965,10 @@ export const useStore = create<State>((set, get) => ({
 
   useSkillInChat: async (entry) => {
     if (!get().agentReady()) return;
+    trackEvent("skill_usage_requested", {
+      category: entry.category,
+      selector_kind: entry.selector.kind,
+    });
     trackEvent("skill_used_in_chat", {
       category: entry.category,
       selector_kind: entry.selector.kind,
@@ -1974,6 +2005,11 @@ export const useStore = create<State>((set, get) => ({
 
   runScript: async (entry, host = "") => {
     const onHost = host.trim();
+    trackEvent("script_usage_requested", {
+      script_type: entry.js ? "local_eval" : "agent_skill",
+      has_host: !!onHost,
+      category: entry.category,
+    });
     trackEvent("script_run_started", {
       script_type: entry.js ? "local_eval" : "agent_skill",
       has_host: !!onHost,

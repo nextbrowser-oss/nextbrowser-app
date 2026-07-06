@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useStore } from "../store";
 import { Icon, Spinner } from "./Icon";
+import { trackEvent } from "../lib/analytics";
+import { dashboardUrl } from "../constants";
 
 export function DashboardKeyModal() {
   const open = useStore((s) => s.dashboardKeyPromptOpen);
@@ -45,9 +47,10 @@ export function DashboardKeyModal() {
         <div className="row" style={{ marginTop: 12, gap: 8 }}>
           <a
             className="link small"
-            href="https://app.nextbrowser.com/dashboard"
+            href={dashboardUrl}
             target="_blank"
             rel="noreferrer"
+            onClick={() => trackEvent("dashboard_opened", { source: "dashboard_key_modal" })}
           >
             Open dashboard
           </a>
