@@ -28,12 +28,12 @@ npm run dev
 
 ## Analytics
 
-GA4 is enabled by default for the NextBrowser stream (`G-GH09J7KP5R`). Set
+GA4 is enabled by default for the NextBrowser stream (`G-MDQWQ9LRCN`). Set
 `VITE_GA4_MEASUREMENT_ID` only when you need to override the stream for a
 specific build:
 
 ```sh
-VITE_GA4_MEASUREMENT_ID=G-GH09J7KP5R npm run dev
+VITE_GA4_MEASUREMENT_ID=G-MDQWQ9LRCN npm run dev
 ```
 
 In Google Analytics, find this value under **Admin → Property settings → Data

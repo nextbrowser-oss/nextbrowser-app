@@ -7,7 +7,7 @@ declare global {
   }
 }
 
-const DEFAULT_MEASUREMENT_ID = "G-GH09J7KP5R";
+const DEFAULT_MEASUREMENT_ID = "G-MDQWQ9LRCN";
 const MEASUREMENT_ID = (import.meta.env.VITE_GA4_MEASUREMENT_ID ?? DEFAULT_MEASUREMENT_ID).trim();
 const APP_SOURCE = "nextbrowser_desktop";
 const APP_NAME = "NextBrowser Desktop";
