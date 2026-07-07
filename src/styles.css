@@ -386,23 +386,6 @@ button, input, textarea, select { color: var(--text); }
   flex-direction: column;
   gap: 12px;
 }
-.sidebar-summary {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 4px;
-  padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface-1);
-}
-.summary-cell {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 24px;
-  color: var(--muted);
-  font-size: 12px;
-}
 .status-dot {
   width: 7px;
   height: 7px;

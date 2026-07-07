@@ -44,8 +44,6 @@ export function Sidebar() {
   const error = s.agentError();
   const loggedIn = s.agentLoggedIn();
   const profiles = s.filteredProfiles();
-  const runningProfiles = Object.values(s.statuses).filter((status) => status === "running").length;
-  const proxyPercent = s.proxy?.percent_used ?? Math.round(frac * 100);
   const agentName =
     PRIMARY_AGENTS.concat(ADDITIONAL_AGENTS).find((a) => a.id === s.agentId)?.name ?? "agent";
 
@@ -123,21 +121,6 @@ export function Sidebar() {
       </div>
 
       <div className="sidebar-scroll">
-        <div className="sidebar-summary">
-          <div className="summary-cell">
-            <span className={ready ? "status-dot ok-dot" : "status-dot muted-dot"} />
-            <span>{ready ? "Agent ready" : "Agent offline"}</span>
-          </div>
-          <div className="summary-cell">
-            <span className={s.proxy ? "status-dot ok-dot" : "status-dot warn-dot"} />
-            <span>{s.proxy ? `${proxyPercent}% proxy` : "Proxy locked"}</span>
-          </div>
-          <div className="summary-cell">
-            <span className={runningProfiles > 0 ? "status-dot ok-dot" : "status-dot muted-dot"} />
-            <span>{runningProfiles || s.profiles.length} sessions</span>
-          </div>
-        </div>
-
         <div className="claw-card control-card proxy-card">
           <div className="row section-row">
             <div>
