@@ -1,12 +1,16 @@
-import { useMemo, useState } from "react";
-import { useStore } from "../store";
+import { type FormEvent, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import { useStore, type ManualProxyProfileInput } from "../store";
 import { PRIMARY_AGENTS, ADDITIONAL_AGENTS, agentById } from "../agents";
 import { BrandHeader } from "./BrandLogo";
 import { ScheduledRunsPanel } from "./ScheduledRunsPanel";
 import { Icon, Spinner } from "./Icon";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
+import { manualProxyDefaultName, parseManualProxyUrl, type ManualProxyScheme } from "../lib/manualProxy";
 import { trackEvent } from "../lib/analytics";
 import { humanBytes, proxyFraction } from "../types";
+
+type ManualProxyInputMode = "url" | "fields";
 
 export function Sidebar() {
   const s = useStore();
@@ -14,6 +18,17 @@ export function Sidebar() {
   const [focused, setFocused] = useState(false);
   const [menuProfile, setMenuProfile] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [manualProxyOpen, setManualProxyOpen] = useState(false);
+  const [manualProxyMode, setManualProxyMode] = useState<ManualProxyInputMode>("url");
+  const [manualProxyUrl, setManualProxyUrl] = useState("");
+  const [manualName, setManualName] = useState("");
+  const [manualScheme, setManualScheme] = useState<ManualProxyScheme>("http");
+  const [manualHost, setManualHost] = useState("");
+  const [manualPort, setManualPort] = useState("8080");
+  const [manualUsername, setManualUsername] = useState("");
+  const [manualPassword, setManualPassword] = useState("");
+  const [manualError, setManualError] = useState<string | null>(null);
+  const [manualSaving, setManualSaving] = useState(false);
 
   const matches = useMemo(
     () =>
@@ -31,6 +46,73 @@ export function Sidebar() {
   const profiles = s.filteredProfiles();
   const agentName =
     PRIMARY_AGENTS.concat(ADDITIONAL_AGENTS).find((a) => a.id === s.agentId)?.name ?? "agent";
+
+  const uniqueManualProxyName = (baseName: string) => {
+    const base = baseName.trim() || "manual-proxy";
+    const existing = new Set(s.profiles.map((p) => p.name));
+    if (!existing.has(base)) return base;
+    for (let index = 2; index < 1000; index += 1) {
+      const candidate = `${base}-${index}`;
+      if (!existing.has(candidate)) return candidate;
+    }
+    return `${base}-${Date.now()}`;
+  };
+
+  const resetManualProxyForm = () => {
+    setManualProxyMode("url");
+    setManualProxyUrl("");
+    setManualName("");
+    setManualScheme("http");
+    setManualHost("");
+    setManualPort("8080");
+    setManualUsername("");
+    setManualPassword("");
+    setManualError(null);
+  };
+
+  const submitManualProxy = async (event: FormEvent) => {
+    event.preventDefault();
+    const name = manualName.trim();
+    let input: ManualProxyProfileInput;
+    if (manualProxyMode === "url") {
+      let parsed;
+      try {
+        parsed = parseManualProxyUrl(manualProxyUrl);
+      } catch (error) {
+        setManualError(error instanceof Error ? error.message : String(error));
+        return;
+      }
+      input = {
+        name: name || uniqueManualProxyName(manualProxyDefaultName(parsed)),
+        ...parsed,
+      };
+    } else {
+      const port = Number.parseInt(manualPort, 10);
+      if (!name || !manualHost.trim() || !Number.isInteger(port) || port < 1 || port > 65535) {
+        setManualError("Name, host, and a valid port are required.");
+        return;
+      }
+      input = {
+        name,
+        scheme: manualScheme,
+        host: manualHost,
+        port,
+        username: manualUsername,
+        password: manualPassword,
+      };
+    }
+    setManualSaving(true);
+    setManualError(null);
+    try {
+      await s.createManualProxyProfile(input);
+      resetManualProxyForm();
+      setManualProxyOpen(false);
+    } catch (error) {
+      setManualError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setManualSaving(false);
+    }
+  };
 
   return (
     <div className="sidebar-shell">
@@ -209,6 +291,16 @@ export function Sidebar() {
             <span className="profiles-count" title="Total profiles">{s.profiles.length}</span>
             <button
               className="plain-icon-btn plain-icon-btn-compact"
+              title="Add manual proxy profile"
+              onClick={() => {
+                resetManualProxyForm();
+                setManualProxyOpen(true);
+              }}
+            >
+              <Icon name="plus" size={12} />
+            </button>
+            <button
+              className="plain-icon-btn plain-icon-btn-compact"
               title="Refresh profiles and session status"
               disabled={s.isRefreshing}
               onClick={() => s.refreshSessions()}
@@ -252,6 +344,7 @@ export function Sidebar() {
               const running = status === "running";
               const busy = ["starting", "stopping", "rotating"].includes(status);
               const selected = s.selectedProfile === p.name;
+              const manual = p.proxy_mode === "manual" && p.manual_proxy;
               return (
                 <div
                   key={p.name}
@@ -263,6 +356,14 @@ export function Sidebar() {
                   {p.country && (
                     <span className="badge" title={countryLabel(p.country, p.city)}>
                       {countryFlag(p.country)} {p.country.toUpperCase()}
+                    </span>
+                  )}
+                  {manual && (
+                    <span
+                      className="badge manual-proxy-badge"
+                      title={`${p.manual_proxy?.host ?? ""}:${p.manual_proxy?.port ?? ""}`}
+                    >
+                      {(p.manual_proxy?.scheme ?? "http").toUpperCase()}
                     </span>
                   )}
                   <span className="spacer" />
@@ -349,9 +450,10 @@ export function Sidebar() {
         </button>
       </div>
 
-      {menuProfile && (() => {
+      {menuProfile && createPortal((() => {
         const prof = s.profiles.find((p) => p.name === menuProfile);
         const status = s.statuses[menuProfile] ?? "unknown";
+        const manual = prof?.proxy_mode === "manual" && prof.manual_proxy;
         return (
           <div className="modal-overlay" onClick={() => setMenuProfile(null)}>
             <div className="modal-card profile-menu" onClick={(e) => e.stopPropagation()}>
@@ -364,6 +466,14 @@ export function Sidebar() {
                 {prof?.country && (
                   <span className="badge" title={countryLabel(prof.country, prof.city)}>
                     {countryFlag(prof.country)} {prof.country.toUpperCase()}
+                  </span>
+                )}
+                {manual && (
+                  <span
+                    className="badge manual-proxy-badge"
+                    title={`${prof.manual_proxy?.host ?? ""}:${prof.manual_proxy?.port ?? ""}`}
+                  >
+                    {(prof.manual_proxy?.scheme ?? "http").toUpperCase()}
                   </span>
                 )}
                 <span className="spacer" />
@@ -384,27 +494,31 @@ export function Sidebar() {
                 }}
               >
                 <Icon name="arrow.triangle.2.circlepath" size={14} strokeWidth={2.25} />
-                Rotate IP
+                {manual ? "Restart session" : "Rotate IP"}
               </button>
 
-              <div className="section profile-menu-label">Rotate country</div>
-              <div className="country-grid">
-                {ROTATION_COUNTRIES.map((c) => (
-                  <button
-                    key={c.code}
-                    className="mini country-chip"
-                    title={`${c.code} — ${c.name}`}
-                    onClick={() => {
-                      s.rotateProfileCountry(menuProfile, c.code);
-                      setMenuProfile(null);
-                    }}
-                  >
-                    <span className="country-chip-flag">{countryFlag(c.code)}</span>
-                    <span className="country-chip-code">{c.code}</span>
-                    <span className="country-chip-name">{c.name}</span>
-                  </button>
-                ))}
-              </div>
+              {!manual && (
+                <>
+                  <div className="section profile-menu-label">Rotate country</div>
+                  <div className="country-grid">
+                    {ROTATION_COUNTRIES.map((c) => (
+                      <button
+                        key={c.code}
+                        className="mini country-chip"
+                        title={`${c.code} — ${c.name}`}
+                        onClick={() => {
+                          s.rotateProfileCountry(menuProfile, c.code);
+                          setMenuProfile(null);
+                        }}
+                      >
+                        <span className="country-chip-flag">{countryFlag(c.code)}</span>
+                        <span className="country-chip-code">{c.code}</span>
+                        <span className="country-chip-name">{c.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
 
               <div className="profile-menu-divider" />
               <button
@@ -420,9 +534,121 @@ export function Sidebar() {
             </div>
           </div>
         );
-      })()}
+      })(), document.body)}
 
-      {confirmDelete && (
+      {manualProxyOpen && createPortal((
+        <div className="modal-overlay" onMouseDown={() => !manualSaving && setManualProxyOpen(false)}>
+          <form className="modal-card manual-proxy-modal" onSubmit={submitManualProxy} onMouseDown={(e) => e.stopPropagation()}>
+            <div className="profile-menu-head">
+              <Icon name="network" size={16} className="accent-icon" />
+              <span className="profile-menu-name">Manual proxy</span>
+              <span className="spacer" />
+              <button
+                type="button"
+                className="plain-icon-btn"
+                title="Close"
+                disabled={manualSaving}
+                onClick={() => setManualProxyOpen(false)}
+              >
+                <Icon name="xmark.circle.fill" size={18} />
+              </button>
+            </div>
+
+            <div className="manual-proxy-mode" role="tablist" aria-label="Manual proxy input mode">
+              <button
+                type="button"
+                className={manualProxyMode === "url" ? "active" : ""}
+                aria-selected={manualProxyMode === "url"}
+                onClick={() => {
+                  setManualProxyMode("url");
+                  setManualError(null);
+                }}
+              >
+                <Icon name="network" size={13} />
+                URL
+              </button>
+              <button
+                type="button"
+                className={manualProxyMode === "fields" ? "active" : ""}
+                aria-selected={manualProxyMode === "fields"}
+                onClick={() => {
+                  setManualProxyMode("fields");
+                  setManualError(null);
+                }}
+              >
+                <Icon name="wrench" size={13} />
+                Fields
+              </button>
+            </div>
+
+            {manualProxyMode === "url" ? (
+              <>
+                <label className="modal-field">
+                  <span>Proxy URL</span>
+                  <input
+                    value={manualProxyUrl}
+                    onChange={(e) => setManualProxyUrl(e.target.value)}
+                    placeholder="http://user:pass@host:8080"
+                    autoFocus
+                  />
+                </label>
+                <label className="modal-field">
+                  <span>Name (optional)</span>
+                  <input
+                    value={manualName}
+                    onChange={(e) => setManualName(e.target.value)}
+                    placeholder="generated from proxy URL"
+                  />
+                </label>
+              </>
+            ) : (
+              <>
+                <label className="modal-field">
+                  <span>Name</span>
+                  <input value={manualName} onChange={(e) => setManualName(e.target.value)} autoFocus />
+                </label>
+                <div className="manual-proxy-grid">
+                  <label className="modal-field">
+                    <span>Scheme</span>
+                    <select value={manualScheme} onChange={(e) => setManualScheme(e.target.value as ManualProxyScheme)}>
+                      <option value="http">HTTP</option>
+                      <option value="socks5">SOCKS5</option>
+                    </select>
+                  </label>
+                  <label className="modal-field">
+                    <span>Port</span>
+                    <input value={manualPort} inputMode="numeric" onChange={(e) => setManualPort(e.target.value)} />
+                  </label>
+                </div>
+                <label className="modal-field">
+                  <span>Host</span>
+                  <input value={manualHost} onChange={(e) => setManualHost(e.target.value)} />
+                </label>
+                <label className="modal-field">
+                  <span>Username</span>
+                  <input value={manualUsername} onChange={(e) => setManualUsername(e.target.value)} />
+                </label>
+                <label className="modal-field">
+                  <span>Password</span>
+                  <input type="password" value={manualPassword} onChange={(e) => setManualPassword(e.target.value)} />
+                </label>
+              </>
+            )}
+            {manualError && <div className="error manual-proxy-error">{manualError}</div>}
+            <div className="modal-actions">
+              <button type="button" className="secondary" disabled={manualSaving} onClick={() => setManualProxyOpen(false)}>
+                Cancel
+              </button>
+              <button type="submit" className="primary" disabled={manualSaving}>
+                {manualSaving ? <Spinner size={13} /> : <Icon name="plus" size={13} />}
+                Create
+              </button>
+            </div>
+          </form>
+        </div>
+      ), document.body)}
+
+      {confirmDelete && createPortal((
         <div className="modal-overlay">
           <div className="modal-card">
             <p>Delete profile “{confirmDelete}”?</p>
@@ -442,7 +668,7 @@ export function Sidebar() {
             </div>
           </div>
         </div>
-      )}
+      ), document.body)}
     </div>
   );
 }

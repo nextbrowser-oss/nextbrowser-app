@@ -11,10 +11,20 @@ export interface ProxyTraffic {
   dashboard_url?: string | null;
 }
 
+export interface ManualProxy {
+  scheme?: string | null;
+  host?: string | null;
+  port?: number | null;
+  username?: string | null;
+}
+
 export interface Profile {
   name: string;
   country?: string | null;
   city?: string | null;
+  proxy_scheme?: string | null;
+  proxy_mode?: string | null;
+  manual_proxy?: ManualProxy | null;
   created_at?: string | null;
 }
 

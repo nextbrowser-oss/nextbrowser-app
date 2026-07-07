@@ -559,6 +559,11 @@ button, input, textarea, select { color: var(--text); }
   border-radius: 999px;
   padding: 0 6px;
 }
+.manual-proxy-badge {
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-5));
+  color: var(--accent-text);
+  font-weight: 700;
+}
 .mini {
   background: var(--surface-4);
   border: 1px solid var(--line-strong);
@@ -1021,6 +1026,8 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .modal-overlay {
   position: fixed;
   inset: 0;
+  box-sizing: border-box;
+  padding: 16px;
   background: var(--overlay);
   display: grid;
   place-items: center;
@@ -1047,6 +1054,69 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   border-radius: var(--radius-sm);
   padding: 8px;
   margin-bottom: 8px;
+}
+.manual-proxy-modal {
+  width: min(360px, 100%);
+}
+.manual-proxy-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.manual-proxy-mode button {
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--button-radius-compact);
+  background: transparent;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.manual-proxy-mode button:hover { background: var(--surface-3); }
+.manual-proxy-mode button.active {
+  background: var(--surface-5);
+  color: var(--text);
+}
+.modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.modal-field span {
+  line-height: 1.2;
+}
+.modal-card .modal-field input,
+.modal-card .modal-field select {
+  margin: 0 0 8px;
+}
+.manual-proxy-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 104px;
+  gap: 8px;
+}
+.manual-proxy-error {
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
 }
 .profile-menu { min-width: 300px; padding: 16px; }
 .profile-menu-head {

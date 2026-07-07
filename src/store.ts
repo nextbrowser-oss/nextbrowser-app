@@ -58,6 +58,15 @@ interface QueuedItem {
   replyId: string;
 }
 
+export interface ManualProxyProfileInput {
+  name: string;
+  scheme: "http" | "socks5";
+  host: string;
+  port: number;
+  username?: string;
+  password?: string;
+}
+
 interface AgentRuntime {
   ready: boolean;
   authorizing: boolean;
@@ -257,6 +266,7 @@ interface State {
   stopProfile: (n: string) => Promise<void>;
   rotateProfile: (n: string) => Promise<void>;
   rotateProfileCountry: (n: string, country: string) => Promise<void>;
+  createManualProxyProfile: (input: ManualProxyProfileInput) => Promise<void>;
   deleteProfile: (n: string) => Promise<void>;
   selectProfile: (n?: string) => void;
   switchAgent: (id: string) => void;
@@ -1267,6 +1277,40 @@ export const useStore = create<State>((set, get) => ({
     await get().loadProxy().catch(() => {});
     trackTiming("proxy_country_change_completed", startedAt, { scope: "profile", country, status: get().statuses[n] ?? "unknown" });
     trackTiming("profile_rotate_completed", startedAt, { country, status: get().statuses[n] ?? "unknown" });
+  },
+
+  createManualProxyProfile: async (input) => {
+    const startedAt = performance.now();
+    const name = input.name.trim();
+    const host = input.host.trim();
+    const username = input.username?.trim() ?? "";
+    trackEvent("profile_manual_proxy_create_requested", {
+      scheme: input.scheme,
+      has_username: username.length > 0,
+    });
+    const result = await clawctlRun(
+      [
+        "profiles",
+        "create",
+        name,
+        "--manual-proxy",
+        "--proxy-scheme",
+        input.scheme,
+        "--proxy-host",
+        host,
+        "--proxy-port",
+        String(input.port),
+        ...(username ? ["--proxy-username", username] : []),
+        "--format",
+        "json",
+      ],
+      input.password ? { CLAWCTL_PROXY_PASSWORD: input.password } : undefined,
+    );
+    if (result.code !== 0) throw new Error(clawctlErrorMessage(result));
+    await get().loadProfiles();
+    trackTiming("profile_manual_proxy_create_completed", startedAt, {
+      profile_count: get().profiles.length,
+    });
   },
 
   deleteProfile: async (n) => {
