@@ -15,6 +15,7 @@ import type { AppTab, Conversation } from "./types";
 import { resolveTheme, type Theme } from "./theme";
 import { initAnalytics, trackEvent } from "./lib/analytics";
 import { listen } from "./electronBridge";
+import { agentById } from "./agents";
 
 const TABS: { id: AppTab; label: string; icon: string }[] = [
   { id: "chat", label: "Chat", icon: "bubble.left.and.bubble.right.fill" },
@@ -57,6 +58,13 @@ function SettingsButton({ onClick }: { onClick: () => void }) {
 }
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
+  const clawctlVersion = useStore((s) => s.clawctlVersion);
+  const agentId = useStore((s) => s.agentId);
+  const agentReady = useStore((s) => s.agentReady());
+  const agentVersion = useStore((s) => s.agentVersion());
+  const logout = useStore((s) => s.logout);
+  const agentName = agentById(agentId).name;
+
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
       <div className="modal-card settings-modal" onMouseDown={(e) => e.stopPropagation()}>
@@ -64,11 +72,51 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
           <Icon name="gearshape" size={18} />
           <strong>Settings</strong>
         </div>
-        <div className="settings-row">
-          <span className="muted small">NextBrowser version</span>
-          <strong>{__APP_VERSION__}</strong>
+        <div className="settings-section">
+          <div className="settings-row">
+            <span className="muted small">NextBrowser</span>
+            <strong>{__APP_VERSION__}</strong>
+          </div>
+          <div className="settings-row">
+            <span className="muted small">clawctl</span>
+            <strong>{clawctlVersion || "not detected"}</strong>
+          </div>
+          <div className="settings-row">
+            <span className="muted small">Active agent</span>
+            <strong>{agentName}</strong>
+          </div>
+          <div className="settings-row">
+            <span className="muted small">Agent status</span>
+            <span className={agentReady ? "ok small" : "muted small"}>
+              {agentReady ? agentVersion || "connected" : "not connected"}
+            </span>
+          </div>
         </div>
-        <div className="row" style={{ marginTop: 16 }}>
+
+        <div className="settings-section">
+          <a
+            className="settings-link"
+            href={dashboardUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={() => trackEvent("dashboard_opened", { source: "settings" })}
+          >
+            <span>Open dashboard</span>
+            <Icon name="arrow.up.forward.app" size={14} />
+          </a>
+          <button
+            className="settings-link settings-link-danger"
+            onClick={() => {
+              logout();
+              onClose();
+            }}
+          >
+            <span>Sign out</span>
+            <Icon name="rectangle.portrait.and.arrow.right" size={14} />
+          </button>
+        </div>
+
+        <div className="row settings-actions">
           <span className="spacer" />
           <button className="secondary" onClick={onClose}>Close</button>
         </div>
