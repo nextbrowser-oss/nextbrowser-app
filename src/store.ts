@@ -1190,6 +1190,12 @@ export const useStore = create<State>((set, get) => ({
     const startedAt = performance.now();
     trackEvent("session_create_requested", { scope: "default" });
     trackEvent("session_start_requested", { scope: "default" });
+    if (!get().proxy) {
+      get().setDashboardKeyPromptOpen(true);
+      trackEvent("dashboard_key_prompt_opened_from_action", { source: "start_default_session" });
+      trackTiming("session_start_blocked", startedAt, { scope: "default", reason: "missing_proxy_credentials" });
+      return;
+    }
     await clawctlRun(["start", "--format", "json"]);
     await get().loadDefaultSession();
     trackTiming("session_create_completed", startedAt, { scope: "default", session_status: get().defaultSession?.status ?? "unknown" });
@@ -1230,6 +1236,14 @@ export const useStore = create<State>((set, get) => ({
     const startedAt = performance.now();
     trackEvent("profile_session_create_requested", { scope: "profile" });
     trackEvent("profile_start_requested");
+    const profile = get().profiles.find((p) => p.name === n);
+    const manualProfile = profile?.proxy_mode === "manual" && profile.manual_proxy;
+    if (!manualProfile && !get().proxy) {
+      get().setDashboardKeyPromptOpen(true);
+      trackEvent("dashboard_key_prompt_opened_from_action", { source: "start_profile" });
+      trackTiming("profile_start_blocked", startedAt, { reason: "missing_proxy_credentials" });
+      return;
+    }
     set((s) => ({ statuses: { ...s.statuses, [n]: "starting" } }));
     await clawctlRun(["start", "--profile", n, "--format", "json"]);
     await get().loadProfiles();

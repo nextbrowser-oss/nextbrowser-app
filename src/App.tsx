@@ -7,9 +7,8 @@ import { LiveView } from "./components/LiveView";
 import { GuideView } from "./components/GuideView";
 import { OnboardingView } from "./components/OnboardingView";
 import { DashboardKeyModal } from "./components/DashboardKeyModal";
-import { BrandLogo } from "./components/BrandLogo";
-import { Icon, Spinner } from "./components/Icon";
-import { brandName, dashboardUrl } from "./constants";
+import { Icon } from "./components/Icon";
+import { dashboardUrl } from "./constants";
 import { getPreviewMode, getPreviewTab } from "./preview";
 import type { AppTab, Conversation } from "./types";
 import { resolveTheme, type Theme } from "./theme";
@@ -161,7 +160,6 @@ export function App() {
   ));
   const [settingsOpen, setSettingsOpen] = useState(false);
   const preview = getPreviewMode();
-  const checking = useStore((s) => s.checking);
   const tab = useStore((s) => s.tab);
   const setTab = useStore((s) => s.setTab);
   const bootstrap = useStore((s) => s.bootstrap);
@@ -282,24 +280,6 @@ export function App() {
       window.removeEventListener("mouseup", onUp);
     };
   }, [sidebarWidth, setSidebarWidth]);
-
-  if (checking && preview !== "login" && preview !== "main" && preview !== "onboarding") {
-    return (
-      <>
-        <div className="floating-controls">
-          <SettingsButton onClick={() => setSettingsOpen(true)} />
-          <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
-        </div>
-        {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
-        <div className="splash">
-          <BrandLogo size={76} />
-          <div className="splash-title">{brandName}</div>
-          <Spinner size={18} />
-          <div className="muted small">Checking saved credentials…</div>
-        </div>
-      </>
-    );
-  }
 
   return (
     <div className="app">
