@@ -161,8 +161,12 @@ export function ChatView() {
               <Icon name="square.and.pencil" size={16} />
             </button>
           )}
-          <strong className="chat-title">{conv?.title ?? agentName}</strong>
-          <span className={ready ? "ok small chat-ready" : "muted small"}>
+          <div className="chat-title-stack">
+            <strong className="chat-title">{conv?.title ?? agentName}</strong>
+            <span className="muted small">{agentName}</span>
+          </div>
+          <span className={"connection-pill" + (ready ? " is-ready" : "")}>
+            <span className={ready ? "status-dot ok-dot" : "status-dot muted-dot"} />
             {ready ? "ready" : "not connected"}
           </span>
           {queued > 0 && (
@@ -205,23 +209,30 @@ export function ChatView() {
 
         <div className="messages">
           {messages.length === 0 && (
-            <div className="empty-state">
-              <BrandLogo size={44} />
-              <strong>Start a conversation</strong>
-              <p className="muted">
-                Connect an agent, pick a profile, then automate NextBrowser from chat.
-              </p>
+            <div className="empty-state chat-empty-state">
+              <div className="empty-state-mark">
+                <BrandLogo size={38} />
+              </div>
+              <div>
+                <strong>Ready for browser work</strong>
+                <p className="muted">
+                  Choose the next step and NextBrowser will keep the active agent, profile, and browser session in sync.
+                </p>
+              </div>
               <div className="empty-actions">
                 {!ready && (
                   <button className="btn-bordered-prominent" onClick={() => s.authorizeAgent()}>
+                    <Icon name="bolt.fill" size={14} />
                     Connect agent
                   </button>
                 )}
                 <button className="btn-bordered" onClick={() => s.setTab("skills")}>
+                  <Icon name="square.grid.2x2.fill" size={14} />
                   Open Skills
                 </button>
                 {s.proxy ? (
                   <button className="btn-bordered" onClick={() => s.startDefaultSession()}>
+                    <Icon name="play.fill" size={14} />
                     Start session
                   </button>
                 ) : (
@@ -231,16 +242,32 @@ export function ChatView() {
                   </button>
                 )}
               </div>
-              <button
-                className="link empty-link"
-                onClick={() =>
-                  s.tryGuidePrompt(
-                    "Using the clawctl CLI, rotate the active browser profile to Spain (ES) with --verify, then start the session and confirm the proxy country.",
-                  )
-                }
-              >
-                Try: Spanish proxy (ES)
-              </button>
+              <div className="empty-suggestion-grid">
+                <button
+                  className="empty-suggestion"
+                  onClick={() =>
+                    s.tryGuidePrompt(
+                      "Using the clawctl CLI, rotate the active browser profile to Spain (ES) with --verify, then start the session and confirm the proxy country.",
+                    )
+                  }
+                >
+                  <Icon name="globe" size={15} />
+                  <span>
+                    <strong>Spanish proxy check</strong>
+                    <span className="muted small">Rotate to ES and verify country</span>
+                  </span>
+                </button>
+                <button
+                  className="empty-suggestion"
+                  onClick={() => s.setTab("live")}
+                >
+                  <Icon name="video.fill" size={15} />
+                  <span>
+                    <strong>Open live view</strong>
+                    <span className="muted small">Inspect the running browser</span>
+                  </span>
+                </button>
+              </div>
             </div>
           )}
           {messages.map((m) => (

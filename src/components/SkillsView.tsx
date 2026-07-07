@@ -88,7 +88,16 @@ export function SkillsView() {
           </div>
         )}
         {s.clawctlSupportsSkill && !ready && (
-          <p className="skills-connect-hint">Connect an agent in the sidebar to install skills into it.</p>
+          <div className="skills-connect-hint">
+            <Icon name="bolt.fill" size={16} />
+            <div>
+              <strong>Connect an agent to install and run skills.</strong>
+              <div className="muted small">Skills are installed into the selected local agent runtime.</div>
+            </div>
+            <button className="btn-bordered-prominent" onClick={() => s.authorizeAgent()}>
+              Connect agent
+            </button>
+          </div>
         )}
 
         <div className="skills-grid">

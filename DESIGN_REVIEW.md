@@ -13,6 +13,12 @@ Scope: initial product UI review using the local `impeccable`, `emil-design-eng`
 | Settings modal only showed the app version. | Settings now shows app version, clawctl version, active agent, dashboard link, and sign-out. | The gear becomes a useful system/status surface without becoming a full settings area too early. |
 | Modal rows were loose one-off layout. | Added consistent settings sections and rows. | Makes the surface easier to scan and gives future settings a clear pattern. |
 | Motion did not account for reduced-motion preference. | Added a reduced-motion CSS guard. | Aligns with product accessibility baseline and avoids unnecessary animation. |
+| Sidebar read as several equal cards. | Reworked it into a control stack with a compact status rail, clearer card titles, and quieter metadata. | Operators can scan agent/proxy/session health before choosing an action. |
+| Agent state was buried below the picker. | Added a visible agent status pill and a cleaner connected-version line. | The primary dependency for chat and skills is now visible at the decision point. |
+| Profile empty state was passive. | Added an inline empty state with direct next action copy. | Empty states now teach the workflow instead of only reporting absence. |
+| Chat empty state was a plain intro. | Turned it into an action-first work panel with connect, skills, session, live view, and a reusable proxy-check prompt. | First-run and idle moments become launch points for real work. |
+| Skills gating was a warning sentence. | Replaced it with an inline connection panel and primary action. | Blocked states now explain the dependency and provide the fix in the same place. |
+| Settings showed raw rows only. | Added a system health summary and runtime diagnostics. | Settings now supports debugging without becoming a full preferences screen. |
 
 ## Remaining Recommendations
 
@@ -24,3 +30,11 @@ Scope: initial product UI review using the local `impeccable`, `emil-design-eng`
 | Skills and scripts can look equally important even when an agent is not connected. | Gate unavailable actions more explicitly and keep install/apply status close to the action. | Prevents confusion about why a skill did or did not run. |
 | Analytics events exist, but there is no in-product diagnostics surface. | Later, add a small diagnostics section in Settings for app version, event source, update channel, and component status. | Makes support/debugging easier without exposing raw logs everywhere. |
 
+## Current Iteration Notes
+
+| Before | After | Why |
+| --- | --- | --- |
+| Accent and status colors were mostly purple plus generic muted gray. | Added separate info, success, warning, and danger soft tokens while keeping purple as the action accent. | Better status vocabulary without turning the app into a multi-color dashboard. |
+| Top navigation floated as separate pills. | Wrapped tabs in a compact segmented control with stable button dimensions. | Reads more like native desktop navigation and reduces visual noise. |
+| Repeated uppercase labels used tracking as a style crutch. | Normalized letter spacing to zero across compact product labels. | Avoids the generic “AI dashboard eyebrow” cadence. |
+| Composer blended into the canvas. | Gave the composer a restrained surface, border, and focus ring. | The primary input becomes easier to locate and trust. |
