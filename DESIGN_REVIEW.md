@@ -38,3 +38,4 @@ Scope: initial product UI review using the local `impeccable`, `emil-design-eng`
 | Top navigation floated as separate pills. | Wrapped tabs in a compact segmented control with stable button dimensions. | Reads more like native desktop navigation and reduces visual noise. |
 | Repeated uppercase labels used tracking as a style crutch. | Normalized letter spacing to zero across compact product labels. | Avoids the generic “AI dashboard eyebrow” cadence. |
 | Composer blended into the canvas. | Gave the composer a restrained surface, border, and focus ring. | The primary input becomes easier to locate and trust. |
+| App palette was still mostly inherited purple. | Pulled the best tokens from nextbrowser.com: ink `#1d1c1c`, paper `#f5f5f5`, border `#e3dfdc`, blue `#5865f2`, 8px product buttons, and subtle CTA shadows. | Aligns desktop with the public brand while keeping the product interface restrained and task-focused. |
