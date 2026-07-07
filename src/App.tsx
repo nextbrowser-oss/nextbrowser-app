@@ -43,11 +43,46 @@ function ThemeToggle({ theme, onToggle, floating = false }: {
   );
 }
 
+function SettingsButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      className="settings-toggle plain-icon-btn"
+      onClick={onClick}
+      title="Settings"
+      aria-label="Settings"
+    >
+      <Icon name="gearshape" size={18} />
+    </button>
+  );
+}
+
+function SettingsModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="modal-overlay" onMouseDown={onClose}>
+      <div className="modal-card settings-modal" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="modal-title-row">
+          <Icon name="gearshape" size={18} />
+          <strong>Settings</strong>
+        </div>
+        <div className="settings-row">
+          <span className="muted small">NextBrowser version</span>
+          <strong>{__APP_VERSION__}</strong>
+        </div>
+        <div className="row" style={{ marginTop: 16 }}>
+          <span className="spacer" />
+          <button className="secondary" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function App() {
   const [theme, setTheme] = useState<Theme>(() => resolveTheme(
     localStorage.getItem("nextbrowser.theme"),
     window.matchMedia("(prefers-color-scheme: light)").matches,
   ));
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const preview = getPreviewMode();
   const checking = useStore((s) => s.checking);
   const tab = useStore((s) => s.tab);
@@ -174,7 +209,11 @@ export function App() {
   if (checking && preview !== "login" && preview !== "main" && preview !== "onboarding") {
     return (
       <>
-        <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} floating />
+        <div className="floating-controls">
+          <SettingsButton onClick={() => setSettingsOpen(true)} />
+          <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
+        </div>
+        {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
         <div className="splash">
           <BrandLogo size={76} />
           <div className="splash-title">{brandName}</div>
@@ -206,6 +245,7 @@ export function App() {
             </button>
           ))}
           <span className="tabbar-spacer" />
+          <SettingsButton onClick={() => setSettingsOpen(true)} />
           <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
         </nav>
         <hr className="divider" />
@@ -216,6 +256,7 @@ export function App() {
           {tab === "guide" && <GuideView />}
         </div>
       </main>
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
       <DashboardKeyModal />
       {showOnboarding && <OnboardingView />}
     </div>

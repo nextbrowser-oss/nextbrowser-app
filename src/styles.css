@@ -593,8 +593,23 @@ button, input, textarea, select { color: var(--text); }
   flex: none;
 }
 .tabbar-spacer { flex: 1; }
-.theme-toggle { align-self: center; color: var(--muted); }
-.theme-toggle-floating { position: fixed; top: 14px; right: 14px; z-index: 500; background: var(--surface-3); border: 1px solid var(--line-strong); }
+.theme-toggle,
+.settings-toggle {
+  align-self: center;
+  color: var(--muted);
+}
+.floating-controls {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 500;
+  display: flex;
+  gap: 6px;
+}
+.floating-controls .plain-icon-btn {
+  background: var(--surface-3);
+  border: 1px solid var(--line-strong);
+}
 .tab-hit {
   background: none;
   border: none;
@@ -1042,6 +1057,16 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   max-width: 90vw;
   max-height: 90vh;
   overflow-y: auto;
+}
+.settings-modal {
+  width: min(360px, calc(100vw - 32px));
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0 4px;
 }
 .modal-card input,
 .modal-card textarea,
