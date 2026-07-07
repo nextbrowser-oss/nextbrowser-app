@@ -121,9 +121,12 @@ export function Sidebar() {
       </div>
 
       <div className="sidebar-scroll">
-        <div className="claw-card">
+        <div className="claw-card control-card proxy-card">
           <div className="row section-row">
-            <div className="section">PROXY USAGE</div>
+            <div>
+              <div className="section">PROXY</div>
+              <div className="card-title">Traffic budget</div>
+            </div>
             <button
               className="plain-icon-btn plain-icon-btn-compact"
               title={s.proxy ? "Refresh proxy usage" : "Unlock proxy usage"}
@@ -160,7 +163,7 @@ export function Sidebar() {
                   {humanBytes(s.proxy.used_bytes)} /{" "}
                   {s.proxy.limit_bytes ? humanBytes(s.proxy.limit_bytes) : "unlimited"}
                 </span>
-                <span className="proxy-state">{s.proxy.state}</span>
+                <span className="status-pill proxy-state">{s.proxy.state}</span>
               </div>
               {s.proxyWarning && (
                 <div className="warning-banner">
@@ -204,8 +207,16 @@ export function Sidebar() {
           )}
         </div>
 
-        <div className="claw-card">
-          <div className="section">AGENT</div>
+        <div className="claw-card control-card agent-card">
+          <div className="agent-card-head">
+            <div>
+              <div className="section">AGENT</div>
+              <div className="card-title">{agentName}</div>
+            </div>
+            <span className={"agent-state-pill" + (ready ? " is-ready" : "")}>
+              {ready ? "Ready" : "Offline"}
+            </span>
+          </div>
           <div className="agent-primary">
             {PRIMARY_AGENTS.map((a) => (
               <button
@@ -257,8 +268,11 @@ export function Sidebar() {
           <div className="agent-status small">
             {ready ? (
               <>
-                <span className="ok">✓ {version ?? "connected"}</span>
-                {loggedIn === true && <span className="muted"> · signed in</span>}
+                <span className="agent-version-line">
+                  <Icon name="checkmark.circle.fill" size={13} className="ok" />
+                  {version ?? "connected"}
+                  {loggedIn === true && <span className="muted"> · signed in</span>}
+                </span>
                 {loggedIn === true && agentById(s.agentId).logoutArgs.length > 0 && (
                   <button
                     className="switch-account-link"
@@ -285,9 +299,12 @@ export function Sidebar() {
           </div>
         </div>
 
-        <div className="claw-card">
+        <div className="claw-card control-card profiles-card">
           <div className="row section-row">
-            <div className="section">PROFILES &amp; SESSIONS</div>
+            <div>
+              <div className="section">SESSIONS</div>
+              <div className="card-title">Profiles</div>
+            </div>
             <span className="profiles-count" title="Total profiles">{s.profiles.length}</span>
             <button
               className="plain-icon-btn plain-icon-btn-compact"
@@ -329,9 +346,17 @@ export function Sidebar() {
             )}
           </div>
           <div className="profile-list">
-            {s.profiles.length === 0 && <div className="muted small">No profiles found.</div>}
+            {s.profiles.length === 0 && (
+              <div className="inline-empty">
+                <Icon name="person.crop.circle" size={18} className="muted" />
+                <div>
+                  <strong>No profiles yet</strong>
+                  <div className="muted small">Create one from a dashboard key or add a manual proxy.</div>
+                </div>
+              </div>
+            )}
             {s.profiles.length === 0 && !s.proxy && (
-              <button className="btn-bordered full" onClick={() => s.setDashboardKeyPromptOpen(true)}>
+              <button className="btn-bordered full empty-action-button" onClick={() => s.setDashboardKeyPromptOpen(true)}>
                 <Icon name="lock" size={14} />
                 Enter dashboard key before first profile
               </button>
@@ -352,20 +377,27 @@ export function Sidebar() {
                   onClick={() => s.selectProfile(selected ? undefined : p.name)}
                 >
                   <span className={"dot " + (running ? "green" : busy ? "orange" : "gray")} title={status} />
-                  <span className="profile-name">{p.name}</span>
-                  {p.country && (
-                    <span className="badge" title={countryLabel(p.country, p.city)}>
-                      {countryFlag(p.country)} {p.country.toUpperCase()}
+                  <span className="profile-main">
+                    <span className="profile-name">{p.name}</span>
+                    <span className="profile-meta">
+                      {p.country ? countryLabel(p.country, p.city) : manual ? "Manual proxy" : status}
                     </span>
-                  )}
-                  {manual && (
-                    <span
-                      className="badge manual-proxy-badge"
-                      title={`${p.manual_proxy?.host ?? ""}:${p.manual_proxy?.port ?? ""}`}
-                    >
-                      {(p.manual_proxy?.scheme ?? "http").toUpperCase()}
-                    </span>
-                  )}
+                  </span>
+                  <span className="profile-badges">
+                    {p.country && (
+                      <span className="badge" title={countryLabel(p.country, p.city)}>
+                        {countryFlag(p.country)} {p.country.toUpperCase()}
+                      </span>
+                    )}
+                    {manual && (
+                      <span
+                        className="badge manual-proxy-badge"
+                        title={`${p.manual_proxy?.host ?? ""}:${p.manual_proxy?.port ?? ""}`}
+                      >
+                        {(p.manual_proxy?.scheme ?? "http").toUpperCase()}
+                      </span>
+                    )}
+                  </span>
                   <span className="spacer" />
                   <div className="profile-actions">
                     {running ? (

@@ -59,9 +59,12 @@ function SettingsButton({ onClick }: { onClick: () => void }) {
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
   const clawctlVersion = useStore((s) => s.clawctlVersion);
+  const clawctlSupportsSkill = useStore((s) => s.clawctlSupportsSkill);
   const agentId = useStore((s) => s.agentId);
   const agentReady = useStore((s) => s.agentReady());
   const agentVersion = useStore((s) => s.agentVersion());
+  const profiles = useStore((s) => s.profiles.length);
+  const proxy = useStore((s) => s.proxy);
   const logout = useStore((s) => s.logout);
   const agentName = agentById(agentId).name;
 
@@ -70,7 +73,17 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
       <div className="modal-card settings-modal" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-title-row">
           <Icon name="gearshape" size={18} />
-          <strong>Settings</strong>
+          <div>
+            <strong>Settings</strong>
+            <div className="muted small">Local app and runtime status</div>
+          </div>
+        </div>
+        <div className="settings-health">
+          <div>
+            <span className="muted small">Desktop app</span>
+            <strong>Operational</strong>
+          </div>
+          <span className="status-pill">v{__APP_VERSION__}</span>
         </div>
         <div className="settings-section">
           <div className="settings-row">
@@ -89,6 +102,22 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
             <span className="muted small">Agent status</span>
             <span className={agentReady ? "ok small" : "muted small"}>
               {agentReady ? agentVersion || "connected" : "not connected"}
+            </span>
+          </div>
+          <div className="settings-row">
+            <span className="muted small">Skill install</span>
+            <span className={clawctlSupportsSkill ? "ok small" : "warn small"}>
+              {clawctlSupportsSkill ? "supported" : "needs update"}
+            </span>
+          </div>
+          <div className="settings-row">
+            <span className="muted small">Profiles</span>
+            <strong>{profiles}</strong>
+          </div>
+          <div className="settings-row">
+            <span className="muted small">Proxy</span>
+            <span className={proxy ? "ok small" : "muted small"}>
+              {proxy ? proxy.state : "locked"}
             </span>
           </div>
         </div>
@@ -280,21 +309,25 @@ export function App() {
       <div id="sidebar-resize" className="resize-handle" />
       <main className="content">
         <nav className="tabbar">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              className={"tab-hit" + (tab === t.id ? " tab-hit-active" : "")}
-              onClick={() => setTab(t.id)}
-            >
-              <span className={"tab-pill" + (tab === t.id ? " tab-pill-active" : "")}>
-                <Icon name={t.icon} size={16} strokeWidth={2.25} />
-                {t.label}
-              </span>
-            </button>
-          ))}
+          <div className="tabbar-group" role="tablist" aria-label="Main views">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                className={"tab-hit" + (tab === t.id ? " tab-hit-active" : "")}
+                onClick={() => setTab(t.id)}
+              >
+                <span className={"tab-pill" + (tab === t.id ? " tab-pill-active" : "")}>
+                  <Icon name={t.icon} size={16} strokeWidth={2.25} />
+                  {t.label}
+                </span>
+              </button>
+            ))}
+          </div>
           <span className="tabbar-spacer" />
-          <SettingsButton onClick={() => setSettingsOpen(true)} />
-          <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
+          <div className="tabbar-controls">
+            <SettingsButton onClick={() => setSettingsOpen(true)} />
+            <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
+          </div>
         </nav>
         <hr className="divider" />
         <div className={"tab-content" + (tab === "skills" ? " tab-content-bleed" : "")}>
