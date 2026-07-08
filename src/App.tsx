@@ -13,7 +13,7 @@ import { brandName, dashboardUrl } from "./constants";
 import { getPreviewMode, getPreviewTab } from "./preview";
 import type { AppTab, Conversation } from "./types";
 import { resolveTheme, type Theme } from "./theme";
-import { initAnalytics, trackEvent } from "./lib/analytics";
+import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
 import { listen } from "./electronBridge";
 import { agentById } from "./agents";
 
@@ -172,6 +172,7 @@ export function App() {
 
   useEffect(() => {
     initAnalytics();
+    trackScreenView(tab, { source: "app_start" }, { pageView: false });
     trackEvent("app_start", {
       preview_mode: preview ?? "none",
       theme,
@@ -188,6 +189,33 @@ export function App() {
       cleanup = off;
     }).catch(() => undefined);
     return () => cleanup?.();
+  }, []);
+
+  useEffect(() => {
+    const heartbeat = window.setInterval(() => {
+      if (document.visibilityState === "visible") flushAnalyticsEngagement("heartbeat");
+    }, 30_000);
+    let closeTracked = false;
+    const onVisibility = () => {
+      const visible = document.visibilityState === "visible";
+      trackEvent("app_visibility_changed", { visible });
+      if (!visible) flushAnalyticsEngagement("hidden");
+    };
+    const onPageHide = () => {
+      if (closeTracked) return;
+      closeTracked = true;
+      trackEvent("app_close", { reason: "pagehide" });
+      flushAnalyticsEngagement("pagehide");
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("beforeunload", onPageHide);
+    return () => {
+      window.clearInterval(heartbeat);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("beforeunload", onPageHide);
+    };
   }, []);
 
   useEffect(() => {
