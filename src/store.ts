@@ -19,7 +19,7 @@ import { activityFromText, extractToolEvents } from "./lib/activityParser";
 import { composePrompt } from "./lib/composePrompt";
 import { promptWithAttachments } from "./lib/chatAttachments";
 import { normalizeClawctlVersion } from "./lib/version";
-import { setAnalyticsUserId, trackEvent, trackTiming } from "./lib/analytics";
+import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
 import { loadJson, saveJson } from "./lib/storage";
 import {
   normalizeConversation,
@@ -1006,6 +1006,7 @@ export const useStore = create<State>((set, get) => ({
       await get().refreshAll();
       await get().authorizeAgent();
       if (!localStorage.getItem("onboardingComplete")) set({ showOnboarding: true });
+      trackEvent("login", { method: "dashboard_key" });
       trackTiming("dashboard_key_save_succeeded", startedAt);
     } catch (e) {
       set({ loginError: String(e) });
@@ -1599,7 +1600,10 @@ export const useStore = create<State>((set, get) => ({
   },
 
   setTab: (t) => {
-    trackEvent("tab_opened", { tab: t });
+    const previousTab = get().tab;
+    if (previousTab === t) return;
+    trackEvent("tab_opened", { tab: t, previous_tab: previousTab });
+    trackScreenView(t, { source: "tab_opened", previous_tab: previousTab });
     set({ tab: t });
   },
   setAppActive: (v) => set({ appActive: v }),
@@ -2311,10 +2315,15 @@ export const useStore = create<State>((set, get) => ({
     const customScripts = get().customScripts.filter((s) => s.id !== id);
     persistScripts(customScripts);
     set({ customScripts });
+    trackEvent("custom_script_deleted", { script_count: customScripts.length });
   },
 
   runCustomScript: async (script) => {
     if (!get().agentReady()) return;
+    trackEvent("custom_script_run_requested", {
+      has_domain: !!script.domain.trim(),
+      has_server_slug: !!script.serverSlug,
+    });
     set({ tab: "chat" });
     const domain = script.domain.trim();
     const cid = get().activeConversation()?.id ?? get().newChat();

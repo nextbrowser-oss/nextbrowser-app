@@ -8,6 +8,7 @@ import type { ChatAttachment, ChatMessage } from "../types";
 import { invoke } from "../electronBridge";
 import { conversationPreview } from "../types";
 import { agentById } from "../agents";
+import { trackEvent } from "../lib/analytics";
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -79,6 +80,13 @@ export function ChatView() {
 
   const attachFiles = async () => {
     const selected = await invoke<ChatAttachment[]>("select_chat_files");
+    trackEvent("chat_files_selected", {
+      attachment_count: selected.length,
+      total_size_bucket: Math.min(
+        100_000_000,
+        Math.ceil(selected.reduce((total, file) => total + file.size, 0) / 1_000_000) * 1_000_000,
+      ),
+    });
     setAttachments((current) => {
       const byPath = new Map(current.map((file) => [file.path, file]));
       for (const file of selected) byPath.set(file.path, file);
@@ -291,7 +299,12 @@ export function ChatView() {
               onStop={() => s.stopRunning()}
               running={running && m.status === "streaming"}
               queuedReplyId={m.role === "user" ? queuedReplyForMessage(m)?.id : undefined}
-              onShowPrompt={() => setPromptDetail(m.text)}
+              onShowPrompt={() => {
+                trackEvent("chat_prompt_detail_opened", {
+                  prompt_length_bucket: Math.min(5000, Math.ceil(m.text.length / 250) * 250),
+                });
+                setPromptDetail(m.text);
+              }}
             />
           ))}
           <div ref={bottomRef} />
@@ -307,7 +320,10 @@ export function ChatView() {
                 <button
                   className="attachment-remove"
                   aria-label={`Remove ${file.name}`}
-                  onClick={() => setAttachments((items) => items.filter((item) => item.path !== file.path))}
+                  onClick={() => {
+                    trackEvent("chat_file_removed");
+                    setAttachments((items) => items.filter((item) => item.path !== file.path));
+                  }}
                 >×</button>
               </span>
             ))}
