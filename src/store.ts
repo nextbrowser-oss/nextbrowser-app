@@ -15,6 +15,7 @@ import {
   selectorFlags,
   selectorTargetHost,
 } from "./skillsCatalog";
+import { dashboardUrl } from "./constants";
 import { activityFromText, extractToolEvents } from "./lib/activityParser";
 import { composePrompt } from "./lib/composePrompt";
 import { promptWithAttachments } from "./lib/chatAttachments";
@@ -102,6 +103,19 @@ const SCHEDULE_TICK_MS = 30_000;
 const CLAWCTL_DAILY_UPDATE_MS = 24 * 60 * 60 * 1000;
 const CLAWCTL_DAILY_UPDATE_POLL_MS = 60 * 60 * 1000;
 const CLAWCTL_UPDATE_STATE_FILE = "clawctl-update.json";
+
+function normalizeDashboardUrl(raw?: string | null): string | null | undefined {
+  if (!raw) return raw;
+  try {
+    const url = new URL(raw);
+    if (url.hostname === "app.nextbrowser.com") {
+      return raw.replace("https://app.nextbrowser.com/dashboard", dashboardUrl);
+    }
+  } catch {
+    /* keep the original value if the backend ever returns a non-URL string */
+  }
+  return raw;
+}
 
 function clawbrowserInstallPrompt(agentAdapter: string): string {
   return `NextBrowser cannot find local clawctl/Clawbrowser components. Install them for this machine before doing browser work.
@@ -1084,7 +1098,10 @@ export const useStore = create<State>((set, get) => ({
 
   loadProxy: async () => {
     const wrap = await clawctlJson<{ proxy_traffic: ProxyTraffic }>(["proxy-traffic"]);
-    const p = wrap.proxy_traffic;
+    const p = {
+      ...wrap.proxy_traffic,
+      dashboard_url: normalizeDashboardUrl(wrap.proxy_traffic.dashboard_url),
+    };
     const frac =
       p.percent_used != null
         ? p.percent_used / 100
