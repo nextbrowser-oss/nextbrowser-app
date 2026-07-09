@@ -419,12 +419,6 @@ async function verifyProxyIdentity(profile?: string): Promise<ProxyIdentity | un
   }
 }
 
-function identitySummary(identity?: ProxyIdentity): string | undefined {
-  if (!identity) return undefined;
-  const parts = [identity.ip, identity.country].filter(Boolean);
-  return parts.length ? parts.join(" · ") : identity.label;
-}
-
 async function refreshAnalyticsIdentity(): Promise<void> {
   const wrap = await clawctlJson<{ identity: APIKeyIdentity }>(["identity"]);
   const ownerId = wrap.identity.owner_id?.trim();
@@ -1277,7 +1271,6 @@ export const useStore = create<State>((set, get) => ({
 
   rotateDefaultSession: async () => {
     const startedAt = performance.now();
-    const before = get().profileIdentities.__default ?? await verifyProxyIdentity();
     trackEvent("proxy_ip_change_requested", { scope: "default_session" });
     trackEvent("session_rotate_requested", { scope: "default" });
     await clawctlRun(["rotate", "--format", "json"]);
@@ -1285,24 +1278,12 @@ export const useStore = create<State>((set, get) => ({
     await get().loadProxy().catch(() => {});
     const after = await verifyProxyIdentity();
     if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: after } }));
-    const beforeText = identitySummary(before);
-    const afterText = identitySummary(after);
-    if (beforeText || afterText) {
-      set({
-        clawctlUpdateStatus: beforeText && afterText && beforeText !== afterText
-          ? `IP rotated: ${beforeText} -> ${afterText}`
-          : afterText
-            ? `Current proxy identity: ${afterText}`
-            : `Previous proxy identity: ${beforeText}`,
-      });
-    }
     trackTiming("proxy_ip_change_completed", startedAt, { scope: "default_session" });
     trackTiming("session_rotate_completed", startedAt, { scope: "default" });
   },
 
   rotateDefaultSessionCountry: async (country) => {
     const startedAt = performance.now();
-    const before = get().profileIdentities.__default ?? await verifyProxyIdentity();
     trackEvent("proxy_country_change_requested", { scope: "default_session", country });
     trackEvent("session_rotate_requested", { scope: "default", country });
     await clawctlRun(["rotate", "--country", country, "--verify", "--format", "json"]);
@@ -1311,17 +1292,6 @@ export const useStore = create<State>((set, get) => ({
     const after = await verifyProxyIdentity();
     const identity = after ?? { country };
     set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
-    const beforeText = identitySummary(before);
-    const afterText = identitySummary(identity);
-    if (beforeText || afterText) {
-      set({
-        clawctlUpdateStatus: beforeText && afterText && beforeText !== afterText
-          ? `IP rotated: ${beforeText} -> ${afterText}`
-          : afterText
-            ? `Current proxy identity: ${afterText}`
-            : `Previous proxy identity: ${beforeText}`,
-      });
-    }
     trackTiming("proxy_country_change_completed", startedAt, { scope: "default_session", country });
     trackTiming("session_rotate_completed", startedAt, { scope: "default", country });
   },
@@ -1350,7 +1320,6 @@ export const useStore = create<State>((set, get) => ({
 
   rotateProfile: async (n) => {
     const startedAt = performance.now();
-    const before = get().profileIdentities[n] ?? await verifyProxyIdentity(n);
     trackEvent("proxy_ip_change_requested", { scope: "profile" });
     trackEvent("profile_rotate_requested");
     set((s) => ({ statuses: { ...s.statuses, [n]: "rotating" } }));
@@ -1359,23 +1328,12 @@ export const useStore = create<State>((set, get) => ({
     await get().loadProxy().catch(() => {});
     const after = await verifyProxyIdentity(n);
     if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
-    if (before || after) {
-      const beforeText = identitySummary(before);
-      const afterText = identitySummary(after);
-      const text = beforeText && afterText && beforeText !== afterText
-        ? `IP rotated: ${beforeText} -> ${afterText}`
-        : afterText
-          ? `Current proxy identity: ${afterText}`
-          : `Previous proxy identity: ${beforeText}`;
-      set({ clawctlUpdateStatus: text });
-    }
     trackTiming("proxy_ip_change_completed", startedAt, { scope: "profile", status: get().statuses[n] ?? "unknown" });
     trackTiming("profile_rotate_completed", startedAt, { status: get().statuses[n] ?? "unknown" });
   },
 
   rotateProfileCountry: async (n, country) => {
     const startedAt = performance.now();
-    const before = get().profileIdentities[n] ?? await verifyProxyIdentity(n);
     trackEvent("proxy_country_change_requested", { scope: "profile", country });
     trackEvent("profile_rotate_requested", { country });
     set((s) => ({ statuses: { ...s.statuses, [n]: "rotating" } }));
@@ -1393,16 +1351,6 @@ export const useStore = create<State>((set, get) => ({
     await get().loadProxy().catch(() => {});
     const after = await verifyProxyIdentity(n);
     if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
-    if (before || after) {
-      const beforeText = identitySummary(before);
-      const afterText = identitySummary(after);
-      const text = beforeText && afterText && beforeText !== afterText
-        ? `IP rotated: ${beforeText} -> ${afterText}`
-        : afterText
-          ? `Current proxy identity: ${afterText}`
-          : `Previous proxy identity: ${beforeText}`;
-      set({ clawctlUpdateStatus: text });
-    }
     trackTiming("proxy_country_change_completed", startedAt, { scope: "profile", country, status: get().statuses[n] ?? "unknown" });
     trackTiming("profile_rotate_completed", startedAt, { country, status: get().statuses[n] ?? "unknown" });
   },
