@@ -44,8 +44,11 @@ export function Sidebar() {
   const error = s.agentError();
   const loggedIn = s.agentLoggedIn();
   const profiles = s.filteredProfiles();
-  const defaultRunning = s.defaultSession?.status === "running";
-  const showDefaultProfile = defaultRunning && !s.profiles.some((p) => p.name === "default");
+  const defaultStatus = s.defaultSession?.status ?? "unknown";
+  const defaultKnown = !!s.defaultSession?.session?.name || defaultStatus !== "unknown";
+  const defaultRunning = defaultStatus === "running";
+  const defaultBusy = ["starting", "stopping", "rotating"].includes(defaultStatus);
+  const showDefaultProfile = defaultKnown && !s.profiles.some((p) => p.name === "default");
   const visibleProfileCount = s.profiles.length + (showDefaultProfile ? 1 : 0);
   const agentName =
     PRIMARY_AGENTS.concat(ADDITIONAL_AGENTS).find((a) => a.id === s.agentId)?.name ?? "agent";
@@ -433,31 +436,45 @@ export function Sidebar() {
                 className={"profile-row" + (!s.selectedProfile ? " selected" : "")}
                 onClick={() => s.selectProfile(undefined)}
               >
-                <span className="dot green" title="running" />
+                <span className={"dot " + (defaultRunning ? "green" : defaultBusy ? "orange" : "gray")} title={defaultStatus} />
                 <span className="profile-main">
                   <span className="profile-name">default</span>
-                  <span className="profile-meta">running</span>
+                  <span className="profile-meta">{defaultStatus}</span>
                 </span>
                 <span className="spacer" />
                 <div className="profile-actions">
-                  <button
-                    className="plain-icon-btn"
-                    title="Stop default"
-                    onClick={(e) => { e.stopPropagation(); void s.stopDefaultSession(); }}
-                  >
-                    <Icon name="stop.fill" size={16} />
-                  </button>
-                  <button
-                    className="plain-icon-btn"
-                    title="Live view"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      s.selectProfile(undefined);
-                      s.setTab("live");
-                    }}
-                  >
-                    <Icon name="video.fill" size={16} />
-                  </button>
+                  {defaultRunning ? (
+                    <>
+                      <button
+                        className="plain-icon-btn"
+                        title="Stop default"
+                        disabled={defaultBusy}
+                        onClick={(e) => { e.stopPropagation(); void s.stopDefaultSession(); }}
+                      >
+                        <Icon name="stop.fill" size={16} />
+                      </button>
+                      <button
+                        className="plain-icon-btn"
+                        title="Live view"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          s.selectProfile(undefined);
+                          s.setTab("live");
+                        }}
+                      >
+                        <Icon name="video.fill" size={16} />
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="plain-icon-btn"
+                      title="Start default"
+                      disabled={defaultBusy}
+                      onClick={(e) => { e.stopPropagation(); void s.startDefaultSession(); }}
+                    >
+                      <Icon name="play.fill" size={16} />
+                    </button>
+                  )}
                 </div>
               </div>
             )}
