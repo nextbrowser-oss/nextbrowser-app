@@ -170,17 +170,14 @@ export function LiveView() {
           </div>
         )}
         {streamUrl && state === "live" && (
-          <div className="live-link-panel">
-            <Icon name="checkmark.circle.fill" size={34} className="ok" />
-            <strong>Remote stream ready</strong>
-            <p className="muted">
-              Open the backend Remote Control viewer to watch and control the browser. Tabs are handled inside the viewer when available.
-            </p>
-            <a className="btn-bordered-prominent" href={streamUrl} target="_blank" rel="noreferrer">
-              <Icon name="arrow.up.forward.app" size={14} />
-              Open Remote Control
-            </a>
-            <code className="live-url">{streamUrl}</code>
+          <div className="remote-live-embed">
+            <iframe
+              className="remote-live-frame"
+              src={streamUrl}
+              title="Remote browser stream"
+              allow="clipboard-read; clipboard-write; fullscreen"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
           </div>
         )}
       </div>
