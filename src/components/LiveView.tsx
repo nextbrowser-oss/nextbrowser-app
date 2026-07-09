@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { useStore } from "../store";
 import { Icon, Spinner } from "./Icon";
 
@@ -8,6 +8,7 @@ export function LiveView() {
   const [streamUrl, setStreamUrl] = useState("");
   const [state, setState] = useState<"idle" | "connecting" | "live" | "error">("idle");
   const [error, setError] = useState("");
+  const [frameResizePulse, setFrameResizePulse] = useState(0);
   const runningProfiles = s.profiles.filter((profile) => s.statuses[profile.name] === "running");
   const defaultRunning = s.defaultSession?.status === "running";
   const profileOptions = [
@@ -72,6 +73,14 @@ export function LiveView() {
     // LiveView is mounted afresh on tab selection, matching Swift onAppear.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!streamUrl || state !== "live") return;
+    const timers = [120, 450, 900, 1600, 2600].map((delay, index) =>
+      window.setTimeout(() => setFrameResizePulse(index % 2 === 0 ? 1 : 0), delay),
+    );
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [streamUrl, state]);
 
   return (
     <div className="live">
@@ -170,7 +179,7 @@ export function LiveView() {
           </div>
         )}
         {streamUrl && state === "live" && (
-          <div className="remote-live-embed">
+          <div className="remote-live-embed" style={{ "--frame-resize-pulse": `${frameResizePulse}px` } as CSSProperties}>
             <iframe
               className="remote-live-frame"
               src={streamUrl}

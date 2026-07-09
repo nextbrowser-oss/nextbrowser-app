@@ -1299,6 +1299,8 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   min-height: 0;
 }
 .remote-live-stage {
+  display: block;
+  box-sizing: border-box;
   padding: 12px;
 }
 .live-empty-panel,
@@ -1332,8 +1334,9 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   background: var(--surface-1);
 }
 .remote-live-frame {
-  width: 100%;
-  height: 100%;
+  display: block;
+  width: calc(100% - var(--frame-resize-pulse, 0px));
+  height: calc(100% - var(--frame-resize-pulse, 0px));
   border: 0;
   background: var(--surface-1);
 }
