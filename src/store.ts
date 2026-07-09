@@ -2485,17 +2485,21 @@ export const useStore = create<State>((set, get) => ({
 
   startRemoteStream: async (profile) => {
     const args = ["remote", ...(profile ? ["--profile", profile] : [])];
-    const res = await clawctlRun([...args, "--format", "json"]);
+    let res = await clawctlRun([...args, "--include-viewer-url", "--format", "json"]);
+    if (res.code !== 0 && clawctlErrorMessage(res).includes("unknown flag")) {
+      res = await clawctlRun([...args, "--format", "json"]);
+    }
     if (res.code !== 0) throw new Error(clawctlErrorMessage(res));
-    let result: { dashboard_url?: string; data?: { dashboard_url?: string } };
+    let result: { dashboard_url?: string; viewer_url?: string; data?: { dashboard_url?: string; viewer_url?: string } };
     try {
       result = JSON.parse(res.stdout);
     } catch {
       throw new Error(clawctlErrorMessage(res));
     }
     if (result.data?.dashboard_url) result = result.data;
-    if (!result.dashboard_url) throw new Error("clawctl remote did not return a dashboard URL.");
-    return result.dashboard_url;
+    const url = result.viewer_url || result.dashboard_url;
+    if (!url) throw new Error("clawctl remote did not return a viewer URL.");
+    return url;
   },
 }));
 
