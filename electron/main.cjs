@@ -328,7 +328,7 @@ function createWindow() {
     title: "NextBrowser", width: 1180, height: 760, minWidth: 960, minHeight: 640,
     backgroundColor: "#15141c", show: false,
     ...(icon ? { icon } : {}),
-    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true },
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: true },
   });
   window.once("ready-to-show", () => window.show());
   window.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: "deny" }; });

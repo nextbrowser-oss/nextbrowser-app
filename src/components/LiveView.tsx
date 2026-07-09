@@ -180,12 +180,10 @@ export function LiveView() {
         )}
         {streamUrl && state === "live" && (
           <div className="remote-live-embed" style={{ "--frame-resize-pulse": `${frameResizePulse}px` } as CSSProperties}>
-            <iframe
+            <webview
               className="remote-live-frame"
               src={streamUrl}
               title="Remote browser stream"
-              allow="clipboard-read; clipboard-write; fullscreen"
-              referrerPolicy="no-referrer-when-downgrade"
             />
           </div>
         )}
