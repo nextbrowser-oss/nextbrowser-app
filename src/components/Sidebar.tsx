@@ -360,7 +360,7 @@ export function Sidebar() {
             </div>
             <span className="profiles-count" title="Total profiles">{s.profiles.length}</span>
             <button
-              className="btn-bordered proxy-profile-btn"
+              className="mini proxy-profile-btn"
               title="Add manual proxy profile"
               onClick={() => {
                 resetManualProxyForm();
