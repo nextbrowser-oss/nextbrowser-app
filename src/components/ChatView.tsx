@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { type ClipboardEvent, type DragEvent, useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 import { SCRIPTS } from "../skillsCatalog";
 import { MarkdownText } from "./MarkdownText";
 import { Icon } from "./Icon";
 import { BrandLogo } from "./BrandLogo";
 import type { ChatAttachment, ChatMessage } from "../types";
-import { invoke } from "../electronBridge";
+import { filePathForFile, invoke } from "../electronBridge";
 import { conversationPreview } from "../types";
 import { agentById } from "../agents";
 import { trackEvent } from "../lib/analytics";
@@ -92,6 +92,43 @@ export function ChatView() {
       for (const file of selected) byPath.set(file.path, file);
       return [...byPath.values()];
     });
+  };
+
+  const addAttachmentFiles = (files: Iterable<File>, source: "paste" | "drop") => {
+    const next: ChatAttachment[] = [];
+    for (const file of files) {
+      const path = filePathForFile(file);
+      if (!path) continue;
+      next.push({ name: file.name || path.split(/[\\/]/).pop() || "file", path, size: file.size });
+    }
+    if (!next.length) return false;
+    trackEvent("chat_files_selected", {
+      source,
+      attachment_count: next.length,
+      total_size_bucket: Math.min(
+        100_000_000,
+        Math.ceil(next.reduce((total, file) => total + file.size, 0) / 1_000_000) * 1_000_000,
+      ),
+    });
+    setAttachments((current) => {
+      const byPath = new Map(current.map((file) => [file.path, file]));
+      for (const file of next) byPath.set(file.path, file);
+      return [...byPath.values()];
+    });
+    return true;
+  };
+
+  const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(event.clipboardData.files ?? []);
+    if (!files.length) return;
+    if (addAttachmentFiles(files, "paste")) event.preventDefault();
+  };
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    const files = Array.from(event.dataTransfer.files ?? []);
+    if (!files.length) return;
+    event.preventDefault();
+    addAttachmentFiles(files, "drop");
   };
 
   const looksLikeDomain = (text: string) =>
@@ -342,7 +379,7 @@ export function ChatView() {
             ))}
           </div>
         )}
-        <div className="composer">
+        <div className="composer" onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
           <textarea
             value={draft}
             placeholder={
@@ -352,6 +389,7 @@ export function ChatView() {
             }
             disabled={!ready}
             onChange={(e) => setDraft(e.target.value)}
+            onPaste={handlePaste}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
