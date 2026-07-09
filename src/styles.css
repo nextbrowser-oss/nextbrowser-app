@@ -651,7 +651,20 @@ button, input, textarea, select { color: var(--text); }
   gap: 2px;
   min-width: 0;
 }
-.profile-name { font-weight: 500; font-size: 13px; }
+.profile-title-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.profile-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  font-size: 13px;
+}
 .profile-meta {
   color: var(--muted);
   font-size: 11px;
@@ -692,6 +705,14 @@ button, input, textarea, select { color: var(--text); }
   background: var(--surface-5);
   border-radius: 999px;
   padding: 0 6px;
+}
+.profile-country-badge,
+.profile-ip-badge {
+  flex: none;
+}
+.profile-ip-badge {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--surface-4);
 }
 .inline-empty {
   display: flex;

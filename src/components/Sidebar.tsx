@@ -48,6 +48,7 @@ export function Sidebar() {
   const defaultKnown = !!s.defaultSession?.session?.name || defaultStatus !== "unknown";
   const defaultRunning = defaultStatus === "running";
   const defaultBusy = ["starting", "stopping", "rotating"].includes(defaultStatus);
+  const defaultIdentity = s.profileIdentities.__default;
   const showDefaultProfile = defaultKnown && !s.profiles.some((p) => p.name === "default");
   const visibleProfileCount = s.profiles.length + (showDefaultProfile ? 1 : 0);
   const agentName =
@@ -373,7 +374,6 @@ export function Sidebar() {
                 setManualProxyOpen(true);
               }}
             >
-              <Icon name="network" size={13} />
               Proxy
             </button>
             <button
@@ -438,8 +438,17 @@ export function Sidebar() {
               >
                 <span className={"dot " + (defaultRunning ? "green" : defaultBusy ? "orange" : "gray")} title={defaultStatus} />
                 <span className="profile-main">
-                  <span className="profile-name">default</span>
-                  <span className="profile-meta">{defaultStatus}</span>
+                  <span className="profile-title-line">
+                    <span className="profile-name">default</span>
+                    {defaultIdentity?.country && (
+                      <span className="badge profile-country-badge" title={countryLabel(defaultIdentity.country, defaultIdentity.city)}>
+                        {countryFlag(defaultIdentity.country)} {defaultIdentity.country.toUpperCase()}
+                      </span>
+                    )}
+                  </span>
+                  <span className="profile-meta">
+                    {defaultIdentity?.ip ? `${defaultStatus} · ${defaultIdentity.ip}` : defaultStatus}
+                  </span>
                 </span>
                 <span className="spacer" />
                 <div className="profile-actions">
@@ -498,6 +507,9 @@ export function Sidebar() {
               const busy = ["starting", "stopping", "rotating"].includes(status);
               const selected = s.selectedProfile === p.name;
               const manual = p.proxy_mode === "manual" && p.manual_proxy;
+              const identity = s.profileIdentities[p.name];
+              const profileCountry = p.country ?? identity?.country;
+              const profileCity = p.city ?? identity?.city;
               return (
                 <div
                   key={p.name}
@@ -506,17 +518,19 @@ export function Sidebar() {
                 >
                   <span className={"dot " + (running ? "green" : busy ? "orange" : "gray")} title={status} />
                   <span className="profile-main">
-                    <span className="profile-name">{p.name}</span>
+                    <span className="profile-title-line">
+                      <span className="profile-name">{p.name}</span>
+                      {profileCountry && (
+                        <span className="badge profile-country-badge" title={countryLabel(profileCountry, profileCity)}>
+                          {countryFlag(profileCountry)} {profileCountry.toUpperCase()}
+                        </span>
+                      )}
+                    </span>
                     <span className="profile-meta">
-                      {p.country ? countryLabel(p.country, p.city) : manual ? "Manual proxy" : status}
+                      {identity?.ip ? `${status} · ${identity.ip}` : profileCountry ? countryLabel(profileCountry, profileCity) : manual ? "Manual proxy" : status}
                     </span>
                   </span>
                   <span className="profile-badges">
-                    {p.country && (
-                      <span className="badge" title={countryLabel(p.country, p.city)}>
-                        {countryFlag(p.country)} {p.country.toUpperCase()}
-                      </span>
-                    )}
                     {manual && (
                       <span
                         className="badge manual-proxy-badge"
@@ -613,6 +627,8 @@ export function Sidebar() {
       {menuProfile && createPortal((() => {
         const isDefaultProfile = menuProfile === "__default";
         const prof = s.profiles.find((p) => p.name === menuProfile);
+        const identity = isDefaultProfile ? s.profileIdentities.__default : s.profileIdentities[menuProfile];
+        const activeCountry = (isDefaultProfile ? identity?.country : prof?.country ?? identity?.country)?.toLowerCase();
         const status = isDefaultProfile ? defaultStatus : s.statuses[menuProfile] ?? "unknown";
         const manual = prof?.proxy_mode === "manual" && prof.manual_proxy;
         return (
@@ -624,11 +640,12 @@ export function Sidebar() {
                   title={status}
                 />
                 <span className="profile-menu-name">{isDefaultProfile ? "default" : menuProfile}</span>
-                {prof?.country && (
-                  <span className="badge" title={countryLabel(prof.country, prof.city)}>
-                    {countryFlag(prof.country)} {prof.country.toUpperCase()}
+                {activeCountry && (
+                  <span className="badge profile-country-badge" title={countryLabel(activeCountry, identity?.city ?? prof?.city)}>
+                    {countryFlag(activeCountry)} {activeCountry.toUpperCase()}
                   </span>
                 )}
+                {identity?.ip && <span className="badge profile-ip-badge" title="Current proxy IP">{identity.ip}</span>}
                 {manual && (
                   <span
                     className="badge manual-proxy-badge"
@@ -666,8 +683,8 @@ export function Sidebar() {
                     {ROTATION_COUNTRIES.map((c) => (
                       <button
                         key={c.code}
-                        className={"mini country-chip" + (prof?.country?.toLowerCase() === c.code.toLowerCase() ? " active" : "")}
-                        title={`${c.code} — ${c.name}`}
+                        className={"mini country-chip" + (activeCountry === c.code.toLowerCase() ? " active" : "")}
+                        title={activeCountry === c.code.toLowerCase() ? `Current country: ${c.code} — ${c.name}` : `${c.code} — ${c.name}`}
                         onClick={() => {
                           if (isDefaultProfile) s.rotateDefaultSessionCountry(c.code);
                           else s.rotateProfileCountry(menuProfile, c.code);
