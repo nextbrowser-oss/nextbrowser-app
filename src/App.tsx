@@ -99,7 +99,11 @@ function SettingsModal({
   const agentId = useStore((s) => s.agentId);
   const agentReady = useStore((s) => s.agentReady());
   const agentVersion = useStore((s) => s.agentVersion());
-  const profiles = useStore((s) => s.profiles.length);
+  const profiles = useStore((s) => {
+    const defaultKnown = !!s.defaultSession?.session?.name || (s.defaultSession?.status ?? "unknown") !== "unknown";
+    const hasListedDefault = s.profiles.some((profile) => profile.name === "default");
+    return s.profiles.length + (defaultKnown && !hasListedDefault ? 1 : 0);
+  });
   const proxy = useStore((s) => s.proxy);
   const logout = useStore((s) => s.logout);
   const agentName = agentById(agentId).name;
