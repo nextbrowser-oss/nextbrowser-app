@@ -1,6 +1,10 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 import { Icon, Spinner } from "./Icon";
+
+type LiveWebviewElement = HTMLWebViewElement & {
+  executeJavaScript?: (code: string) => Promise<unknown>;
+};
 
 export function LiveView() {
   const s = useStore();
@@ -8,7 +12,8 @@ export function LiveView() {
   const [streamUrl, setStreamUrl] = useState("");
   const [state, setState] = useState<"idle" | "connecting" | "live" | "error">("idle");
   const [error, setError] = useState("");
-  const [frameResizePulse, setFrameResizePulse] = useState(0);
+  const remoteEmbedRef = useRef<HTMLDivElement | null>(null);
+  const remoteWebviewRef = useRef<LiveWebviewElement | null>(null);
   const runningProfiles = s.profiles.filter((profile) => s.statuses[profile.name] === "running");
   const defaultRunning = s.defaultSession?.status === "running";
   const profileOptions = [
@@ -76,10 +81,81 @@ export function LiveView() {
 
   useEffect(() => {
     if (!streamUrl || state !== "live") return;
-    const timers = [120, 450, 900, 1600, 2600].map((delay, index) =>
-      window.setTimeout(() => setFrameResizePulse(index % 2 === 0 ? 1 : 0), delay),
-    );
-    return () => timers.forEach((timer) => window.clearTimeout(timer));
+    const embed = remoteEmbedRef.current;
+    const webview = remoteWebviewRef.current;
+    if (!embed || !webview) return;
+
+    const syncSize = () => {
+      const width = Math.max(1, Math.floor(embed.clientWidth));
+      const height = Math.max(1, Math.floor(embed.clientHeight));
+      webview.style.width = `${width}px`;
+      webview.style.height = `${height}px`;
+      webview.style.minWidth = `${width}px`;
+      webview.style.minHeight = `${height}px`;
+      webview.setAttribute("autosize", "on");
+      webview.setAttribute("minwidth", String(width));
+      webview.setAttribute("maxwidth", String(width));
+      webview.setAttribute("minheight", String(height));
+      webview.setAttribute("maxheight", String(height));
+      applyEmbeddedStreamLayout(width, height);
+    };
+
+    const applyEmbeddedStreamLayout = (width = Math.max(1, Math.floor(embed.clientWidth)), height = Math.max(1, Math.floor(embed.clientHeight))) => {
+      if (!webview.executeJavaScript) return;
+      const script = `(() => {
+        const width = ${JSON.stringify(width)};
+        const height = ${JSON.stringify(height)};
+        const video = document.querySelector("video");
+        const streamBox = video?.parentElement;
+        if (!video || !streamBox) return { ok: false, reason: "video-not-ready" };
+
+        document.documentElement.style.setProperty("background", "#000", "important");
+        document.documentElement.style.setProperty("overflow", "hidden", "important");
+        document.body.style.setProperty("margin", "0", "important");
+        document.body.style.setProperty("background", "#000", "important");
+        document.body.style.setProperty("overflow", "hidden", "important");
+
+        streamBox.style.setProperty("position", "fixed", "important");
+        streamBox.style.setProperty("inset", "0 auto auto 0", "important");
+        streamBox.style.setProperty("z-index", "2147483647", "important");
+        streamBox.style.setProperty("width", width + "px", "important");
+        streamBox.style.setProperty("height", height + "px", "important");
+        streamBox.style.setProperty("min-height", "0", "important");
+        streamBox.style.setProperty("max-height", "none", "important");
+        streamBox.style.setProperty("border-radius", "0", "important");
+
+        video.style.setProperty("width", "100%", "important");
+        video.style.setProperty("height", "100%", "important");
+        video.style.setProperty("object-fit", "contain", "important");
+        window.scrollTo(0, 0);
+        return { ok: true, width, height };
+      })()`;
+      try {
+        void webview.executeJavaScript(script).catch(() => undefined);
+      } catch {
+        // The webview throws synchronously until its guest page emits dom-ready.
+      }
+    };
+
+    syncSize();
+    const frame = window.requestAnimationFrame(syncSize);
+    const timers = [100, 350, 800, 1400, 2400, 4000].map((delay) => window.setTimeout(syncSize, delay));
+    const interval = window.setInterval(syncSize, 1200);
+    const observer = new ResizeObserver(syncSize);
+    observer.observe(embed);
+    webview.addEventListener("dom-ready", syncSize);
+    webview.addEventListener("did-finish-load", syncSize);
+    webview.addEventListener("did-stop-loading", syncSize);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      timers.forEach((timer) => window.clearTimeout(timer));
+      window.clearInterval(interval);
+      observer.disconnect();
+      webview.removeEventListener("dom-ready", syncSize);
+      webview.removeEventListener("did-finish-load", syncSize);
+      webview.removeEventListener("did-stop-loading", syncSize);
+    };
   }, [streamUrl, state]);
 
   return (
@@ -161,8 +237,9 @@ export function LiveView() {
           </div>
         )}
         {streamUrl && state === "live" && (
-          <div className="remote-live-embed" style={{ "--frame-resize-pulse": `${frameResizePulse}px` } as CSSProperties}>
+          <div ref={remoteEmbedRef} className="remote-live-embed">
             <webview
+              ref={remoteWebviewRef}
               className="remote-live-frame"
               src={streamUrl}
               title="Remote browser stream"
