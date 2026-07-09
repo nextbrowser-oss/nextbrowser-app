@@ -125,8 +125,8 @@ async function clawctlHasSkill(binary) {
 async function resolveClawctl() {
   if (process.env.CLAWCTL_BIN && launchable(expand(process.env.CLAWCTL_BIN))) return expand(process.env.CLAWCTL_BIN);
   const candidates = [];
-  for (const dir of searchDirs()) for (const name of executableNames("clawctl")) { const f = path.join(dir, name); if (launchable(f)) candidates.push(f); }
   const dev = path.join(home(), "projects/ClawBrowser/clawctl/bin/clawctl"); if (launchable(dev)) candidates.push(dev);
+  for (const dir of searchDirs()) for (const name of executableNames("clawctl")) { const f = path.join(dir, name); if (launchable(f)) candidates.push(f); }
   for (const candidate of [...new Set(candidates)]) if (await clawctlHasSkill(candidate)) return candidate;
   return candidates[0] || null;
 }
