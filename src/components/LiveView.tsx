@@ -104,7 +104,7 @@ export function LiveView() {
           ))}
         </select>
         <span className={"live-pill " + state}>
-          {state === "live" ? "backend stream" : state}
+          {state === "live" ? "live" : state}
         </span>
         <span className="muted small">Tabs are handled by the Remote Control viewer when supported.</span>
         <span className="spacer" />
@@ -114,30 +114,12 @@ export function LiveView() {
             Open link
           </a>
         )}
-        {state === "live" ? (
+        {state === "live" && (
           <button className="btn-bordered live-stop-btn" onClick={stop}>
             <Icon name="stop.fill" size={14} className="error" />
             Stop
           </button>
-        ) : streamUrl ? (
-          <button
-            className="btn-bordered-prominent live-stream-btn"
-            disabled={state === "connecting"}
-            onClick={() => start()}
-          >
-            {state === "connecting" ? (
-              <>
-                <Spinner size={13} />
-                Connecting…
-              </>
-            ) : (
-              <>
-                <Icon name="play.fill" size={12} />
-                Stream
-              </>
-            )}
-          </button>
-        ) : null}
+        )}
       </div>
       <hr className="divider" />
 
@@ -145,7 +127,7 @@ export function LiveView() {
         {state === "connecting" && (
           <div className="live-empty-panel">
             <Spinner size={18} />
-            <strong>Starting backend stream…</strong>
+            <strong>Starting live view…</strong>
             <p className="muted small">Creating a Remote Control session through clawctl.</p>
           </div>
         )}
@@ -165,13 +147,13 @@ export function LiveView() {
             <strong>{runningProfiles.length || defaultRunning ? "Stream is off" : "No active profiles"}</strong>
             <p className="muted">
               {runningProfiles.length || defaultRunning
-                ? "Start a backend Remote Control stream for the selected running profile."
-                : "Launch a profile to stream it through backend Remote Control."}
+                ? "Start Remote Control for the selected running profile."
+                : "Launch a profile and open Remote Control."}
             </p>
             <button
               className="btn-bordered-prominent live-stream-btn"
               onClick={() => launchAndStream()}
-              title={runningProfiles.length || defaultRunning ? "Start backend stream" : "Launch selected profile and stream"}
+              title={runningProfiles.length || defaultRunning ? "Start live view" : "Launch selected profile and open live view"}
             >
               <Icon name="play.fill" size={12} />
               {runningProfiles.length || defaultRunning ? "Stream" : "Launch to stream"}
@@ -190,7 +172,7 @@ export function LiveView() {
       </div>
       {state === "live" && (
         <div className="live-hint muted small">
-          Streaming through backend Remote Control. Use the viewer controls for tabs and interaction.
+          Remote Control is running. Use the viewer controls for tabs and interaction.
         </div>
       )}
     </div>
