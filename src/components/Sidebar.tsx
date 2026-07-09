@@ -355,23 +355,24 @@ export function Sidebar() {
         <div className="claw-card control-card profiles-card">
           <div className="row section-row">
             <div>
-              <div className="section">SESSIONS</div>
+              <div className="section">PROFILES</div>
               <div className="card-title">Profiles</div>
             </div>
             <span className="profiles-count" title="Total profiles">{s.profiles.length}</span>
             <button
-              className="plain-icon-btn plain-icon-btn-compact"
+              className="btn-bordered proxy-profile-btn"
               title="Add manual proxy profile"
               onClick={() => {
                 resetManualProxyForm();
                 setManualProxyOpen(true);
               }}
             >
-              <Icon name="plus" size={12} />
+              <Icon name="network" size={13} />
+              Proxy
             </button>
             <button
               className="plain-icon-btn plain-icon-btn-compact"
-              title="Refresh profiles and session status"
+              title="Refresh profiles"
               disabled={s.isRefreshing}
               onClick={() => s.refreshSessions()}
             >
@@ -383,12 +384,12 @@ export function Sidebar() {
           <div className="session-quick-actions">
             <button
               className="btn-bordered full"
-              title={s.selectedProfile ? `Start selected profile: ${s.selectedProfile}` : "Start default managed session"}
+              title={s.selectedProfile ? `Start selected profile: ${s.selectedProfile}` : "Start default profile"}
               disabled={s.isRefreshing}
-              onClick={() => s.selectedProfile ? s.startProfile(s.selectedProfile) : s.startDefaultSession()}
+              onClick={() => void (s.selectedProfile ? s.startProfile(s.selectedProfile) : s.startDefaultSession())}
             >
               <Icon name="play.fill" size={14} />
-              {s.selectedProfile ? "Start selected session" : "Start default session"}
+              {s.selectedProfile ? "Start selected profile" : "Start default profile"}
             </button>
           </div>
           <div className="search-box">
@@ -415,7 +416,6 @@ export function Sidebar() {
                 <Icon name="person.crop.circle" size={18} className="muted" />
                 <div>
                   <strong>No profiles yet</strong>
-                  <div className="muted small">Add a manual proxy profile, or enter a dashboard key to use managed browser sessions.</div>
                 </div>
               </div>
             )}

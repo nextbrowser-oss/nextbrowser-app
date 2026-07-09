@@ -1227,6 +1227,7 @@ export const useStore = create<State>((set, get) => ({
     trackEvent("session_start_requested", { scope: "default" });
     await clawctlRun(["start", "--format", "json"]);
     await get().loadDefaultSession();
+    await get().loadProfiles();
     trackTiming("session_create_completed", startedAt, { scope: "default", session_status: get().defaultSession?.status ?? "unknown" });
     trackTiming("session_start_completed", startedAt, { scope: "default", session_status: get().defaultSession?.status ?? "unknown" });
   },
@@ -2464,7 +2465,15 @@ export const useStore = create<State>((set, get) => ({
 
   startRemoteStream: async (profile) => {
     const args = ["remote", ...(profile ? ["--profile", profile] : [])];
-    const result = await clawctlJson<{ dashboard_url?: string; target?: { title?: string; url?: string } }>(args);
+    const res = await clawctlRun([...args, "--format", "json"]);
+    if (res.code !== 0) throw new Error(clawctlErrorMessage(res));
+    let result: { dashboard_url?: string; data?: { dashboard_url?: string } };
+    try {
+      result = JSON.parse(res.stdout);
+    } catch {
+      throw new Error(clawctlErrorMessage(res));
+    }
+    if (result.data?.dashboard_url) result = result.data;
     if (!result.dashboard_url) throw new Error("clawctl remote did not return a dashboard URL.");
     return result.dashboard_url;
   },

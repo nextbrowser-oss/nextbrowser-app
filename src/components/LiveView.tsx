@@ -9,14 +9,23 @@ export function LiveView() {
   const [state, setState] = useState<"idle" | "connecting" | "live" | "error">("idle");
   const [error, setError] = useState("");
   const runningProfiles = s.profiles.filter((profile) => s.statuses[profile.name] === "running");
-  const launchTarget = sessionKey || s.selectedProfile || s.profiles[0]?.name || "";
+  const defaultRunning = s.defaultSession?.status === "running";
+  const profileOptions = [
+    ...(defaultRunning ? [{ name: "__default", label: "default", running: true }] : []),
+    ...s.profiles.map((profile) => ({
+      name: profile.name,
+      label: profile.name,
+      running: s.statuses[profile.name] === "running",
+    })),
+  ];
+  const launchTarget = sessionKey || (defaultRunning ? "__default" : "") || s.selectedProfile || s.profiles[0]?.name || "";
 
   const start = async (requestedKey = sessionKey) => {
     if (state === "connecting") return;
     setError("");
     setState("connecting");
     try {
-      const url = await s.startRemoteStream(requestedKey || undefined);
+      const url = await s.startRemoteStream(requestedKey === "__default" ? undefined : requestedKey || undefined);
       setStreamUrl(url);
       setState("live");
     } catch (e) {
@@ -32,7 +41,8 @@ export function LiveView() {
     try {
       if (launchTarget) {
         setSessionKey(launchTarget);
-        if (s.statuses[launchTarget] !== "running") await s.startProfile(launchTarget);
+        if (launchTarget !== "__default" && s.statuses[launchTarget] !== "running") await s.startProfile(launchTarget);
+        if (launchTarget === "__default" && !defaultRunning) await s.startDefaultSession();
         await s.refreshSessions();
         await start(launchTarget);
       } else {
@@ -53,11 +63,12 @@ export function LiveView() {
 
   useEffect(() => {
     const current =
-      s.selectedProfile ??
-      s.profiles.find((profile) => s.statuses[profile.name] === "running")?.name ??
+      s.selectedProfile ||
+      (s.defaultSession?.status === "running" ? "__default" : "") ||
+      s.profiles.find((profile) => s.statuses[profile.name] === "running")?.name ||
       "";
     setSessionKey(current);
-    if (current && s.statuses[current] === "running") void start(current);
+    if (current && (current === "__default" || s.statuses[current] === "running")) void start(current);
     // LiveView is mounted afresh on tab selection, matching Swift onAppear.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -76,10 +87,10 @@ export function LiveView() {
             setState("idle");
           }}
         >
-          <option value="">Select session</option>
-          {s.profiles.map((p) => (
+          <option value="">Select profile</option>
+          {profileOptions.map((p) => (
             <option key={p.name} value={p.name}>
-              {s.statuses[p.name] === "running" ? p.name : `${p.name} (stopped)`}
+              {p.running ? p.label : `${p.label} (stopped)`}
             </option>
           ))}
         </select>
@@ -142,19 +153,19 @@ export function LiveView() {
         {state === "idle" && !streamUrl && (
           <div className="live-empty-panel">
             <Icon name="video.fill" size={34} className="muted" />
-            <strong>{runningProfiles.length ? "Stream is off" : "No active profiles"}</strong>
+            <strong>{runningProfiles.length || defaultRunning ? "Stream is off" : "No active profiles"}</strong>
             <p className="muted">
-              {runningProfiles.length
+              {runningProfiles.length || defaultRunning
                 ? "Start a backend Remote Control stream for the selected running profile."
                 : "Launch a profile to stream it through backend Remote Control."}
             </p>
             <button
               className="btn-bordered-prominent live-stream-btn"
               onClick={() => launchAndStream()}
-              title={runningProfiles.length ? "Start backend stream" : "Launch selected profile and stream"}
+              title={runningProfiles.length || defaultRunning ? "Start backend stream" : "Launch selected profile and stream"}
             >
               <Icon name="play.fill" size={12} />
-              {runningProfiles.length ? "Stream" : "Launch to stream"}
+              {runningProfiles.length || defaultRunning ? "Stream" : "Launch to stream"}
             </button>
           </div>
         )}
