@@ -44,11 +44,14 @@ export function Sidebar() {
   const error = s.agentError();
   const loggedIn = s.agentLoggedIn();
   const profiles = s.filteredProfiles();
+  const defaultRunning = s.defaultSession?.status === "running";
+  const showDefaultProfile = defaultRunning && !s.profiles.some((p) => p.name === "default");
+  const visibleProfileCount = s.profiles.length + (showDefaultProfile ? 1 : 0);
   const agentName =
     PRIMARY_AGENTS.concat(ADDITIONAL_AGENTS).find((a) => a.id === s.agentId)?.name ?? "agent";
 
   if (s.sidebarCollapsed) {
-    const runningCount = s.profiles.filter((p) => s.statuses[p.name] === "running").length;
+    const runningCount = s.profiles.filter((p) => s.statuses[p.name] === "running").length + (showDefaultProfile ? 1 : 0);
     return (
       <div className="sidebar-mini">
         <button
@@ -72,9 +75,9 @@ export function Sidebar() {
           <Icon name="cpu.fill" size={18} />
           <span>{s.agentReady() ? "on" : "off"}</span>
         </button>
-        <button className="mini-nav-btn" title={`${s.profiles.length} profiles, ${runningCount} running`} onClick={() => s.setTab("live")}>
+        <button className="mini-nav-btn" title={`${visibleProfileCount} profiles, ${runningCount} running`} onClick={() => s.setTab("live")}>
           <Icon name="person.crop.circle" size={18} />
-          <span>{runningCount}/{s.profiles.length}</span>
+          <span>{runningCount}/{visibleProfileCount}</span>
         </button>
         <button className="mini-nav-btn" title="Open skills" onClick={() => s.setTab("skills")}>
           <Icon name="square.grid.2x2.fill" size={18} />
@@ -358,7 +361,7 @@ export function Sidebar() {
               <div className="section">PROFILES</div>
               <div className="card-title">Profiles</div>
             </div>
-            <span className="profiles-count" title="Total profiles">{s.profiles.length}</span>
+            <span className="profiles-count" title="Total profiles">{visibleProfileCount}</span>
             <button
               className="mini proxy-profile-btn"
               title="Add manual proxy profile"
@@ -411,7 +414,7 @@ export function Sidebar() {
             )}
           </div>
           <div className="profile-list">
-            {s.profiles.length === 0 && (
+            {visibleProfileCount === 0 && (
               <div className="inline-empty">
                 <Icon name="person.crop.circle" size={18} className="muted" />
                 <div>
@@ -419,11 +422,44 @@ export function Sidebar() {
                 </div>
               </div>
             )}
-            {s.profiles.length === 0 && !s.proxy && (
+            {visibleProfileCount === 0 && !s.proxy && (
               <button className="btn-bordered full empty-action-button" title="Enter dashboard key to unlock managed profiles" onClick={() => s.setDashboardKeyPromptOpen(true)}>
                 <Icon name="lock" size={14} />
                 Enter dashboard key before first profile
               </button>
+            )}
+            {showDefaultProfile && (
+              <div
+                className={"profile-row" + (!s.selectedProfile ? " selected" : "")}
+                onClick={() => s.selectProfile(undefined)}
+              >
+                <span className="dot green" title="running" />
+                <span className="profile-main">
+                  <span className="profile-name">default</span>
+                  <span className="profile-meta">running</span>
+                </span>
+                <span className="spacer" />
+                <div className="profile-actions">
+                  <button
+                    className="plain-icon-btn"
+                    title="Stop default"
+                    onClick={(e) => { e.stopPropagation(); void s.stopDefaultSession(); }}
+                  >
+                    <Icon name="stop.fill" size={16} />
+                  </button>
+                  <button
+                    className="plain-icon-btn"
+                    title="Live view"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      s.selectProfile(undefined);
+                      s.setTab("live");
+                    }}
+                  >
+                    <Icon name="video.fill" size={16} />
+                  </button>
+                </div>
+              </div>
             )}
             {s.profiles.length > 0 && profiles.length === 0 && (
               <div className="muted small">No matches for “{s.profileSearch}”.</div>
