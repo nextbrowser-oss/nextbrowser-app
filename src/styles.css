@@ -758,6 +758,22 @@ button, input, textarea, select { color: var(--text); }
   align-self: center;
   color: var(--muted);
 }
+.settings-toggle { position: relative; }
+.settings-update-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--warn);
+  color: #16151b;
+  font-size: 10px;
+  line-height: 1;
+  box-shadow: 0 0 0 2px var(--bg);
+}
 .floating-controls {
   position: fixed;
   top: 14px;
@@ -1364,6 +1380,14 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   gap: 16px;
   min-height: 32px;
 }
+.settings-update-row { align-items: flex-start; }
+.settings-update-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  text-align: right;
+}
 .settings-row strong {
   font-size: 13px;
   font-weight: 600;
@@ -1386,6 +1410,12 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .settings-link:hover { background: var(--surface-3); }
 .settings-link-danger { color: var(--red); }
 .settings-actions { margin-top: 8px; }
+.update-prompt { width: min(420px, calc(100vw - 32px)); }
+.primary-mini {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
 
 @media (prefers-reduced-motion: reduce) {
   *,

@@ -14,7 +14,7 @@ import { getPreviewMode, getPreviewTab } from "./preview";
 import type { AppTab, Conversation } from "./types";
 import { resolveTheme, type Theme } from "./theme";
 import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
-import { listen } from "./electronBridge";
+import { invoke, listen } from "./electronBridge";
 import { agentById } from "./agents";
 
 const TABS: { id: AppTab; label: string; icon: string }[] = [
@@ -25,6 +25,29 @@ const TABS: { id: AppTab; label: string; icon: string }[] = [
 ];
 
 const PREVIEW_TABS = new Set<string>(["chat", "skills", "live", "guide"]);
+
+interface AppUpdateStatus {
+  status?: string;
+  version?: string;
+  percent?: number;
+  message?: string;
+}
+
+function updateAvailable(status?: AppUpdateStatus | null): boolean {
+  return status?.status === "available" || status?.status === "downloaded" || status?.status === "downloading";
+}
+
+function updateLabel(status?: AppUpdateStatus | null): string {
+  if (!status) return "Check for updates";
+  if (status.status === "available") return `Update to ${status.version ?? "new version"}`;
+  if (status.status === "downloading") return `Downloading ${status.percent ?? 0}%`;
+  if (status.status === "downloaded") return `Restart to install ${status.version ?? "update"}`;
+  if (status.status === "not-available") return "Up to date";
+  if (status.status === "checking") return "Checking...";
+  if (status.status === "disabled") return "Updates unavailable in this build";
+  if (status.status === "error") return status.message ?? "Update check failed";
+  return "Check for updates";
+}
 
 function ThemeToggle({ theme, onToggle, floating = false }: {
   theme: Theme;
@@ -44,7 +67,7 @@ function ThemeToggle({ theme, onToggle, floating = false }: {
   );
 }
 
-function SettingsButton({ onClick }: { onClick: () => void }) {
+function SettingsButton({ onClick, hasUpdate }: { onClick: () => void; hasUpdate?: boolean }) {
   return (
     <button
       className="settings-toggle plain-icon-btn"
@@ -53,11 +76,24 @@ function SettingsButton({ onClick }: { onClick: () => void }) {
       aria-label="Settings"
     >
       <Icon name="gearshape" size={18} />
+      {hasUpdate && <span className="settings-update-dot" aria-hidden="true">★</span>}
     </button>
   );
 }
 
-function SettingsModal({ onClose }: { onClose: () => void }) {
+function SettingsModal({
+  onClose,
+  appUpdate,
+  onCheckUpdate,
+  onDownloadUpdate,
+  onInstallUpdate,
+}: {
+  onClose: () => void;
+  appUpdate: AppUpdateStatus;
+  onCheckUpdate: () => void;
+  onDownloadUpdate: () => void;
+  onInstallUpdate: () => void;
+}) {
   const clawctlVersion = useStore((s) => s.clawctlVersion);
   const clawctlSupportsSkill = useStore((s) => s.clawctlSupportsSkill);
   const agentId = useStore((s) => s.agentId);
@@ -89,6 +125,27 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
           <div className="settings-row">
             <span className="muted small">NextBrowser</span>
             <strong>{__APP_VERSION__}</strong>
+          </div>
+          <div className="settings-row settings-update-row">
+            <span className="muted small">App update</span>
+            <div className="settings-update-cell">
+              <strong className={updateAvailable(appUpdate) ? "warn" : ""}>{updateLabel(appUpdate)}</strong>
+              {appUpdate.status === "available" && (
+                <button className="mini" onClick={onDownloadUpdate}>
+                  Download
+                </button>
+              )}
+              {appUpdate.status === "downloaded" && (
+                <button className="mini primary-mini" onClick={onInstallUpdate}>
+                  Restart and update
+                </button>
+              )}
+              {appUpdate.status !== "available" && appUpdate.status !== "downloaded" && appUpdate.status !== "downloading" && (
+                <button className="mini" onClick={onCheckUpdate}>
+                  Check
+                </button>
+              )}
+            </div>
           </div>
           <div className="settings-row">
             <span className="muted small">clawctl</span>
@@ -154,6 +211,45 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+function AppUpdatePrompt({
+  status,
+  onLater,
+  onDownload,
+  onInstall,
+}: {
+  status: AppUpdateStatus;
+  onLater: () => void;
+  onDownload: () => void;
+  onInstall: () => void;
+}) {
+  const downloaded = status.status === "downloaded";
+  return (
+    <div className="modal-overlay">
+      <div className="modal-card update-prompt">
+        <div className="modal-title-row">
+          <Icon name="sparkles" size={18} className="warn" />
+          <div>
+            <strong>New NextBrowser version available</strong>
+            <div className="muted small">
+              {status.version ? `Version ${status.version} is ready.` : "A newer build is available."}
+            </div>
+          </div>
+        </div>
+        <p className="muted">
+          Update now, or keep working and install it later from Settings.
+        </p>
+        <div className="row settings-actions">
+          <button className="secondary" onClick={onLater}>Later</button>
+          <span className="spacer" />
+          <button className="primary" onClick={downloaded ? onInstall : onDownload}>
+            {downloaded ? "Restart and update" : "Download update"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function useButtonTooltips() {
   useEffect(() => {
     const apply = () => {
@@ -175,6 +271,8 @@ export function App() {
     window.matchMedia("(prefers-color-scheme: light)").matches,
   ));
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [appUpdate, setAppUpdate] = useState<AppUpdateStatus>({ status: "idle" });
+  const [updatePromptDismissed, setUpdatePromptDismissed] = useState(false);
   const preview = getPreviewMode();
   const checking = useStore((s) => s.checking);
   const tab = useStore((s) => s.tab);
@@ -187,15 +285,31 @@ export function App() {
   const setAppActive = useStore((s) => s.setAppActive);
   useButtonTooltips();
 
+  const checkAppUpdate = () => {
+    void invoke<AppUpdateStatus>("app_check_for_update").then(setAppUpdate).catch(() => undefined);
+  };
+  const downloadAppUpdate = () => {
+    void invoke<AppUpdateStatus>("app_download_update").then(setAppUpdate).catch((error) => {
+      setAppUpdate({ status: "error", message: error instanceof Error ? error.message : String(error) });
+    });
+  };
+  const installAppUpdate = () => {
+    void invoke<boolean>("app_install_update").catch((error) => {
+      setAppUpdate({ status: "error", message: error instanceof Error ? error.message : String(error) });
+    });
+  };
+
   useEffect(() => {
     initAnalytics();
+    void invoke<AppUpdateStatus>("app_update_status").then(setAppUpdate).catch(() => undefined);
     trackScreenView(tab, { source: "app_start" }, { pageView: false });
     trackEvent("app_start", {
       preview_mode: preview ?? "none",
       theme,
     });
     let cleanup: (() => void) | undefined;
-    void listen<{ status?: string; version?: string; percent?: number; message?: string }>("app:update", (event) => {
+    void listen<AppUpdateStatus>("app:update", (event) => {
+      setAppUpdate(event.payload);
       trackEvent("app_update_status", {
         update_status: event.payload.status ?? "unknown",
         has_version: !!event.payload.version,
@@ -329,14 +443,22 @@ export function App() {
     };
   }, [sidebarCollapsed, sidebarWidth, setSidebarWidth]);
 
-  if (checking && preview !== "login" && preview !== "main" && preview !== "onboarding") {
+    if (checking && preview !== "login" && preview !== "main" && preview !== "onboarding") {
     return (
       <>
         <div className="floating-controls">
-          <SettingsButton onClick={() => setSettingsOpen(true)} />
+          <SettingsButton onClick={() => setSettingsOpen(true)} hasUpdate={updateAvailable(appUpdate)} />
           <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
         </div>
-        {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+        {settingsOpen && (
+          <SettingsModal
+            onClose={() => setSettingsOpen(false)}
+            appUpdate={appUpdate}
+            onCheckUpdate={checkAppUpdate}
+            onDownloadUpdate={downloadAppUpdate}
+            onInstallUpdate={installAppUpdate}
+          />
+        )}
         <div className="splash">
           <BrandLogo size={76} />
           <div className="splash-title">{brandName}</div>
@@ -376,7 +498,7 @@ export function App() {
           </div>
           <span className="tabbar-spacer" />
           <div className="tabbar-controls">
-            <SettingsButton onClick={() => setSettingsOpen(true)} />
+            <SettingsButton onClick={() => setSettingsOpen(true)} hasUpdate={updateAvailable(appUpdate)} />
             <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
           </div>
         </nav>
@@ -388,7 +510,26 @@ export function App() {
           {tab === "guide" && <GuideView />}
         </div>
       </main>
-      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && (
+        <SettingsModal
+          onClose={() => setSettingsOpen(false)}
+          appUpdate={appUpdate}
+          onCheckUpdate={checkAppUpdate}
+          onDownloadUpdate={downloadAppUpdate}
+          onInstallUpdate={installAppUpdate}
+        />
+      )}
+      {updateAvailable(appUpdate) && !updatePromptDismissed && !settingsOpen && (
+        <AppUpdatePrompt
+          status={appUpdate}
+          onLater={() => setUpdatePromptDismissed(true)}
+          onDownload={() => {
+            setUpdatePromptDismissed(true);
+            downloadAppUpdate();
+          }}
+          onInstall={installAppUpdate}
+        />
+      )}
       <DashboardKeyModal />
       {showOnboarding && <OnboardingView />}
     </div>

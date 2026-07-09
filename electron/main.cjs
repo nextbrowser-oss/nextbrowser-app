@@ -149,8 +149,8 @@ function setAppUpdateStatus(status, patch = {}) {
 }
 function configureAutoUpdater() {
   if (!app.isPackaged || !["darwin", "win32"].includes(process.platform)) return;
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.on("checking-for-update", () => setAppUpdateStatus("checking"));
   autoUpdater.on("update-available", (info) => setAppUpdateStatus("available", { version: info.version }));
   autoUpdater.on("update-not-available", (info) => setAppUpdateStatus("not-available", { version: info.version }));
@@ -163,7 +163,7 @@ function checkForAppUpdate() {
     setAppUpdateStatus("disabled", { message: "App updates run only in packaged macOS/Windows builds." });
     return null;
   }
-  return autoUpdater.checkForUpdatesAndNotify().catch((error) => {
+  return autoUpdater.checkForUpdates().catch((error) => {
     setAppUpdateStatus("error", { message: error?.message || String(error) });
     return null;
   });
@@ -181,6 +181,21 @@ async function invokeCommand(command, args = {}) {
     case "app_update_status": return appUpdateStatus;
     case "app_check_for_update": {
       await checkForAppUpdate();
+      return appUpdateStatus;
+    }
+    case "app_download_update": {
+      if (!app.isPackaged || !["darwin", "win32"].includes(process.platform)) {
+        setAppUpdateStatus("disabled", { message: "App updates run only in packaged macOS/Windows builds." });
+        return appUpdateStatus;
+      }
+      if (!["available", "downloaded"].includes(appUpdateStatus.status)) {
+        await checkForAppUpdate();
+      }
+      if (appUpdateStatus.status === "available") {
+        await autoUpdater.downloadUpdate().catch((error) => {
+          setAppUpdateStatus("error", { message: error?.message || String(error) });
+        });
+      }
       return appUpdateStatus;
     }
     case "app_install_update": {
