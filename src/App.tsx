@@ -154,6 +154,21 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+function useButtonTooltips() {
+  useEffect(() => {
+    const apply = () => {
+      document.querySelectorAll<HTMLButtonElement>("button:not([title])").forEach((button) => {
+        const label = button.getAttribute("aria-label") || button.textContent?.replace(/\s+/g, " ").trim();
+        if (label) button.title = label;
+      });
+    };
+    apply();
+    const observer = new MutationObserver(apply);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+}
+
 export function App() {
   const [theme, setTheme] = useState<Theme>(() => resolveTheme(
     localStorage.getItem("nextbrowser.theme"),
@@ -167,8 +182,10 @@ export function App() {
   const bootstrap = useStore((s) => s.bootstrap);
   const showOnboarding = useStore((s) => s.showOnboarding);
   const sidebarWidth = useStore((s) => s.sidebarWidth);
+  const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
   const setSidebarWidth = useStore((s) => s.setSidebarWidth);
   const setAppActive = useStore((s) => s.setAppActive);
+  useButtonTooltips();
 
   useEffect(() => {
     initAnalytics();
@@ -290,6 +307,7 @@ export function App() {
     let startW = sidebarWidth;
     const onMove = (e: MouseEvent) => {
       if (!dragging) return;
+      if (sidebarCollapsed) return;
       setSidebarWidth(Math.min(480, Math.max(240, startW + (e.clientX - startX))));
     };
     const onUp = () => {
@@ -309,7 +327,7 @@ export function App() {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [sidebarWidth, setSidebarWidth]);
+  }, [sidebarCollapsed, sidebarWidth, setSidebarWidth]);
 
   if (checking && preview !== "login" && preview !== "main" && preview !== "onboarding") {
     return (
@@ -331,10 +349,13 @@ export function App() {
 
   return (
     <div className="app">
-      <aside className="sidebar thin-material" style={{ width: sidebarWidth }}>
+      <aside
+        className={"sidebar thin-material" + (sidebarCollapsed ? " sidebar-collapsed" : "")}
+        style={{ width: sidebarCollapsed ? 68 : sidebarWidth }}
+      >
         <Sidebar />
       </aside>
-      <div id="sidebar-resize" className="resize-handle" />
+      {!sidebarCollapsed && <div id="sidebar-resize" className="resize-handle" />}
       <main className="content">
         <nav className="tabbar">
           <div className="tabbar-group" role="tablist" aria-label="Main views">
@@ -343,6 +364,8 @@ export function App() {
                 key={t.id}
                 className={"tab-hit" + (tab === t.id ? " tab-hit-active" : "")}
                 onClick={() => setTab(t.id)}
+                title={`Open ${t.label}`}
+                aria-label={`Open ${t.label}`}
               >
                 <span className={"tab-pill" + (tab === t.id ? " tab-pill-active" : "")}>
                   <Icon name={t.icon} size={16} strokeWidth={2.25} />

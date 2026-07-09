@@ -229,13 +229,14 @@ interface State {
   conversations: Conversation[];
   activeConvId: Record<string, string>;
   tab: AppTab;
-  skillState: Record<string, SkillApplyState>;
+  skillState: Record<string, SkillApplyState | string>;
   scheduledRuns: ScheduledRun[];
   customScripts: CustomScript[];
   scriptSync: Record<string, ScriptSyncState>;
   usageHistory: UsageSnapshot[];
   showOnboarding: boolean;
   sidebarWidth: number;
+  sidebarCollapsed: boolean;
   chatListCollapsed: boolean;
   dashboardKeyPromptOpen: boolean;
   clawctlVersion: string;
@@ -278,6 +279,7 @@ interface State {
   setAppActive: (v: boolean) => void;
   setProfileSearch: (q: string) => void;
   setSidebarWidth: (w: number) => void;
+  setSidebarCollapsed: (v: boolean) => void;
   setChatListCollapsed: (v: boolean) => void;
   setDashboardKeyPromptOpen: (v: boolean) => void;
   finishOnboarding: () => void;
@@ -296,6 +298,7 @@ interface State {
   filteredProfiles: () => Profile[];
   currentSessionDisplayName: () => string;
   skillApplyState: (entryId: string) => SkillApplyState;
+  skillApplyError: (entryId: string) => string | undefined;
 
   newChat: () => string;
   createNamedChat: (agentId: string, title: string) => string;
@@ -315,6 +318,7 @@ interface State {
   applySkill: (entry: SkillEntry) => Promise<SkillRef | undefined>;
   useSkillInChat: (entry: SkillEntry) => Promise<void>;
   runScript: (entry: SkillEntry, host?: string) => Promise<void>;
+  startRemoteStream: (profile?: string) => Promise<string>;
 
   addScheduledRun: (run: Omit<ScheduledRun, "id" | "agent" | "enabled">) => void;
   updateScheduledRun: (id: string, patch: Partial<ScheduledRun>) => void;
@@ -373,6 +377,31 @@ function persistScripts(scripts: CustomScript[]) {
   void saveJson("custom-scripts.json", serializeScripts(scripts));
 }
 
+interface VerifyCheck {
+  surface?: string;
+  expected?: string;
+  actual?: string;
+  detail?: string;
+}
+
+function proxyIdentityFromVerify(checks?: VerifyCheck[]): string | undefined {
+  const check = checks?.find((c) => {
+    const surface = (c.surface ?? "").toLowerCase();
+    return surface.includes("ip") || surface.includes("proxy");
+  });
+  return check?.actual || check?.detail || check?.expected || undefined;
+}
+
+async function verifyProxyIdentity(profile?: string): Promise<string | undefined> {
+  try {
+    const args = [...(profile ? ["--profile", profile] : []), "verify", "--timeout", "15s"];
+    const data = await clawctlJson<{ verify?: { checks?: VerifyCheck[] } }>(args);
+    return proxyIdentityFromVerify(data.verify?.checks);
+  } catch {
+    return undefined;
+  }
+}
+
 async function refreshAnalyticsIdentity(): Promise<void> {
   const wrap = await clawctlJson<{ identity: APIKeyIdentity }>(["identity"]);
   const ownerId = wrap.identity.owner_id?.trim();
@@ -404,6 +433,7 @@ export const useStore = create<State>((set, get) => ({
   usageHistory: [],
   showOnboarding: false,
   sidebarWidth: Number(localStorage.getItem("sidebarWidth") ?? 300),
+  sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "true",
   chatListCollapsed: localStorage.getItem("chatListCollapsed") === "true",
   dashboardKeyPromptOpen: false,
   clawctlVersion: "",
@@ -445,7 +475,11 @@ export const useStore = create<State>((set, get) => ({
     );
   },
   currentSessionDisplayName: () => get().selectedProfile ?? "current session",
-  skillApplyState: (entryId) => get().skillState[skillKey(get().agentId, entryId)] ?? "idle",
+  skillApplyState: (entryId) => {
+    const value = get().skillState[skillKey(get().agentId, entryId)];
+    return value === "applying" || value === "installed" || value === "failed" ? value : "idle";
+  },
+  skillApplyError: (entryId) => get().skillState[skillKey(get().agentId, `${entryId}:error`)],
 
   bootstrap: async () => {
     if (didBootstrap) return;
@@ -1249,18 +1283,29 @@ export const useStore = create<State>((set, get) => ({
 
   rotateProfile: async (n) => {
     const startedAt = performance.now();
+    const before = await verifyProxyIdentity(n);
     trackEvent("proxy_ip_change_requested", { scope: "profile" });
     trackEvent("profile_rotate_requested");
     set((s) => ({ statuses: { ...s.statuses, [n]: "rotating" } }));
     await clawctlRun(["rotate", "--profile", n, "--format", "json"]);
     await get().loadProfiles();
     await get().loadProxy().catch(() => {});
+    const after = await verifyProxyIdentity(n);
+    if (before || after) {
+      const text = before && after && before !== after
+        ? `IP rotated: ${before} -> ${after}`
+        : after
+          ? `Current proxy identity: ${after}`
+          : `Previous proxy identity: ${before}`;
+      set({ clawctlUpdateStatus: text });
+    }
     trackTiming("proxy_ip_change_completed", startedAt, { scope: "profile", status: get().statuses[n] ?? "unknown" });
     trackTiming("profile_rotate_completed", startedAt, { status: get().statuses[n] ?? "unknown" });
   },
 
   rotateProfileCountry: async (n, country) => {
     const startedAt = performance.now();
+    const before = await verifyProxyIdentity(n);
     trackEvent("proxy_country_change_requested", { scope: "profile", country });
     trackEvent("profile_rotate_requested", { country });
     set((s) => ({ statuses: { ...s.statuses, [n]: "rotating" } }));
@@ -1276,6 +1321,15 @@ export const useStore = create<State>((set, get) => ({
     ]);
     await get().loadProfiles();
     await get().loadProxy().catch(() => {});
+    const after = await verifyProxyIdentity(n);
+    if (before || after) {
+      const text = before && after && before !== after
+        ? `IP rotated: ${before} -> ${after}`
+        : after
+          ? `Current proxy identity: ${after}`
+          : `Previous proxy identity: ${before}`;
+      set({ clawctlUpdateStatus: text });
+    }
     trackTiming("proxy_country_change_completed", startedAt, { scope: "profile", country, status: get().statuses[n] ?? "unknown" });
     trackTiming("profile_rotate_completed", startedAt, { country, status: get().statuses[n] ?? "unknown" });
   },
@@ -1611,6 +1665,10 @@ export const useStore = create<State>((set, get) => ({
   setSidebarWidth: (w) => {
     localStorage.setItem("sidebarWidth", String(w));
     set({ sidebarWidth: w });
+  },
+  setSidebarCollapsed: (v) => {
+    localStorage.setItem("sidebarCollapsed", String(v));
+    set({ sidebarCollapsed: v });
   },
   setChatListCollapsed: (v) => {
     localStorage.setItem("chatListCollapsed", String(v));
@@ -1954,6 +2012,7 @@ export const useStore = create<State>((set, get) => ({
     set((s) => {
       const skillState = { ...s.skillState };
       for (const target of targets) skillState[skillKey(target.id, entry.id)] = "applying";
+      delete skillState[skillKey(get().agentId, `${entry.id}:error`)];
       return { skillState };
     });
     if (!get().clawctlSupportsSkill) {
@@ -1966,6 +2025,12 @@ export const useStore = create<State>((set, get) => ({
         category: entry.category,
         reason: "unsupported_clawctl",
       });
+      set((s) => ({
+        skillState: {
+          ...s.skillState,
+          [skillKey(get().agentId, `${entry.id}:error`)]: "Resolved clawctl does not support the `skill` command. Update clawctl or set CLAWCTL_BIN to a newer build.",
+        },
+      }));
       return undefined;
     }
     let activeRef: SkillRef | undefined;
@@ -1997,11 +2062,18 @@ export const useStore = create<State>((set, get) => ({
       }
     }
     if (!activeRef && !anyRef && failures.length) {
+      const message = `Skill installation failed. ${failures.join(" · ")}`;
+      set((s) => ({
+        skillState: {
+          ...s.skillState,
+          [skillKey(get().agentId, `${entry.id}:error`)]: message,
+        },
+      }));
       trackTiming("skill_apply_failed", startedAt, {
         category: entry.category,
         selector_kind: entry.selector.kind,
       });
-      throw new Error(`Skill installation failed. ${failures.join(" · ")}`);
+      throw new Error(message);
     }
     trackTiming("skill_apply_completed", startedAt, {
       category: entry.category,
@@ -2026,7 +2098,28 @@ export const useStore = create<State>((set, get) => ({
       entry.selector.kind === "domain" ? entry.selector.value : entry.selector.value;
     const cid = get().activeConversation()?.id ?? get().newChat();
 
-    const ref = await get().applySkill(entry);
+    let ref: SkillRef | undefined;
+    try {
+      ref = await get().applySkill(entry);
+    } catch (error) {
+      const cidForError = get().activeConversation()?.id ?? get().newChat();
+      const message = error instanceof Error ? error.message : String(error);
+      const errMsg: ChatMessage = {
+        id: uid(),
+        role: "system",
+        text: `Apply failed for "${entry.title}": ${message}`,
+        status: "done",
+        createdAt: now(),
+      };
+      set((s) => {
+        const conversations = s.conversations.map((c) =>
+          c.id === cidForError ? { ...c, messages: [...c.messages, errMsg], updatedAt: now() } : c,
+        );
+        persistConvs(conversations);
+        return { conversations };
+      });
+      return;
+    }
     if (!get().agentReady()) return;
     const stepId = get().makeStepMessage(cid);
     const prep = await prepareSession({
@@ -2148,7 +2241,29 @@ export const useStore = create<State>((set, get) => ({
     }
 
     if (!get().agentReady()) return;
-    const ref = await get().applySkill(entry);
+    let ref: SkillRef | undefined;
+    try {
+      ref = await get().applySkill(entry);
+    } catch (error) {
+      set({ tab: "chat" });
+      const cid = get().activeConversation()?.id ?? get().newChat();
+      const message = error instanceof Error ? error.message : String(error);
+      const errMsg: ChatMessage = {
+        id: uid(),
+        role: "system",
+        text: `Apply failed for "${entry.title}": ${message}`,
+        status: "done",
+        createdAt: now(),
+      };
+      set((s) => {
+        const conversations = s.conversations.map((c) =>
+          c.id === cid ? { ...c, messages: [...c.messages, errMsg], updatedAt: now() } : c,
+        );
+        persistConvs(conversations);
+        return { conversations };
+      });
+      return;
+    }
     if (!get().agentReady()) return;
     set({ tab: "chat" });
     const cid = get().activeConversation()?.id ?? get().newChat();
@@ -2345,6 +2460,13 @@ export const useStore = create<State>((set, get) => ({
     const note = pageReadyNote(prep.host);
     const prompt = `Run my custom script "${script.title}" on ${target} in the active NextBrowser session.${note}\nFollow these steps exactly:\n\n${script.instructions}`;
     get().enqueue(prompt, chip, cid);
+  },
+
+  startRemoteStream: async (profile) => {
+    const args = ["remote", ...(profile ? ["--profile", profile] : [])];
+    const result = await clawctlJson<{ dashboard_url?: string; target?: { title?: string; url?: string } }>(args);
+    if (!result.dashboard_url) throw new Error("clawctl remote did not return a dashboard URL.");
+    return result.dashboard_url;
   },
 }));
 

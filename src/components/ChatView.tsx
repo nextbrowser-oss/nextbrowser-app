@@ -98,6 +98,11 @@ export function ChatView() {
     text.length > 0 && text.length <= 100 && !text.includes(" ") && text.includes(".");
 
   const customScripts = s.customScripts;
+  const openScriptCreator = () => {
+    setScriptOpen(false);
+    localStorage.setItem("openMyScriptsEditor", "1");
+    s.setTab("skills");
+  };
   const queuedReplyForMessage = (message: ChatMessage): ChatMessage | undefined => {
     if (message.role === "assistant") return message.status === "queued" ? message : undefined;
     if (message.role !== "user") return undefined;
@@ -199,8 +204,13 @@ export function ChatView() {
           <button
             className="plain-icon-btn"
             disabled={running || messages.length === 0}
-            onClick={() => s.clearChat()}
-            title="Clear this chat"
+            onClick={() => {
+              if (window.confirm("Clear this chat history? This removes all messages in the current conversation.")) {
+                s.clearChat();
+              }
+            }}
+            title="Clear all messages in this chat"
+            aria-label="Clear all messages in this chat"
           >
             <Icon name="eraser" size={16} />
           </button>
@@ -208,7 +218,8 @@ export function ChatView() {
             className="plain-icon-btn"
             disabled={messages.length === 0}
             onClick={() => s.forkConversation()}
-            title="Fork chat"
+            title="Fork this chat into a new conversation"
+            aria-label="Fork this chat into a new conversation"
           >
             <Icon name="arrow.triangle.branch" size={16} />
           </button>
@@ -229,22 +240,22 @@ export function ChatView() {
               </div>
               <div className="empty-actions">
                 {!ready && (
-                  <button className="btn-bordered-prominent" onClick={() => s.authorizeAgent()}>
+                  <button className="btn-bordered-prominent" title="Connect the selected agent CLI" onClick={() => s.authorizeAgent()}>
                     <Icon name="bolt.fill" size={14} />
                     Connect agent
                   </button>
                 )}
-                <button className="btn-bordered" onClick={() => s.setTab("skills")}>
+                <button className="btn-bordered" title="Open Skills" onClick={() => s.setTab("skills")}>
                   <Icon name="square.grid.2x2.fill" size={14} />
                   Open Skills
                 </button>
                 {s.proxy ? (
-                  <button className="btn-bordered" onClick={() => s.startDefaultSession()}>
+                  <button className="btn-bordered" title="Start the default browser session" onClick={() => s.startDefaultSession()}>
                     <Icon name="play.fill" size={14} />
                     Start session
                   </button>
                 ) : (
-                  <button className="btn-bordered" onClick={() => s.setDashboardKeyPromptOpen(true)}>
+                  <button className="btn-bordered" title="Enter dashboard key to unlock managed sessions" onClick={() => s.setDashboardKeyPromptOpen(true)}>
                     <Icon name="lock" size={14} />
                     Create first profile
                   </button>
@@ -253,6 +264,7 @@ export function ChatView() {
               <div className="empty-suggestion-grid">
                 <button
                   className="empty-suggestion"
+                  title="Rotate the active browser profile to Spain and verify the proxy country"
                   onClick={() =>
                     s.tryGuidePrompt(
                       "Using the clawctl CLI, rotate the active browser profile to Spain (ES) with --verify, then start the session and confirm the proxy country.",
@@ -268,6 +280,7 @@ export function ChatView() {
                 <button
                   className="empty-suggestion"
                   onClick={() => s.setTab("live")}
+                  title="Open the Live tab to inspect a running browser session"
                 >
                   <Icon name="video.fill" size={15} />
                   <span>
@@ -349,7 +362,8 @@ export function ChatView() {
           <div className="composer-actions">
             <button
               className="plain-icon-btn"
-              title="Attach files"
+              title="Attach local files to the next message"
+              aria-label="Attach local files to the next message"
               disabled={!ready}
               onClick={() => void attachFiles()}
             >
@@ -358,7 +372,8 @@ export function ChatView() {
             <div className="script-wrap">
               <button
                 className="plain-icon-btn"
-                title="Run a script"
+                title="Open scripts menu"
+                aria-label="Open scripts menu"
                 onClick={() => setScriptOpen((o) => !o)}
               >
                 <Icon name="scroll" size={20} />
@@ -369,6 +384,7 @@ export function ChatView() {
                   {SCRIPTS.map((sc) => (
                     <button
                       key={sc.id}
+                      title={`Run ${sc.title}`}
                       onClick={() => {
                         setScriptOpen(false);
                         const domain = looksLikeDomain(draft.trim()) ? draft.trim() : "";
@@ -385,6 +401,7 @@ export function ChatView() {
                       {customScripts.map((cs) => (
                         <button
                           key={cs.id}
+                          title={`Run ${cs.title}`}
                           onClick={() => {
                             setScriptOpen(false);
                             const domain = looksLikeDomain(draft.trim()) ? draft.trim() : "";
@@ -397,11 +414,21 @@ export function ChatView() {
                       ))}
                     </>
                   )}
+                  {SCRIPTS.length === 0 && customScripts.length === 0 && (
+                    <button title="Create a custom script" onClick={openScriptCreator}>
+                      <Icon name="plus" size={13} /> Create script
+                    </button>
+                  )}
+                  {(SCRIPTS.length > 0 || customScripts.length > 0) && (
+                    <button title="Create a new custom script" onClick={openScriptCreator}>
+                      <Icon name="plus" size={13} /> Create script
+                    </button>
+                  )}
                 </div>
               )}
             </div>
             {running ? (
-              <button className="plain-icon-btn stop-btn" onClick={() => s.stopRunning()} title="Stop">
+              <button className="plain-icon-btn stop-btn" onClick={() => s.stopRunning()} title="Stop the running agent response" aria-label="Stop the running agent response">
                 <Icon name="stop.circle.fill" size={22} className="error" />
               </button>
             ) : (
@@ -409,7 +436,8 @@ export function ChatView() {
                 className="plain-icon-btn send-btn"
                 disabled={!ready || (!draft.trim() && attachments.length === 0)}
                 onClick={send}
-                title="Send"
+                title="Send message to the selected agent"
+                aria-label="Send message to the selected agent"
               >
                 <Icon name="arrow.up.circle.fill" size={22} />
               </button>

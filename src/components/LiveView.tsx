@@ -1,62 +1,30 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useStore } from "../store";
-import { clawctlJson } from "../clawctl";
-import { Screencast, httpBaseFromEndpoint } from "../screencast";
-import type { SessionStatus } from "../types";
-import { sessionEndpoint } from "../types";
 import { Icon, Spinner } from "./Icon";
 
 export function LiveView() {
   const s = useStore();
   const [sessionKey, setSessionKey] = useState<string>("");
-  const [frame, setFrame] = useState<string | null>(null);
+  const [streamUrl, setStreamUrl] = useState("");
   const [state, setState] = useState<"idle" | "connecting" | "live" | "error">("idle");
-  const [fps, setFps] = useState(0);
   const [error, setError] = useState("");
-  const [control, setControl] = useState(false);
-  const [clickPos, setClickPos] = useState<{ x: number; y: number } | null>(null);
-  const castRef = useRef<Screencast | null>(null);
-  const stageRef = useRef<HTMLDivElement>(null);
-  const frameRef = useRef<HTMLImageElement>(null);
-
-  useEffect(() => {
-    if (castRef.current) castRef.current.interactive = control;
-  }, [control]);
-
-  const resolveBase = async (key: string): Promise<string> => {
-    const st = await clawctlJson<SessionStatus>(["status", "--profile", key]);
-    const ep = sessionEndpoint(st);
-    if (!ep || st.status !== "running") throw new Error("Session not running.");
-    const base = httpBaseFromEndpoint(ep);
-    if (!base) throw new Error("Invalid CDP endpoint.");
-    return base;
-  };
 
   const start = async (requestedKey = sessionKey) => {
     if (!requestedKey || state === "connecting") return;
-    castRef.current?.stop();
     setError("");
-    const cast = new Screencast({
-      onState: setState,
-      onFrame: setFrame,
-      onFps: setFps,
-      onError: setError,
-    });
-    cast.interactive = control;
-    castRef.current = cast;
+    setState("connecting");
     try {
-      const base = await resolveBase(requestedKey);
-      await cast.start(base);
+      const url = await s.startRemoteStream(requestedKey);
+      setStreamUrl(url);
+      setState("live");
     } catch (e) {
       setState("error");
-      setError(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     }
   };
 
   const stop = () => {
-    castRef.current?.stop();
-    castRef.current = null;
-    setFrame(null);
+    setStreamUrl("");
     setState("idle");
   };
 
@@ -67,55 +35,9 @@ export function LiveView() {
       "";
     setSessionKey(current);
     if (current) void start(current);
-    return () => castRef.current?.stop();
     // LiveView is mounted afresh on tab selection, matching Swift onAppear.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const onStageClick = (e: React.MouseEvent) => {
-    const el = frameRef.current;
-    const stage = stageRef.current;
-    const cast = castRef.current;
-    if (!el || !stage || !cast || !control || state !== "live") return;
-    const rect = el.getBoundingClientRect();
-    const nx = (e.clientX - rect.left) / rect.width;
-    const ny = (e.clientY - rect.top) / rect.height;
-    if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return;
-    const stageRect = stage.getBoundingClientRect();
-    setClickPos({ x: e.clientX - stageRect.left, y: e.clientY - stageRect.top });
-    setTimeout(() => setClickPos(null), 350);
-    void cast.click(nx, ny);
-  };
-
-  const onWheel = (e: React.WheelEvent) => {
-    const cast = castRef.current;
-    if (!cast || !control || state !== "live") return;
-    e.preventDefault();
-    const el = frameRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const nx = (e.clientX - rect.left) / rect.width;
-    const ny = (e.clientY - rect.top) / rect.height;
-    if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return;
-    void cast.scroll(nx, ny, e.deltaX, e.deltaY);
-  };
-
-  useEffect(() => {
-    if (!control) return;
-    const onKey = (e: KeyboardEvent) => {
-      const cast = castRef.current;
-      if (!cast || state !== "live") return;
-      if (e.key === "Enter") void cast.specialKey("Enter", "Enter");
-      else if (e.key === "Backspace") void cast.specialKey("Backspace", "Backspace");
-      else if (e.key === "Tab") {
-        e.preventDefault();
-        void cast.specialKey("Tab", "Tab");
-      } else if (e.key === "Escape") void cast.specialKey("Escape", "Escape");
-      else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) void cast.typeText(e.key);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [control, state]);
 
   return (
     <div className="live">
@@ -130,22 +52,15 @@ export function LiveView() {
           ))}
         </select>
         <span className={"live-pill " + state}>
-          {state === "live" && control ? "live · control" : state}
+          {state === "live" ? "backend stream" : state}
         </span>
-        <label className="control-toggle">
-          <input
-            type="checkbox"
-            checked={control}
-            disabled={state !== "live"}
-            onChange={(e) => setControl(e.target.checked)}
-          />
-          Control
-        </label>
+        <span className="muted small">Tabs are handled by the Remote Control viewer when supported.</span>
         <span className="spacer" />
-        {state === "live" && (
-          <span className="muted small fps-label">
-            <Icon name="speedometer" size={12} /> {fps} fps
-          </span>
+        {streamUrl && (
+          <a className="btn-bordered" href={streamUrl} target="_blank" rel="noreferrer" title="Open Remote Control in your browser">
+            <Icon name="arrow.up.forward.app" size={14} />
+            Open link
+          </a>
         )}
         {state === "live" ? (
           <button className="btn-bordered live-stop-btn" onClick={stop}>
@@ -174,12 +89,7 @@ export function LiveView() {
       </div>
       <hr className="divider" />
 
-      <div
-        ref={stageRef}
-        className={"live-stage" + (control ? " interactive" : "")}
-        onClick={onStageClick}
-        onWheel={onWheel}
-      >
+      <div className="live-stage remote-live-stage">
         {state === "connecting" && <div className="muted">Connecting…</div>}
         {state === "error" && (
           <div className="live-error">
@@ -191,20 +101,21 @@ export function LiveView() {
             </button>
           </div>
         )}
-        {state === "idle" && !frame && (
-          <div className="muted">Start a session, then Stream to watch the browser.</div>
+        {state === "idle" && !streamUrl && (
+          <div className="muted">Start a session, then Stream to open the backend Remote Control viewer.</div>
         )}
-        {frame && <img ref={frameRef} src={frame} alt="Live browser" className="live-frame" draggable={false} />}
-        {clickPos && (
-          <div
-            className="click-indicator"
-            style={{ left: clickPos.x, top: clickPos.y }}
+        {streamUrl && state === "live" && (
+          <iframe
+            className="remote-live-frame"
+            title="NextBrowser Remote Control"
+            src={streamUrl}
+            allow="clipboard-read; clipboard-write"
           />
         )}
       </div>
-      {control && state === "live" && (
+      {state === "live" && (
         <div className="live-hint muted small">
-          Click to interact · scroll wheel · type when Control is on
+          Streaming through backend Remote Control. Use the viewer controls for tabs and interaction.
         </div>
       )}
     </div>

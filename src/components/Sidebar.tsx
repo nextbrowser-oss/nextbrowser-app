@@ -2,7 +2,7 @@ import { type FormEvent, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore, type ManualProxyProfileInput } from "../store";
 import { PRIMARY_AGENTS, ADDITIONAL_AGENTS, agentById } from "../agents";
-import { BrandHeader } from "./BrandLogo";
+import { BrandHeader, BrandLogo } from "./BrandLogo";
 import { ScheduledRunsPanel } from "./ScheduledRunsPanel";
 import { Icon, Spinner } from "./Icon";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
@@ -46,6 +46,46 @@ export function Sidebar() {
   const profiles = s.filteredProfiles();
   const agentName =
     PRIMARY_AGENTS.concat(ADDITIONAL_AGENTS).find((a) => a.id === s.agentId)?.name ?? "agent";
+
+  if (s.sidebarCollapsed) {
+    const runningCount = s.profiles.filter((p) => s.statuses[p.name] === "running").length;
+    return (
+      <div className="sidebar-mini">
+        <button
+          className="plain-icon-btn sidebar-collapse-toggle"
+          title="Expand sidebar"
+          aria-label="Expand sidebar"
+          onClick={() => s.setSidebarCollapsed(false)}
+        >
+          <Icon name="sidebar.left" size={17} />
+        </button>
+        <BrandLogo size={28} />
+        <button
+          className="mini-nav-btn"
+          title={s.proxy ? `Proxy ${s.proxy.state}` : "Enter dashboard key"}
+          onClick={() => (s.proxy ? s.refreshProxyData() : s.setDashboardKeyPromptOpen(true))}
+        >
+          <Icon name={s.proxy ? "chart.bar.fill" : "lock.fill"} size={18} />
+          {s.proxy?.percent_used != null && <span>{Math.round(s.proxy.percent_used)}%</span>}
+        </button>
+        <button className="mini-nav-btn" title={`Agent: ${agentName}`} onClick={() => s.setTab("chat")}>
+          <Icon name="cpu.fill" size={18} />
+          <span>{s.agentReady() ? "on" : "off"}</span>
+        </button>
+        <button className="mini-nav-btn" title={`${s.profiles.length} profiles, ${runningCount} running`} onClick={() => s.setTab("live")}>
+          <Icon name="person.crop.circle" size={18} />
+          <span>{runningCount}/{s.profiles.length}</span>
+        </button>
+        <button className="mini-nav-btn" title="Open skills" onClick={() => s.setTab("skills")}>
+          <Icon name="square.grid.2x2.fill" size={18} />
+        </button>
+        <span className="spacer" />
+        <button className="mini-nav-btn" title="Sign out" onClick={() => s.logout()}>
+          <Icon name="rectangle.portrait.and.arrow.right" size={18} />
+        </button>
+      </div>
+    );
+  }
 
   const uniqueManualProxyName = (baseName: string) => {
     const base = baseName.trim() || "manual-proxy";
@@ -117,7 +157,18 @@ export function Sidebar() {
   return (
     <div className="sidebar-shell">
       <div className="sidebar-brand">
-        <BrandHeader subtitle="native agent console" />
+        <div className="row">
+          <BrandHeader subtitle="native agent console" />
+          <span className="spacer" />
+          <button
+            className="plain-icon-btn plain-icon-btn-compact sidebar-collapse-toggle"
+            title="Collapse sidebar"
+            aria-label="Collapse sidebar"
+            onClick={() => s.setSidebarCollapsed(true)}
+          >
+            <Icon name="sidebar.leading" size={15} />
+          </button>
+        </div>
       </div>
 
       <div className="sidebar-scroll">
@@ -222,6 +273,7 @@ export function Sidebar() {
               <button
                 key={a.id}
                 className={"chip" + (s.agentId === a.id ? " chip-active" : "")}
+                title={`Switch to ${a.name}`}
                 onClick={() => s.switchAgent(a.id)}
               >
                 {a.name}
@@ -239,7 +291,7 @@ export function Sidebar() {
               onBlur={() => setTimeout(() => setFocused(false), 120)}
             />
             {agentSearch && (
-              <button className="plain-icon-btn plain-icon-btn-compact" onClick={() => setAgentSearch("")}>
+              <button className="plain-icon-btn plain-icon-btn-compact" title="Clear agent search" onClick={() => setAgentSearch("")}>
                 <Icon name="xmark.circle.fill" size={14} className="muted" />
               </button>
             )}
@@ -248,6 +300,7 @@ export function Sidebar() {
             <button
               key={a.id}
               className="agent-row"
+              title={`Switch to ${a.name}`}
               onMouseDown={() => {
                 s.switchAgent(a.id);
                 setAgentSearch("");
@@ -284,13 +337,13 @@ export function Sidebar() {
                 )}
               </>
             ) : (
-              <button className="btn-bordered-prominent connect-btn full" onClick={() => s.authorizeAgent()}>
+              <button className="btn-bordered-prominent connect-btn full" title={`Connect ${agentName}`} onClick={() => s.authorizeAgent()}>
                 <Icon name="bolt.fill" size={14} />
                 Connect to chat
               </button>
             )}
             {ready && loggedIn !== true && (
-              <button className="btn-bordered full agent-login-btn" onClick={() => s.loginAgent()}>
+              <button className="btn-bordered full agent-login-btn" title={`Open ${agentName} login`} onClick={() => s.loginAgent()}>
                 <Icon name="person.badge.key" size={14} />
                 Log in to {agentName}
               </button>
@@ -327,6 +380,17 @@ export function Sidebar() {
             <span className="spacer" />
             {s.anyAgentRunning() && <Spinner size={12} />}
           </div>
+          <div className="session-quick-actions">
+            <button
+              className="btn-bordered full"
+              title={s.selectedProfile ? `Start selected profile: ${s.selectedProfile}` : "Start default managed session"}
+              disabled={s.isRefreshing}
+              onClick={() => s.selectedProfile ? s.startProfile(s.selectedProfile) : s.startDefaultSession()}
+            >
+              <Icon name="play.fill" size={14} />
+              {s.selectedProfile ? "Start selected session" : "Start default session"}
+            </button>
+          </div>
           <div className="search-box">
             <Icon name="magnifyingglass" size={12} className="muted" />
             <input
@@ -351,12 +415,12 @@ export function Sidebar() {
                 <Icon name="person.crop.circle" size={18} className="muted" />
                 <div>
                   <strong>No profiles yet</strong>
-                  <div className="muted small">Create one from a dashboard key or add a manual proxy.</div>
+                  <div className="muted small">Add a manual proxy profile, or enter a dashboard key to use managed browser sessions.</div>
                 </div>
               </div>
             )}
             {s.profiles.length === 0 && !s.proxy && (
-              <button className="btn-bordered full empty-action-button" onClick={() => s.setDashboardKeyPromptOpen(true)}>
+              <button className="btn-bordered full empty-action-button" title="Enter dashboard key to unlock managed profiles" onClick={() => s.setDashboardKeyPromptOpen(true)}>
                 <Icon name="lock" size={14} />
                 Enter dashboard key before first profile
               </button>
@@ -402,9 +466,9 @@ export function Sidebar() {
                   <div className="profile-actions">
                     {running ? (
                       <>
-                        <button
-                          className="plain-icon-btn"
-                          title="Stop"
+                      <button
+                        className="plain-icon-btn"
+                        title={`Stop ${p.name}`}
                           disabled={busy}
                           onClick={(e) => { e.stopPropagation(); void s.stopProfile(p.name); }}
                         >
@@ -536,7 +600,7 @@ export function Sidebar() {
                     {ROTATION_COUNTRIES.map((c) => (
                       <button
                         key={c.code}
-                        className="mini country-chip"
+                        className={"mini country-chip" + (prof?.country?.toLowerCase() === c.code.toLowerCase() ? " active" : "")}
                         title={`${c.code} — ${c.name}`}
                         onClick={() => {
                           s.rotateProfileCountry(menuProfile, c.code);
