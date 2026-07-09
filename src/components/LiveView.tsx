@@ -8,15 +8,38 @@ export function LiveView() {
   const [streamUrl, setStreamUrl] = useState("");
   const [state, setState] = useState<"idle" | "connecting" | "live" | "error">("idle");
   const [error, setError] = useState("");
+  const runningProfiles = s.profiles.filter((profile) => s.statuses[profile.name] === "running");
+  const launchTarget = sessionKey || s.selectedProfile || s.profiles[0]?.name || "";
 
   const start = async (requestedKey = sessionKey) => {
-    if (!requestedKey || state === "connecting") return;
+    if (state === "connecting") return;
     setError("");
     setState("connecting");
     try {
-      const url = await s.startRemoteStream(requestedKey);
+      const url = await s.startRemoteStream(requestedKey || undefined);
       setStreamUrl(url);
       setState("live");
+    } catch (e) {
+      setState("error");
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const launchAndStream = async () => {
+    if (state === "connecting") return;
+    setError("");
+    setState("connecting");
+    try {
+      if (launchTarget) {
+        setSessionKey(launchTarget);
+        if (s.statuses[launchTarget] !== "running") await s.startProfile(launchTarget);
+        await s.refreshSessions();
+        await start(launchTarget);
+      } else {
+        await s.startDefaultSession();
+        await s.refreshSessions();
+        await start(undefined);
+      }
     } catch (e) {
       setState("error");
       setError(e instanceof Error ? e.message : String(e));
@@ -34,7 +57,7 @@ export function LiveView() {
       s.profiles.find((profile) => s.statuses[profile.name] === "running")?.name ??
       "";
     setSessionKey(current);
-    if (current) void start(current);
+    if (current && s.statuses[current] === "running") void start(current);
     // LiveView is mounted afresh on tab selection, matching Swift onAppear.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -43,7 +66,16 @@ export function LiveView() {
     <div className="live">
       <div className="live-controls">
         <Icon name="video.fill" size={18} className="accent-icon" />
-        <select className="live-session-select" value={sessionKey} onChange={(e) => setSessionKey(e.target.value)}>
+        <select
+          className="live-session-select"
+          value={sessionKey}
+          title="Choose profile to stream"
+          onChange={(e) => {
+            setSessionKey(e.target.value);
+            setStreamUrl("");
+            setState("idle");
+          }}
+        >
           <option value="">Select session</option>
           {s.profiles.map((p) => (
             <option key={p.name} value={p.name}>
@@ -67,10 +99,10 @@ export function LiveView() {
             <Icon name="stop.fill" size={14} className="error" />
             Stop
           </button>
-        ) : (
+        ) : streamUrl ? (
           <button
             className="btn-bordered-prominent live-stream-btn"
-            disabled={!sessionKey || state === "connecting"}
+            disabled={state === "connecting"}
             onClick={() => start()}
           >
             {state === "connecting" ? (
@@ -85,32 +117,60 @@ export function LiveView() {
               </>
             )}
           </button>
-        )}
+        ) : null}
       </div>
       <hr className="divider" />
 
       <div className="live-stage remote-live-stage">
-        {state === "connecting" && <div className="muted">Connecting…</div>}
+        {state === "connecting" && (
+          <div className="live-empty-panel">
+            <Spinner size={18} />
+            <strong>Starting backend stream…</strong>
+            <p className="muted small">Creating a Remote Control session through clawctl.</p>
+          </div>
+        )}
         {state === "error" && (
           <div className="live-error">
             <Icon name="exclamationmark.triangle.fill" size={32} className="warn" />
             <p>{error || "Connection failed"}</p>
-            <button className="primary live-stream-btn" onClick={() => start()}>
+            <button className="primary live-stream-btn" onClick={() => launchAndStream()}>
               <Icon name="play.fill" size={12} />
-              Stream
+              Launch to stream
             </button>
           </div>
         )}
         {state === "idle" && !streamUrl && (
-          <div className="muted">Start a session, then Stream to open the backend Remote Control viewer.</div>
+          <div className="live-empty-panel">
+            <Icon name="video.fill" size={34} className="muted" />
+            <strong>{runningProfiles.length ? "Stream is off" : "No active profiles"}</strong>
+            <p className="muted">
+              {runningProfiles.length
+                ? "Start a backend Remote Control stream for the selected running profile."
+                : "Launch a profile to stream it through backend Remote Control."}
+            </p>
+            <button
+              className="btn-bordered-prominent live-stream-btn"
+              onClick={() => launchAndStream()}
+              title={runningProfiles.length ? "Start backend stream" : "Launch selected profile and stream"}
+            >
+              <Icon name="play.fill" size={12} />
+              {runningProfiles.length ? "Stream" : "Launch to stream"}
+            </button>
+          </div>
         )}
         {streamUrl && state === "live" && (
-          <iframe
-            className="remote-live-frame"
-            title="NextBrowser Remote Control"
-            src={streamUrl}
-            allow="clipboard-read; clipboard-write"
-          />
+          <div className="live-link-panel">
+            <Icon name="checkmark.circle.fill" size={34} className="ok" />
+            <strong>Remote stream ready</strong>
+            <p className="muted">
+              Open the backend Remote Control viewer to watch and control the browser. Tabs are handled inside the viewer when available.
+            </p>
+            <a className="btn-bordered-prominent" href={streamUrl} target="_blank" rel="noreferrer">
+              <Icon name="arrow.up.forward.app" size={14} />
+              Open Remote Control
+            </a>
+            <code className="live-url">{streamUrl}</code>
+          </div>
         )}
       </div>
       {state === "live" && (
