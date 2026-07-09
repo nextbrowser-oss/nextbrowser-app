@@ -475,6 +475,17 @@ export function Sidebar() {
                       <Icon name="play.fill" size={16} />
                     </button>
                   )}
+                  <button
+                    className="plain-icon-btn"
+                    title="Profile actions"
+                    disabled={defaultBusy}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMenuProfile("__default");
+                    }}
+                  >
+                    <Icon name="ellipsis.circle" size={18} />
+                  </button>
                 </div>
               </div>
             )}
@@ -600,8 +611,9 @@ export function Sidebar() {
       </div>
 
       {menuProfile && createPortal((() => {
+        const isDefaultProfile = menuProfile === "__default";
         const prof = s.profiles.find((p) => p.name === menuProfile);
-        const status = s.statuses[menuProfile] ?? "unknown";
+        const status = isDefaultProfile ? defaultStatus : s.statuses[menuProfile] ?? "unknown";
         const manual = prof?.proxy_mode === "manual" && prof.manual_proxy;
         return (
           <div className="modal-overlay" onClick={() => setMenuProfile(null)}>
@@ -611,7 +623,7 @@ export function Sidebar() {
                   className={"dot " + (status === "running" ? "green" : status === "unknown" ? "gray" : "orange")}
                   title={status}
                 />
-                <span className="profile-menu-name">{menuProfile}</span>
+                <span className="profile-menu-name">{isDefaultProfile ? "default" : menuProfile}</span>
                 {prof?.country && (
                   <span className="badge" title={countryLabel(prof.country, prof.city)}>
                     {countryFlag(prof.country)} {prof.country.toUpperCase()}
@@ -638,12 +650,13 @@ export function Sidebar() {
               <button
                 className="full rotate-btn"
                 onClick={() => {
-                  s.rotateProfile(menuProfile);
+                  if (isDefaultProfile) s.rotateDefaultSession();
+                  else s.rotateProfile(menuProfile);
                   setMenuProfile(null);
                 }}
               >
                 <Icon name="arrow.triangle.2.circlepath" size={14} strokeWidth={2.25} />
-                {manual ? "Restart session" : "Rotate IP"}
+                {manual ? "Restart profile" : "Rotate IP"}
               </button>
 
               {!manual && (
@@ -656,7 +669,8 @@ export function Sidebar() {
                         className={"mini country-chip" + (prof?.country?.toLowerCase() === c.code.toLowerCase() ? " active" : "")}
                         title={`${c.code} — ${c.name}`}
                         onClick={() => {
-                          s.rotateProfileCountry(menuProfile, c.code);
+                          if (isDefaultProfile) s.rotateDefaultSessionCountry(c.code);
+                          else s.rotateProfileCountry(menuProfile, c.code);
                           setMenuProfile(null);
                         }}
                       >
@@ -669,17 +683,21 @@ export function Sidebar() {
                 </>
               )}
 
-              <div className="profile-menu-divider" />
-              <button
-                className="profile-delete-btn"
-                onClick={() => {
-                  setConfirmDelete(menuProfile);
-                  setMenuProfile(null);
-                }}
-              >
-                <Icon name="trash" size={14} />
-                Delete profile
-              </button>
+              {!isDefaultProfile && (
+                <>
+                  <div className="profile-menu-divider" />
+                  <button
+                    className="profile-delete-btn"
+                    onClick={() => {
+                      setConfirmDelete(menuProfile);
+                      setMenuProfile(null);
+                    }}
+                  >
+                    <Icon name="trash" size={14} />
+                    Delete profile
+                  </button>
+                </>
+              )}
             </div>
           </div>
         );
