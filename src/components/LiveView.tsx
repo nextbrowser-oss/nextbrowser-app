@@ -410,7 +410,7 @@ export function LiveView() {
       </div>
       {state === "live" && (
         <div className="live-hint muted small">
-          Remote Control is running. Use the viewer controls for tabs and interaction.
+          Remote Control is mirrored in NextBrowser. Use the tab bar above or open the full viewer for direct control.
         </div>
       )}
     </div>

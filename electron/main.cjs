@@ -332,6 +332,9 @@ function createWindow() {
   });
   window.once("ready-to-show", () => window.show());
   window.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: "deny" }; });
+  window.webContents.on("did-attach-webview", (_event, webContents) => {
+    webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  });
   if (process.env.VITE_DEV_SERVER_URL) window.loadURL(process.env.VITE_DEV_SERVER_URL);
   else window.loadFile(path.join(__dirname, "..", "dist", "index.html"));
 }
