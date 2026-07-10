@@ -800,11 +800,35 @@ button, input, textarea, select { color: var(--text); }
   box-shadow: 0 0 0 2px var(--bg);
 }
 .github-star-btn {
-  position: relative;
-  color: var(--warn);
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, transform 120ms ease;
 }
 .github-star-btn:hover {
-  color: #ffb84d;
+  background: var(--surface-4);
+  border-color: var(--surface-8);
+}
+.github-star-btn:active:not(:disabled) {
+  transform: translateY(1px) scale(0.985);
+}
+.github-star-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.github-star-glyph {
+  color: var(--warn);
 }
 .floating-controls {
   position: fixed;
