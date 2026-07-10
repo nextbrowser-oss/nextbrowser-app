@@ -159,18 +159,39 @@ function configureAutoUpdater() {
   autoUpdater.on("update-downloaded", (info) => setAppUpdateStatus("downloaded", { version: info.version }));
   autoUpdater.on("error", (error) => setAppUpdateStatus("error", { message: error?.message || String(error) }));
 }
+function reportUpdaterError(error) {
+  const message = error?.message || String(error);
+  // Builds without an update manifest (dev / electron-builder --dir) can't
+  // self-update — treat that as disabled rather than a hard error, and never
+  // let it bubble up as an uncaught exception.
+  if (/app-update\.yml/i.test(message)) {
+    setAppUpdateStatus("disabled", { message: "App updates unavailable in this build." });
+  } else {
+    setAppUpdateStatus("error", { message });
+  }
+}
 function checkForAppUpdate() {
   if (!app.isPackaged || !["darwin", "win32"].includes(process.platform)) {
     setAppUpdateStatus("disabled", { message: "App updates run only in packaged macOS/Windows builds." });
     return null;
   }
-  return autoUpdater.checkForUpdates().catch((error) => {
-    setAppUpdateStatus("error", { message: error?.message || String(error) });
+  try {
+    return autoUpdater.checkForUpdates().catch((error) => {
+      reportUpdaterError(error);
+      return null;
+    });
+  } catch (error) {
+    reportUpdaterError(error);
     return null;
-  });
+  }
 }
 function startAutoUpdater() {
-  configureAutoUpdater();
+  try {
+    configureAutoUpdater();
+  } catch (error) {
+    reportUpdaterError(error);
+    return;
+  }
   if (!app.isPackaged || !["darwin", "win32"].includes(process.platform)) return;
   setTimeout(() => { void checkForAppUpdate(); }, 3000);
   if (appUpdateTimer) clearInterval(appUpdateTimer);
@@ -193,16 +214,23 @@ async function invokeCommand(command, args = {}) {
         await checkForAppUpdate();
       }
       if (appUpdateStatus.status === "available") {
-        await autoUpdater.downloadUpdate().catch((error) => {
-          setAppUpdateStatus("error", { message: error?.message || String(error) });
-        });
+        try {
+          await autoUpdater.downloadUpdate();
+        } catch (error) {
+          reportUpdaterError(error);
+        }
       }
       return appUpdateStatus;
     }
     case "app_install_update": {
       if (appUpdateStatus.status !== "downloaded") return false;
-      autoUpdater.quitAndInstall(false, true);
-      return true;
+      try {
+        autoUpdater.quitAndInstall(false, true);
+        return true;
+      } catch (error) {
+        reportUpdaterError(error);
+        return false;
+      }
     }
     case "clawctl_resolve": return await resolveClawctl();
     case "clawctl_run": {

@@ -83,9 +83,6 @@ export function Sidebar() {
           <Icon name="person.crop.circle" size={18} />
           <span>{runningCount}/{visibleProfileCount}</span>
         </button>
-        <button className="mini-nav-btn" title="Open skills" onClick={() => s.setTab("skills")}>
-          <Icon name="square.grid.2x2.fill" size={18} />
-        </button>
         <span className="spacer" />
         <button className="mini-nav-btn" title="Sign out" onClick={() => s.logout()}>
           <Icon name="rectangle.portrait.and.arrow.right" size={18} />
