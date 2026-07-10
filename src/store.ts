@@ -212,6 +212,31 @@ async function installedSkillMarkdown(ref?: SkillRef): Promise<string | undefine
   }
 }
 
+async function pullCatalogInstructions(entry: SkillEntry, preferredAgentId: string): Promise<SkillRef> {
+  const adapters = [
+    clawctlAgentAdapter(preferredAgentId),
+    "claude-code",
+    "codex",
+  ].filter((adapter, index, all) => all.indexOf(adapter) === index);
+  const failures: string[] = [];
+  for (const adapter of adapters) {
+    try {
+      const ref = await clawctlJson<SkillRef>([
+        "skill",
+        "check",
+        ...selectorFlags(entry.selector),
+        "--agent",
+        adapter,
+      ]);
+      if (ref.found === true) return ref;
+      failures.push(`${adapter}: not found`);
+    } catch (error) {
+      failures.push(`${adapter}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  throw new Error(`Could not pull "${entry.title}" script instructions. ${failures.join(" · ")}`);
+}
+
 interface State {
   authed: boolean;
   checking: boolean;
@@ -234,6 +259,7 @@ interface State {
   skillState: Record<string, SkillApplyState | string>;
   scheduledRuns: ScheduledRun[];
   customScripts: CustomScript[];
+  appliedScripts: SkillEntry[];
   scriptSync: Record<string, ScriptSyncState>;
   usageHistory: UsageSnapshot[];
   showOnboarding: boolean;
@@ -379,6 +405,10 @@ function persistScripts(scripts: CustomScript[]) {
   void saveJson("custom-scripts.json", serializeScripts(scripts));
 }
 
+function persistAppliedScripts(scripts: SkillEntry[]) {
+  void saveJson("applied-scripts.json", scripts);
+}
+
 interface VerifyCheck {
   surface?: string;
   expected?: string;
@@ -448,6 +478,7 @@ export const useStore = create<State>((set, get) => ({
   skillCategories: [],
   scheduledRuns: [],
   customScripts: [],
+  appliedScripts: [],
   scriptSync: {},
   usageHistory: [],
   showOnboarding: false,
@@ -495,6 +526,7 @@ export const useStore = create<State>((set, get) => ({
   },
   currentSessionDisplayName: () => get().selectedProfile ?? "current session",
   skillApplyState: (entryId) => {
+    if (get().appliedScripts.some((script) => script.id === entryId)) return "installed";
     const value = get().skillState[skillKey(get().agentId, entryId)];
     return value === "applying" || value === "installed" || value === "failed" ? value : "idle";
   },
@@ -505,10 +537,11 @@ export const useStore = create<State>((set, get) => ({
     didBootstrap = true;
     const startedAt = performance.now();
     trackEvent("bootstrap_started");
-    const [rawConvs, rawSchedules, rawScripts, rawHistory, wd] = await Promise.all([
+    const [rawConvs, rawSchedules, rawScripts, rawAppliedScripts, rawHistory, wd] = await Promise.all([
       loadJson<Conversation[]>("conversations.json", []),
       loadJson<ScheduledRun[]>("scheduled-runs.json", []),
       loadJson<CustomScript[]>("custom-scripts.json", []),
+      loadJson<SkillEntry[]>("applied-scripts.json", []),
       loadJson<UsageSnapshot[]>("usage-history.json", []),
       invoke<string>("working_directory").catch(() => ""),
     ]);
@@ -526,6 +559,7 @@ export const useStore = create<State>((set, get) => ({
       activeConvId,
       scheduledRuns: schedules,
       customScripts: scripts,
+      appliedScripts: rawAppliedScripts.filter((entry) => entry?.selector?.kind === "script"),
       usageHistory: history,
       workingDir: wd,
     });
@@ -2027,6 +2061,29 @@ export const useStore = create<State>((set, get) => ({
       category: entry.category,
       selector_kind: entry.selector.kind,
     });
+    if (entry.selector.kind === "script") {
+      const existing = get().appliedScripts.some((script) => script.id === entry.id);
+      const appliedScripts = existing ? get().appliedScripts : [...get().appliedScripts, entry];
+      persistAppliedScripts(appliedScripts);
+      set((s) => ({
+        appliedScripts,
+        skillState: {
+          ...s.skillState,
+          [skillKey(s.agentId, entry.id)]: "installed",
+        },
+      }));
+      trackTiming("script_apply_completed", startedAt, {
+        category: entry.category,
+        existing,
+      });
+      return {
+        found: true,
+        slug: entry.id,
+        title: entry.title,
+        kind: "domain",
+        selector: entry.selector.value,
+      };
+    }
     const targets = AGENTS.map((agent) => ({
       id: agent.id,
       adapter: clawctlAgentAdapter(agent.id),
@@ -2096,6 +2153,22 @@ export const useStore = create<State>((set, get) => ({
         selector_kind: entry.selector.kind,
       });
       throw new Error(message);
+    }
+    if (!activeRef && anyRef) {
+      set((s) => ({
+        skillState: (() => {
+          const skillState = { ...s.skillState };
+          skillState[skillKey(get().agentId, entry.id)] = "installed";
+          delete skillState[skillKey(get().agentId, `${entry.id}:error`)];
+          return skillState;
+        })(),
+      }));
+      trackEvent("skill_apply_active_agent_fallback", {
+        category: entry.category,
+        selector_kind: entry.selector.kind,
+        active_agent: get().agentId,
+        installed_slug: anyRef.slug ?? "unknown",
+      });
     }
     trackTiming("skill_apply_completed", startedAt, {
       category: entry.category,
@@ -2265,7 +2338,9 @@ export const useStore = create<State>((set, get) => ({
     if (!get().agentReady()) return;
     let ref: SkillRef | undefined;
     try {
-      ref = await get().applySkill(entry);
+      ref = entry.selector.kind === "script"
+        ? await pullCatalogInstructions(entry, get().agentId)
+        : await get().applySkill(entry);
     } catch (error) {
       set({ tab: "chat" });
       const cid = get().activeConversation()?.id ?? get().newChat();
@@ -2273,7 +2348,7 @@ export const useStore = create<State>((set, get) => ({
       const errMsg: ChatMessage = {
         id: uid(),
         role: "system",
-        text: `Apply failed for "${entry.title}": ${message}`,
+        text: `Couldn't pull "${entry.title}": ${message}`,
         status: "done",
         createdAt: now(),
       };

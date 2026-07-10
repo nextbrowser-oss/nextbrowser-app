@@ -135,6 +135,9 @@ export function ChatView() {
     text.length > 0 && text.length <= 100 && !text.includes(" ") && text.includes(".");
 
   const customScripts = s.customScripts;
+  const officialScripts = [...SCRIPTS, ...s.appliedScripts].filter(
+    (script, index, all) => all.findIndex((candidate) => candidate.id === script.id) === index,
+  );
   const openScriptCreator = () => {
     setScriptOpen(false);
     localStorage.setItem("openMyScriptsEditor", "1");
@@ -419,7 +422,7 @@ export function ChatView() {
               {scriptOpen && (
                 <div className="script-menu">
                   <div className="section">OFFICIAL SCRIPTS</div>
-                  {SCRIPTS.map((sc) => (
+                  {officialScripts.map((sc) => (
                     <button
                       key={sc.id}
                       title={`Run ${sc.title}`}
@@ -452,12 +455,12 @@ export function ChatView() {
                       ))}
                     </>
                   )}
-                  {SCRIPTS.length === 0 && customScripts.length === 0 && (
+                  {officialScripts.length === 0 && customScripts.length === 0 && (
                     <button title="Create a custom script" onClick={openScriptCreator}>
                       <Icon name="plus" size={13} /> Create script
                     </button>
                   )}
-                  {(SCRIPTS.length > 0 || customScripts.length > 0) && (
+                  {(officialScripts.length > 0 || customScripts.length > 0) && (
                     <button title="Create a new custom script" onClick={openScriptCreator}>
                       <Icon name="plus" size={13} /> Create script
                     </button>

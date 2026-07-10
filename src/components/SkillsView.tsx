@@ -31,12 +31,17 @@ export function SkillsView() {
   const ready = s.agentReady();
 
   const apply = async (e: SkillEntry) => {
-    setStatus((p) => ({ ...p, [e.id]: "applying…" }));
+    const publishedScript = e.selector.kind === "script" && !e.js;
+    setStatus((p) => ({ ...p, [e.id]: publishedScript ? "adding to script menu…" : "applying…" }));
     try {
       const ref = await s.applySkill(e);
       setStatus((p) => ({
         ...p,
-        [e.id]: ref?.found ? `installed: ${ref.slug ?? e.title}` : "no skill published yet",
+        [e.id]: publishedScript
+          ? "added to script menu"
+          : ref?.found
+            ? `installed: ${ref.slug ?? e.title}`
+            : "no skill published yet",
       }));
     } catch (err) {
       setStatus((p) => ({ ...p, [e.id]: String(err) }));
@@ -110,14 +115,15 @@ export function SkillsView() {
           {(cat?.entries ?? []).map((e) => {
             const st = applyState(e.id);
             const applyError = s.skillApplyError(e.id);
+            const publishedScript = e.selector.kind === "script" && !e.js;
             return (
               <div key={e.id} className="skill-card claw-card">
                 <div className="skill-card-head">
                   <Icon name={selectorIcon(e.selector)} size={16} className="accent-icon" />
                   <div className="skill-title">{e.title}</div>
                   <span className={"mode-badge" + (e.js ? " instant" : " agent")}>
-                    <Icon name={e.js ? "bolt.fill" : "sparkles"} size={10} />
-                    {e.js ? "Instant" : "Agent"}
+                    <Icon name={e.js ? "bolt.fill" : publishedScript ? "scroll.fill" : "sparkles"} size={10} />
+                    {e.js ? "Instant" : publishedScript ? "Script" : "Agent"}
                   </span>
                 </div>
                 <div className="muted small">{e.subtitle}</div>
@@ -128,19 +134,33 @@ export function SkillsView() {
                   />
                   {targetText(e)}
                 </div>
-                {st === "idle" && <div className="small muted skill-status">Not installed</div>}
-                {st === "applying" && <div className="small muted skill-status">Pulling from API…</div>}
-                {st === "installed" && (
+                {publishedScript && st === "idle" && <div className="small muted skill-status">Not added</div>}
+                {publishedScript && status[e.id] === "adding to script menu…" && (
+                  <div className="small muted skill-status">Adding to script menu…</div>
+                )}
+                {publishedScript && st === "installed" && (
                   <div className="small ok skill-status">
                     <Icon name="checkmark.seal.fill" size={12} />
-                    Installed
+                    Added to script menu
                   </div>
                 )}
-                {st === "failed" && (
-                  <div className="small error skill-status">
-                    Apply failed
-                    {applyError && <pre className="skill-error-detail">{applyError}</pre>}
-                  </div>
+                {!publishedScript && (
+                  <>
+                    {st === "idle" && <div className="small muted skill-status">Not installed</div>}
+                    {st === "applying" && <div className="small muted skill-status">Pulling from API…</div>}
+                    {st === "installed" && (
+                      <div className="small ok skill-status">
+                        <Icon name="checkmark.seal.fill" size={12} />
+                        Installed
+                      </div>
+                    )}
+                    {st === "failed" && (
+                      <div className="small error skill-status">
+                        Apply failed
+                        {applyError && <pre className="skill-error-detail">{applyError}</pre>}
+                      </div>
+                    )}
+                  </>
                 )}
                 <div className="skill-actions">
                   {e.js ? (
@@ -151,9 +171,9 @@ export function SkillsView() {
                   ) : (
                     <>
                       <button className="btn-bordered-prominent full" title={`${st === "installed" ? "Re-apply" : "Apply"} ${e.title}`} onClick={() => apply(e)}>
-                        {st === "installed" ? "Re-apply" : "Apply"}
+                        {publishedScript && st === "installed" ? "Applied" : st === "installed" ? "Re-apply" : "Apply"}
                       </button>
-                      {(st === "installed" || status[e.id]?.startsWith("installed")) && (
+                      {!publishedScript && (st === "installed" || status[e.id]?.startsWith("installed")) && (
                         <button
                           className="btn-bordered full"
                           disabled={!ready}
