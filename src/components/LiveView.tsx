@@ -1,210 +1,370 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type WheelEvent as ReactWheelEvent } from "react";
+import { RemoteControlClient, type RemoteLiveTab, type RemoteMediaStats, type RemoteStreamInfo } from "../remoteControl";
 import { useStore } from "../store";
-import { clawctlJson } from "../clawctl";
-import { Screencast, httpBaseFromEndpoint } from "../screencast";
-import type { SessionStatus } from "../types";
-import { sessionEndpoint } from "../types";
 import { Icon, Spinner } from "./Icon";
+
+type LiveState = "idle" | "connecting" | "live" | "error";
+
+function modifierBits(event: MouseEvent | WheelEvent | KeyboardEvent) {
+  return (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0);
+}
+
+function buttonName(button: number) {
+  if (button === 1) return "middle";
+  if (button === 2) return "right";
+  return "left";
+}
+
+function shouldSendKeyEvent(event: KeyboardEvent) {
+  return new Set(["Enter", "Tab", "Escape", " ", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]).has(event.key) ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey;
+}
+
+function mergeTabs(current: RemoteLiveTab[], incoming: RemoteLiveTab[]) {
+  if (!current.length || incoming.some((tab) => tab.active)) return incoming;
+  const next = new Map(current.map((tab) => [tab.target_id, tab]));
+  for (const tab of incoming) next.set(tab.target_id, { ...next.get(tab.target_id), ...tab });
+  return [...next.values()];
+}
 
 export function LiveView() {
   const s = useStore();
   const [sessionKey, setSessionKey] = useState<string>("");
-  const [frame, setFrame] = useState<string | null>(null);
-  const [state, setState] = useState<"idle" | "connecting" | "live" | "error">("idle");
-  const [fps, setFps] = useState(0);
+  const [streamInfo, setStreamInfo] = useState<RemoteStreamInfo | null>(null);
+  const [state, setState] = useState<LiveState>("idle");
   const [error, setError] = useState("");
-  const [control, setControl] = useState(false);
-  const [clickPos, setClickPos] = useState<{ x: number; y: number } | null>(null);
-  const castRef = useRef<Screencast | null>(null);
-  const stageRef = useRef<HTMLDivElement>(null);
-  const frameRef = useRef<HTMLImageElement>(null);
+  const [remoteTabs, setRemoteTabs] = useState<RemoteLiveTab[]>([]);
+  const [pendingRemoteTab, setPendingRemoteTab] = useState("");
+  const [mediaStats, setMediaStats] = useState<RemoteMediaStats>({});
+  const [remoteMediaStream, setRemoteMediaStream] = useState<MediaStream | null>(null);
+  const remoteClientRef = useRef<RemoteControlClient | null>(null);
+  const remoteEmbedRef = useRef<HTMLDivElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const runningProfiles = s.profiles.filter((profile) => s.statuses[profile.name] === "running");
+  const defaultRunning = s.defaultSession?.status === "running";
+  const profileOptions = [
+    ...(defaultRunning ? [{ name: "__default", label: "default", running: true }] : []),
+    ...s.profiles.map((profile) => ({
+      name: profile.name,
+      label: profile.name,
+      running: s.statuses[profile.name] === "running",
+    })),
+  ];
+  const launchTarget = sessionKey || (defaultRunning ? "__default" : "") || s.selectedProfile || s.profiles[0]?.name || "";
+  const streamUrl = streamInfo?.viewer_url || streamInfo?.dashboard_url || "";
 
-  useEffect(() => {
-    if (castRef.current) castRef.current.interactive = control;
-  }, [control]);
+  const stop = () => {
+    remoteClientRef.current?.close();
+    remoteClientRef.current = null;
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+    setRemoteMediaStream(null);
+    setStreamInfo(null);
+    setState("idle");
+    setRemoteTabs([]);
+    setPendingRemoteTab("");
+    setMediaStats({});
+  };
 
-  const resolveBase = async (key: string): Promise<string> => {
-    const st = await clawctlJson<SessionStatus>(["status", "--profile", key]);
-    const ep = sessionEndpoint(st);
-    if (!ep || st.status !== "running") throw new Error("Session not running.");
-    const base = httpBaseFromEndpoint(ep);
-    if (!base) throw new Error("Invalid CDP endpoint.");
-    return base;
+  const connectRemoteViewer = async (info: RemoteStreamInfo) => {
+    remoteClientRef.current?.close();
+    const client = new RemoteControlClient(info, {
+      onState: (next) => {
+        if (next === "connected") setState("live");
+        if (next === "error") setState("error");
+      },
+      onError: (message) => {
+        setError(message);
+        setState("error");
+      },
+      onStream: setRemoteMediaStream,
+      onTabs: (tabs) => {
+        setRemoteTabs((current) => mergeTabs(current, tabs));
+        setPendingRemoteTab((pending) =>
+          pending && tabs.some((tab) => tab.active && tab.target_id === pending) ? "" : pending,
+        );
+      },
+      onTabSelected: (targetID) => {
+        setPendingRemoteTab("");
+        setRemoteTabs((tabs) => tabs.map((tab) => ({ ...tab, active: tab.target_id === targetID })));
+      },
+      onMediaStats: setMediaStats,
+    });
+    remoteClientRef.current = client;
+    await client.start();
   };
 
   const start = async (requestedKey = sessionKey) => {
-    if (!requestedKey || state === "connecting") return;
-    castRef.current?.stop();
+    if (state === "connecting") return;
     setError("");
-    const cast = new Screencast({
-      onState: setState,
-      onFrame: setFrame,
-      onFps: setFps,
-      onError: setError,
-    });
-    cast.interactive = control;
-    castRef.current = cast;
+    setRemoteTabs([]);
+    setPendingRemoteTab("");
+    setState("connecting");
     try {
-      const base = await resolveBase(requestedKey);
-      await cast.start(base);
+      const info = await s.startRemoteStream(requestedKey === "__default" ? undefined : requestedKey || undefined);
+      setStreamInfo(info);
+      await connectRemoteViewer(info);
     } catch (e) {
       setState("error");
-      setError(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     }
   };
 
-  const stop = () => {
-    castRef.current?.stop();
-    castRef.current = null;
-    setFrame(null);
-    setState("idle");
+  const launchAndStream = async () => {
+    if (state === "connecting") return;
+    setError("");
+    setState("connecting");
+    try {
+      if (launchTarget) {
+        setSessionKey(launchTarget);
+        if (launchTarget !== "__default" && s.statuses[launchTarget] !== "running") await s.startProfile(launchTarget);
+        if (launchTarget === "__default" && !defaultRunning) await s.startDefaultSession();
+        await s.refreshSessions();
+        await start(launchTarget);
+      } else {
+        await s.startDefaultSession();
+        await s.refreshSessions();
+        await start(undefined);
+      }
+    } catch (e) {
+      setState("error");
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const selectRemoteTab = (targetID: string) => {
+    if (!targetID || !remoteClientRef.current) return;
+    setPendingRemoteTab(targetID);
+    remoteClientRef.current.selectTab(targetID);
+  };
+
+  const pointForEvent = (event: MouseEvent | WheelEvent) => {
+    const embed = remoteEmbedRef.current;
+    const video = remoteVideoRef.current;
+    if (!embed || !video) return { x: 0, y: 0 };
+    const rect = embed.getBoundingClientRect();
+    const videoWidth = mediaStats.viewport_width || mediaStats.device_width || video.videoWidth || 1;
+    const videoHeight = mediaStats.viewport_height || mediaStats.device_height || video.videoHeight || 1;
+    const renderedScale = Math.min(rect.width / Math.max(1, video.videoWidth || videoWidth), rect.height / Math.max(1, video.videoHeight || videoHeight));
+    const renderedWidth = Math.max(1, (video.videoWidth || videoWidth) * renderedScale);
+    const renderedHeight = Math.max(1, (video.videoHeight || videoHeight) * renderedScale);
+    const left = rect.left + (rect.width - renderedWidth) / 2;
+    const top = rect.top + (rect.height - renderedHeight) / 2;
+    const x = Math.round((event.clientX - left) * videoWidth / renderedWidth);
+    const y = Math.round((event.clientY - top) * videoHeight / renderedHeight);
+    return {
+      x: Math.max(0, Math.min(videoWidth, x)),
+      y: Math.max(0, Math.min(videoHeight, y)),
+    };
   };
 
   useEffect(() => {
     const current =
-      s.selectedProfile ??
-      s.profiles.find((profile) => s.statuses[profile.name] === "running")?.name ??
+      s.selectedProfile ||
+      (s.defaultSession?.status === "running" ? "__default" : "") ||
+      s.profiles.find((profile) => s.statuses[profile.name] === "running")?.name ||
       "";
     setSessionKey(current);
-    if (current) void start(current);
-    return () => castRef.current?.stop();
+    if (current && (current === "__default" || s.statuses[current] === "running")) void start(current);
+    return () => remoteClientRef.current?.close();
     // LiveView is mounted afresh on tab selection, matching Swift onAppear.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const onStageClick = (e: React.MouseEvent) => {
-    const el = frameRef.current;
-    const stage = stageRef.current;
-    const cast = castRef.current;
-    if (!el || !stage || !cast || !control || state !== "live") return;
-    const rect = el.getBoundingClientRect();
-    const nx = (e.clientX - rect.left) / rect.width;
-    const ny = (e.clientY - rect.top) / rect.height;
-    if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return;
-    const stageRect = stage.getBoundingClientRect();
-    setClickPos({ x: e.clientX - stageRect.left, y: e.clientY - stageRect.top });
-    setTimeout(() => setClickPos(null), 350);
-    void cast.click(nx, ny);
-  };
-
-  const onWheel = (e: React.WheelEvent) => {
-    const cast = castRef.current;
-    if (!cast || !control || state !== "live") return;
-    e.preventDefault();
-    const el = frameRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const nx = (e.clientX - rect.left) / rect.width;
-    const ny = (e.clientY - rect.top) / rect.height;
-    if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return;
-    void cast.scroll(nx, ny, e.deltaX, e.deltaY);
-  };
-
   useEffect(() => {
-    if (!control) return;
-    const onKey = (e: KeyboardEvent) => {
-      const cast = castRef.current;
-      if (!cast || state !== "live") return;
-      if (e.key === "Enter") void cast.specialKey("Enter", "Enter");
-      else if (e.key === "Backspace") void cast.specialKey("Backspace", "Backspace");
-      else if (e.key === "Tab") {
-        e.preventDefault();
-        void cast.specialKey("Tab", "Tab");
-      } else if (e.key === "Escape") void cast.specialKey("Escape", "Escape");
-      else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) void cast.typeText(e.key);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [control, state]);
+    const video = remoteVideoRef.current;
+    if (!video || !remoteMediaStream) return;
+    video.srcObject = remoteMediaStream;
+    void video.play().catch(() => undefined);
+  }, [remoteMediaStream, state]);
+
+  const handleMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
+    remoteEmbedRef.current?.focus();
+    const point = pointForEvent(event.nativeEvent);
+    remoteClientRef.current?.sendInput({
+      type: "mouse",
+      payload: { event: "mousePressed", x: point.x, y: point.y, button: buttonName(event.button), buttons: 1, clickCount: event.detail || 1, modifiers: modifierBits(event.nativeEvent) },
+    });
+    event.preventDefault();
+  };
+
+  const handleMouseUp = (event: ReactMouseEvent<HTMLDivElement>) => {
+    const point = pointForEvent(event.nativeEvent);
+    remoteClientRef.current?.sendInput({
+      type: "mouse",
+      payload: { event: "mouseReleased", x: point.x, y: point.y, button: buttonName(event.button), buttons: 0, clickCount: event.detail || 1, modifiers: modifierBits(event.nativeEvent) },
+    });
+    event.preventDefault();
+  };
+
+  const handleWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    const point = pointForEvent(event.nativeEvent);
+    remoteClientRef.current?.sendInput({
+      type: "wheel",
+      payload: { x: point.x, y: point.y, deltaX: event.deltaX, deltaY: event.deltaY, modifiers: modifierBits(event.nativeEvent) },
+    });
+    event.preventDefault();
+  };
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!shouldSendKeyEvent(event.nativeEvent)) {
+      if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        remoteClientRef.current?.sendInput({ type: "text", payload: { text: event.key } });
+        event.preventDefault();
+      }
+      return;
+    }
+    remoteClientRef.current?.sendInput({
+      type: "key",
+      payload: {
+        event: event.type,
+        key: event.key,
+        code: event.code,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+        altKey: event.altKey,
+        repeat: event.repeat,
+      },
+    });
+    event.preventDefault();
+  };
+
+  const handleKeyUp = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!shouldSendKeyEvent(event.nativeEvent)) return;
+    remoteClientRef.current?.sendInput({
+      type: "key",
+      payload: {
+        event: event.type,
+        key: event.key,
+        code: event.code,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+        altKey: event.altKey,
+        repeat: event.repeat,
+      },
+    });
+    event.preventDefault();
+  };
 
   return (
     <div className="live">
       <div className="live-controls">
         <Icon name="video.fill" size={18} className="accent-icon" />
-        <select className="live-session-select" value={sessionKey} onChange={(e) => setSessionKey(e.target.value)}>
-          <option value="">Select session</option>
-          {s.profiles.map((p) => (
+        <select
+          className="live-session-select"
+          value={sessionKey}
+          title="Choose profile to stream"
+          onChange={(e) => {
+            stop();
+            setSessionKey(e.target.value);
+          }}
+        >
+          <option value="">Select profile</option>
+          {profileOptions.map((p) => (
             <option key={p.name} value={p.name}>
-              {s.statuses[p.name] === "running" ? p.name : `${p.name} (stopped)`}
+              {p.running ? p.label : `${p.label} (stopped)`}
             </option>
           ))}
         </select>
         <span className={"live-pill " + state}>
-          {state === "live" && control ? "live · control" : state}
+          {state === "live" ? "live" : state}
         </span>
-        <label className="control-toggle">
-          <input
-            type="checkbox"
-            checked={control}
-            disabled={state !== "live"}
-            onChange={(e) => setControl(e.target.checked)}
-          />
-          Control
-        </label>
+        <span className="muted small">Native Remote Control viewer is used when supported.</span>
         <span className="spacer" />
-        {state === "live" && (
-          <span className="muted small fps-label">
-            <Icon name="speedometer" size={12} /> {fps} fps
-          </span>
+        {streamUrl && (
+          <a className="btn-bordered" href={streamUrl} target="_blank" rel="noreferrer" title="Open Remote Control in your browser">
+            <Icon name="arrow.up.forward.app" size={14} />
+            Open link
+          </a>
         )}
-        {state === "live" ? (
+        {state === "live" && (
           <button className="btn-bordered live-stop-btn" onClick={stop}>
             <Icon name="stop.fill" size={14} className="error" />
             Stop
-          </button>
-        ) : (
-          <button
-            className="btn-bordered-prominent live-stream-btn"
-            disabled={!sessionKey || state === "connecting"}
-            onClick={() => start()}
-          >
-            {state === "connecting" ? (
-              <>
-                <Spinner size={13} />
-                Connecting…
-              </>
-            ) : (
-              <>
-                <Icon name="play.fill" size={12} />
-                Stream
-              </>
-            )}
           </button>
         )}
       </div>
       <hr className="divider" />
 
-      <div
-        ref={stageRef}
-        className={"live-stage" + (control ? " interactive" : "")}
-        onClick={onStageClick}
-        onWheel={onWheel}
-      >
-        {state === "connecting" && <div className="muted">Connecting…</div>}
+      {state === "live" && remoteTabs.length > 0 && (
+        <div className="remote-tabs-bar" aria-label="Remote browser tabs">
+          {remoteTabs.map((tab) => {
+            const active = tab.active || tab.target_id === pendingRemoteTab;
+            const title = tab.title || tab.url || "Untitled";
+            return (
+              <button
+                key={tab.target_id}
+                className={"remote-tab-chip" + (active ? " active" : "")}
+                onClick={() => selectRemoteTab(tab.target_id)}
+                disabled={active || !!pendingRemoteTab}
+                title={tab.url || title}
+              >
+                <span className="remote-tab-title">{title}</span>
+                {tab.loading && <span className="remote-tab-dot" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="live-stage remote-live-stage">
+        {state === "connecting" && (
+          <div className="live-empty-panel">
+            <Spinner size={18} />
+            <strong>Starting live view...</strong>
+            <p className="muted small">Creating a Remote Control session through clawctl.</p>
+          </div>
+        )}
         {state === "error" && (
           <div className="live-error">
             <Icon name="exclamationmark.triangle.fill" size={32} className="warn" />
             <p>{error || "Connection failed"}</p>
-            <button className="primary live-stream-btn" onClick={() => start()}>
+            <button className="primary live-stream-btn" onClick={() => launchAndStream()}>
               <Icon name="play.fill" size={12} />
-              Stream
+              Launch to stream
             </button>
           </div>
         )}
-        {state === "idle" && !frame && (
-          <div className="muted">Start a session, then Stream to watch the browser.</div>
+        {state === "idle" && !streamInfo && (
+          <div className="live-empty-panel">
+            <Icon name="video.fill" size={34} className="muted" />
+            <strong>{runningProfiles.length || defaultRunning ? "Stream is off" : "No active profiles"}</strong>
+            <p className="muted">
+              {runningProfiles.length || defaultRunning
+                ? "Start Remote Control for the selected running profile."
+                : "Launch a profile and open Remote Control."}
+            </p>
+            <button
+              className="btn-bordered-prominent live-stream-btn"
+              onClick={() => launchAndStream()}
+              title={runningProfiles.length || defaultRunning ? "Start live view" : "Launch selected profile and open live view"}
+            >
+              <Icon name="play.fill" size={12} />
+              {runningProfiles.length || defaultRunning ? "Stream" : "Launch to stream"}
+            </button>
+          </div>
         )}
-        {frame && <img ref={frameRef} src={frame} alt="Live browser" className="live-frame" draggable={false} />}
-        {clickPos && (
+        {streamInfo && state !== "error" && (
           <div
-            className="click-indicator"
-            style={{ left: clickPos.x, top: clickPos.y }}
-          />
+            ref={remoteEmbedRef}
+            className="remote-live-embed"
+            tabIndex={0}
+            onMouseDown={handleMouseDown}
+            onMouseUp={handleMouseUp}
+            onWheel={handleWheel}
+            onKeyDown={handleKeyDown}
+            onKeyUp={handleKeyUp}
+          >
+            <video ref={remoteVideoRef} className="remote-live-video" autoPlay muted playsInline />
+          </div>
         )}
       </div>
-      {control && state === "live" && (
+      {state === "live" && (
         <div className="live-hint muted small">
-          Click to interact · scroll wheel · type when Control is on
+          Remote Control is running natively in NextBrowser. Click, scroll, type, or use the tab bar above.
         </div>
       )}
     </div>

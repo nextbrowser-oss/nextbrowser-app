@@ -10,6 +10,7 @@ const { randomUUID } = require("node:crypto");
 
 const execFileAsync = promisify(execFile);
 const children = new Map();
+const remoteSignalSockets = new Map();
 const APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 let appUpdateStatus = { status: "idle" };
 let appUpdateTimer = null;
@@ -125,8 +126,8 @@ async function clawctlHasSkill(binary) {
 async function resolveClawctl() {
   if (process.env.CLAWCTL_BIN && launchable(expand(process.env.CLAWCTL_BIN))) return expand(process.env.CLAWCTL_BIN);
   const candidates = [];
-  for (const dir of searchDirs()) for (const name of executableNames("clawctl")) { const f = path.join(dir, name); if (launchable(f)) candidates.push(f); }
   const dev = path.join(home(), "projects/ClawBrowser/clawctl/bin/clawctl"); if (launchable(dev)) candidates.push(dev);
+  for (const dir of searchDirs()) for (const name of executableNames("clawctl")) { const f = path.join(dir, name); if (launchable(f)) candidates.push(f); }
   for (const candidate of [...new Set(candidates)]) if (await clawctlHasSkill(candidate)) return candidate;
   return candidates[0] || null;
 }
@@ -149,8 +150,8 @@ function setAppUpdateStatus(status, patch = {}) {
 }
 function configureAutoUpdater() {
   if (!app.isPackaged || !["darwin", "win32"].includes(process.platform)) return;
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.on("checking-for-update", () => setAppUpdateStatus("checking"));
   autoUpdater.on("update-available", (info) => setAppUpdateStatus("available", { version: info.version }));
   autoUpdater.on("update-not-available", (info) => setAppUpdateStatus("not-available", { version: info.version }));
@@ -163,7 +164,7 @@ function checkForAppUpdate() {
     setAppUpdateStatus("disabled", { message: "App updates run only in packaged macOS/Windows builds." });
     return null;
   }
-  return autoUpdater.checkForUpdatesAndNotify().catch((error) => {
+  return autoUpdater.checkForUpdates().catch((error) => {
     setAppUpdateStatus("error", { message: error?.message || String(error) });
     return null;
   });
@@ -181,6 +182,21 @@ async function invokeCommand(command, args = {}) {
     case "app_update_status": return appUpdateStatus;
     case "app_check_for_update": {
       await checkForAppUpdate();
+      return appUpdateStatus;
+    }
+    case "app_download_update": {
+      if (!app.isPackaged || !["darwin", "win32"].includes(process.platform)) {
+        setAppUpdateStatus("disabled", { message: "App updates run only in packaged macOS/Windows builds." });
+        return appUpdateStatus;
+      }
+      if (!["available", "downloaded"].includes(appUpdateStatus.status)) {
+        await checkForAppUpdate();
+      }
+      if (appUpdateStatus.status === "available") {
+        await autoUpdater.downloadUpdate().catch((error) => {
+          setAppUpdateStatus("error", { message: error?.message || String(error) });
+        });
+      }
       return appUpdateStatus;
     }
     case "app_install_update": {
@@ -287,6 +303,44 @@ async function invokeCommand(command, args = {}) {
       const targets = await response.json(); const target = targets.find((t) => t.type === "page" && t.webSocketDebuggerUrl) || targets.find((t) => t.webSocketDebuggerUrl);
       if (!target?.webSocketDebuggerUrl) throw new Error("No page targets found. Open a tab in NextBrowser first."); return target.webSocketDebuggerUrl;
     }
+    case "remote_signal_open": {
+      const id = randomUUID();
+      const url = String(args.url || "");
+      if (!/^wss?:\/\//.test(url)) throw new Error("Remote signaling URL must be ws or wss.");
+      await new Promise((resolve, reject) => {
+        const socket = new WebSocket(url);
+        let opened = false;
+        socket.addEventListener("open", () => {
+          opened = true;
+          remoteSignalSockets.set(id, socket);
+          emit("remote_signal_event", { id, type: "open" });
+          resolve();
+        }, { once: true });
+        socket.addEventListener("message", (event) => emit("remote_signal_event", { id, type: "message", data: String(event.data || "") }));
+        socket.addEventListener("close", (event) => {
+          remoteSignalSockets.delete(id);
+          emit("remote_signal_event", { id, type: "close", code: event.code, reason: event.reason });
+        });
+        socket.addEventListener("error", () => {
+          emit("remote_signal_event", { id, type: "error", message: "Remote signaling failed." });
+          if (!opened) reject(new Error("Remote signaling failed."));
+        }, { once: true });
+      });
+      return id;
+    }
+    case "remote_signal_send": {
+      const socket = remoteSignalSockets.get(String(args.id || ""));
+      if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error("Remote signaling socket is not open.");
+      socket.send(String(args.data || ""));
+      return null;
+    }
+    case "remote_signal_close": {
+      const id = String(args.id || "");
+      const socket = remoteSignalSockets.get(id);
+      if (socket) socket.close();
+      remoteSignalSockets.delete(id);
+      return null;
+    }
     default: throw new Error(`Unknown Electron IPC command: ${command}`);
   }
 }
@@ -313,10 +367,13 @@ function createWindow() {
     title: "NextBrowser", width: 1180, height: 760, minWidth: 960, minHeight: 640,
     backgroundColor: "#15141c", show: false,
     ...(icon ? { icon } : {}),
-    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true },
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: true },
   });
   window.once("ready-to-show", () => window.show());
   window.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: "deny" }; });
+  window.webContents.on("did-attach-webview", (_event, webContents) => {
+    webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  });
   if (process.env.VITE_DEV_SERVER_URL) window.loadURL(process.env.VITE_DEV_SERVER_URL);
   else window.loadFile(path.join(__dirname, "..", "dist", "index.html"));
 }
@@ -333,5 +390,7 @@ app.whenReady().then(() => {
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 app.on("before-quit", () => {
   if (appUpdateTimer) clearInterval(appUpdateTimer);
+  for (const socket of remoteSignalSockets.values()) socket.close();
+  remoteSignalSockets.clear();
   for (const child of children.values()) child.kill();
 });

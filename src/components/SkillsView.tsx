@@ -21,16 +21,27 @@ export function SkillsView() {
   useEffect(() => {
     if (cat && cat.id !== category) setCategory(cat.id);
   }, [cat, category]);
+  useEffect(() => {
+    if (localStorage.getItem("openMyScriptsEditor") !== "1") return;
+    localStorage.removeItem("openMyScriptsEditor");
+    setCategory("my-scripts");
+    setScriptEditor("new");
+  }, []);
   const sessionName = s.currentSessionDisplayName();
   const ready = s.agentReady();
 
   const apply = async (e: SkillEntry) => {
-    setStatus((p) => ({ ...p, [e.id]: "applying…" }));
+    const publishedScript = e.selector.kind === "script" && !e.js;
+    setStatus((p) => ({ ...p, [e.id]: publishedScript ? "adding to script menu…" : "applying…" }));
     try {
       const ref = await s.applySkill(e);
       setStatus((p) => ({
         ...p,
-        [e.id]: ref?.found ? `installed: ${ref.slug ?? e.title}` : "no skill published yet",
+        [e.id]: publishedScript
+          ? "added to script menu"
+          : ref?.found
+            ? `installed: ${ref.slug ?? e.title}`
+            : "no skill published yet",
       }));
     } catch (err) {
       setStatus((p) => ({ ...p, [e.id]: String(err) }));
@@ -103,14 +114,16 @@ export function SkillsView() {
         <div className="skills-grid">
           {(cat?.entries ?? []).map((e) => {
             const st = applyState(e.id);
+            const applyError = s.skillApplyError(e.id);
+            const publishedScript = e.selector.kind === "script" && !e.js;
             return (
               <div key={e.id} className="skill-card claw-card">
                 <div className="skill-card-head">
                   <Icon name={selectorIcon(e.selector)} size={16} className="accent-icon" />
                   <div className="skill-title">{e.title}</div>
                   <span className={"mode-badge" + (e.js ? " instant" : " agent")}>
-                    <Icon name={e.js ? "bolt.fill" : "sparkles"} size={10} />
-                    {e.js ? "Instant" : "Agent"}
+                    <Icon name={e.js ? "bolt.fill" : publishedScript ? "scroll.fill" : "sparkles"} size={10} />
+                    {e.js ? "Instant" : publishedScript ? "Script" : "Agent"}
                   </span>
                 </div>
                 <div className="muted small">{e.subtitle}</div>
@@ -121,30 +134,50 @@ export function SkillsView() {
                   />
                   {targetText(e)}
                 </div>
-                {st === "idle" && <div className="small muted skill-status">Not installed</div>}
-                {st === "applying" && <div className="small muted skill-status">Pulling from API…</div>}
-                {st === "installed" && (
+                {publishedScript && st === "idle" && <div className="small muted skill-status">Not added</div>}
+                {publishedScript && status[e.id] === "adding to script menu…" && (
+                  <div className="small muted skill-status">Adding to script menu…</div>
+                )}
+                {publishedScript && st === "installed" && (
                   <div className="small ok skill-status">
                     <Icon name="checkmark.seal.fill" size={12} />
-                    Installed
+                    Added to script menu
                   </div>
                 )}
-                {st === "failed" && <div className="small error skill-status">Apply failed</div>}
+                {!publishedScript && (
+                  <>
+                    {st === "idle" && <div className="small muted skill-status">Not installed</div>}
+                    {st === "applying" && <div className="small muted skill-status">Pulling from API…</div>}
+                    {st === "installed" && (
+                      <div className="small ok skill-status">
+                        <Icon name="checkmark.seal.fill" size={12} />
+                        Installed
+                      </div>
+                    )}
+                    {st === "failed" && (
+                      <div className="small error skill-status">
+                        Apply failed
+                        {applyError && <pre className="skill-error-detail">{applyError}</pre>}
+                      </div>
+                    )}
+                  </>
+                )}
                 <div className="skill-actions">
                   {e.js ? (
-                    <button className="btn-bordered-prominent full" onClick={() => s.runScript(e)}>
+                    <button className="btn-bordered-prominent full" title={`Run ${e.title}`} onClick={() => s.runScript(e)}>
                       <Icon name="bolt.fill" size={14} />
                       Run
                     </button>
                   ) : (
                     <>
-                      <button className="btn-bordered-prominent full" onClick={() => apply(e)}>
-                        {st === "installed" ? "Re-apply" : "Apply"}
+                      <button className="btn-bordered-prominent full" title={`${st === "installed" ? "Re-apply" : "Apply"} ${e.title}`} onClick={() => apply(e)}>
+                        {publishedScript && st === "installed" ? "Applied" : st === "installed" ? "Re-apply" : "Apply"}
                       </button>
-                      {(st === "installed" || status[e.id]?.startsWith("installed")) && (
+                      {!publishedScript && (st === "installed" || status[e.id]?.startsWith("installed")) && (
                         <button
                           className="btn-bordered full"
                           disabled={!ready}
+                          title={`Run ${e.title} in chat`}
                           onClick={() => s.useSkillInChat(e)}
                         >
                           Run
@@ -172,7 +205,7 @@ export function SkillsView() {
                   Synced to your account on our server, but never shared back to other users.
                 </p>
               </div>
-              <button className="btn-bordered-prominent" onClick={() => setScriptEditor("new")}>
+              <button className="btn-bordered-prominent" title="Create a new private custom script" onClick={() => setScriptEditor("new")}>
                 <Icon name="plus" size={14} />
                 New script
               </button>
@@ -242,7 +275,7 @@ function CustomScriptCard({
       <div className="muted small">Runs in {sessionName}</div>
       <p className="small instructions-preview">{script.instructions.slice(0, 120)}…</p>
       {(!sync || sync === "idle") && (
-        <button className="link small sync-link" onClick={onSync}>
+        <button className="link small sync-link" title="Sync this script to your account" onClick={onSync}>
           Sync to server
         </button>
       )}
@@ -251,19 +284,19 @@ function CustomScriptCard({
       {sync === "failed" && (
         <span className="error small sync-failed-row">
           Not synced
-          <button className="link small" onClick={onSync}>
+          <button className="link small" title="Retry script sync" onClick={onSync}>
             Retry
           </button>
         </span>
       )}
       <div className="skill-actions">
-        <button className="btn-bordered-prominent full" onClick={onUse}>
+        <button className="btn-bordered-prominent full" title={`Use ${script.title} in chat`} onClick={onUse}>
           Use
         </button>
-        <button className="btn-bordered full" onClick={onEdit}>
+        <button className="btn-bordered full" title={`Edit ${script.title}`} onClick={onEdit}>
           Edit
         </button>
-        <button className="mini" onClick={onDelete}>
+        <button className="mini" title={`Delete ${script.title}`} onClick={onDelete}>
           Delete
         </button>
       </div>

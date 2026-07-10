@@ -20,6 +20,7 @@ import { composePrompt } from "./lib/composePrompt";
 import { promptWithAttachments } from "./lib/chatAttachments";
 import { normalizeClawctlVersion } from "./lib/version";
 import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
+import type { RemoteStreamInfo } from "./remoteControl";
 import { loadJson, saveJson } from "./lib/storage";
 import {
   normalizeConversation,
@@ -211,6 +212,31 @@ async function installedSkillMarkdown(ref?: SkillRef): Promise<string | undefine
   }
 }
 
+async function pullCatalogInstructions(entry: SkillEntry, preferredAgentId: string): Promise<SkillRef> {
+  const adapters = [
+    clawctlAgentAdapter(preferredAgentId),
+    "claude-code",
+    "codex",
+  ].filter((adapter, index, all) => all.indexOf(adapter) === index);
+  const failures: string[] = [];
+  for (const adapter of adapters) {
+    try {
+      const ref = await clawctlJson<SkillRef>([
+        "skill",
+        "check",
+        ...selectorFlags(entry.selector),
+        "--agent",
+        adapter,
+      ]);
+      if (ref.found === true) return ref;
+      failures.push(`${adapter}: not found`);
+    } catch (error) {
+      failures.push(`${adapter}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  throw new Error(`Could not pull "${entry.title}" script instructions. ${failures.join(" · ")}`);
+}
+
 interface State {
   authed: boolean;
   checking: boolean;
@@ -220,6 +246,7 @@ interface State {
   proxyWarning?: string;
   profiles: Profile[];
   statuses: Record<string, string>;
+  profileIdentities: Record<string, ProxyIdentity>;
   selectedProfile?: string;
   defaultSession?: SessionStatus;
   profileSearch: string;
@@ -229,13 +256,15 @@ interface State {
   conversations: Conversation[];
   activeConvId: Record<string, string>;
   tab: AppTab;
-  skillState: Record<string, SkillApplyState>;
+  skillState: Record<string, SkillApplyState | string>;
   scheduledRuns: ScheduledRun[];
   customScripts: CustomScript[];
+  appliedScripts: SkillEntry[];
   scriptSync: Record<string, ScriptSyncState>;
   usageHistory: UsageSnapshot[];
   showOnboarding: boolean;
   sidebarWidth: number;
+  sidebarCollapsed: boolean;
   chatListCollapsed: boolean;
   dashboardKeyPromptOpen: boolean;
   clawctlVersion: string;
@@ -278,6 +307,7 @@ interface State {
   setAppActive: (v: boolean) => void;
   setProfileSearch: (q: string) => void;
   setSidebarWidth: (w: number) => void;
+  setSidebarCollapsed: (v: boolean) => void;
   setChatListCollapsed: (v: boolean) => void;
   setDashboardKeyPromptOpen: (v: boolean) => void;
   finishOnboarding: () => void;
@@ -296,6 +326,7 @@ interface State {
   filteredProfiles: () => Profile[];
   currentSessionDisplayName: () => string;
   skillApplyState: (entryId: string) => SkillApplyState;
+  skillApplyError: (entryId: string) => string | undefined;
 
   newChat: () => string;
   createNamedChat: (agentId: string, title: string) => string;
@@ -315,6 +346,7 @@ interface State {
   applySkill: (entry: SkillEntry) => Promise<SkillRef | undefined>;
   useSkillInChat: (entry: SkillEntry) => Promise<void>;
   runScript: (entry: SkillEntry, host?: string) => Promise<void>;
+  startRemoteStream: (profile?: string) => Promise<RemoteStreamInfo>;
 
   addScheduledRun: (run: Omit<ScheduledRun, "id" | "agent" | "enabled">) => void;
   updateScheduledRun: (id: string, patch: Partial<ScheduledRun>) => void;
@@ -373,6 +405,51 @@ function persistScripts(scripts: CustomScript[]) {
   void saveJson("custom-scripts.json", serializeScripts(scripts));
 }
 
+function persistAppliedScripts(scripts: SkillEntry[]) {
+  void saveJson("applied-scripts.json", scripts);
+}
+
+interface VerifyCheck {
+  surface?: string;
+  expected?: string;
+  actual?: string;
+  detail?: string;
+}
+
+export interface ProxyIdentity {
+  ip?: string;
+  country?: string;
+  city?: string;
+  label?: string;
+}
+
+function proxyIdentityFromVerify(checks?: VerifyCheck[], visibleText?: string): ProxyIdentity | undefined {
+  const check = checks?.find((c) => {
+    const surface = (c.surface ?? "").toLowerCase();
+    return surface.includes("ip") || surface.includes("proxy");
+  });
+  const ip = visibleText?.match(/\bIP:\s*([0-9a-fA-F:.]+)/)?.[1];
+  const countryFromText = visibleText?.match(/\bCountry:\s*([A-Za-z]{2})\b/)?.[1]?.toUpperCase();
+  const actual = check?.actual?.trim();
+  const expected = check?.expected?.trim();
+  const countryFromActual = actual?.match(/^([A-Za-z]{2})(?:\s*\(([^)]+)\))?/) ?? undefined;
+  const country = countryFromText ?? countryFromActual?.[1]?.toUpperCase() ?? expected?.toUpperCase();
+  const city = countryFromActual?.[2];
+  const label = actual || check?.detail || expected || undefined;
+  if (!ip && !country && !city && !label) return undefined;
+  return { ip, country, city, label };
+}
+
+async function verifyProxyIdentity(profile?: string): Promise<ProxyIdentity | undefined> {
+  try {
+    const args = [...(profile ? ["--profile", profile] : []), "verify", "--timeout", "15s"];
+    const data = await clawctlJson<{ verify?: { checks?: VerifyCheck[]; visible_text?: string } }>(args);
+    return proxyIdentityFromVerify(data.verify?.checks, data.verify?.visible_text);
+  } catch {
+    return undefined;
+  }
+}
+
 async function refreshAnalyticsIdentity(): Promise<void> {
   const wrap = await clawctlJson<{ identity: APIKeyIdentity }>(["identity"]);
   const ownerId = wrap.identity.owner_id?.trim();
@@ -389,6 +466,7 @@ export const useStore = create<State>((set, get) => ({
   isLoggingIn: false,
   profiles: [],
   statuses: {},
+  profileIdentities: {},
   profileSearch: "",
   isRefreshing: false,
   agentId: localStorage.getItem("lastAgent") ?? "claude",
@@ -400,10 +478,12 @@ export const useStore = create<State>((set, get) => ({
   skillCategories: [],
   scheduledRuns: [],
   customScripts: [],
+  appliedScripts: [],
   scriptSync: {},
   usageHistory: [],
   showOnboarding: false,
   sidebarWidth: Number(localStorage.getItem("sidebarWidth") ?? 300),
+  sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "true",
   chatListCollapsed: localStorage.getItem("chatListCollapsed") === "true",
   dashboardKeyPromptOpen: false,
   clawctlVersion: "",
@@ -445,17 +525,23 @@ export const useStore = create<State>((set, get) => ({
     );
   },
   currentSessionDisplayName: () => get().selectedProfile ?? "current session",
-  skillApplyState: (entryId) => get().skillState[skillKey(get().agentId, entryId)] ?? "idle",
+  skillApplyState: (entryId) => {
+    if (get().appliedScripts.some((script) => script.id === entryId)) return "installed";
+    const value = get().skillState[skillKey(get().agentId, entryId)];
+    return value === "applying" || value === "installed" || value === "failed" ? value : "idle";
+  },
+  skillApplyError: (entryId) => get().skillState[skillKey(get().agentId, `${entryId}:error`)],
 
   bootstrap: async () => {
     if (didBootstrap) return;
     didBootstrap = true;
     const startedAt = performance.now();
     trackEvent("bootstrap_started");
-    const [rawConvs, rawSchedules, rawScripts, rawHistory, wd] = await Promise.all([
+    const [rawConvs, rawSchedules, rawScripts, rawAppliedScripts, rawHistory, wd] = await Promise.all([
       loadJson<Conversation[]>("conversations.json", []),
       loadJson<ScheduledRun[]>("scheduled-runs.json", []),
       loadJson<CustomScript[]>("custom-scripts.json", []),
+      loadJson<SkillEntry[]>("applied-scripts.json", []),
       loadJson<UsageSnapshot[]>("usage-history.json", []),
       invoke<string>("working_directory").catch(() => ""),
     ]);
@@ -473,6 +559,7 @@ export const useStore = create<State>((set, get) => ({
       activeConvId,
       scheduledRuns: schedules,
       customScripts: scripts,
+      appliedScripts: rawAppliedScripts.filter((entry) => entry?.selector?.kind === "script"),
       usageHistory: history,
       workingDir: wd,
     });
@@ -1031,6 +1118,7 @@ export const useStore = create<State>((set, get) => ({
       proxyWarning: undefined,
       profiles: [],
       statuses: {},
+      profileIdentities: {},
       defaultSession: undefined,
       skillState: {},
       tab: "chat",
@@ -1139,6 +1227,10 @@ export const useStore = create<State>((set, get) => ({
         try {
           const st = await clawctlJson<SessionStatus>(["status", "--profile", p.name]);
           set((s) => ({ statuses: { ...s.statuses, [p.name]: st.status } }));
+          if (st.status === "running") {
+            const identity = await verifyProxyIdentity(p.name);
+            if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, [p.name]: identity } }));
+          }
         } catch {
           set((s) => ({ statuses: { ...s.statuses, [p.name]: "unknown" } }));
         }
@@ -1152,6 +1244,10 @@ export const useStore = create<State>((set, get) => ({
     try {
       const st = await clawctlJson<SessionStatus>(["status"]);
       set({ defaultSession: st });
+      if (st.status === "running") {
+        const identity = await verifyProxyIdentity();
+        if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
+      }
       trackEvent("default_session_loaded", { session_status: st.status, backend: st.backend ?? "unknown" });
     } catch {
       set({ defaultSession: undefined });
@@ -1193,6 +1289,9 @@ export const useStore = create<State>((set, get) => ({
     trackEvent("session_start_requested", { scope: "default" });
     await clawctlRun(["start", "--format", "json"]);
     await get().loadDefaultSession();
+    const identity = await verifyProxyIdentity();
+    if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
+    await get().loadProfiles();
     trackTiming("session_create_completed", startedAt, { scope: "default", session_status: get().defaultSession?.status ?? "unknown" });
     trackTiming("session_start_completed", startedAt, { scope: "default", session_status: get().defaultSession?.status ?? "unknown" });
   },
@@ -1212,6 +1311,8 @@ export const useStore = create<State>((set, get) => ({
     await clawctlRun(["rotate", "--format", "json"]);
     await get().loadDefaultSession();
     await get().loadProxy().catch(() => {});
+    const after = await verifyProxyIdentity();
+    if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: after } }));
     trackTiming("proxy_ip_change_completed", startedAt, { scope: "default_session" });
     trackTiming("session_rotate_completed", startedAt, { scope: "default" });
   },
@@ -1223,6 +1324,9 @@ export const useStore = create<State>((set, get) => ({
     await clawctlRun(["rotate", "--country", country, "--verify", "--format", "json"]);
     await get().loadDefaultSession();
     await get().loadProxy().catch(() => {});
+    const after = await verifyProxyIdentity();
+    const identity = after ?? { country };
+    set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
     trackTiming("proxy_country_change_completed", startedAt, { scope: "default_session", country });
     trackTiming("session_rotate_completed", startedAt, { scope: "default", country });
   },
@@ -1234,6 +1338,8 @@ export const useStore = create<State>((set, get) => ({
     set((s) => ({ statuses: { ...s.statuses, [n]: "starting" } }));
     await clawctlRun(["start", "--profile", n, "--format", "json"]);
     await get().loadProfiles();
+    const identity = await verifyProxyIdentity(n);
+    if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: identity } }));
     trackTiming("profile_session_create_completed", startedAt, { status: get().statuses[n] ?? "unknown" });
     trackTiming("profile_start_completed", startedAt, { status: get().statuses[n] ?? "unknown" });
   },
@@ -1255,6 +1361,8 @@ export const useStore = create<State>((set, get) => ({
     await clawctlRun(["rotate", "--profile", n, "--format", "json"]);
     await get().loadProfiles();
     await get().loadProxy().catch(() => {});
+    const after = await verifyProxyIdentity(n);
+    if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
     trackTiming("proxy_ip_change_completed", startedAt, { scope: "profile", status: get().statuses[n] ?? "unknown" });
     trackTiming("profile_rotate_completed", startedAt, { status: get().statuses[n] ?? "unknown" });
   },
@@ -1276,6 +1384,8 @@ export const useStore = create<State>((set, get) => ({
     ]);
     await get().loadProfiles();
     await get().loadProxy().catch(() => {});
+    const after = await verifyProxyIdentity(n);
+    if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
     trackTiming("proxy_country_change_completed", startedAt, { scope: "profile", country, status: get().statuses[n] ?? "unknown" });
     trackTiming("profile_rotate_completed", startedAt, { country, status: get().statuses[n] ?? "unknown" });
   },
@@ -1612,6 +1722,10 @@ export const useStore = create<State>((set, get) => ({
     localStorage.setItem("sidebarWidth", String(w));
     set({ sidebarWidth: w });
   },
+  setSidebarCollapsed: (v) => {
+    localStorage.setItem("sidebarCollapsed", String(v));
+    set({ sidebarCollapsed: v });
+  },
   setChatListCollapsed: (v) => {
     localStorage.setItem("chatListCollapsed", String(v));
     set({ chatListCollapsed: v });
@@ -1947,6 +2061,29 @@ export const useStore = create<State>((set, get) => ({
       category: entry.category,
       selector_kind: entry.selector.kind,
     });
+    if (entry.selector.kind === "script") {
+      const existing = get().appliedScripts.some((script) => script.id === entry.id);
+      const appliedScripts = existing ? get().appliedScripts : [...get().appliedScripts, entry];
+      persistAppliedScripts(appliedScripts);
+      set((s) => ({
+        appliedScripts,
+        skillState: {
+          ...s.skillState,
+          [skillKey(s.agentId, entry.id)]: "installed",
+        },
+      }));
+      trackTiming("script_apply_completed", startedAt, {
+        category: entry.category,
+        existing,
+      });
+      return {
+        found: true,
+        slug: entry.id,
+        title: entry.title,
+        kind: "domain",
+        selector: entry.selector.value,
+      };
+    }
     const targets = AGENTS.map((agent) => ({
       id: agent.id,
       adapter: clawctlAgentAdapter(agent.id),
@@ -1954,6 +2091,7 @@ export const useStore = create<State>((set, get) => ({
     set((s) => {
       const skillState = { ...s.skillState };
       for (const target of targets) skillState[skillKey(target.id, entry.id)] = "applying";
+      delete skillState[skillKey(get().agentId, `${entry.id}:error`)];
       return { skillState };
     });
     if (!get().clawctlSupportsSkill) {
@@ -1966,6 +2104,12 @@ export const useStore = create<State>((set, get) => ({
         category: entry.category,
         reason: "unsupported_clawctl",
       });
+      set((s) => ({
+        skillState: {
+          ...s.skillState,
+          [skillKey(get().agentId, `${entry.id}:error`)]: "Resolved clawctl does not support the `skill` command. Update clawctl or set CLAWCTL_BIN to a newer build.",
+        },
+      }));
       return undefined;
     }
     let activeRef: SkillRef | undefined;
@@ -1997,11 +2141,34 @@ export const useStore = create<State>((set, get) => ({
       }
     }
     if (!activeRef && !anyRef && failures.length) {
+      const message = `Skill installation failed. ${failures.join(" · ")}`;
+      set((s) => ({
+        skillState: {
+          ...s.skillState,
+          [skillKey(get().agentId, `${entry.id}:error`)]: message,
+        },
+      }));
       trackTiming("skill_apply_failed", startedAt, {
         category: entry.category,
         selector_kind: entry.selector.kind,
       });
-      throw new Error(`Skill installation failed. ${failures.join(" · ")}`);
+      throw new Error(message);
+    }
+    if (!activeRef && anyRef) {
+      set((s) => ({
+        skillState: (() => {
+          const skillState = { ...s.skillState };
+          skillState[skillKey(get().agentId, entry.id)] = "installed";
+          delete skillState[skillKey(get().agentId, `${entry.id}:error`)];
+          return skillState;
+        })(),
+      }));
+      trackEvent("skill_apply_active_agent_fallback", {
+        category: entry.category,
+        selector_kind: entry.selector.kind,
+        active_agent: get().agentId,
+        installed_slug: anyRef.slug ?? "unknown",
+      });
     }
     trackTiming("skill_apply_completed", startedAt, {
       category: entry.category,
@@ -2026,7 +2193,28 @@ export const useStore = create<State>((set, get) => ({
       entry.selector.kind === "domain" ? entry.selector.value : entry.selector.value;
     const cid = get().activeConversation()?.id ?? get().newChat();
 
-    const ref = await get().applySkill(entry);
+    let ref: SkillRef | undefined;
+    try {
+      ref = await get().applySkill(entry);
+    } catch (error) {
+      const cidForError = get().activeConversation()?.id ?? get().newChat();
+      const message = error instanceof Error ? error.message : String(error);
+      const errMsg: ChatMessage = {
+        id: uid(),
+        role: "system",
+        text: `Apply failed for "${entry.title}": ${message}`,
+        status: "done",
+        createdAt: now(),
+      };
+      set((s) => {
+        const conversations = s.conversations.map((c) =>
+          c.id === cidForError ? { ...c, messages: [...c.messages, errMsg], updatedAt: now() } : c,
+        );
+        persistConvs(conversations);
+        return { conversations };
+      });
+      return;
+    }
     if (!get().agentReady()) return;
     const stepId = get().makeStepMessage(cid);
     const prep = await prepareSession({
@@ -2148,7 +2336,31 @@ export const useStore = create<State>((set, get) => ({
     }
 
     if (!get().agentReady()) return;
-    const ref = await get().applySkill(entry);
+    let ref: SkillRef | undefined;
+    try {
+      ref = entry.selector.kind === "script"
+        ? await pullCatalogInstructions(entry, get().agentId)
+        : await get().applySkill(entry);
+    } catch (error) {
+      set({ tab: "chat" });
+      const cid = get().activeConversation()?.id ?? get().newChat();
+      const message = error instanceof Error ? error.message : String(error);
+      const errMsg: ChatMessage = {
+        id: uid(),
+        role: "system",
+        text: `Couldn't pull "${entry.title}": ${message}`,
+        status: "done",
+        createdAt: now(),
+      };
+      set((s) => {
+        const conversations = s.conversations.map((c) =>
+          c.id === cid ? { ...c, messages: [...c.messages, errMsg], updatedAt: now() } : c,
+        );
+        persistConvs(conversations);
+        return { conversations };
+      });
+      return;
+    }
     if (!get().agentReady()) return;
     set({ tab: "chat" });
     const cid = get().activeConversation()?.id ?? get().newChat();
@@ -2345,6 +2557,25 @@ export const useStore = create<State>((set, get) => ({
     const note = pageReadyNote(prep.host);
     const prompt = `Run my custom script "${script.title}" on ${target} in the active NextBrowser session.${note}\nFollow these steps exactly:\n\n${script.instructions}`;
     get().enqueue(prompt, chip, cid);
+  },
+
+  startRemoteStream: async (profile) => {
+    const args = ["remote", ...(profile ? ["--profile", profile] : [])];
+    let res = await clawctlRun([...args, "--include-viewer-url", "--format", "json"]);
+    if (res.code !== 0 && clawctlErrorMessage(res).includes("unknown flag")) {
+      res = await clawctlRun([...args, "--format", "json"]);
+    }
+    if (res.code !== 0) throw new Error(clawctlErrorMessage(res));
+    let result: RemoteStreamInfo & { data?: RemoteStreamInfo };
+    try {
+      result = JSON.parse(res.stdout);
+    } catch {
+      throw new Error(clawctlErrorMessage(res));
+    }
+    if (result.data?.dashboard_url) result = result.data;
+    const url = result.viewer_url || result.dashboard_url;
+    if (!url) throw new Error("clawctl remote did not return a viewer URL.");
+    return result;
   },
 }));
 
