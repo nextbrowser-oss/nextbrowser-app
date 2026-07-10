@@ -11,12 +11,23 @@ type RemoteFrameSnapshot = {
   ok?: boolean;
 };
 
+type RemoteLiveTab = {
+  target_id: string;
+  title?: string;
+  url?: string;
+  active?: boolean;
+  loading?: boolean;
+};
+
 export function LiveView() {
   const s = useStore();
   const [sessionKey, setSessionKey] = useState<string>("");
   const [streamUrl, setStreamUrl] = useState("");
   const [state, setState] = useState<"idle" | "connecting" | "live" | "error">("idle");
   const [error, setError] = useState("");
+  const [remoteTabs, setRemoteTabs] = useState<RemoteLiveTab[]>([]);
+  const [remoteTabsReady, setRemoteTabsReady] = useState(false);
+  const [pendingRemoteTab, setPendingRemoteTab] = useState("");
   const remoteEmbedRef = useRef<HTMLDivElement | null>(null);
   const remoteWebviewRef = useRef<LiveWebviewElement | null>(null);
   const remoteCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -71,6 +82,28 @@ export function LiveView() {
   const stop = () => {
     setStreamUrl("");
     setState("idle");
+    setRemoteTabs([]);
+    setRemoteTabsReady(false);
+    setPendingRemoteTab("");
+  };
+
+  const selectRemoteTab = (targetID: string) => {
+    const webview = remoteWebviewRef.current;
+    if (!targetID || !webview?.executeJavaScript) return;
+    setPendingRemoteTab(targetID);
+    const script = `(() => {
+      const tab = [...document.querySelectorAll("button[role='tab']")][Number(${JSON.stringify(targetID)})];
+      if (!tab || tab.disabled) return false;
+      tab.click();
+      return true;
+    })()`;
+    try {
+      void webview.executeJavaScript(script).then((ok) => {
+        if (!ok) setPendingRemoteTab("");
+      }).catch(() => setPendingRemoteTab(""));
+    } catch {
+      setPendingRemoteTab("");
+    }
   };
 
   useEffect(() => {
@@ -151,6 +184,7 @@ export function LiveView() {
 
     let mirrorClosed = false;
     let mirrorInFlight = false;
+    let tabsInFlight = false;
     const drawRemoteFrame = async () => {
       const canvas = remoteCanvasRef.current;
       if (mirrorClosed || mirrorInFlight || !canvas || !webview.executeJavaScript) return;
@@ -204,14 +238,47 @@ export function LiveView() {
       }
     };
 
+    const refreshRemoteTabs = async () => {
+      if (tabsInFlight || !webview.executeJavaScript) return;
+      tabsInFlight = true;
+      try {
+        const snapshot = (await webview.executeJavaScript(
+          `(() => [...document.querySelectorAll("button[role='tab']")].map((tab, index) => ({
+            target_id: String(index),
+            title: (tab.textContent || "").trim(),
+            url: tab.getAttribute("title") || "",
+            active: tab.getAttribute("aria-selected") === "true",
+            loading: false,
+          })).filter((tab) => tab.title))()`,
+        )) as RemoteLiveTab[];
+        const tabs = Array.isArray(snapshot) ? snapshot.filter((tab) => tab.target_id) : [];
+        if (!mirrorClosed) {
+          setRemoteTabs(tabs);
+          setRemoteTabsReady(tabs.some((tab) => !tab.active));
+          setPendingRemoteTab((pending) =>
+            pending && tabs.some((tab) => tab.active && tab.target_id === pending) ? "" : pending,
+          );
+        }
+      } catch {
+        if (!mirrorClosed) setRemoteTabsReady(false);
+      } finally {
+        tabsInFlight = false;
+      }
+    };
+
     syncSize();
     const frame = window.requestAnimationFrame(syncSize);
     const timers = [100, 350, 800, 1400, 2400, 4000].map((delay) => window.setTimeout(syncSize, delay));
     const interval = window.setInterval(syncSize, 1200);
     const mirrorInterval = window.setInterval(() => void drawRemoteFrame(), 160);
+    const tabsInterval = window.setInterval(() => void refreshRemoteTabs(), 1000);
     const observer = new ResizeObserver(syncSize);
+    const handleDomReady = () => {
+      syncSize();
+      void refreshRemoteTabs();
+    };
     observer.observe(embed);
-    webview.addEventListener("dom-ready", syncSize);
+    webview.addEventListener("dom-ready", handleDomReady);
     webview.addEventListener("did-finish-load", syncSize);
     webview.addEventListener("did-stop-loading", syncSize);
 
@@ -221,8 +288,9 @@ export function LiveView() {
       timers.forEach((timer) => window.clearTimeout(timer));
       window.clearInterval(interval);
       window.clearInterval(mirrorInterval);
+      window.clearInterval(tabsInterval);
       observer.disconnect();
-      webview.removeEventListener("dom-ready", syncSize);
+      webview.removeEventListener("dom-ready", handleDomReady);
       webview.removeEventListener("did-finish-load", syncSize);
       webview.removeEventListener("did-stop-loading", syncSize);
     };
@@ -269,6 +337,27 @@ export function LiveView() {
       </div>
       <hr className="divider" />
 
+      {state === "live" && remoteTabs.length > 0 && (
+        <div className="remote-tabs-bar" aria-label="Remote browser tabs">
+          {remoteTabs.map((tab) => {
+            const active = tab.active || tab.target_id === pendingRemoteTab;
+            const title = tab.title || tab.url || "Untitled";
+            return (
+              <button
+                key={tab.target_id}
+                className={"remote-tab-chip" + (active ? " active" : "")}
+                onClick={() => selectRemoteTab(tab.target_id)}
+                disabled={active || !remoteTabsReady || !!pendingRemoteTab}
+                title={tab.url || title}
+              >
+                <span className="remote-tab-title">{title}</span>
+                {tab.loading && <span className="remote-tab-dot" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <div className="live-stage remote-live-stage">
         {state === "connecting" && (
           <div className="live-empty-panel">
@@ -309,6 +398,7 @@ export function LiveView() {
         {streamUrl && state === "live" && (
           <div ref={remoteEmbedRef} className="remote-live-embed">
             <webview
+              key={streamUrl}
               ref={remoteWebviewRef}
               className="remote-live-frame"
               src={streamUrl}
