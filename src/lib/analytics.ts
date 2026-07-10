@@ -19,6 +19,12 @@ const ANALYTICS_USER_ID_KEY = "nextbrowser.analytics.userId";
 const SESSION_NUMBER_KEY = "nextbrowser.analytics.sessionNumber";
 const FIRST_VISIT_KEY = "nextbrowser.analytics.firstVisitSent";
 const HEARTBEAT_MIN_MS = 10_000;
+// Packaged Electron builds run on a file:// origin where Chromium blocks
+// cookies, so gtag.js can neither persist session state nor reliably transmit
+// hits — and it fails silently, so our onload/timeout fallback never triggers.
+// On that origin we skip gtag entirely and use the cookie-free Measurement
+// Protocol endpoint (/g/collect) directly, keyed by the stable app instance id.
+const FILE_ORIGIN = typeof window !== "undefined" && window.location?.protocol === "file:";
 let initialized = false;
 let gtagLoaded = false;
 let fallbackCollect = false;
@@ -125,6 +131,12 @@ function collectEvent(name: string, params: AnalyticsParams): void {
   const userId = analyticsUserId();
   if (userId) search.set("uid", userId);
   for (const [key, value] of Object.entries(clean)) {
+    // Engagement time is a canonical GA4 hit param (_et), not a custom param;
+    // sending it as epn.* means GA4 never credits the session as engaged.
+    if (key === "engagement_time_msec") {
+      if (typeof value === "number" && Number.isFinite(value)) search.set("_et", String(value));
+      continue;
+    }
     if (typeof value === "number" && Number.isFinite(value)) {
       search.set(`epn.${key}`, String(value));
     } else {
@@ -162,38 +174,43 @@ function sendAnalyticsEvent(name: string, params: AnalyticsParams): void {
 export function initAnalytics(): void {
   if (initialized || !MEASUREMENT_ID) return;
   initialized = true;
-  window.dataLayer = window.dataLayer ?? [];
-  window.gtag = window.gtag ?? function gtag(...args: unknown[]) {
-    window.dataLayer?.push(args);
-  };
-  window.gtag("js", new Date());
-  window.gtag("config", MEASUREMENT_ID, {
-    send_page_view: false,
-    anonymize_ip: true,
-    transport_type: "beacon",
-    client_id: appInstanceId(),
-    user_id: analyticsUserId(),
-    page_location: PAGE_LOCATION,
-    page_title: APP_NAME,
-    user_properties: userProperties(),
-    ...baseParams(),
-  });
-  const script = document.createElement("script");
-  script.async = true;
-  script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(MEASUREMENT_ID)}`;
-  script.onload = () => {
-    gtagLoaded = true;
-    if (fallbackCollect) return;
-    while (pendingFallbackEvents.length) {
-      const event = pendingFallbackEvents.shift();
-      if (event) window.gtag?.("event", event.name, event.params);
-    }
-  };
-  script.onerror = () => enableFallbackCollect();
-  document.head.appendChild(script);
-  window.setTimeout(() => {
-    if (!gtagLoaded) enableFallbackCollect();
-  }, 5_000);
+  if (FILE_ORIGIN) {
+    // gtag.js is unreliable here; send straight to the Measurement Protocol.
+    enableFallbackCollect();
+  } else {
+    window.dataLayer = window.dataLayer ?? [];
+    window.gtag = window.gtag ?? function gtag(...args: unknown[]) {
+      window.dataLayer?.push(args);
+    };
+    window.gtag("js", new Date());
+    window.gtag("config", MEASUREMENT_ID, {
+      send_page_view: false,
+      anonymize_ip: true,
+      transport_type: "beacon",
+      client_id: appInstanceId(),
+      user_id: analyticsUserId(),
+      page_location: PAGE_LOCATION,
+      page_title: APP_NAME,
+      user_properties: userProperties(),
+      ...baseParams(),
+    });
+    const script = document.createElement("script");
+    script.async = true;
+    script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(MEASUREMENT_ID)}`;
+    script.onload = () => {
+      gtagLoaded = true;
+      if (fallbackCollect) return;
+      while (pendingFallbackEvents.length) {
+        const event = pendingFallbackEvents.shift();
+        if (event) window.gtag?.("event", event.name, event.params);
+      }
+    };
+    script.onerror = () => enableFallbackCollect();
+    document.head.appendChild(script);
+    window.setTimeout(() => {
+      if (!gtagLoaded) enableFallbackCollect();
+    }, 5_000);
+  }
   const firstVisitSent = localStorage.getItem(FIRST_VISIT_KEY) === "1";
   const initialParams = eventParams({
     engagement_time_msec: 1,
