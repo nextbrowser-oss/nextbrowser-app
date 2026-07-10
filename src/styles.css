@@ -1378,7 +1378,22 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: var(--surface-1);
+  background: #000;
+  outline: none;
+  cursor: crosshair;
+}
+.remote-live-embed:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.remote-live-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 .remote-live-frame {
   display: block;

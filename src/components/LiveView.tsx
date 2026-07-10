@@ -1,36 +1,47 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type WheelEvent as ReactWheelEvent } from "react";
+import { RemoteControlClient, type RemoteLiveTab, type RemoteMediaStats, type RemoteStreamInfo } from "../remoteControl";
 import { useStore } from "../store";
 import { Icon, Spinner } from "./Icon";
 
-type LiveWebviewElement = HTMLWebViewElement & {
-  executeJavaScript?: (code: string) => Promise<unknown>;
-};
+type LiveState = "idle" | "connecting" | "live" | "error";
 
-type RemoteFrameSnapshot = {
-  data?: string;
-  ok?: boolean;
-};
+function modifierBits(event: MouseEvent | WheelEvent | KeyboardEvent) {
+  return (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0);
+}
 
-type RemoteLiveTab = {
-  target_id: string;
-  title?: string;
-  url?: string;
-  active?: boolean;
-  loading?: boolean;
-};
+function buttonName(button: number) {
+  if (button === 1) return "middle";
+  if (button === 2) return "right";
+  return "left";
+}
+
+function shouldSendKeyEvent(event: KeyboardEvent) {
+  return new Set(["Enter", "Tab", "Escape", " ", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]).has(event.key) ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey;
+}
+
+function mergeTabs(current: RemoteLiveTab[], incoming: RemoteLiveTab[]) {
+  if (!current.length || incoming.some((tab) => tab.active)) return incoming;
+  const next = new Map(current.map((tab) => [tab.target_id, tab]));
+  for (const tab of incoming) next.set(tab.target_id, { ...next.get(tab.target_id), ...tab });
+  return [...next.values()];
+}
 
 export function LiveView() {
   const s = useStore();
   const [sessionKey, setSessionKey] = useState<string>("");
-  const [streamUrl, setStreamUrl] = useState("");
-  const [state, setState] = useState<"idle" | "connecting" | "live" | "error">("idle");
+  const [streamInfo, setStreamInfo] = useState<RemoteStreamInfo | null>(null);
+  const [state, setState] = useState<LiveState>("idle");
   const [error, setError] = useState("");
   const [remoteTabs, setRemoteTabs] = useState<RemoteLiveTab[]>([]);
-  const [remoteTabsReady, setRemoteTabsReady] = useState(false);
   const [pendingRemoteTab, setPendingRemoteTab] = useState("");
+  const [mediaStats, setMediaStats] = useState<RemoteMediaStats>({});
+  const [remoteMediaStream, setRemoteMediaStream] = useState<MediaStream | null>(null);
+  const remoteClientRef = useRef<RemoteControlClient | null>(null);
   const remoteEmbedRef = useRef<HTMLDivElement | null>(null);
-  const remoteWebviewRef = useRef<LiveWebviewElement | null>(null);
-  const remoteCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const runningProfiles = s.profiles.filter((profile) => s.statuses[profile.name] === "running");
   const defaultRunning = s.defaultSession?.status === "running";
   const profileOptions = [
@@ -42,15 +53,58 @@ export function LiveView() {
     })),
   ];
   const launchTarget = sessionKey || (defaultRunning ? "__default" : "") || s.selectedProfile || s.profiles[0]?.name || "";
+  const streamUrl = streamInfo?.viewer_url || streamInfo?.dashboard_url || "";
+
+  const stop = () => {
+    remoteClientRef.current?.close();
+    remoteClientRef.current = null;
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+    setRemoteMediaStream(null);
+    setStreamInfo(null);
+    setState("idle");
+    setRemoteTabs([]);
+    setPendingRemoteTab("");
+    setMediaStats({});
+  };
+
+  const connectRemoteViewer = async (info: RemoteStreamInfo) => {
+    remoteClientRef.current?.close();
+    const client = new RemoteControlClient(info, {
+      onState: (next) => {
+        if (next === "connected") setState("live");
+        if (next === "error") setState("error");
+      },
+      onError: (message) => {
+        setError(message);
+        setState("error");
+      },
+      onStream: setRemoteMediaStream,
+      onTabs: (tabs) => {
+        setRemoteTabs((current) => mergeTabs(current, tabs));
+        setPendingRemoteTab((pending) =>
+          pending && tabs.some((tab) => tab.active && tab.target_id === pending) ? "" : pending,
+        );
+      },
+      onTabSelected: (targetID) => {
+        setPendingRemoteTab("");
+        setRemoteTabs((tabs) => tabs.map((tab) => ({ ...tab, active: tab.target_id === targetID })));
+      },
+      onMediaStats: setMediaStats,
+    });
+    remoteClientRef.current = client;
+    await client.start();
+  };
 
   const start = async (requestedKey = sessionKey) => {
     if (state === "connecting") return;
     setError("");
+    setRemoteTabs([]);
+    setPendingRemoteTab("");
     setState("connecting");
     try {
-      const url = await s.startRemoteStream(requestedKey === "__default" ? undefined : requestedKey || undefined);
-      setStreamUrl(url);
-      setState("live");
+      const info = await s.startRemoteStream(requestedKey === "__default" ? undefined : requestedKey || undefined);
+      setStreamInfo(info);
+      await connectRemoteViewer(info);
     } catch (e) {
       setState("error");
       setError(e instanceof Error ? e.message : String(e));
@@ -79,31 +133,30 @@ export function LiveView() {
     }
   };
 
-  const stop = () => {
-    setStreamUrl("");
-    setState("idle");
-    setRemoteTabs([]);
-    setRemoteTabsReady(false);
-    setPendingRemoteTab("");
+  const selectRemoteTab = (targetID: string) => {
+    if (!targetID || !remoteClientRef.current) return;
+    setPendingRemoteTab(targetID);
+    remoteClientRef.current.selectTab(targetID);
   };
 
-  const selectRemoteTab = (targetID: string) => {
-    const webview = remoteWebviewRef.current;
-    if (!targetID || !webview?.executeJavaScript) return;
-    setPendingRemoteTab(targetID);
-    const script = `(() => {
-      const tab = [...document.querySelectorAll("button[role='tab']")][Number(${JSON.stringify(targetID)})];
-      if (!tab || tab.disabled) return false;
-      tab.click();
-      return true;
-    })()`;
-    try {
-      void webview.executeJavaScript(script).then((ok) => {
-        if (!ok) setPendingRemoteTab("");
-      }).catch(() => setPendingRemoteTab(""));
-    } catch {
-      setPendingRemoteTab("");
-    }
+  const pointForEvent = (event: MouseEvent | WheelEvent) => {
+    const embed = remoteEmbedRef.current;
+    const video = remoteVideoRef.current;
+    if (!embed || !video) return { x: 0, y: 0 };
+    const rect = embed.getBoundingClientRect();
+    const videoWidth = mediaStats.viewport_width || mediaStats.device_width || video.videoWidth || 1;
+    const videoHeight = mediaStats.viewport_height || mediaStats.device_height || video.videoHeight || 1;
+    const renderedScale = Math.min(rect.width / Math.max(1, video.videoWidth || videoWidth), rect.height / Math.max(1, video.videoHeight || videoHeight));
+    const renderedWidth = Math.max(1, (video.videoWidth || videoWidth) * renderedScale);
+    const renderedHeight = Math.max(1, (video.videoHeight || videoHeight) * renderedScale);
+    const left = rect.left + (rect.width - renderedWidth) / 2;
+    const top = rect.top + (rect.height - renderedHeight) / 2;
+    const x = Math.round((event.clientX - left) * videoWidth / renderedWidth);
+    const y = Math.round((event.clientY - top) * videoHeight / renderedHeight);
+    return {
+      x: Math.max(0, Math.min(videoWidth, x)),
+      y: Math.max(0, Math.min(videoHeight, y)),
+    };
   };
 
   useEffect(() => {
@@ -114,187 +167,87 @@ export function LiveView() {
       "";
     setSessionKey(current);
     if (current && (current === "__default" || s.statuses[current] === "running")) void start(current);
+    return () => remoteClientRef.current?.close();
     // LiveView is mounted afresh on tab selection, matching Swift onAppear.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (!streamUrl || state !== "live") return;
-    const embed = remoteEmbedRef.current;
-    const webview = remoteWebviewRef.current;
-    if (!embed || !webview) return;
+    const video = remoteVideoRef.current;
+    if (!video || !remoteMediaStream) return;
+    video.srcObject = remoteMediaStream;
+    void video.play().catch(() => undefined);
+  }, [remoteMediaStream, state]);
 
-    const syncSize = () => {
-      const width = Math.max(1, Math.floor(embed.clientWidth));
-      const height = Math.max(1, Math.floor(embed.clientHeight));
-      const canvas = remoteCanvasRef.current;
-      webview.style.width = `${width}px`;
-      webview.style.height = `${height}px`;
-      webview.style.minWidth = `${width}px`;
-      webview.style.minHeight = `${height}px`;
-      if (canvas) {
-        const ratio = window.devicePixelRatio || 1;
-        canvas.width = Math.max(1, Math.floor(width * ratio));
-        canvas.height = Math.max(1, Math.floor(height * ratio));
+  const handleMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
+    remoteEmbedRef.current?.focus();
+    const point = pointForEvent(event.nativeEvent);
+    remoteClientRef.current?.sendInput({
+      type: "mouse",
+      payload: { event: "mousePressed", x: point.x, y: point.y, button: buttonName(event.button), buttons: 1, clickCount: event.detail || 1, modifiers: modifierBits(event.nativeEvent) },
+    });
+    event.preventDefault();
+  };
+
+  const handleMouseUp = (event: ReactMouseEvent<HTMLDivElement>) => {
+    const point = pointForEvent(event.nativeEvent);
+    remoteClientRef.current?.sendInput({
+      type: "mouse",
+      payload: { event: "mouseReleased", x: point.x, y: point.y, button: buttonName(event.button), buttons: 0, clickCount: event.detail || 1, modifiers: modifierBits(event.nativeEvent) },
+    });
+    event.preventDefault();
+  };
+
+  const handleWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    const point = pointForEvent(event.nativeEvent);
+    remoteClientRef.current?.sendInput({
+      type: "wheel",
+      payload: { x: point.x, y: point.y, deltaX: event.deltaX, deltaY: event.deltaY, modifiers: modifierBits(event.nativeEvent) },
+    });
+    event.preventDefault();
+  };
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!shouldSendKeyEvent(event.nativeEvent)) {
+      if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        remoteClientRef.current?.sendInput({ type: "text", payload: { text: event.key } });
+        event.preventDefault();
       }
-      webview.setAttribute("autosize", "on");
-      webview.setAttribute("minwidth", String(width));
-      webview.setAttribute("maxwidth", String(width));
-      webview.setAttribute("minheight", String(height));
-      webview.setAttribute("maxheight", String(height));
-      applyEmbeddedStreamLayout(width, height);
-    };
+      return;
+    }
+    remoteClientRef.current?.sendInput({
+      type: "key",
+      payload: {
+        event: event.type,
+        key: event.key,
+        code: event.code,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+        altKey: event.altKey,
+        repeat: event.repeat,
+      },
+    });
+    event.preventDefault();
+  };
 
-    const applyEmbeddedStreamLayout = (width = Math.max(1, Math.floor(embed.clientWidth)), height = Math.max(1, Math.floor(embed.clientHeight))) => {
-      if (!webview.executeJavaScript) return;
-      const script = `(() => {
-        const width = ${JSON.stringify(width)};
-        const height = ${JSON.stringify(height)};
-        const video = document.querySelector("video");
-        const streamBox = video?.parentElement;
-        if (!video || !streamBox) return { ok: false, reason: "video-not-ready" };
-
-        document.documentElement.style.setProperty("background", "#000", "important");
-        document.documentElement.style.setProperty("overflow", "hidden", "important");
-        document.body.style.setProperty("margin", "0", "important");
-        document.body.style.setProperty("background", "#000", "important");
-        document.body.style.setProperty("overflow", "hidden", "important");
-
-        streamBox.style.setProperty("position", "fixed", "important");
-        streamBox.style.setProperty("inset", "0 auto auto 0", "important");
-        streamBox.style.setProperty("z-index", "2147483647", "important");
-        streamBox.style.setProperty("width", width + "px", "important");
-        streamBox.style.setProperty("height", height + "px", "important");
-        streamBox.style.setProperty("min-height", "0", "important");
-        streamBox.style.setProperty("max-height", "none", "important");
-        streamBox.style.setProperty("border-radius", "0", "important");
-
-        video.style.setProperty("width", "100%", "important");
-        video.style.setProperty("height", "100%", "important");
-        video.style.setProperty("object-fit", "contain", "important");
-        window.scrollTo(0, 0);
-        return { ok: true, width, height };
-      })()`;
-      try {
-        void webview.executeJavaScript(script).catch(() => undefined);
-      } catch {
-        // The webview throws synchronously until its guest page emits dom-ready.
-      }
-    };
-
-    let mirrorClosed = false;
-    let mirrorInFlight = false;
-    let tabsInFlight = false;
-    const drawRemoteFrame = async () => {
-      const canvas = remoteCanvasRef.current;
-      if (mirrorClosed || mirrorInFlight || !canvas || !webview.executeJavaScript) return;
-      const width = Math.max(1, canvas.width);
-      const height = Math.max(1, canvas.height);
-      const script = `(() => {
-        const video = document.querySelector("video");
-        if (!video || !video.videoWidth || !video.videoHeight || video.readyState < 2) return { ok: false };
-        const width = ${JSON.stringify(width)};
-        const height = ${JSON.stringify(height)};
-        const canvas = window.__nextBrowserFrameMirrorCanvas || document.createElement("canvas");
-        window.__nextBrowserFrameMirrorCanvas = canvas;
-        if (canvas.width !== width) canvas.width = width;
-        if (canvas.height !== height) canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return { ok: false };
-        ctx.fillStyle = "#000";
-        ctx.fillRect(0, 0, width, height);
-        const scale = Math.min(width / video.videoWidth, height / video.videoHeight);
-        const drawWidth = Math.max(1, Math.round(video.videoWidth * scale));
-        const drawHeight = Math.max(1, Math.round(video.videoHeight * scale));
-        const x = Math.floor((width - drawWidth) / 2);
-        const y = Math.floor((height - drawHeight) / 2);
-        ctx.drawImage(video, x, y, drawWidth, drawHeight);
-        return { ok: true, data: canvas.toDataURL("image/jpeg", 0.82) };
-      })()`;
-      mirrorInFlight = true;
-      try {
-        const snapshot = (await webview.executeJavaScript(script)) as RemoteFrameSnapshot;
-        if (!mirrorClosed && snapshot?.ok && snapshot.data) {
-          await new Promise<void>((resolve) => {
-            const image = new Image();
-            image.onload = () => {
-              if (!mirrorClosed) {
-                const ctx = canvas.getContext("2d");
-                if (ctx) {
-                  ctx.clearRect(0, 0, canvas.width, canvas.height);
-                  ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-                }
-              }
-              resolve();
-            };
-            image.onerror = () => resolve();
-            image.src = snapshot.data || "";
-          });
-        }
-      } catch {
-        // The guest page is not always ready when the mirror ticks.
-      } finally {
-        mirrorInFlight = false;
-      }
-    };
-
-    const refreshRemoteTabs = async () => {
-      if (tabsInFlight || !webview.executeJavaScript) return;
-      tabsInFlight = true;
-      try {
-        const snapshot = (await webview.executeJavaScript(
-          `(() => [...document.querySelectorAll("button[role='tab']")].map((tab, index) => ({
-            target_id: String(index),
-            title: (tab.textContent || "").trim(),
-            url: tab.getAttribute("title") || "",
-            active: tab.getAttribute("aria-selected") === "true",
-            loading: false,
-          })).filter((tab) => tab.title))()`,
-        )) as RemoteLiveTab[];
-        const tabs = Array.isArray(snapshot) ? snapshot.filter((tab) => tab.target_id) : [];
-        if (!mirrorClosed) {
-          setRemoteTabs(tabs);
-          setRemoteTabsReady(tabs.some((tab) => !tab.active));
-          setPendingRemoteTab((pending) =>
-            pending && tabs.some((tab) => tab.active && tab.target_id === pending) ? "" : pending,
-          );
-        }
-      } catch {
-        if (!mirrorClosed) setRemoteTabsReady(false);
-      } finally {
-        tabsInFlight = false;
-      }
-    };
-
-    syncSize();
-    const frame = window.requestAnimationFrame(syncSize);
-    const timers = [100, 350, 800, 1400, 2400, 4000].map((delay) => window.setTimeout(syncSize, delay));
-    const interval = window.setInterval(syncSize, 1200);
-    const mirrorInterval = window.setInterval(() => void drawRemoteFrame(), 160);
-    const tabsInterval = window.setInterval(() => void refreshRemoteTabs(), 1000);
-    const observer = new ResizeObserver(syncSize);
-    const handleDomReady = () => {
-      syncSize();
-      void refreshRemoteTabs();
-    };
-    observer.observe(embed);
-    webview.addEventListener("dom-ready", handleDomReady);
-    webview.addEventListener("did-finish-load", syncSize);
-    webview.addEventListener("did-stop-loading", syncSize);
-
-    return () => {
-      window.cancelAnimationFrame(frame);
-      mirrorClosed = true;
-      timers.forEach((timer) => window.clearTimeout(timer));
-      window.clearInterval(interval);
-      window.clearInterval(mirrorInterval);
-      window.clearInterval(tabsInterval);
-      observer.disconnect();
-      webview.removeEventListener("dom-ready", handleDomReady);
-      webview.removeEventListener("did-finish-load", syncSize);
-      webview.removeEventListener("did-stop-loading", syncSize);
-    };
-  }, [streamUrl, state]);
+  const handleKeyUp = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!shouldSendKeyEvent(event.nativeEvent)) return;
+    remoteClientRef.current?.sendInput({
+      type: "key",
+      payload: {
+        event: event.type,
+        key: event.key,
+        code: event.code,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+        altKey: event.altKey,
+        repeat: event.repeat,
+      },
+    });
+    event.preventDefault();
+  };
 
   return (
     <div className="live">
@@ -305,9 +258,8 @@ export function LiveView() {
           value={sessionKey}
           title="Choose profile to stream"
           onChange={(e) => {
+            stop();
             setSessionKey(e.target.value);
-            setStreamUrl("");
-            setState("idle");
           }}
         >
           <option value="">Select profile</option>
@@ -320,7 +272,7 @@ export function LiveView() {
         <span className={"live-pill " + state}>
           {state === "live" ? "live" : state}
         </span>
-        <span className="muted small">Tabs are handled by the Remote Control viewer when supported.</span>
+        <span className="muted small">Native Remote Control viewer is used when supported.</span>
         <span className="spacer" />
         {streamUrl && (
           <a className="btn-bordered" href={streamUrl} target="_blank" rel="noreferrer" title="Open Remote Control in your browser">
@@ -347,7 +299,7 @@ export function LiveView() {
                 key={tab.target_id}
                 className={"remote-tab-chip" + (active ? " active" : "")}
                 onClick={() => selectRemoteTab(tab.target_id)}
-                disabled={active || !remoteTabsReady || !!pendingRemoteTab}
+                disabled={active || !!pendingRemoteTab}
                 title={tab.url || title}
               >
                 <span className="remote-tab-title">{title}</span>
@@ -362,7 +314,7 @@ export function LiveView() {
         {state === "connecting" && (
           <div className="live-empty-panel">
             <Spinner size={18} />
-            <strong>Starting live view…</strong>
+            <strong>Starting live view...</strong>
             <p className="muted small">Creating a Remote Control session through clawctl.</p>
           </div>
         )}
@@ -376,7 +328,7 @@ export function LiveView() {
             </button>
           </div>
         )}
-        {state === "idle" && !streamUrl && (
+        {state === "idle" && !streamInfo && (
           <div className="live-empty-panel">
             <Icon name="video.fill" size={34} className="muted" />
             <strong>{runningProfiles.length || defaultRunning ? "Stream is off" : "No active profiles"}</strong>
@@ -395,22 +347,24 @@ export function LiveView() {
             </button>
           </div>
         )}
-        {streamUrl && state === "live" && (
-          <div ref={remoteEmbedRef} className="remote-live-embed">
-            <webview
-              key={streamUrl}
-              ref={remoteWebviewRef}
-              className="remote-live-frame"
-              src={streamUrl}
-              title="Remote browser stream"
-            />
-            <canvas ref={remoteCanvasRef} className="remote-live-canvas" aria-hidden="true" />
+        {streamInfo && state !== "error" && (
+          <div
+            ref={remoteEmbedRef}
+            className="remote-live-embed"
+            tabIndex={0}
+            onMouseDown={handleMouseDown}
+            onMouseUp={handleMouseUp}
+            onWheel={handleWheel}
+            onKeyDown={handleKeyDown}
+            onKeyUp={handleKeyUp}
+          >
+            <video ref={remoteVideoRef} className="remote-live-video" autoPlay muted playsInline />
           </div>
         )}
       </div>
       {state === "live" && (
         <div className="live-hint muted small">
-          Remote Control is mirrored in NextBrowser. Use the tab bar above or open the full viewer for direct control.
+          Remote Control is running natively in NextBrowser. Click, scroll, type, or use the tab bar above.
         </div>
       )}
     </div>

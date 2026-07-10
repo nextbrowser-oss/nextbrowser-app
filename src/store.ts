@@ -20,6 +20,7 @@ import { composePrompt } from "./lib/composePrompt";
 import { promptWithAttachments } from "./lib/chatAttachments";
 import { normalizeClawctlVersion } from "./lib/version";
 import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
+import type { RemoteStreamInfo } from "./remoteControl";
 import { loadJson, saveJson } from "./lib/storage";
 import {
   normalizeConversation,
@@ -319,7 +320,7 @@ interface State {
   applySkill: (entry: SkillEntry) => Promise<SkillRef | undefined>;
   useSkillInChat: (entry: SkillEntry) => Promise<void>;
   runScript: (entry: SkillEntry, host?: string) => Promise<void>;
-  startRemoteStream: (profile?: string) => Promise<string>;
+  startRemoteStream: (profile?: string) => Promise<RemoteStreamInfo>;
 
   addScheduledRun: (run: Omit<ScheduledRun, "id" | "agent" | "enabled">) => void;
   updateScheduledRun: (id: string, patch: Partial<ScheduledRun>) => void;
@@ -2490,7 +2491,7 @@ export const useStore = create<State>((set, get) => ({
       res = await clawctlRun([...args, "--format", "json"]);
     }
     if (res.code !== 0) throw new Error(clawctlErrorMessage(res));
-    let result: { dashboard_url?: string; viewer_url?: string; data?: { dashboard_url?: string; viewer_url?: string } };
+    let result: RemoteStreamInfo & { data?: RemoteStreamInfo };
     try {
       result = JSON.parse(res.stdout);
     } catch {
@@ -2499,7 +2500,7 @@ export const useStore = create<State>((set, get) => ({
     if (result.data?.dashboard_url) result = result.data;
     const url = result.viewer_url || result.dashboard_url;
     if (!url) throw new Error("clawctl remote did not return a viewer URL.");
-    return url;
+    return result;
   },
 }));
 

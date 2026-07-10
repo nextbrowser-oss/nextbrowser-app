@@ -10,6 +10,7 @@ const { randomUUID } = require("node:crypto");
 
 const execFileAsync = promisify(execFile);
 const children = new Map();
+const remoteSignalSockets = new Map();
 const APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 let appUpdateStatus = { status: "idle" };
 let appUpdateTimer = null;
@@ -302,6 +303,44 @@ async function invokeCommand(command, args = {}) {
       const targets = await response.json(); const target = targets.find((t) => t.type === "page" && t.webSocketDebuggerUrl) || targets.find((t) => t.webSocketDebuggerUrl);
       if (!target?.webSocketDebuggerUrl) throw new Error("No page targets found. Open a tab in NextBrowser first."); return target.webSocketDebuggerUrl;
     }
+    case "remote_signal_open": {
+      const id = randomUUID();
+      const url = String(args.url || "");
+      if (!/^wss?:\/\//.test(url)) throw new Error("Remote signaling URL must be ws or wss.");
+      await new Promise((resolve, reject) => {
+        const socket = new WebSocket(url);
+        let opened = false;
+        socket.addEventListener("open", () => {
+          opened = true;
+          remoteSignalSockets.set(id, socket);
+          emit("remote_signal_event", { id, type: "open" });
+          resolve();
+        }, { once: true });
+        socket.addEventListener("message", (event) => emit("remote_signal_event", { id, type: "message", data: String(event.data || "") }));
+        socket.addEventListener("close", (event) => {
+          remoteSignalSockets.delete(id);
+          emit("remote_signal_event", { id, type: "close", code: event.code, reason: event.reason });
+        });
+        socket.addEventListener("error", () => {
+          emit("remote_signal_event", { id, type: "error", message: "Remote signaling failed." });
+          if (!opened) reject(new Error("Remote signaling failed."));
+        }, { once: true });
+      });
+      return id;
+    }
+    case "remote_signal_send": {
+      const socket = remoteSignalSockets.get(String(args.id || ""));
+      if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error("Remote signaling socket is not open.");
+      socket.send(String(args.data || ""));
+      return null;
+    }
+    case "remote_signal_close": {
+      const id = String(args.id || "");
+      const socket = remoteSignalSockets.get(id);
+      if (socket) socket.close();
+      remoteSignalSockets.delete(id);
+      return null;
+    }
     default: throw new Error(`Unknown Electron IPC command: ${command}`);
   }
 }
@@ -351,5 +390,7 @@ app.whenReady().then(() => {
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 app.on("before-quit", () => {
   if (appUpdateTimer) clearInterval(appUpdateTimer);
+  for (const socket of remoteSignalSockets.values()) socket.close();
+  remoteSignalSockets.clear();
   for (const child of children.values()) child.kill();
 });
