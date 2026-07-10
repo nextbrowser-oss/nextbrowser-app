@@ -1,6 +1,6 @@
 {
   "name": "nextbrowser",
-  "version": "0.1.7",
+  "version": "0.1.11",
   "description": "NextBrowser desktop agent console for macOS and Windows",
   "author": "NextBrowser",
   "license": "UNLICENSED",
@@ -15,7 +15,7 @@
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder --publish never",
     "dist:publish": "npm run build && electron-builder --publish always",
-    "dist:mac": "npm run build && electron-builder --mac dmg --publish never",
+    "dist:mac": "npm run build && electron-builder --mac dmg zip --publish never",
     "dist:win": "npm run build && electron-builder --win nsis --publish never",
     "icons": "node scripts/generate-icons.mjs"
   },
@@ -62,11 +62,13 @@
     "artifactName": "NextBrowser-${version}-${arch}.${ext}",
     "mac": {
       "target": [
-        "dmg"
+        "dmg",
+        "zip"
       ],
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
-      "identity": "-",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist"
     },

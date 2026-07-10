@@ -11,6 +11,18 @@ permissions:
 jobs:
   macos:
     runs-on: macos-14
+    env:
+      # Code signing + notarization activate automatically once these repo
+      # secrets are populated. Until then the mac build stays unsigned.
+      #   MAC_CSC_LINK                 base64 of the Developer ID .p12
+      #   MAC_CSC_KEY_PASSWORD         password for that .p12
+      #   APPLE_ID / APPLE_TEAM_ID     Apple account + team for notarization
+      #   APPLE_APP_SPECIFIC_PASSWORD  app-specific password for notarization
+      CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -21,15 +33,25 @@ jobs:
       - name: Sync version from tag
         if: github.ref_type == 'tag'
         run: node scripts/sync-version.mjs ${{ github.ref_name }}
+      - name: Toggle signing on secret availability
+        run: |
+          if [ -n "${CSC_LINK}" ]; then
+            echo "Signing certificate present — signing enabled."
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=true" >> "$GITHUB_ENV"
+          else
+            echo "No signing certificate — building unsigned."
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+          fi
       - run: npm test
       - run: npm run dist:mac
-      - name: Publish DMG
+      - name: Publish macOS build
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           files: |
             release/*.dmg
-            release/*.dmg.blockmap
+            release/*.zip
+            release/*.blockmap
             release/latest-mac.yml
           fail_on_unmatched_files: true
           generate_release_notes: true
@@ -39,7 +61,8 @@ jobs:
           name: NextBrowser-macOS
           path: |
             release/*.dmg
-            release/*.dmg.blockmap
+            release/*.zip
+            release/*.blockmap
             release/latest-mac.yml
 
   windows:
