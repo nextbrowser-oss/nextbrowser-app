@@ -9,7 +9,7 @@ import { OnboardingView } from "./components/OnboardingView";
 import { DashboardKeyModal } from "./components/DashboardKeyModal";
 import { BrandLogo } from "./components/BrandLogo";
 import { Icon, Spinner } from "./components/Icon";
-import { brandName, dashboardUrl, repoUrl } from "./constants";
+import { brandName, dashboardUrl, latestReleaseUrl, repoUrl } from "./constants";
 import { getPreviewMode, getPreviewTab } from "./preview";
 import type { AppTab, Conversation } from "./types";
 import { resolveTheme, type Theme } from "./theme";
@@ -32,6 +32,12 @@ interface AppUpdateStatus {
   percent?: number;
   message?: string;
 }
+
+// macOS in-place auto-update needs a signed + notarized build (Squirrel.Mac
+// rejects unsigned updates). Until signing lands we still detect and surface
+// the new version, but send users to the release page to update manually.
+// Flip this to `false` once mac builds are signed to re-enable in-place updates.
+const MANUAL_UPDATE = /Macintosh|Mac OS X/i.test(navigator.userAgent);
 
 function updateAvailable(status?: AppUpdateStatus | null): boolean {
   return status?.status === "available" || status?.status === "downloaded" || status?.status === "downloading";
@@ -98,15 +104,19 @@ function GithubStarButton() {
 function SettingsModal({
   onClose,
   appUpdate,
+  manualUpdate,
   onCheckUpdate,
   onDownloadUpdate,
   onInstallUpdate,
+  onOpenRelease,
 }: {
   onClose: () => void;
   appUpdate: AppUpdateStatus;
+  manualUpdate: boolean;
   onCheckUpdate: () => void;
   onDownloadUpdate: () => void;
   onInstallUpdate: () => void;
+  onOpenRelease: () => void;
 }) {
   const clawctlVersion = useStore((s) => s.clawctlVersion);
   const clawctlSupportsSkill = useStore((s) => s.clawctlSupportsSkill);
@@ -148,20 +158,34 @@ function SettingsModal({
             <span className="muted small">App update</span>
             <div className="settings-update-cell">
               <strong className={updateAvailable(appUpdate) ? "warn" : ""}>{updateLabel(appUpdate)}</strong>
-              {appUpdate.status === "available" && (
-                <button className="mini" onClick={onDownloadUpdate}>
-                  Download
-                </button>
-              )}
-              {appUpdate.status === "downloaded" && (
-                <button className="mini primary-mini" onClick={onInstallUpdate}>
-                  Restart and update
-                </button>
-              )}
-              {appUpdate.status !== "available" && appUpdate.status !== "downloaded" && appUpdate.status !== "downloading" && (
-                <button className="mini" onClick={onCheckUpdate}>
-                  Check
-                </button>
+              {manualUpdate ? (
+                updateAvailable(appUpdate) ? (
+                  <button className="mini primary-mini" onClick={onOpenRelease}>
+                    Open release page
+                  </button>
+                ) : (
+                  <button className="mini" onClick={onCheckUpdate}>
+                    Check
+                  </button>
+                )
+              ) : (
+                <>
+                  {appUpdate.status === "available" && (
+                    <button className="mini" onClick={onDownloadUpdate}>
+                      Download
+                    </button>
+                  )}
+                  {appUpdate.status === "downloaded" && (
+                    <button className="mini primary-mini" onClick={onInstallUpdate}>
+                      Restart and update
+                    </button>
+                  )}
+                  {appUpdate.status !== "available" && appUpdate.status !== "downloaded" && appUpdate.status !== "downloading" && (
+                    <button className="mini" onClick={onCheckUpdate}>
+                      Check
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -231,14 +255,18 @@ function SettingsModal({
 
 function AppUpdatePrompt({
   status,
+  manual,
   onLater,
   onDownload,
   onInstall,
+  onOpenRelease,
 }: {
   status: AppUpdateStatus;
+  manual: boolean;
   onLater: () => void;
   onDownload: () => void;
   onInstall: () => void;
+  onOpenRelease: () => void;
 }) {
   const downloading = status.status === "downloading";
   const downloaded = status.status === "downloaded";
@@ -255,26 +283,32 @@ function AppUpdatePrompt({
           </div>
         </div>
         <p className="muted">
-          {downloaded
-            ? "The update is downloaded. Restart to finish installing."
-            : downloading
-              ? "Downloading the update — you can keep working."
-              : "Update now, or keep working and install it later from Settings."}
+          {manual
+            ? "Open the releases page to download and install the new version."
+            : downloaded
+              ? "The update is downloaded. Restart to finish installing."
+              : downloading
+                ? "Downloading the update — you can keep working."
+                : "Update now, or keep working and install it later from Settings."}
         </p>
         <div className="row settings-actions">
           <button className="secondary" onClick={onLater}>Later</button>
           <span className="spacer" />
-          <button
-            className="primary"
-            disabled={downloading}
-            onClick={downloaded ? onInstall : onDownload}
-          >
-            {downloaded
-              ? "Restart and update"
-              : downloading
-                ? `Downloading ${status.percent ?? 0}%`
-                : "Download update"}
-          </button>
+          {manual ? (
+            <button className="primary" onClick={onOpenRelease}>Open release page</button>
+          ) : (
+            <button
+              className="primary"
+              disabled={downloading}
+              onClick={downloaded ? onInstall : onDownload}
+            >
+              {downloaded
+                ? "Restart and update"
+                : downloading
+                  ? `Downloading ${status.percent ?? 0}%`
+                  : "Download update"}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -328,6 +362,10 @@ export function App() {
     void invoke<boolean>("app_install_update").catch((error) => {
       setAppUpdate({ status: "error", message: error instanceof Error ? error.message : String(error) });
     });
+  };
+  const openLatestRelease = () => {
+    trackEvent("app_update_open_release", { version: appUpdate.version ?? undefined });
+    window.open(latestReleaseUrl, "_blank", "noopener,noreferrer");
   };
 
   useEffect(() => {
@@ -486,9 +524,11 @@ export function App() {
           <SettingsModal
             onClose={() => setSettingsOpen(false)}
             appUpdate={appUpdate}
+            manualUpdate={MANUAL_UPDATE}
             onCheckUpdate={checkAppUpdate}
             onDownloadUpdate={downloadAppUpdate}
             onInstallUpdate={installAppUpdate}
+            onOpenRelease={openLatestRelease}
           />
         )}
         <div className="splash">
@@ -547,17 +587,21 @@ export function App() {
         <SettingsModal
           onClose={() => setSettingsOpen(false)}
           appUpdate={appUpdate}
+          manualUpdate={MANUAL_UPDATE}
           onCheckUpdate={checkAppUpdate}
           onDownloadUpdate={downloadAppUpdate}
           onInstallUpdate={installAppUpdate}
+          onOpenRelease={openLatestRelease}
         />
       )}
       {updateAvailable(appUpdate) && !updatePromptDismissed && !settingsOpen && (
         <AppUpdatePrompt
           status={appUpdate}
+          manual={MANUAL_UPDATE}
           onLater={() => setUpdatePromptDismissed(true)}
           onDownload={downloadAppUpdate}
           onInstall={installAppUpdate}
+          onOpenRelease={openLatestRelease}
         />
       )}
       <DashboardKeyModal />

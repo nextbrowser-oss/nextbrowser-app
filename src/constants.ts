@@ -5,3 +5,5 @@ export const brandAccent = "#8c80ff"; // Swift .tint Color(red: 0.55, green: 0.5
 export const dashboardUrl = "https://app.clawbrowser.ai/dashboard";
 
 export const repoUrl = "https://github.com/nextbrowser-oss/nextbrowser-app";
+
+export const latestReleaseUrl = `${repoUrl}/releases/latest`;
