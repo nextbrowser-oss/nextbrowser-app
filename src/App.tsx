@@ -9,7 +9,7 @@ import { OnboardingView } from "./components/OnboardingView";
 import { DashboardKeyModal } from "./components/DashboardKeyModal";
 import { BrandLogo } from "./components/BrandLogo";
 import { Icon, Spinner } from "./components/Icon";
-import { brandName, dashboardUrl } from "./constants";
+import { brandName, dashboardUrl, repoUrl } from "./constants";
 import { getPreviewMode, getPreviewTab } from "./preview";
 import type { AppTab, Conversation } from "./types";
 import { resolveTheme, type Theme } from "./theme";
@@ -72,11 +72,25 @@ function SettingsButton({ onClick, hasUpdate }: { onClick: () => void; hasUpdate
     <button
       className="settings-toggle plain-icon-btn"
       onClick={onClick}
-      title="Settings"
-      aria-label="Settings"
+      title={hasUpdate ? "Settings — update available" : "Settings"}
+      aria-label={hasUpdate ? "Settings, update available" : "Settings"}
     >
       <Icon name="gearshape" size={18} />
-      {hasUpdate && <span className="settings-update-dot" aria-hidden="true">★</span>}
+      {hasUpdate && <span className="settings-update-dot" aria-hidden="true" />}
+    </button>
+  );
+}
+
+function GithubStarButton() {
+  const label = "Star NextBrowser on GitHub";
+  return (
+    <button
+      className="github-star-btn plain-icon-btn"
+      onClick={() => window.open(repoUrl, "_blank", "noopener,noreferrer")}
+      title={label}
+      aria-label={label}
+    >
+      <Icon name="star.fill" size={17} fill="currentColor" />
     </button>
   );
 }
@@ -226,6 +240,7 @@ function AppUpdatePrompt({
   onDownload: () => void;
   onInstall: () => void;
 }) {
+  const downloading = status.status === "downloading";
   const downloaded = status.status === "downloaded";
   return (
     <div className="modal-overlay">
@@ -240,13 +255,25 @@ function AppUpdatePrompt({
           </div>
         </div>
         <p className="muted">
-          Update now, or keep working and install it later from Settings.
+          {downloaded
+            ? "The update is downloaded. Restart to finish installing."
+            : downloading
+              ? "Downloading the update — you can keep working."
+              : "Update now, or keep working and install it later from Settings."}
         </p>
         <div className="row settings-actions">
           <button className="secondary" onClick={onLater}>Later</button>
           <span className="spacer" />
-          <button className="primary" onClick={downloaded ? onInstall : onDownload}>
-            {downloaded ? "Restart and update" : "Download update"}
+          <button
+            className="primary"
+            disabled={downloading}
+            onClick={downloaded ? onInstall : onDownload}
+          >
+            {downloaded
+              ? "Restart and update"
+              : downloading
+                ? `Downloading ${status.percent ?? 0}%`
+                : "Download update"}
           </button>
         </div>
       </div>
@@ -451,6 +478,7 @@ export function App() {
     return (
       <>
         <div className="floating-controls">
+          <GithubStarButton />
           <SettingsButton onClick={() => setSettingsOpen(true)} hasUpdate={updateAvailable(appUpdate)} />
           <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
         </div>
@@ -502,6 +530,7 @@ export function App() {
           </div>
           <span className="tabbar-spacer" />
           <div className="tabbar-controls">
+            <GithubStarButton />
             <SettingsButton onClick={() => setSettingsOpen(true)} hasUpdate={updateAvailable(appUpdate)} />
             <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
           </div>
@@ -527,10 +556,7 @@ export function App() {
         <AppUpdatePrompt
           status={appUpdate}
           onLater={() => setUpdatePromptDismissed(true)}
-          onDownload={() => {
-            setUpdatePromptDismissed(true);
-            downloadAppUpdate();
-          }}
+          onDownload={downloadAppUpdate}
           onInstall={installAppUpdate}
         />
       )}

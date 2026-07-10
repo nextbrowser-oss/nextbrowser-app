@@ -791,18 +791,20 @@ button, input, textarea, select { color: var(--text); }
 .settings-toggle { position: relative; }
 .settings-update-dot {
   position: absolute;
-  top: -3px;
-  right: -3px;
-  width: 16px;
-  height: 16px;
-  display: grid;
-  place-items: center;
+  top: -1px;
+  right: -1px;
+  width: 9px;
+  height: 9px;
   border-radius: 999px;
-  background: var(--warn);
-  color: #16151b;
-  font-size: 10px;
-  line-height: 1;
+  background: var(--red);
   box-shadow: 0 0 0 2px var(--bg);
+}
+.github-star-btn {
+  position: relative;
+  color: var(--warn);
+}
+.github-star-btn:hover {
+  color: #ffb84d;
 }
 .floating-controls {
   position: fixed;
