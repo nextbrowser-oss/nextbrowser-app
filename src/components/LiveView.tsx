@@ -6,6 +6,11 @@ type LiveWebviewElement = HTMLWebViewElement & {
   executeJavaScript?: (code: string) => Promise<unknown>;
 };
 
+type RemoteFrameSnapshot = {
+  data?: string;
+  ok?: boolean;
+};
+
 export function LiveView() {
   const s = useStore();
   const [sessionKey, setSessionKey] = useState<string>("");
@@ -14,6 +19,7 @@ export function LiveView() {
   const [error, setError] = useState("");
   const remoteEmbedRef = useRef<HTMLDivElement | null>(null);
   const remoteWebviewRef = useRef<LiveWebviewElement | null>(null);
+  const remoteCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const runningProfiles = s.profiles.filter((profile) => s.statuses[profile.name] === "running");
   const defaultRunning = s.defaultSession?.status === "running";
   const profileOptions = [
@@ -88,10 +94,16 @@ export function LiveView() {
     const syncSize = () => {
       const width = Math.max(1, Math.floor(embed.clientWidth));
       const height = Math.max(1, Math.floor(embed.clientHeight));
+      const canvas = remoteCanvasRef.current;
       webview.style.width = `${width}px`;
       webview.style.height = `${height}px`;
       webview.style.minWidth = `${width}px`;
       webview.style.minHeight = `${height}px`;
+      if (canvas) {
+        const ratio = window.devicePixelRatio || 1;
+        canvas.width = Math.max(1, Math.floor(width * ratio));
+        canvas.height = Math.max(1, Math.floor(height * ratio));
+      }
       webview.setAttribute("autosize", "on");
       webview.setAttribute("minwidth", String(width));
       webview.setAttribute("maxwidth", String(width));
@@ -137,10 +149,66 @@ export function LiveView() {
       }
     };
 
+    let mirrorClosed = false;
+    let mirrorInFlight = false;
+    const drawRemoteFrame = async () => {
+      const canvas = remoteCanvasRef.current;
+      if (mirrorClosed || mirrorInFlight || !canvas || !webview.executeJavaScript) return;
+      const width = Math.max(1, canvas.width);
+      const height = Math.max(1, canvas.height);
+      const script = `(() => {
+        const video = document.querySelector("video");
+        if (!video || !video.videoWidth || !video.videoHeight || video.readyState < 2) return { ok: false };
+        const width = ${JSON.stringify(width)};
+        const height = ${JSON.stringify(height)};
+        const canvas = window.__nextBrowserFrameMirrorCanvas || document.createElement("canvas");
+        window.__nextBrowserFrameMirrorCanvas = canvas;
+        if (canvas.width !== width) canvas.width = width;
+        if (canvas.height !== height) canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return { ok: false };
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, width, height);
+        const scale = Math.min(width / video.videoWidth, height / video.videoHeight);
+        const drawWidth = Math.max(1, Math.round(video.videoWidth * scale));
+        const drawHeight = Math.max(1, Math.round(video.videoHeight * scale));
+        const x = Math.floor((width - drawWidth) / 2);
+        const y = Math.floor((height - drawHeight) / 2);
+        ctx.drawImage(video, x, y, drawWidth, drawHeight);
+        return { ok: true, data: canvas.toDataURL("image/jpeg", 0.82) };
+      })()`;
+      mirrorInFlight = true;
+      try {
+        const snapshot = (await webview.executeJavaScript(script)) as RemoteFrameSnapshot;
+        if (!mirrorClosed && snapshot?.ok && snapshot.data) {
+          await new Promise<void>((resolve) => {
+            const image = new Image();
+            image.onload = () => {
+              if (!mirrorClosed) {
+                const ctx = canvas.getContext("2d");
+                if (ctx) {
+                  ctx.clearRect(0, 0, canvas.width, canvas.height);
+                  ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+                }
+              }
+              resolve();
+            };
+            image.onerror = () => resolve();
+            image.src = snapshot.data || "";
+          });
+        }
+      } catch {
+        // The guest page is not always ready when the mirror ticks.
+      } finally {
+        mirrorInFlight = false;
+      }
+    };
+
     syncSize();
     const frame = window.requestAnimationFrame(syncSize);
     const timers = [100, 350, 800, 1400, 2400, 4000].map((delay) => window.setTimeout(syncSize, delay));
     const interval = window.setInterval(syncSize, 1200);
+    const mirrorInterval = window.setInterval(() => void drawRemoteFrame(), 160);
     const observer = new ResizeObserver(syncSize);
     observer.observe(embed);
     webview.addEventListener("dom-ready", syncSize);
@@ -149,8 +217,10 @@ export function LiveView() {
 
     return () => {
       window.cancelAnimationFrame(frame);
+      mirrorClosed = true;
       timers.forEach((timer) => window.clearTimeout(timer));
       window.clearInterval(interval);
+      window.clearInterval(mirrorInterval);
       observer.disconnect();
       webview.removeEventListener("dom-ready", syncSize);
       webview.removeEventListener("did-finish-load", syncSize);
@@ -244,6 +314,7 @@ export function LiveView() {
               src={streamUrl}
               title="Remote browser stream"
             />
+            <canvas ref={remoteCanvasRef} className="remote-live-canvas" aria-hidden="true" />
           </div>
         )}
       </div>
