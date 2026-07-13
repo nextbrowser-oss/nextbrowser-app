@@ -1,6 +1,6 @@
 {
   "name": "nextbrowser",
-  "version": "0.1.11",
+  "version": "0.1.13",
   "description": "NextBrowser desktop agent console for macOS and Windows",
   "author": "NextBrowser",
   "license": "UNLICENSED",
@@ -67,8 +67,7 @@
       ],
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
-      "hardenedRuntime": true,
-      "gatekeeperAssess": false,
+      "identity": "-",
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist"
     },
