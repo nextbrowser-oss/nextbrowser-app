@@ -7,6 +7,7 @@ const fsSync = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
+const { defaultSSHConfigPath, discoverSSHHosts, isAllowedExplicitConfigPath } = require("./ssh-config.cjs");
 
 const execFileAsync = promisify(execFile);
 const children = new Map();
@@ -274,6 +275,42 @@ async function invokeCommand(command, args = {}) {
       return null;
     }
     case "read_file": return fs.readFile(args.path, "utf8");
+    case "ssh_config_hosts": {
+      const requestedPath = typeof args.configPath === "string" ? args.configPath.trim() : "";
+      if (requestedPath.length > 4096 || requestedPath.includes("\0")) throw new Error("Invalid SSH config path.");
+      if (requestedPath.startsWith("\\\\") || /^\/\/[^/]/.test(requestedPath)) {
+        throw new Error("Network SSH config paths are not supported.");
+      }
+      const configPath = requestedPath ? path.resolve(expand(requestedPath)) : defaultSSHConfigPath(home());
+      return discoverSSHHosts({
+        configPath,
+        homeDir: home(),
+        explicitConfig: !!requestedPath,
+        env: childEnv(),
+      });
+    }
+    case "select_ssh_config": {
+      const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+      const options = {
+        title: "Choose SSH config",
+        defaultPath: defaultSSHConfigPath(home()),
+        properties: ["openFile"],
+        filters: [
+          { name: "SSH config", extensions: ["conf", "config"] },
+          { name: "All files", extensions: ["*"] },
+        ],
+      };
+      const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options);
+      if (result.canceled || !result.filePaths[0]) return null;
+      const selectedPath = result.filePaths[0];
+      if (selectedPath.startsWith("\\\\") || /^\/\/[^/]/.test(selectedPath)) {
+        throw new Error("Network SSH config paths are not supported.");
+      }
+      if (!isAllowedExplicitConfigPath(selectedPath)) {
+        throw new Error("Choose an SSH config named config or using a .conf or .config extension.");
+      }
+      return path.resolve(selectedPath);
+    }
     case "select_chat_files": {
       const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
       const result = await dialog.showOpenDialog(owner, {

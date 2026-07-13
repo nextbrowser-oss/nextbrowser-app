@@ -101,6 +101,9 @@ export interface Conversation {
   updatedAt: number;
   parentId?: string;
   forkedFromMessageId?: string;
+  executionTarget?: "local" | "vps";
+  vpsConnectionInstructions?: string;
+  vpsConnectionLabel?: string;
 }
 
 /** Sidebar preview line for a conversation — mirrors Swift `Conversation.preview`. */

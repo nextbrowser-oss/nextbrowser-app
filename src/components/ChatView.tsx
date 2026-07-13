@@ -9,6 +9,7 @@ import { filePathForFile, invoke } from "../electronBridge";
 import { conversationPreview } from "../types";
 import { agentById } from "../agents";
 import { trackEvent } from "../lib/analytics";
+import { VPSSetupModal } from "./VPSSetupModal";
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -50,6 +51,7 @@ export function ChatView() {
   const convs = s.conversationsForAgent(agentId);
   const conv = s.activeConversation();
   const messages = conv?.messages ?? [];
+  const remoteOnly = conv?.executionTarget === "vps";
   const ready = s.agentReady();
   const running = s.hasRunning();
   const queued = s.queuedCount();
@@ -64,6 +66,7 @@ export function ChatView() {
   const [editText, setEditText] = useState("");
   const [convMenu, setConvMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [promptDetail, setPromptDetail] = useState<string | null>(null);
+  const [vpsSetupOpen, setVPSSetupOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -229,13 +232,35 @@ export function ChatView() {
             </span>
           )}
           <span className="spacer" />
-          {s.selectedProfile && (
+          {remoteOnly && (
+            <span
+              className="vps-target-pill"
+              title={conv?.vpsConnectionLabel
+                ? `Remote target: ${conv.vpsConnectionLabel}`
+                : "This chat runs Clawbrowser commands on a VPS"}
+            >
+              <Icon name="terminal" size={12} />
+              <span>VPS{conv?.vpsConnectionLabel ? ` · ${conv.vpsConnectionLabel}` : ""}</span>
+            </span>
+          )}
+          {messages.length > 0 && (
+            <button
+              className="mini chat-vps-button"
+              aria-label="Use Clawbrowser on a VPS over SSH"
+              title="Use Clawbrowser on a VPS over SSH"
+              onClick={() => setVPSSetupOpen(true)}
+            >
+              <Icon name="terminal" size={13} />
+              <span className="chat-vps-label">Use VPS</span>
+            </button>
+          )}
+          {!remoteOnly && s.selectedProfile && (
             <span className="profile-pill">
               <Icon name="person.crop.circle" size={12} />
               {s.selectedProfile}
             </span>
           )}
-          {showDefaultSession && (
+          {!remoteOnly && showDefaultSession && (
             <span className="default-session-pill">
               <Icon name="globe" size={12} />
               default
@@ -288,6 +313,10 @@ export function ChatView() {
                 <button className="btn-bordered" title="Open Skills" onClick={() => s.setTab("skills")}>
                   <Icon name="square.grid.2x2.fill" size={14} />
                   Open Skills
+                </button>
+                <button className="btn-bordered" title="Use Clawbrowser on a VPS over SSH" onClick={() => setVPSSetupOpen(true)}>
+                  <Icon name="terminal" size={14} />
+                  Use VPS
                 </button>
                 {s.proxy ? (
                   <button className="btn-bordered" title="Start the default browser session" onClick={() => s.startDefaultSession()}>
@@ -602,6 +631,8 @@ export function ChatView() {
           </div>
         </div>
       )}
+
+      {vpsSetupOpen && <VPSSetupModal onClose={() => setVPSSetupOpen(false)} />}
     </div>
   );
 }

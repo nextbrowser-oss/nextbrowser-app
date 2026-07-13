@@ -1,6 +1,12 @@
 import { create } from "zustand";
 import { invoke, listen } from "./electronBridge";
-import { clawctlEnvelope, clawctlErrorMessage, clawctlJson, clawctlRun } from "./clawctl";
+import {
+  clawctlEnvelope as rawClawctlEnvelope,
+  clawctlErrorMessage,
+  clawctlJson as rawClawctlJson,
+  clawctlRun as rawClawctlRun,
+  type RunResult,
+} from "./clawctl";
 import { prepareSession } from "./preflight";
 import {
   AGENTS,
@@ -17,6 +23,8 @@ import {
 } from "./skillsCatalog";
 import { activityFromText, extractToolEvents } from "./lib/activityParser";
 import { composePrompt } from "./lib/composePrompt";
+import { executionTargetForTurn, type ExecutionTarget } from "./lib/executionTarget";
+import { hasVPSPromptMarker, vpsConnectionInstructions } from "./lib/vpsPrompt";
 import { promptWithAttachments } from "./lib/chatAttachments";
 import { normalizeClawctlVersion } from "./lib/version";
 import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
@@ -57,6 +65,7 @@ interface QueuedItem {
   conversationId: string;
   rawText: string;
   replyId: string;
+  executionTarget: ExecutionTarget;
 }
 
 export interface ManualProxyProfileInput {
@@ -78,6 +87,11 @@ interface AgentRuntime {
   isConsuming: boolean;
   runningReplyId?: string;
   pendingStop: boolean;
+}
+
+interface AgentAuthorizationOptions {
+  skipClawctlSetup?: boolean;
+  deferMissingClawctlPrompt?: boolean;
 }
 
 function emptyRuntime(): AgentRuntime {
@@ -299,7 +313,7 @@ interface State {
   deleteProfile: (n: string) => Promise<void>;
   selectProfile: (n?: string) => void;
   switchAgent: (id: string) => void;
-  authorizeAgent: () => Promise<void>;
+  authorizeAgent: (options?: AgentAuthorizationOptions) => Promise<void>;
   loginAgent: () => Promise<void>;
   logoutAgent: () => Promise<void>;
   recheckLogin: () => Promise<void>;
@@ -312,7 +326,7 @@ interface State {
   setDashboardKeyPromptOpen: (v: boolean) => void;
   finishOnboarding: () => void;
   showOnboardingAgain: () => void;
-  checkClawctlUpdate: () => Promise<void>;
+  checkClawctlUpdate: () => Promise<boolean>;
 
   conversationsForAgent: (agentId: string) => Conversation[];
   activeConversation: () => Conversation | undefined;
@@ -342,6 +356,7 @@ interface State {
   canManageQueuedReply: (replyId: string) => boolean;
   send: (text: string) => Promise<void>;
   tryGuidePrompt: (text: string, tab?: AppTab) => Promise<void>;
+  sendVPSPrompt: (text: string, connectionLabel?: string) => Promise<void>;
 
   applySkill: (entry: SkillEntry) => Promise<SkillRef | undefined>;
   useSkillInChat: (entry: SkillEntry) => Promise<void>;
@@ -379,6 +394,8 @@ let proxyTimer: ReturnType<typeof setInterval> | null = null;
 let scheduleTimer: ReturnType<typeof setInterval> | null = null;
 let sessionPollTimer: ReturnType<typeof setInterval> | null = null;
 let clawctlDailyUpdateTimer: ReturnType<typeof setInterval> | null = null;
+let vpsSetupReservations = 0;
+let localClawctlOperations = 0;
 // Guard bootstrap against re-entry. React StrictMode invokes effects twice in
 // dev, and without this each agent:* listener would be registered again, so a
 // single agent reply would be appended once per registration (duplicate output).
@@ -392,6 +409,87 @@ interface APIKeyIdentity {
   owner_id?: string;
 }
 const completionResolvers = new Map<string, (result: AgentDone) => void>();
+const replyExecutionTargets = new Map<string, ExecutionTarget>();
+
+function runningTarget(state: State, target: ExecutionTarget): boolean {
+  return Object.values(state.runtime).some((runtime) => {
+    const replyId = runtime.runningReplyId;
+    if (!replyId) return false;
+    const conversation = state.conversations.find((candidate) =>
+      candidate.messages.some((message) => message.id === replyId),
+    );
+    const executionTarget = replyExecutionTargets.get(replyId) ??
+      executionTargetForTurn(conversation);
+    return executionTarget === target;
+  });
+}
+
+function queuedTarget(state: State, target: ExecutionTarget): boolean {
+  return Object.values(state.runtime).some((runtime) =>
+    runtime.queue.some((item) => item.executionTarget === target),
+  );
+}
+
+function pendingTarget(state: State, target: ExecutionTarget): boolean {
+  return (target === "vps" && vpsSetupReservations > 0) ||
+    runningTarget(state, target) ||
+    queuedTarget(state, target);
+}
+
+function localSkillCheckRunning(state: State): boolean {
+  return Object.values(state.skillState).some((status) => status === "applying");
+}
+
+async function runLocalClawctlOperation<T>(operation: () => Promise<T>): Promise<T> {
+  if (pendingTarget(useStore.getState(), "vps")) {
+    throw new Error("Local clawctl operations are paused while VPS work is queued or running.");
+  }
+  localClawctlOperations += 1;
+  try {
+    return await operation();
+  } finally {
+    localClawctlOperations = Math.max(0, localClawctlOperations - 1);
+  }
+}
+
+async function clawctlRun(
+  args: string[],
+  extraEnv?: Record<string, string>,
+): Promise<RunResult> {
+  return runLocalClawctlOperation(() => rawClawctlRun(args, extraEnv));
+}
+
+async function clawctlJson<T>(
+  args: string[],
+  extraEnv?: Record<string, string>,
+): Promise<T> {
+  return runLocalClawctlOperation(() => rawClawctlJson<T>(args, extraEnv));
+}
+
+async function clawctlEnvelope<T>(
+  args: string[],
+  extraEnv?: Record<string, string>,
+) {
+  return runLocalClawctlOperation(() => rawClawctlEnvelope<T>(args, extraEnv));
+}
+
+async function prepareLocalSession(
+  options: Parameters<typeof prepareSession>[0],
+): ReturnType<typeof prepareSession> {
+  return runLocalClawctlOperation(() => prepareSession(options));
+}
+
+async function waitForLocalClawctlIdle(getState: () => State): Promise<void> {
+  const deadline = now() + 30_000;
+  while ((getState().clawctlUpdating || localSkillCheckRunning(getState()) ||
+    localClawctlOperations > 0 || runningTarget(getState(), "local")) && now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  if (getState().clawctlUpdating || localSkillCheckRunning(getState()) ||
+      localClawctlOperations > 0 || runningTarget(getState(), "local")) {
+    throw new Error("A local clawctl operation is still finishing. Wait a moment and try again.");
+  }
+}
 
 function persistConvs(conversations: Conversation[]) {
   void saveJson("conversations.json", serializeConversations(conversations));
@@ -460,7 +558,111 @@ async function refreshAnalyticsIdentity(): Promise<void> {
   });
 }
 
-export const useStore = create<State>((set, get) => ({
+async function refreshLocalClawctlMetadata(): Promise<void> {
+  if (pendingTarget(useStore.getState(), "vps")) return;
+  const clawctlPath = await runLocalClawctlOperation(() =>
+    invoke<string | null>("clawctl_resolve").catch(() => null),
+  );
+  useStore.setState({ clawctlAvailable: !!clawctlPath });
+  trackEvent("clawctl_resolve", { found: !!clawctlPath });
+  try {
+    const ver = await runLocalClawctlOperation(() => invoke<string>("clawctl_version"));
+    const supportsSkill = await runLocalClawctlOperation(() => invoke<boolean>("clawctl_supports_skill"));
+    useStore.setState({
+      clawctlVersion: normalizeClawctlVersion(ver),
+      clawctlSupportsSkill: supportsSkill,
+      clawctlAvailable: true,
+    });
+    trackEvent("clawctl_detected", { supports_skill: supportsSkill });
+    await refreshAnalyticsIdentity().catch(() => {
+      trackEvent("analytics_identity_unavailable", { phase: "bootstrap" });
+    });
+  } catch {
+    useStore.setState({ clawctlVersion: "not found", clawctlSupportsSkill: false, clawctlAvailable: false });
+    trackEvent("clawctl_missing");
+  }
+}
+
+export const useStore = create<State>((set, get) => {
+  const enqueueWithTarget = (
+    text: string,
+    chip?: UserCommandChip,
+    into?: string,
+    attachments: ChatAttachment[] = [],
+    privilegedTarget?: ExecutionTarget,
+  ) => {
+    const prompt = text.trim();
+    if (!prompt) return;
+    if (prompt === "/login" || prompt.startsWith("/login ")) {
+      void get().loginAgent();
+      return;
+    }
+    if (!get().agentReady()) return;
+    const agentId = get().agentId;
+    const cid = into ?? get().activeConversation()?.id ?? get().newChat();
+    const targetConversation = get().conversations.find((conversation) => conversation.id === cid);
+    const executionTarget = privilegedTarget ?? executionTargetForTurn(targetConversation);
+    const replyId = uid();
+    const userMsg: ChatMessage = {
+      id: uid(),
+      role: "user",
+      text: prompt,
+      status: "done",
+      createdAt: now(),
+      commandChip: chip,
+      attachments,
+    };
+    const reply: ChatMessage = {
+      id: replyId,
+      role: "assistant",
+      text: "",
+      status: "queued",
+      createdAt: now(),
+    };
+    trackEvent("chat_message_queued", {
+      agent: agentId,
+      has_chip: !!chip,
+      chip_kind: chip?.kind ?? "none",
+      attachment_count: attachments.length,
+      execution_target: executionTarget,
+      prompt_length_bucket: Math.min(5000, Math.ceil(prompt.length / 250) * 250),
+    });
+    trackEvent("chat_request_submitted", {
+      agent: agentId,
+      has_chip: !!chip,
+      chip_kind: chip?.kind ?? "none",
+      attachment_count: attachments.length,
+      execution_target: executionTarget,
+      prompt_length_bucket: Math.min(5000, Math.ceil(prompt.length / 250) * 250),
+    });
+    set((state) => {
+      const conversations = state.conversations.map((conversation) =>
+        conversation.id === cid
+          ? { ...conversation, messages: [...conversation.messages, userMsg, reply], updatedAt: now() }
+          : conversation,
+      );
+      const runtime = {
+        ...state.runtime,
+        [agentId]: {
+          ...state.runtime[agentId],
+          queue: [
+            ...state.runtime[agentId].queue,
+            {
+              conversationId: cid,
+              rawText: promptWithAttachments(prompt, attachments),
+              replyId,
+              executionTarget,
+            },
+          ],
+        },
+      };
+      persistConvs(conversations);
+      return { conversations, runtime };
+    });
+    get().startConsumer(agentId);
+  };
+
+  return {
   authed: false,
   checking: true,
   isLoggingIn: false,
@@ -623,6 +825,8 @@ export const useStore = create<State>((set, get) => ({
         Object.entries(get().runtime).find(([, runtime]) => runtime.runningReplyId === replyId)?.[0] ??
         owningConversation?.agent ??
         get().agentId;
+      const executionTarget = replyExecutionTargets.get(replyId) ??
+        executionTargetForTurn(owningConversation);
       const rt = get().runtime[agentId];
       const stopped = rt?.pendingStop;
       set((s) => {
@@ -663,38 +867,34 @@ export const useStore = create<State>((set, get) => ({
       trackEvent(stopped ? "agent_turn_cancelled" : code === 0 ? "agent_turn_completed" : "agent_turn_failed", {
         agent: agentId,
         exit_code: code,
+        execution_target: executionTarget,
       });
       try {
-        await get().refreshAll();
+        if (executionTarget === "local" && !pendingTarget(get(), "vps")) await get().refreshAll();
       } finally {
+        replyExecutionTargets.delete(replyId);
         const resolve = completionResolvers.get(replyId);
         completionResolvers.delete(replyId);
         resolve?.({ code, stderr });
+        if (executionTarget === "vps" && !pendingTarget(get(), "vps")) {
+          void refreshLocalClawctlMetadata();
+        }
+        for (const [queuedAgentId, runtime] of Object.entries(get().runtime)) {
+          if (runtime.ready && runtime.queue.length) get().startConsumer(queuedAgentId);
+        }
       }
     });
 
-    const clawctlPath = await invoke<string | null>("clawctl_resolve").catch(() => null);
-    set({ clawctlAvailable: !!clawctlPath });
-    trackEvent("clawctl_resolve", { found: !!clawctlPath });
-    try {
-      const ver = await invoke<string>("clawctl_version");
-      const supportsSkill = await invoke<boolean>("clawctl_supports_skill");
-      set({ clawctlVersion: normalizeClawctlVersion(ver), clawctlSupportsSkill: supportsSkill, clawctlAvailable: true });
-      trackEvent("clawctl_detected", { supports_skill: supportsSkill });
-      await refreshAnalyticsIdentity().catch(() => {
-        trackEvent("analytics_identity_unavailable", { phase: "bootstrap" });
-      });
-    } catch {
-      set({ clawctlVersion: "not found", clawctlSupportsSkill: false, clawctlAvailable: false });
-      trackEvent("clawctl_missing");
+    if (!pendingTarget(get(), "vps")) {
+      await refreshLocalClawctlMetadata();
     }
     set({ authed: true });
     get().startTimers();
     void get().tickClawctlDailyUpdate();
 
     try {
-      await get().refreshAll();
-      await get().authorizeAgent();
+      if (!pendingTarget(get(), "vps")) await get().refreshAll();
+      await get().authorizeAgent({ deferMissingClawctlPrompt: true });
       if (!localStorage.getItem("onboardingComplete")) {
         set({ showOnboarding: true });
       }
@@ -717,7 +917,7 @@ export const useStore = create<State>((set, get) => ({
   startTimers: () => {
     if (proxyTimer) clearInterval(proxyTimer);
     proxyTimer = setInterval(() => {
-      if (!get().appActive || !get().authed) return;
+      if (!get().appActive || !get().authed || pendingTarget(get(), "vps")) return;
       get().loadProxy().catch(() => {});
       get().loadDefaultSession().catch(() => {});
     }, PROXY_REFRESH_MS);
@@ -733,11 +933,14 @@ export const useStore = create<State>((set, get) => ({
   tickClawctlDailyUpdate: async () => {
     if (!get().clawctlAvailable) return;
     if (get().clawctlUpdating) return;
+    if (pendingTarget(get(), "vps")) return;
     const state = await loadJson<ClawctlUpdateState>(CLAWCTL_UPDATE_STATE_FILE, {});
+    if (pendingTarget(get(), "vps")) return;
     const lastAutoCheckAt = Number(state.lastAutoCheckAt ?? 0);
     if (lastAutoCheckAt > 0 && now() - lastAutoCheckAt < CLAWCTL_DAILY_UPDATE_MS) return;
+    if (!await get().checkClawctlUpdate()) return;
+    if (pendingTarget(get(), "vps")) return;
     await saveJson(CLAWCTL_UPDATE_STATE_FILE, { lastAutoCheckAt: now() });
-    await get().checkClawctlUpdate();
   },
 
   tickScheduledRuns: async () => {
@@ -749,6 +952,12 @@ export const useStore = create<State>((set, get) => ({
     for (const run of get().scheduledRuns) {
       if (!run.enabled) continue;
       if (run.hour !== hour || run.minute !== minute || !run.weekdays.includes(weekday)) continue;
+      const scheduledConversation = run.conversationId
+        ? get().conversations.find((conversation) => conversation.id === run.conversationId)
+        : undefined;
+      const scheduledTarget = executionTargetForTurn(scheduledConversation);
+      if ((scheduledTarget === "vps" && queuedTarget(get(), "local")) ||
+          (scheduledTarget === "local" && pendingTarget(get(), "vps"))) continue;
       if (run.lastFiredAt) {
         const last = new Date(run.lastFiredAt);
         if (
@@ -768,18 +977,48 @@ export const useStore = create<State>((set, get) => ({
         has_conversation: !!run.conversationId,
       });
       const prev = get().agentId;
-      get().switchAgent(run.agent);
-      if (!get().agentReady()) await get().authorizeAgent();
-      let cid = run.conversationId;
-      if (!cid || !get().conversations.some((c) => c.id === cid && c.agent === run.agent)) {
-        cid = get().newChat();
-        const title = run.title || "Scheduled";
-        get().renameConversation(cid, title);
-      } else {
-        get().selectConversation(cid);
+      if (scheduledTarget === "vps") vpsSetupReservations += 1;
+      try {
+        if (scheduledTarget === "vps") await waitForLocalClawctlIdle(get);
+        get().switchAgent(run.agent);
+        if (!get().agentReady()) {
+          await get().authorizeAgent({ skipClawctlSetup: scheduledTarget === "vps" });
+        }
+        let cid = run.conversationId;
+        if (!cid || !get().conversations.some((c) => c.id === cid && c.agent === run.agent)) {
+          cid = get().newChat();
+          const title = run.title || "Scheduled";
+          get().renameConversation(cid, title);
+        } else {
+          get().selectConversation(cid);
+        }
+        if (scheduledTarget === "vps") {
+          set((state) => {
+            const conversations = state.conversations.map((conversation) =>
+              conversation.id === cid
+                ? {
+                    ...conversation,
+                    executionTarget: "vps" as const,
+                    vpsConnectionInstructions: conversation.vpsConnectionInstructions ||
+                      vpsConnectionInstructions(run.prompt) || undefined,
+                    updatedAt: now(),
+                  }
+                : conversation,
+            );
+            persistConvs(conversations);
+            return { conversations };
+          });
+        }
+        enqueueWithTarget(run.prompt, undefined, cid, [], scheduledTarget);
+      } finally {
+        if (scheduledTarget === "vps") vpsSetupReservations = Math.max(0, vpsSetupReservations - 1);
+        get().switchAgent(prev);
+        if (!pendingTarget(get(), "vps")) {
+          for (const [queuedAgentId, runtime] of Object.entries(get().runtime)) {
+            if (runtime.ready && runtime.queue.length) get().startConsumer(queuedAgentId);
+          }
+        }
       }
-      get().enqueue(run.prompt, undefined, cid);
-      get().switchAgent(prev);
     }
   },
 
@@ -810,6 +1049,7 @@ export const useStore = create<State>((set, get) => ({
                 conversationId: conv.id,
                 rawText: user.text,
                 replyId: m.id,
+                executionTarget: executionTargetForTurn(conv),
               });
               return m;
             }
@@ -836,6 +1076,9 @@ export const useStore = create<State>((set, get) => ({
   startConsumer: (agentId: string) => {
     const rt = get().runtime[agentId];
     if (!rt?.ready || rt.isConsuming) return;
+    const nextTarget = rt.queue[0]?.executionTarget;
+    if (nextTarget === "vps" && (get().clawctlUpdating || runningTarget(get(), "local"))) return;
+    if (nextTarget === "local" && pendingTarget(get(), "vps")) return;
     set((s) => ({
       runtime: {
         ...s.runtime,
@@ -844,6 +1087,9 @@ export const useStore = create<State>((set, get) => ({
     }));
     void (async () => {
       while (true) {
+        const nextTarget = get().runtime[agentId]?.queue[0]?.executionTarget;
+        if (nextTarget === "vps" && runningTarget(get(), "local")) break;
+        if (nextTarget === "local" && pendingTarget(get(), "vps")) break;
         const item = get().dequeue(agentId);
         if (!item) break;
         await get().processItem(agentId, item);
@@ -888,13 +1134,15 @@ export const useStore = create<State>((set, get) => ({
         },
       },
     }));
+    replyExecutionTargets.set(item.replyId, item.executionTarget);
     get().setMessageStatus(item.conversationId, item.replyId, "streaming");
     trackEvent("agent_turn_started", {
       agent: agentId,
       has_profile: !!get().selectedProfile,
       queue_depth: get().runtime[agentId]?.queue.length ?? 0,
+      execution_target: item.executionTarget,
     });
-    get().startSessionPoll();
+    if (item.executionTarget === "local") get().startSessionPoll();
 
     const prompt = composePrompt(
       get().conversations,
@@ -902,7 +1150,7 @@ export const useStore = create<State>((set, get) => ({
       item.replyId,
       item.rawText,
       get().selectedProfile,
-      { clawctlAvailable: get().clawctlAvailable },
+      { clawctlAvailable: get().clawctlAvailable, executionTarget: item.executionTarget },
     );
     const a = agentById(agentId);
     const { args, stdin } = agentInvocation(a, prompt);
@@ -945,6 +1193,7 @@ export const useStore = create<State>((set, get) => ({
       await completion;
     } catch (e) {
       completionResolvers.delete(item.replyId);
+      replyExecutionTargets.delete(item.replyId);
       get().appendToMessage(item.conversationId, item.replyId, `\n[error] ${e}`);
       get().setMessageStatus(item.conversationId, item.replyId, "failed");
       trackEvent("agent_turn_spawn_failed", { agent: agentId });
@@ -1062,11 +1311,12 @@ export const useStore = create<State>((set, get) => ({
   startSessionPoll: () => {
     if (sessionPollTimer) return;
     sessionPollTimer = setInterval(() => {
-      if (!get().anyAgentRunning()) {
+      if (!runningTarget(get(), "local")) {
         if (sessionPollTimer) clearInterval(sessionPollTimer);
         sessionPollTimer = null;
         return;
       }
+      if (pendingTarget(get(), "vps")) return;
       get().loadProfiles().catch(() => {});
       get().loadDefaultSession().catch(() => {});
     }, 2000);
@@ -1469,7 +1719,7 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  authorizeAgent: async () => {
+  authorizeAgent: async (options = {}) => {
     const startedAt = performance.now();
     const agentId = get().agentId;
     const rt = get().runtime[agentId];
@@ -1514,8 +1764,16 @@ export const useStore = create<State>((set, get) => ({
       });
       get().reconcileQueues();
       get().startConsumer(agentId);
+      if (options.skipClawctlSetup || pendingTarget(get(), "vps")) {
+        trackEvent("agent_connect_remote_only", { agent: agentId });
+        return;
+      }
       const adapter = clawctlAgentAdapter(agentId);
       if (!get().clawctlAvailable) {
+        if (options.deferMissingClawctlPrompt) {
+          trackEvent("install_prompt_deferred", { agent: agentId, adapter });
+          return;
+        }
         const conv = get().activeConversation();
         const alreadyQueued = conv?.messages.some((message) =>
           message.text.includes("NextBrowser cannot find local clawctl/Clawbrowser components"),
@@ -1741,10 +1999,12 @@ export const useStore = create<State>((set, get) => ({
   showOnboardingAgain: () => set({ showOnboarding: true }),
 
   checkClawctlUpdate: async () => {
+    if (pendingTarget(get(), "vps")) return false;
     const startedAt = performance.now();
     trackEvent("clawctl_update_started");
     set({ clawctlUpdating: true, clawctlUpdateStatus: undefined });
     try {
+      if (pendingTarget(get(), "vps")) return false;
       const res = await clawctlRun(["update"]);
       const text = res.stdout + res.stderr;
       const line = text.split("\n").find((l) => l.includes("clawctl updated:"));
@@ -1764,15 +2024,23 @@ export const useStore = create<State>((set, get) => ({
         set({ clawctlUpdateStatus: "update failed" });
         trackEvent("clawctl_update_failed", { exit_code: res.code });
       }
+      if (pendingTarget(get(), "vps")) return true;
       const ver = await invoke<string>("clawctl_version");
+      if (pendingTarget(get(), "vps")) return true;
       const supportsSkill = await invoke<boolean>("clawctl_supports_skill");
+      if (pendingTarget(get(), "vps")) return true;
       set({ clawctlVersion: normalizeClawctlVersion(ver), clawctlSupportsSkill: supportsSkill, clawctlAvailable: true });
       trackTiming("clawctl_update_completed", startedAt, { supports_skill: supportsSkill });
+      return true;
     } catch {
       set({ clawctlUpdateStatus: "update failed", clawctlAvailable: false });
       trackTiming("clawctl_update_failed", startedAt);
+      return true;
     } finally {
       set({ clawctlUpdating: false });
+      for (const [agentId, runtime] of Object.entries(get().runtime)) {
+        if (runtime.ready && runtime.queue.length) get().startConsumer(agentId);
+      }
     }
   },
 
@@ -1786,6 +2054,7 @@ export const useStore = create<State>((set, get) => ({
       messages: [],
       createdAt: now(),
       updatedAt: now(),
+      executionTarget: "local",
     };
     const conversations = [...get().conversations, c];
     persistConvs(conversations);
@@ -1809,6 +2078,7 @@ export const useStore = create<State>((set, get) => ({
       messages: [],
       createdAt: now(),
       updatedAt: now(),
+      executionTarget: "local",
     };
     const conversations = [...get().conversations, c];
     persistConvs(conversations);
@@ -1870,6 +2140,9 @@ export const useStore = create<State>((set, get) => ({
       updatedAt: now(),
       parentId: conv.id,
       forkedFromMessageId: atMessageId,
+      executionTarget: conv.executionTarget,
+      vpsConnectionInstructions: conv.vpsConnectionInstructions,
+      vpsConnectionLabel: conv.vpsConnectionLabel,
     };
     const conversations = [...get().conversations, fork];
     persistConvs(conversations);
@@ -1886,7 +2159,9 @@ export const useStore = create<State>((set, get) => ({
     if (!cid) return;
     set((s) => {
       const conversations = s.conversations.map((c) =>
-        c.id === cid ? { ...c, messages: [], updatedAt: now() } : c,
+        c.id === cid
+          ? { ...c, messages: [], executionTarget: "local" as const, vpsConnectionInstructions: undefined, vpsConnectionLabel: undefined, updatedAt: now() }
+          : c,
       );
       persistConvs(conversations);
       trackEvent("chat_cleared", { agent: get().agentId });
@@ -1895,70 +2170,8 @@ export const useStore = create<State>((set, get) => ({
   },
 
   enqueue: (text, chip, into, attachments = []) => {
-    const prompt = text.trim();
-    if (!prompt) return;
-    if (prompt === "/login" || prompt.startsWith("/login ")) {
-      void get().loginAgent();
-      return;
-    }
-    if (!get().agentReady()) return;
-    const agentId = get().agentId;
-    const cid = into ?? get().activeConversation()?.id ?? get().newChat();
-    const replyId = uid();
-    const userMsg: ChatMessage = {
-      id: uid(),
-      role: "user",
-      text: prompt,
-      status: "done",
-      createdAt: now(),
-      commandChip: chip,
-      attachments,
-    };
-    const reply: ChatMessage = {
-      id: replyId,
-      role: "assistant",
-      text: "",
-      status: "queued",
-      createdAt: now(),
-    };
-    trackEvent("chat_message_queued", {
-      agent: agentId,
-      has_chip: !!chip,
-      chip_kind: chip?.kind ?? "none",
-      attachment_count: attachments.length,
-      prompt_length_bucket: Math.min(5000, Math.ceil(prompt.length / 250) * 250),
-    });
-    trackEvent("chat_request_submitted", {
-      agent: agentId,
-      has_chip: !!chip,
-      chip_kind: chip?.kind ?? "none",
-      attachment_count: attachments.length,
-      prompt_length_bucket: Math.min(5000, Math.ceil(prompt.length / 250) * 250),
-    });
-    set((s) => {
-      const conversations = s.conversations.map((c) =>
-        c.id === cid
-          ? { ...c, messages: [...c.messages, userMsg, reply], updatedAt: now() }
-          : c,
-      );
-      const runtime = {
-        ...s.runtime,
-        [agentId]: {
-          ...s.runtime[agentId],
-          queue: [
-            ...s.runtime[agentId].queue,
-            {
-              conversationId: cid,
-              rawText: promptWithAttachments(prompt, attachments),
-              replyId,
-            },
-          ],
-        },
-      };
-      persistConvs(conversations);
-      return { conversations, runtime };
-    });
-    get().startConsumer(agentId);
+    if (hasVPSPromptMarker(text)) return;
+    enqueueWithTarget(text, chip, into, attachments);
   },
 
   stopRunning: () => {
@@ -1990,6 +2203,7 @@ export const useStore = create<State>((set, get) => ({
   cancelQueuedReply: (replyId) => {
     if (!get().canManageQueuedReply(replyId)) return false;
     const agentId = get().agentId;
+    const cancelledItem = get().runtime[agentId]?.queue.find((item) => item.replyId === replyId);
     trackEvent("queued_reply_cancelled", { agent: agentId });
     set((s) => {
       const runtime = {
@@ -2005,7 +2219,19 @@ export const useStore = create<State>((set, get) => ({
         const msgs = [...c.messages];
         msgs.splice(replyIdx, 1);
         if (replyIdx > 0 && msgs[replyIdx - 1]?.role === "user") msgs.splice(replyIdx - 1, 1);
-        return { ...c, messages: msgs, updatedAt: now() };
+        const resetVPS = cancelledItem?.executionTarget === "vps" &&
+          !msgs.some((message) => message.role !== "system");
+        return resetVPS
+          ? {
+              ...c,
+              title: "Chat",
+              messages: msgs,
+              executionTarget: "local" as const,
+              vpsConnectionInstructions: undefined,
+              vpsConnectionLabel: undefined,
+              updatedAt: now(),
+            }
+          : { ...c, messages: msgs, updatedAt: now() };
       });
       persistConvs(conversations);
       return { conversations, runtime };
@@ -2017,6 +2243,8 @@ export const useStore = create<State>((set, get) => ({
     const text = newText.trim();
     if (!text || !get().canManageQueuedReply(replyId)) return false;
     const agentId = get().agentId;
+    const queuedItem = get().runtime[agentId]?.queue.find((item) => item.replyId === replyId);
+    if (queuedItem?.executionTarget === "local" && hasVPSPromptMarker(text)) return false;
     trackEvent("queued_reply_edited", { agent: agentId });
     set((s) => {
       const runtime = {
@@ -2055,7 +2283,68 @@ export const useStore = create<State>((set, get) => ({
     if (get().agentReady()) get().enqueue(text);
   },
 
+  sendVPSPrompt: async (text, connectionLabel) => {
+    if (!hasVPSPromptMarker(text)) throw new Error("Invalid VPS prompt.");
+    if (queuedTarget(get(), "local")) {
+      throw new Error("Finish or cancel queued local work before starting a VPS task.");
+    }
+    vpsSetupReservations += 1;
+    try {
+      await waitForLocalClawctlIdle(get);
+      if (queuedTarget(get(), "local")) {
+        throw new Error("Finish or cancel queued local work before starting a VPS task.");
+      }
+      trackEvent("vps_prompt_used", { tab: "chat" });
+      set({ tab: "chat" });
+      if (!get().agentReady()) {
+        if (get().runtime[get().agentId]?.authorizing) {
+          throw new Error("The agent is still connecting. Wait a moment and try again.");
+        }
+        await get().authorizeAgent({ skipClawctlSetup: true });
+      }
+      if (!get().agentReady()) {
+        throw new Error(get().agentError() || "The selected agent could not connect.");
+      }
+      const activeConversation = get().activeConversation();
+      const conversationId = activeConversation && activeConversation.messages.length === 0
+        ? activeConversation.id
+        : get().newChat();
+      const label = connectionLabel?.trim().replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 160);
+      const title = label ? `VPS · ${label.slice(0, 48)}` : "VPS";
+      set((state) => {
+        const conversations = state.conversations.map((conversation) =>
+          conversation.id === conversationId
+            ? {
+                ...conversation,
+                title,
+                executionTarget: "vps" as const,
+                vpsConnectionInstructions: vpsConnectionInstructions(text),
+                vpsConnectionLabel: label || undefined,
+                updatedAt: now(),
+              }
+            : conversation,
+        );
+        persistConvs(conversations);
+        return {
+          conversations,
+          activeConvId: { ...state.activeConvId, [state.agentId]: conversationId },
+        };
+      });
+      enqueueWithTarget(text, undefined, conversationId, [], "vps");
+    } finally {
+      vpsSetupReservations = Math.max(0, vpsSetupReservations - 1);
+      if (!pendingTarget(get(), "vps")) {
+        for (const [queuedAgentId, runtime] of Object.entries(get().runtime)) {
+          if (runtime.ready && runtime.queue.length) get().startConsumer(queuedAgentId);
+        }
+      }
+    }
+  },
+
   applySkill: async (entry) => {
+    if (entry.selector.kind !== "script" && pendingTarget(get(), "vps")) {
+      throw new Error("Local skill checks are paused while VPS work is queued or running.");
+    }
     const startedAt = performance.now();
     trackEvent("skill_apply_started", {
       category: entry.category,
@@ -2192,6 +2481,13 @@ export const useStore = create<State>((set, get) => ({
     const target =
       entry.selector.kind === "domain" ? entry.selector.value : entry.selector.value;
     const cid = get().activeConversation()?.id ?? get().newChat();
+    const remoteOnly = get().conversations.find((conversation) => conversation.id === cid)?.executionTarget === "vps";
+    if (remoteOnly) {
+      const chip: UserCommandChip = { kind: "skill", title: entry.title, detail: target };
+      const prompt = `Use the "${entry.title}" skill for ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local NextBrowser session. Use only skill instructions and browser tooling that are already available on the VPS; if the skill is missing there, report that without installing it.${entry.description ? `\n\nSkill description: ${entry.description}` : ""}`;
+      get().enqueue(prompt, chip, cid);
+      return;
+    }
 
     let ref: SkillRef | undefined;
     try {
@@ -2217,7 +2513,7 @@ export const useStore = create<State>((set, get) => ({
     }
     if (!get().agentReady()) return;
     const stepId = get().makeStepMessage(cid);
-    const prep = await prepareSession({
+    const prep = await prepareLocalSession({
       host: selectorTargetHost(entry.selector),
       selectedProfile: get().selectedProfile,
       statuses: get().statuses,
@@ -2251,6 +2547,22 @@ export const useStore = create<State>((set, get) => ({
       has_host: !!onHost,
       category: entry.category,
     });
+    const activeConversation = get().activeConversation();
+    if (activeConversation?.executionTarget === "vps") {
+      set({ tab: "chat" });
+      const where = onHost ? `on ${onHost}` : "in the remote browser session";
+      const scriptBody = entry.js
+        ? `Run this JavaScript through the already-installed remote clawctl browser evaluation command:\n\n\`\`\`javascript\n${entry.js}\n\`\`\``
+        : `Use the already-available remote script or skill identified by ${entry.selector.value}. If it is missing on the VPS, report that without installing it.`;
+      const prompt = `Run "${entry.title}" ${where} on the selected VPS only. Do not prepare, open, inspect, evaluate, or change any local NextBrowser session. ${scriptBody}`;
+      get().enqueue(prompt, {
+        kind: "script",
+        title: entry.title,
+        detail: onHost || "VPS",
+      }, activeConversation.id);
+      trackEvent("script_run_queued", { script_type: entry.js ? "remote_eval" : "remote_agent_skill", has_host: !!onHost });
+      return;
+    }
     if (entry.js) {
       set({ tab: "chat" });
       const cid = get().activeConversation()?.id ?? get().newChat();
@@ -2277,7 +2589,7 @@ export const useStore = create<State>((set, get) => ({
         return { conversations };
       });
       const stepId = get().makeStepMessage(cid);
-      const prep = await prepareSession({
+      const prep = await prepareLocalSession({
         host: onHost || undefined,
         selectedProfile: get().selectedProfile,
         statuses: get().statuses,
@@ -2365,7 +2677,7 @@ export const useStore = create<State>((set, get) => ({
     set({ tab: "chat" });
     const cid = get().activeConversation()?.id ?? get().newChat();
     const stepId = get().makeStepMessage(cid);
-    const prep = await prepareSession({
+    const prep = await prepareLocalSession({
       host: onHost || undefined,
       selectedProfile: get().selectedProfile,
       statuses: get().statuses,
@@ -2539,8 +2851,20 @@ export const useStore = create<State>((set, get) => ({
     set({ tab: "chat" });
     const domain = script.domain.trim();
     const cid = get().activeConversation()?.id ?? get().newChat();
+    const remoteOnly = get().conversations.find((conversation) => conversation.id === cid)?.executionTarget === "vps";
+    if (remoteOnly) {
+      const target = domain || "the remote browser session";
+      const chip: UserCommandChip = {
+        kind: "script",
+        title: script.title,
+        detail: domain || "VPS",
+      };
+      const prompt = `Run my custom script "${script.title}" on ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local NextBrowser session. Follow these steps exactly using only the already-installed remote browser tooling:\n\n${script.instructions}`;
+      get().enqueue(prompt, chip, cid);
+      return;
+    }
     const stepId = get().makeStepMessage(cid);
-    const prep = await prepareSession({
+    const prep = await prepareLocalSession({
       host: domain || undefined,
       selectedProfile: get().selectedProfile,
       statuses: get().statuses,
@@ -2577,6 +2901,7 @@ export const useStore = create<State>((set, get) => ({
     if (!url) throw new Error("clawctl remote did not return a viewer URL.");
     return result;
   },
-}));
+  };
+});
 
 export { AGENTS, type AgentSpec };

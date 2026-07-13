@@ -102,6 +102,7 @@ Use Nextbrowser when you want to:
 | Start and stop sessions | Session actions | Agents get a real browser only when the profile is running. |
 | Rotate proxy/fingerprint identity | Profile controls | Fresh IP, country, or browser identity before sensitive retries. |
 | Run Codex, Claude Code, or another local agent | Agent selector + Chat | Agent output streams into one visible work surface. |
+| Run browser work on a VPS | Chat → Use VPS | Pick an SSH host and keep `clawctl` execution on the remote machine. |
 | Keep separate agent histories | Chat | Conversations stay organized per agent and workflow. |
 | Queue, stop, edit, and fork prompts | Chat controls | Long-running work remains controllable instead of fire-and-forget. |
 | Install reusable skills | Skills | Repeat website or captcha workflows without rewriting instructions. |
@@ -256,6 +257,13 @@ Message statuses include:
 The agent receives enough context to use the active browser session through
 `clawctl`.
 
+For remote work, choose **Use VPS** in an empty chat. Nextbrowser reads host
+aliases from the current user's `~/.ssh/config` (the same location is used from
+the Windows user profile), follows safe config includes under that `.ssh`
+directory, and lets you add another SSH config or enter a host manually. The generated conversation is
+remote-only: the agent connects over SSH and does not fall back to the local
+`clawctl` or browser runtime.
+
 ### Skills
 
 The Skills tab contains reusable workflows. A skill may target:
@@ -349,6 +357,7 @@ testing whether the local setup is ready.
 | Run an agent on a website | Selected profile | Sidebar, Chat, Live View | `start`, `verify`, `state` |
 | Use a skill | Skills | Skills, Chat, profile preflight | `skill list`, `skill check` |
 | Rotate identity | Profile controls | Sidebar, Live View | `start`, `rotate`, `open` |
+| Run on a VPS | Chat → Use VPS | SSH host picker, Chat | local `ssh`; remote `clawctl` |
 | Work with captchas | Active page | Chat, Live View, captcha tools | `captcha detect`, `captcha auto`, provider delegation |
 | Debug a broken task | Any failed run | Sidebar, Chat, Live View, diagnostics | `identity`, `proxy-traffic`, `status`, `tabs`, `state`, `screenshot`, `verify` |
 
@@ -391,6 +400,23 @@ clawctl start --profile work --url https://target.example --json
 clawctl verify --profile work --json
 clawctl state --profile work --json
 ```
+
+### Run Browser Work On A VPS
+
+1. Open an empty chat and choose **Use VPS**.
+2. Select an alias discovered from `~/.ssh/config`, add another config file, or
+   enter the SSH host manually.
+3. Optionally describe the browser task and start the VPS conversation.
+4. The agent connects with the selected SSH settings and checks `clawctl` on
+   the VPS before doing browser work.
+
+Nextbrowser does not open configured identity files or ask for an SSH password.
+It imports only `HostName`, `User`, `Port`, and the `IdentityFile` path, then
+builds a direct SSH command with the source config disabled. That prevents
+`Match exec`, `ProxyCommand`, `KnownHostsCommand`, `LocalCommand`, and included
+config directives from executing locally. If Clawbrowser or `clawctl` is
+missing on the VPS, the agent stops and asks you to install it there first. It
+must not install or run the browser on localhost as a fallback.
 
 ### Use A Skill
 
@@ -585,6 +611,20 @@ export CLAUDE_BIN=/absolute/path/to/claude
 Other agents follow the same idea: uppercase the binary name, replace dashes
 with underscores, and add `_BIN`.
 
+### SSH Configs
+
+The VPS picker automatically checks the current user's SSH config:
+
+- macOS: `~/.ssh/config`;
+- Windows: `%USERPROFILE%\.ssh\config`.
+
+Config-like OpenSSH `Include` entries under the current user's `.ssh` directory
+are followed; conditional, extensionless, network, linked, and outside-directory
+includes are ignored with a warning. Extra config-file paths added in the
+picker must be named `config` or end in `.conf`/`.config` and are saved in
+Nextbrowser app data so they remain available after a restart. SSH passwords
+and identity-file contents are never stored by the app.
+
 ### Analytics
 
 GA4 is enabled by default for the Nextbrowser stream. Analytics events use a
@@ -607,6 +647,7 @@ Important local state:
 | Custom scripts | Nextbrowser app data storage and skill sync. |
 | Agent skills | Agent-specific skill/plugin directories. |
 | App update state | Nextbrowser app data storage. |
+| Added SSH config paths | Nextbrowser app data storage; config contents remain in their original files. |
 
 Do not paste API keys into prompts, custom scripts, chat messages, or agent
 configuration files. Let `clawctl` store the key.
@@ -637,6 +678,14 @@ export CLAUDE_BIN=/absolute/path/to/claude
 ```
 
 Then restart the app and re-check the agent from the sidebar or chat header.
+
+### VPS Hosts Are Not Listed
+
+Check that the config file is readable and contains concrete `Host` aliases.
+Wildcard and negated host patterns are intentionally omitted. You can also use
+**Add SSH config** or switch to **Manual connection** in the VPS picker.
+OpenSSH itself is required when the agent later connects, but discovery reads
+the config directly.
 
 ### API Key Does Not Work
 
