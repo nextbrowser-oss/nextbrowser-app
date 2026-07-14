@@ -87,18 +87,43 @@ function findBinaryUnderRoots(name, roots) {
   }
   return null;
 }
+function binaryFallbackRoots(name) {
+  const h = home();
+  const roots = [];
+  if (process.platform === "win32" && ["codex", "claude"].includes(name)) {
+    roots.push(path.join(h, `.${name}`));
+  }
+  if (name !== "codex") return roots;
+
+  if (process.platform === "darwin") {
+    for (const appName of ["ChatGPT", "Codex"]) {
+      roots.push(
+        path.join("/Applications", `${appName}.app`, "Contents", "Resources"),
+        path.join(h, "Applications", `${appName}.app`, "Contents", "Resources"),
+      );
+    }
+  }
+  if (process.platform === "win32") {
+    const appNames = ["ChatGPT", "Codex"];
+    const programDirs = [
+      process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Programs"),
+      process.env.LOCALAPPDATA,
+      process.env.PROGRAMFILES,
+      process.env["PROGRAMFILES(X86)"],
+    ].filter(Boolean);
+    for (const dir of programDirs) {
+      for (const appName of appNames) roots.push(path.join(dir, appName));
+    }
+  }
+  return [...new Set(roots)];
+}
 function resolveBinary(name, envVar) {
   if (envVar && process.env[envVar] && launchable(expand(process.env[envVar]))) return expand(process.env[envVar]);
   for (const dir of searchDirs()) for (const candidate of executableNames(name)) {
     const file = path.join(dir, candidate); if (launchable(file)) return file;
   }
-  if (process.platform === "win32" && ["codex", "claude"].includes(name)) {
-    const found = findBinaryUnderRoots(name, [path.join(home(), ".codex"), path.join(home(), ".claude")]);
-    if (found) return found;
-  }
-  if (process.platform === "darwin" && name === "codex") {
-    for (const file of ["/Applications/Codex.app/Contents/Resources/codex", path.join(home(), "Applications/Codex.app/Contents/Resources/codex")]) if (launchable(file)) return file;
-  }
+  const fallback = findBinaryUnderRoots(name, binaryFallbackRoots(name));
+  if (fallback) return fallback;
   if (process.platform !== "win32" && name === "hermes") {
     const file = path.join(home(), ".hermes/hermes-agent/.venv/bin/hermes"); if (launchable(file)) return file;
   }
