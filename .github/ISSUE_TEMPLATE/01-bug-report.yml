@@ -1,0 +1,131 @@
+name: Bug report
+description: Report a reproducible problem with Nextbrowser or its browser workflow.
+title: "[Bug]: "
+labels: ["needs triage", "needs reproduction"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Nextbrowser. Please provide enough detail for someone else to reproduce the problem.
+
+        Do not include API keys, credentials, session data, or other secrets. Report security vulnerabilities through [private security reporting](https://github.com/nextbrowser-oss/nextbrowser-app/security/advisories/new).
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the project is affected?
+      options:
+        - Browser sessions
+        - AI agents
+        - Profiles and identity
+        - Demos
+        - Documentation
+        - Other or not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Problem summary
+      description: Describe the problem and its impact in a few sentences.
+      placeholder: What happened, and what were you trying to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reliable sequence that reproduces the problem.
+      placeholder: |
+        1. Open ...
+        2. Select ...
+        3. Run ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: reproducibility
+    attributes:
+      label: Reproducibility
+      description: How consistently can you reproduce the problem?
+      options:
+        - Every time
+        - Most of the time
+        - Sometimes
+        - Reproduced once
+        - Unable to reproduce again
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead? Include exact error messages when available.
+    validations:
+      required: true
+
+  - type: input
+    id: app_version
+    attributes:
+      label: Version or commit
+      description: Provide the Nextbrowser version, release tag, or commit SHA.
+      placeholder: "For example: v0.x.y or abc1234"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operating_system
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: browser_control_version
+    attributes:
+      label: Browser control version
+      description: If the problem involves browser control, provide the relevant component or runtime version.
+      placeholder: Version, build, or not applicable
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste only the relevant, redacted log or diagnostic output.
+      render: shell
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: Add screenshots, recordings, or other context that may help investigation.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Submission checklist
+      options:
+        - label: I searched existing issues and did not find an open duplicate.
+          required: true
+        - label: I removed API keys, credentials, personal data, and other secrets.
+          required: true
+        - label: I included the smallest reproduction I can provide.
+          required: true
