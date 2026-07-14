@@ -9,7 +9,7 @@ import { OnboardingView } from "./components/OnboardingView";
 import { DashboardKeyModal } from "./components/DashboardKeyModal";
 import { BrandLogo } from "./components/BrandLogo";
 import { Icon, Spinner } from "./components/Icon";
-import { brandName, dashboardUrl, latestReleaseUrl, repoUrl } from "./constants";
+import { brandName, dashboardUrl, discordUrl, latestReleaseUrl, repoApiUrl, repoUrl } from "./constants";
 import { getPreviewMode, getPreviewTab } from "./preview";
 import type { AppTab, Conversation } from "./types";
 import { resolveTheme, type Theme } from "./theme";
@@ -95,19 +95,71 @@ function GithubMark({ size = 15 }: { size?: number }) {
   );
 }
 
-function GithubStarButton() {
+function DiscordMark({ size = 17 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden focusable="false">
+      <path d="M20.32 4.37A19.8 19.8 0 0 0 15.36 2.8a.08.08 0 0 0-.09.04c-.21.38-.45.88-.62 1.27a18.38 18.38 0 0 0-5.5 0 12.38 12.38 0 0 0-.63-1.27.08.08 0 0 0-.09-.04 19.73 19.73 0 0 0-4.96 1.57.07.07 0 0 0-.03.03C.31 9.1-.55 13.68-.13 18.21c0 .02.01.05.03.06a19.9 19.9 0 0 0 6.08 3.07.08.08 0 0 0 .09-.03c.47-.64.88-1.31 1.24-2.01a.08.08 0 0 0-.04-.11 13.04 13.04 0 0 1-1.9-.91.08.08 0 0 1-.01-.13c.13-.09.25-.19.37-.29a.08.08 0 0 1 .08-.01c3.98 1.82 8.3 1.82 12.24 0a.08.08 0 0 1 .08.01c.12.1.25.2.38.29a.08.08 0 0 1-.01.13c-.6.36-1.23.66-1.9.91a.08.08 0 0 0-.04.11c.36.7.77 1.37 1.24 2.01a.08.08 0 0 0 .09.03 19.84 19.84 0 0 0 6.08-3.07.08.08 0 0 0 .03-.06c.5-5.23-.84-9.77-3.63-13.81a.06.06 0 0 0-.03-.03ZM8.02 15.45c-1.2 0-2.18-1.1-2.18-2.45s.96-2.45 2.18-2.45c1.23 0 2.2 1.11 2.18 2.45 0 1.35-.96 2.45-2.18 2.45Zm7.96 0c-1.2 0-2.18-1.1-2.18-2.45s.96-2.45 2.18-2.45c1.23 0 2.2 1.11 2.18 2.45 0 1.35-.95 2.45-2.18 2.45Z" />
+    </svg>
+  );
+}
+
+function formatStars(count?: number | null): string {
+  if (count == null) return "5";
+  if (count < 1000) return `${count}`;
+  const rounded = count < 10_000 ? Math.round(count / 100) / 10 : Math.round(count / 1000);
+  return `${rounded}k`;
+}
+
+function GithubStarButton({ stars }: { stars?: number | null }) {
   const label = "Star NextBrowser on GitHub";
   return (
     <button
-      className="github-star-btn"
+      className="social-button github-star-btn"
       onClick={() => window.open(repoUrl, "_blank", "noopener,noreferrer")}
       title={label}
       aria-label={label}
     >
-      <GithubMark size={15} />
-      <Icon name="star.fill" size={12} fill="currentColor" className="github-star-glyph" />
-      <span>Star</span>
+      <GithubMark size={20} />
+      <span className="github-star-count">
+        <Icon name="star.fill" size={13} fill="currentColor" className="github-star-glyph" />
+        {formatStars(stars)}
+      </span>
     </button>
+  );
+}
+
+function DiscordButton() {
+  return (
+    <button
+      className="social-button discord-button"
+      onClick={() => window.open(discordUrl, "_blank", "noopener,noreferrer")}
+      title="Join NextBrowser on Discord"
+      aria-label="Join NextBrowser on Discord"
+    >
+      <DiscordMark size={21} />
+    </button>
+  );
+}
+
+function SocialButtons() {
+  const [stars, setStars] = useState<number | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(repoApiUrl, { signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { stargazers_count?: number } | null) => {
+        if (typeof data?.stargazers_count === "number") setStars(data.stargazers_count);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
+  return (
+    <div className="social-buttons">
+      <GithubStarButton stars={stars} />
+      <DiscordButton />
+    </div>
   );
 }
 
@@ -526,7 +578,7 @@ export function App() {
     return (
       <>
         <div className="floating-controls">
-          <GithubStarButton />
+          <SocialButtons />
           <SettingsButton onClick={() => setSettingsOpen(true)} hasUpdate={updateAvailable(appUpdate)} />
           <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
         </div>
@@ -580,7 +632,7 @@ export function App() {
           </div>
           <span className="tabbar-spacer" />
           <div className="tabbar-controls">
-            <GithubStarButton />
+            <SocialButtons />
             <SettingsButton onClick={() => setSettingsOpen(true)} hasUpdate={updateAvailable(appUpdate)} />
             <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
           </div>

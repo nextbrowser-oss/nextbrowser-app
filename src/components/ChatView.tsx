@@ -7,7 +7,7 @@ import { BrandLogo } from "./BrandLogo";
 import type { ChatAttachment, ChatMessage } from "../types";
 import { filePathForFile, invoke } from "../electronBridge";
 import { conversationPreview } from "../types";
-import { agentById } from "../agents";
+import { AGENTS, agentById } from "../agents";
 import { trackEvent } from "../lib/analytics";
 
 function formatTime(ts: number) {
@@ -142,6 +142,12 @@ export function ChatView() {
     setScriptOpen(false);
     localStorage.setItem("openMyScriptsEditor", "1");
     s.setTab("skills");
+  };
+  const switchAgentFromScripts = (nextAgentId: string) => {
+    if (!nextAgentId || nextAgentId === agentId) return;
+    s.switchAgent(nextAgentId);
+    s.newChat();
+    setScriptOpen(false);
   };
   const queuedReplyForMessage = (message: ChatMessage): ChatMessage | undefined => {
     if (message.role === "assistant") return message.status === "queued" ? message : undefined;
@@ -421,6 +427,22 @@ export function ChatView() {
               </button>
               {scriptOpen && (
                 <div className="script-menu">
+                  <div className="script-agent-switch">
+                    <label htmlFor="script-agent-select">Agent</label>
+                    <select
+                      id="script-agent-select"
+                      value={agentId}
+                      title="Switch agent and create a new chat"
+                      onChange={(e) => switchAgentFromScripts(e.target.value)}
+                    >
+                      {AGENTS.map((agent) => (
+                        <option key={agent.id} value={agent.id}>
+                          {agent.name}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="muted small">Switching agent creates a new chat.</span>
+                  </div>
                   <div className="section">OFFICIAL SCRIPTS</div>
                   {officialScripts.map((sc) => (
                     <button
