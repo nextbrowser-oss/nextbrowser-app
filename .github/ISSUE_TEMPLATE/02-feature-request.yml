@@ -1,0 +1,92 @@
+name: Feature request
+description: Propose an improvement grounded in a clear user problem or workflow.
+title: "[Feature]: "
+labels: ["needs triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for proposing an improvement. Describe the problem first so maintainers can evaluate the best solution and scope.
+
+        For general questions or brainstorming, start a thread in [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions).
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the project would this change affect most?
+      options:
+        - Browser sessions
+        - AI agents
+        - Profiles and identity
+        - Demos
+        - Documentation
+        - Cross-cutting or other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: What user need, limitation, or workflow gap should be addressed?
+      placeholder: Describe who encounters the problem, when it occurs, and why it matters.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed solution
+      description: Explain the behavior or experience you would like to see.
+    validations:
+      required: true
+
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Example use case
+      description: Walk through one concrete scenario from start to finish.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe current workarounds or other approaches you considered.
+
+  - type: textarea
+    id: success
+    attributes:
+      label: Success criteria
+      description: How would users and maintainers know this request is complete?
+      placeholder: List observable outcomes rather than implementation details.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: contribution
+    attributes:
+      label: Contribution
+      description: Would you be willing to help implement this after maintainer alignment?
+      options:
+        - Yes, I can contribute an implementation
+        - Yes, with maintainer guidance
+        - I can help test or document it
+        - Not at this time
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Submission checklist
+      options:
+        - label: I searched existing issues and discussions for the same request.
+          required: true
+        - label: This request describes a user problem and not only a preferred implementation.
+          required: true
+        - label: I have not included private data, credentials, or secrets.
+          required: true

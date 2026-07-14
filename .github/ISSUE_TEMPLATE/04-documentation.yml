@@ -1,0 +1,91 @@
+name: Documentation improvement
+description: Report missing, unclear, incorrect, or outdated documentation.
+title: "[Docs]: "
+labels: ["area: docs", "needs triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Help us keep documentation accurate and useful. For support questions, use [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions).
+
+  - type: dropdown
+    id: change_type
+    attributes:
+      label: Change type
+      options:
+        - Incorrect or outdated content
+        - Missing documentation
+        - Unclear instructions
+        - Broken link or image
+        - Translation or internationalization
+        - Typo or formatting
+        - Example improvement
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: Documentation location
+      description: Provide the file path, page URL, or section heading.
+      placeholder: "For example: README.md#quick-start"
+    validations:
+      required: true
+
+  - type: input
+    id: locale
+    attributes:
+      label: Language or locale
+      description: For translation issues, provide the locale code. Otherwise enter English or not applicable.
+      placeholder: "For example: en, es, pt-BR, or not applicable"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Current problem
+      description: Explain what is missing, unclear, incorrect, or no longer accurate.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_change
+    attributes:
+      label: Proposed improvement
+      description: Describe the correction or content that would resolve the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Supporting context
+      description: Add verified references, screenshots, or related issues when helpful.
+
+  - type: dropdown
+    id: contribution
+    attributes:
+      label: Contribution
+      description: Would you be willing to submit the documentation change?
+      options:
+        - Yes, I can open a pull request
+        - Yes, with maintainer guidance
+        - I can review or test the change
+        - Not at this time
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Submission checklist
+      options:
+        - label: I searched existing documentation issues for the same problem.
+          required: true
+        - label: I verified the referenced path, page, or section.
+          required: true
+        - label: I have not included private data, credentials, or secrets.
+          required: true

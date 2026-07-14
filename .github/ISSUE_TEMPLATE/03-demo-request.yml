@@ -1,0 +1,100 @@
+name: Demo request
+description: Request a practical, reproducible demonstration of a Nextbrowser workflow.
+title: "[Demo]: "
+labels: ["area: demos", "needs triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form to request a demo that teaches a real workflow with reproducible, non-sensitive inputs. General product questions belong in [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions).
+
+  - type: dropdown
+    id: demo_type
+    attributes:
+      label: Demo type
+      description: What should the demo focus on?
+      options:
+        - Browser workflow
+        - AI agent workflow
+        - Profiles and sessions
+        - Troubleshooting or diagnostics
+        - Contributor workflow
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Intended audience
+      options:
+        - First-time users
+        - Experienced users
+        - Contributors
+        - Evaluators
+        - Mixed audience
+    validations:
+      required: true
+
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Scenario
+      description: Describe the starting state, task, and expected end result.
+      placeholder: What should the viewer be able to reproduce after following the demo?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Important steps to cover
+      description: List the essential actions, decisions, or failure cases the demo should show.
+    validations:
+      required: true
+
+  - type: textarea
+    id: takeaway
+    attributes:
+      label: Desired takeaway
+      description: What should viewers understand or be able to do when the demo ends?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: format
+    attributes:
+      label: Preferred format
+      options:
+        - Written walkthrough
+        - Screenshot sequence
+        - Recorded video
+        - Live demonstration
+        - No preference
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Environment and constraints
+      description: Note relevant operating system, versions, public test data, or accessibility needs.
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Link related issues, discussions, documentation, or public examples.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Submission checklist
+      options:
+        - label: I searched existing demos, issues, and discussions for this workflow.
+          required: true
+        - label: The requested demo can use public or non-sensitive test data.
+          required: true
+        - label: I have not included credentials, personal data, or secrets.
+          required: true
