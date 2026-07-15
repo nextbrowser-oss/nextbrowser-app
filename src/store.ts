@@ -1159,14 +1159,14 @@ export const useStore = create<State>((set, get) => ({
 
   refreshSessions: async () => {
     const startedAt = performance.now();
-    trackEvent("sessions_refresh_started");
+    trackEvent("profiles_refresh_started");
     set({ isRefreshing: true });
     try {
       await get().loadProfiles();
       await get().loadDefaultSession();
     } finally {
       set({ isRefreshing: false });
-      trackTiming("sessions_refresh_completed", startedAt, { profile_count: get().profiles.length });
+      trackTiming("profiles_refresh_completed", startedAt, { profile_count: get().profiles.length });
     }
   },
 
@@ -1248,10 +1248,10 @@ export const useStore = create<State>((set, get) => ({
         const identity = await verifyProxyIdentity();
         if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
       }
-      trackEvent("default_session_loaded", { session_status: st.status, backend: st.backend ?? "unknown" });
+      trackEvent("default_profile_loaded", { status: st.status, backend: st.backend ?? "unknown" });
     } catch {
       set({ defaultSession: undefined });
-      trackEvent("default_session_unavailable");
+      trackEvent("default_profile_unavailable");
     }
   },
 
@@ -1285,92 +1285,88 @@ export const useStore = create<State>((set, get) => ({
 
   startDefaultSession: async () => {
     const startedAt = performance.now();
-    trackEvent("session_create_requested", { scope: "default" });
-    trackEvent("session_start_requested", { scope: "default" });
+    trackEvent("profile_start_requested", { scope: "default" });
     await clawctlRun(["start", "--format", "json"]);
     await get().loadDefaultSession();
     const identity = await verifyProxyIdentity();
     if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
     await get().loadProfiles();
-    trackTiming("session_create_completed", startedAt, { scope: "default", session_status: get().defaultSession?.status ?? "unknown" });
-    trackTiming("session_start_completed", startedAt, { scope: "default", session_status: get().defaultSession?.status ?? "unknown" });
+    trackTiming("profile_start_completed", startedAt, { scope: "default", status: get().defaultSession?.status ?? "unknown" });
   },
 
   stopDefaultSession: async () => {
     const startedAt = performance.now();
-    trackEvent("session_stop_requested", { scope: "default" });
+    trackEvent("profile_stop_requested", { scope: "default" });
     await clawctlRun(["stop", "--format", "json"]);
     await get().loadDefaultSession();
-    trackTiming("session_stop_completed", startedAt, { scope: "default", session_status: get().defaultSession?.status ?? "unknown" });
+    trackTiming("profile_stop_completed", startedAt, { scope: "default", status: get().defaultSession?.status ?? "unknown" });
   },
 
   rotateDefaultSession: async () => {
     const startedAt = performance.now();
-    trackEvent("proxy_ip_change_requested", { scope: "default_session" });
-    trackEvent("session_rotate_requested", { scope: "default" });
+    trackEvent("proxy_ip_change_requested", { scope: "default_profile" });
+    trackEvent("profile_rotate_requested", { scope: "default" });
     await clawctlRun(["rotate", "--format", "json"]);
     await get().loadDefaultSession();
     await get().loadProxy().catch(() => {});
     const after = await verifyProxyIdentity();
     if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: after } }));
-    trackTiming("proxy_ip_change_completed", startedAt, { scope: "default_session" });
-    trackTiming("session_rotate_completed", startedAt, { scope: "default" });
+    trackTiming("proxy_ip_change_completed", startedAt, { scope: "default_profile" });
+    trackTiming("profile_rotate_completed", startedAt, { scope: "default" });
   },
 
   rotateDefaultSessionCountry: async (country) => {
     const startedAt = performance.now();
-    trackEvent("proxy_country_change_requested", { scope: "default_session", country });
-    trackEvent("session_rotate_requested", { scope: "default", country });
+    trackEvent("proxy_country_change_requested", { scope: "default_profile", country });
+    trackEvent("profile_rotate_requested", { scope: "default", country });
     await clawctlRun(["rotate", "--country", country, "--verify", "--format", "json"]);
     await get().loadDefaultSession();
     await get().loadProxy().catch(() => {});
     const after = await verifyProxyIdentity();
     const identity = after ?? { country };
     set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
-    trackTiming("proxy_country_change_completed", startedAt, { scope: "default_session", country });
-    trackTiming("session_rotate_completed", startedAt, { scope: "default", country });
+    trackTiming("proxy_country_change_completed", startedAt, { scope: "default_profile", country });
+    trackTiming("profile_rotate_completed", startedAt, { scope: "default", country });
   },
 
   startProfile: async (n) => {
     const startedAt = performance.now();
-    trackEvent("profile_session_create_requested", { scope: "profile" });
-    trackEvent("profile_start_requested");
+    trackEvent("profile_start_requested", { scope: "named" });
     set((s) => ({ statuses: { ...s.statuses, [n]: "starting" } }));
     await clawctlRun(["start", "--profile", n, "--format", "json"]);
     await get().loadProfiles();
     const identity = await verifyProxyIdentity(n);
     if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: identity } }));
-    trackTiming("profile_session_create_completed", startedAt, { status: get().statuses[n] ?? "unknown" });
-    trackTiming("profile_start_completed", startedAt, { status: get().statuses[n] ?? "unknown" });
+    trackTiming("profile_start_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
   },
 
   stopProfile: async (n) => {
     const startedAt = performance.now();
-    trackEvent("profile_stop_requested");
+    trackEvent("profile_stop_requested", { scope: "named" });
     set((s) => ({ statuses: { ...s.statuses, [n]: "stopping" } }));
     await clawctlRun(["stop", "--profile", n, "--format", "json"]);
     await get().loadProfiles();
-    trackTiming("profile_stop_completed", startedAt, { status: get().statuses[n] ?? "unknown" });
+    trackTiming("profile_stop_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
   },
 
   rotateProfile: async (n) => {
     const startedAt = performance.now();
-    trackEvent("proxy_ip_change_requested", { scope: "profile" });
-    trackEvent("profile_rotate_requested");
+    trackEvent("proxy_ip_change_requested", { scope: "named_profile" });
+    trackEvent("profile_rotate_requested", { scope: "named" });
     set((s) => ({ statuses: { ...s.statuses, [n]: "rotating" } }));
     await clawctlRun(["rotate", "--profile", n, "--format", "json"]);
     await get().loadProfiles();
     await get().loadProxy().catch(() => {});
     const after = await verifyProxyIdentity(n);
     if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
-    trackTiming("proxy_ip_change_completed", startedAt, { scope: "profile", status: get().statuses[n] ?? "unknown" });
-    trackTiming("profile_rotate_completed", startedAt, { status: get().statuses[n] ?? "unknown" });
+    trackTiming("proxy_ip_change_completed", startedAt, { scope: "named_profile", status: get().statuses[n] ?? "unknown" });
+    trackTiming("profile_rotate_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
   },
 
   rotateProfileCountry: async (n, country) => {
     const startedAt = performance.now();
-    trackEvent("proxy_country_change_requested", { scope: "profile", country });
-    trackEvent("profile_rotate_requested", { country });
+    trackEvent("proxy_country_change_requested", { scope: "named_profile", country });
+    trackEvent("profile_rotate_requested", { scope: "named", country });
     set((s) => ({ statuses: { ...s.statuses, [n]: "rotating" } }));
     await clawctlRun([
       "rotate",
@@ -1386,8 +1382,8 @@ export const useStore = create<State>((set, get) => ({
     await get().loadProxy().catch(() => {});
     const after = await verifyProxyIdentity(n);
     if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
-    trackTiming("proxy_country_change_completed", startedAt, { scope: "profile", country, status: get().statuses[n] ?? "unknown" });
-    trackTiming("profile_rotate_completed", startedAt, { country, status: get().statuses[n] ?? "unknown" });
+    trackTiming("proxy_country_change_completed", startedAt, { scope: "named_profile", country, status: get().statuses[n] ?? "unknown" });
+    trackTiming("profile_rotate_completed", startedAt, { scope: "named", country, status: get().statuses[n] ?? "unknown" });
   },
 
   createManualProxyProfile: async (input) => {
@@ -1426,7 +1422,6 @@ export const useStore = create<State>((set, get) => ({
 
   deleteProfile: async (n) => {
     const startedAt = performance.now();
-    trackEvent("profile_session_delete_requested", { was_running: get().statuses[n] === "running" });
     trackEvent("profile_delete_requested", { was_running: get().statuses[n] === "running" });
     if (get().statuses[n] === "running") {
       await clawctlRun(["stop", "--profile", n, "--format", "json"]);
@@ -1439,7 +1434,6 @@ export const useStore = create<State>((set, get) => ({
       return { statuses };
     });
     await get().loadProfiles();
-    trackTiming("profile_session_delete_completed", startedAt);
     trackTiming("profile_delete_completed", startedAt);
   },
 
@@ -1928,13 +1922,6 @@ export const useStore = create<State>((set, get) => ({
       attachment_count: attachments.length,
       prompt_length_bucket: Math.min(5000, Math.ceil(prompt.length / 250) * 250),
     });
-    trackEvent("chat_request_submitted", {
-      agent: agentId,
-      has_chip: !!chip,
-      chip_kind: chip?.kind ?? "none",
-      attachment_count: attachments.length,
-      prompt_length_bucket: Math.min(5000, Math.ceil(prompt.length / 250) * 250),
-    });
     set((s) => {
       const conversations = s.conversations.map((c) =>
         c.id === cid
@@ -2180,10 +2167,6 @@ export const useStore = create<State>((set, get) => ({
 
   useSkillInChat: async (entry) => {
     if (!get().agentReady()) return;
-    trackEvent("skill_usage_requested", {
-      category: entry.category,
-      selector_kind: entry.selector.kind,
-    });
     trackEvent("skill_used_in_chat", {
       category: entry.category,
       selector_kind: entry.selector.kind,
@@ -2241,11 +2224,6 @@ export const useStore = create<State>((set, get) => ({
 
   runScript: async (entry, host = "") => {
     const onHost = host.trim();
-    trackEvent("script_usage_requested", {
-      script_type: entry.js ? "local_eval" : "agent_skill",
-      has_host: !!onHost,
-      category: entry.category,
-    });
     trackEvent("script_run_started", {
       script_type: entry.js ? "local_eval" : "agent_skill",
       has_host: !!onHost,

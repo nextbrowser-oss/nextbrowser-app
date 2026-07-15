@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "./store";
 import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
@@ -410,6 +410,7 @@ export function App() {
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
   const setSidebarWidth = useStore((s) => s.setSidebarWidth);
   const setAppActive = useStore((s) => s.setAppActive);
+  const didTrackThemeChange = useRef(false);
   useButtonTooltips();
 
   const checkAppUpdate = () => {
@@ -484,6 +485,10 @@ export function App() {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
     localStorage.setItem("nextbrowser.theme", theme);
+    if (!didTrackThemeChange.current) {
+      didTrackThemeChange.current = true;
+      return;
+    }
     trackEvent("theme_changed", { theme });
   }, [theme]);
 

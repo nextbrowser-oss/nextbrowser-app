@@ -241,7 +241,6 @@ export function Sidebar() {
                           ? "unknown"
                           : Math.min(100, Math.floor(s.proxy.percent_used / 10) * 10),
                     };
-                    trackEvent("proxy_top_up_requested", params);
                     trackEvent("proxy_top_up_clicked", {
                       ...params,
                     });
