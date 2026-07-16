@@ -4,6 +4,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
 import { SkillsView } from "./components/SkillsView";
 import { LiveView } from "./components/LiveView";
+import { UsageView } from "./components/UsageView";
 import { GuideView } from "./components/GuideView";
 import { OnboardingView } from "./components/OnboardingView";
 import { DashboardKeyModal } from "./components/DashboardKeyModal";
@@ -21,10 +22,11 @@ const TABS: { id: AppTab; label: string; icon: string }[] = [
   { id: "chat", label: "Chat", icon: "bubble.left.and.bubble.right.fill" },
   { id: "skills", label: "Skills", icon: "square.grid.2x2.fill" },
   { id: "live", label: "Live", icon: "video.fill" },
+  { id: "usage", label: "Usage", icon: "chart.bar.fill" },
   { id: "guide", label: "Guide", icon: "book.fill" },
 ];
 
-const PREVIEW_TABS = new Set<string>(["chat", "skills", "live", "guide"]);
+const PREVIEW_TABS = new Set<string>(["chat", "skills", "live", "usage", "guide"]);
 
 interface AppUpdateStatus {
   status?: string;
@@ -464,6 +466,21 @@ export function App() {
           messages: [],
         },
       ];
+      const previewUsage = [
+        620_000_000,
+        715_000_000,
+        802_000_000,
+        914_000_000,
+        986_000_000,
+        1_025_000_000,
+        1_112_000_000,
+        1_200_000_000,
+      ].map((usedBytes, index) => ({
+        id: `preview-usage-${index}`,
+        date: Date.now() - (7 - index) * 86_400_000,
+        usedBytes,
+        limitBytes: 5_000_000_000,
+      }));
       useStore.setState({
         checking: false,
         authed: true,
@@ -471,6 +488,7 @@ export function App() {
         clawctlSupportsSkill: true,
         agentId: "claude",
         conversations: previewConvs,
+        usageHistory: previewUsage,
         activeConvId: { claude: "preview-conv-1", codex: "" },
         proxy: {
           limited: true,
@@ -590,6 +608,7 @@ export function App() {
           {tab === "chat" && <ChatView />}
           {tab === "skills" && <SkillsView />}
           {tab === "live" && <LiveView />}
+          {tab === "usage" && <UsageView />}
           {tab === "guide" && <GuideView />}
         </div>
       </main>
