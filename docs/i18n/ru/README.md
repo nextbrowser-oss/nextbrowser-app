@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: af4bcd2f6a6e0d0d097d0d490899d87da19f18d99ab163ce82c094c760efea99 -->
+<!-- i18n-source-sha256: 7d99b995b47d93fc8a39fab53df59eab6cc4102b4b900d0d581d9ff8175bb1b5 -->
 
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Логотип Nextbrowser" width="112" />
@@ -128,6 +128,7 @@ Nextbrowser — это рабочая поверхность для управл
 
 ## Сообщество и поддержка
 
+- Присоединяйтесь к [Discord Nextbrowser](https://discord.gg/jfYjwJQdQ) для общения с сообществом, помощи с настройкой и новостей продукта.
 - Задавайте общие вопросы и делитесь идеями в [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions).
 - Используйте [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) для конкретной работы с чёткими границами.
 - Следуйте [SECURITY.md](../../../SECURITY.md) для приватного сообщения об уязвимостях; не публикуйте сведения о безопасности в issue.
@@ -135,4 +136,4 @@ Nextbrowser — это рабочая поверхность для управл
 
 ## Лицензия
 
-Распространяется по лицензии **MIT**. Полный текст: [opensource.org/licenses/MIT](https://opensource.org/licenses/MIT).
+Распространяется по лицензии **MIT**. Полный текст: [MIT License](../../../LICENSE).

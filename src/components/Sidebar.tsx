@@ -7,6 +7,8 @@ import { ScheduledRunsPanel } from "./ScheduledRunsPanel";
 import { Icon, Spinner } from "./Icon";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
 import { manualProxyDefaultName, parseManualProxyUrl, type ManualProxyScheme } from "../lib/manualProxy";
+import { trackEvent } from "../lib/analytics";
+import { humanBytes, proxyFraction } from "../types";
 
 type ManualProxyInputMode = "url" | "fields";
 
@@ -36,6 +38,7 @@ export function Sidebar() {
     [agentSearch],
   );
   const suggestions = ADDITIONAL_AGENTS.slice(0, 6);
+  const frac = proxyFraction(s.proxy);
   const ready = s.agentReady();
   const version = s.agentVersion();
   const error = s.agentError();
@@ -64,6 +67,14 @@ export function Sidebar() {
           <Icon name="sidebar.left" size={17} />
         </button>
         <BrandLogo size={28} />
+        <button
+          className="mini-nav-btn"
+          title={s.proxy ? `Proxy ${s.proxy.state}` : "Enter dashboard key"}
+          onClick={() => (s.proxy ? s.refreshProxyData() : s.setDashboardKeyPromptOpen(true))}
+        >
+          <Icon name={s.proxy ? "chart.bar.fill" : "lock.fill"} size={18} />
+          {s.proxy?.percent_used != null && <span>{Math.round(s.proxy.percent_used)}%</span>}
+        </button>
         <button className="mini-nav-btn" title={`Agent: ${agentName}`} onClick={() => s.setTab("chat")}>
           <Icon name="cpu.fill" size={18} />
           <span>{s.agentReady() ? "on" : "off"}</span>
@@ -165,6 +176,92 @@ export function Sidebar() {
       </div>
 
       <div className="sidebar-scroll">
+        <div className="claw-card control-card proxy-card">
+          <div className="row section-row">
+            <div>
+              <div className="section">PROXY</div>
+              <div className="card-title">Traffic budget</div>
+            </div>
+            <button
+              className="plain-icon-btn plain-icon-btn-compact"
+              title={s.proxy ? "Refresh proxy usage" : "Unlock proxy usage"}
+              disabled={s.isRefreshing}
+              onClick={() => s.proxy ? s.refreshProxyData() : s.setDashboardKeyPromptOpen(true)}
+            >
+              {s.isRefreshing ? (
+                <Spinner size={12} />
+              ) : (
+                <Icon name={s.proxy ? "arrow.clockwise" : "lock"} size={12} className="muted" />
+              )}
+            </button>
+          </div>
+          {s.proxy ? (
+            <>
+              <div className="bar">
+                <div
+                  className="bar-fill"
+                  style={{
+                    width: `${frac * 100}%`,
+                    background:
+                      frac >= 1
+                        ? "var(--red)"
+                        : frac >= 0.9
+                          ? "#ff9500"
+                          : frac >= 0.7
+                            ? "#ffd60a"
+                            : undefined,
+                  }}
+                />
+              </div>
+              <div className="row small proxy-stats">
+                <span className="mono-digits">
+                  {humanBytes(s.proxy.used_bytes)} /{" "}
+                  {s.proxy.limit_bytes ? humanBytes(s.proxy.limit_bytes) : "unlimited"}
+                </span>
+                <span className="status-pill proxy-state">{s.proxy.state}</span>
+              </div>
+              {s.proxyWarning && (
+                <div className="warning-banner">
+                  <Icon name="exclamationmark.triangle.fill" size={14} />
+                  {s.proxyWarning}
+                </div>
+              )}
+              {s.proxy.dashboard_url && (
+                <a
+                  className="link small"
+                  href={s.proxy.dashboard_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => {
+                    const params = {
+                      proxy_state: s.proxy?.state ?? "unknown",
+                      limited: s.proxy?.limited ?? false,
+                      percent_used_bucket:
+                        s.proxy?.percent_used == null
+                          ? "unknown"
+                          : Math.min(100, Math.floor(s.proxy.percent_used / 10) * 10),
+                    };
+                    trackEvent("proxy_top_up_requested", params);
+                    trackEvent("proxy_top_up_clicked", {
+                      ...params,
+                    });
+                  }}
+                >
+                  Top up in dashboard →
+                </a>
+              )}
+            </>
+          ) : (
+            <button className="proxy-locked" onClick={() => s.setDashboardKeyPromptOpen(true)}>
+              <Icon name="lock.fill" size={16} />
+              <span>
+                <strong>Dashboard key required</strong>
+                <span className="muted small">Unlock proxy usage and profile traffic stats.</span>
+              </span>
+            </button>
+          )}
+        </div>
+
         <div className="claw-card control-card agent-card">
           <div className="agent-card-head">
             <div>

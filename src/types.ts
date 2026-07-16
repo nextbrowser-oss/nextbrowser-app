@@ -11,35 +11,6 @@ export interface ProxyTraffic {
   dashboard_url?: string | null;
 }
 
-export interface ProxyTrafficHistoryPoint {
-  label: string;
-  used_bytes: number;
-  requests: number;
-}
-
-export interface ProxyTrafficSourceBreakdown {
-  source: "proxy" | "browser";
-  used_bytes: number;
-  requests: number;
-}
-
-export interface ProxyTrafficDomainBreakdown {
-  domain: string;
-  used_bytes: number;
-  requests: number;
-}
-
-export interface ProxyTrafficHistory {
-  from: string;
-  to: string;
-  timezone: string;
-  total_bytes: number;
-  total_requests: number;
-  data_points: ProxyTrafficHistoryPoint[];
-  sources: ProxyTrafficSourceBreakdown[];
-  top_domains: ProxyTrafficDomainBreakdown[];
-}
-
 export interface ManualProxy {
   scheme?: string | null;
   host?: string | null;
@@ -235,7 +206,7 @@ export interface TabsList {
   }[];
 }
 
-export type AppTab = "chat" | "skills" | "live" | "usage" | "guide";
+export type AppTab = "chat" | "skills" | "live" | "guide";
 
 export function proxyFraction(p?: ProxyTraffic | null): number {
   if (!p) return 0;

@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: af4bcd2f6a6e0d0d097d0d490899d87da19f18d99ab163ce82c094c760efea99 -->
+<!-- i18n-source-sha256: 7d99b995b47d93fc8a39fab53df59eab6cc4102b4b900d0d581d9ff8175bb1b5 -->
 
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Nextbrowser logosu" width="112" />
@@ -128,6 +128,7 @@ Bir değişiklik açmadan önce [CONTRIBUTING.md](../../../CONTRIBUTING.md) dosy
 
 ## Topluluk ve destek
 
+- Topluluk sohbeti, kurulum yardımı ve ürün güncellemeleri için [Nextbrowser Discord](https://discord.gg/jfYjwJQdQ) sunucusuna katılın.
 - Genel soruları sorun ve fikirlerinizi [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions) üzerinde paylaşın.
 - Eyleme dönük, kapsamı belirli işler için [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) kullanın.
 - Güvenlik açıklarını gizli bildirmek için [SECURITY.md](../../../SECURITY.md) dosyasını izleyin; güvenlik ayrıntılarını bir issue içinde yayımlamayın.
@@ -135,4 +136,4 @@ Bir değişiklik açmadan önce [CONTRIBUTING.md](../../../CONTRIBUTING.md) dosy
 
 ## Lisans
 
-**MIT** lisansı altında dağıtılır. Tam metin: [opensource.org/licenses/MIT](https://opensource.org/licenses/MIT).
+**MIT** lisansı altında dağıtılır. Tam metin: [MIT License](../../../LICENSE).

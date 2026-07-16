@@ -9,6 +9,8 @@ body:
       value: |
         Help us keep documentation accurate and useful. For support questions, use [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions).
 
+        Only the documentation location and current problem are required. All other fields are optional.
+
   - type: dropdown
     id: change_type
     attributes:
@@ -23,7 +25,7 @@ body:
         - Example improvement
         - Other
     validations:
-      required: true
+      required: false
 
   - type: input
     id: location
@@ -41,7 +43,7 @@ body:
       description: For translation issues, provide the locale code. Otherwise enter English or not applicable.
       placeholder: "For example: en, es, pt-BR, or not applicable"
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: problem
@@ -57,7 +59,7 @@ body:
       label: Proposed improvement
       description: Describe the correction or content that would resolve the problem.
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: evidence
@@ -76,7 +78,7 @@ body:
         - I can review or test the change
         - Not at this time
     validations:
-      required: true
+      required: false
 
   - type: checkboxes
     id: checklist
@@ -84,8 +86,8 @@ body:
       label: Submission checklist
       options:
         - label: I searched existing documentation issues for the same problem.
-          required: true
+          required: false
         - label: I verified the referenced path, page, or section.
-          required: true
+          required: false
         - label: I have not included private data, credentials, or secrets.
-          required: true
+          required: false

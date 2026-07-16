@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: af4bcd2f6a6e0d0d097d0d490899d87da19f18d99ab163ce82c094c760efea99 -->
+<!-- i18n-source-sha256: 7d99b995b47d93fc8a39fab53df59eab6cc4102b4b900d0d581d9ff8175bb1b5 -->
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Nextbrowser 로고" width="112" />
 </p>
@@ -127,6 +127,7 @@ Nextbrowser는 데스크톱 제어 화면입니다. 프로필은 브라우저 ID
 
 ## 커뮤니티 및 지원
 
+- [Nextbrowser Discord](https://discord.gg/jfYjwJQdQ)에 참여해 커뮤니티 대화, 설정 도움말, 제품 업데이트를 확인하세요.
 - 일반적인 질문과 아이디어 공유에는 [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions)를 이용하세요.
 - 실행 가능하고 범위가 명확한 작업에는 [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues)를 사용하세요.
 - 취약점은 [SECURITY.md](../../../SECURITY.md)에 따라 비공개로 신고하고, issue에 보안 세부 정보를 게시하지 마세요.
@@ -134,4 +135,4 @@ Nextbrowser는 데스크톱 제어 화면입니다. 프로필은 브라우저 ID
 
 ## 라이선스
 
-**MIT** 라이선스로 배포됩니다. 전문: [opensource.org/licenses/MIT](https://opensource.org/licenses/MIT).
+**MIT** 라이선스로 배포됩니다. 전문: [MIT License](../../../LICENSE).

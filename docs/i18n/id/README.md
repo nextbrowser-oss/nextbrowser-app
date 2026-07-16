@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: af4bcd2f6a6e0d0d097d0d490899d87da19f18d99ab163ce82c094c760efea99 -->
+<!-- i18n-source-sha256: 7d99b995b47d93fc8a39fab53df59eab6cc4102b4b900d0d581d9ff8175bb1b5 -->
 
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Logo Nextbrowser" width="112" />
@@ -128,6 +128,7 @@ Baca [CONTRIBUTING.md](../../../CONTRIBUTING.md) sebelum membuka perubahan. Guna
 
 ## Komunitas dan dukungan
 
+- Bergabunglah dengan [Discord Nextbrowser](https://discord.gg/jfYjwJQdQ) untuk berdiskusi dengan komunitas, mendapatkan bantuan penyiapan, dan mengikuti pembaruan produk.
 - Ajukan pertanyaan umum dan bagikan ide di [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions).
 - Gunakan [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) untuk pekerjaan yang dapat ditindaklanjuti dan memiliki cakupan jelas.
 - Ikuti [SECURITY.md](../../../SECURITY.md) untuk pelaporan kerentanan secara privat; jangan publikasikan detail keamanan dalam issue.
@@ -135,4 +136,4 @@ Baca [CONTRIBUTING.md](../../../CONTRIBUTING.md) sebelum membuka perubahan. Guna
 
 ## Lisensi
 
-Didistribusikan di bawah lisensi **MIT**. Teks lengkap: [opensource.org/licenses/MIT](https://opensource.org/licenses/MIT).
+Didistribusikan di bawah lisensi **MIT**. Teks lengkap: [MIT License](../../../LICENSE).

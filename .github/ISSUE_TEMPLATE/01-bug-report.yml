@@ -9,6 +9,8 @@ body:
       value: |
         Thanks for helping improve Nextbrowser. Please provide enough detail for someone else to reproduce the problem.
 
+        Only the problem summary, reproduction steps, version or commit, and operating system are required. Add the remaining details when they are available.
+
         Do not include API keys, credentials, session data, or other secrets. Report security vulnerabilities through [private security reporting](https://github.com/nextbrowser-oss/nextbrowser-app/security/advisories/new).
 
   - type: dropdown
@@ -24,7 +26,7 @@ body:
         - Documentation
         - Other or not sure
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: summary
@@ -60,7 +62,7 @@ body:
         - Reproduced once
         - Unable to reproduce again
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: expected
@@ -68,7 +70,7 @@ body:
       label: Expected behavior
       description: What did you expect to happen?
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: actual
@@ -76,7 +78,7 @@ body:
       label: Actual behavior
       description: What happened instead? Include exact error messages when available.
     validations:
-      required: true
+      required: false
 
   - type: input
     id: app_version
@@ -124,8 +126,8 @@ body:
       label: Submission checklist
       options:
         - label: I searched existing issues and did not find an open duplicate.
-          required: true
+          required: false
         - label: I removed API keys, credentials, personal data, and other secrets.
-          required: true
+          required: false
         - label: I included the smallest reproduction I can provide.
-          required: true
+          required: false

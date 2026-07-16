@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: af4bcd2f6a6e0d0d097d0d490899d87da19f18d99ab163ce82c094c760efea99 -->
+<!-- i18n-source-sha256: 7d99b995b47d93fc8a39fab53df59eab6cc4102b4b900d0d581d9ff8175bb1b5 -->
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Nextbrowser-Logo" width="112" />
 </p>
@@ -127,6 +127,7 @@ Lies [CONTRIBUTING.md](../../../CONTRIBUTING.md), bevor du eine Änderung einrei
 
 ## Community und Support
 
+- Tritt dem [Nextbrowser Discord](https://discord.gg/jfYjwJQdQ) bei, um dich mit der Community auszutauschen, Hilfe bei der Einrichtung zu erhalten und Produktneuigkeiten zu verfolgen.
 - Stelle allgemeine Fragen und teile Ideen in [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions).
 - Nutze [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) für umsetzbare, klar abgegrenzte Arbeit.
 - Befolge [SECURITY.md](../../../SECURITY.md), um Schwachstellen vertraulich zu melden; veröffentliche keine Sicherheitsdetails in einem Issue.
@@ -134,4 +135,4 @@ Lies [CONTRIBUTING.md](../../../CONTRIBUTING.md), bevor du eine Änderung einrei
 
 ## Lizenz
 
-Veröffentlicht unter der **MIT**-Lizenz. Vollständiger Text: [opensource.org/licenses/MIT](https://opensource.org/licenses/MIT).
+Veröffentlicht unter der **MIT**-Lizenz. Vollständiger Text: [MIT License](../../../LICENSE).

@@ -9,6 +9,8 @@ body:
       value: |
         Use this form to request a demo that teaches a real workflow with reproducible, non-sensitive inputs. General product questions belong in [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions).
 
+        Only the scenario and desired takeaway are required. Add the remaining details when they help explain the request.
+
   - type: dropdown
     id: demo_type
     attributes:
@@ -22,7 +24,7 @@ body:
         - Contributor workflow
         - Other
     validations:
-      required: true
+      required: false
 
   - type: dropdown
     id: audience
@@ -35,7 +37,7 @@ body:
         - Evaluators
         - Mixed audience
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: scenario
@@ -52,7 +54,7 @@ body:
       label: Important steps to cover
       description: List the essential actions, decisions, or failure cases the demo should show.
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: takeaway
@@ -73,7 +75,7 @@ body:
         - Live demonstration
         - No preference
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: constraints
@@ -93,8 +95,8 @@ body:
       label: Submission checklist
       options:
         - label: I searched existing demos, issues, and discussions for this workflow.
-          required: true
+          required: false
         - label: The requested demo can use public or non-sensitive test data.
-          required: true
+          required: false
         - label: I have not included credentials, personal data, or secrets.
-          required: true
+          required: false

@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: af4bcd2f6a6e0d0d097d0d490899d87da19f18d99ab163ce82c094c760efea99 -->
+<!-- i18n-source-sha256: 7d99b995b47d93fc8a39fab53df59eab6cc4102b4b900d0d581d9ff8175bb1b5 -->
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Nextbrowser लोगो" width="112" />
 </p>
@@ -127,6 +127,7 @@ Change खोलने से पहले [CONTRIBUTING.md](../../../CONTRIBUTI
 
 ## समुदाय और सहायता
 
+- समुदाय से बातचीत, सेटअप सहायता और उत्पाद अपडेट के लिए [Nextbrowser Discord](https://discord.gg/jfYjwJQdQ) से जुड़ें।
 - सामान्य प्रश्न पूछने और विचार साझा करने के लिए [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions) का उपयोग करें।
 - Actionable और स्पष्ट दायरे वाले कार्य के लिए [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) का उपयोग करें।
 - Vulnerability की private reporting के लिए [SECURITY.md](../../../SECURITY.md) का पालन करें; issue में security details प्रकाशित न करें।
@@ -134,4 +135,4 @@ Change खोलने से पहले [CONTRIBUTING.md](../../../CONTRIBUTI
 
 ## License
 
-**MIT** लाइसेंस के अंतर्गत वितरित। पूरा पाठ: [opensource.org/licenses/MIT](https://opensource.org/licenses/MIT)।
+**MIT** लाइसेंस के अंतर्गत वितरित। पूरा पाठ: [MIT License](../../../LICENSE)।

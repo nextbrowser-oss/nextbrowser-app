@@ -18,6 +18,7 @@
 
 <p align="center">
   <a href="https://github.com/nextbrowser-oss/nextbrowser-app/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/nextbrowser-oss/nextbrowser-app?label=release"></a>
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2ea44f"></a>
   <img alt="Platforms: macOS and Windows" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Windows-2563eb">
   <a href="docs/i18n/README.md"><img alt="Documentation languages: 20" src="https://img.shields.io/badge/languages-20-0f766e"></a>
 </p>
@@ -126,6 +127,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. Use the structu
 
 ## Community and support
 
+- Join the [Nextbrowser Discord](https://discord.gg/jfYjwJQdQ) for community chat, setup help, and product updates.
 - Ask general questions and share ideas in [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions).
 - Use [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) for actionable, scoped work.
 - Follow [SECURITY.md](SECURITY.md) for private vulnerability reporting; do not publish security details in an issue.
@@ -133,4 +135,6 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. Use the structu
 
 ## License
 
-Distributed under the **MIT** license. Full text: [opensource.org/licenses/MIT](https://opensource.org/licenses/MIT).
+Nextbrowser is open-source software available under the [MIT License](LICENSE).
+
+Copyright © 2026 Nextbrowser contributors.

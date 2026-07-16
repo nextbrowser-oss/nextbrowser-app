@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: af4bcd2f6a6e0d0d097d0d490899d87da19f18d99ab163ce82c094c760efea99 -->
+<!-- i18n-source-sha256: 7d99b995b47d93fc8a39fab53df59eab6cc4102b4b900d0d581d9ff8175bb1b5 -->
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Logo Nextbrowser" width="112" />
 </p>
@@ -127,6 +127,7 @@ Công việc roadmap được theo dõi qua [GitHub Issues](https://github.com/n
 
 ## Cộng đồng và hỗ trợ
 
+- Tham gia [Discord Nextbrowser](https://discord.gg/jfYjwJQdQ) để trò chuyện cùng cộng đồng, nhận trợ giúp thiết lập và theo dõi cập nhật sản phẩm.
 - Đặt câu hỏi chung và chia sẻ ý tưởng trong [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions).
 - Dùng [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) cho công việc có thể thực hiện và có phạm vi rõ ràng.
 - Làm theo [SECURITY.md](../../../SECURITY.md) để báo cáo lỗ hổng một cách riêng tư; không đăng chi tiết bảo mật trong issue.
@@ -134,4 +135,4 @@ Công việc roadmap được theo dõi qua [GitHub Issues](https://github.com/n
 
 ## Giấy phép
 
-Được phân phối theo giấy phép **MIT**. Toàn văn: [opensource.org/licenses/MIT](https://opensource.org/licenses/MIT).
+Được phân phối theo giấy phép **MIT**. Toàn văn: [MIT License](../../../LICENSE).
