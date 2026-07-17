@@ -14,6 +14,7 @@ export function Sidebar() {
   const s = useStore();
   const [menuProfile, setMenuProfile] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [profilesExpanded, setProfilesExpanded] = useState(false);
   const [manualProxyOpen, setManualProxyOpen] = useState(false);
   const [manualProxyMode, setManualProxyMode] = useState<ManualProxyInputMode>("url");
   const [manualProxyUrl, setManualProxyUrl] = useState("");
@@ -180,16 +181,23 @@ export function Sidebar() {
 
       <div className="sidebar-scroll">
         <div className="claw-card control-card profiles-card">
-          <div className="row section-row">
-            <div>
-              <div className="section">PROFILES</div>
-              <div className="card-title">Profiles</div>
-            </div>
-            <span className="profiles-count" title="Total profiles">{visibleProfileCount}</span>
+          <div className="row profiles-panel-head">
+            <button
+              className="scheduled-panel-toggle profiles-panel-toggle"
+              title={profilesExpanded ? "Hide profiles" : "Show profiles"}
+              aria-expanded={profilesExpanded}
+              onClick={() => setProfilesExpanded((value) => !value)}
+            >
+              <Icon name={profilesExpanded ? "chevron.down" : "chevron.right"} size={13} />
+              <span className="section">PROFILES</span>
+              <span className="profiles-count" title="Total profiles">{visibleProfileCount}</span>
+              {defaultRunning && <span className="status-pill profile-head-status">running</span>}
+            </button>
             <button
               className="mini proxy-profile-btn"
               title="Add manual proxy profile"
               onClick={() => {
+                setProfilesExpanded(true);
                 resetManualProxyForm();
                 setManualProxyOpen(true);
               }}
@@ -207,209 +215,213 @@ export function Sidebar() {
             <span className="spacer" />
             {s.anyAgentRunning() && <Spinner size={12} />}
           </div>
-          <div className="session-quick-actions">
-            <button
-              className="btn-bordered full"
-              title={s.selectedProfile ? `Start selected profile: ${s.selectedProfile}` : "Start default profile"}
-              disabled={s.isRefreshing}
-              onClick={() => void (s.selectedProfile ? s.startProfile(s.selectedProfile) : s.startDefaultSession())}
-            >
-              <Icon name="play.fill" size={14} />
-              {s.selectedProfile ? "Start selected profile" : "Start default profile"}
-            </button>
-          </div>
-          <div className="search-box">
-            <Icon name="magnifyingglass" size={12} className="muted" />
-            <input
-              className="search-inline"
-              placeholder="Search profiles…"
-              value={s.profileSearch}
-              onChange={(e) => s.setProfileSearch(e.target.value)}
-            />
-            {s.profileSearch && (
-              <button
-                className="plain-icon-btn plain-icon-btn-compact"
-                title="Clear profile search"
-                onClick={() => s.setProfileSearch("")}
-              >
-                <Icon name="xmark.circle.fill" size={14} className="muted" />
-              </button>
-            )}
-          </div>
-          <div className="profile-list">
-            {visibleProfileCount === 0 && (
-              <div className="inline-empty">
-                <Icon name="person.crop.circle" size={18} className="muted" />
-                <div>
-                  <strong>No profiles yet</strong>
-                </div>
-              </div>
-            )}
-            {visibleProfileCount === 0 && !s.proxy && (
-              <button className="btn-bordered full empty-action-button" title="Sign in to create managed profiles" onClick={() => s.setDashboardKeyPromptOpen(true)}>
-                <Icon name="lock" size={14} />
-                Sign in to create profiles
-              </button>
-            )}
-            {showDefaultProfile && (
-              <div
-                className={"profile-row" + (!s.selectedProfile ? " selected" : "")}
-                onClick={() => s.selectProfile(undefined)}
-              >
-                <span className={"dot " + (defaultRunning ? "green" : defaultBusy ? "orange" : "gray")} title={defaultStatus} />
-                <span className="profile-main">
-                  <span className="profile-title-line">
-                    <span className="profile-name">default</span>
-                    {defaultIdentity?.country && (
-                      <span className="badge profile-country-badge" title={countryLabel(defaultIdentity.country, defaultIdentity.city)}>
-                        {countryFlag(defaultIdentity.country)} {defaultIdentity.country.toUpperCase()}
-                      </span>
-                    )}
-                  </span>
-                  <span className="profile-meta">
-                    {defaultIdentity?.ip ? `${defaultStatus} · ${defaultIdentity.ip}` : defaultStatus}
-                  </span>
-                </span>
-                <span className="spacer" />
-                <div className="profile-actions">
-                  {defaultRunning ? (
-                    <>
-                      <button
-                        className="plain-icon-btn"
-                        title="Stop default"
-                        disabled={defaultBusy}
-                        onClick={(e) => { e.stopPropagation(); void s.stopDefaultSession(); }}
-                      >
-                        <Icon name="stop.fill" size={16} />
-                      </button>
-                      <button
-                        className="plain-icon-btn"
-                        title="Live view"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          s.selectProfile(undefined);
-                          s.setTab("live");
-                        }}
-                      >
-                        <Icon name="video.fill" size={16} />
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      className="plain-icon-btn"
-                      title="Start default"
-                      disabled={defaultBusy}
-                      onClick={(e) => { e.stopPropagation(); void s.startDefaultSession(); }}
-                    >
-                      <Icon name="play.fill" size={16} />
-                    </button>
-                  )}
-                  <button
-                    className="plain-icon-btn"
-                    title="Profile actions"
-                    disabled={defaultBusy}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setMenuProfile("__default");
-                    }}
-                  >
-                    <Icon name="ellipsis.circle" size={18} />
-                  </button>
-                </div>
-              </div>
-            )}
-            {s.profiles.length > 0 && profiles.length === 0 && (
-              <div className="muted small">No matches for “{s.profileSearch}”.</div>
-            )}
-            {profiles.map((p) => {
-              const status = s.statuses[p.name] ?? "unknown";
-              const running = status === "running";
-              const busy = ["starting", "stopping", "rotating"].includes(status);
-              const selected = s.selectedProfile === p.name;
-              const manual = p.proxy_mode === "manual" && p.manual_proxy;
-              const identity = s.profileIdentities[p.name];
-              const profileCountry = p.country ?? identity?.country;
-              const profileCity = p.city ?? identity?.city;
-              return (
-                <div
-                  key={p.name}
-                  className={"profile-row" + (selected ? " selected" : "")}
-                  onClick={() => s.selectProfile(selected ? undefined : p.name)}
+          {profilesExpanded && (
+            <>
+              <div className="session-quick-actions">
+                <button
+                  className="btn-bordered full"
+                  title={s.selectedProfile ? `Start selected profile: ${s.selectedProfile}` : "Start default profile"}
+                  disabled={s.isRefreshing}
+                  onClick={() => void (s.selectedProfile ? s.startProfile(s.selectedProfile) : s.startDefaultSession())}
                 >
-                  <span className={"dot " + (running ? "green" : busy ? "orange" : "gray")} title={status} />
-                  <span className="profile-main">
-                    <span className="profile-title-line">
-                      <span className="profile-name">{p.name}</span>
-                      {profileCountry && (
-                        <span className="badge profile-country-badge" title={countryLabel(profileCountry, profileCity)}>
-                          {countryFlag(profileCountry)} {profileCountry.toUpperCase()}
-                        </span>
-                      )}
-                    </span>
-                    <span className="profile-meta">
-                      {identity?.ip ? `${status} · ${identity.ip}` : profileCountry ? countryLabel(profileCountry, profileCity) : manual ? "Manual proxy" : status}
-                    </span>
-                  </span>
-                  <span className="profile-badges">
-                    {manual && (
-                      <span
-                        className="badge manual-proxy-badge"
-                        title={`${p.manual_proxy?.host ?? ""}:${p.manual_proxy?.port ?? ""}`}
-                      >
-                        {(p.manual_proxy?.scheme ?? "http").toUpperCase()}
+                  <Icon name="play.fill" size={14} />
+                  {s.selectedProfile ? "Start selected profile" : "Start default profile"}
+                </button>
+              </div>
+              <div className="search-box">
+                <Icon name="magnifyingglass" size={12} className="muted" />
+                <input
+                  className="search-inline"
+                  placeholder="Search profiles…"
+                  value={s.profileSearch}
+                  onChange={(e) => s.setProfileSearch(e.target.value)}
+                />
+                {s.profileSearch && (
+                  <button
+                    className="plain-icon-btn plain-icon-btn-compact"
+                    title="Clear profile search"
+                    onClick={() => s.setProfileSearch("")}
+                  >
+                    <Icon name="xmark.circle.fill" size={14} className="muted" />
+                  </button>
+                )}
+              </div>
+              <div className="profile-list">
+                {visibleProfileCount === 0 && (
+                  <div className="inline-empty">
+                    <Icon name="person.crop.circle" size={18} className="muted" />
+                    <div>
+                      <strong>No profiles yet</strong>
+                    </div>
+                  </div>
+                )}
+                {visibleProfileCount === 0 && !s.proxy && (
+                  <button className="btn-bordered full empty-action-button" title="Sign in to create managed profiles" onClick={() => s.setDashboardKeyPromptOpen(true)}>
+                    <Icon name="lock" size={14} />
+                    Sign in to create profiles
+                  </button>
+                )}
+                {showDefaultProfile && (
+                  <div
+                    className={"profile-row" + (!s.selectedProfile ? " selected" : "")}
+                    onClick={() => s.selectProfile(undefined)}
+                  >
+                    <span className={"dot " + (defaultRunning ? "green" : defaultBusy ? "orange" : "gray")} title={defaultStatus} />
+                    <span className="profile-main">
+                      <span className="profile-title-line">
+                        <span className="profile-name">default</span>
+                        {defaultIdentity?.country && (
+                          <span className="badge profile-country-badge" title={countryLabel(defaultIdentity.country, defaultIdentity.city)}>
+                            {countryFlag(defaultIdentity.country)} {defaultIdentity.country.toUpperCase()}
+                          </span>
+                        )}
                       </span>
-                    )}
-                  </span>
-                  <span className="spacer" />
-                  <div className="profile-actions">
-                    {running ? (
-                      <>
-                      <button
-                        className="plain-icon-btn"
-                        title={`Stop ${p.name}`}
-                          disabled={busy}
-                          onClick={(e) => { e.stopPropagation(); void s.stopProfile(p.name); }}
-                        >
-                          <Icon name="stop.fill" size={16} />
-                        </button>
+                      <span className="profile-meta">
+                        {defaultIdentity?.ip ? `${defaultStatus} · ${defaultIdentity.ip}` : defaultStatus}
+                      </span>
+                    </span>
+                    <span className="spacer" />
+                    <div className="profile-actions">
+                      {defaultRunning ? (
+                        <>
+                          <button
+                            className="plain-icon-btn"
+                            title="Stop default"
+                            disabled={defaultBusy}
+                            onClick={(e) => { e.stopPropagation(); void s.stopDefaultSession(); }}
+                          >
+                            <Icon name="stop.fill" size={16} />
+                          </button>
+                          <button
+                            className="plain-icon-btn"
+                            title="Live view"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              s.selectProfile(undefined);
+                              s.setTab("live");
+                            }}
+                          >
+                            <Icon name="video.fill" size={16} />
+                          </button>
+                        </>
+                      ) : (
                         <button
                           className="plain-icon-btn"
-                          title="Live view"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            s.selectProfile(p.name);
-                            s.setTab("live");
-                          }}
+                          title="Start default"
+                          disabled={defaultBusy}
+                          onClick={(e) => { e.stopPropagation(); void s.startDefaultSession(); }}
                         >
-                          <Icon name="video.fill" size={16} />
+                          <Icon name="play.fill" size={16} />
                         </button>
-                      </>
-                    ) : (
+                      )}
                       <button
                         className="plain-icon-btn"
-                        title="Start"
-                        disabled={busy}
-                        onClick={(e) => { e.stopPropagation(); void s.startProfile(p.name); }}
+                        title="Profile actions"
+                        disabled={defaultBusy}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMenuProfile("__default");
+                        }}
                       >
-                        <Icon name="play.fill" size={16} />
+                        <Icon name="ellipsis.circle" size={18} />
                       </button>
-                    )}
-                    <button
-                      className="plain-icon-btn"
-                      title="Profile actions"
-                      disabled={busy}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setMenuProfile(p.name);
-                      }}
-                    >
-                      <Icon name="ellipsis.circle" size={18} />
-                    </button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                )}
+                {s.profiles.length > 0 && profiles.length === 0 && (
+                  <div className="muted small">No matches for “{s.profileSearch}”.</div>
+                )}
+                {profiles.map((p) => {
+                  const status = s.statuses[p.name] ?? "unknown";
+                  const running = status === "running";
+                  const busy = ["starting", "stopping", "rotating"].includes(status);
+                  const selected = s.selectedProfile === p.name;
+                  const manual = p.proxy_mode === "manual" && p.manual_proxy;
+                  const identity = s.profileIdentities[p.name];
+                  const profileCountry = p.country ?? identity?.country;
+                  const profileCity = p.city ?? identity?.city;
+                  return (
+                    <div
+                      key={p.name}
+                      className={"profile-row" + (selected ? " selected" : "")}
+                      onClick={() => s.selectProfile(selected ? undefined : p.name)}
+                    >
+                      <span className={"dot " + (running ? "green" : busy ? "orange" : "gray")} title={status} />
+                      <span className="profile-main">
+                        <span className="profile-title-line">
+                          <span className="profile-name">{p.name}</span>
+                          {profileCountry && (
+                            <span className="badge profile-country-badge" title={countryLabel(profileCountry, profileCity)}>
+                              {countryFlag(profileCountry)} {profileCountry.toUpperCase()}
+                            </span>
+                          )}
+                        </span>
+                        <span className="profile-meta">
+                          {identity?.ip ? `${status} · ${identity.ip}` : profileCountry ? countryLabel(profileCountry, profileCity) : manual ? "Manual proxy" : status}
+                        </span>
+                      </span>
+                      <span className="profile-badges">
+                        {manual && (
+                          <span
+                            className="badge manual-proxy-badge"
+                            title={`${p.manual_proxy?.host ?? ""}:${p.manual_proxy?.port ?? ""}`}
+                          >
+                            {(p.manual_proxy?.scheme ?? "http").toUpperCase()}
+                          </span>
+                        )}
+                      </span>
+                      <span className="spacer" />
+                      <div className="profile-actions">
+                        {running ? (
+                          <>
+                            <button
+                              className="plain-icon-btn"
+                              title={`Stop ${p.name}`}
+                              disabled={busy}
+                              onClick={(e) => { e.stopPropagation(); void s.stopProfile(p.name); }}
+                            >
+                              <Icon name="stop.fill" size={16} />
+                            </button>
+                            <button
+                              className="plain-icon-btn"
+                              title="Live view"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                s.selectProfile(p.name);
+                                s.setTab("live");
+                              }}
+                            >
+                              <Icon name="video.fill" size={16} />
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            className="plain-icon-btn"
+                            title="Start"
+                            disabled={busy}
+                            onClick={(e) => { e.stopPropagation(); void s.startProfile(p.name); }}
+                          >
+                            <Icon name="play.fill" size={16} />
+                          </button>
+                        )}
+                        <button
+                          className="plain-icon-btn"
+                          title="Profile actions"
+                          disabled={busy}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMenuProfile(p.name);
+                          }}
+                        >
+                          <Icon name="ellipsis.circle" size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
 
         <ScheduledRunsPanel />
