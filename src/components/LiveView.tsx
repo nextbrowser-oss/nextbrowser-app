@@ -83,7 +83,10 @@ export function LiveView() {
         setError(message);
         setState("error");
       },
-      onStream: setRemoteMediaStream,
+      onStream: (stream) => {
+        setRemoteMediaStream(stream);
+        setState("live");
+      },
       onTabs: (tabs) => {
         setRemoteTabs((current) => mergeTabs(current, tabs));
         setPendingRemoteTab((pending) =>
@@ -298,7 +301,7 @@ export function LiveView() {
       </div>
       <hr className="divider" />
 
-      {state === "live" && remoteTabs.length > 0 && (
+      {remoteTabs.length > 0 && (
         <div className="remote-tabs-bar" aria-label="Remote browser tabs">
           {remoteTabs.map((tab) => {
             const active = tab.active || tab.target_id === pendingRemoteTab;
