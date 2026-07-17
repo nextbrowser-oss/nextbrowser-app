@@ -1482,8 +1482,8 @@ export const useStore = create<State>((set, get) => {
         await finishAPIKeyLogin(result.api_key);
         set({ authed: true, clawctlAvailable: true, accountPairing: undefined, dashboardKeyPromptOpen: false });
         get().startTimers();
-        await get().refreshAll();
-        await get().authorizeAgent();
+        void get().refreshAll();
+        void get().authorizeAgent();
         if (!localStorage.getItem("onboardingComplete")) set({ showOnboarding: true });
         trackEvent("login", { method: "pairing" });
       } else if (result.status === "expired" || result.status === "rejected") {
@@ -1529,10 +1529,12 @@ export const useStore = create<State>((set, get) => {
     trackEvent("refresh_all_started");
     set({ isRefreshing: true });
     try {
-      await get().loadProxy().catch(() => {});
-      await get().loadProfiles();
-      await get().loadDefaultSession();
-      await get().loadSkillCatalog();
+      await Promise.all([
+        get().loadProxy().catch(() => {}),
+        get().loadProfiles(),
+        get().loadDefaultSession(),
+        get().loadSkillCatalog(),
+      ]);
     } finally {
       set({ isRefreshing: false });
       trackTiming("refresh_all_completed", startedAt, {
