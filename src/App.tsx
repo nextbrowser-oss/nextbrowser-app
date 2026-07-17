@@ -10,6 +10,7 @@ import { OnboardingView } from "./components/OnboardingView";
 import { DashboardKeyModal } from "./components/DashboardKeyModal";
 import { BrandLogo } from "./components/BrandLogo";
 import { Icon, Spinner } from "./components/Icon";
+import { AgentPicker } from "./components/AgentPicker";
 import { brandName, dashboardUrl, discordUrl, latestReleaseUrl, repoApiUrl, repoUrl } from "./constants";
 import { getPreviewMode, getPreviewTab } from "./preview";
 import type { AppTab, Conversation } from "./types";
@@ -652,6 +653,7 @@ export function App() {
                 </span>
               </button>
             ))}
+            <AgentPicker tabLike />
           </div>
           <span className="tabbar-spacer" />
           <div className="tabbar-controls">

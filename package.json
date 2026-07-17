@@ -60,6 +60,14 @@
       "output": "release"
     },
     "artifactName": "NextBrowser-${version}-${arch}.${ext}",
+    "protocols": [
+      {
+        "name": "NextBrowser Auth",
+        "schemes": [
+          "nextbrowser"
+        ]
+      }
+    ],
     "mac": {
       "target": [
         "dmg",

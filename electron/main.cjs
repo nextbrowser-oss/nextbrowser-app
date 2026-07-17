@@ -13,8 +13,13 @@ const execFileAsync = promisify(execFile);
 const children = new Map();
 const remoteSignalSockets = new Map();
 const APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const CLAWCTL_RELEASE_BASE = "https://github.com/clawbrowser/clawctl/releases/latest/download";
+const DEFAULT_API_BASE_URL = "https://api.clawbrowser.ai";
+const DEEP_LINK_PROTOCOL = "nextbrowser";
 let appUpdateStatus = { status: "idle" };
 let appUpdateTimer = null;
+let clawctlInstallStatus = { status: "idle" };
+let clawctlInstallPromise = null;
 
 function home() { return os.homedir(); }
 function executableNames(name) {
@@ -149,13 +154,103 @@ async function run(binary, args, extraEnv = {}) {
 async function clawctlHasSkill(binary) {
   const r = await run(binary, ["--help"]); return `${r.stdout}\n${r.stderr}`.includes("\n  skill");
 }
+function setClawctlInstallStatus(status, patch = {}) {
+  clawctlInstallStatus = { status, ...patch, updatedAt: Date.now() };
+  emit("clawctl:install", clawctlInstallStatus);
+}
+function managedClawctlRoot() {
+  return path.join(app.getPath("userData"), "managed-clawctl");
+}
+function managedClawctlBin() {
+  return process.platform === "win32"
+    ? path.join(managedClawctlRoot(), "clawctl.exe")
+    : path.join(managedClawctlRoot(), "clawctl");
+}
+function clawctlPlatformArchive() {
+  const arch = os.arch();
+  if (process.platform === "darwin") {
+    if (arch === "arm64") return { name: "clawctl-macos-arm64.tar.gz", kind: "tar" };
+    if (arch === "x64") return { name: "clawctl-macos-amd64.tar.gz", kind: "tar" };
+  }
+  if (process.platform === "linux") {
+    if (arch === "arm64") return { name: "clawctl-linux-arm64.tar.gz", kind: "tar" };
+    if (arch === "x64") return { name: "clawctl-linux-amd64.tar.gz", kind: "tar" };
+  }
+  if (process.platform === "win32" && arch === "x64") return { name: "clawctl-win-amd64.zip", kind: "zip" };
+  throw new Error(`Unsupported clawctl platform: ${process.platform}/${arch}`);
+}
+function findClawctlInTree(root) {
+  return findBinaryUnderRoots("clawctl", [root]);
+}
+async function downloadFile(url, target) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Download failed (${response.status})`);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  await fs.writeFile(target, buffer);
+}
+async function extractArchive(archive, kind, targetDir) {
+  await fs.rm(targetDir, { recursive: true, force: true });
+  await fs.mkdir(targetDir, { recursive: true });
+  if (kind === "tar") {
+    const result = await run("tar", ["-xzf", archive, "-C", targetDir]);
+    if (result.code !== 0) throw new Error((result.stderr || result.stdout || "tar extraction failed").trim());
+    return;
+  }
+  if (process.platform === "win32") {
+    const result = await run("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", `Expand-Archive -Force ${JSON.stringify(archive)} ${JSON.stringify(targetDir)}`]);
+    if (result.code !== 0) throw new Error((result.stderr || result.stdout || "zip extraction failed").trim());
+    return;
+  }
+  const result = await run("unzip", ["-q", archive, "-d", targetDir]);
+  if (result.code !== 0) throw new Error((result.stderr || result.stdout || "zip extraction failed").trim());
+}
+async function installManagedClawctl() {
+  if (clawctlInstallPromise) return clawctlInstallPromise;
+  clawctlInstallPromise = (async () => {
+    setClawctlInstallStatus("downloading");
+    const archive = clawctlPlatformArchive();
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-clawctl-"));
+    const archivePath = path.join(tempDir, archive.name);
+    try {
+      await downloadFile(`${CLAWCTL_RELEASE_BASE}/${archive.name}`, archivePath);
+      setClawctlInstallStatus("installing");
+      const extractDir = path.join(tempDir, "extract");
+      await extractArchive(archivePath, archive.kind, extractDir);
+      const extracted = findClawctlInTree(extractDir);
+      if (!extracted) throw new Error("Downloaded clawctl archive did not contain a clawctl binary.");
+      await fs.mkdir(managedClawctlRoot(), { recursive: true });
+      await fs.copyFile(extracted, managedClawctlBin());
+      if (process.platform !== "win32") await fs.chmod(managedClawctlBin(), 0o755);
+      const version = await run(managedClawctlBin(), ["version"]);
+      if (version.code !== 0) throw new Error((version.stderr || version.stdout || "clawctl version check failed").trim());
+      setClawctlInstallStatus("ready", { path: managedClawctlBin(), version: version.stdout.trim() });
+      return managedClawctlBin();
+    } catch (error) {
+      setClawctlInstallStatus("failed", { message: error?.message || String(error) });
+      throw error;
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+      clawctlInstallPromise = null;
+    }
+  })();
+  return clawctlInstallPromise;
+}
 async function resolveClawctl() {
   if (process.env.CLAWCTL_BIN && launchable(expand(process.env.CLAWCTL_BIN))) return expand(process.env.CLAWCTL_BIN);
   const candidates = [];
+  const managed = managedClawctlBin(); if (launchable(managed)) candidates.push(managed);
   const dev = path.join(home(), "projects/ClawBrowser/clawctl/bin/clawctl"); if (launchable(dev)) candidates.push(dev);
   for (const dir of searchDirs()) for (const name of executableNames("clawctl")) { const f = path.join(dir, name); if (launchable(f)) candidates.push(f); }
   for (const candidate of [...new Set(candidates)]) if (await clawctlHasSkill(candidate)) return candidate;
   return candidates[0] || null;
+}
+async function resolveOrInstallClawctl() {
+  const existing = await resolveClawctl();
+  if (existing) {
+    setClawctlInstallStatus("ready", { path: existing });
+    return existing;
+  }
+  return installManagedClawctl();
 }
 function dataDir() { return path.join(app.getPath("userData")); }
 async function migrateLegacyData() {
@@ -169,6 +264,31 @@ function safeName(name) {
   return name;
 }
 function emit(channel, payload) { for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channel, payload); }
+function focusMainWindow() {
+  const window = BrowserWindow.getAllWindows()[0];
+  if (!window) return null;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+  return window;
+}
+function handleDeepLink(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== "string") return false;
+  let parsed;
+  try { parsed = new URL(rawUrl); }
+  catch { return false; }
+  if (parsed.protocol !== `${DEEP_LINK_PROTOCOL}:`) return false;
+  const payload = {
+    url: rawUrl,
+    host: parsed.host,
+    pathname: parsed.pathname,
+    pairingId: parsed.searchParams.get("pairing_id") || "",
+    status: parsed.searchParams.get("status") || "",
+  };
+  focusMainWindow();
+  emit("auth:deeplink", payload);
+  return true;
+}
 function quotePosix(value) { return `'${String(value).replaceAll("'", "'\\''")}'`; }
 function setAppUpdateStatus(status, patch = {}) {
   appUpdateStatus = { status, ...patch, updatedAt: Date.now() };
@@ -223,6 +343,29 @@ function startAutoUpdater() {
   if (appUpdateTimer) clearInterval(appUpdateTimer);
   appUpdateTimer = setInterval(() => { void checkForAppUpdate(); }, APP_UPDATE_CHECK_INTERVAL_MS);
 }
+function apiBaseURL(raw) {
+  return String(raw || process.env.CLAWBROWSER_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/$/, "");
+}
+async function apiFetchJSON(baseURL, route, options = {}) {
+  const response = await fetch(`${apiBaseURL(baseURL)}${route}`, {
+    ...options,
+    headers: {
+      "content-type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+  const text = await response.text();
+  let body = null;
+  if (text.trim()) {
+    try { body = JSON.parse(text); }
+    catch { body = { message: text }; }
+  }
+  if (!response.ok) {
+    const message = body?.message || body?.error || `API request failed (${response.status})`;
+    throw new Error(message);
+  }
+  return body;
+}
 
 async function invokeCommand(command, args = {}) {
   switch (command) {
@@ -258,16 +401,40 @@ async function invokeCommand(command, args = {}) {
         return false;
       }
     }
-    case "clawctl_resolve": return await resolveClawctl();
+    case "clawctl_resolve": return await resolveOrInstallClawctl();
+    case "clawctl_install_status": return clawctlInstallStatus;
     case "clawctl_run": {
-      const bin = await resolveClawctl(); if (!bin) throw new Error("clawctl not found. Install Clawbrowser CLI or set CLAWCTL_BIN.");
+      const bin = await resolveOrInstallClawctl(); if (!bin) throw new Error("clawctl not found. Install Clawbrowser CLI or set CLAWCTL_BIN.");
       return run(bin, args.args || [], args.extraEnv || {});
     }
     case "clawctl_version": {
-      const bin = await resolveClawctl(); if (!bin) throw new Error("not found");
+      const bin = await resolveOrInstallClawctl(); if (!bin) throw new Error("not found");
       const r = await run(bin, ["version"]); return r.stdout.trim();
     }
-    case "clawctl_supports_skill": { const bin = await resolveClawctl(); if (!bin) throw new Error("not found"); return clawctlHasSkill(bin); }
+    case "clawctl_supports_skill": { const bin = await resolveOrInstallClawctl(); if (!bin) throw new Error("not found"); return clawctlHasSkill(bin); }
+    case "pairing_start": {
+      return apiFetchJSON(args.apiBaseUrl, "/v1/pairing-requests/browser", {
+        method: "POST",
+        body: JSON.stringify({
+          display_name: args.displayName || os.hostname() || "NextBrowser Desktop",
+          runtime_name: "nextbrowser-desktop",
+          version: args.version || app.getVersion(),
+          platform: process.platform,
+          os: `${process.platform} ${os.release()}`,
+          hostname: os.hostname(),
+          metadata: { app: "NextBrowser" },
+        }),
+      });
+    }
+    case "pairing_poll": {
+      const id = encodeURIComponent(String(args.pairingId || ""));
+      const token = encodeURIComponent(String(args.pollToken || ""));
+      return apiFetchJSON(args.apiBaseUrl, `/v1/pairing-requests/${id}?poll_token=${token}`);
+    }
+    case "open_external": {
+      await shell.openExternal(String(args.url || ""));
+      return null;
+    }
     case "agent_authorize": {
       const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} CLI not found.`);
       const r = await run(bin, ["--version"]); if (r.code !== 0) throw new Error(`${args.binary} is not ready: ${(r.stdout + r.stderr).trim()}`);
@@ -468,14 +635,34 @@ function createWindow() {
   else window.loadFile(path.join(__dirname, "..", "dist", "index.html"));
 }
 
-app.whenReady().then(() => {
-  return migrateLegacyData();
-}).then(() => {
-  applyAppIcon();
-  ipcMain.handle("nextbrowser:invoke", (_event, command, args) => invokeCommand(command, args));
-  createWindow();
-  startAutoUpdater();
-  app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on("second-instance", (_event, argv) => {
+    focusMainWindow();
+    for (const arg of argv) handleDeepLink(arg);
+  });
+  app.whenReady().then(() => {
+    return migrateLegacyData();
+  }).then(() => {
+    applyAppIcon();
+    if (process.defaultApp) {
+      const script = process.argv[1];
+      if (script) app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [script]);
+    } else {
+      app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
+    }
+    ipcMain.handle("nextbrowser:invoke", (_event, command, args) => invokeCommand(command, args));
+    createWindow();
+    for (const arg of process.argv) handleDeepLink(arg);
+    startAutoUpdater();
+    app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  });
+}
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  handleDeepLink(url);
 });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 app.on("before-quit", () => {

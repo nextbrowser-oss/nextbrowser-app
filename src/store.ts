@@ -30,6 +30,7 @@ import { normalizeClawctlVersion } from "./lib/version";
 import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
 import type { RemoteStreamInfo } from "./remoteControl";
 import { loadJson, saveJson } from "./lib/storage";
+import { apiBaseUrl } from "./constants";
 import {
   normalizeConversation,
   normalizeSchedule,
@@ -92,6 +93,39 @@ interface AgentRuntime {
 interface AgentAuthorizationOptions {
   skipClawctlSetup?: boolean;
   deferMissingClawctlPrompt?: boolean;
+}
+
+interface PairingStartResponse {
+  pairing_id: string;
+  pairing_code: string;
+  verification_url: string;
+  status: string;
+  expires_at: string;
+  poll_after_ms: number;
+  poll_token: string;
+}
+
+interface PairingPollResponse {
+  pairing_id: string;
+  kind: "browser" | "agent";
+  status: "pending" | "approved" | "rejected" | "expired" | "completed";
+  expires_at: string;
+  poll_after_ms: number;
+  api_key?: string;
+}
+
+interface AccountPairingState {
+  pairingId: string;
+  pairingCode: string;
+  verificationUrl: string;
+  pollToken: string;
+  status: PairingPollResponse["status"];
+  expiresAt: string;
+}
+
+interface AuthDeepLinkPayload {
+  pairingId?: string;
+  status?: string;
 }
 
 function emptyRuntime(): AgentRuntime {
@@ -281,6 +315,7 @@ interface State {
   sidebarCollapsed: boolean;
   chatListCollapsed: boolean;
   dashboardKeyPromptOpen: boolean;
+  accountPairing?: AccountPairingState;
   clawctlVersion: string;
   clawctlUpdating: boolean;
   clawctlUpdateStatus?: string;
@@ -293,6 +328,10 @@ interface State {
 
   bootstrap: () => Promise<void>;
   login: (key: string) => Promise<void>;
+  startAccountPairing: () => Promise<void>;
+  reopenAccountPairing: () => Promise<void>;
+  pollAccountPairing: () => Promise<void>;
+  cancelAccountPairing: () => void;
   logout: () => void;
   refreshAll: () => Promise<void>;
   refreshProxyData: () => Promise<void>;
@@ -408,6 +447,7 @@ interface APIKeyIdentity {
   key_id?: string;
   owner_id?: string;
 }
+
 const completionResolvers = new Map<string, (result: AgentDone) => void>();
 const replyExecutionTargets = new Map<string, ExecutionTarget>();
 
@@ -583,6 +623,32 @@ async function refreshLocalClawctlMetadata(): Promise<void> {
   }
 }
 
+async function finishAPIKeyLogin(apiKey: string): Promise<void> {
+  await clawctlRun(["config", "set", "--api-key", apiKey]);
+  await refreshAnalyticsIdentity().catch(() => {
+    trackEvent("analytics_identity_unavailable", { phase: "login" });
+  });
+}
+
+function isAccountRequiredError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /api key|dashboard key|unauthorized|forbidden|401|403|sign in|login required/i.test(message);
+}
+
+async function clawctlRunChecked(args: string[], extraEnv?: Record<string, string>): Promise<void> {
+  const result = await clawctlRun(args, extraEnv);
+  if (result.code !== 0) throw new Error(clawctlErrorMessage(result));
+}
+
+function requestAccountSignIn(setState: (state: Partial<State>) => void, error: unknown) {
+  if (!isAccountRequiredError(error)) return;
+  setState({
+    dashboardKeyPromptOpen: true,
+    loginError: "Sign in to use managed profiles, traffic, Remote Control, and skills.",
+  });
+  trackEvent("account_signin_required");
+}
+
 export const useStore = create<State>((set, get) => {
   const enqueueWithTarget = (
     text: string,
@@ -688,6 +754,7 @@ export const useStore = create<State>((set, get) => {
   sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "true",
   chatListCollapsed: localStorage.getItem("chatListCollapsed") === "true",
   dashboardKeyPromptOpen: false,
+  accountPairing: undefined,
   clawctlVersion: "",
   clawctlUpdating: false,
   clawctlSupportsSkill: true,
@@ -883,6 +950,13 @@ export const useStore = create<State>((set, get) => {
           if (runtime.ready && runtime.queue.length) get().startConsumer(queuedAgentId);
         }
       }
+    });
+    await listen<AuthDeepLinkPayload>("auth:deeplink", (event) => {
+      const pairing = get().accountPairing;
+      if (!pairing) return;
+      if (event.payload.pairingId && event.payload.pairingId !== pairing.pairingId) return;
+      trackEvent("account_pairing_deeplink", { status: event.payload.status || "unknown" });
+      void get().pollAccountPairing();
     });
 
     if (!pendingTarget(get(), "vps")) {
@@ -1327,18 +1401,15 @@ export const useStore = create<State>((set, get) => {
     const apiKey = key.trim();
     trackEvent("dashboard_key_save_started");
     if (!apiKey) {
-      set({ loginError: "Enter your dashboard API key before signing in.", isLoggingIn: false });
+      set({ loginError: "Enter an API key or use browser sign-in.", isLoggingIn: false });
       trackTiming("dashboard_key_save_failed", startedAt, { reason: "empty_key" });
       return;
     }
     set({ loginError: undefined, isLoggingIn: true });
     try {
-      await clawctlRun(["config", "set", "--api-key", apiKey]);
-      await refreshAnalyticsIdentity().catch(() => {
-        trackEvent("analytics_identity_unavailable", { phase: "login" });
-      });
+      await finishAPIKeyLogin(apiKey);
       await get().loadProxy();
-      set({ authed: true, clawctlAvailable: true });
+      set({ authed: true, clawctlAvailable: true, accountPairing: undefined });
       get().startTimers();
       await get().refreshAll();
       await get().authorizeAgent();
@@ -1351,6 +1422,83 @@ export const useStore = create<State>((set, get) => {
     } finally {
       set({ isLoggingIn: false });
     }
+  },
+
+  startAccountPairing: async () => {
+    const startedAt = performance.now();
+    trackEvent("account_pairing_started");
+    set({ loginError: undefined, isLoggingIn: true });
+    try {
+      const response = await invoke<PairingStartResponse>("pairing_start", {
+        apiBaseUrl,
+        version: __APP_VERSION__,
+        displayName: "NextBrowser Desktop",
+      });
+      set({
+        accountPairing: {
+          pairingId: response.pairing_id,
+          pairingCode: response.pairing_code,
+          verificationUrl: response.verification_url,
+          pollToken: response.poll_token,
+          status: response.status as PairingPollResponse["status"],
+          expiresAt: response.expires_at,
+        },
+      });
+      await invoke<null>("open_external", { url: response.verification_url });
+      trackTiming("account_pairing_opened", startedAt);
+    } catch (error) {
+      set({ loginError: error instanceof Error ? error.message : String(error) });
+      trackTiming("account_pairing_failed", startedAt);
+    } finally {
+      set({ isLoggingIn: false });
+    }
+  },
+
+  reopenAccountPairing: async () => {
+    const pairing = get().accountPairing;
+    if (!pairing?.verificationUrl) return;
+    trackEvent("account_pairing_reopened");
+    await invoke<null>("open_external", { url: pairing.verificationUrl });
+  },
+
+  pollAccountPairing: async () => {
+    const pairing = get().accountPairing;
+    if (!pairing || get().isLoggingIn) return;
+    set({ isLoggingIn: true, loginError: undefined });
+    try {
+      const result = await invoke<PairingPollResponse>("pairing_poll", {
+        apiBaseUrl,
+        pairingId: pairing.pairingId,
+        pollToken: pairing.pollToken,
+      });
+      set({
+        accountPairing: {
+          ...pairing,
+          status: result.status,
+          expiresAt: result.expires_at,
+        },
+      });
+      if (result.api_key) {
+        await finishAPIKeyLogin(result.api_key);
+        set({ authed: true, clawctlAvailable: true, accountPairing: undefined, dashboardKeyPromptOpen: false });
+        get().startTimers();
+        await get().refreshAll();
+        await get().authorizeAgent();
+        if (!localStorage.getItem("onboardingComplete")) set({ showOnboarding: true });
+        trackEvent("login", { method: "pairing" });
+      } else if (result.status === "expired" || result.status === "rejected") {
+        set({ loginError: result.status === "expired" ? "The sign-in request expired. Start again." : "The sign-in request was rejected." });
+      }
+    } catch (error) {
+      set({ loginError: error instanceof Error ? error.message : String(error) });
+    } finally {
+      set({ isLoggingIn: false });
+    }
+  },
+
+  cancelAccountPairing: () => {
+    trackEvent("account_pairing_cancelled", { has_pairing: !!get().accountPairing });
+    set({ accountPairing: undefined, loginError: undefined, isLoggingIn: false });
   },
 
   logout: () => {
@@ -1366,6 +1514,7 @@ export const useStore = create<State>((set, get) => {
       connectAnnounced: new Set(),
       proxy: undefined,
       proxyWarning: undefined,
+      accountPairing: undefined,
       profiles: [],
       statuses: {},
       profileIdentities: {},
@@ -1536,18 +1685,23 @@ export const useStore = create<State>((set, get) => {
   startDefaultSession: async () => {
     const startedAt = performance.now();
     trackEvent("profile_start_requested", { scope: "default" });
-    await clawctlRun(["start", "--format", "json"]);
-    await get().loadDefaultSession();
-    const identity = await verifyProxyIdentity();
-    if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
-    await get().loadProfiles();
-    trackTiming("profile_start_completed", startedAt, { scope: "default", status: get().defaultSession?.status ?? "unknown" });
+    try {
+      await clawctlRunChecked(["start", "--format", "json"]);
+      await get().loadDefaultSession();
+      const identity = await verifyProxyIdentity();
+      if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
+      await get().loadProfiles();
+      trackTiming("profile_start_completed", startedAt, { scope: "default", status: get().defaultSession?.status ?? "unknown" });
+    } catch (error) {
+      requestAccountSignIn(set, error);
+      throw error;
+    }
   },
 
   stopDefaultSession: async () => {
     const startedAt = performance.now();
     trackEvent("profile_stop_requested", { scope: "default" });
-    await clawctlRun(["stop", "--format", "json"]);
+    await clawctlRunChecked(["stop", "--format", "json"]);
     await get().loadDefaultSession();
     trackTiming("profile_stop_completed", startedAt, { scope: "default", status: get().defaultSession?.status ?? "unknown" });
   },
@@ -1556,45 +1710,60 @@ export const useStore = create<State>((set, get) => {
     const startedAt = performance.now();
     trackEvent("proxy_ip_change_requested", { scope: "default_profile" });
     trackEvent("profile_rotate_requested", { scope: "default" });
-    await clawctlRun(["rotate", "--format", "json"]);
-    await get().loadDefaultSession();
-    await get().loadProxy().catch(() => {});
-    const after = await verifyProxyIdentity();
-    if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: after } }));
-    trackTiming("proxy_ip_change_completed", startedAt, { scope: "default_profile" });
-    trackTiming("profile_rotate_completed", startedAt, { scope: "default" });
+    try {
+      await clawctlRunChecked(["rotate", "--format", "json"]);
+      await get().loadDefaultSession();
+      await get().loadProxy().catch(() => {});
+      const after = await verifyProxyIdentity();
+      if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: after } }));
+      trackTiming("proxy_ip_change_completed", startedAt, { scope: "default_profile" });
+      trackTiming("profile_rotate_completed", startedAt, { scope: "default" });
+    } catch (error) {
+      requestAccountSignIn(set, error);
+      throw error;
+    }
   },
 
   rotateDefaultSessionCountry: async (country) => {
     const startedAt = performance.now();
     trackEvent("proxy_country_change_requested", { scope: "default_profile", country });
     trackEvent("profile_rotate_requested", { scope: "default", country });
-    await clawctlRun(["rotate", "--country", country, "--verify", "--format", "json"]);
-    await get().loadDefaultSession();
-    await get().loadProxy().catch(() => {});
-    const after = await verifyProxyIdentity();
-    const identity = after ?? { country };
-    set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
-    trackTiming("proxy_country_change_completed", startedAt, { scope: "default_profile", country });
-    trackTiming("profile_rotate_completed", startedAt, { scope: "default", country });
+    try {
+      await clawctlRunChecked(["rotate", "--country", country, "--verify", "--format", "json"]);
+      await get().loadDefaultSession();
+      await get().loadProxy().catch(() => {});
+      const after = await verifyProxyIdentity();
+      const identity = after ?? { country };
+      set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
+      trackTiming("proxy_country_change_completed", startedAt, { scope: "default_profile", country });
+      trackTiming("profile_rotate_completed", startedAt, { scope: "default", country });
+    } catch (error) {
+      requestAccountSignIn(set, error);
+      throw error;
+    }
   },
 
   startProfile: async (n) => {
     const startedAt = performance.now();
     trackEvent("profile_start_requested", { scope: "named" });
     set((s) => ({ statuses: { ...s.statuses, [n]: "starting" } }));
-    await clawctlRun(["start", "--profile", n, "--format", "json"]);
-    await get().loadProfiles();
-    const identity = await verifyProxyIdentity(n);
-    if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: identity } }));
-    trackTiming("profile_start_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
+    try {
+      await clawctlRunChecked(["start", "--profile", n, "--format", "json"]);
+      await get().loadProfiles();
+      const identity = await verifyProxyIdentity(n);
+      if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: identity } }));
+      trackTiming("profile_start_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
+    } catch (error) {
+      requestAccountSignIn(set, error);
+      throw error;
+    }
   },
 
   stopProfile: async (n) => {
     const startedAt = performance.now();
     trackEvent("profile_stop_requested", { scope: "named" });
     set((s) => ({ statuses: { ...s.statuses, [n]: "stopping" } }));
-    await clawctlRun(["stop", "--profile", n, "--format", "json"]);
+    await clawctlRunChecked(["stop", "--profile", n, "--format", "json"]);
     await get().loadProfiles();
     trackTiming("profile_stop_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
   },
@@ -1604,13 +1773,18 @@ export const useStore = create<State>((set, get) => {
     trackEvent("proxy_ip_change_requested", { scope: "named_profile" });
     trackEvent("profile_rotate_requested", { scope: "named" });
     set((s) => ({ statuses: { ...s.statuses, [n]: "rotating" } }));
-    await clawctlRun(["rotate", "--profile", n, "--format", "json"]);
-    await get().loadProfiles();
-    await get().loadProxy().catch(() => {});
-    const after = await verifyProxyIdentity(n);
-    if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
-    trackTiming("proxy_ip_change_completed", startedAt, { scope: "named_profile", status: get().statuses[n] ?? "unknown" });
-    trackTiming("profile_rotate_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
+    try {
+      await clawctlRunChecked(["rotate", "--profile", n, "--format", "json"]);
+      await get().loadProfiles();
+      await get().loadProxy().catch(() => {});
+      const after = await verifyProxyIdentity(n);
+      if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
+      trackTiming("proxy_ip_change_completed", startedAt, { scope: "named_profile", status: get().statuses[n] ?? "unknown" });
+      trackTiming("profile_rotate_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
+    } catch (error) {
+      requestAccountSignIn(set, error);
+      throw error;
+    }
   },
 
   rotateProfileCountry: async (n, country) => {
@@ -1618,22 +1792,27 @@ export const useStore = create<State>((set, get) => {
     trackEvent("proxy_country_change_requested", { scope: "named_profile", country });
     trackEvent("profile_rotate_requested", { scope: "named", country });
     set((s) => ({ statuses: { ...s.statuses, [n]: "rotating" } }));
-    await clawctlRun([
-      "rotate",
-      "--profile",
-      n,
-      "--country",
-      country,
-      "--verify",
-      "--format",
-      "json",
-    ]);
-    await get().loadProfiles();
-    await get().loadProxy().catch(() => {});
-    const after = await verifyProxyIdentity(n);
-    if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
-    trackTiming("proxy_country_change_completed", startedAt, { scope: "named_profile", country, status: get().statuses[n] ?? "unknown" });
-    trackTiming("profile_rotate_completed", startedAt, { scope: "named", country, status: get().statuses[n] ?? "unknown" });
+    try {
+      await clawctlRunChecked([
+        "rotate",
+        "--profile",
+        n,
+        "--country",
+        country,
+        "--verify",
+        "--format",
+        "json",
+      ]);
+      await get().loadProfiles();
+      await get().loadProxy().catch(() => {});
+      const after = await verifyProxyIdentity(n);
+      if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
+      trackTiming("proxy_country_change_completed", startedAt, { scope: "named_profile", country, status: get().statuses[n] ?? "unknown" });
+      trackTiming("profile_rotate_completed", startedAt, { scope: "named", country, status: get().statuses[n] ?? "unknown" });
+    } catch (error) {
+      requestAccountSignIn(set, error);
+      throw error;
+    }
   },
 
   createManualProxyProfile: async (input) => {
@@ -1645,7 +1824,7 @@ export const useStore = create<State>((set, get) => {
       scheme: input.scheme,
       has_username: username.length > 0,
     });
-    const result = await clawctlRun(
+    await clawctlRunChecked(
       [
         "profiles",
         "create",
@@ -1663,7 +1842,6 @@ export const useStore = create<State>((set, get) => {
       ],
       input.password ? { CLAWCTL_PROXY_PASSWORD: input.password } : undefined,
     );
-    if (result.code !== 0) throw new Error(clawctlErrorMessage(result));
     await get().loadProfiles();
     trackTiming("profile_manual_proxy_create_completed", startedAt, {
       profile_count: get().profiles.length,
@@ -1674,9 +1852,9 @@ export const useStore = create<State>((set, get) => {
     const startedAt = performance.now();
     trackEvent("profile_delete_requested", { was_running: get().statuses[n] === "running" });
     if (get().statuses[n] === "running") {
-      await clawctlRun(["stop", "--profile", n, "--format", "json"]);
+      await clawctlRunChecked(["stop", "--profile", n, "--format", "json"]);
     }
-    await clawctlRun(["profiles", "rm", n, "--format", "json"]);
+    await clawctlRunChecked(["profiles", "rm", n, "--format", "json"]);
     if (get().selectedProfile === n) set({ selectedProfile: undefined });
     set((s) => {
       const statuses = { ...s.statuses };
@@ -2419,6 +2597,7 @@ export const useStore = create<State>((set, get) => {
           if (target.id === get().agentId) activeRef = ref;
         }
       } catch (error) {
+        requestAccountSignIn(set, error);
         failures.push(`${target.id}: ${error instanceof Error ? error.message : String(error)}`);
         set((s) => ({ skillState: { ...s.skillState, [key]: "failed" } }));
       }

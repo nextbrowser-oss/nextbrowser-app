@@ -1,7 +1,7 @@
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore, type ManualProxyProfileInput } from "../store";
-import { PRIMARY_AGENTS, ADDITIONAL_AGENTS, agentById } from "../agents";
+import { agentById } from "../agents";
 import { BrandHeader, BrandLogo } from "./BrandLogo";
 import { ScheduledRunsPanel } from "./ScheduledRunsPanel";
 import { Icon, Spinner } from "./Icon";
@@ -12,8 +12,6 @@ type ManualProxyInputMode = "url" | "fields";
 
 export function Sidebar() {
   const s = useStore();
-  const [agentSearch, setAgentSearch] = useState("");
-  const [focused, setFocused] = useState(false);
   const [menuProfile, setMenuProfile] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [manualProxyOpen, setManualProxyOpen] = useState(false);
@@ -28,16 +26,7 @@ export function Sidebar() {
   const [manualError, setManualError] = useState<string | null>(null);
   const [manualSaving, setManualSaving] = useState(false);
 
-  const matches = useMemo(
-    () =>
-      ADDITIONAL_AGENTS.filter((a) =>
-        a.name.toLowerCase().includes(agentSearch.toLowerCase()),
-      ),
-    [agentSearch],
-  );
-  const suggestions = ADDITIONAL_AGENTS.slice(0, 6);
   const ready = s.agentReady();
-  const version = s.agentVersion();
   const error = s.agentError();
   const loggedIn = s.agentLoggedIn();
   const profiles = s.filteredProfiles();
@@ -48,8 +37,7 @@ export function Sidebar() {
   const defaultIdentity = s.profileIdentities.__default;
   const showDefaultProfile = defaultKnown && !s.profiles.some((p) => p.name === "default");
   const visibleProfileCount = s.profiles.length + (showDefaultProfile ? 1 : 0);
-  const agentName =
-    PRIMARY_AGENTS.concat(ADDITIONAL_AGENTS).find((a) => a.id === s.agentId)?.name ?? "agent";
+  const agentName = agentById(s.agentId).name;
 
   if (s.sidebarCollapsed) {
     const runningCount = s.profiles.filter((p) => s.statuses[p.name] === "running").length + (showDefaultProfile ? 1 : 0);
@@ -162,103 +150,35 @@ export function Sidebar() {
             <Icon name="sidebar.leading" size={15} />
           </button>
         </div>
+        <div className="sidebar-agent-strip">
+          <Icon name="cpu.fill" size={13} />
+          <span className="muted small">Agent</span>
+          <strong>{agentName}</strong>
+          <span className={"agent-state-pill" + (ready ? " is-ready" : "")}>
+            {ready ? "Ready" : "Offline"}
+          </span>
+        </div>
+        <div className="sidebar-agent-actions">
+          {!ready && (
+            <button className="mini primary-mini" title={`Connect ${agentName}`} onClick={() => s.authorizeAgent()}>
+              Connect
+            </button>
+          )}
+          {ready && loggedIn !== true && (
+            <button className="mini" title={`Open ${agentName} login`} onClick={() => s.loginAgent()}>
+              Login
+            </button>
+          )}
+          {ready && loggedIn === true && agentById(s.agentId).logoutArgs.length > 0 && (
+            <button className="mini" title={`Sign out of ${agentName}`} onClick={() => s.logoutAgent()}>
+              Logout
+            </button>
+          )}
+        </div>
+        {error && <div className="error small sidebar-agent-error">{error}</div>}
       </div>
 
       <div className="sidebar-scroll">
-        <div className="claw-card control-card agent-card">
-          <div className="agent-card-head">
-            <div>
-              <div className="section">AGENT</div>
-              <div className="card-title">{agentName}</div>
-            </div>
-            <span className={"agent-state-pill" + (ready ? " is-ready" : "")}>
-              {ready ? "Ready" : "Offline"}
-            </span>
-          </div>
-          <div className="agent-primary">
-            {PRIMARY_AGENTS.map((a) => (
-              <button
-                key={a.id}
-                className={"chip" + (s.agentId === a.id ? " chip-active" : "")}
-                title={`Switch to ${a.name}`}
-                onClick={() => s.switchAgent(a.id)}
-              >
-                {a.name}
-              </button>
-            ))}
-          </div>
-          <div className="agent-search-box">
-            <Icon name="magnifyingglass" size={12} className="muted" />
-            <input
-              className="agent-search-input"
-              placeholder="Other agents — Gemini, Qwen, …"
-              value={agentSearch}
-              onChange={(e) => setAgentSearch(e.target.value)}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setTimeout(() => setFocused(false), 120)}
-            />
-            {agentSearch && (
-              <button className="plain-icon-btn plain-icon-btn-compact" title="Clear agent search" onClick={() => setAgentSearch("")}>
-                <Icon name="xmark.circle.fill" size={14} className="muted" />
-              </button>
-            )}
-          </div>
-          {(agentSearch ? matches : focused ? suggestions : []).map((a) => (
-            <button
-              key={a.id}
-              className="agent-row"
-              title={`Switch to ${a.name}`}
-              onMouseDown={() => {
-                s.switchAgent(a.id);
-                setAgentSearch("");
-              }}
-            >
-              <span>{a.name}</span>
-              {s.agentId === a.id && <Icon name="checkmark" size={12} className="accent-icon" />}
-            </button>
-          ))}
-          {!focused && !agentSearch && !PRIMARY_AGENTS.some((a) => a.id === s.agentId) && (
-            <div className="active-agent-banner">
-              <Icon name="cpu.fill" size={15} />
-              <strong>Using {agentName}</strong>
-              <span className="spacer" />
-              <Icon name="checkmark.circle.fill" size={15} className="ok" />
-            </div>
-          )}
-          <div className="agent-status small">
-            {ready ? (
-              <>
-                <span className="agent-version-line">
-                  <Icon name="checkmark.circle.fill" size={13} className="ok" />
-                  {version ?? "connected"}
-                  {loggedIn === true && <span className="muted"> · signed in</span>}
-                </span>
-                {loggedIn === true && agentById(s.agentId).logoutArgs.length > 0 && (
-                  <button
-                    className="switch-account-link"
-                    title={`Sign out of ${agentName} to switch accounts`}
-                    onClick={() => s.logoutAgent()}
-                  >
-                    Logout agent
-                  </button>
-                )}
-              </>
-            ) : (
-              <button className="btn-bordered-prominent connect-btn full" title={`Connect ${agentName}`} onClick={() => s.authorizeAgent()}>
-                <Icon name="bolt.fill" size={14} />
-                Connect to chat
-              </button>
-            )}
-            {ready && loggedIn !== true && (
-              <button className="btn-bordered full agent-login-btn" title={`Open ${agentName} login`} onClick={() => s.loginAgent()}>
-                <Icon name="person.badge.key" size={14} />
-                Log in to {agentName}
-              </button>
-            )}
-            {error && <div className="error">{error}</div>}
-          </div>
-        </div>
-
         <div className="claw-card control-card profiles-card">
           <div className="row section-row">
             <div>
@@ -326,9 +246,9 @@ export function Sidebar() {
               </div>
             )}
             {visibleProfileCount === 0 && !s.proxy && (
-              <button className="btn-bordered full empty-action-button" title="Enter dashboard key to unlock managed profiles" onClick={() => s.setDashboardKeyPromptOpen(true)}>
+              <button className="btn-bordered full empty-action-button" title="Sign in to create managed profiles" onClick={() => s.setDashboardKeyPromptOpen(true)}>
                 <Icon name="lock" size={14} />
-                Enter dashboard key before first profile
+                Sign in to create profiles
               </button>
             )}
             {showDefaultProfile && (
