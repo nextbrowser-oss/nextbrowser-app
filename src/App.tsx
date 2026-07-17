@@ -13,7 +13,7 @@ import { Icon, Spinner } from "./components/Icon";
 import { AgentPicker } from "./components/AgentPicker";
 import { brandName, dashboardUrl, discordUrl, latestReleaseUrl, repoApiUrl, repoUrl } from "./constants";
 import { getPreviewMode, getPreviewTab } from "./preview";
-import type { AppTab, Conversation } from "./types";
+import { humanBytes, proxyFraction, type AppTab, type Conversation } from "./types";
 import { resolveTheme, type Theme } from "./theme";
 import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
 import { invoke, listen } from "./electronBridge";
@@ -197,6 +197,9 @@ function SettingsModal({
   const proxy = useStore((s) => s.proxy);
   const logout = useStore((s) => s.logout);
   const agentName = agentById(agentId).name;
+  const proxyUsed = proxy ? humanBytes(proxy.used_bytes) : "Locked";
+  const proxyLimit = proxy?.limit_bytes ? humanBytes(proxy.limit_bytes) : proxy ? "unlimited" : "Sign in";
+  const proxyPercent = proxy?.limited ? Math.round(proxyFraction(proxy) * 100) : null;
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
@@ -289,25 +292,24 @@ function SettingsModal({
 
         <div className="settings-section">
           <button
-            className="settings-link"
+            className="settings-feature-link"
             onClick={() => {
               onOpenUsage();
               onClose();
             }}
           >
-            <span>Proxy usage</span>
-            <Icon name="chart.bar.fill" size={14} />
+            <span className="settings-feature-icon">
+              <Icon name="chart.bar.fill" size={17} />
+            </span>
+            <span className="settings-feature-copy">
+              <strong>Proxy usage</strong>
+              <span className="muted small">
+                {proxy ? `${proxyUsed} / ${proxyLimit}` : "Traffic, allocation, and usage history"}
+              </span>
+            </span>
+            {proxyPercent != null && <span className="status-pill">{proxyPercent}%</span>}
+            <Icon name="chevron.right" size={14} className="muted" />
           </button>
-          <a
-            className="settings-link"
-            href={dashboardUrl}
-            target="_blank"
-            rel="noreferrer"
-            onClick={() => trackEvent("dashboard_opened", { source: "settings" })}
-          >
-            <span>Open dashboard</span>
-            <Icon name="arrow.up.forward.app" size={14} />
-          </a>
           <button
             className="settings-link settings-link-danger"
             onClick={() => {
