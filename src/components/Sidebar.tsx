@@ -10,8 +10,6 @@ interface SidebarProps {
 }
 
 const NAV_ITEMS: Array<{ id: AppTab; label: string; icon: string }> = [
-  { id: "chat", label: "Chat", icon: "bubble.left.and.bubble.right.fill" },
-  { id: "live", label: "Live", icon: "video.fill" },
   { id: "profiles", label: "Profiles", icon: "person.crop.circle" },
   { id: "skills", label: "Skills", icon: "square.grid.2x2.fill" },
   { id: "scheduled", label: "Scheduled", icon: "clock.arrow.circlepath" },
@@ -26,14 +24,12 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
   const defaultKnown = !!s.defaultSession?.session?.name || defaultStatus !== "unknown";
   const showDefaultProfile = defaultKnown && !s.profiles.some((p) => p.name === "default");
   const visibleProfileCount = s.profiles.length + (showDefaultProfile ? 1 : 0);
-  const runningCount = s.profiles.filter((p) => s.statuses[p.name] === "running").length + (defaultStatus === "running" ? 1 : 0);
   const skillCount = withLocalScripts(s.skillCategories).reduce((total, category) => total + category.entries.length, 0);
 
   const badgeFor = (id: AppTab) => {
     if (id === "profiles") return visibleProfileCount ? String(visibleProfileCount) : undefined;
     if (id === "skills") return skillCount ? String(skillCount) : undefined;
     if (id === "scheduled") return s.scheduledRuns.length ? String(s.scheduledRuns.length) : undefined;
-    if (id === "live" && runningCount) return String(runningCount);
     return undefined;
   };
 
