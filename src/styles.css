@@ -449,10 +449,28 @@ button, input, textarea, select { color: var(--text); }
 .sidebar-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 10px 12px 14px;
+  padding: 8px 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
+}
+.sidebar-scroll .claw-card {
+  padding: 9px 10px;
+}
+.sidebar-scroll .plain-icon-btn-compact {
+  min-width: 22px !important;
+  min-height: 22px !important;
+  padding: 2px !important;
+}
+.sidebar-scroll .profiles-count {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  font-size: 10px;
+}
+.sidebar-scroll .mini {
+  min-height: 26px;
+  padding: 3px 8px;
 }
 .status-dot {
   width: 7px;
@@ -1037,14 +1055,14 @@ button, input, textarea, select { color: var(--text); }
 
 /* Profiles */
 .profiles-card {
-  gap: 8px;
+  gap: 6px;
 }
 .profiles-panel-head {
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 .profiles-panel-toggle {
-  min-height: 26px;
+  min-height: 22px;
 }
 .profile-head-status {
   background: var(--green-soft);
@@ -1054,11 +1072,11 @@ button, input, textarea, select { color: var(--text); }
 .profile-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 6px 7px 8px;
+  gap: 7px;
+  padding: 5px 5px 5px 7px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  min-height: 44px;
+  min-height: 36px;
   border: 1px solid transparent;
   transition: background-color 140ms ease, border-color 140ms ease;
 }
@@ -1070,8 +1088,8 @@ button, input, textarea, select { color: var(--text); }
 .session-quick-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 0 0 8px;
+  gap: 6px;
+  margin: 0 0 6px;
 }
 .session-quick-actions .btn-bordered {
   flex: 1;
@@ -1083,7 +1101,7 @@ button, input, textarea, select { color: var(--text); }
 .profile-main {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   min-width: 0;
 }
 .profile-title-line {
@@ -2659,19 +2677,19 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 
 /* Scheduled */
 .scheduled-panel {
-  gap: 8px;
+  gap: 6px;
 }
 .scheduled-panel-head {
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 .scheduled-panel-toggle {
   flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 2px 0;
+  gap: 6px;
+  padding: 1px 0;
   border: 0;
   background: transparent;
   color: var(--muted);
@@ -2684,33 +2702,33 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   margin: 0;
 }
 .scheduled-empty {
-  padding-top: 4px;
+  padding-top: 2px;
 }
 .scheduled-panel .schedule-row {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 0;
+  gap: 6px;
+  padding: 4px 0;
   border-top: 1px solid var(--line);
 }
 
 /* Sidebar skills */
 .skills-sidebar-card {
-  gap: 8px;
+  gap: 6px;
 }
 .skills-sidebar-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 .skills-sidebar-item {
   width: 100%;
-  min-height: 34px;
+  min-height: 28px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 7px;
+  gap: 7px;
+  padding: 4px 6px;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -2726,7 +2744,7 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 550;
 }
 .schedule-info { flex: 1; min-width: 0; }
