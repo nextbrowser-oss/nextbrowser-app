@@ -1360,15 +1360,15 @@ button, input, textarea, select { color: var(--text); }
 .social-buttons {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 .social-button {
   align-self: center;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 36px;
-  border-radius: 10px;
+  height: 30px;
+  border-radius: 8px;
   border: 1px solid var(--brand-line);
   background: var(--bg-elevated);
   color: var(--text);
@@ -1378,12 +1378,12 @@ button, input, textarea, select { color: var(--text); }
   transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 120ms ease;
 }
 .github-star-btn {
-  gap: 16px;
-  min-width: 78px;
-  padding: 0 14px;
+  gap: 10px;
+  min-width: 64px;
+  padding: 0 10px;
 }
 .discord-button {
-  width: 48px;
+  width: 36px;
   color: var(--brand-blue);
 }
 .social-button:hover {
@@ -1401,11 +1401,11 @@ button, input, textarea, select { color: var(--text); }
 .github-star-count {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 16px;
+  gap: 4px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--muted);
-  min-width: 28px;
+  min-width: 22px;
 }
 .github-star-glyph {
   color: currentColor;
@@ -1424,6 +1424,11 @@ button, input, textarea, select { color: var(--text); }
 }
 .floating-controls .social-button {
   background: var(--bg-elevated);
+}
+[data-theme="dark"] .social-button {
+  background: color-mix(in srgb, var(--bg-elevated) 72%, transparent);
+  border-color: color-mix(in srgb, var(--brand-line) 72%, transparent);
+  box-shadow: none;
 }
 .tab-hit {
   background: none;

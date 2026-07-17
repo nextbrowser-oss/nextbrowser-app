@@ -121,9 +121,9 @@ function GithubStarButton({ stars }: { stars?: number | null }) {
       title={label}
       aria-label={label}
     >
-      <GithubMark size={20} />
+      <GithubMark size={17} />
       <span className="github-star-count">
-        <Icon name="star.fill" size={13} fill="currentColor" className="github-star-glyph" />
+        <Icon name="star.fill" size={11} fill="currentColor" className="github-star-glyph" />
         {formatStars(stars)}
       </span>
     </button>
@@ -138,7 +138,7 @@ function DiscordButton() {
       title="Join NextBrowser on Discord"
       aria-label="Join NextBrowser on Discord"
     >
-      <DiscordMark size={21} />
+      <DiscordMark size={18} />
     </button>
   );
 }
