@@ -23,6 +23,7 @@ export function ScheduledRunsPanel() {
   const [editor, setEditor] = useState<ScheduledRun | "new" | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ScheduledRun | null>(null);
   const [menuRunId, setMenuRunId] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   // Auto-scroll the open action menu into view so it's never clipped by the
   // scrollable sidebar when it pops up near the bottom.
@@ -38,16 +39,25 @@ export function ScheduledRunsPanel() {
 
   return (
     <div className="claw-card scheduled-panel">
-      <div className="row">
-        <div className="section">SCHEDULED RUNS</div>
-        <button className="plain-icon-btn" title="New schedule" onClick={() => setEditor("new")}>
+      <div className="row scheduled-panel-head">
+        <button
+          className="scheduled-panel-toggle"
+          title={expanded ? "Hide scheduled runs" : "Show scheduled runs"}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <Icon name={expanded ? "chevron.down" : "chevron.right"} size={13} />
+          <span className="section">SCHEDULED RUNS</span>
+          {runs.length > 0 && <span className="profiles-count" title="Scheduled runs">{runs.length}</span>}
+        </button>
+        <button className="plain-icon-btn" title="New schedule" onClick={() => { setExpanded(true); setEditor("new"); }}>
           <Icon name="plus.circle" size={18} />
         </button>
       </div>
-      {runs.length === 0 ? (
-        <div className="muted small">No schedules yet. Automate daily parses or checks.</div>
-      ) : (
-        runs.map((run) => (
+      {expanded && (runs.length === 0 ? (
+          <div className="muted small scheduled-empty">No schedules yet. Automate daily parses or checks.</div>
+        ) : (
+          runs.map((run) => (
           <div key={run.id} className="schedule-row">
             <div className="schedule-info">
               <div className="schedule-title">{run.title}</div>
@@ -97,8 +107,8 @@ export function ScheduledRunsPanel() {
               </>
             )}
           </div>
-        ))
-      )}
+          ))
+        ))}
 
       {editor && (
         <ScheduleEditor
