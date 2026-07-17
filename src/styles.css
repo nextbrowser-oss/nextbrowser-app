@@ -491,6 +491,65 @@ button, input, textarea, select { color: var(--text); }
   background: color-mix(in srgb, var(--accent) 13%, transparent);
   color: var(--accent-text);
 }
+.sidebar-profiles-list-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sidebar-profiles-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sidebar-profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.sidebar-profile-row,
+.sidebar-profile-empty {
+  width: 100%;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 5px 5px 7px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.sidebar-profile-row {
+  cursor: pointer;
+}
+.sidebar-profile-row:hover,
+.sidebar-profile-empty:hover {
+  background: var(--surface-2);
+}
+.sidebar-profile-row.selected {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.sidebar-profile-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sidebar-profile-name-line {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.sidebar-profile-name-line .profile-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .status-dot {
   width: 7px;
   height: 7px;
