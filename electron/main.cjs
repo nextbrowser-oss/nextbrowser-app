@@ -13,8 +13,13 @@ const execFileAsync = promisify(execFile);
 const children = new Map();
 const remoteSignalSockets = new Map();
 const APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const NEXTCTL_RELEASE_BASE = "https://github.com/nextbrowser-oss/nbc_releases/releases/latest/download";
+const DEFAULT_API_BASE_URL = "https://api.clawbrowser.ai";
+const DEEP_LINK_PROTOCOL = "nextbrowser";
 let appUpdateStatus = { status: "idle" };
 let appUpdateTimer = null;
+let nextctlInstallStatus = { status: "idle" };
+let nextctlInstallPromise = null;
 
 function home() { return os.homedir(); }
 function executableNames(name) {
@@ -88,18 +93,43 @@ function findBinaryUnderRoots(name, roots) {
   }
   return null;
 }
+function binaryFallbackRoots(name) {
+  const h = home();
+  const roots = [];
+  if (process.platform === "win32" && ["codex", "claude"].includes(name)) {
+    roots.push(path.join(h, `.${name}`));
+  }
+  if (name !== "codex") return roots;
+
+  if (process.platform === "darwin") {
+    for (const appName of ["ChatGPT", "Codex"]) {
+      roots.push(
+        path.join("/Applications", `${appName}.app`, "Contents", "Resources"),
+        path.join(h, "Applications", `${appName}.app`, "Contents", "Resources"),
+      );
+    }
+  }
+  if (process.platform === "win32") {
+    const appNames = ["ChatGPT", "Codex"];
+    const programDirs = [
+      process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Programs"),
+      process.env.LOCALAPPDATA,
+      process.env.PROGRAMFILES,
+      process.env["PROGRAMFILES(X86)"],
+    ].filter(Boolean);
+    for (const dir of programDirs) {
+      for (const appName of appNames) roots.push(path.join(dir, appName));
+    }
+  }
+  return [...new Set(roots)];
+}
 function resolveBinary(name, envVar) {
   if (envVar && process.env[envVar] && launchable(expand(process.env[envVar]))) return expand(process.env[envVar]);
   for (const dir of searchDirs()) for (const candidate of executableNames(name)) {
     const file = path.join(dir, candidate); if (launchable(file)) return file;
   }
-  if (process.platform === "win32" && ["codex", "claude"].includes(name)) {
-    const found = findBinaryUnderRoots(name, [path.join(home(), ".codex"), path.join(home(), ".claude")]);
-    if (found) return found;
-  }
-  if (process.platform === "darwin" && name === "codex") {
-    for (const file of ["/Applications/Codex.app/Contents/Resources/codex", path.join(home(), "Applications/Codex.app/Contents/Resources/codex")]) if (launchable(file)) return file;
-  }
+  const fallback = findBinaryUnderRoots(name, binaryFallbackRoots(name));
+  if (fallback) return fallback;
   if (process.platform !== "win32" && name === "hermes") {
     const file = path.join(home(), ".hermes/hermes-agent/.venv/bin/hermes"); if (launchable(file)) return file;
   }
@@ -121,16 +151,114 @@ async function run(binary, args, extraEnv = {}) {
     return { stdout: error.stdout || "", stderr: error.stderr || error.message || "", code: Number.isInteger(error.code) ? error.code : -1 };
   }
 }
-async function clawctlHasSkill(binary) {
+async function nextctlHasSkill(binary) {
   const r = await run(binary, ["--help"]); return `${r.stdout}\n${r.stderr}`.includes("\n  skill");
 }
-async function resolveClawctl() {
-  if (process.env.CLAWCTL_BIN && launchable(expand(process.env.CLAWCTL_BIN))) return expand(process.env.CLAWCTL_BIN);
+function setNextctlInstallStatus(status, patch = {}) {
+  nextctlInstallStatus = { status, ...patch, updatedAt: Date.now() };
+  emit("nextctl:install", nextctlInstallStatus);
+}
+function managedNextctlRoot() {
+  return path.join(app.getPath("userData"), "managed-nextctl");
+}
+function managedNextctlBin() {
+  return process.platform === "win32"
+    ? path.join(managedNextctlRoot(), "nextctl.exe")
+    : path.join(managedNextctlRoot(), "nextctl");
+}
+function nextctlPlatformArchive() {
+  const arch = os.arch();
+  if (process.platform === "darwin") {
+    if (arch === "arm64") return { name: "nbc-macos-arm64.tar.gz", kind: "tar" };
+    if (arch === "x64") return { name: "nbc-macos-amd64.tar.gz", kind: "tar" };
+  }
+  if (process.platform === "linux") {
+    if (arch === "arm64") return { name: "nbc-linux-arm64.tar.gz", kind: "tar" };
+    if (arch === "x64") return { name: "nbc-linux-amd64.tar.gz", kind: "tar" };
+  }
+  if (process.platform === "win32" && arch === "x64") return { name: "nbc-win-amd64.zip", kind: "zip" };
+  throw new Error(`Unsupported nextctl platform: ${process.platform}/${arch}`);
+}
+function findNextctlInTree(root) {
+  return findBinaryUnderRoots("nextctl", [root]) || findBinaryUnderRoots("nbc", [root]);
+}
+async function downloadFile(url, target) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Download failed (${response.status})`);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  await fs.writeFile(target, buffer);
+}
+async function extractArchive(archive, kind, targetDir) {
+  await fs.rm(targetDir, { recursive: true, force: true });
+  await fs.mkdir(targetDir, { recursive: true });
+  if (kind === "tar") {
+    const result = await run("tar", ["-xzf", archive, "-C", targetDir]);
+    if (result.code !== 0) throw new Error((result.stderr || result.stdout || "tar extraction failed").trim());
+    return;
+  }
+  if (process.platform === "win32") {
+    const result = await run("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", `Expand-Archive -Force ${JSON.stringify(archive)} ${JSON.stringify(targetDir)}`]);
+    if (result.code !== 0) throw new Error((result.stderr || result.stdout || "zip extraction failed").trim());
+    return;
+  }
+  const result = await run("unzip", ["-q", archive, "-d", targetDir]);
+  if (result.code !== 0) throw new Error((result.stderr || result.stdout || "zip extraction failed").trim());
+}
+async function installManagedNextctl() {
+  if (nextctlInstallPromise) return nextctlInstallPromise;
+  nextctlInstallPromise = (async () => {
+    setNextctlInstallStatus("downloading");
+    const archive = nextctlPlatformArchive();
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-nextctl-"));
+    const archivePath = path.join(tempDir, archive.name);
+    try {
+      await downloadFile(`${NEXTCTL_RELEASE_BASE}/${archive.name}`, archivePath);
+      setNextctlInstallStatus("installing");
+      const extractDir = path.join(tempDir, "extract");
+      await extractArchive(archivePath, archive.kind, extractDir);
+      const extracted = findNextctlInTree(extractDir);
+      if (!extracted) throw new Error("Downloaded nextctl archive did not contain a nextctl binary.");
+      await fs.mkdir(managedNextctlRoot(), { recursive: true });
+      await fs.copyFile(extracted, managedNextctlBin());
+      if (process.platform !== "win32") await fs.chmod(managedNextctlBin(), 0o755);
+      const version = await run(managedNextctlBin(), ["version"]);
+      if (version.code !== 0) throw new Error((version.stderr || version.stdout || "nextctl version check failed").trim());
+      setNextctlInstallStatus("ready", { path: managedNextctlBin(), version: version.stdout.trim() });
+      return managedNextctlBin();
+    } catch (error) {
+      setNextctlInstallStatus("failed", { message: error?.message || String(error) });
+      throw error;
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+      nextctlInstallPromise = null;
+    }
+  })();
+  return nextctlInstallPromise;
+}
+async function resolveNextctl() {
+  if (process.env.NEXTCTL_BIN && launchable(expand(process.env.NEXTCTL_BIN))) return expand(process.env.NEXTCTL_BIN);
   const candidates = [];
-  const dev = path.join(home(), "projects/ClawBrowser/clawctl/bin/clawctl"); if (launchable(dev)) candidates.push(dev);
-  for (const dir of searchDirs()) for (const name of executableNames("clawctl")) { const f = path.join(dir, name); if (launchable(f)) candidates.push(f); }
-  for (const candidate of [...new Set(candidates)]) if (await clawctlHasSkill(candidate)) return candidate;
+  const dev = path.join(home(), "projects/ClawBrowser/nextctl/bin/nextctl");
+  const nbcDev = path.join(home(), "projects/ClawBrowser/nextctl/bin/nbc");
+  if (!app.isPackaged) {
+    if (launchable(dev)) candidates.push(dev);
+    if (launchable(nbcDev)) candidates.push(nbcDev);
+  }
+  const managed = managedNextctlBin(); if (launchable(managed)) candidates.push(managed);
+  if (launchable(dev)) candidates.push(dev);
+  for (const dir of searchDirs()) for (const name of executableNames("nextctl")) { const f = path.join(dir, name); if (launchable(f)) candidates.push(f); }
+  if (launchable(nbcDev)) candidates.push(nbcDev);
+  for (const dir of searchDirs()) for (const name of executableNames("nbc")) { const f = path.join(dir, name); if (launchable(f)) candidates.push(f); }
+  for (const candidate of [...new Set(candidates)]) if (await nextctlHasSkill(candidate)) return candidate;
   return candidates[0] || null;
+}
+async function resolveOrInstallNextctl() {
+  const existing = await resolveNextctl();
+  if (existing) {
+    setNextctlInstallStatus("ready", { path: existing });
+    return existing;
+  }
+  return installManagedNextctl();
 }
 function dataDir() { return path.join(app.getPath("userData")); }
 async function migrateLegacyData() {
@@ -144,6 +272,31 @@ function safeName(name) {
   return name;
 }
 function emit(channel, payload) { for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channel, payload); }
+function focusMainWindow() {
+  const window = BrowserWindow.getAllWindows()[0];
+  if (!window) return null;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+  return window;
+}
+function handleDeepLink(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== "string") return false;
+  let parsed;
+  try { parsed = new URL(rawUrl); }
+  catch { return false; }
+  if (parsed.protocol !== `${DEEP_LINK_PROTOCOL}:`) return false;
+  const payload = {
+    url: rawUrl,
+    host: parsed.host,
+    pathname: parsed.pathname,
+    pairingId: parsed.searchParams.get("pairing_id") || "",
+    status: parsed.searchParams.get("status") || "",
+  };
+  focusMainWindow();
+  emit("auth:deeplink", payload);
+  return true;
+}
 function quotePosix(value) { return `'${String(value).replaceAll("'", "'\\''")}'`; }
 function setAppUpdateStatus(status, patch = {}) {
   appUpdateStatus = { status, ...patch, updatedAt: Date.now() };
@@ -198,6 +351,29 @@ function startAutoUpdater() {
   if (appUpdateTimer) clearInterval(appUpdateTimer);
   appUpdateTimer = setInterval(() => { void checkForAppUpdate(); }, APP_UPDATE_CHECK_INTERVAL_MS);
 }
+function apiBaseURL(raw) {
+  return String(raw || process.env.CLAWBROWSER_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/$/, "");
+}
+async function apiFetchJSON(baseURL, route, options = {}) {
+  const response = await fetch(`${apiBaseURL(baseURL)}${route}`, {
+    ...options,
+    headers: {
+      "content-type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+  const text = await response.text();
+  let body = null;
+  if (text.trim()) {
+    try { body = JSON.parse(text); }
+    catch { body = { message: text }; }
+  }
+  if (!response.ok) {
+    const message = body?.message || body?.error || `API request failed (${response.status})`;
+    throw new Error(message);
+  }
+  return body;
+}
 
 async function invokeCommand(command, args = {}) {
   switch (command) {
@@ -233,16 +409,40 @@ async function invokeCommand(command, args = {}) {
         return false;
       }
     }
-    case "clawctl_resolve": return await resolveClawctl();
-    case "clawctl_run": {
-      const bin = await resolveClawctl(); if (!bin) throw new Error("clawctl not found. Install Clawbrowser CLI or set CLAWCTL_BIN.");
+    case "nextctl_resolve": return await resolveOrInstallNextctl();
+    case "nextctl_install_status": return nextctlInstallStatus;
+    case "nextctl_run": {
+      const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("nextctl not found. Install Clawbrowser CLI or set NEXTCTL_BIN.");
       return run(bin, args.args || [], args.extraEnv || {});
     }
-    case "clawctl_version": {
-      const bin = await resolveClawctl(); if (!bin) throw new Error("not found");
+    case "nextctl_version": {
+      const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found");
       const r = await run(bin, ["version"]); return r.stdout.trim();
     }
-    case "clawctl_supports_skill": { const bin = await resolveClawctl(); if (!bin) throw new Error("not found"); return clawctlHasSkill(bin); }
+    case "nextctl_supports_skill": { const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found"); return nextctlHasSkill(bin); }
+    case "pairing_start": {
+      return apiFetchJSON(args.apiBaseUrl, "/v1/pairing-requests/browser", {
+        method: "POST",
+        body: JSON.stringify({
+          display_name: args.displayName || os.hostname() || "NextBrowser Desktop",
+          runtime_name: "nextbrowser-desktop",
+          version: args.version || app.getVersion(),
+          platform: process.platform,
+          os: `${process.platform} ${os.release()}`,
+          hostname: os.hostname(),
+          metadata: { app: "NextBrowser" },
+        }),
+      });
+    }
+    case "pairing_poll": {
+      const id = encodeURIComponent(String(args.pairingId || ""));
+      const token = encodeURIComponent(String(args.pollToken || ""));
+      return apiFetchJSON(args.apiBaseUrl, `/v1/pairing-requests/${id}?poll_token=${token}`);
+    }
+    case "open_external": {
+      await shell.openExternal(String(args.url || ""));
+      return null;
+    }
     case "agent_authorize": {
       const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} CLI not found.`);
       const r = await run(bin, ["--version"]); if (r.code !== 0) throw new Error(`${args.binary} is not ready: ${(r.stdout + r.stderr).trim()}`);
@@ -253,7 +453,8 @@ async function invokeCommand(command, args = {}) {
       const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} CLI not found.`);
       const r = await run(bin, args.statusArgs); const text = `${r.stdout}${r.stderr}`.toLowerCase();
       if (["not logged in", "logged out", "please run", "not authenticated"].some((v) => text.includes(v))) return false;
-      if (["logged in", "authenticated", "account", "email", "subscription", "api key"].some((v) => text.includes(v))) return true;
+      if (["logged in", "authenticated", "account", "email", "subscription"].some((v) => text.includes(v))) return true;
+      if (text.includes("api") && text.includes("key")) return true;
       return r.code === 0;
     }
     case "open_terminal_login": {
@@ -443,14 +644,34 @@ function createWindow() {
   else window.loadFile(path.join(__dirname, "..", "dist", "index.html"));
 }
 
-app.whenReady().then(() => {
-  return migrateLegacyData();
-}).then(() => {
-  applyAppIcon();
-  ipcMain.handle("nextbrowser:invoke", (_event, command, args) => invokeCommand(command, args));
-  createWindow();
-  startAutoUpdater();
-  app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on("second-instance", (_event, argv) => {
+    focusMainWindow();
+    for (const arg of argv) handleDeepLink(arg);
+  });
+  app.whenReady().then(() => {
+    return migrateLegacyData();
+  }).then(() => {
+    applyAppIcon();
+    if (process.defaultApp) {
+      const script = process.argv[1];
+      if (script) app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [script]);
+    } else {
+      app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
+    }
+    ipcMain.handle("nextbrowser:invoke", (_event, command, args) => invokeCommand(command, args));
+    createWindow();
+    for (const arg of process.argv) handleDeepLink(arg);
+    startAutoUpdater();
+    app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  });
+}
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  handleDeepLink(url);
 });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 app.on("before-quit", () => {

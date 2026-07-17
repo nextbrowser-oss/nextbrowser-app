@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "./store";
 import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
@@ -6,13 +6,15 @@ import { SkillsView } from "./components/SkillsView";
 import { LiveView } from "./components/LiveView";
 import { UsageView } from "./components/UsageView";
 import { GuideView } from "./components/GuideView";
+import { ScheduledRunsPanel } from "./components/ScheduledRunsPanel";
 import { OnboardingView } from "./components/OnboardingView";
 import { DashboardKeyModal } from "./components/DashboardKeyModal";
 import { BrandLogo } from "./components/BrandLogo";
 import { Icon, Spinner } from "./components/Icon";
-import { brandName, dashboardUrl, latestReleaseUrl, repoUrl } from "./constants";
+import { AgentPicker } from "./components/AgentPicker";
+import { brandName, dashboardUrl, discordUrl, latestReleaseUrl, repoApiUrl, repoUrl } from "./constants";
 import { getPreviewMode, getPreviewTab } from "./preview";
-import type { AppTab, Conversation } from "./types";
+import { humanBytes, proxyFraction, type AppTab, type Conversation } from "./types";
 import { resolveTheme, type Theme } from "./theme";
 import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
 import { invoke, listen } from "./electronBridge";
@@ -20,13 +22,10 @@ import { agentById } from "./agents";
 
 const TABS: { id: AppTab; label: string; icon: string }[] = [
   { id: "chat", label: "Chat", icon: "bubble.left.and.bubble.right.fill" },
-  { id: "skills", label: "Skills", icon: "square.grid.2x2.fill" },
   { id: "live", label: "Live", icon: "video.fill" },
-  { id: "usage", label: "Usage", icon: "chart.bar.fill" },
-  { id: "guide", label: "Guide", icon: "book.fill" },
 ];
 
-const PREVIEW_TABS = new Set<string>(["chat", "skills", "live", "usage", "guide"]);
+const PREVIEW_TABS = new Set<string>(["chat", "skills", "live", "usage", "guide", "scheduled"]);
 
 interface AppUpdateStatus {
   status?: string;
@@ -97,24 +96,78 @@ function GithubMark({ size = 15 }: { size?: number }) {
   );
 }
 
-function GithubStarButton() {
+function DiscordMark({ size = 17 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden focusable="false">
+      <path d="M20.32 4.37A19.8 19.8 0 0 0 15.36 2.8a.08.08 0 0 0-.09.04c-.21.38-.45.88-.62 1.27a18.38 18.38 0 0 0-5.5 0 12.38 12.38 0 0 0-.63-1.27.08.08 0 0 0-.09-.04 19.73 19.73 0 0 0-4.96 1.57.07.07 0 0 0-.03.03C.31 9.1-.55 13.68-.13 18.21c0 .02.01.05.03.06a19.9 19.9 0 0 0 6.08 3.07.08.08 0 0 0 .09-.03c.47-.64.88-1.31 1.24-2.01a.08.08 0 0 0-.04-.11 13.04 13.04 0 0 1-1.9-.91.08.08 0 0 1-.01-.13c.13-.09.25-.19.37-.29a.08.08 0 0 1 .08-.01c3.98 1.82 8.3 1.82 12.24 0a.08.08 0 0 1 .08.01c.12.1.25.2.38.29a.08.08 0 0 1-.01.13c-.6.36-1.23.66-1.9.91a.08.08 0 0 0-.04.11c.36.7.77 1.37 1.24 2.01a.08.08 0 0 0 .09.03 19.84 19.84 0 0 0 6.08-3.07.08.08 0 0 0 .03-.06c.5-5.23-.84-9.77-3.63-13.81a.06.06 0 0 0-.03-.03ZM8.02 15.45c-1.2 0-2.18-1.1-2.18-2.45s.96-2.45 2.18-2.45c1.23 0 2.2 1.11 2.18 2.45 0 1.35-.96 2.45-2.18 2.45Zm7.96 0c-1.2 0-2.18-1.1-2.18-2.45s.96-2.45 2.18-2.45c1.23 0 2.2 1.11 2.18 2.45 0 1.35-.95 2.45-2.18 2.45Z" />
+    </svg>
+  );
+}
+
+function formatStars(count?: number | null): string {
+  if (count == null) return "5";
+  if (count < 1000) return `${count}`;
+  const rounded = count < 10_000 ? Math.round(count / 100) / 10 : Math.round(count / 1000);
+  return `${rounded}k`;
+}
+
+function GithubStarButton({ stars }: { stars?: number | null }) {
   const label = "Star NextBrowser on GitHub";
   return (
     <button
-      className="github-star-btn"
+      className="social-button github-star-btn"
       onClick={() => window.open(repoUrl, "_blank", "noopener,noreferrer")}
       title={label}
       aria-label={label}
     >
-      <GithubMark size={15} />
-      <Icon name="star.fill" size={12} fill="currentColor" className="github-star-glyph" />
-      <span>Star</span>
+      <GithubMark size={17} />
+      <span className="github-star-count">
+        <Icon name="star.fill" size={11} fill="currentColor" className="github-star-glyph" />
+        {formatStars(stars)}
+      </span>
     </button>
+  );
+}
+
+function DiscordButton() {
+  return (
+    <button
+      className="social-button discord-button"
+      onClick={() => window.open(discordUrl, "_blank", "noopener,noreferrer")}
+      title="Join NextBrowser on Discord"
+      aria-label="Join NextBrowser on Discord"
+    >
+      <DiscordMark size={18} />
+    </button>
+  );
+}
+
+function SocialButtons() {
+  const [stars, setStars] = useState<number | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(repoApiUrl, { signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { stargazers_count?: number } | null) => {
+        if (typeof data?.stargazers_count === "number") setStars(data.stargazers_count);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
+  return (
+    <div className="social-buttons">
+      <GithubStarButton stars={stars} />
+      <DiscordButton />
+    </div>
   );
 }
 
 function SettingsModal({
   onClose,
+  onOpenUsage,
+  focus,
   appUpdate,
   manualUpdate,
   onCheckUpdate,
@@ -123,6 +176,8 @@ function SettingsModal({
   onOpenRelease,
 }: {
   onClose: () => void;
+  onOpenUsage: () => void;
+  focus?: "agent" | null;
   appUpdate: AppUpdateStatus;
   manualUpdate: boolean;
   onCheckUpdate: () => void;
@@ -130,11 +185,16 @@ function SettingsModal({
   onInstallUpdate: () => void;
   onOpenRelease: () => void;
 }) {
-  const clawctlVersion = useStore((s) => s.clawctlVersion);
-  const clawctlSupportsSkill = useStore((s) => s.clawctlSupportsSkill);
+  const nextctlVersion = useStore((s) => s.nextctlVersion);
+  const nextctlSupportsSkill = useStore((s) => s.nextctlSupportsSkill);
   const agentId = useStore((s) => s.agentId);
   const agentReady = useStore((s) => s.agentReady());
   const agentVersion = useStore((s) => s.agentVersion());
+  const agentError = useStore((s) => s.agentError());
+  const agentLoggedIn = useStore((s) => s.agentLoggedIn());
+  const authorizeAgent = useStore((s) => s.authorizeAgent);
+  const loginAgent = useStore((s) => s.loginAgent);
+  const logoutAgent = useStore((s) => s.logoutAgent);
   const profiles = useStore((s) => {
     const defaultKnown = !!s.defaultSession?.session?.name || (s.defaultSession?.status ?? "unknown") !== "unknown";
     const hasListedDefault = s.profiles.some((profile) => profile.name === "default");
@@ -143,6 +203,9 @@ function SettingsModal({
   const proxy = useStore((s) => s.proxy);
   const logout = useStore((s) => s.logout);
   const agentName = agentById(agentId).name;
+  const proxyUsed = proxy ? humanBytes(proxy.used_bytes) : "Locked";
+  const proxyLimit = proxy?.limit_bytes ? humanBytes(proxy.limit_bytes) : proxy ? "unlimited" : "Sign in";
+  const proxyPercent = proxy?.limited ? Math.round(proxyFraction(proxy) * 100) : null;
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
@@ -202,23 +265,13 @@ function SettingsModal({
             </div>
           </div>
           <div className="settings-row">
-            <span className="muted small">clawctl</span>
-            <strong>{clawctlVersion || "not detected"}</strong>
-          </div>
-          <div className="settings-row">
-            <span className="muted small">Active agent</span>
-            <strong>{agentName}</strong>
-          </div>
-          <div className="settings-row">
-            <span className="muted small">Agent status</span>
-            <span className={agentReady ? "ok small" : "muted small"}>
-              {agentReady ? agentVersion || "connected" : "not connected"}
-            </span>
+            <span className="muted small">nextctl</span>
+            <strong>{nextctlVersion || "not detected"}</strong>
           </div>
           <div className="settings-row">
             <span className="muted small">Skill install</span>
-            <span className={clawctlSupportsSkill ? "ok small" : "warn small"}>
-              {clawctlSupportsSkill ? "supported" : "needs update"}
+            <span className={nextctlSupportsSkill ? "ok small" : "warn small"}>
+              {nextctlSupportsSkill ? "supported" : "needs update"}
             </span>
           </div>
           <div className="settings-row">
@@ -234,16 +287,61 @@ function SettingsModal({
         </div>
 
         <div className="settings-section">
-          <a
-            className="settings-link"
-            href={dashboardUrl}
-            target="_blank"
-            rel="noreferrer"
-            onClick={() => trackEvent("dashboard_opened", { source: "settings" })}
+          <div className={"settings-agent-card" + (focus === "agent" ? " settings-agent-card-focused" : "")}>
+            <div className="settings-agent-head">
+              <span className="settings-feature-icon">
+                <Icon name="cpu.fill" size={17} />
+              </span>
+              <span className="settings-feature-copy">
+                <strong>Agent</strong>
+                <span className="muted small">Choose the local agent used for chats, skills, and scheduled runs.</span>
+              </span>
+              <span className={"agent-state-pill" + (agentReady ? " is-ready" : "")}>
+                {agentReady ? "Ready" : "Offline"}
+              </span>
+            </div>
+            <div className="settings-agent-picker-row">
+              <AgentPicker label="Active" />
+              <span className="muted small">{agentReady ? agentVersion || "connected" : `${agentName} is not connected`}</span>
+            </div>
+            <div className="settings-agent-actions">
+              {!agentReady && (
+                <button className="mini primary-mini" title={`Connect ${agentName}`} onClick={() => authorizeAgent()}>
+                  Connect
+                </button>
+              )}
+              {agentReady && agentLoggedIn !== true && (
+                <button className="mini" title={`Open ${agentName} login`} onClick={() => loginAgent()}>
+                  Login
+                </button>
+              )}
+              {agentReady && agentLoggedIn === true && agentById(agentId).logoutArgs.length > 0 && (
+                <button className="mini" title={`Sign out of ${agentName}`} onClick={() => logoutAgent()}>
+                  Logout
+                </button>
+              )}
+            </div>
+            {agentError && <div className="error small settings-agent-error">{agentError}</div>}
+          </div>
+          <button
+            className="settings-feature-link"
+            onClick={() => {
+              onOpenUsage();
+              onClose();
+            }}
           >
-            <span>Open dashboard</span>
-            <Icon name="arrow.up.forward.app" size={14} />
-          </a>
+            <span className="settings-feature-icon">
+              <Icon name="chart.bar.fill" size={17} />
+            </span>
+            <span className="settings-feature-copy">
+              <strong>Proxy usage</strong>
+              <span className="muted small">
+                {proxy ? `${proxyUsed} / ${proxyLimit}` : "Traffic, allocation, and usage history"}
+              </span>
+            </span>
+            {proxyPercent != null && <span className="status-pill">{proxyPercent}%</span>}
+            <Icon name="chevron.right" size={14} className="muted" />
+          </button>
           <button
             className="settings-link settings-link-danger"
             onClick={() => {
@@ -348,6 +446,7 @@ export function App() {
     window.matchMedia("(prefers-color-scheme: light)").matches,
   ));
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsFocus, setSettingsFocus] = useState<"agent" | null>(null);
   const [appUpdate, setAppUpdate] = useState<AppUpdateStatus>({ status: "idle" });
   const [updatePromptDismissed, setUpdatePromptDismissed] = useState(false);
   const preview = getPreviewMode();
@@ -360,6 +459,7 @@ export function App() {
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
   const setSidebarWidth = useStore((s) => s.setSidebarWidth);
   const setAppActive = useStore((s) => s.setAppActive);
+  const didTrackThemeChange = useRef(false);
   useButtonTooltips();
 
   const checkAppUpdate = () => {
@@ -378,6 +478,14 @@ export function App() {
   const openLatestRelease = () => {
     trackEvent("app_update_open_release", { version: appUpdate.version ?? undefined });
     window.open(latestReleaseUrl, "_blank", "noopener,noreferrer");
+  };
+  const openSettings = (focus: "agent" | null = null) => {
+    setSettingsFocus(focus);
+    setSettingsOpen(true);
+  };
+  const closeSettings = () => {
+    setSettingsOpen(false);
+    setSettingsFocus(null);
   };
 
   useEffect(() => {
@@ -434,6 +542,10 @@ export function App() {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
     localStorage.setItem("nextbrowser.theme", theme);
+    if (!didTrackThemeChange.current) {
+      didTrackThemeChange.current = true;
+      return;
+    }
     trackEvent("theme_changed", { theme });
   }, [theme]);
 
@@ -443,7 +555,7 @@ export function App() {
       return;
     }
     if (preview === "onboarding") {
-      useStore.setState({ checking: false, authed: true, showOnboarding: true, clawctlVersion: "1.0.0" });
+      useStore.setState({ checking: false, authed: true, showOnboarding: true, nextctlVersion: "1.0.0" });
       return;
     }
     if (preview === "main") {
@@ -484,8 +596,8 @@ export function App() {
       useStore.setState({
         checking: false,
         authed: true,
-        clawctlVersion: "1.0.0",
-        clawctlSupportsSkill: true,
+        nextctlVersion: "1.0.0",
+        nextctlSupportsSkill: true,
         agentId: "claude",
         conversations: previewConvs,
         usageHistory: previewUsage,
@@ -544,13 +656,15 @@ export function App() {
     return (
       <>
         <div className="floating-controls">
-          <GithubStarButton />
-          <SettingsButton onClick={() => setSettingsOpen(true)} hasUpdate={updateAvailable(appUpdate)} />
+          <SocialButtons />
+          <SettingsButton onClick={() => openSettings()} hasUpdate={updateAvailable(appUpdate)} />
           <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
         </div>
         {settingsOpen && (
           <SettingsModal
-            onClose={() => setSettingsOpen(false)}
+            onClose={closeSettings}
+            onOpenUsage={() => setTab("usage")}
+            focus={settingsFocus}
             appUpdate={appUpdate}
             manualUpdate={MANUAL_UPDATE}
             onCheckUpdate={checkAppUpdate}
@@ -575,7 +689,7 @@ export function App() {
         className={"sidebar thin-material" + (sidebarCollapsed ? " sidebar-collapsed" : "")}
         style={{ width: sidebarCollapsed ? 68 : sidebarWidth }}
       >
-        <Sidebar />
+        <Sidebar onOpenAgentSettings={() => openSettings("agent")} />
       </aside>
       {!sidebarCollapsed && <div id="sidebar-resize" className="resize-handle" />}
       <main className="content">
@@ -598,8 +712,8 @@ export function App() {
           </div>
           <span className="tabbar-spacer" />
           <div className="tabbar-controls">
-            <GithubStarButton />
-            <SettingsButton onClick={() => setSettingsOpen(true)} hasUpdate={updateAvailable(appUpdate)} />
+            <SocialButtons />
+            <SettingsButton onClick={() => openSettings()} hasUpdate={updateAvailable(appUpdate)} />
             <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
           </div>
         </nav>
@@ -610,11 +724,18 @@ export function App() {
           {tab === "live" && <LiveView />}
           {tab === "usage" && <UsageView />}
           {tab === "guide" && <GuideView />}
+          {tab === "scheduled" && (
+            <div className="page scheduled-page">
+              <ScheduledRunsPanel asPage />
+            </div>
+          )}
         </div>
       </main>
       {settingsOpen && (
         <SettingsModal
-          onClose={() => setSettingsOpen(false)}
+          onClose={closeSettings}
+          onOpenUsage={() => setTab("usage")}
+          focus={settingsFocus}
           appUpdate={appUpdate}
           manualUpdate={MANUAL_UPDATE}
           onCheckUpdate={checkAppUpdate}

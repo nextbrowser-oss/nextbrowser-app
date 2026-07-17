@@ -74,7 +74,7 @@ function LaunchBrowserDemo({ phase }: { phase: number }) {
           <span className="spacer" />
           <span className="ok small">Claude Code</span>
         </div>
-        <DemoChatBubble text="Open NextBrowser and go to amazon.com" opacity={chatOpacity} />
+        <DemoChatBubble text="Open Clawbrowser and go to amazon.com" opacity={chatOpacity} />
         <DemoChatBubble
           text="Starting session… opening amazon.com"
           side="assistant"
@@ -131,7 +131,7 @@ function SpanishProxyDemo({ phase }: { phase: number }) {
           )}
         </div>
         <div className="demo-proxy-main">
-          <DemoChatBubble text="Start NextBrowser with a proxy (ES)" />
+          <DemoChatBubble text="Start Clawbrowser with a proxy (ES)" />
           {esSelected && (
             <div className="demo-es-badge">🇪🇸 Spain ✓</div>
           )}
@@ -230,17 +230,17 @@ function CaptchaSolveDemo({ phase }: { phase: number }) {
 
 const DEMOS = [
   {
-    title: "Launch NextBrowser",
-    caption: "Ask the agent in chat — it opens a managed browser session for you.",
+    title: "Launch Clawbrowser",
+    caption: "Ask the agent in chat — it opens a managed Clawbrowser session for you.",
     tint: "#5ac8fa",
-    tryPrompt: "Open NextBrowser and navigate to amazon.com/deals",
+    tryPrompt: "Open Clawbrowser and navigate to amazon.com/deals",
     Demo: LaunchBrowserDemo,
   },
   {
     title: "Proxy",
     caption: "Rotate country to ES so the session exits through Spain.",
     tint: "#ff9500",
-    tryPrompt: "Using the clawctl CLI, rotate the active browser profile to Spain (ES) with --verify, then start the session and confirm the proxy country.",
+    tryPrompt: "Using the nextctl CLI, rotate the active browser profile to Spain (ES) with --verify, then start the session and confirm the proxy country.",
     Demo: SpanishProxyDemo,
   },
   {

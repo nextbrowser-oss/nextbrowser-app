@@ -141,16 +141,16 @@ describe("VPS prompt", () => {
     expect(prompt).toContain(VPS_PROMPT_MARKER);
     expect(hasVPSPromptMarker(prompt)).toBe(true);
     expect(prompt).toContain("strict remote-only mode");
-    expect(prompt).toContain("command -v clawctl");
-    expect(prompt).toContain("CLAWCTL_AUTO_UPDATE=0 clawctl version");
-    expect(prompt).not.toContain("clawctl doctor");
+    expect(prompt).toContain("command -v nextctl");
+    expect(prompt).toContain("NEXTCTL_AUTO_UPDATE=0 nextctl version");
+    expect(prompt).not.toContain("nextctl doctor");
     expect(prompt).toContain("perform only this read-only preflight");
     expect(prompt).toContain("already-installed Clawbrowser runtime");
     expect(prompt).toContain(
-      "Clawbrowser or clawctl is not installed on this VPS. Install Clawbrowser and clawctl on the VPS first, then retry.",
+      "Clawbrowser or nextctl is not installed on this VPS. Install Clawbrowser and nextctl on the VPS first, then retry.",
     );
     expect(prompt).toContain("Do not install, download, update, configure, initialize, repair, or start anything automatically.");
-    expect(prompt).toContain("prefix every remote `clawctl` invocation with `CLAWCTL_AUTO_UPDATE=0`");
+    expect(prompt).toContain("prefix every remote `nextctl` invocation with `NEXTCTL_AUTO_UPDATE=0`");
     expect(prompt).toContain("never fall back to local execution");
     expect(prompt).toContain(`${SSH_OPTIONS} deploy@203.0.113.10`);
     expect(prompt).toContain("deliberately does not load the source SSH config");
@@ -168,6 +168,6 @@ describe("VPS prompt", () => {
     expect(vpsConnectionInstructions(prompt)).not.toContain(
       "Open example.com and take a screenshot.",
     );
-    expect(vpsConnectionInstructions(prompt)).toContain("CLAWCTL_AUTO_UPDATE=0");
+    expect(vpsConnectionInstructions(prompt)).toContain("NEXTCTL_AUTO_UPDATE=0");
   });
 });

@@ -10,7 +10,7 @@ Scope: initial product UI review using the local `impeccable`, `emil-design-eng`
 | --- | --- | --- |
 | No product context file, so future design critique had no stable product lens. | Added `PRODUCT.md` with register, users, jobs, design direction, anti-references, and accessibility baseline. | Keeps design decisions tied to the actual product instead of subjective taste. |
 | Rotate icon used elastic/bounce easing. | Replaced with smooth ease-out timing. | A desktop operations tool should feel precise and stable, not playful. |
-| Settings modal only showed the app version. | Settings now shows app version, clawctl version, active agent, dashboard link, and sign-out. | The gear becomes a useful system/status surface without becoming a full settings area too early. |
+| Settings modal only showed the app version. | Settings now shows app version, nextctl version, active agent, dashboard link, and sign-out. | The gear becomes a useful system/status surface without becoming a full settings area too early. |
 | Modal rows were loose one-off layout. | Added consistent settings sections and rows. | Makes the surface easier to scan and gives future settings a clear pattern. |
 | Motion did not account for reduced-motion preference. | Added a reduced-motion CSS guard. | Aligns with product accessibility baseline and avoids unnecessary animation. |
 | Sidebar read as several equal cards. | Reworked it into a control stack with a compact status rail, clearer card titles, and quieter metadata. | Operators can scan agent/proxy/session health before choosing an action. |

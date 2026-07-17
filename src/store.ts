@@ -1,18 +1,18 @@
 import { create } from "zustand";
 import { invoke, listen } from "./electronBridge";
 import {
-  clawctlEnvelope as rawClawctlEnvelope,
-  clawctlErrorMessage,
-  clawctlJson as rawClawctlJson,
-  clawctlRun as rawClawctlRun,
+  nextctlEnvelope as rawNextctlEnvelope,
+  nextctlErrorMessage,
+  nextctlJson as rawNextctlJson,
+  nextctlRun as rawNextctlRun,
   type RunResult,
-} from "./clawctl";
+} from "./nextctl";
 import { prepareSession } from "./preflight";
 import {
   AGENTS,
   agentById,
   agentInvocation,
-  clawctlAgentAdapter,
+  nextctlAgentAdapter,
   type AgentSpec,
 } from "./agents";
 import {
@@ -26,10 +26,11 @@ import { composePrompt } from "./lib/composePrompt";
 import { executionTargetForTurn, type ExecutionTarget } from "./lib/executionTarget";
 import { hasVPSPromptMarker, vpsConnectionInstructions } from "./lib/vpsPrompt";
 import { promptWithAttachments } from "./lib/chatAttachments";
-import { normalizeClawctlVersion } from "./lib/version";
+import { normalizeNextctlVersion } from "./lib/version";
 import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
 import type { RemoteStreamInfo } from "./remoteControl";
 import { loadJson, saveJson } from "./lib/storage";
+import { apiBaseUrl } from "./constants";
 import {
   normalizeConversation,
   normalizeSchedule,
@@ -90,8 +91,41 @@ interface AgentRuntime {
 }
 
 interface AgentAuthorizationOptions {
-  skipClawctlSetup?: boolean;
-  deferMissingClawctlPrompt?: boolean;
+  skipNextctlSetup?: boolean;
+  deferMissingNextctlPrompt?: boolean;
+}
+
+interface PairingStartResponse {
+  pairing_id: string;
+  pairing_code: string;
+  verification_url: string;
+  status: string;
+  expires_at: string;
+  poll_after_ms: number;
+  poll_token: string;
+}
+
+interface PairingPollResponse {
+  pairing_id: string;
+  kind: "browser" | "agent";
+  status: "pending" | "approved" | "rejected" | "expired" | "completed";
+  expires_at: string;
+  poll_after_ms: number;
+  api_key?: string;
+}
+
+interface AccountPairingState {
+  pairingId: string;
+  pairingCode: string;
+  verificationUrl: string;
+  pollToken: string;
+  status: PairingPollResponse["status"];
+  expiresAt: string;
+}
+
+interface AuthDeepLinkPayload {
+  pairingId?: string;
+  status?: string;
 }
 
 function emptyRuntime(): AgentRuntime {
@@ -114,14 +148,14 @@ const STALL_MS = 120_000;
 const WATCHDOG_MS = 5_000;
 const PROXY_REFRESH_MS = 120_000;
 const SCHEDULE_TICK_MS = 30_000;
-const CLAWCTL_DAILY_UPDATE_MS = 24 * 60 * 60 * 1000;
-const CLAWCTL_DAILY_UPDATE_POLL_MS = 60 * 60 * 1000;
-const CLAWCTL_UPDATE_STATE_FILE = "clawctl-update.json";
+const NEXTCTL_DAILY_UPDATE_MS = 24 * 60 * 60 * 1000;
+const NEXTCTL_DAILY_UPDATE_POLL_MS = 60 * 60 * 1000;
+const NEXTCTL_UPDATE_STATE_FILE = "nextctl-update.json";
 
 function clawbrowserInstallPrompt(agentAdapter: string): string {
-  return `NextBrowser cannot find local clawctl/Clawbrowser components. Install them for this machine before doing browser work.
+  return `NextBrowser cannot find local nextctl/Clawbrowser components. Install them for this machine before doing browser work.
 
-Use the official clawctl release bootstrap, then install the browser runtime and this agent integration.
+Use the official nextctl release bootstrap, then install the browser runtime and this agent integration.
 
 On macOS/Linux:
 
@@ -132,26 +166,26 @@ case "$(uname -s):$(uname -m)" in
   Darwin:arm64) platform="macos-arm64" ;;
   *) echo "unsupported host: $(uname -s) $(uname -m)" >&2; exit 1 ;;
 esac
-archive="clawctl-\${platform}.tar.gz"
-url="https://github.com/clawbrowser/clawctl/releases/latest/download/\${archive}"
+archive="nbc-\${platform}.tar.gz"
+url="https://github.com/nextbrowser-oss/nbc_releases/releases/latest/download/\${archive}"
 curl -fL --retry 3 --retry-delay 2 -o "$archive" "$url"
 tar -xzf "$archive"
-"./clawctl-\${platform}/clawctl" install --agent ${agentAdapter} --no-api-key-prompt --json
+"./nbc-\${platform}/nbc" install --agent ${agentAdapter} --no-api-key-prompt --json
 \`\`\`
 
 On Windows PowerShell:
 
 \`\`\`powershell
-$archive = "clawctl-win-amd64.zip"
-$url = "https://github.com/clawbrowser/clawctl/releases/latest/download/$archive"
+$archive = "nbc-win-amd64.zip"
+$url = "https://github.com/nextbrowser-oss/nbc_releases/releases/latest/download/$archive"
 Invoke-WebRequest -Uri $url -OutFile $archive
-Remove-Item -Recurse -Force ".\\clawctl-win-amd64" -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force ".\\nbc-win-amd64" -ErrorAction SilentlyContinue
 Expand-Archive -Force $archive .
-$clawctl = ".\\clawctl-win-amd64\\clawctl.exe"
-& $clawctl install --agent ${agentAdapter} --no-api-key-prompt --json
+$nextctl = ".\\nbc-win-amd64\\nbc.exe"
+& $nextctl install --agent ${agentAdapter} --no-api-key-prompt --json
 \`\`\`
 
-If Windows asks for administrator approval, tell the user exactly that approval is needed. After install, run \`clawctl version\` and report the installed path. Do not invent backend API calls.`;
+If Windows asks for administrator approval, tell the user exactly that approval is needed. After install, run \`nextctl version\` and report the installed path. Do not invent backend API calls.`;
 }
 
 // Bound a single streamed reply so a looping/stuck agent that streams for hours
@@ -228,14 +262,14 @@ async function installedSkillMarkdown(ref?: SkillRef): Promise<string | undefine
 
 async function pullCatalogInstructions(entry: SkillEntry, preferredAgentId: string): Promise<SkillRef> {
   const adapters = [
-    clawctlAgentAdapter(preferredAgentId),
+    nextctlAgentAdapter(preferredAgentId),
     "claude-code",
     "codex",
   ].filter((adapter, index, all) => all.indexOf(adapter) === index);
   const failures: string[] = [];
   for (const adapter of adapters) {
     try {
-      const ref = await clawctlJson<SkillRef>([
+      const ref = await nextctlJson<SkillRef>([
         "skill",
         "check",
         ...selectorFlags(entry.selector),
@@ -281,11 +315,12 @@ interface State {
   sidebarCollapsed: boolean;
   chatListCollapsed: boolean;
   dashboardKeyPromptOpen: boolean;
-  clawctlVersion: string;
-  clawctlUpdating: boolean;
-  clawctlUpdateStatus?: string;
-  clawctlSupportsSkill: boolean;
-  clawctlAvailable: boolean;
+  accountPairing?: AccountPairingState;
+  nextctlVersion: string;
+  nextctlUpdating: boolean;
+  nextctlUpdateStatus?: string;
+  nextctlSupportsSkill: boolean;
+  nextctlAvailable: boolean;
   skillCategories: SkillCategory[];
   appActive: boolean;
   connectAnnounced: Set<string>;
@@ -293,6 +328,10 @@ interface State {
 
   bootstrap: () => Promise<void>;
   login: (key: string) => Promise<void>;
+  startAccountPairing: () => Promise<void>;
+  reopenAccountPairing: () => Promise<void>;
+  pollAccountPairing: () => Promise<void>;
+  cancelAccountPairing: () => void;
   logout: () => void;
   refreshAll: () => Promise<void>;
   refreshProxyData: () => Promise<void>;
@@ -309,6 +348,7 @@ interface State {
   stopProfile: (n: string) => Promise<void>;
   rotateProfile: (n: string) => Promise<void>;
   rotateProfileCountry: (n: string, country: string) => Promise<void>;
+  createManagedProfile: () => Promise<void>;
   createManualProxyProfile: (input: ManualProxyProfileInput) => Promise<void>;
   deleteProfile: (n: string) => Promise<void>;
   selectProfile: (n?: string) => void;
@@ -326,7 +366,7 @@ interface State {
   setDashboardKeyPromptOpen: (v: boolean) => void;
   finishOnboarding: () => void;
   showOnboardingAgain: () => void;
-  checkClawctlUpdate: () => Promise<boolean>;
+  checkNextctlUpdate: () => Promise<boolean>;
 
   conversationsForAgent: (agentId: string) => Conversation[];
   activeConversation: () => Conversation | undefined;
@@ -385,7 +425,7 @@ interface State {
   makeStepMessage: (cid: string) => string;
   appendStep: (cid: string, mid: string, step: string) => void;
   startSessionPoll: () => void;
-  tickClawctlDailyUpdate: () => Promise<void>;
+  tickNextctlDailyUpdate: () => Promise<void>;
   ensureConversation: (agentId: string) => void;
   announceConnect: (agentId: string, version: string, loggedIn: boolean | null) => void;
 }
@@ -393,21 +433,22 @@ interface State {
 let proxyTimer: ReturnType<typeof setInterval> | null = null;
 let scheduleTimer: ReturnType<typeof setInterval> | null = null;
 let sessionPollTimer: ReturnType<typeof setInterval> | null = null;
-let clawctlDailyUpdateTimer: ReturnType<typeof setInterval> | null = null;
+let nextctlDailyUpdateTimer: ReturnType<typeof setInterval> | null = null;
 let vpsSetupReservations = 0;
-let localClawctlOperations = 0;
+let localNextctlOperations = 0;
 // Guard bootstrap against re-entry. React StrictMode invokes effects twice in
 // dev, and without this each agent:* listener would be registered again, so a
 // single agent reply would be appended once per registration (duplicate output).
 // Mirrors AppState.didBootstrap in the Swift app.
 let didBootstrap = false;
 type AgentDone = { code: number; stderr: string };
-interface ClawctlUpdateState { lastAutoCheckAt?: number }
+interface NextctlUpdateState { lastAutoCheckAt?: number }
 interface APIKeyIdentity {
   valid: boolean;
   key_id?: string;
   owner_id?: string;
 }
+
 const completionResolvers = new Map<string, (result: AgentDone) => void>();
 const replyExecutionTargets = new Map<string, ExecutionTarget>();
 
@@ -440,54 +481,54 @@ function localSkillCheckRunning(state: State): boolean {
   return Object.values(state.skillState).some((status) => status === "applying");
 }
 
-async function runLocalClawctlOperation<T>(operation: () => Promise<T>): Promise<T> {
+async function runLocalNextctlOperation<T>(operation: () => Promise<T>): Promise<T> {
   if (pendingTarget(useStore.getState(), "vps")) {
-    throw new Error("Local clawctl operations are paused while VPS work is queued or running.");
+    throw new Error("Local nextctl operations are paused while VPS work is queued or running.");
   }
-  localClawctlOperations += 1;
+  localNextctlOperations += 1;
   try {
     return await operation();
   } finally {
-    localClawctlOperations = Math.max(0, localClawctlOperations - 1);
+    localNextctlOperations = Math.max(0, localNextctlOperations - 1);
   }
 }
 
-async function clawctlRun(
+async function nextctlRun(
   args: string[],
   extraEnv?: Record<string, string>,
 ): Promise<RunResult> {
-  return runLocalClawctlOperation(() => rawClawctlRun(args, extraEnv));
+  return runLocalNextctlOperation(() => rawNextctlRun(args, extraEnv));
 }
 
-async function clawctlJson<T>(
+async function nextctlJson<T>(
   args: string[],
   extraEnv?: Record<string, string>,
 ): Promise<T> {
-  return runLocalClawctlOperation(() => rawClawctlJson<T>(args, extraEnv));
+  return runLocalNextctlOperation(() => rawNextctlJson<T>(args, extraEnv));
 }
 
-async function clawctlEnvelope<T>(
+async function nextctlEnvelope<T>(
   args: string[],
   extraEnv?: Record<string, string>,
 ) {
-  return runLocalClawctlOperation(() => rawClawctlEnvelope<T>(args, extraEnv));
+  return runLocalNextctlOperation(() => rawNextctlEnvelope<T>(args, extraEnv));
 }
 
 async function prepareLocalSession(
   options: Parameters<typeof prepareSession>[0],
 ): ReturnType<typeof prepareSession> {
-  return runLocalClawctlOperation(() => prepareSession(options));
+  return runLocalNextctlOperation(() => prepareSession(options));
 }
 
-async function waitForLocalClawctlIdle(getState: () => State): Promise<void> {
+async function waitForLocalNextctlIdle(getState: () => State): Promise<void> {
   const deadline = now() + 30_000;
-  while ((getState().clawctlUpdating || localSkillCheckRunning(getState()) ||
-    localClawctlOperations > 0 || runningTarget(getState(), "local")) && now() < deadline) {
+  while ((getState().nextctlUpdating || localSkillCheckRunning(getState()) ||
+    localNextctlOperations > 0 || runningTarget(getState(), "local")) && now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  if (getState().clawctlUpdating || localSkillCheckRunning(getState()) ||
-      localClawctlOperations > 0 || runningTarget(getState(), "local")) {
-    throw new Error("A local clawctl operation is still finishing. Wait a moment and try again.");
+  if (getState().nextctlUpdating || localSkillCheckRunning(getState()) ||
+      localNextctlOperations > 0 || runningTarget(getState(), "local")) {
+    throw new Error("A local nextctl operation is still finishing. Wait a moment and try again.");
   }
 }
 
@@ -541,7 +582,7 @@ function proxyIdentityFromVerify(checks?: VerifyCheck[], visibleText?: string): 
 async function verifyProxyIdentity(profile?: string): Promise<ProxyIdentity | undefined> {
   try {
     const args = [...(profile ? ["--profile", profile] : []), "verify", "--timeout", "15s"];
-    const data = await clawctlJson<{ verify?: { checks?: VerifyCheck[]; visible_text?: string } }>(args);
+    const data = await nextctlJson<{ verify?: { checks?: VerifyCheck[]; visible_text?: string } }>(args);
     return proxyIdentityFromVerify(data.verify?.checks, data.verify?.visible_text);
   } catch {
     return undefined;
@@ -549,7 +590,7 @@ async function verifyProxyIdentity(profile?: string): Promise<ProxyIdentity | un
 }
 
 async function refreshAnalyticsIdentity(): Promise<void> {
-  const wrap = await clawctlJson<{ identity: APIKeyIdentity }>(["identity"]);
+  const wrap = await nextctlJson<{ identity: APIKeyIdentity }>(["identity"]);
   const ownerId = wrap.identity.owner_id?.trim();
   setAnalyticsUserId(ownerId || undefined);
   trackEvent("analytics_identity_loaded", {
@@ -558,29 +599,73 @@ async function refreshAnalyticsIdentity(): Promise<void> {
   });
 }
 
-async function refreshLocalClawctlMetadata(): Promise<void> {
+async function refreshLocalNextctlMetadata(): Promise<void> {
   if (pendingTarget(useStore.getState(), "vps")) return;
-  const clawctlPath = await runLocalClawctlOperation(() =>
-    invoke<string | null>("clawctl_resolve").catch(() => null),
+  const nextctlPath = await runLocalNextctlOperation(() =>
+    invoke<string | null>("nextctl_resolve").catch(() => null),
   );
-  useStore.setState({ clawctlAvailable: !!clawctlPath });
-  trackEvent("clawctl_resolve", { found: !!clawctlPath });
+  useStore.setState({ nextctlAvailable: !!nextctlPath });
+  trackEvent("nextctl_resolve", { found: !!nextctlPath });
   try {
-    const ver = await runLocalClawctlOperation(() => invoke<string>("clawctl_version"));
-    const supportsSkill = await runLocalClawctlOperation(() => invoke<boolean>("clawctl_supports_skill"));
+    const ver = await runLocalNextctlOperation(() => invoke<string>("nextctl_version"));
+    const supportsSkill = await runLocalNextctlOperation(() => invoke<boolean>("nextctl_supports_skill"));
     useStore.setState({
-      clawctlVersion: normalizeClawctlVersion(ver),
-      clawctlSupportsSkill: supportsSkill,
-      clawctlAvailable: true,
+      nextctlVersion: normalizeNextctlVersion(ver),
+      nextctlSupportsSkill: supportsSkill,
+      nextctlAvailable: true,
     });
-    trackEvent("clawctl_detected", { supports_skill: supportsSkill });
+    trackEvent("nextctl_detected", { supports_skill: supportsSkill });
     await refreshAnalyticsIdentity().catch(() => {
       trackEvent("analytics_identity_unavailable", { phase: "bootstrap" });
     });
   } catch {
-    useStore.setState({ clawctlVersion: "not found", clawctlSupportsSkill: false, clawctlAvailable: false });
-    trackEvent("clawctl_missing");
+    useStore.setState({ nextctlVersion: "not found", nextctlSupportsSkill: false, nextctlAvailable: false });
+    trackEvent("nextctl_missing");
   }
+}
+
+async function finishAPIKeyLogin(apiKey: string): Promise<void> {
+  await nextctlRun(["config", "set", "--api-key", apiKey]);
+  await refreshAnalyticsIdentity().catch(() => {
+    trackEvent("analytics_identity_unavailable", { phase: "login" });
+  });
+}
+
+async function refreshCompletedAccountPairing(method: "pairing" | "pairing_json"): Promise<void> {
+  await refreshLocalNextctlMetadata();
+  useStore.setState({
+    authed: true,
+    nextctlAvailable: true,
+    accountPairing: undefined,
+    dashboardKeyPromptOpen: false,
+    loginError: undefined,
+  });
+  useStore.getState().startTimers();
+  void useStore.getState().refreshAll();
+  void useStore.getState().authorizeAgent();
+  if (!localStorage.getItem("onboardingComplete")) useStore.setState({ showOnboarding: true });
+  trackEvent("login", { method });
+}
+
+function isAccountRequiredError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const lower = message.toLowerCase();
+  const keyMissing = (lower.includes("api") || lower.includes("dashboard")) && lower.includes("key");
+  return keyMissing || /unauthorized|forbidden|401|403|sign in|login required/i.test(message);
+}
+
+async function nextctlRunChecked(args: string[], extraEnv?: Record<string, string>): Promise<void> {
+  const result = await nextctlRun(args, extraEnv);
+  if (result.code !== 0) throw new Error(nextctlErrorMessage(result));
+}
+
+function requestAccountSignIn(setState: (state: Partial<State>) => void, error: unknown) {
+  if (!isAccountRequiredError(error)) return;
+  setState({
+    dashboardKeyPromptOpen: true,
+    loginError: "Sign in to use managed profiles, traffic, Remote Control, and skills.",
+  });
+  trackEvent("account_signin_required");
 }
 
 export const useStore = create<State>((set, get) => {
@@ -688,10 +773,11 @@ export const useStore = create<State>((set, get) => {
   sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "true",
   chatListCollapsed: localStorage.getItem("chatListCollapsed") === "true",
   dashboardKeyPromptOpen: false,
-  clawctlVersion: "",
-  clawctlUpdating: false,
-  clawctlSupportsSkill: true,
-  clawctlAvailable: true,
+  accountPairing: undefined,
+  nextctlVersion: "",
+  nextctlUpdating: false,
+  nextctlSupportsSkill: true,
+  nextctlAvailable: true,
   appActive: true,
   connectAnnounced: new Set(),
   workingDir: "",
@@ -877,36 +963,43 @@ export const useStore = create<State>((set, get) => {
         completionResolvers.delete(replyId);
         resolve?.({ code, stderr });
         if (executionTarget === "vps" && !pendingTarget(get(), "vps")) {
-          void refreshLocalClawctlMetadata();
+          void refreshLocalNextctlMetadata();
         }
         for (const [queuedAgentId, runtime] of Object.entries(get().runtime)) {
           if (runtime.ready && runtime.queue.length) get().startConsumer(queuedAgentId);
         }
       }
     });
+    await listen<AuthDeepLinkPayload>("auth:deeplink", (event) => {
+      const pairing = get().accountPairing;
+      if (!pairing) return;
+      if (event.payload.pairingId && event.payload.pairingId !== pairing.pairingId) return;
+      trackEvent("account_pairing_deeplink", { status: event.payload.status || "unknown" });
+      void get().pollAccountPairing();
+    });
 
     if (!pendingTarget(get(), "vps")) {
-      await refreshLocalClawctlMetadata();
+      await refreshLocalNextctlMetadata();
     }
     set({ authed: true });
     get().startTimers();
-    void get().tickClawctlDailyUpdate();
+    void get().tickNextctlDailyUpdate();
 
     try {
       if (!pendingTarget(get(), "vps")) await get().refreshAll();
-      await get().authorizeAgent({ deferMissingClawctlPrompt: true });
+      await get().authorizeAgent({ deferMissingNextctlPrompt: true });
       if (!localStorage.getItem("onboardingComplete")) {
         set({ showOnboarding: true });
       }
       trackTiming("bootstrap_completed", startedAt, {
-        clawctl_available: get().clawctlAvailable,
+        nextctl_available: get().nextctlAvailable,
         profile_count: get().profiles.length,
         conversation_count: get().conversations.length,
       });
     } catch {
-      /* app remains usable without dashboard credentials or local clawctl */
+      /* app remains usable without dashboard credentials or local nextctl */
       trackTiming("bootstrap_completed", startedAt, {
-        clawctl_available: get().clawctlAvailable,
+        nextctl_available: get().nextctlAvailable,
         partial: true,
       });
     } finally {
@@ -923,24 +1016,24 @@ export const useStore = create<State>((set, get) => {
     }, PROXY_REFRESH_MS);
     if (scheduleTimer) clearInterval(scheduleTimer);
     scheduleTimer = setInterval(() => get().tickScheduledRuns(), SCHEDULE_TICK_MS);
-    if (clawctlDailyUpdateTimer) clearInterval(clawctlDailyUpdateTimer);
-    clawctlDailyUpdateTimer = setInterval(
-      () => void get().tickClawctlDailyUpdate(),
-      CLAWCTL_DAILY_UPDATE_POLL_MS,
+    if (nextctlDailyUpdateTimer) clearInterval(nextctlDailyUpdateTimer);
+    nextctlDailyUpdateTimer = setInterval(
+      () => void get().tickNextctlDailyUpdate(),
+      NEXTCTL_DAILY_UPDATE_POLL_MS,
     );
   },
 
-  tickClawctlDailyUpdate: async () => {
-    if (!get().clawctlAvailable) return;
-    if (get().clawctlUpdating) return;
+  tickNextctlDailyUpdate: async () => {
+    if (!get().nextctlAvailable) return;
+    if (get().nextctlUpdating) return;
     if (pendingTarget(get(), "vps")) return;
-    const state = await loadJson<ClawctlUpdateState>(CLAWCTL_UPDATE_STATE_FILE, {});
+    const state = await loadJson<NextctlUpdateState>(NEXTCTL_UPDATE_STATE_FILE, {});
     if (pendingTarget(get(), "vps")) return;
     const lastAutoCheckAt = Number(state.lastAutoCheckAt ?? 0);
-    if (lastAutoCheckAt > 0 && now() - lastAutoCheckAt < CLAWCTL_DAILY_UPDATE_MS) return;
-    if (!await get().checkClawctlUpdate()) return;
+    if (lastAutoCheckAt > 0 && now() - lastAutoCheckAt < NEXTCTL_DAILY_UPDATE_MS) return;
+    if (!await get().checkNextctlUpdate()) return;
     if (pendingTarget(get(), "vps")) return;
-    await saveJson(CLAWCTL_UPDATE_STATE_FILE, { lastAutoCheckAt: now() });
+    await saveJson(NEXTCTL_UPDATE_STATE_FILE, { lastAutoCheckAt: now() });
   },
 
   tickScheduledRuns: async () => {
@@ -979,10 +1072,10 @@ export const useStore = create<State>((set, get) => {
       const prev = get().agentId;
       if (scheduledTarget === "vps") vpsSetupReservations += 1;
       try {
-        if (scheduledTarget === "vps") await waitForLocalClawctlIdle(get);
+        if (scheduledTarget === "vps") await waitForLocalNextctlIdle(get);
         get().switchAgent(run.agent);
         if (!get().agentReady()) {
-          await get().authorizeAgent({ skipClawctlSetup: scheduledTarget === "vps" });
+          await get().authorizeAgent({ skipNextctlSetup: scheduledTarget === "vps" });
         }
         let cid = run.conversationId;
         if (!cid || !get().conversations.some((c) => c.id === cid && c.agent === run.agent)) {
@@ -1077,7 +1170,7 @@ export const useStore = create<State>((set, get) => {
     const rt = get().runtime[agentId];
     if (!rt?.ready || rt.isConsuming) return;
     const nextTarget = rt.queue[0]?.executionTarget;
-    if (nextTarget === "vps" && (get().clawctlUpdating || runningTarget(get(), "local"))) return;
+    if (nextTarget === "vps" && (get().nextctlUpdating || runningTarget(get(), "local"))) return;
     if (nextTarget === "local" && pendingTarget(get(), "vps")) return;
     set((s) => ({
       runtime: {
@@ -1150,7 +1243,7 @@ export const useStore = create<State>((set, get) => {
       item.replyId,
       item.rawText,
       get().selectedProfile,
-      { clawctlAvailable: get().clawctlAvailable, executionTarget: item.executionTarget },
+      { nextctlAvailable: get().nextctlAvailable, executionTarget: item.executionTarget },
     );
     const a = agentById(agentId);
     const { args, stdin } = agentInvocation(a, prompt);
@@ -1327,18 +1420,15 @@ export const useStore = create<State>((set, get) => {
     const apiKey = key.trim();
     trackEvent("dashboard_key_save_started");
     if (!apiKey) {
-      set({ loginError: "Enter your dashboard API key before signing in.", isLoggingIn: false });
+      set({ loginError: "Use browser sign-in to connect your account.", isLoggingIn: false });
       trackTiming("dashboard_key_save_failed", startedAt, { reason: "empty_key" });
       return;
     }
     set({ loginError: undefined, isLoggingIn: true });
     try {
-      await clawctlRun(["config", "set", "--api-key", apiKey]);
-      await refreshAnalyticsIdentity().catch(() => {
-        trackEvent("analytics_identity_unavailable", { phase: "login" });
-      });
+      await finishAPIKeyLogin(apiKey);
       await get().loadProxy();
-      set({ authed: true, clawctlAvailable: true });
+      set({ authed: true, nextctlAvailable: true, accountPairing: undefined });
       get().startTimers();
       await get().refreshAll();
       await get().authorizeAgent();
@@ -1351,6 +1441,80 @@ export const useStore = create<State>((set, get) => {
     } finally {
       set({ isLoggingIn: false });
     }
+  },
+
+  startAccountPairing: async () => {
+    const startedAt = performance.now();
+    trackEvent("account_pairing_started");
+    set({ loginError: undefined, isLoggingIn: true });
+    try {
+      const response = await invoke<PairingStartResponse>("pairing_start", {
+        apiBaseUrl,
+        version: __APP_VERSION__,
+        displayName: "NextBrowser Desktop",
+      });
+      set({
+        accountPairing: {
+          pairingId: response.pairing_id,
+          pairingCode: response.pairing_code,
+          verificationUrl: response.verification_url,
+          pollToken: response.poll_token,
+          status: response.status as PairingPollResponse["status"],
+          expiresAt: response.expires_at,
+        },
+      });
+      await invoke<null>("open_external", { url: response.verification_url });
+      trackTiming("account_pairing_opened", startedAt);
+    } catch (error) {
+      set({ loginError: error instanceof Error ? error.message : String(error) });
+      trackTiming("account_pairing_failed", startedAt);
+    } finally {
+      set({ isLoggingIn: false });
+    }
+  },
+
+  reopenAccountPairing: async () => {
+    const pairing = get().accountPairing;
+    if (!pairing?.verificationUrl) return;
+    trackEvent("account_pairing_reopened");
+    await invoke<null>("open_external", { url: pairing.verificationUrl });
+  },
+
+  pollAccountPairing: async () => {
+    const pairing = get().accountPairing;
+    if (!pairing || get().isLoggingIn) return;
+    set({ isLoggingIn: true, loginError: undefined });
+    try {
+      const result = await invoke<PairingPollResponse>("pairing_poll", {
+        apiBaseUrl,
+        pairingId: pairing.pairingId,
+        pollToken: pairing.pollToken,
+      });
+      set({
+        accountPairing: {
+          ...pairing,
+          status: result.status,
+          expiresAt: result.expires_at,
+        },
+      });
+      if (result.api_key) {
+        await finishAPIKeyLogin(result.api_key);
+        await refreshCompletedAccountPairing("pairing");
+      } else if (result.status === "completed") {
+        await refreshCompletedAccountPairing("pairing_json");
+      } else if (result.status === "expired" || result.status === "rejected") {
+        set({ loginError: result.status === "expired" ? "The sign-in request expired. Start again." : "The sign-in request was rejected." });
+      }
+    } catch (error) {
+      set({ loginError: error instanceof Error ? error.message : String(error) });
+    } finally {
+      set({ isLoggingIn: false });
+    }
+  },
+
+  cancelAccountPairing: () => {
+    trackEvent("account_pairing_cancelled", { has_pairing: !!get().accountPairing });
+    set({ accountPairing: undefined, loginError: undefined, isLoggingIn: false });
   },
 
   logout: () => {
@@ -1366,6 +1530,7 @@ export const useStore = create<State>((set, get) => {
       connectAnnounced: new Set(),
       proxy: undefined,
       proxyWarning: undefined,
+      accountPairing: undefined,
       profiles: [],
       statuses: {},
       profileIdentities: {},
@@ -1380,10 +1545,12 @@ export const useStore = create<State>((set, get) => {
     trackEvent("refresh_all_started");
     set({ isRefreshing: true });
     try {
-      await get().loadProxy().catch(() => {});
-      await get().loadProfiles();
-      await get().loadDefaultSession();
-      await get().loadSkillCatalog();
+      await Promise.all([
+        get().loadProxy().catch(() => {}),
+        get().loadProfiles(),
+        get().loadDefaultSession(),
+        get().loadSkillCatalog(),
+      ]);
     } finally {
       set({ isRefreshing: false });
       trackTiming("refresh_all_completed", startedAt, {
@@ -1409,19 +1576,19 @@ export const useStore = create<State>((set, get) => {
 
   refreshSessions: async () => {
     const startedAt = performance.now();
-    trackEvent("sessions_refresh_started");
+    trackEvent("profiles_refresh_started");
     set({ isRefreshing: true });
     try {
       await get().loadProfiles();
       await get().loadDefaultSession();
     } finally {
       set({ isRefreshing: false });
-      trackTiming("sessions_refresh_completed", startedAt, { profile_count: get().profiles.length });
+      trackTiming("profiles_refresh_completed", startedAt, { profile_count: get().profiles.length });
     }
   },
 
   loadProxy: async () => {
-    const wrap = await clawctlJson<{ proxy_traffic: ProxyTraffic }>(["proxy-traffic"]);
+    const wrap = await nextctlJson<{ proxy_traffic: ProxyTraffic }>(["proxy-traffic"]);
     const p = wrap.proxy_traffic;
     const frac =
       p.percent_used != null
@@ -1467,7 +1634,7 @@ export const useStore = create<State>((set, get) => {
 
   loadProfiles: async () => {
     try {
-      const list = await clawctlJson<{ profiles: Profile[] }>(["profiles", "ls"]);
+      const list = await nextctlJson<{ profiles: Profile[] }>(["profiles", "ls"]);
       set({ profiles: list.profiles });
       trackEvent("profiles_loaded", {
         profile_count: list.profiles.length,
@@ -1475,7 +1642,7 @@ export const useStore = create<State>((set, get) => {
       });
       for (const p of list.profiles) {
         try {
-          const st = await clawctlJson<SessionStatus>(["status", "--profile", p.name]);
+          const st = await nextctlJson<SessionStatus>(["status", "--profile", p.name]);
           set((s) => ({ statuses: { ...s.statuses, [p.name]: st.status } }));
           if (st.status === "running") {
             const identity = await verifyProxyIdentity(p.name);
@@ -1492,23 +1659,23 @@ export const useStore = create<State>((set, get) => {
 
   loadDefaultSession: async () => {
     try {
-      const st = await clawctlJson<SessionStatus>(["status"]);
+      const st = await nextctlJson<SessionStatus>(["status"]);
       set({ defaultSession: st });
       if (st.status === "running") {
         const identity = await verifyProxyIdentity();
         if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
       }
-      trackEvent("default_session_loaded", { session_status: st.status, backend: st.backend ?? "unknown" });
+      trackEvent("default_profile_loaded", { status: st.status, backend: st.backend ?? "unknown" });
     } catch {
       set({ defaultSession: undefined });
-      trackEvent("default_session_unavailable");
+      trackEvent("default_profile_unavailable");
     }
   },
 
   loadSkillCatalog: async () => {
-    if (!get().clawctlSupportsSkill) return;
+    if (!get().nextctlSupportsSkill) return;
     try {
-      const catalog = await clawctlJson<{ categories: Array<{ id: string; title: string; icon: string; order: number; skills: SkillRef[] }> }>(["skill", "list"]);
+      const catalog = await nextctlJson<{ categories: Array<{ id: string; title: string; icon: string; order: number; skills: SkillRef[] }> }>(["skill", "list"]);
       set({
         skillCategories: catalog.categories.map((category) => ({
           id: category.id, title: category.title, icon: category.icon,
@@ -1535,109 +1702,152 @@ export const useStore = create<State>((set, get) => {
 
   startDefaultSession: async () => {
     const startedAt = performance.now();
-    trackEvent("session_create_requested", { scope: "default" });
-    trackEvent("session_start_requested", { scope: "default" });
-    await clawctlRun(["start", "--format", "json"]);
-    await get().loadDefaultSession();
-    const identity = await verifyProxyIdentity();
-    if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
-    await get().loadProfiles();
-    trackTiming("session_create_completed", startedAt, { scope: "default", session_status: get().defaultSession?.status ?? "unknown" });
-    trackTiming("session_start_completed", startedAt, { scope: "default", session_status: get().defaultSession?.status ?? "unknown" });
+    trackEvent("profile_start_requested", { scope: "default" });
+    try {
+      await nextctlRunChecked(["start", "--format", "json"]);
+      await get().loadDefaultSession();
+      const identity = await verifyProxyIdentity();
+      if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
+      await get().loadProfiles();
+      trackTiming("profile_start_completed", startedAt, { scope: "default", status: get().defaultSession?.status ?? "unknown" });
+    } catch (error) {
+      requestAccountSignIn(set, error);
+      throw error;
+    }
   },
 
   stopDefaultSession: async () => {
     const startedAt = performance.now();
-    trackEvent("session_stop_requested", { scope: "default" });
-    await clawctlRun(["stop", "--format", "json"]);
+    trackEvent("profile_stop_requested", { scope: "default" });
+    await nextctlRunChecked(["stop", "--format", "json"]);
     await get().loadDefaultSession();
-    trackTiming("session_stop_completed", startedAt, { scope: "default", session_status: get().defaultSession?.status ?? "unknown" });
+    trackTiming("profile_stop_completed", startedAt, { scope: "default", status: get().defaultSession?.status ?? "unknown" });
   },
 
   rotateDefaultSession: async () => {
     const startedAt = performance.now();
-    trackEvent("proxy_ip_change_requested", { scope: "default_session" });
-    trackEvent("session_rotate_requested", { scope: "default" });
-    await clawctlRun(["rotate", "--format", "json"]);
-    await get().loadDefaultSession();
-    await get().loadProxy().catch(() => {});
-    const after = await verifyProxyIdentity();
-    if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: after } }));
-    trackTiming("proxy_ip_change_completed", startedAt, { scope: "default_session" });
-    trackTiming("session_rotate_completed", startedAt, { scope: "default" });
+    trackEvent("proxy_ip_change_requested", { scope: "default_profile" });
+    trackEvent("profile_rotate_requested", { scope: "default" });
+    try {
+      await nextctlRunChecked(["rotate", "--format", "json"]);
+      await get().loadDefaultSession();
+      await get().loadProxy().catch(() => {});
+      const after = await verifyProxyIdentity();
+      if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: after } }));
+      trackTiming("proxy_ip_change_completed", startedAt, { scope: "default_profile" });
+      trackTiming("profile_rotate_completed", startedAt, { scope: "default" });
+    } catch (error) {
+      requestAccountSignIn(set, error);
+      throw error;
+    }
   },
 
   rotateDefaultSessionCountry: async (country) => {
     const startedAt = performance.now();
-    trackEvent("proxy_country_change_requested", { scope: "default_session", country });
-    trackEvent("session_rotate_requested", { scope: "default", country });
-    await clawctlRun(["rotate", "--country", country, "--verify", "--format", "json"]);
-    await get().loadDefaultSession();
-    await get().loadProxy().catch(() => {});
-    const after = await verifyProxyIdentity();
-    const identity = after ?? { country };
-    set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
-    trackTiming("proxy_country_change_completed", startedAt, { scope: "default_session", country });
-    trackTiming("session_rotate_completed", startedAt, { scope: "default", country });
+    trackEvent("proxy_country_change_requested", { scope: "default_profile", country });
+    trackEvent("profile_rotate_requested", { scope: "default", country });
+    try {
+      await nextctlRunChecked(["rotate", "--country", country, "--verify", "--format", "json"]);
+      await get().loadDefaultSession();
+      await get().loadProxy().catch(() => {});
+      const after = await verifyProxyIdentity();
+      const identity = after ?? { country };
+      set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
+      trackTiming("proxy_country_change_completed", startedAt, { scope: "default_profile", country });
+      trackTiming("profile_rotate_completed", startedAt, { scope: "default", country });
+    } catch (error) {
+      requestAccountSignIn(set, error);
+      throw error;
+    }
   },
 
   startProfile: async (n) => {
     const startedAt = performance.now();
-    trackEvent("profile_session_create_requested", { scope: "profile" });
-    trackEvent("profile_start_requested");
+    trackEvent("profile_start_requested", { scope: "named" });
     set((s) => ({ statuses: { ...s.statuses, [n]: "starting" } }));
-    await clawctlRun(["start", "--profile", n, "--format", "json"]);
-    await get().loadProfiles();
-    const identity = await verifyProxyIdentity(n);
-    if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: identity } }));
-    trackTiming("profile_session_create_completed", startedAt, { status: get().statuses[n] ?? "unknown" });
-    trackTiming("profile_start_completed", startedAt, { status: get().statuses[n] ?? "unknown" });
+    try {
+      await nextctlRunChecked(["start", "--profile", n, "--format", "json"]);
+      await get().loadProfiles();
+      const identity = await verifyProxyIdentity(n);
+      if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: identity } }));
+      trackTiming("profile_start_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
+    } catch (error) {
+      requestAccountSignIn(set, error);
+      throw error;
+    }
   },
 
   stopProfile: async (n) => {
     const startedAt = performance.now();
-    trackEvent("profile_stop_requested");
+    trackEvent("profile_stop_requested", { scope: "named" });
     set((s) => ({ statuses: { ...s.statuses, [n]: "stopping" } }));
-    await clawctlRun(["stop", "--profile", n, "--format", "json"]);
+    await nextctlRunChecked(["stop", "--profile", n, "--format", "json"]);
     await get().loadProfiles();
-    trackTiming("profile_stop_completed", startedAt, { status: get().statuses[n] ?? "unknown" });
+    trackTiming("profile_stop_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
   },
 
   rotateProfile: async (n) => {
     const startedAt = performance.now();
-    trackEvent("proxy_ip_change_requested", { scope: "profile" });
-    trackEvent("profile_rotate_requested");
+    trackEvent("proxy_ip_change_requested", { scope: "named_profile" });
+    trackEvent("profile_rotate_requested", { scope: "named" });
     set((s) => ({ statuses: { ...s.statuses, [n]: "rotating" } }));
-    await clawctlRun(["rotate", "--profile", n, "--format", "json"]);
-    await get().loadProfiles();
-    await get().loadProxy().catch(() => {});
-    const after = await verifyProxyIdentity(n);
-    if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
-    trackTiming("proxy_ip_change_completed", startedAt, { scope: "profile", status: get().statuses[n] ?? "unknown" });
-    trackTiming("profile_rotate_completed", startedAt, { status: get().statuses[n] ?? "unknown" });
+    try {
+      await nextctlRunChecked(["rotate", "--profile", n, "--format", "json"]);
+      await get().loadProfiles();
+      await get().loadProxy().catch(() => {});
+      const after = await verifyProxyIdentity(n);
+      if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
+      trackTiming("proxy_ip_change_completed", startedAt, { scope: "named_profile", status: get().statuses[n] ?? "unknown" });
+      trackTiming("profile_rotate_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
+    } catch (error) {
+      requestAccountSignIn(set, error);
+      throw error;
+    }
   },
 
   rotateProfileCountry: async (n, country) => {
     const startedAt = performance.now();
-    trackEvent("proxy_country_change_requested", { scope: "profile", country });
-    trackEvent("profile_rotate_requested", { country });
+    trackEvent("proxy_country_change_requested", { scope: "named_profile", country });
+    trackEvent("profile_rotate_requested", { scope: "named", country });
     set((s) => ({ statuses: { ...s.statuses, [n]: "rotating" } }));
-    await clawctlRun([
-      "rotate",
-      "--profile",
-      n,
-      "--country",
-      country,
-      "--verify",
-      "--format",
-      "json",
-    ]);
-    await get().loadProfiles();
-    await get().loadProxy().catch(() => {});
-    const after = await verifyProxyIdentity(n);
-    if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
-    trackTiming("proxy_country_change_completed", startedAt, { scope: "profile", country, status: get().statuses[n] ?? "unknown" });
-    trackTiming("profile_rotate_completed", startedAt, { country, status: get().statuses[n] ?? "unknown" });
+    try {
+      await nextctlRunChecked([
+        "rotate",
+        "--profile",
+        n,
+        "--country",
+        country,
+        "--verify",
+        "--format",
+        "json",
+      ]);
+      await get().loadProfiles();
+      await get().loadProxy().catch(() => {});
+      const after = await verifyProxyIdentity(n);
+      if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
+      trackTiming("proxy_country_change_completed", startedAt, { scope: "named_profile", country, status: get().statuses[n] ?? "unknown" });
+      trackTiming("profile_rotate_completed", startedAt, { scope: "named", country, status: get().statuses[n] ?? "unknown" });
+    } catch (error) {
+      requestAccountSignIn(set, error);
+      throw error;
+    }
+  },
+
+  createManagedProfile: async () => {
+    const startedAt = performance.now();
+    const existing = new Set(get().profiles.map((profile) => profile.name));
+    let name = "profile";
+    for (let index = 2; existing.has(name); index += 1) name = `profile-${index}`;
+    trackEvent("profile_create_requested", { kind: "managed" });
+    try {
+      await nextctlRunChecked(["profiles", "create", name, "--format", "json"]);
+      await get().loadProfiles();
+      get().selectProfile(name);
+      trackTiming("profile_create_completed", startedAt, { kind: "managed" });
+    } catch (error) {
+      requestAccountSignIn(set, error);
+      throw error;
+    }
   },
 
   createManualProxyProfile: async (input) => {
@@ -1649,7 +1859,7 @@ export const useStore = create<State>((set, get) => {
       scheme: input.scheme,
       has_username: username.length > 0,
     });
-    const result = await clawctlRun(
+    await nextctlRunChecked(
       [
         "profiles",
         "create",
@@ -1665,9 +1875,8 @@ export const useStore = create<State>((set, get) => {
         "--format",
         "json",
       ],
-      input.password ? { CLAWCTL_PROXY_PASSWORD: input.password } : undefined,
+      input.password ? { NEXTCTL_PROXY_PASSWORD: input.password } : undefined,
     );
-    if (result.code !== 0) throw new Error(clawctlErrorMessage(result));
     await get().loadProfiles();
     trackTiming("profile_manual_proxy_create_completed", startedAt, {
       profile_count: get().profiles.length,
@@ -1676,12 +1885,11 @@ export const useStore = create<State>((set, get) => {
 
   deleteProfile: async (n) => {
     const startedAt = performance.now();
-    trackEvent("profile_session_delete_requested", { was_running: get().statuses[n] === "running" });
     trackEvent("profile_delete_requested", { was_running: get().statuses[n] === "running" });
     if (get().statuses[n] === "running") {
-      await clawctlRun(["stop", "--profile", n, "--format", "json"]);
+      await nextctlRunChecked(["stop", "--profile", n, "--format", "json"]);
     }
-    await clawctlRun(["profiles", "rm", n, "--format", "json"]);
+    await nextctlRunChecked(["profiles", "rm", n, "--format", "json"]);
     if (get().selectedProfile === n) set({ selectedProfile: undefined });
     set((s) => {
       const statuses = { ...s.statuses };
@@ -1689,7 +1897,6 @@ export const useStore = create<State>((set, get) => {
       return { statuses };
     });
     await get().loadProfiles();
-    trackTiming("profile_session_delete_completed", startedAt);
     trackTiming("profile_delete_completed", startedAt);
   },
 
@@ -1760,35 +1967,35 @@ export const useStore = create<State>((set, get) => {
       trackTiming("agent_connect_succeeded", startedAt, {
         agent: agentId,
         logged_in: loggedIn === true,
-        clawctl_available: get().clawctlAvailable,
+        nextctl_available: get().nextctlAvailable,
       });
       get().reconcileQueues();
       get().startConsumer(agentId);
-      if (options.skipClawctlSetup || pendingTarget(get(), "vps")) {
+      if (options.skipNextctlSetup || pendingTarget(get(), "vps")) {
         trackEvent("agent_connect_remote_only", { agent: agentId });
         return;
       }
-      const adapter = clawctlAgentAdapter(agentId);
-      if (!get().clawctlAvailable) {
-        if (options.deferMissingClawctlPrompt) {
+      const adapter = nextctlAgentAdapter(agentId);
+      if (!get().nextctlAvailable) {
+        if (options.deferMissingNextctlPrompt) {
           trackEvent("install_prompt_deferred", { agent: agentId, adapter });
           return;
         }
         const conv = get().activeConversation();
         const alreadyQueued = conv?.messages.some((message) =>
-          message.text.includes("NextBrowser cannot find local clawctl/Clawbrowser components"),
+          message.text.includes("NextBrowser cannot find local nextctl/Clawbrowser components"),
         );
         if (!alreadyQueued) get().enqueue(clawbrowserInstallPrompt(adapter));
         trackEvent("install_prompt_sent", { agent: agentId, adapter });
         return;
       }
       // Installation is idempotent. Keep connection fast and refresh the
-      // agent's bundled clawctl skill/integration in the background.
-      void clawctlRun(["install", "--agent", adapter, "--no-api-key-prompt"]).then((result) => {
+      // agent's bundled nextctl skill/integration in the background.
+      void nextctlRun(["install", "--agent", adapter, "--no-api-key-prompt"]).then((result) => {
         if (result.code !== 0) {
-          console.warn(`Could not install clawctl skill for ${adapter}: ${clawctlErrorMessage(result)}`);
+          console.warn(`Could not install nextctl skill for ${adapter}: ${nextctlErrorMessage(result)}`);
         }
-      }).catch((error) => console.warn(`Could not install clawctl skill for ${adapter}:`, error));
+      }).catch((error) => console.warn(`Could not install nextctl skill for ${adapter}:`, error));
     } catch (e) {
       trackTiming("agent_connect_failed", startedAt, { agent: agentId });
       set((s) => ({
@@ -1998,46 +2205,47 @@ export const useStore = create<State>((set, get) => {
   },
   showOnboardingAgain: () => set({ showOnboarding: true }),
 
-  checkClawctlUpdate: async () => {
+  checkNextctlUpdate: async () => {
     if (pendingTarget(get(), "vps")) return false;
     const startedAt = performance.now();
-    trackEvent("clawctl_update_started");
-    set({ clawctlUpdating: true, clawctlUpdateStatus: undefined });
+    trackEvent("nextctl_update_started");
+    set({ nextctlUpdating: true, nextctlUpdateStatus: undefined });
     try {
       if (pendingTarget(get(), "vps")) return false;
-      const res = await clawctlRun(["update"]);
+      const res = await nextctlRun(["update"]);
       const text = res.stdout + res.stderr;
-      const line = text.split("\n").find((l) => l.includes("clawctl updated:"));
+      const line = text.split("\n").find((l) => l.includes("nextctl updated:"));
       if (line) {
         const to = line.split(">").pop()?.trim() ?? "";
         set({
-          clawctlUpdateStatus: to
-            ? `updated → ${normalizeClawctlVersion(to)}`
+          nextctlUpdateStatus: to
+            ? `updated → ${normalizeNextctlVersion(to)}`
             : "updated",
         });
-        trackEvent("clawctl_update_available", { updated: true });
+        trackEvent("nextctl_update_available", { updated: true });
       } else if (res.code === 0) {
         // Already current — keep the footer on one line; show nothing.
-        set({ clawctlUpdateStatus: undefined });
-        trackEvent("clawctl_update_not_available");
+        set({ nextctlUpdateStatus: undefined });
+        trackEvent("nextctl_update_not_available");
       } else {
-        set({ clawctlUpdateStatus: "update failed" });
-        trackEvent("clawctl_update_failed", { exit_code: res.code });
+        set({ nextctlUpdateStatus: "update failed" });
+        trackEvent("nextctl_update_failed", { exit_code: res.code });
       }
       if (pendingTarget(get(), "vps")) return true;
-      const ver = await invoke<string>("clawctl_version");
+      const ver = await invoke<string>("nextctl_version");
       if (pendingTarget(get(), "vps")) return true;
-      const supportsSkill = await invoke<boolean>("clawctl_supports_skill");
+      const supportsSkill = await invoke<boolean>("nextctl_supports_skill");
       if (pendingTarget(get(), "vps")) return true;
-      set({ clawctlVersion: normalizeClawctlVersion(ver), clawctlSupportsSkill: supportsSkill, clawctlAvailable: true });
-      trackTiming("clawctl_update_completed", startedAt, { supports_skill: supportsSkill });
+      set({ nextctlVersion: normalizeNextctlVersion(ver), nextctlSupportsSkill: supportsSkill, nextctlAvailable: true });
+      trackTiming("nextctl_update_completed", startedAt, { supports_skill: supportsSkill });
       return true;
-    } catch {
-      set({ clawctlUpdateStatus: "update failed", clawctlAvailable: false });
-      trackTiming("clawctl_update_failed", startedAt);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      set({ nextctlUpdateStatus: message || "update failed", nextctlAvailable: false });
+      trackTiming("nextctl_update_failed", startedAt, { has_message: !!message });
       return true;
     } finally {
-      set({ clawctlUpdating: false });
+      set({ nextctlUpdating: false });
       for (const [agentId, runtime] of Object.entries(get().runtime)) {
         if (runtime.ready && runtime.queue.length) get().startConsumer(agentId);
       }
@@ -2290,7 +2498,7 @@ export const useStore = create<State>((set, get) => {
     }
     vpsSetupReservations += 1;
     try {
-      await waitForLocalClawctlIdle(get);
+      await waitForLocalNextctlIdle(get);
       if (queuedTarget(get(), "local")) {
         throw new Error("Finish or cancel queued local work before starting a VPS task.");
       }
@@ -2300,7 +2508,7 @@ export const useStore = create<State>((set, get) => {
         if (get().runtime[get().agentId]?.authorizing) {
           throw new Error("The agent is still connecting. Wait a moment and try again.");
         }
-        await get().authorizeAgent({ skipClawctlSetup: true });
+        await get().authorizeAgent({ skipNextctlSetup: true });
       }
       if (!get().agentReady()) {
         throw new Error(get().agentError() || "The selected agent could not connect.");
@@ -2375,7 +2583,7 @@ export const useStore = create<State>((set, get) => {
     }
     const targets = AGENTS.map((agent) => ({
       id: agent.id,
-      adapter: clawctlAgentAdapter(agent.id),
+      adapter: nextctlAgentAdapter(agent.id),
     }));
     set((s) => {
       const skillState = { ...s.skillState };
@@ -2383,7 +2591,7 @@ export const useStore = create<State>((set, get) => {
       delete skillState[skillKey(get().agentId, `${entry.id}:error`)];
       return { skillState };
     });
-    if (!get().clawctlSupportsSkill) {
+    if (!get().nextctlSupportsSkill) {
       set((s) => {
         const skillState = { ...s.skillState };
         for (const target of targets) skillState[skillKey(target.id, entry.id)] = "failed";
@@ -2391,12 +2599,12 @@ export const useStore = create<State>((set, get) => {
       });
       trackTiming("skill_apply_failed", startedAt, {
         category: entry.category,
-        reason: "unsupported_clawctl",
+        reason: "unsupported_nextctl",
       });
       set((s) => ({
         skillState: {
           ...s.skillState,
-          [skillKey(get().agentId, `${entry.id}:error`)]: "Resolved clawctl does not support the `skill` command. Update clawctl or set CLAWCTL_BIN to a newer build.",
+          [skillKey(get().agentId, `${entry.id}:error`)]: "Resolved nextctl does not support the `skill` command. Update nextctl or set NEXTCTL_BIN to a newer build.",
         },
       }));
       return undefined;
@@ -2407,7 +2615,7 @@ export const useStore = create<State>((set, get) => {
     for (const target of targets) {
       const key = skillKey(target.id, entry.id);
       try {
-        const ref = await clawctlJson<SkillRef>([
+        const ref = await nextctlJson<SkillRef>([
           "skill",
           "check",
           ...selectorFlags(entry.selector),
@@ -2425,6 +2633,7 @@ export const useStore = create<State>((set, get) => {
           if (target.id === get().agentId) activeRef = ref;
         }
       } catch (error) {
+        requestAccountSignIn(set, error);
         failures.push(`${target.id}: ${error instanceof Error ? error.message : String(error)}`);
         set((s) => ({ skillState: { ...s.skillState, [key]: "failed" } }));
       }
@@ -2469,10 +2678,6 @@ export const useStore = create<State>((set, get) => {
 
   useSkillInChat: async (entry) => {
     if (!get().agentReady()) return;
-    trackEvent("skill_usage_requested", {
-      category: entry.category,
-      selector_kind: entry.selector.kind,
-    });
     trackEvent("skill_used_in_chat", {
       category: entry.category,
       selector_kind: entry.selector.kind,
@@ -2537,11 +2742,6 @@ export const useStore = create<State>((set, get) => {
 
   runScript: async (entry, host = "") => {
     const onHost = host.trim();
-    trackEvent("script_usage_requested", {
-      script_type: entry.js ? "local_eval" : "agent_skill",
-      has_host: !!onHost,
-      category: entry.category,
-    });
     trackEvent("script_run_started", {
       script_type: entry.js ? "local_eval" : "agent_skill",
       has_host: !!onHost,
@@ -2552,7 +2752,7 @@ export const useStore = create<State>((set, get) => {
       set({ tab: "chat" });
       const where = onHost ? `on ${onHost}` : "in the remote browser session";
       const scriptBody = entry.js
-        ? `Run this JavaScript through the already-installed remote clawctl browser evaluation command:\n\n\`\`\`javascript\n${entry.js}\n\`\`\``
+        ? `Run this JavaScript through the already-installed remote nextctl browser evaluation command:\n\n\`\`\`javascript\n${entry.js}\n\`\`\``
         : `Use the already-available remote script or skill identified by ${entry.selector.value}. If it is missing on the VPS, report that without installing it.`;
       const prompt = `Run "${entry.title}" ${where} on the selected VPS only. Do not prepare, open, inspect, evaluate, or change any local NextBrowser session. ${scriptBody}`;
       get().enqueue(prompt, {
@@ -2597,7 +2797,7 @@ export const useStore = create<State>((set, get) => {
         onStep: (step) => get().appendStep(cid, stepId, step),
       });
       try {
-        const { env, res } = await clawctlEnvelope<unknown>([
+        const { env, res } = await nextctlEnvelope<unknown>([
           ...prep.profileArgs,
           "eval",
           entry.js,
@@ -2609,7 +2809,7 @@ export const useStore = create<State>((set, get) => {
           result = `✓ Ran "${entry.title}" on ${on}.`;
           trackEvent("script_run_completed", { script_type: "local_eval", has_host: !!onHost });
         } else {
-          result = `Couldn't run "${entry.title}": ${clawctlErrorMessage(res)}`;
+          result = `Couldn't run "${entry.title}": ${nextctlErrorMessage(res)}`;
           trackEvent("script_run_failed", { script_type: "local_eval", exit_code: res.code });
         }
         const resultMsg: ChatMessage = {
@@ -2791,7 +2991,7 @@ export const useStore = create<State>((set, get) => {
         : "Private custom script (not shared).";
       const markdown = `---\nname: ${updated.title || "Custom script"}\ndescription: ${description}\n---\n\n${updated.instructions}`;
       tempPath = await invoke<string>("write_temp_skill", { slug, content: markdown });
-      const { env, res } = await clawctlEnvelope<SkillRef>([
+      const { env, res } = await nextctlEnvelope<SkillRef>([
         "skill",
         "add",
         "--domain",
@@ -2806,7 +3006,7 @@ export const useStore = create<State>((set, get) => {
         "--file",
         tempPath,
       ]);
-      if (res.code !== 0 || env.ok === false) throw new Error(clawctlErrorMessage(res));
+      if (res.code !== 0 || env.ok === false) throw new Error(nextctlErrorMessage(res));
       const synced = {
         ...updated,
         serverSlug: env.data?.slug ?? slug,
@@ -2885,20 +3085,20 @@ export const useStore = create<State>((set, get) => {
 
   startRemoteStream: async (profile) => {
     const args = ["remote", ...(profile ? ["--profile", profile] : [])];
-    let res = await clawctlRun([...args, "--include-viewer-url", "--format", "json"]);
-    if (res.code !== 0 && clawctlErrorMessage(res).includes("unknown flag")) {
-      res = await clawctlRun([...args, "--format", "json"]);
+    let res = await nextctlRun([...args, "--include-viewer-url", "--format", "json"]);
+    if (res.code !== 0 && nextctlErrorMessage(res).includes("unknown flag")) {
+      res = await nextctlRun([...args, "--format", "json"]);
     }
-    if (res.code !== 0) throw new Error(clawctlErrorMessage(res));
+    if (res.code !== 0) throw new Error(nextctlErrorMessage(res));
     let result: RemoteStreamInfo & { data?: RemoteStreamInfo };
     try {
       result = JSON.parse(res.stdout);
     } catch {
-      throw new Error(clawctlErrorMessage(res));
+      throw new Error(nextctlErrorMessage(res));
     }
     if (result.data?.dashboard_url) result = result.data;
     const url = result.viewer_url || result.dashboard_url;
-    if (!url) throw new Error("clawctl remote did not return a viewer URL.");
+    if (!url) throw new Error("nextctl remote did not return a viewer URL.");
     return result;
   },
   };

@@ -217,9 +217,9 @@ export function initAnalytics(): void {
   }, false);
   if (!firstVisitSent) {
     localStorage.setItem(FIRST_VISIT_KEY, "1");
-    sendAnalyticsEvent("first_visit", initialParams);
+    sendAnalyticsEvent("app_first_open", initialParams);
   }
-  sendAnalyticsEvent("session_start", initialParams);
+  sendAnalyticsEvent("app_session_started", initialParams);
   sendAnalyticsEvent("page_view", initialParams);
 }
 
@@ -281,7 +281,7 @@ export function flushAnalyticsEngagement(reason = "manual"): void {
   const now = Date.now();
   if (reason === "heartbeat" && now - lastHeartbeatAt < HEARTBEAT_MIN_MS) return;
   lastHeartbeatAt = now;
-  sendAnalyticsEvent("user_engagement", eventParams({
+  sendAnalyticsEvent("app_engagement", eventParams({
     engagement_reason: reason,
   }));
 }

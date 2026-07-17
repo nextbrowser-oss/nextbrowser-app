@@ -54,6 +54,7 @@ export function LiveView() {
   ];
   const launchTarget = sessionKey || (defaultRunning ? "__default" : "") || s.selectedProfile || s.profiles[0]?.name || "";
   const streamUrl = streamInfo?.viewer_url || streamInfo?.dashboard_url || "";
+  const nativeViewer = !!streamInfo?.viewer_ws_url;
 
   const stop = () => {
     remoteClientRef.current?.close();
@@ -68,6 +69,10 @@ export function LiveView() {
   };
 
   const connectRemoteViewer = async (info: RemoteStreamInfo) => {
+    if (!info.viewer_ws_url) {
+      setState("live");
+      return;
+    }
     remoteClientRef.current?.close();
     const client = new RemoteControlClient(info, {
       onState: (next) => {
@@ -78,7 +83,10 @@ export function LiveView() {
         setError(message);
         setState("error");
       },
-      onStream: setRemoteMediaStream,
+      onStream: (stream) => {
+        setRemoteMediaStream(stream);
+        setState("live");
+      },
       onTabs: (tabs) => {
         setRemoteTabs((current) => mergeTabs(current, tabs));
         setPendingRemoteTab((pending) =>
@@ -272,7 +280,11 @@ export function LiveView() {
         <span className={"live-pill " + state}>
           {state === "live" ? "live" : state}
         </span>
-        <span className="muted small">Native Remote Control viewer is used when supported.</span>
+        <span className="muted small">
+          {streamInfo && !nativeViewer
+            ? "Dashboard Remote Control viewer is embedded for this stream."
+            : "Native Remote Control viewer is used when supported."}
+        </span>
         <span className="spacer" />
         {streamUrl && (
           <a className="btn-bordered" href={streamUrl} target="_blank" rel="noreferrer" title="Open Remote Control in your browser">
@@ -289,7 +301,7 @@ export function LiveView() {
       </div>
       <hr className="divider" />
 
-      {state === "live" && remoteTabs.length > 0 && (
+      {remoteTabs.length > 0 && (
         <div className="remote-tabs-bar" aria-label="Remote browser tabs">
           {remoteTabs.map((tab) => {
             const active = tab.active || tab.target_id === pendingRemoteTab;
@@ -315,7 +327,7 @@ export function LiveView() {
           <div className="live-empty-panel">
             <Spinner size={18} />
             <strong>Starting live view...</strong>
-            <p className="muted small">Creating a Remote Control session through clawctl.</p>
+            <p className="muted small">Creating a Remote Control session through nextctl.</p>
           </div>
         )}
         {state === "error" && (
@@ -347,7 +359,7 @@ export function LiveView() {
             </button>
           </div>
         )}
-        {streamInfo && state !== "error" && (
+        {streamInfo && state !== "error" && nativeViewer && (
           <div
             ref={remoteEmbedRef}
             className="remote-live-embed"
@@ -361,10 +373,18 @@ export function LiveView() {
             <video ref={remoteVideoRef} className="remote-live-video" autoPlay muted playsInline />
           </div>
         )}
+        {streamInfo && state !== "error" && !nativeViewer && streamUrl && (
+          <webview
+            className="remote-live-webview"
+            src={streamUrl}
+          />
+        )}
       </div>
       {state === "live" && (
         <div className="live-hint muted small">
-          Remote Control is running natively in NextBrowser. Click, scroll, type, or use the tab bar above.
+          {nativeViewer
+            ? "Remote Control is running natively in NextBrowser. Click, scroll, type, or use the tab bar above."
+            : "Remote Control is embedded in NextBrowser through the backend dashboard viewer."}
         </div>
       )}
     </div>

@@ -1,7 +1,7 @@
 export const VPS_PROMPT_MARKER = "[NEXTBROWSER_EXECUTION_TARGET=VPS;MODE=REMOTE_ONLY]";
 const VPS_TASK_HEADER = "After the remote preflight passes, complete this task on the VPS only:";
 const MISSING_INSTALL_MESSAGE =
-  "Clawbrowser or clawctl is not installed on this VPS. Install Clawbrowser and clawctl on the VPS first, then retry.";
+  "Clawbrowser or nextctl is not installed on this VPS. Install Clawbrowser and nextctl on the VPS first, then retry.";
 
 export type ShellPlatform = "posix" | "windows";
 
@@ -183,15 +183,15 @@ The SSH command uses only the resolved host, user, port, and identity-file path 
 Connect using the SSH command above. Do not read or print private-key contents. From that point on, run every Clawbrowser, browser, profile, and session operation inside the VPS SSH context. Never run those operations on localhost, never use the local NextBrowser profile/session, and never fall back to local execution.
 
 Before doing browser work, perform only this read-only preflight on the VPS:
-1. Run \`command -v clawctl\` on the VPS.
-2. Run \`CLAWCTL_AUTO_UPDATE=0 clawctl version\` on the VPS.
+1. Run \`command -v nextctl\` on the VPS.
+2. Run \`NEXTCTL_AUTO_UPDATE=0 nextctl version\` on the VPS.
 3. Inspect the existing remote filesystem and configuration read-only to confirm that a Clawbrowser runtime is already installed. Use only non-mutating shell inspection such as \`test\`, \`ls\`, or a bounded \`find\`; do not read secrets.
 
 Do not run diagnostic commands that may install dependencies, an installer, an updater, a browser/profile/session start command, or any command that downloads, configures, initializes, repairs, or changes state merely to test readiness. The preflight must only recognize an already-installed executable and runtime.
 
-If \`clawctl\` or an already-installed Clawbrowser runtime is missing or unusable, stop immediately and tell the user exactly: "${MISSING_INSTALL_MESSAGE}" Do not install, download, update, configure, initialize, repair, or start anything automatically. Do not try a local executable as a fallback.
+If \`nextctl\` or an already-installed Clawbrowser runtime is missing or unusable, stop immediately and tell the user exactly: "${MISSING_INSTALL_MESSAGE}" Do not install, download, update, configure, initialize, repair, or start anything automatically. Do not try a local executable as a fallback.
 
-For the requested task, prefix every remote \`clawctl\` invocation with \`CLAWCTL_AUTO_UPDATE=0\`. Never invoke remote \`clawctl\` without that environment setting. Reuse only the already-installed runtime; if an existing portable runtime directory is required, point \`CLAWBROWSER_PORTABLE_LOCAL_DIR\` at that existing directory without creating or downloading one.
+For the requested task, prefix every remote \`nextctl\` invocation with \`NEXTCTL_AUTO_UPDATE=0\`. Never invoke remote \`nextctl\` without that environment setting. Reuse only the already-installed runtime; if an existing portable runtime directory is required, point \`CLAWBROWSER_PORTABLE_LOCAL_DIR\` at that existing directory without creating or downloading one.
 
 If remote authentication or another prerequisite is missing, stop and report the exact remote error without printing secrets.
 

@@ -29,9 +29,9 @@ reports and explorations.
   `dashboard_key_prompt_closed`, `dashboard_key_save_started`,
   `dashboard_key_save_succeeded`, `dashboard_key_save_failed`,
   `dashboard_opened`, `dashboard_logout`, `login`.
-- Runtime: `bootstrap_started`, `bootstrap_completed`, `clawctl_detected`,
-  `clawctl_missing`, `clawctl_update_started`, `clawctl_update_completed`,
-  `clawctl_update_failed`.
+- Runtime: `bootstrap_started`, `bootstrap_completed`, `nextctl_detected`,
+  `nextctl_missing`, `nextctl_update_started`, `nextctl_update_completed`,
+  `nextctl_update_failed`.
 - Proxy/session/profile: `proxy_loaded`, `proxy_refresh_started`,
   `proxy_refresh_succeeded`, `proxy_top_up_requested`,
   `session_start_requested`, `session_stop_requested`,

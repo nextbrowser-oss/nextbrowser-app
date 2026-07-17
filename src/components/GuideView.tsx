@@ -5,7 +5,7 @@ import { Icon } from "./Icon";
 import { GuideUsageSection } from "./GuideUsageDemos";
 
 const FEATURES = [
-  { icon: "key.fill", title: "Sign in", caption: "Reuses your saved API key, or paste it once.", tint: "#007aff" },
+  { icon: "key.fill", title: "Sign in", caption: "Connect your account in the browser once.", tint: "#007aff" },
   { icon: "chart.bar.fill", title: "Proxy usage", caption: "Live used / limit, like the dashboard.", tint: "#5ac8fa" },
   { icon: "person.2.fill", title: "Profiles", caption: "Search, start, stop, pick an active one.", tint: "#5856d6" },
   { icon: "globe", title: "Rotate country", caption: "••• menu moves proxy + identity abroad.", tint: "#34c759" },
@@ -28,7 +28,7 @@ export function GuideView() {
         <BrandLogo size={52} />
         <div>
           <h2>{brandName}</h2>
-          <p className="muted">A native console over clawctl.</p>
+          <p className="muted">A native console over nextctl.</p>
         </div>
         <span className="spacer" />
         <button className="btn-bordered" onClick={showTour}>

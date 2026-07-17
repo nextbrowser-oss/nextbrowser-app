@@ -9,7 +9,7 @@ import { agentById } from "../agents";
 // Sentinel for the "create a dedicated chat" option in the session selector.
 const NEW_DEDICATED_CHAT = "__new_dedicated_chat__";
 
-export function ScheduledRunsPanel() {
+export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
   const runs = useStore((s) => s.scheduledRuns);
   const chatTitle = useStore((s) => s.scheduledRunChatTitle);
   const setEnabled = useStore((s) => s.setScheduledRunEnabled);
@@ -23,6 +23,7 @@ export function ScheduledRunsPanel() {
   const [editor, setEditor] = useState<ScheduledRun | "new" | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ScheduledRun | null>(null);
   const [menuRunId, setMenuRunId] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(asPage);
 
   // Auto-scroll the open action menu into view so it's never clipped by the
   // scrollable sidebar when it pops up near the bottom.
@@ -37,17 +38,34 @@ export function ScheduledRunsPanel() {
     .sort((a, b) => b.updatedAt - a.updatedAt);
 
   return (
-    <div className="claw-card scheduled-panel">
-      <div className="row">
-        <div className="section">SCHEDULED RUNS</div>
-        <button className="plain-icon-btn" title="New schedule" onClick={() => setEditor("new")}>
+    <div className={(asPage ? "scheduled-page-card " : "") + "claw-card scheduled-panel"}>
+      {asPage && (
+        <div className="page-head scheduled-page-head">
+          <div>
+            <h2>Scheduled runs</h2>
+            <p className="muted">Automate recurring tasks while NextBrowser is open.</p>
+          </div>
+        </div>
+      )}
+      <div className="row scheduled-panel-head">
+        <button
+          className="scheduled-panel-toggle"
+          title={expanded ? "Hide scheduled runs" : "Show scheduled runs"}
+          aria-expanded={expanded}
+          onClick={() => !asPage && setExpanded((value) => !value)}
+        >
+          {!asPage && <Icon name={expanded ? "chevron.down" : "chevron.right"} size={13} />}
+          <span className="section">Scheduled runs</span>
+          {runs.length > 0 && <span className="profiles-count" title="Scheduled runs">{runs.length}</span>}
+        </button>
+        <button className="plain-icon-btn" title="New schedule" onClick={() => { setExpanded(true); setEditor("new"); }}>
           <Icon name="plus.circle" size={18} />
         </button>
       </div>
-      {runs.length === 0 ? (
-        <div className="muted small">No schedules yet. Automate daily parses or checks.</div>
-      ) : (
-        runs.map((run) => (
+      {expanded && (runs.length === 0 ? (
+          <div className="muted small scheduled-empty">No schedules yet. Automate daily parses or checks.</div>
+        ) : (
+          runs.map((run) => (
           <div key={run.id} className="schedule-row">
             <div className="schedule-info">
               <div className="schedule-title">{run.title}</div>
@@ -97,8 +115,8 @@ export function ScheduledRunsPanel() {
               </>
             )}
           </div>
-        ))
-      )}
+          ))
+        ))}
 
       {editor && (
         <ScheduleEditor

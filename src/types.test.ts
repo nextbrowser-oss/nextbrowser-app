@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { conversationPreview, weekdaysSummary, type Conversation } from "./types";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "./lib/countryFlag";
-import { normalizeClawctlVersion } from "./lib/version";
+import { normalizeNextctlVersion } from "./lib/version";
 
 const conversation = (messages: Conversation["messages"]): Conversation => ({
   id: "c", title: "Test", agent: "claude", messages, createdAt: 0, updatedAt: 0,
 });
 
 describe("Swift-compatible model helpers", () => {
-  it("normalizes clawctl version output for the footer", () => {
-    expect(normalizeClawctlVersion("clawctl 1.2.0\n")).toBe("1.2.0");
-    expect(normalizeClawctlVersion("1.2.0")).toBe("1.2.0");
+  it("normalizes nextctl version output for the footer", () => {
+    expect(normalizeNextctlVersion("nextctl 1.2.0\n")).toBe("1.2.0");
+    expect(normalizeNextctlVersion("1.2.0")).toBe("1.2.0");
   });
   it("prefers the last non-system command chip in conversation previews", () => {
     expect(conversationPreview(conversation([

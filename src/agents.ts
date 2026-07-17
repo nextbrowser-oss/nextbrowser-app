@@ -86,8 +86,8 @@ export function agentById(id: string): AgentSpec {
   return AGENTS.find((a) => a.id === id) ?? AGENTS[0];
 }
 
-/** Adapter name understood by `clawctl install --agent`. */
-export function clawctlAgentAdapter(id: string): string {
+/** Adapter name understood by `nextctl install --agent`. */
+export function nextctlAgentAdapter(id: string): string {
   return id === "claude" ? "claude-code" : id;
 }
 

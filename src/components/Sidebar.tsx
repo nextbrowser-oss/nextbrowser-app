@@ -1,19 +1,28 @@
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore, type ManualProxyProfileInput } from "../store";
-import { PRIMARY_AGENTS, ADDITIONAL_AGENTS, agentById } from "../agents";
+import { agentById } from "../agents";
 import { BrandHeader, BrandLogo } from "./BrandLogo";
-import { ScheduledRunsPanel } from "./ScheduledRunsPanel";
 import { Icon, Spinner } from "./Icon";
+import { withLocalScripts } from "../skillsCatalog";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
 import { manualProxyDefaultName, parseManualProxyUrl, type ManualProxyScheme } from "../lib/manualProxy";
+import type { AppTab } from "../types";
 
 type ManualProxyInputMode = "url" | "fields";
 
-export function Sidebar() {
+interface SidebarProps {
+  onOpenAgentSettings: () => void;
+}
+
+const NAV_ITEMS: Array<{ id: AppTab; label: string; icon: string }> = [
+  { id: "skills", label: "Skills", icon: "square.grid.2x2.fill" },
+  { id: "scheduled", label: "Scheduled", icon: "clock.arrow.circlepath" },
+  { id: "guide", label: "Guide", icon: "book.fill" },
+];
+
+export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
   const s = useStore();
-  const [agentSearch, setAgentSearch] = useState("");
-  const [focused, setFocused] = useState(false);
   const [menuProfile, setMenuProfile] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [manualProxyOpen, setManualProxyOpen] = useState(false);
@@ -28,19 +37,10 @@ export function Sidebar() {
   const [manualError, setManualError] = useState<string | null>(null);
   const [manualSaving, setManualSaving] = useState(false);
 
-  const matches = useMemo(
-    () =>
-      ADDITIONAL_AGENTS.filter((a) =>
-        a.name.toLowerCase().includes(agentSearch.toLowerCase()),
-      ),
-    [agentSearch],
-  );
-  const suggestions = ADDITIONAL_AGENTS.slice(0, 6);
+  const agentName = agentById(s.agentId).name;
   const ready = s.agentReady();
-  const version = s.agentVersion();
-  const error = s.agentError();
-  const loggedIn = s.agentLoggedIn();
   const profiles = s.filteredProfiles();
+  const skillCount = withLocalScripts(s.skillCategories).reduce((total, category) => total + category.entries.length, 0);
   const defaultStatus = s.defaultSession?.status ?? "unknown";
   const defaultKnown = !!s.defaultSession?.session?.name || defaultStatus !== "unknown";
   const defaultRunning = defaultStatus === "running";
@@ -48,37 +48,13 @@ export function Sidebar() {
   const defaultIdentity = s.profileIdentities.__default;
   const showDefaultProfile = defaultKnown && !s.profiles.some((p) => p.name === "default");
   const visibleProfileCount = s.profiles.length + (showDefaultProfile ? 1 : 0);
-  const agentName =
-    PRIMARY_AGENTS.concat(ADDITIONAL_AGENTS).find((a) => a.id === s.agentId)?.name ?? "agent";
+  const runningCount = s.profiles.filter((p) => s.statuses[p.name] === "running").length + (defaultRunning ? 1 : 0);
 
-  if (s.sidebarCollapsed) {
-    const runningCount = s.profiles.filter((p) => s.statuses[p.name] === "running").length + (showDefaultProfile ? 1 : 0);
-    return (
-      <div className="sidebar-mini">
-        <button
-          className="plain-icon-btn sidebar-collapse-toggle"
-          title="Expand sidebar"
-          aria-label="Expand sidebar"
-          onClick={() => s.setSidebarCollapsed(false)}
-        >
-          <Icon name="sidebar.left" size={17} />
-        </button>
-        <BrandLogo size={28} />
-        <button className="mini-nav-btn" title={`Agent: ${agentName}`} onClick={() => s.setTab("chat")}>
-          <Icon name="cpu.fill" size={18} />
-          <span>{s.agentReady() ? "on" : "off"}</span>
-        </button>
-        <button className="mini-nav-btn" title={`${visibleProfileCount} profiles, ${runningCount} running`} onClick={() => s.setTab("live")}>
-          <Icon name="person.crop.circle" size={18} />
-          <span>{runningCount}/{visibleProfileCount}</span>
-        </button>
-        <span className="spacer" />
-        <button className="mini-nav-btn" title="Sign out" onClick={() => s.logout()}>
-          <Icon name="rectangle.portrait.and.arrow.right" size={18} />
-        </button>
-      </div>
-    );
-  }
+  const badgeFor = (id: AppTab) => {
+    if (id === "skills") return skillCount ? String(skillCount) : undefined;
+    if (id === "scheduled") return s.scheduledRuns.length ? String(s.scheduledRuns.length) : undefined;
+    return undefined;
+  };
 
   const uniqueManualProxyName = (baseName: string) => {
     const base = baseName.trim() || "manual-proxy";
@@ -147,6 +123,45 @@ export function Sidebar() {
     }
   };
 
+  if (s.sidebarCollapsed) {
+    return (
+      <div className="sidebar-mini">
+        <button
+          className="plain-icon-btn sidebar-collapse-toggle"
+          title="Expand sidebar"
+          aria-label="Expand sidebar"
+          onClick={() => s.setSidebarCollapsed(false)}
+        >
+          <Icon name="sidebar.left" size={17} />
+        </button>
+        <BrandLogo size={28} />
+        <button className="mini-nav-btn" title={`Agent: ${agentName}`} onClick={onOpenAgentSettings}>
+          <Icon name="cpu.fill" size={18} />
+          <span>{ready ? "on" : "off"}</span>
+        </button>
+        <button className="mini-nav-btn" title={`${visibleProfileCount} profiles, ${runningCount} running`} onClick={() => s.setTab("live")}>
+          <Icon name="person.crop.circle" size={18} />
+          <span>{runningCount}/{visibleProfileCount}</span>
+        </button>
+        {NAV_ITEMS.map((item) => (
+          <button
+            key={item.id}
+            className={"mini-nav-btn" + (s.tab === item.id ? " active" : "")}
+            title={`Open ${item.label}`}
+            onClick={() => s.setTab(item.id)}
+          >
+            <Icon name={item.icon} size={18} />
+            {badgeFor(item.id) && <span>{badgeFor(item.id)}</span>}
+          </button>
+        ))}
+        <span className="spacer" />
+        <button className="mini-nav-btn" title="Sign out" onClick={() => s.logout()}>
+          <Icon name="rectangle.portrait.and.arrow.right" size={18} />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="sidebar-shell">
       <div className="sidebar-brand">
@@ -162,120 +177,41 @@ export function Sidebar() {
             <Icon name="sidebar.leading" size={15} />
           </button>
         </div>
+        <button className="sidebar-agent-strip" title="Open agent settings" onClick={onOpenAgentSettings}>
+          <Icon name="cpu.fill" size={13} />
+          <span className="muted small">Agent</span>
+          <strong>{agentName}</strong>
+          <span className={"agent-state-pill" + (ready ? " is-ready" : "")}>
+            {ready ? "Ready" : "Offline"}
+          </span>
+        </button>
       </div>
 
-      <div className="sidebar-scroll">
-        <div className="claw-card control-card agent-card">
-          <div className="agent-card-head">
-            <div>
-              <div className="section">AGENT</div>
-              <div className="card-title">{agentName}</div>
-            </div>
-            <span className={"agent-state-pill" + (ready ? " is-ready" : "")}>
-              {ready ? "Ready" : "Offline"}
-            </span>
-          </div>
-          <div className="agent-primary">
-            {PRIMARY_AGENTS.map((a) => (
-              <button
-                key={a.id}
-                className={"chip" + (s.agentId === a.id ? " chip-active" : "")}
-                title={`Switch to ${a.name}`}
-                onClick={() => s.switchAgent(a.id)}
-              >
-                {a.name}
-              </button>
-            ))}
-          </div>
-          <div className="agent-search-box">
-            <Icon name="magnifyingglass" size={12} className="muted" />
-            <input
-              className="agent-search-input"
-              placeholder="Other agents — Gemini, Qwen, …"
-              value={agentSearch}
-              onChange={(e) => setAgentSearch(e.target.value)}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setTimeout(() => setFocused(false), 120)}
-            />
-            {agentSearch && (
-              <button className="plain-icon-btn plain-icon-btn-compact" title="Clear agent search" onClick={() => setAgentSearch("")}>
-                <Icon name="xmark.circle.fill" size={14} className="muted" />
-              </button>
-            )}
-          </div>
-          {(agentSearch ? matches : focused ? suggestions : []).map((a) => (
+      <nav className="sidebar-scroll sidebar-nav-list" aria-label="Sidebar pages">
+        {NAV_ITEMS.map((item) => {
+          const badge = badgeFor(item.id);
+          return (
             <button
-              key={a.id}
-              className="agent-row"
-              title={`Switch to ${a.name}`}
-              onMouseDown={() => {
-                s.switchAgent(a.id);
-                setAgentSearch("");
-              }}
+              key={item.id}
+              className={"claw-card sidebar-link-card sidebar-page-link" + (s.tab === item.id ? " active" : "")}
+              title={`Open ${item.label}`}
+              onClick={() => s.setTab(item.id)}
             >
-              <span>{a.name}</span>
-              {s.agentId === a.id && <Icon name="checkmark" size={12} className="accent-icon" />}
-            </button>
-          ))}
-          {!focused && !agentSearch && !PRIMARY_AGENTS.some((a) => a.id === s.agentId) && (
-            <div className="active-agent-banner">
-              <Icon name="cpu.fill" size={15} />
-              <strong>Using {agentName}</strong>
+              <Icon name={item.icon} size={14} />
+              <span className="section">{item.label}</span>
               <span className="spacer" />
-              <Icon name="checkmark.circle.fill" size={15} className="ok" />
-            </div>
-          )}
-          <div className="agent-status small">
-            {ready ? (
-              <>
-                <span className="agent-version-line">
-                  <Icon name="checkmark.circle.fill" size={13} className="ok" />
-                  {version ?? "connected"}
-                  {loggedIn === true && <span className="muted"> · signed in</span>}
-                </span>
-                {loggedIn === true && agentById(s.agentId).logoutArgs.length > 0 && (
-                  <button
-                    className="switch-account-link"
-                    title={`Sign out of ${agentName} to switch accounts`}
-                    onClick={() => s.logoutAgent()}
-                  >
-                    Logout agent
-                  </button>
-                )}
-              </>
-            ) : (
-              <button className="btn-bordered-prominent connect-btn full" title={`Connect ${agentName}`} onClick={() => s.authorizeAgent()}>
-                <Icon name="bolt.fill" size={14} />
-                Connect to chat
-              </button>
-            )}
-            {ready && loggedIn !== true && (
-              <button className="btn-bordered full agent-login-btn" title={`Open ${agentName} login`} onClick={() => s.loginAgent()}>
-                <Icon name="person.badge.key" size={14} />
-                Log in to {agentName}
-              </button>
-            )}
-            {error && <div className="error">{error}</div>}
-          </div>
-        </div>
+              {badge && <span className="profiles-count">{badge}</span>}
+            </button>
+          );
+        })}
 
         <div className="claw-card control-card profiles-card">
-          <div className="row section-row">
-            <div>
-              <div className="section">PROFILES</div>
-              <div className="card-title">Profiles</div>
+          <div className="row profiles-panel-head">
+            <div className="scheduled-panel-toggle profiles-panel-toggle">
+              <Icon name="person.crop.circle" size={13} />
+              <span className="section">Profiles</span>
+              <span className="profiles-count" title="Total profiles">{visibleProfileCount}</span>
             </div>
-            <span className="profiles-count" title="Total profiles">{visibleProfileCount}</span>
-            <button
-              className="mini proxy-profile-btn"
-              title="Add manual proxy profile"
-              onClick={() => {
-                resetManualProxyForm();
-                setManualProxyOpen(true);
-              }}
-            >
-              Proxy
-            </button>
             <button
               className="plain-icon-btn plain-icon-btn-compact"
               title="Refresh profiles"
@@ -287,22 +223,34 @@ export function Sidebar() {
             <span className="spacer" />
             {s.anyAgentRunning() && <Spinner size={12} />}
           </div>
+
           <div className="session-quick-actions">
             <button
               className="btn-bordered full"
-              title={s.selectedProfile ? `Start selected profile: ${s.selectedProfile}` : "Start default profile"}
+              title="Create a new managed profile"
               disabled={s.isRefreshing}
-              onClick={() => void (s.selectedProfile ? s.startProfile(s.selectedProfile) : s.startDefaultSession())}
+              onClick={() => void s.createManagedProfile()}
             >
-              <Icon name="play.fill" size={14} />
-              {s.selectedProfile ? "Start selected profile" : "Start default profile"}
+              <Icon name="plus" size={14} />
+              New profile
+            </button>
+            <button
+              className="mini proxy-profile-btn"
+              title="Add manual proxy profile"
+              onClick={() => {
+                resetManualProxyForm();
+                setManualProxyOpen(true);
+              }}
+            >
+              Proxy
             </button>
           </div>
+
           <div className="search-box">
             <Icon name="magnifyingglass" size={12} className="muted" />
             <input
               className="search-inline"
-              placeholder="Search profiles…"
+              placeholder="Search profiles..."
               value={s.profileSearch}
               onChange={(e) => s.setProfileSearch(e.target.value)}
             />
@@ -316,6 +264,7 @@ export function Sidebar() {
               </button>
             )}
           </div>
+
           <div className="profile-list">
             {visibleProfileCount === 0 && (
               <div className="inline-empty">
@@ -326,80 +275,33 @@ export function Sidebar() {
               </div>
             )}
             {visibleProfileCount === 0 && !s.proxy && (
-              <button className="btn-bordered full empty-action-button" title="Enter dashboard key to unlock managed profiles" onClick={() => s.setDashboardKeyPromptOpen(true)}>
+              <button className="btn-bordered full empty-action-button" title="Sign in to create managed profiles" onClick={() => s.setDashboardKeyPromptOpen(true)}>
                 <Icon name="lock" size={14} />
-                Enter dashboard key before first profile
+                Sign in to create profiles
               </button>
             )}
             {showDefaultProfile && (
-              <div
-                className={"profile-row" + (!s.selectedProfile ? " selected" : "")}
-                onClick={() => s.selectProfile(undefined)}
-              >
-                <span className={"dot " + (defaultRunning ? "green" : defaultBusy ? "orange" : "gray")} title={defaultStatus} />
-                <span className="profile-main">
-                  <span className="profile-title-line">
-                    <span className="profile-name">default</span>
-                    {defaultIdentity?.country && (
-                      <span className="badge profile-country-badge" title={countryLabel(defaultIdentity.country, defaultIdentity.city)}>
-                        {countryFlag(defaultIdentity.country)} {defaultIdentity.country.toUpperCase()}
-                      </span>
-                    )}
-                  </span>
-                  <span className="profile-meta">
-                    {defaultIdentity?.ip ? `${defaultStatus} · ${defaultIdentity.ip}` : defaultStatus}
-                  </span>
-                </span>
-                <span className="spacer" />
-                <div className="profile-actions">
-                  {defaultRunning ? (
-                    <>
-                      <button
-                        className="plain-icon-btn"
-                        title="Stop default"
-                        disabled={defaultBusy}
-                        onClick={(e) => { e.stopPropagation(); void s.stopDefaultSession(); }}
-                      >
-                        <Icon name="stop.fill" size={16} />
-                      </button>
-                      <button
-                        className="plain-icon-btn"
-                        title="Live view"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          s.selectProfile(undefined);
-                          s.setTab("live");
-                        }}
-                      >
-                        <Icon name="video.fill" size={16} />
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      className="plain-icon-btn"
-                      title="Start default"
-                      disabled={defaultBusy}
-                      onClick={(e) => { e.stopPropagation(); void s.startDefaultSession(); }}
-                    >
-                      <Icon name="play.fill" size={16} />
-                    </button>
-                  )}
-                  <button
-                    className="plain-icon-btn"
-                    title="Profile actions"
-                    disabled={defaultBusy}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setMenuProfile("__default");
-                    }}
-                  >
-                    <Icon name="ellipsis.circle" size={18} />
-                  </button>
-                </div>
-              </div>
+              <ProfileRow
+                name="default"
+                status={defaultStatus}
+                running={defaultRunning}
+                busy={defaultBusy}
+                selected={!s.selectedProfile}
+                country={defaultIdentity?.country}
+                city={defaultIdentity?.city}
+                ip={defaultIdentity?.ip}
+                onSelect={() => s.selectProfile(undefined)}
+                onStart={() => s.startDefaultSession()}
+                onStop={() => s.stopDefaultSession()}
+                onLive={() => {
+                  s.selectProfile(undefined);
+                  s.setTab("live");
+                }}
+                onMenu={() => setMenuProfile("__default")}
+              />
             )}
             {s.profiles.length > 0 && profiles.length === 0 && (
-              <div className="muted small">No matches for “{s.profileSearch}”.</div>
+              <div className="muted small">No matches for "{s.profileSearch}".</div>
             )}
             {profiles.map((p) => {
               const status = s.statuses[p.name] ?? "unknown";
@@ -411,112 +313,51 @@ export function Sidebar() {
               const profileCountry = p.country ?? identity?.country;
               const profileCity = p.city ?? identity?.city;
               return (
-                <div
+                <ProfileRow
                   key={p.name}
-                  className={"profile-row" + (selected ? " selected" : "")}
-                  onClick={() => s.selectProfile(selected ? undefined : p.name)}
-                >
-                  <span className={"dot " + (running ? "green" : busy ? "orange" : "gray")} title={status} />
-                  <span className="profile-main">
-                    <span className="profile-title-line">
-                      <span className="profile-name">{p.name}</span>
-                      {profileCountry && (
-                        <span className="badge profile-country-badge" title={countryLabel(profileCountry, profileCity)}>
-                          {countryFlag(profileCountry)} {profileCountry.toUpperCase()}
-                        </span>
-                      )}
-                    </span>
-                    <span className="profile-meta">
-                      {identity?.ip ? `${status} · ${identity.ip}` : profileCountry ? countryLabel(profileCountry, profileCity) : manual ? "Manual proxy" : status}
-                    </span>
-                  </span>
-                  <span className="profile-badges">
-                    {manual && (
-                      <span
-                        className="badge manual-proxy-badge"
-                        title={`${p.manual_proxy?.host ?? ""}:${p.manual_proxy?.port ?? ""}`}
-                      >
-                        {(p.manual_proxy?.scheme ?? "http").toUpperCase()}
-                      </span>
-                    )}
-                  </span>
-                  <span className="spacer" />
-                  <div className="profile-actions">
-                    {running ? (
-                      <>
-                      <button
-                        className="plain-icon-btn"
-                        title={`Stop ${p.name}`}
-                          disabled={busy}
-                          onClick={(e) => { e.stopPropagation(); void s.stopProfile(p.name); }}
-                        >
-                          <Icon name="stop.fill" size={16} />
-                        </button>
-                        <button
-                          className="plain-icon-btn"
-                          title="Live view"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            s.selectProfile(p.name);
-                            s.setTab("live");
-                          }}
-                        >
-                          <Icon name="video.fill" size={16} />
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        className="plain-icon-btn"
-                        title="Start"
-                        disabled={busy}
-                        onClick={(e) => { e.stopPropagation(); void s.startProfile(p.name); }}
-                      >
-                        <Icon name="play.fill" size={16} />
-                      </button>
-                    )}
-                    <button
-                      className="plain-icon-btn"
-                      title="Profile actions"
-                      disabled={busy}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setMenuProfile(p.name);
-                      }}
-                    >
-                      <Icon name="ellipsis.circle" size={18} />
-                    </button>
-                  </div>
-                </div>
+                  name={p.name}
+                  status={status}
+                  running={running}
+                  busy={busy}
+                  selected={selected}
+                  country={profileCountry}
+                  city={profileCity}
+                  ip={identity?.ip}
+                  manualScheme={manual ? p.manual_proxy?.scheme : undefined}
+                  manualTitle={manual ? `${p.manual_proxy?.host ?? ""}:${p.manual_proxy?.port ?? ""}` : undefined}
+                  onSelect={() => s.selectProfile(selected ? undefined : p.name)}
+                  onStart={() => s.startProfile(p.name)}
+                  onStop={() => s.stopProfile(p.name)}
+                  onLive={() => {
+                    s.selectProfile(p.name);
+                    s.setTab("live");
+                  }}
+                  onMenu={() => setMenuProfile(p.name)}
+                />
               );
             })}
           </div>
         </div>
-
-        <ScheduledRunsPanel />
-      </div>
+      </nav>
 
       <hr className="divider" />
-      <div className="clawctl-footer muted small">
+      <div className="nextctl-footer muted small">
         <Icon name="terminal" size={12} />
-        <span>clawctl {s.clawctlVersion || "…"}</span>
+        <span>nextctl {s.nextctlVersion || "..."}</span>
         <button
-          className="plain-icon-btn plain-icon-btn-compact clawctl-refresh"
-          title="Check for a newer clawctl and update"
-          disabled={s.clawctlUpdating}
-          onClick={() => s.checkClawctlUpdate()}
+          className="plain-icon-btn plain-icon-btn-compact nextctl-refresh"
+          title="Check for a newer nextctl and update"
+          disabled={s.nextctlUpdating}
+          onClick={() => s.checkNextctlUpdate()}
         >
-          {s.clawctlUpdating ? (
-            <Spinner size={12} />
-          ) : (
-            <Icon name="arrow.triangle.2.circlepath" size={12} />
-          )}
+          {s.nextctlUpdating ? <Spinner size={12} /> : <Icon name="arrow.triangle.2.circlepath" size={12} />}
         </button>
-        {s.clawctlUpdateStatus && (
-          <span className={s.clawctlUpdateStatus.includes("fail") ? "warn" : ""}>
-            · {s.clawctlUpdateStatus}
+        {s.nextctlUpdateStatus && (
+          <span className={s.nextctlUpdateStatus.includes("fail") ? "warn" : ""}>
+            · {s.nextctlUpdateStatus}
           </span>
         )}
-        {!s.clawctlSupportsSkill && <span className="warn"> · no skill cmd</span>}
+        {!s.nextctlSupportsSkill && <span className="warn"> · no skill cmd</span>}
         <span className="spacer" />
         <button className="sign-out-footer" title="Sign out" onClick={() => s.logout()}>
           <Icon name="rectangle.portrait.and.arrow.right" size={13} />
@@ -555,11 +396,7 @@ export function Sidebar() {
                   </span>
                 )}
                 <span className="spacer" />
-                <button
-                  className="plain-icon-btn"
-                  title="Close"
-                  onClick={() => setMenuProfile(null)}
-                >
+                <button className="plain-icon-btn" title="Close" onClick={() => setMenuProfile(null)}>
                   <Icon name="xmark.circle.fill" size={18} />
                 </button>
               </div>
@@ -584,7 +421,7 @@ export function Sidebar() {
                       <button
                         key={c.code}
                         className={"mini country-chip" + (activeCountry === c.code.toLowerCase() ? " active" : "")}
-                        title={activeCountry === c.code.toLowerCase() ? `Current country: ${c.code} — ${c.name}` : `${c.code} — ${c.name}`}
+                        title={activeCountry === c.code.toLowerCase() ? `Current country: ${c.code} - ${c.name}` : `${c.code} - ${c.name}`}
                         onClick={() => {
                           if (isDefaultProfile) s.rotateDefaultSessionCountry(c.code);
                           else s.rotateProfileCountry(menuProfile, c.code);
@@ -735,7 +572,7 @@ export function Sidebar() {
       {confirmDelete && createPortal((
         <div className="modal-overlay">
           <div className="modal-card">
-            <p>Delete profile “{confirmDelete}”?</p>
+            <p>Delete profile "{confirmDelete}"?</p>
             <div className="row" style={{ marginTop: 12, gap: 8 }}>
               <button className="secondary" onClick={() => setConfirmDelete(null)}>
                 Cancel
@@ -753,6 +590,125 @@ export function Sidebar() {
           </div>
         </div>
       ), document.body)}
+    </div>
+  );
+}
+
+function ProfileRow({
+  name,
+  status,
+  running,
+  busy,
+  selected,
+  country,
+  city,
+  ip,
+  manualScheme,
+  manualTitle,
+  onSelect,
+  onStart,
+  onStop,
+  onLive,
+  onMenu,
+}: {
+  name: string;
+  status: string;
+  running: boolean;
+  busy: boolean;
+  selected: boolean;
+  country?: string | null;
+  city?: string | null;
+  ip?: string | null;
+  manualScheme?: string | null;
+  manualTitle?: string;
+  onSelect: () => void;
+  onStart: () => void;
+  onStop: () => void;
+  onLive: () => void;
+  onMenu: () => void;
+}) {
+  return (
+    <div className={"profile-row" + (selected ? " selected" : "")} onClick={onSelect}>
+      <span className={"dot " + (running ? "green" : busy ? "orange" : "gray")} title={status} />
+      <span className="profile-main">
+        <span className="profile-title-line">
+          <span className="profile-name">{name}</span>
+          {country && (
+            <span className="badge profile-country-badge" title={countryLabel(country, city)}>
+              {countryFlag(country)} {country.toUpperCase()}
+            </span>
+          )}
+        </span>
+        <span className="profile-meta">
+          {ip ? `${status} · ${ip}` : status}
+        </span>
+      </span>
+      <span className="profile-badges">
+        {manualScheme && (
+          <span className="badge manual-proxy-badge" title={manualTitle}>
+            {manualScheme.toUpperCase()}
+          </span>
+        )}
+      </span>
+      <span className="spacer" />
+      <div className="profile-actions">
+        {running ? (
+          <>
+            <button
+              className="plain-icon-btn"
+              title={`Stop ${name}`}
+              aria-label={`Stop ${name}`}
+              data-tooltip={`Stop ${name}`}
+              disabled={busy}
+              onClick={(event) => {
+                event.stopPropagation();
+                void onStop();
+              }}
+            >
+              <Icon name="stop.fill" size={16} />
+            </button>
+            <button
+              className="plain-icon-btn"
+              title="Live view"
+              aria-label={`Open live view for ${name}`}
+              data-tooltip="Live view"
+              onClick={(event) => {
+                event.stopPropagation();
+                onLive();
+              }}
+            >
+              <Icon name="video.fill" size={16} />
+            </button>
+          </>
+        ) : (
+          <button
+            className="plain-icon-btn"
+            title={`Start ${name}`}
+            aria-label={`Start ${name}`}
+            data-tooltip={`Start ${name}`}
+            disabled={busy}
+            onClick={(event) => {
+              event.stopPropagation();
+              void onStart();
+            }}
+          >
+            <Icon name="play.fill" size={16} />
+          </button>
+        )}
+        <button
+          className="plain-icon-btn"
+          title="Profile actions"
+          aria-label={`Profile actions for ${name}`}
+          data-tooltip="Actions"
+          disabled={busy}
+          onClick={(event) => {
+            event.stopPropagation();
+            onMenu();
+          }}
+        >
+          <Icon name="ellipsis.circle" size={18} />
+        </button>
+      </div>
     </div>
   );
 }

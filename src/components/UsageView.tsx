@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { clawctlJson } from "../clawctl";
+import { nextctlJson } from "../nextctl";
 import { useStore } from "../store";
 import { trackEvent } from "../lib/analytics";
 import {
@@ -112,7 +112,7 @@ export function UsageView() {
     let cancelled = false;
     setHistoryLoading(true);
     setHistoryNotice(undefined);
-    void clawctlJson<{ proxy_traffic_history: ProxyTrafficHistory }>([
+    void nextctlJson<{ proxy_traffic_history: ProxyTrafficHistory }>([
       "proxy-traffic",
       "--from",
       from,
@@ -239,7 +239,7 @@ export function UsageView() {
           <button className="proxy-locked" onClick={() => s.setDashboardKeyPromptOpen(true)}>
             <Icon name="lock.fill" size={16} />
             <span>
-              <strong>Dashboard key required</strong>
+              <strong>Sign in required</strong>
               <span className="muted small">Unlock proxy traffic analytics and the enforced traffic limit.</span>
             </span>
           </button>

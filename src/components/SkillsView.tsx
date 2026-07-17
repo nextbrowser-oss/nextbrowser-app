@@ -22,10 +22,22 @@ export function SkillsView() {
     if (cat && cat.id !== category) setCategory(cat.id);
   }, [cat, category]);
   useEffect(() => {
-    if (localStorage.getItem("openMyScriptsEditor") !== "1") return;
-    localStorage.removeItem("openMyScriptsEditor");
-    setCategory("my-scripts");
-    setScriptEditor("new");
+    const pendingCategory = localStorage.getItem("openSkillsCategory");
+    if (pendingCategory) {
+      localStorage.removeItem("openSkillsCategory");
+      setCategory(pendingCategory);
+    }
+    if (localStorage.getItem("openMyScriptsEditor") === "1") {
+      localStorage.removeItem("openMyScriptsEditor");
+      setCategory("my-scripts");
+      setScriptEditor("new");
+    }
+    const openCategory = (event: Event) => {
+      const nextCategory = event instanceof CustomEvent ? String(event.detail ?? "") : "";
+      if (nextCategory) setCategory(nextCategory);
+    };
+    window.addEventListener("nextbrowser:open-skills-category", openCategory);
+    return () => window.removeEventListener("nextbrowser:open-skills-category", openCategory);
   }, []);
   const sessionName = s.currentSessionDisplayName();
   const ready = s.agentReady();
@@ -87,18 +99,18 @@ export function SkillsView() {
           </p>
         </div>
 
-        {!s.clawctlSupportsSkill && (
+        {!s.nextctlSupportsSkill && (
           <div className="warning-banner skills-warning">
             <Icon name="exclamationmark.triangle.fill" size={16} />
             <div>
-              <strong>Resolved clawctl ({s.clawctlVersion}) has no `skill` command.</strong>
+              <strong>Resolved nextctl ({s.nextctlVersion}) has no `skill` command.</strong>
               <div className="muted small">
-                Update clawctl or set CLAWCTL_BIN to a build that supports it.
+                Update nextctl or set NEXTCTL_BIN to a build that supports it.
               </div>
             </div>
           </div>
         )}
-        {s.clawctlSupportsSkill && !ready && (
+        {s.nextctlSupportsSkill && !ready && (
           <div className="skills-connect-hint">
             <Icon name="bolt.fill" size={16} />
             <div>

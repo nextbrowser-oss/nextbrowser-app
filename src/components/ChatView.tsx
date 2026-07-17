@@ -324,7 +324,7 @@ export function ChatView() {
                     Start session
                   </button>
                 ) : (
-                  <button className="btn-bordered" title="Enter dashboard key to unlock managed sessions" onClick={() => s.setDashboardKeyPromptOpen(true)}>
+                  <button className="btn-bordered" title="Sign in to create managed profiles" onClick={() => s.setDashboardKeyPromptOpen(true)}>
                     <Icon name="lock" size={14} />
                     Create first profile
                   </button>
@@ -336,7 +336,7 @@ export function ChatView() {
                   title="Rotate the active browser profile to Spain and verify the proxy country"
                   onClick={() =>
                     s.tryGuidePrompt(
-                      "Using the clawctl CLI, rotate the active browser profile to Spain (ES) with --verify, then start the session and confirm the proxy country.",
+                      "Using the nextctl CLI, rotate the active browser profile to Spain (ES) with --verify, then start the session and confirm the proxy country.",
                     )
                   }
                 >
@@ -793,7 +793,7 @@ function MessageBubble({
           <div className="tool-strip">
             {m.toolEvents.slice(-4).map((t) => (
               <span key={t.id} className="tool-chip" title={t.detail}>
-                <Icon name={t.name === "clawctl" ? "terminal" : "wrench"} size={10} />
+                <Icon name={t.name === "nextctl" ? "terminal" : "wrench"} size={10} />
                 {t.detail ?? t.name}
               </span>
             ))}

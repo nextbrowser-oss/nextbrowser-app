@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { agentById, agentInvocation, clawctlAgentAdapter } from "./agents";
+import { agentById, agentInvocation, nextctlAgentAdapter } from "./agents";
 
 describe("agent invocation parity", () => {
-  it("maps app agent ids to clawctl adapters", () => {
-    expect(clawctlAgentAdapter("claude")).toBe("claude-code");
-    expect(clawctlAgentAdapter("codex")).toBe("codex");
+  it("maps app agent ids to nextctl adapters", () => {
+    expect(nextctlAgentAdapter("claude")).toBe("claude-code");
+    expect(nextctlAgentAdapter("codex")).toBe("codex");
   });
   it.each([
     ["claude", ["-p", "--dangerously-skip-permissions", "hello"], undefined],

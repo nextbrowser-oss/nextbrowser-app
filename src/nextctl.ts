@@ -1,7 +1,7 @@
 import { invoke } from "./electronBridge";
 
-// Bridge to the Rust backend, which shells out to the `clawctl` binary.
-// Mirrors clawdesk/Sources/ClawDesk/Core/Clawctl.swift.
+// Bridge to the Rust backend, which shells out to the `nextctl` binary.
+// Mirrors clawdesk/Sources/ClawDesk/Core/Nextctl.swift.
 
 export interface RunResult {
   stdout: string;
@@ -17,14 +17,14 @@ export interface Envelope<T> {
   error?: { code?: string; message?: string; hint?: string };
 }
 
-export async function clawctlRun(
+export async function nextctlRun(
   args: string[],
   extraEnv?: Record<string, string>,
 ): Promise<RunResult> {
-  return invoke<RunResult>("clawctl_run", { args, extraEnv: extraEnv ?? null });
+  return invoke<RunResult>("nextctl_run", { args, extraEnv: extraEnv ?? null });
 }
 
-export function clawctlErrorMessage(res: RunResult): string {
+export function nextctlErrorMessage(res: RunResult): string {
   try {
     const env = JSON.parse(res.stdout) as Envelope<unknown>;
     if (env.error?.message) {
@@ -39,38 +39,38 @@ export function clawctlErrorMessage(res: RunResult): string {
   const e = res.stderr.trim();
   if (e) return e;
   const o = res.stdout.trim();
-  return o || "clawctl command failed";
+  return o || "nextctl command failed";
 }
 
 /// Run a command in JSON mode and decode the `data` payload.
-export async function clawctlJson<T>(
+export async function nextctlJson<T>(
   args: string[],
   extraEnv?: Record<string, string>,
 ): Promise<T> {
-  const res = await clawctlRun([...args, "--format", "json"], extraEnv);
+  const res = await nextctlRun([...args, "--format", "json"], extraEnv);
   let env: Envelope<T>;
   try {
     env = JSON.parse(res.stdout) as Envelope<T>;
   } catch {
-    throw new Error(clawctlErrorMessage(res));
+    throw new Error(nextctlErrorMessage(res));
   }
   if (env.ok && env.data !== undefined) return env.data;
-  if (env.error) throw new Error(clawctlErrorMessage(res));
+  if (env.error) throw new Error(nextctlErrorMessage(res));
   if (env.data !== undefined) return env.data;
-  throw new Error(clawctlErrorMessage(res));
+  throw new Error(nextctlErrorMessage(res));
 }
 
 /// Run JSON mode and return envelope + raw result (for eval where ok may be false).
-export async function clawctlEnvelope<T>(
+export async function nextctlEnvelope<T>(
   args: string[],
   extraEnv?: Record<string, string>,
 ): Promise<{ env: Envelope<T>; res: RunResult }> {
-  const res = await clawctlRun([...args, "--format", "json"], extraEnv);
+  const res = await nextctlRun([...args, "--format", "json"], extraEnv);
   let env: Envelope<T>;
   try {
     env = JSON.parse(res.stdout) as Envelope<T>;
   } catch {
-    throw new Error(clawctlErrorMessage(res));
+    throw new Error(nextctlErrorMessage(res));
   }
   return { env, res };
 }
