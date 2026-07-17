@@ -239,7 +239,7 @@ export function UsageView() {
           <button className="proxy-locked" onClick={() => s.setDashboardKeyPromptOpen(true)}>
             <Icon name="lock.fill" size={16} />
             <span>
-              <strong>Dashboard key required</strong>
+              <strong>Sign in required</strong>
               <span className="muted small">Unlock proxy traffic analytics and the enforced traffic limit.</span>
             </span>
           </button>

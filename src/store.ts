@@ -632,7 +632,9 @@ async function finishAPIKeyLogin(apiKey: string): Promise<void> {
 
 function isAccountRequiredError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /api key|dashboard key|unauthorized|forbidden|401|403|sign in|login required/i.test(message);
+  const lower = message.toLowerCase();
+  const keyMissing = (lower.includes("api") || lower.includes("dashboard")) && lower.includes("key");
+  return keyMissing || /unauthorized|forbidden|401|403|sign in|login required/i.test(message);
 }
 
 async function nextctlRunChecked(args: string[], extraEnv?: Record<string, string>): Promise<void> {
@@ -1401,7 +1403,7 @@ export const useStore = create<State>((set, get) => {
     const apiKey = key.trim();
     trackEvent("dashboard_key_save_started");
     if (!apiKey) {
-      set({ loginError: "Enter an API key or use browser sign-in.", isLoggingIn: false });
+      set({ loginError: "Use browser sign-in to connect your account.", isLoggingIn: false });
       trackTiming("dashboard_key_save_failed", startedAt, { reason: "empty_key" });
       return;
     }

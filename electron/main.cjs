@@ -447,7 +447,8 @@ async function invokeCommand(command, args = {}) {
       const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} CLI not found.`);
       const r = await run(bin, args.statusArgs); const text = `${r.stdout}${r.stderr}`.toLowerCase();
       if (["not logged in", "logged out", "please run", "not authenticated"].some((v) => text.includes(v))) return false;
-      if (["logged in", "authenticated", "account", "email", "subscription", "api key"].some((v) => text.includes(v))) return true;
+      if (["logged in", "authenticated", "account", "email", "subscription"].some((v) => text.includes(v))) return true;
+      if (text.includes("api") && text.includes("key")) return true;
       return r.code === 0;
     }
     case "open_terminal_login": {

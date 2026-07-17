@@ -75,7 +75,7 @@ See the [product guide](docs/product-guide.md) for concepts, screens, workflows,
 ## Quick Start
 
 1. Download an available macOS or Windows build from the [latest Nextbrowser release](https://github.com/nextbrowser-oss/nextbrowser-app/releases/latest).
-2. Follow the [product documentation](https://docs.nextbrowser.com/) to configure your browser environment and API key.
+2. Follow the [product documentation](https://docs.nextbrowser.com/) to configure your browser environment.
 3. Open Nextbrowser, select a profile, start its session, choose an installed local agent, and submit a task.
 4. Keep Chat and Live View open while the task runs; stop, edit, queue, or fork work when needed.
 

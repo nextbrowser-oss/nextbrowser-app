@@ -1,12 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useStore } from "../store";
 import { Icon, Spinner } from "./Icon";
-import { trackEvent } from "../lib/analytics";
 
 export function DashboardKeyModal() {
   const open = useStore((s) => s.dashboardKeyPromptOpen);
   const setOpen = useStore((s) => s.setDashboardKeyPromptOpen);
-  const login = useStore((s) => s.login);
   const startPairing = useStore((s) => s.startAccountPairing);
   const reopenPairing = useStore((s) => s.reopenAccountPairing);
   const pollPairing = useStore((s) => s.pollAccountPairing);
@@ -14,8 +12,6 @@ export function DashboardKeyModal() {
   const pairing = useStore((s) => s.accountPairing);
   const error = useStore((s) => s.loginError);
   const loading = useStore((s) => s.isLoggingIn);
-  const [key, setKey] = useState("");
-  const [manualOpen, setManualOpen] = useState(false);
 
   useEffect(() => {
     if (!open || !pairing) return undefined;
@@ -28,13 +24,6 @@ export function DashboardKeyModal() {
 
   if (!open) return null;
 
-  const save = async () => {
-    await login(key);
-    if (!useStore.getState().loginError) {
-      setKey("");
-      setOpen(false);
-    }
-  };
   const close = () => {
     if (pairing) cancelPairing();
     setOpen(false);
@@ -65,37 +54,11 @@ export function DashboardKeyModal() {
           </button>
         )}
         {error && <div className="error small login-error">{error}</div>}
-        <details className="manual-key-details" open={manualOpen} onToggle={(e) => setManualOpen(e.currentTarget.open)}>
-          <summary className="link small" onClick={() => trackEvent("manual_api_key_toggle")}>
-            Advanced: paste API key
-          </summary>
-          <input
-            className="login-input"
-            type="password"
-            placeholder="NextBrowser API key"
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && key.trim()) void save();
-            }}
-          />
-        </details>
         <div className="row" style={{ marginTop: 12, gap: 8 }}>
           <button className="secondary" onClick={close}>
             {pairing ? "Cancel sign-in" : "Cancel"}
           </button>
           <span className="spacer" />
-          {manualOpen && (
-            <button
-              className="primary"
-              disabled={loading || !key.trim()}
-              onClick={() => void save()}
-              title="Save API key manually"
-              aria-label="Save API key manually"
-            >
-              {loading ? <Spinner size={14} /> : "Save key"}
-            </button>
-          )}
           {pairing && (
             <>
               <button
