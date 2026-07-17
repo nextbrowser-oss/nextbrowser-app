@@ -460,27 +460,27 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
       </div>
 
       <hr className="divider" />
-      <div className="clawctl-footer muted small">
+      <div className="nextctl-footer muted small">
         <Icon name="terminal" size={12} />
-        <span>clawctl {s.clawctlVersion || "…"}</span>
+        <span>nextctl {s.nextctlVersion || "…"}</span>
         <button
-          className="plain-icon-btn plain-icon-btn-compact clawctl-refresh"
-          title="Check for a newer clawctl and update"
-          disabled={s.clawctlUpdating}
-          onClick={() => s.checkClawctlUpdate()}
+          className="plain-icon-btn plain-icon-btn-compact nextctl-refresh"
+          title="Check for a newer nextctl and update"
+          disabled={s.nextctlUpdating}
+          onClick={() => s.checkNextctlUpdate()}
         >
-          {s.clawctlUpdating ? (
+          {s.nextctlUpdating ? (
             <Spinner size={12} />
           ) : (
             <Icon name="arrow.triangle.2.circlepath" size={12} />
           )}
         </button>
-        {s.clawctlUpdateStatus && (
-          <span className={s.clawctlUpdateStatus.includes("fail") ? "warn" : ""}>
-            · {s.clawctlUpdateStatus}
+        {s.nextctlUpdateStatus && (
+          <span className={s.nextctlUpdateStatus.includes("fail") ? "warn" : ""}>
+            · {s.nextctlUpdateStatus}
           </span>
         )}
-        {!s.clawctlSupportsSkill && <span className="warn"> · no skill cmd</span>}
+        {!s.nextctlSupportsSkill && <span className="warn"> · no skill cmd</span>}
         <span className="spacer" />
         <button className="sign-out-footer" title="Sign out" onClick={() => s.logout()}>
           <Icon name="rectangle.portrait.and.arrow.right" size={13} />

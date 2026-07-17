@@ -30,7 +30,7 @@ export function activityFromText(text: string): AgentActivity | undefined {
     return "Configuring proxy";
   }
   if (
-    lower.includes("clawctl") ||
+    lower.includes("nextctl") ||
     lower.includes("nextbrowser") ||
     lower.includes("navigat") ||
     lower.includes("opening") ||
@@ -54,10 +54,10 @@ export function extractToolEvents(chunk: string, existing: ToolEvent[]): ToolEve
   for (const line of chunk.split("\n")) {
     const s = line.trim();
     if (!s) continue;
-    if (s.startsWith("clawctl ")) {
+    if (s.startsWith("nextctl ")) {
       const cmd = s.slice(0, 80);
-      if (!found.some((e) => e.name === "clawctl" && e.detail === cmd)) {
-        found.push({ id: crypto.randomUUID(), name: "clawctl", detail: cmd, createdAt: Date.now() });
+      if (!found.some((e) => e.name === "nextctl" && e.detail === cmd)) {
+        found.push({ id: crypto.randomUUID(), name: "nextctl", detail: cmd, createdAt: Date.now() });
       }
     } else if (s.includes("●") || s.includes("⏺")) {
       const cleaned = s.replace(/[●⏺]/g, "").trim();

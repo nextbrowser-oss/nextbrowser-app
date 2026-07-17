@@ -82,8 +82,8 @@ function customScript(): CustomScript {
   };
 }
 
-function localClawctlCalls() {
-  return bridge.invoke.mock.calls.filter(([command]) => command === "clawctl_run");
+function localNextctlCalls() {
+  return bridge.invoke.mock.calls.filter(([command]) => command === "nextctl_run");
 }
 
 let useStore: (typeof import("./store"))["useStore"];
@@ -152,7 +152,7 @@ describe("VPS execution target isolation", () => {
     expect(startSessionPoll).not.toHaveBeenCalled();
     const agentRun = bridge.invoke.mock.calls.find(([command]) => command === "agent_run");
     expect(agentRun?.[1]?.stdinText).toContain("Strict VPS remote-only mode");
-    expect(bridge.invoke.mock.calls.some(([command]) => String(command).startsWith("clawctl_"))).toBe(false);
+    expect(bridge.invoke.mock.calls.some(([command]) => String(command).startsWith("nextctl_"))).toBe(false);
   });
 
   it("creates a distinct named VPS chat when local history already exists", async () => {
@@ -229,7 +229,7 @@ describe("VPS execution target isolation", () => {
 
     expect(applySkill).not.toHaveBeenCalled();
     expect(preflight.prepareSession).not.toHaveBeenCalled();
-    expect(localClawctlCalls()).toHaveLength(0);
+    expect(localNextctlCalls()).toHaveLength(0);
     expect(useStore.getState().runtime.codex.queue.at(-1)).toMatchObject({
       conversationId: remote.id,
       executionTarget: "vps",
@@ -243,10 +243,10 @@ describe("VPS execution target isolation", () => {
     await useStore.getState().runScript(skillEntry({ js: "document.title" }), "example.com");
 
     expect(preflight.prepareSession).not.toHaveBeenCalled();
-    expect(localClawctlCalls()).toHaveLength(0);
+    expect(localNextctlCalls()).toHaveLength(0);
     const queued = useStore.getState().runtime.codex.queue.at(-1);
     expect(queued).toMatchObject({ conversationId: remote.id, executionTarget: "vps" });
-    expect(queued?.rawText).toContain("already-installed remote clawctl browser evaluation command");
+    expect(queued?.rawText).toContain("already-installed remote nextctl browser evaluation command");
   });
 
   it("queues a custom script for the VPS without preparing a local session", async () => {
@@ -256,53 +256,53 @@ describe("VPS execution target isolation", () => {
     await useStore.getState().runCustomScript(customScript());
 
     expect(preflight.prepareSession).not.toHaveBeenCalled();
-    expect(localClawctlCalls()).toHaveLength(0);
+    expect(localNextctlCalls()).toHaveLength(0);
     const queued = useStore.getState().runtime.codex.queue.at(-1);
     expect(queued).toMatchObject({ conversationId: remote.id, executionTarget: "vps" });
     expect(queued?.rawText).toContain("Extract the page title.");
   });
 
-  it("does not update local clawctl while VPS work is queued", async () => {
+  it("does not update local nextctl while VPS work is queued", async () => {
     const remote = conversation("remote", "vps");
     useStore.setState({
       conversations: [remote],
       activeConvId: { codex: remote.id },
-      clawctlAvailable: true,
+      nextctlAvailable: true,
     });
     useStore.getState().enqueue("Open example.com remotely");
 
-    await expect(useStore.getState().checkClawctlUpdate()).resolves.toBe(false);
+    await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(false);
 
-    expect(localClawctlCalls()).toHaveLength(0);
-    expect(bridge.invoke).not.toHaveBeenCalledWith("clawctl_version");
+    expect(localNextctlCalls()).toHaveLength(0);
+    expect(bridge.invoke).not.toHaveBeenCalledWith("nextctl_version");
   });
 
-  it("blocks direct local clawctl actions and skill checks while VPS work is queued", async () => {
+  it("blocks direct local nextctl actions and skill checks while VPS work is queued", async () => {
     const remote = conversation("remote", "vps");
     useStore.setState({
       conversations: [remote],
       activeConvId: { codex: remote.id },
-      clawctlAvailable: true,
-      clawctlSupportsSkill: true,
+      nextctlAvailable: true,
+      nextctlSupportsSkill: true,
     });
     useStore.getState().enqueue("Continue remotely");
 
     await expect(useStore.getState().startDefaultSession()).rejects.toThrow(
-      "Local clawctl operations are paused",
+      "Local nextctl operations are paused",
     );
     await expect(useStore.getState().applySkill(skillEntry())).rejects.toThrow(
       "Local skill checks are paused",
     );
 
-    expect(localClawctlCalls()).toHaveLength(0);
+    expect(localNextctlCalls()).toHaveLength(0);
   });
 
-  it("skips local clawctl integration setup when authorization restores VPS work", async () => {
+  it("skips local nextctl integration setup when authorization restores VPS work", async () => {
     const remote = conversation("remote", "vps");
     useStore.setState({
       conversations: [remote],
       activeConvId: { codex: remote.id },
-      clawctlAvailable: true,
+      nextctlAvailable: true,
     });
     useStore.getState().enqueue("Continue on the VPS");
     useStore.setState((state) => ({
@@ -320,7 +320,7 @@ describe("VPS execution target isolation", () => {
     await useStore.getState().authorizeAgent();
 
     expect(bridge.invoke).toHaveBeenCalledWith("agent_authorize", expect.any(Object));
-    expect(localClawctlCalls()).toHaveLength(0);
+    expect(localNextctlCalls()).toHaveLength(0);
   });
 
   it("rejects a VPS marker inserted into a queued local turn", () => {

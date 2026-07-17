@@ -1,7 +1,7 @@
 // Deterministic session preparation before scripts/skills run.
 // Port of clawdesk AppState.prepareSession + helpers.
 
-import { clawctlJson, clawctlRun } from "./clawctl";
+import { nextctlJson, nextctlRun } from "./nextctl";
 import type { SessionStatus, TabsList } from "./types";
 
 export function hostOf(raw?: string | null): string {
@@ -31,7 +31,7 @@ async function isRunning(
 
 async function hasUsablePage(args: string[]): Promise<boolean> {
   try {
-    const list = await clawctlJson<TabsList>([...args, "tabs", "list"]);
+    const list = await nextctlJson<TabsList>([...args, "tabs", "list"]);
     return list.tabs.some((t) => {
       const u = (t.url ?? "").toLowerCase();
       return u.startsWith("http://") || u.startsWith("https://") || u === "about:blank";
@@ -45,11 +45,11 @@ async function activateMatchingTab(args: string[], host: string): Promise<boolea
   const want = hostOf(host);
   if (!want) return false;
   try {
-    const list = await clawctlJson<TabsList>([...args, "tabs", "list"]);
+    const list = await nextctlJson<TabsList>([...args, "tabs", "list"]);
     const match = list.tabs.find((t) => hostOf(t.url) === want);
     if (!match) return false;
     if (match.active || match.current) return true;
-    await clawctlRun([...args, "tabs", "activate", match.id, "--format", "json"]);
+    await nextctlRun([...args, "tabs", "activate", match.id, "--format", "json"]);
     return true;
   } catch {
     return false;
@@ -58,7 +58,7 @@ async function activateMatchingTab(args: string[], host: string): Promise<boolea
 
 async function openBlankActivePage(args: string[]): Promise<boolean> {
   try {
-    const data = await clawctlJson<{ tab?: { id: string } }>([
+    const data = await nextctlJson<{ tab?: { id: string } }>([
       ...args,
       "open",
       "about:blank",
@@ -66,7 +66,7 @@ async function openBlankActivePage(args: string[]): Promise<boolean> {
     ]);
     const id = data.tab?.id;
     if (!id) return false;
-    await clawctlRun([...args, "tabs", "activate", id, "--format", "json"]);
+    await nextctlRun([...args, "tabs", "activate", id, "--format", "json"]);
     return true;
   } catch {
     return false;
@@ -98,7 +98,7 @@ export async function prepareSession(opts: {
   if (running) {
     step("Session running");
   } else {
-    await clawctlRun([...args, "start", "--format", "json"]).catch(() => undefined);
+    await nextctlRun([...args, "start", "--format", "json"]).catch(() => undefined);
     step("Started NextBrowser");
   }
 
@@ -107,10 +107,10 @@ export async function prepareSession(opts: {
       step(`Switched to ${rawHost}`);
     } else {
       const target = rawHost.includes("://") ? rawHost : `https://${rawHost}`;
-      await clawctlRun([...args, "open", target, "--format", "json"]).catch(() => undefined);
+      await nextctlRun([...args, "open", target, "--format", "json"]).catch(() => undefined);
       step(`Opened ${rawHost}`);
     }
-    await clawctlRun([...args, "wait", "--load", "--timeout", "10s", "--format", "json"]).catch(
+    await nextctlRun([...args, "wait", "--load", "--timeout", "10s", "--format", "json"]).catch(
       () => undefined,
     );
     step("Page ready");

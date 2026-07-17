@@ -185,8 +185,8 @@ function SettingsModal({
   onInstallUpdate: () => void;
   onOpenRelease: () => void;
 }) {
-  const clawctlVersion = useStore((s) => s.clawctlVersion);
-  const clawctlSupportsSkill = useStore((s) => s.clawctlSupportsSkill);
+  const nextctlVersion = useStore((s) => s.nextctlVersion);
+  const nextctlSupportsSkill = useStore((s) => s.nextctlSupportsSkill);
   const agentId = useStore((s) => s.agentId);
   const agentReady = useStore((s) => s.agentReady());
   const agentVersion = useStore((s) => s.agentVersion());
@@ -265,13 +265,13 @@ function SettingsModal({
             </div>
           </div>
           <div className="settings-row">
-            <span className="muted small">clawctl</span>
-            <strong>{clawctlVersion || "not detected"}</strong>
+            <span className="muted small">nextctl</span>
+            <strong>{nextctlVersion || "not detected"}</strong>
           </div>
           <div className="settings-row">
             <span className="muted small">Skill install</span>
-            <span className={clawctlSupportsSkill ? "ok small" : "warn small"}>
-              {clawctlSupportsSkill ? "supported" : "needs update"}
+            <span className={nextctlSupportsSkill ? "ok small" : "warn small"}>
+              {nextctlSupportsSkill ? "supported" : "needs update"}
             </span>
           </div>
           <div className="settings-row">
@@ -555,7 +555,7 @@ export function App() {
       return;
     }
     if (preview === "onboarding") {
-      useStore.setState({ checking: false, authed: true, showOnboarding: true, clawctlVersion: "1.0.0" });
+      useStore.setState({ checking: false, authed: true, showOnboarding: true, nextctlVersion: "1.0.0" });
       return;
     }
     if (preview === "main") {
@@ -596,8 +596,8 @@ export function App() {
       useStore.setState({
         checking: false,
         authed: true,
-        clawctlVersion: "1.0.0",
-        clawctlSupportsSkill: true,
+        nextctlVersion: "1.0.0",
+        nextctlSupportsSkill: true,
         agentId: "claude",
         conversations: previewConvs,
         usageHistory: previewUsage,

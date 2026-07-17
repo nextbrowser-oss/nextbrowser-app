@@ -99,18 +99,18 @@ export function SkillsView() {
           </p>
         </div>
 
-        {!s.clawctlSupportsSkill && (
+        {!s.nextctlSupportsSkill && (
           <div className="warning-banner skills-warning">
             <Icon name="exclamationmark.triangle.fill" size={16} />
             <div>
-              <strong>Resolved clawctl ({s.clawctlVersion}) has no `skill` command.</strong>
+              <strong>Resolved nextctl ({s.nextctlVersion}) has no `skill` command.</strong>
               <div className="muted small">
-                Update clawctl or set CLAWCTL_BIN to a build that supports it.
+                Update nextctl or set NEXTCTL_BIN to a build that supports it.
               </div>
             </div>
           </div>
         )}
-        {s.clawctlSupportsSkill && !ready && (
+        {s.nextctlSupportsSkill && !ready && (
           <div className="skills-connect-hint">
             <Icon name="bolt.fill" size={16} />
             <div>

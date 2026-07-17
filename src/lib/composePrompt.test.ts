@@ -38,12 +38,12 @@ describe("composePrompt VPS mode", () => {
       "reply-1",
       setup,
       "local-profile",
-      { clawctlAvailable: false, executionTarget: "vps" },
+      { nextctlAvailable: false, executionTarget: "vps" },
     );
 
     expect(prompt).toContain("Strict VPS remote-only mode");
     expect(prompt).toContain(VPS_PROMPT_MARKER);
-    expect(prompt).not.toContain("local `clawctl`/Clawbrowser components are missing");
+    expect(prompt).not.toContain("local `nextctl`/Clawbrowser components are missing");
     expect(prompt).not.toContain("Active NextBrowser profile: local-profile");
   });
 
@@ -72,14 +72,14 @@ describe("composePrompt VPS mode", () => {
       "reply-2",
       "Open example.com on the browser.",
       "local-profile",
-      { clawctlAvailable: true, executionTarget: "vps" },
+      { nextctlAvailable: true, executionTarget: "vps" },
     );
 
     expect(prompt).toContain("Strict VPS remote-only mode");
     expect(prompt).toContain("Active VPS connection instructions:");
     expect(prompt).toContain("ssh -F /dev/null -o BatchMode=yes -o ConnectTimeout=15 -o ConnectionAttempts=1 -o PermitLocalCommand=no prod");
-    expect(prompt).toContain("CLAWCTL_AUTO_UPDATE=0");
-    expect(prompt).not.toContain("clawctl doctor");
+    expect(prompt).toContain("NEXTCTL_AUTO_UPDATE=0");
+    expect(prompt).not.toContain("nextctl doctor");
     expect(prompt).toContain("Open example.com on the browser.");
     expect(prompt).not.toContain("ask the user what browser task to run next");
     expect(prompt).not.toContain("which is already installed");
@@ -100,7 +100,7 @@ describe("composePrompt VPS mode", () => {
       "reply",
       "Open example.com on the browser.",
       "local-profile",
-      { clawctlAvailable: true, executionTarget: "vps" },
+      { nextctlAvailable: true, executionTarget: "vps" },
     );
 
     expect(prompt).toContain("Strict VPS remote-only mode");
@@ -117,7 +117,7 @@ describe("composePrompt VPS mode", () => {
       "reply",
       "Open example.com",
       "work",
-      { clawctlAvailable: true },
+      { nextctlAvailable: true },
     );
 
     expect(prompt).toContain("which is already installed");
@@ -136,7 +136,7 @@ describe("composePrompt VPS mode", () => {
       "reply",
       "Open example.com",
       "work",
-      { clawctlAvailable: true },
+      { nextctlAvailable: true },
     );
 
     expect(prompt).toContain("which is already installed");
@@ -151,7 +151,7 @@ describe("composePrompt VPS mode", () => {
       "reply",
       rawText,
       "work",
-      { clawctlAvailable: true },
+      { nextctlAvailable: true },
     );
 
     expect(prompt).toContain("which is already installed");
@@ -174,7 +174,7 @@ describe("composePrompt VPS mode", () => {
       "local-reply",
       "Open the local dashboard",
       "work",
-      { clawctlAvailable: true, executionTarget: "local" },
+      { nextctlAvailable: true, executionTarget: "local" },
     );
 
     expect(prompt).toContain("which is already installed");

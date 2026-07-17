@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { clawctlJson } from "../clawctl";
+import { nextctlJson } from "../nextctl";
 import { useStore } from "../store";
 import { trackEvent } from "../lib/analytics";
 import {
@@ -112,7 +112,7 @@ export function UsageView() {
     let cancelled = false;
     setHistoryLoading(true);
     setHistoryNotice(undefined);
-    void clawctlJson<{ proxy_traffic_history: ProxyTrafficHistory }>([
+    void nextctlJson<{ proxy_traffic_history: ProxyTrafficHistory }>([
       "proxy-traffic",
       "--from",
       from,

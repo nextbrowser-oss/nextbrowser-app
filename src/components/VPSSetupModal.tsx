@@ -560,7 +560,7 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
 
           <div className="vps-safety-note">
             <Icon name="checkmark.shield.fill" size={15} />
-            <span>The prompt keeps Clawbrowser and clawctl on the VPS. Only safe host fields are imported; the source config is not passed to ssh and configured identity-file contents are not read or sent.</span>
+            <span>The prompt keeps Clawbrowser and nextctl on the VPS. Only safe host fields are imported; the source config is not passed to ssh and configured identity-file contents are not read or sent.</span>
           </div>
         </fieldset>
 

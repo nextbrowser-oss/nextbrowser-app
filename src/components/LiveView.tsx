@@ -315,7 +315,7 @@ export function LiveView() {
           <div className="live-empty-panel">
             <Spinner size={18} />
             <strong>Starting live view...</strong>
-            <p className="muted small">Creating a Remote Control session through clawctl.</p>
+            <p className="muted small">Creating a Remote Control session through nextctl.</p>
           </div>
         )}
         {state === "error" && (

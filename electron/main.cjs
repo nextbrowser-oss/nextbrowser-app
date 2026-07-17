@@ -13,13 +13,13 @@ const execFileAsync = promisify(execFile);
 const children = new Map();
 const remoteSignalSockets = new Map();
 const APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
-const CLAWCTL_RELEASE_BASE = "https://github.com/clawbrowser/clawctl/releases/latest/download";
+const NEXTCTL_RELEASE_BASE = "https://github.com/nextbrowser-oss/nextctl/releases/latest/download";
 const DEFAULT_API_BASE_URL = "https://api.clawbrowser.ai";
 const DEEP_LINK_PROTOCOL = "nextbrowser";
 let appUpdateStatus = { status: "idle" };
 let appUpdateTimer = null;
-let clawctlInstallStatus = { status: "idle" };
-let clawctlInstallPromise = null;
+let nextctlInstallStatus = { status: "idle" };
+let nextctlInstallPromise = null;
 
 function home() { return os.homedir(); }
 function executableNames(name) {
@@ -151,36 +151,36 @@ async function run(binary, args, extraEnv = {}) {
     return { stdout: error.stdout || "", stderr: error.stderr || error.message || "", code: Number.isInteger(error.code) ? error.code : -1 };
   }
 }
-async function clawctlHasSkill(binary) {
+async function nextctlHasSkill(binary) {
   const r = await run(binary, ["--help"]); return `${r.stdout}\n${r.stderr}`.includes("\n  skill");
 }
-function setClawctlInstallStatus(status, patch = {}) {
-  clawctlInstallStatus = { status, ...patch, updatedAt: Date.now() };
-  emit("clawctl:install", clawctlInstallStatus);
+function setNextctlInstallStatus(status, patch = {}) {
+  nextctlInstallStatus = { status, ...patch, updatedAt: Date.now() };
+  emit("nextctl:install", nextctlInstallStatus);
 }
-function managedClawctlRoot() {
-  return path.join(app.getPath("userData"), "managed-clawctl");
+function managedNextctlRoot() {
+  return path.join(app.getPath("userData"), "managed-nextctl");
 }
-function managedClawctlBin() {
+function managedNextctlBin() {
   return process.platform === "win32"
-    ? path.join(managedClawctlRoot(), "clawctl.exe")
-    : path.join(managedClawctlRoot(), "clawctl");
+    ? path.join(managedNextctlRoot(), "nextctl.exe")
+    : path.join(managedNextctlRoot(), "nextctl");
 }
-function clawctlPlatformArchive() {
+function nextctlPlatformArchive() {
   const arch = os.arch();
   if (process.platform === "darwin") {
-    if (arch === "arm64") return { name: "clawctl-macos-arm64.tar.gz", kind: "tar" };
-    if (arch === "x64") return { name: "clawctl-macos-amd64.tar.gz", kind: "tar" };
+    if (arch === "arm64") return { name: "nextctl-macos-arm64.tar.gz", kind: "tar" };
+    if (arch === "x64") return { name: "nextctl-macos-amd64.tar.gz", kind: "tar" };
   }
   if (process.platform === "linux") {
-    if (arch === "arm64") return { name: "clawctl-linux-arm64.tar.gz", kind: "tar" };
-    if (arch === "x64") return { name: "clawctl-linux-amd64.tar.gz", kind: "tar" };
+    if (arch === "arm64") return { name: "nextctl-linux-arm64.tar.gz", kind: "tar" };
+    if (arch === "x64") return { name: "nextctl-linux-amd64.tar.gz", kind: "tar" };
   }
-  if (process.platform === "win32" && arch === "x64") return { name: "clawctl-win-amd64.zip", kind: "zip" };
-  throw new Error(`Unsupported clawctl platform: ${process.platform}/${arch}`);
+  if (process.platform === "win32" && arch === "x64") return { name: "nextctl-win-amd64.zip", kind: "zip" };
+  throw new Error(`Unsupported nextctl platform: ${process.platform}/${arch}`);
 }
-function findClawctlInTree(root) {
-  return findBinaryUnderRoots("clawctl", [root]);
+function findNextctlInTree(root) {
+  return findBinaryUnderRoots("nextctl", [root]);
 }
 async function downloadFile(url, target) {
   const response = await fetch(url);
@@ -204,53 +204,54 @@ async function extractArchive(archive, kind, targetDir) {
   const result = await run("unzip", ["-q", archive, "-d", targetDir]);
   if (result.code !== 0) throw new Error((result.stderr || result.stdout || "zip extraction failed").trim());
 }
-async function installManagedClawctl() {
-  if (clawctlInstallPromise) return clawctlInstallPromise;
-  clawctlInstallPromise = (async () => {
-    setClawctlInstallStatus("downloading");
-    const archive = clawctlPlatformArchive();
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-clawctl-"));
+async function installManagedNextctl() {
+  if (nextctlInstallPromise) return nextctlInstallPromise;
+  nextctlInstallPromise = (async () => {
+    setNextctlInstallStatus("downloading");
+    const archive = nextctlPlatformArchive();
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-nextctl-"));
     const archivePath = path.join(tempDir, archive.name);
     try {
-      await downloadFile(`${CLAWCTL_RELEASE_BASE}/${archive.name}`, archivePath);
-      setClawctlInstallStatus("installing");
+      await downloadFile(`${NEXTCTL_RELEASE_BASE}/${archive.name}`, archivePath);
+      setNextctlInstallStatus("installing");
       const extractDir = path.join(tempDir, "extract");
       await extractArchive(archivePath, archive.kind, extractDir);
-      const extracted = findClawctlInTree(extractDir);
-      if (!extracted) throw new Error("Downloaded clawctl archive did not contain a clawctl binary.");
-      await fs.mkdir(managedClawctlRoot(), { recursive: true });
-      await fs.copyFile(extracted, managedClawctlBin());
-      if (process.platform !== "win32") await fs.chmod(managedClawctlBin(), 0o755);
-      const version = await run(managedClawctlBin(), ["version"]);
-      if (version.code !== 0) throw new Error((version.stderr || version.stdout || "clawctl version check failed").trim());
-      setClawctlInstallStatus("ready", { path: managedClawctlBin(), version: version.stdout.trim() });
-      return managedClawctlBin();
+      const extracted = findNextctlInTree(extractDir);
+      if (!extracted) throw new Error("Downloaded nextctl archive did not contain a nextctl binary.");
+      await fs.mkdir(managedNextctlRoot(), { recursive: true });
+      await fs.copyFile(extracted, managedNextctlBin());
+      if (process.platform !== "win32") await fs.chmod(managedNextctlBin(), 0o755);
+      const version = await run(managedNextctlBin(), ["version"]);
+      if (version.code !== 0) throw new Error((version.stderr || version.stdout || "nextctl version check failed").trim());
+      setNextctlInstallStatus("ready", { path: managedNextctlBin(), version: version.stdout.trim() });
+      return managedNextctlBin();
     } catch (error) {
-      setClawctlInstallStatus("failed", { message: error?.message || String(error) });
+      setNextctlInstallStatus("failed", { message: error?.message || String(error) });
       throw error;
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
-      clawctlInstallPromise = null;
+      nextctlInstallPromise = null;
     }
   })();
-  return clawctlInstallPromise;
+  return nextctlInstallPromise;
 }
-async function resolveClawctl() {
+async function resolveNextctl() {
+  if (process.env.NEXTCTL_BIN && launchable(expand(process.env.NEXTCTL_BIN))) return expand(process.env.NEXTCTL_BIN);
   if (process.env.CLAWCTL_BIN && launchable(expand(process.env.CLAWCTL_BIN))) return expand(process.env.CLAWCTL_BIN);
   const candidates = [];
-  const managed = managedClawctlBin(); if (launchable(managed)) candidates.push(managed);
-  const dev = path.join(home(), "projects/ClawBrowser/clawctl/bin/clawctl"); if (launchable(dev)) candidates.push(dev);
-  for (const dir of searchDirs()) for (const name of executableNames("clawctl")) { const f = path.join(dir, name); if (launchable(f)) candidates.push(f); }
-  for (const candidate of [...new Set(candidates)]) if (await clawctlHasSkill(candidate)) return candidate;
+  const managed = managedNextctlBin(); if (launchable(managed)) candidates.push(managed);
+  const dev = path.join(home(), "projects/ClawBrowser/nextctl/bin/nextctl"); if (launchable(dev)) candidates.push(dev);
+  for (const dir of searchDirs()) for (const name of executableNames("nextctl")) { const f = path.join(dir, name); if (launchable(f)) candidates.push(f); }
+  for (const candidate of [...new Set(candidates)]) if (await nextctlHasSkill(candidate)) return candidate;
   return candidates[0] || null;
 }
-async function resolveOrInstallClawctl() {
-  const existing = await resolveClawctl();
+async function resolveOrInstallNextctl() {
+  const existing = await resolveNextctl();
   if (existing) {
-    setClawctlInstallStatus("ready", { path: existing });
+    setNextctlInstallStatus("ready", { path: existing });
     return existing;
   }
-  return installManagedClawctl();
+  return installManagedNextctl();
 }
 function dataDir() { return path.join(app.getPath("userData")); }
 async function migrateLegacyData() {
@@ -401,17 +402,17 @@ async function invokeCommand(command, args = {}) {
         return false;
       }
     }
-    case "clawctl_resolve": return await resolveOrInstallClawctl();
-    case "clawctl_install_status": return clawctlInstallStatus;
-    case "clawctl_run": {
-      const bin = await resolveOrInstallClawctl(); if (!bin) throw new Error("clawctl not found. Install Clawbrowser CLI or set CLAWCTL_BIN.");
+    case "nextctl_resolve": return await resolveOrInstallNextctl();
+    case "nextctl_install_status": return nextctlInstallStatus;
+    case "nextctl_run": {
+      const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("nextctl not found. Install Clawbrowser CLI or set NEXTCTL_BIN.");
       return run(bin, args.args || [], args.extraEnv || {});
     }
-    case "clawctl_version": {
-      const bin = await resolveOrInstallClawctl(); if (!bin) throw new Error("not found");
+    case "nextctl_version": {
+      const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found");
       const r = await run(bin, ["version"]); return r.stdout.trim();
     }
-    case "clawctl_supports_skill": { const bin = await resolveOrInstallClawctl(); if (!bin) throw new Error("not found"); return clawctlHasSkill(bin); }
+    case "nextctl_supports_skill": { const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found"); return nextctlHasSkill(bin); }
     case "pairing_start": {
       return apiFetchJSON(args.apiBaseUrl, "/v1/pairing-requests/browser", {
         method: "POST",

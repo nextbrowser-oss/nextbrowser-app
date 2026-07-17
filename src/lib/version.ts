@@ -1,3 +1,3 @@
-export function normalizeClawctlVersion(version: string): string {
-  return version.trim().replace(/^clawctl\s+/i, "");
+export function normalizeNextctlVersion(version: string): string {
+  return version.trim().replace(/^nextctl\s+/i, "");
 }

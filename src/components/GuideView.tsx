@@ -28,7 +28,7 @@ export function GuideView() {
         <BrandLogo size={52} />
         <div>
           <h2>{brandName}</h2>
-          <p className="muted">A native console over clawctl.</p>
+          <p className="muted">A native console over nextctl.</p>
         </div>
         <span className="spacer" />
         <button className="btn-bordered" onClick={showTour}>

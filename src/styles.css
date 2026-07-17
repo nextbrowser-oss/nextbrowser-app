@@ -1167,7 +1167,7 @@ button, input, textarea, select { color: var(--text); }
   min-height: 28px;
 }
 
-.clawctl-footer {
+.nextctl-footer {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1178,7 +1178,7 @@ button, input, textarea, select { color: var(--text); }
   border-top: 1px solid var(--line);
   background: var(--surface-1);
 }
-.clawctl-refresh { min-width: 24px !important; min-height: 24px !important; padding: 2px !important; }
+.nextctl-refresh { min-width: 24px !important; min-height: 24px !important; padding: 2px !important; }
 
 /* Tab bar — MainView.swift TabBar */
 .tabbar {
