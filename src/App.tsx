@@ -21,7 +21,6 @@ import { agentById } from "./agents";
 
 const TABS: { id: AppTab; label: string; icon: string }[] = [
   { id: "chat", label: "Chat", icon: "bubble.left.and.bubble.right.fill" },
-  { id: "skills", label: "Skills", icon: "square.grid.2x2.fill" },
   { id: "live", label: "Live", icon: "video.fill" },
   { id: "guide", label: "Guide", icon: "book.fill" },
 ];

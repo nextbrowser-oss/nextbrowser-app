@@ -7,6 +7,7 @@ import { ScheduledRunsPanel } from "./ScheduledRunsPanel";
 import { Icon, Spinner } from "./Icon";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
 import { manualProxyDefaultName, parseManualProxyUrl, type ManualProxyScheme } from "../lib/manualProxy";
+import { withLocalScripts } from "../skillsCatalog";
 
 type ManualProxyInputMode = "url" | "fields";
 
@@ -18,6 +19,7 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
   const s = useStore();
   const [menuProfile, setMenuProfile] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [skillsExpanded, setSkillsExpanded] = useState(false);
   const [profilesExpanded, setProfilesExpanded] = useState(false);
   const [manualProxyOpen, setManualProxyOpen] = useState(false);
   const [manualProxyMode, setManualProxyMode] = useState<ManualProxyInputMode>("url");
@@ -33,6 +35,8 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
 
   const ready = s.agentReady();
   const profiles = s.filteredProfiles();
+  const skillCategories = withLocalScripts(s.skillCategories);
+  const skillCount = skillCategories.reduce((total, category) => total + category.entries.length, 0);
   const defaultStatus = s.defaultSession?.status ?? "unknown";
   const defaultKnown = !!s.defaultSession?.session?.name || defaultStatus !== "unknown";
   const defaultRunning = defaultStatus === "running";
@@ -80,6 +84,13 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
       if (!existing.has(candidate)) return candidate;
     }
     return `${base}-${Date.now()}`;
+  };
+  const openSkillsCategory = (categoryId?: string) => {
+    if (categoryId) {
+      localStorage.setItem("openSkillsCategory", categoryId);
+      window.dispatchEvent(new CustomEvent("nextbrowser:open-skills-category", { detail: categoryId }));
+    }
+    s.setTab("skills");
   };
 
   const resetManualProxyForm = () => {
@@ -164,6 +175,44 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
       </div>
 
       <div className="sidebar-scroll">
+        <div className="claw-card control-card skills-sidebar-card">
+          <div className="row scheduled-panel-head">
+            <button
+              className="scheduled-panel-toggle"
+              title={skillsExpanded ? "Hide skills" : "Show skills"}
+              aria-expanded={skillsExpanded}
+              onClick={() => setSkillsExpanded((value) => !value)}
+            >
+              <Icon name={skillsExpanded ? "chevron.down" : "chevron.right"} size={13} />
+              <span className="section">SKILLS</span>
+              <span className="profiles-count" title="Total skills">{skillCount}</span>
+            </button>
+            <button
+              className="plain-icon-btn plain-icon-btn-compact"
+              title="Open skills"
+              onClick={() => openSkillsCategory(skillCategories[0]?.id)}
+            >
+              <Icon name="square.grid.2x2.fill" size={14} />
+            </button>
+          </div>
+          {skillsExpanded && (
+            <div className="skills-sidebar-list">
+              {skillCategories.map((category) => (
+                <button
+                  key={category.id}
+                  className="skills-sidebar-item"
+                  title={`Open ${category.title}`}
+                  onClick={() => openSkillsCategory(category.id)}
+                >
+                  <Icon name={category.icon} size={15} className="accent-icon" />
+                  <span>{category.title}</span>
+                  <span className="profiles-count">{category.entries.length}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="claw-card control-card profiles-card">
           <div className="row profiles-panel-head">
             <button

@@ -22,10 +22,22 @@ export function SkillsView() {
     if (cat && cat.id !== category) setCategory(cat.id);
   }, [cat, category]);
   useEffect(() => {
-    if (localStorage.getItem("openMyScriptsEditor") !== "1") return;
-    localStorage.removeItem("openMyScriptsEditor");
-    setCategory("my-scripts");
-    setScriptEditor("new");
+    const pendingCategory = localStorage.getItem("openSkillsCategory");
+    if (pendingCategory) {
+      localStorage.removeItem("openSkillsCategory");
+      setCategory(pendingCategory);
+    }
+    if (localStorage.getItem("openMyScriptsEditor") === "1") {
+      localStorage.removeItem("openMyScriptsEditor");
+      setCategory("my-scripts");
+      setScriptEditor("new");
+    }
+    const openCategory = (event: Event) => {
+      const nextCategory = event instanceof CustomEvent ? String(event.detail ?? "") : "";
+      if (nextCategory) setCategory(nextCategory);
+    };
+    window.addEventListener("nextbrowser:open-skills-category", openCategory);
+    return () => window.removeEventListener("nextbrowser:open-skills-category", openCategory);
   }, []);
   const sessionName = s.currentSessionDisplayName();
   const ready = s.agentReady();

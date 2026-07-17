@@ -2689,6 +2689,41 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   padding: 6px 0;
   border-top: 1px solid var(--line);
 }
+
+/* Sidebar skills */
+.skills-sidebar-card {
+  gap: 8px;
+}
+.skills-sidebar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.skills-sidebar-item {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 7px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.skills-sidebar-item:hover {
+  background: var(--surface-2);
+}
+.skills-sidebar-item > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 550;
+}
 .schedule-info { flex: 1; min-width: 0; }
 .schedule-title { font-size: 13px; font-weight: 500; }
 .schedule-time-row {
