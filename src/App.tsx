@@ -6,6 +6,8 @@ import { SkillsView } from "./components/SkillsView";
 import { LiveView } from "./components/LiveView";
 import { UsageView } from "./components/UsageView";
 import { GuideView } from "./components/GuideView";
+import { ProfilesView } from "./components/ProfilesView";
+import { ScheduledRunsPanel } from "./components/ScheduledRunsPanel";
 import { OnboardingView } from "./components/OnboardingView";
 import { DashboardKeyModal } from "./components/DashboardKeyModal";
 import { BrandLogo } from "./components/BrandLogo";
@@ -24,7 +26,7 @@ const TABS: { id: AppTab; label: string; icon: string }[] = [
   { id: "live", label: "Live", icon: "video.fill" },
 ];
 
-const PREVIEW_TABS = new Set<string>(["chat", "skills", "live", "usage", "guide"]);
+const PREVIEW_TABS = new Set<string>(["chat", "skills", "live", "usage", "guide", "profiles", "scheduled"]);
 
 interface AppUpdateStatus {
   status?: string;
@@ -723,6 +725,12 @@ export function App() {
           {tab === "live" && <LiveView />}
           {tab === "usage" && <UsageView />}
           {tab === "guide" && <GuideView />}
+          {tab === "profiles" && <ProfilesView />}
+          {tab === "scheduled" && (
+            <div className="page scheduled-page">
+              <ScheduledRunsPanel asPage />
+            </div>
+          )}
         </div>
       </main>
       {settingsOpen && (

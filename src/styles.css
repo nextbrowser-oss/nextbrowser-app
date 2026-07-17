@@ -485,6 +485,12 @@ button, input, textarea, select { color: var(--text); }
   background: var(--surface-2);
   color: var(--text);
 }
+.sidebar-page-link.active,
+.mini-nav-btn.active {
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--line));
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  color: var(--accent-text);
+}
 .status-dot {
   width: 7px;
   height: 7px;
@@ -1116,6 +1122,42 @@ button, input, textarea, select { color: var(--text); }
   flex-direction: column;
   gap: 1px;
   min-width: 0;
+}
+
+.profiles-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.page-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.page-head h2 {
+  margin: 0;
+  font-size: 24px;
+}
+.page-head p {
+  margin: 2px 0 0;
+}
+.profiles-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.profiles-search-box {
+  flex: 1;
+  margin: 0;
+}
+.profiles-page-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+}
+.profiles-page-row {
+  min-height: 50px;
 }
 .profile-title-line {
   display: flex;
@@ -2724,6 +2766,19 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   gap: 6px;
   padding: 4px 0;
   border-top: 1px solid var(--line);
+}
+.scheduled-page-card {
+  padding: 16px;
+}
+.scheduled-page-card .scheduled-panel-head {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.scheduled-page-card .schedule-row {
+  min-height: 54px;
+}
+.scheduled-page-head {
+  margin-bottom: 8px;
 }
 
 /* Sidebar skills */

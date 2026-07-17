@@ -235,7 +235,7 @@ export interface TabsList {
   }[];
 }
 
-export type AppTab = "chat" | "skills" | "live" | "usage" | "guide";
+export type AppTab = "chat" | "skills" | "live" | "usage" | "guide" | "profiles" | "scheduled";
 
 export function proxyFraction(p?: ProxyTraffic | null): number {
   if (!p) return 0;
