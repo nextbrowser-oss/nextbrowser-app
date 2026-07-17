@@ -23,7 +23,6 @@ const TABS: { id: AppTab; label: string; icon: string }[] = [
   { id: "chat", label: "Chat", icon: "bubble.left.and.bubble.right.fill" },
   { id: "skills", label: "Skills", icon: "square.grid.2x2.fill" },
   { id: "live", label: "Live", icon: "video.fill" },
-  { id: "usage", label: "Usage", icon: "chart.bar.fill" },
   { id: "guide", label: "Guide", icon: "book.fill" },
 ];
 
@@ -168,6 +167,7 @@ function SocialButtons() {
 
 function SettingsModal({
   onClose,
+  onOpenUsage,
   appUpdate,
   manualUpdate,
   onCheckUpdate,
@@ -176,6 +176,7 @@ function SettingsModal({
   onOpenRelease,
 }: {
   onClose: () => void;
+  onOpenUsage: () => void;
   appUpdate: AppUpdateStatus;
   manualUpdate: boolean;
   onCheckUpdate: () => void;
@@ -287,6 +288,16 @@ function SettingsModal({
         </div>
 
         <div className="settings-section">
+          <button
+            className="settings-link"
+            onClick={() => {
+              onOpenUsage();
+              onClose();
+            }}
+          >
+            <span>Proxy usage</span>
+            <Icon name="chart.bar.fill" size={14} />
+          </button>
           <a
             className="settings-link"
             href={dashboardUrl}
@@ -609,6 +620,7 @@ export function App() {
         {settingsOpen && (
           <SettingsModal
             onClose={() => setSettingsOpen(false)}
+            onOpenUsage={() => setTab("usage")}
             appUpdate={appUpdate}
             manualUpdate={MANUAL_UPDATE}
             onCheckUpdate={checkAppUpdate}
@@ -674,6 +686,7 @@ export function App() {
       {settingsOpen && (
         <SettingsModal
           onClose={() => setSettingsOpen(false)}
+          onOpenUsage={() => setTab("usage")}
           appUpdate={appUpdate}
           manualUpdate={MANUAL_UPDATE}
           onCheckUpdate={checkAppUpdate}
