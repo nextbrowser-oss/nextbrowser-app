@@ -2206,9 +2206,10 @@ export const useStore = create<State>((set, get) => {
       set({ nextctlVersion: normalizeNextctlVersion(ver), nextctlSupportsSkill: supportsSkill, nextctlAvailable: true });
       trackTiming("nextctl_update_completed", startedAt, { supports_skill: supportsSkill });
       return true;
-    } catch {
-      set({ nextctlUpdateStatus: "update failed", nextctlAvailable: false });
-      trackTiming("nextctl_update_failed", startedAt);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      set({ nextctlUpdateStatus: message || "update failed", nextctlAvailable: false });
+      trackTiming("nextctl_update_failed", startedAt, { has_message: !!message });
       return true;
     } finally {
       set({ nextctlUpdating: false });

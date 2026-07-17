@@ -242,6 +242,9 @@ async function resolveNextctl() {
   const managed = managedNextctlBin(); if (launchable(managed)) candidates.push(managed);
   const dev = path.join(home(), "projects/ClawBrowser/nextctl/bin/nextctl"); if (launchable(dev)) candidates.push(dev);
   for (const dir of searchDirs()) for (const name of executableNames("nextctl")) { const f = path.join(dir, name); if (launchable(f)) candidates.push(f); }
+  const legacyDev = path.join(home(), "projects/ClawBrowser/clawctl/bin/clawctl"); if (launchable(legacyDev)) candidates.push(legacyDev);
+  const legacyRoot = path.join(home(), "projects/ClawBrowser/clawctl/clawctl"); if (launchable(legacyRoot)) candidates.push(legacyRoot);
+  for (const dir of searchDirs()) for (const name of executableNames("clawctl")) { const f = path.join(dir, name); if (launchable(f)) candidates.push(f); }
   for (const candidate of [...new Set(candidates)]) if (await nextctlHasSkill(candidate)) return candidate;
   return candidates[0] || null;
 }
