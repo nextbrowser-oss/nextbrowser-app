@@ -166,22 +166,22 @@ case "$(uname -s):$(uname -m)" in
   Darwin:arm64) platform="macos-arm64" ;;
   *) echo "unsupported host: $(uname -s) $(uname -m)" >&2; exit 1 ;;
 esac
-archive="nextctl-\${platform}.tar.gz"
-url="https://github.com/nextbrowser-oss/nextctl/releases/latest/download/\${archive}"
+archive="nbc-\${platform}.tar.gz"
+url="https://github.com/nextbrowser-oss/nbc_releases/releases/latest/download/\${archive}"
 curl -fL --retry 3 --retry-delay 2 -o "$archive" "$url"
 tar -xzf "$archive"
-"./nextctl-\${platform}/nextctl" install --agent ${agentAdapter} --no-api-key-prompt --json
+"./nbc-\${platform}/nbc" install --agent ${agentAdapter} --no-api-key-prompt --json
 \`\`\`
 
 On Windows PowerShell:
 
 \`\`\`powershell
-$archive = "nextctl-win-amd64.zip"
-$url = "https://github.com/nextbrowser-oss/nextctl/releases/latest/download/$archive"
+$archive = "nbc-win-amd64.zip"
+$url = "https://github.com/nextbrowser-oss/nbc_releases/releases/latest/download/$archive"
 Invoke-WebRequest -Uri $url -OutFile $archive
-Remove-Item -Recurse -Force ".\\nextctl-win-amd64" -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force ".\\nbc-win-amd64" -ErrorAction SilentlyContinue
 Expand-Archive -Force $archive .
-$nextctl = ".\\nextctl-win-amd64\\nextctl.exe"
+$nextctl = ".\\nbc-win-amd64\\nbc.exe"
 & $nextctl install --agent ${agentAdapter} --no-api-key-prompt --json
 \`\`\`
 

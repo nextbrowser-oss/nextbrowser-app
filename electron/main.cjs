@@ -13,7 +13,7 @@ const execFileAsync = promisify(execFile);
 const children = new Map();
 const remoteSignalSockets = new Map();
 const APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
-const NEXTCTL_RELEASE_BASE = "https://github.com/nextbrowser-oss/nextctl/releases/latest/download";
+const NEXTCTL_RELEASE_BASE = "https://github.com/nextbrowser-oss/nbc_releases/releases/latest/download";
 const DEFAULT_API_BASE_URL = "https://api.clawbrowser.ai";
 const DEEP_LINK_PROTOCOL = "nextbrowser";
 let appUpdateStatus = { status: "idle" };
@@ -169,18 +169,18 @@ function managedNextctlBin() {
 function nextctlPlatformArchive() {
   const arch = os.arch();
   if (process.platform === "darwin") {
-    if (arch === "arm64") return { name: "nextctl-macos-arm64.tar.gz", kind: "tar" };
-    if (arch === "x64") return { name: "nextctl-macos-amd64.tar.gz", kind: "tar" };
+    if (arch === "arm64") return { name: "nbc-macos-arm64.tar.gz", kind: "tar" };
+    if (arch === "x64") return { name: "nbc-macos-amd64.tar.gz", kind: "tar" };
   }
   if (process.platform === "linux") {
-    if (arch === "arm64") return { name: "nextctl-linux-arm64.tar.gz", kind: "tar" };
-    if (arch === "x64") return { name: "nextctl-linux-amd64.tar.gz", kind: "tar" };
+    if (arch === "arm64") return { name: "nbc-linux-arm64.tar.gz", kind: "tar" };
+    if (arch === "x64") return { name: "nbc-linux-amd64.tar.gz", kind: "tar" };
   }
-  if (process.platform === "win32" && arch === "x64") return { name: "nextctl-win-amd64.zip", kind: "zip" };
+  if (process.platform === "win32" && arch === "x64") return { name: "nbc-win-amd64.zip", kind: "zip" };
   throw new Error(`Unsupported nextctl platform: ${process.platform}/${arch}`);
 }
 function findNextctlInTree(root) {
-  return findBinaryUnderRoots("nextctl", [root]);
+  return findBinaryUnderRoots("nextctl", [root]) || findBinaryUnderRoots("nbc", [root]);
 }
 async function downloadFile(url, target) {
   const response = await fetch(url);
@@ -237,14 +237,12 @@ async function installManagedNextctl() {
 }
 async function resolveNextctl() {
   if (process.env.NEXTCTL_BIN && launchable(expand(process.env.NEXTCTL_BIN))) return expand(process.env.NEXTCTL_BIN);
-  if (process.env.CLAWCTL_BIN && launchable(expand(process.env.CLAWCTL_BIN))) return expand(process.env.CLAWCTL_BIN);
   const candidates = [];
   const managed = managedNextctlBin(); if (launchable(managed)) candidates.push(managed);
   const dev = path.join(home(), "projects/ClawBrowser/nextctl/bin/nextctl"); if (launchable(dev)) candidates.push(dev);
   for (const dir of searchDirs()) for (const name of executableNames("nextctl")) { const f = path.join(dir, name); if (launchable(f)) candidates.push(f); }
-  const legacyDev = path.join(home(), "projects/ClawBrowser/clawctl/bin/clawctl"); if (launchable(legacyDev)) candidates.push(legacyDev);
-  const legacyRoot = path.join(home(), "projects/ClawBrowser/clawctl/clawctl"); if (launchable(legacyRoot)) candidates.push(legacyRoot);
-  for (const dir of searchDirs()) for (const name of executableNames("clawctl")) { const f = path.join(dir, name); if (launchable(f)) candidates.push(f); }
+  const nbcDev = path.join(home(), "projects/ClawBrowser/nextctl/bin/nbc"); if (launchable(nbcDev)) candidates.push(nbcDev);
+  for (const dir of searchDirs()) for (const name of executableNames("nbc")) { const f = path.join(dir, name); if (launchable(f)) candidates.push(f); }
   for (const candidate of [...new Set(candidates)]) if (await nextctlHasSkill(candidate)) return candidate;
   return candidates[0] || null;
 }
