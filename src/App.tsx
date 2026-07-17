@@ -168,6 +168,7 @@ function SocialButtons() {
 function SettingsModal({
   onClose,
   onOpenUsage,
+  focus,
   appUpdate,
   manualUpdate,
   onCheckUpdate,
@@ -177,6 +178,7 @@ function SettingsModal({
 }: {
   onClose: () => void;
   onOpenUsage: () => void;
+  focus?: "agent" | null;
   appUpdate: AppUpdateStatus;
   manualUpdate: boolean;
   onCheckUpdate: () => void;
@@ -189,6 +191,11 @@ function SettingsModal({
   const agentId = useStore((s) => s.agentId);
   const agentReady = useStore((s) => s.agentReady());
   const agentVersion = useStore((s) => s.agentVersion());
+  const agentError = useStore((s) => s.agentError());
+  const agentLoggedIn = useStore((s) => s.agentLoggedIn());
+  const authorizeAgent = useStore((s) => s.authorizeAgent);
+  const loginAgent = useStore((s) => s.loginAgent);
+  const logoutAgent = useStore((s) => s.logoutAgent);
   const profiles = useStore((s) => {
     const defaultKnown = !!s.defaultSession?.session?.name || (s.defaultSession?.status ?? "unknown") !== "unknown";
     const hasListedDefault = s.profiles.some((profile) => profile.name === "default");
@@ -263,16 +270,6 @@ function SettingsModal({
             <strong>{clawctlVersion || "not detected"}</strong>
           </div>
           <div className="settings-row">
-            <span className="muted small">Active agent</span>
-            <strong>{agentName}</strong>
-          </div>
-          <div className="settings-row">
-            <span className="muted small">Agent status</span>
-            <span className={agentReady ? "ok small" : "muted small"}>
-              {agentReady ? agentVersion || "connected" : "not connected"}
-            </span>
-          </div>
-          <div className="settings-row">
             <span className="muted small">Skill install</span>
             <span className={clawctlSupportsSkill ? "ok small" : "warn small"}>
               {clawctlSupportsSkill ? "supported" : "needs update"}
@@ -291,6 +288,42 @@ function SettingsModal({
         </div>
 
         <div className="settings-section">
+          <div className={"settings-agent-card" + (focus === "agent" ? " settings-agent-card-focused" : "")}>
+            <div className="settings-agent-head">
+              <span className="settings-feature-icon">
+                <Icon name="cpu.fill" size={17} />
+              </span>
+              <span className="settings-feature-copy">
+                <strong>Agent</strong>
+                <span className="muted small">Choose the local agent used for chats, skills, and scheduled runs.</span>
+              </span>
+              <span className={"agent-state-pill" + (agentReady ? " is-ready" : "")}>
+                {agentReady ? "Ready" : "Offline"}
+              </span>
+            </div>
+            <div className="settings-agent-picker-row">
+              <AgentPicker label="Active" />
+              <span className="muted small">{agentReady ? agentVersion || "connected" : `${agentName} is not connected`}</span>
+            </div>
+            <div className="settings-agent-actions">
+              {!agentReady && (
+                <button className="mini primary-mini" title={`Connect ${agentName}`} onClick={() => authorizeAgent()}>
+                  Connect
+                </button>
+              )}
+              {agentReady && agentLoggedIn !== true && (
+                <button className="mini" title={`Open ${agentName} login`} onClick={() => loginAgent()}>
+                  Login
+                </button>
+              )}
+              {agentReady && agentLoggedIn === true && agentById(agentId).logoutArgs.length > 0 && (
+                <button className="mini" title={`Sign out of ${agentName}`} onClick={() => logoutAgent()}>
+                  Logout
+                </button>
+              )}
+            </div>
+            {agentError && <div className="error small settings-agent-error">{agentError}</div>}
+          </div>
           <button
             className="settings-feature-link"
             onClick={() => {
@@ -414,6 +447,7 @@ export function App() {
     window.matchMedia("(prefers-color-scheme: light)").matches,
   ));
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsFocus, setSettingsFocus] = useState<"agent" | null>(null);
   const [appUpdate, setAppUpdate] = useState<AppUpdateStatus>({ status: "idle" });
   const [updatePromptDismissed, setUpdatePromptDismissed] = useState(false);
   const preview = getPreviewMode();
@@ -445,6 +479,14 @@ export function App() {
   const openLatestRelease = () => {
     trackEvent("app_update_open_release", { version: appUpdate.version ?? undefined });
     window.open(latestReleaseUrl, "_blank", "noopener,noreferrer");
+  };
+  const openSettings = (focus: "agent" | null = null) => {
+    setSettingsFocus(focus);
+    setSettingsOpen(true);
+  };
+  const closeSettings = () => {
+    setSettingsOpen(false);
+    setSettingsFocus(null);
   };
 
   useEffect(() => {
@@ -616,13 +658,14 @@ export function App() {
       <>
         <div className="floating-controls">
           <SocialButtons />
-          <SettingsButton onClick={() => setSettingsOpen(true)} hasUpdate={updateAvailable(appUpdate)} />
+          <SettingsButton onClick={() => openSettings()} hasUpdate={updateAvailable(appUpdate)} />
           <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
         </div>
         {settingsOpen && (
           <SettingsModal
-            onClose={() => setSettingsOpen(false)}
+            onClose={closeSettings}
             onOpenUsage={() => setTab("usage")}
+            focus={settingsFocus}
             appUpdate={appUpdate}
             manualUpdate={MANUAL_UPDATE}
             onCheckUpdate={checkAppUpdate}
@@ -647,7 +690,7 @@ export function App() {
         className={"sidebar thin-material" + (sidebarCollapsed ? " sidebar-collapsed" : "")}
         style={{ width: sidebarCollapsed ? 68 : sidebarWidth }}
       >
-        <Sidebar />
+        <Sidebar onOpenAgentSettings={() => openSettings("agent")} />
       </aside>
       {!sidebarCollapsed && <div id="sidebar-resize" className="resize-handle" />}
       <main className="content">
@@ -667,12 +710,11 @@ export function App() {
                 </span>
               </button>
             ))}
-            <AgentPicker tabLike />
           </div>
           <span className="tabbar-spacer" />
           <div className="tabbar-controls">
             <SocialButtons />
-            <SettingsButton onClick={() => setSettingsOpen(true)} hasUpdate={updateAvailable(appUpdate)} />
+            <SettingsButton onClick={() => openSettings()} hasUpdate={updateAvailable(appUpdate)} />
             <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
           </div>
         </nav>
@@ -687,8 +729,9 @@ export function App() {
       </main>
       {settingsOpen && (
         <SettingsModal
-          onClose={() => setSettingsOpen(false)}
+          onClose={closeSettings}
           onOpenUsage={() => setTab("usage")}
+          focus={settingsFocus}
           appUpdate={appUpdate}
           manualUpdate={MANUAL_UPDATE}
           onCheckUpdate={checkAppUpdate}

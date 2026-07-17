@@ -415,6 +415,7 @@ button, input, textarea, select { color: var(--text); }
   flex: none;
 }
 .sidebar-agent-strip {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -424,6 +425,13 @@ button, input, textarea, select { color: var(--text); }
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--surface-1);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.sidebar-agent-strip:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-2);
 }
 .sidebar-agent-strip strong {
   min-width: 0;
@@ -437,20 +445,6 @@ button, input, textarea, select { color: var(--text); }
   min-height: 18px;
   padding: 0 7px;
   font-size: 10px;
-}
-.sidebar-agent-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-}
-.sidebar-agent-actions .mini {
-  min-height: 24px;
-  padding: 2px 8px;
-}
-.sidebar-agent-error {
-  margin-top: 6px;
-  overflow-wrap: anywhere;
 }
 .sidebar-scroll {
   flex: 1;
@@ -2034,6 +2028,40 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .settings-feature-copy strong {
   font-size: 13px;
   font-weight: 650;
+}
+.settings-agent-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+.settings-agent-card-focused {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.settings-agent-head,
+.settings-agent-picker-row,
+.settings-agent-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.settings-agent-head .agent-state-pill {
+  margin-left: auto;
+}
+.settings-agent-picker-row {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.settings-agent-actions .mini {
+  min-height: 26px;
+}
+.settings-agent-error {
+  overflow-wrap: anywhere;
 }
 .settings-actions { margin-top: 8px; }
 .update-prompt { width: min(420px, calc(100vw - 32px)); }

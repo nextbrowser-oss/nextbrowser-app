@@ -10,7 +10,11 @@ import { manualProxyDefaultName, parseManualProxyUrl, type ManualProxyScheme } f
 
 type ManualProxyInputMode = "url" | "fields";
 
-export function Sidebar() {
+interface SidebarProps {
+  onOpenAgentSettings: () => void;
+}
+
+export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
   const s = useStore();
   const [menuProfile, setMenuProfile] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -28,8 +32,6 @@ export function Sidebar() {
   const [manualSaving, setManualSaving] = useState(false);
 
   const ready = s.agentReady();
-  const error = s.agentError();
-  const loggedIn = s.agentLoggedIn();
   const profiles = s.filteredProfiles();
   const defaultStatus = s.defaultSession?.status ?? "unknown";
   const defaultKnown = !!s.defaultSession?.session?.name || defaultStatus !== "unknown";
@@ -53,7 +55,7 @@ export function Sidebar() {
           <Icon name="sidebar.left" size={17} />
         </button>
         <BrandLogo size={28} />
-        <button className="mini-nav-btn" title={`Agent: ${agentName}`} onClick={() => s.setTab("chat")}>
+        <button className="mini-nav-btn" title={`Agent: ${agentName}`} onClick={onOpenAgentSettings}>
           <Icon name="cpu.fill" size={18} />
           <span>{s.agentReady() ? "on" : "off"}</span>
         </button>
@@ -151,32 +153,14 @@ export function Sidebar() {
             <Icon name="sidebar.leading" size={15} />
           </button>
         </div>
-        <div className="sidebar-agent-strip">
+        <button className="sidebar-agent-strip" title="Open agent settings" onClick={onOpenAgentSettings}>
           <Icon name="cpu.fill" size={13} />
           <span className="muted small">Agent</span>
           <strong>{agentName}</strong>
           <span className={"agent-state-pill" + (ready ? " is-ready" : "")}>
             {ready ? "Ready" : "Offline"}
           </span>
-        </div>
-        <div className="sidebar-agent-actions">
-          {!ready && (
-            <button className="mini primary-mini" title={`Connect ${agentName}`} onClick={() => s.authorizeAgent()}>
-              Connect
-            </button>
-          )}
-          {ready && loggedIn !== true && (
-            <button className="mini" title={`Open ${agentName} login`} onClick={() => s.loginAgent()}>
-              Login
-            </button>
-          )}
-          {ready && loggedIn === true && agentById(s.agentId).logoutArgs.length > 0 && (
-            <button className="mini" title={`Sign out of ${agentName}`} onClick={() => s.logoutAgent()}>
-              Logout
-            </button>
-          )}
-        </div>
-        {error && <div className="error small sidebar-agent-error">{error}</div>}
+        </button>
       </div>
 
       <div className="sidebar-scroll">
