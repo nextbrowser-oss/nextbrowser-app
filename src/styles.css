@@ -1148,10 +1148,6 @@ button, input, textarea, select { color: var(--text); }
 .profiles-panel-toggle {
   min-height: 22px;
 }
-.profile-head-status {
-  background: var(--green-soft);
-  color: var(--green);
-}
 .profile-list { max-height: 340px; overflow-y: auto; margin-top: 2px; }
 .profile-row {
   display: flex;

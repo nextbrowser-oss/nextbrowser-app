@@ -211,7 +211,6 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
               <Icon name="person.crop.circle" size={13} />
               <span className="section">Profiles</span>
               <span className="profiles-count" title="Total profiles">{visibleProfileCount}</span>
-              {runningCount > 0 && <span className="status-pill profile-head-status">{runningCount} running</span>}
             </div>
             <button
               className="plain-icon-btn plain-icon-btn-compact"
@@ -228,12 +227,12 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
           <div className="session-quick-actions">
             <button
               className="btn-bordered full"
-              title={s.selectedProfile ? `Start selected profile: ${s.selectedProfile}` : "Start default profile"}
+              title="Create a new managed profile"
               disabled={s.isRefreshing}
-              onClick={() => void (s.selectedProfile ? s.startProfile(s.selectedProfile) : s.startDefaultSession())}
+              onClick={() => void s.createManagedProfile()}
             >
-              <Icon name="play.fill" size={14} />
-              {s.selectedProfile ? "Start selected profile" : "Start default profile"}
+              <Icon name="plus" size={14} />
+              New profile
             </button>
             <button
               className="mini proxy-profile-btn"

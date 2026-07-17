@@ -348,6 +348,7 @@ interface State {
   stopProfile: (n: string) => Promise<void>;
   rotateProfile: (n: string) => Promise<void>;
   rotateProfileCountry: (n: string, country: string) => Promise<void>;
+  createManagedProfile: () => Promise<void>;
   createManualProxyProfile: (input: ManualProxyProfileInput) => Promise<void>;
   deleteProfile: (n: string) => Promise<void>;
   selectProfile: (n?: string) => void;
@@ -1826,6 +1827,23 @@ export const useStore = create<State>((set, get) => {
       if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
       trackTiming("proxy_country_change_completed", startedAt, { scope: "named_profile", country, status: get().statuses[n] ?? "unknown" });
       trackTiming("profile_rotate_completed", startedAt, { scope: "named", country, status: get().statuses[n] ?? "unknown" });
+    } catch (error) {
+      requestAccountSignIn(set, error);
+      throw error;
+    }
+  },
+
+  createManagedProfile: async () => {
+    const startedAt = performance.now();
+    const existing = new Set(get().profiles.map((profile) => profile.name));
+    let name = "profile";
+    for (let index = 2; existing.has(name); index += 1) name = `profile-${index}`;
+    trackEvent("profile_create_requested", { kind: "managed" });
+    try {
+      await nextctlRunChecked(["profiles", "create", name, "--format", "json"]);
+      await get().loadProfiles();
+      get().selectProfile(name);
+      trackTiming("profile_create_completed", startedAt, { kind: "managed" });
     } catch (error) {
       requestAccountSignIn(set, error);
       throw error;
