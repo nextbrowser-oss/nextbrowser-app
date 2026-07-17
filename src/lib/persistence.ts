@@ -5,8 +5,10 @@ import type {
   ScheduledRun,
   UsageSnapshot,
 } from "../types";
+import { VPS_PROMPT_MARKER } from "./vpsPrompt";
 
 const APPLE_REFERENCE_UNIX_SECONDS = 978_307_200;
+const MAX_VPS_CONNECTION_INSTRUCTIONS = 32_768;
 
 export function parseMillis(value: unknown, fallback = Date.now()): number {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -34,23 +36,42 @@ export function isoSeconds(value: number): string {
 }
 
 export function normalizeConversation(raw: Conversation): Conversation {
+  const messages = (raw.messages ?? []).map((message) => ({
+    ...message,
+    status: (message.status as string) === "stopped" ? "cancelled" as const : message.status,
+    createdAt: parseMillis(message.createdAt),
+    runStartedAt:
+      message.runStartedAt == null ? undefined : parseMillis(message.runStartedAt),
+    lastActivityAt:
+      message.lastActivityAt == null ? undefined : parseMillis(message.lastActivityAt),
+    toolEvents: message.toolEvents?.map((event) => ({
+      ...event,
+      createdAt: parseMillis(event.createdAt),
+    })),
+  }));
+  const storedInstructions = typeof raw.vpsConnectionInstructions === "string"
+    ? raw.vpsConnectionInstructions.trim()
+    : "";
+  const vpsConnectionInstructions = storedInstructions.length <= MAX_VPS_CONNECTION_INSTRUCTIONS &&
+    storedInstructions.startsWith(VPS_PROMPT_MARKER)
+    ? storedInstructions
+    : undefined;
+  const vpsConnectionLabel = typeof raw.vpsConnectionLabel === "string"
+    ? raw.vpsConnectionLabel.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 160) || undefined
+    : undefined;
+  const executionTarget = raw.executionTarget === "vps" || vpsConnectionInstructions
+    ? "vps" as const
+    : raw.executionTarget === "local"
+      ? "local" as const
+      : undefined;
   return {
     ...raw,
     createdAt: parseMillis(raw.createdAt),
     updatedAt: parseMillis(raw.updatedAt),
-    messages: (raw.messages ?? []).map((message) => ({
-      ...message,
-      status: (message.status as string) === "stopped" ? "cancelled" : message.status,
-      createdAt: parseMillis(message.createdAt),
-      runStartedAt:
-        message.runStartedAt == null ? undefined : parseMillis(message.runStartedAt),
-      lastActivityAt:
-        message.lastActivityAt == null ? undefined : parseMillis(message.lastActivityAt),
-      toolEvents: message.toolEvents?.map((event) => ({
-        ...event,
-        createdAt: parseMillis(event.createdAt),
-      })),
-    })),
+    messages,
+    executionTarget,
+    vpsConnectionInstructions,
+    vpsConnectionLabel,
   };
 }
 

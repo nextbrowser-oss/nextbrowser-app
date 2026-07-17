@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question
+    url: https://github.com/nextbrowser-oss/nextbrowser-app/discussions
+    about: Ask for help, share ideas, and discuss workflows with the community.

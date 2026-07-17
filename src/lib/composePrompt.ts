@@ -1,4 +1,28 @@
 import type { Conversation } from "../types";
+import type { ExecutionTarget } from "./executionTarget";
+import { hasVPSPromptMarker } from "./vpsPrompt";
+
+const LOCAL_CLAWCTL_PROMPT =
+  "[You control the NextBrowser browser through the `clawctl` command-line tool, " +
+  "which is already installed. Use it (e.g. `clawctl open <url>`, " +
+  "`clawctl click`, `clawctl input`, `clawctl status`, `clawctl start`, " +
+  "`clawctl rotate`) to open pages, act on them, and manage sessions/proxies. " +
+  "Run `clawctl --help` if unsure of a subcommand.]";
+
+const MISSING_LOCAL_CLAWCTL_PROMPT =
+  "[NextBrowser is installed, but the local `clawctl`/Clawbrowser components are missing or not on PATH. " +
+  "Before trying to browse, install `clawctl` and run `clawctl install --no-api-key-prompt`. " +
+  "After install, use `clawctl` for browser control.]";
+
+const VPS_CLAWCTL_PROMPT =
+  "[Strict VPS remote-only mode is active for this conversation. Run every `clawctl`, Clawbrowser, " +
+  "browser, profile, and session command on the selected VPS through SSH. Never run them on localhost " +
+  "and never use or fall back to a local NextBrowser profile/session. Perform only a read-only remote " +
+  "preflight, use `CLAWCTL_AUTO_UPDATE=0 clawctl version`, and prefix every later remote `clawctl` " +
+  "invocation with `CLAWCTL_AUTO_UPDATE=0`. If remote clawctl or the existing Clawbrowser runtime is " +
+  "missing or unusable, stop and tell the user to install Clawbrowser and clawctl on the VPS first. " +
+  "Do not install, download, update, configure, initialize, repair, or start anything merely to test " +
+  "readiness, and do not fall back to local execution.]";
 
 export function composePrompt(
   conversations: Conversation[],
@@ -6,33 +30,43 @@ export function composePrompt(
   replyId: string,
   rawText: string,
   selectedProfile?: string,
-  opts: { clawctlAvailable?: boolean } = {},
+  opts: { clawctlAvailable?: boolean; executionTarget?: ExecutionTarget } = {},
 ): string {
   const parts: string[] = [];
+  const conv = conversations.find((c) => c.id === conversationId);
+  const replyIndex = conv?.messages.findIndex((message) => message.id === replyId) ?? -1;
+  const messagesBeforeReply = replyIndex >= 0
+    ? conv?.messages.slice(0, replyIndex) ?? []
+    : conv?.messages ?? [];
+  const remoteOnly = opts.executionTarget != null
+    ? opts.executionTarget === "vps"
+    : conv?.executionTarget === "vps";
+  const storedVPSInstructions = conv?.vpsConnectionInstructions &&
+    hasVPSPromptMarker(conv.vpsConnectionInstructions)
+    ? conv.vpsConnectionInstructions
+    : undefined;
+  const activeVPSInstructions = storedVPSInstructions;
   // Tell the connected CLI, up front, which tool drives the browser. Without
   // this context it may try to "open" a non-existent app and fail.
-  if (opts.clawctlAvailable === false) {
-    parts.push(
-      "[NextBrowser is installed, but the local `clawctl`/Clawbrowser components are missing or not on PATH. " +
-        "Before trying to browse, install `clawctl` and run `clawctl install --no-api-key-prompt`. " +
-        "After install, use `clawctl` for browser control.]",
-    );
+  if (remoteOnly) {
+    parts.push(VPS_CLAWCTL_PROMPT);
+    if (!hasVPSPromptMarker(rawText) && activeVPSInstructions) {
+      parts.push(`Active VPS connection instructions:\n${activeVPSInstructions}`);
+    }
+  } else if (opts.clawctlAvailable === false) {
+    parts.push(MISSING_LOCAL_CLAWCTL_PROMPT);
   } else {
-    parts.push(
-      "[You control the NextBrowser browser through the `clawctl` command-line tool, " +
-        "which is already installed. Use it (e.g. `clawctl open <url>`, " +
-        "`clawctl click`, `clawctl input`, `clawctl status`, `clawctl start`, " +
-        "`clawctl rotate`) to open pages, act on them, and manage sessions/proxies. " +
-        "Run `clawctl --help` if unsure of a subcommand.]",
-    );
+    parts.push(LOCAL_CLAWCTL_PROMPT);
   }
-  const conv = conversations.find((c) => c.id === conversationId);
   if (conv) {
-    let prior = conv.messages.filter(
-      (m) => m.id !== replyId && m.role !== "system" && m.text.trim(),
+    let prior = messagesBeforeReply.filter(
+      (m) =>
+        m.role !== "system" &&
+        m.text.trim(),
     );
     const lastUser = prior.map((m, i) => ({ m, i })).filter(({ m }) => m.role === "user").pop();
     if (lastUser) prior = prior.filter((_, i) => i !== lastUser.i);
+    if (remoteOnly) prior = prior.filter((message) => !hasVPSPromptMarker(message.text));
     const recent = prior.slice(-12);
     if (recent.length) {
       const lines = recent.map(
@@ -41,7 +75,9 @@ export function composePrompt(
       parts.push("Conversation so far:\n" + lines.join("\n\n"));
     }
   }
-  if (selectedProfile) parts.push(`[Active NextBrowser profile: ${selectedProfile}]`);
+  if (selectedProfile && !remoteOnly) {
+    parts.push(`[Active NextBrowser profile: ${selectedProfile}]`);
+  }
   parts.push(rawText);
   return parts.join("\n\n---\n\n");
 }
