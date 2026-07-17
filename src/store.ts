@@ -630,6 +630,22 @@ async function finishAPIKeyLogin(apiKey: string): Promise<void> {
   });
 }
 
+async function refreshCompletedAccountPairing(method: "pairing" | "pairing_json"): Promise<void> {
+  await refreshLocalNextctlMetadata();
+  useStore.setState({
+    authed: true,
+    nextctlAvailable: true,
+    accountPairing: undefined,
+    dashboardKeyPromptOpen: false,
+    loginError: undefined,
+  });
+  useStore.getState().startTimers();
+  void useStore.getState().refreshAll();
+  void useStore.getState().authorizeAgent();
+  if (!localStorage.getItem("onboardingComplete")) useStore.setState({ showOnboarding: true });
+  trackEvent("login", { method });
+}
+
 function isAccountRequiredError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   const lower = message.toLowerCase();
@@ -1482,12 +1498,9 @@ export const useStore = create<State>((set, get) => {
       });
       if (result.api_key) {
         await finishAPIKeyLogin(result.api_key);
-        set({ authed: true, nextctlAvailable: true, accountPairing: undefined, dashboardKeyPromptOpen: false });
-        get().startTimers();
-        void get().refreshAll();
-        void get().authorizeAgent();
-        if (!localStorage.getItem("onboardingComplete")) set({ showOnboarding: true });
-        trackEvent("login", { method: "pairing" });
+        await refreshCompletedAccountPairing("pairing");
+      } else if (result.status === "completed") {
+        await refreshCompletedAccountPairing("pairing_json");
       } else if (result.status === "expired" || result.status === "rejected") {
         set({ loginError: result.status === "expired" ? "The sign-in request expired. Start again." : "The sign-in request was rejected." });
       }
