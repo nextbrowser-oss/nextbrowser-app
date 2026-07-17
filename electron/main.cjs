@@ -238,10 +238,16 @@ async function installManagedNextctl() {
 async function resolveNextctl() {
   if (process.env.NEXTCTL_BIN && launchable(expand(process.env.NEXTCTL_BIN))) return expand(process.env.NEXTCTL_BIN);
   const candidates = [];
+  const dev = path.join(home(), "projects/ClawBrowser/nextctl/bin/nextctl");
+  const nbcDev = path.join(home(), "projects/ClawBrowser/nextctl/bin/nbc");
+  if (!app.isPackaged) {
+    if (launchable(dev)) candidates.push(dev);
+    if (launchable(nbcDev)) candidates.push(nbcDev);
+  }
   const managed = managedNextctlBin(); if (launchable(managed)) candidates.push(managed);
-  const dev = path.join(home(), "projects/ClawBrowser/nextctl/bin/nextctl"); if (launchable(dev)) candidates.push(dev);
+  if (launchable(dev)) candidates.push(dev);
   for (const dir of searchDirs()) for (const name of executableNames("nextctl")) { const f = path.join(dir, name); if (launchable(f)) candidates.push(f); }
-  const nbcDev = path.join(home(), "projects/ClawBrowser/nextctl/bin/nbc"); if (launchable(nbcDev)) candidates.push(nbcDev);
+  if (launchable(nbcDev)) candidates.push(nbcDev);
   for (const dir of searchDirs()) for (const name of executableNames("nbc")) { const f = path.join(dir, name); if (launchable(f)) candidates.push(f); }
   for (const candidate of [...new Set(candidates)]) if (await nextctlHasSkill(candidate)) return candidate;
   return candidates[0] || null;
