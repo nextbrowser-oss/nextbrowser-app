@@ -178,17 +178,6 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
               {defaultRunning && <span className="status-pill profile-head-status">running</span>}
             </button>
             <button
-              className="mini proxy-profile-btn"
-              title="Add manual proxy profile"
-              onClick={() => {
-                setProfilesExpanded(true);
-                resetManualProxyForm();
-                setManualProxyOpen(true);
-              }}
-            >
-              Proxy
-            </button>
-            <button
               className="plain-icon-btn plain-icon-btn-compact"
               title="Refresh profiles"
               disabled={s.isRefreshing}
@@ -210,6 +199,16 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
                 >
                   <Icon name="play.fill" size={14} />
                   {s.selectedProfile ? "Start selected profile" : "Start default profile"}
+                </button>
+                <button
+                  className="mini proxy-profile-btn"
+                  title="Add manual proxy profile"
+                  onClick={() => {
+                    resetManualProxyForm();
+                    setManualProxyOpen(true);
+                  }}
+                >
+                  Proxy
                 </button>
               </div>
               <div className="search-box">
