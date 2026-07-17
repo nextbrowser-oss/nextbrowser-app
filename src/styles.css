@@ -911,6 +911,11 @@ button, input, textarea, select { color: var(--text); }
   background: var(--bg-elevated);
   box-shadow: 0 18px 50px var(--shadow-strong);
 }
+.agent-picker-menu-floating {
+  position: fixed;
+  right: auto;
+  z-index: 1200;
+}
 .agent-picker-warning {
   display: flex;
   align-items: center;
@@ -2806,14 +2811,14 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .menu-dismiss-layer {
   position: fixed;
   inset: 0;
-  z-index: 39;
+  z-index: 1190;
   border: 0;
   background: transparent;
   padding: 0;
 }
 .schedule-action-menu {
   position: absolute;
-  z-index: 40;
+  z-index: 1200;
   right: 0;
   top: calc(100% - 4px);
   min-width: 132px;

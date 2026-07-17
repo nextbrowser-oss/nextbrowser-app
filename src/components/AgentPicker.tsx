@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AGENTS, agentById } from "../agents";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
@@ -14,6 +15,7 @@ export function AgentPicker({ compact = false, createChatOnSwitch = false, label
   const agentId = useStore((s) => s.agentId);
   const switchAgent = useStore((s) => s.switchAgent);
   const newChat = useStore((s) => s.newChat);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const current = agentById(agentId);
@@ -35,10 +37,24 @@ export function AgentPicker({ compact = false, createChatOnSwitch = false, label
   };
 
   const title = createChatOnSwitch ? "Choose agent and create a new chat" : "Choose active agent";
+  const menuStyle = (() => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return undefined;
+    const width = Math.min(300, window.innerWidth - 24);
+    const left = Math.min(Math.max(12, rect.right - width), window.innerWidth - width - 12);
+    const maxHeight = Math.max(180, window.innerHeight - rect.bottom - 20);
+    return {
+      left,
+      top: rect.bottom + 8,
+      width,
+      maxHeight: Math.min(420, maxHeight),
+    };
+  })();
 
   return (
     <div className={"agent-picker" + (compact ? " agent-picker-compact" : "") + (tabLike ? " agent-picker-tab" : "")}>
       <button
+        ref={buttonRef}
         className={tabLike ? "tab-hit agent-tab-hit" : "agent-picker-button"}
         onClick={() => setOpen((value) => !value)}
         title={title}
@@ -58,10 +74,10 @@ export function AgentPicker({ compact = false, createChatOnSwitch = false, label
           </>
         )}
       </button>
-      {open && (
+      {open && createPortal(
         <>
           <button className="menu-dismiss-layer" onClick={() => setOpen(false)} aria-label="Close agent picker" />
-          <div className="agent-picker-menu">
+          <div className="agent-picker-menu agent-picker-menu-floating" style={menuStyle}>
             <div className="agent-picker-warning">
               <Icon name="info.circle" size={13} />
               {createChatOnSwitch ? "Switching agent creates a new chat." : "New chats will use the selected agent."}
@@ -91,7 +107,8 @@ export function AgentPicker({ compact = false, createChatOnSwitch = false, label
               ))}
             </div>
           </div>
-        </>
+        </>,
+        document.body,
       )}
     </div>
   );
