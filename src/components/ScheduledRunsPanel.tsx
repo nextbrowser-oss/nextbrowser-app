@@ -55,7 +55,7 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
           onClick={() => !asPage && setExpanded((value) => !value)}
         >
           {!asPage && <Icon name={expanded ? "chevron.down" : "chevron.right"} size={13} />}
-          <span className="section">SCHEDULED RUNS</span>
+          <span className="section">Scheduled runs</span>
           {runs.length > 0 && <span className="profiles-count" title="Scheduled runs">{runs.length}</span>}
         </button>
         <button className="plain-icon-btn" title="New schedule" onClick={() => { setExpanded(true); setEditor("new"); }}>

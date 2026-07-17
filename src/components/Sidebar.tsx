@@ -209,7 +209,7 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
           <div className="row profiles-panel-head">
             <div className="scheduled-panel-toggle profiles-panel-toggle">
               <Icon name="person.crop.circle" size={13} />
-              <span className="section">PROFILES</span>
+              <span className="section">Profiles</span>
               <span className="profiles-count" title="Total profiles">{visibleProfileCount}</span>
               {runningCount > 0 && <span className="status-pill profile-head-status">{runningCount} running</span>}
             </div>

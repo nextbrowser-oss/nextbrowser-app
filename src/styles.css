@@ -485,6 +485,12 @@ button, input, textarea, select { color: var(--text); }
   background: var(--surface-2);
   color: var(--text);
 }
+.sidebar-shell .section,
+.scheduled-panel-head .section {
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: none;
+}
 .sidebar-page-link.active,
 .mini-nav-btn.active {
   border-color: color-mix(in srgb, var(--accent) 36%, var(--line));
