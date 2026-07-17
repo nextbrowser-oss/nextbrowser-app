@@ -1268,6 +1268,36 @@ button, input, textarea, select { color: var(--text); }
   min-height: 28px;
   padding: 4px;
 }
+.profile-actions .plain-icon-btn[data-tooltip] {
+  position: relative;
+}
+.profile-actions .plain-icon-btn[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: 50%;
+  right: calc(100% + 7px);
+  transform: translateY(-50%) scale(0.98);
+  z-index: 30;
+  max-width: 160px;
+  padding: 4px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--surface-9);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease, transform 100ms ease;
+}
+.profile-actions .plain-icon-btn[data-tooltip]:hover::after,
+.profile-actions .plain-icon-btn[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translateY(-50%) scale(1);
+}
 .badge {
   display: inline-flex;
   align-items: center;

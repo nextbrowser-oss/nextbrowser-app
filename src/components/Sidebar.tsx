@@ -658,6 +658,8 @@ function ProfileRow({
             <button
               className="plain-icon-btn"
               title={`Stop ${name}`}
+              aria-label={`Stop ${name}`}
+              data-tooltip={`Stop ${name}`}
               disabled={busy}
               onClick={(event) => {
                 event.stopPropagation();
@@ -669,6 +671,8 @@ function ProfileRow({
             <button
               className="plain-icon-btn"
               title="Live view"
+              aria-label={`Open live view for ${name}`}
+              data-tooltip="Live view"
               onClick={(event) => {
                 event.stopPropagation();
                 onLive();
@@ -681,6 +685,8 @@ function ProfileRow({
           <button
             className="plain-icon-btn"
             title={`Start ${name}`}
+            aria-label={`Start ${name}`}
+            data-tooltip={`Start ${name}`}
             disabled={busy}
             onClick={(event) => {
               event.stopPropagation();
@@ -693,6 +699,8 @@ function ProfileRow({
         <button
           className="plain-icon-btn"
           title="Profile actions"
+          aria-label={`Profile actions for ${name}`}
+          data-tooltip="Actions"
           disabled={busy}
           onClick={(event) => {
             event.stopPropagation();
