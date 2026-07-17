@@ -213,6 +213,13 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
           )}
         </div>
 
+        <button className="claw-card sidebar-link-card" title="Open guide" onClick={() => s.setTab("guide")}>
+          <Icon name="book.fill" size={13} />
+          <span className="section">GUIDE</span>
+          <span className="spacer" />
+          <Icon name="chevron.right" size={12} className="muted" />
+        </button>
+
         <div className="claw-card control-card profiles-card">
           <div className="row profiles-panel-head">
             <button

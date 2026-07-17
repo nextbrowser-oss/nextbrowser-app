@@ -472,6 +472,19 @@ button, input, textarea, select { color: var(--text); }
   min-height: 26px;
   padding: 3px 8px;
 }
+.sidebar-link-card {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  text-align: left;
+}
+.sidebar-link-card:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+  color: var(--text);
+}
 .status-dot {
   width: 7px;
   height: 7px;
