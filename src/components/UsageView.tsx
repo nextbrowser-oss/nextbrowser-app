@@ -3,8 +3,20 @@ import { nextctlJson } from "../nextctl";
 import { useStore } from "../store";
 import { trackEvent } from "../lib/analytics";
 import {
+  domainsByTraffic,
+  isProxyTrafficHistoryRangeValid,
+  proxyTrafficHistoryMaxDays,
+  proxyTrafficHistoryPresetDays,
+  proxyTrafficTopUpBytes,
+  proxyTrafficWarning,
+  shouldShowProxyTrafficTopUp,
+  topDomainsPreviewCount,
+  type ProxyTrafficHistoryPreset,
+} from "../lib/proxyTraffic";
+import {
   humanBytes,
   proxyFraction,
+  type ProxyTraffic,
   type ProxyTrafficHistory,
   type ProxyTrafficHistoryPoint,
   type UsageSnapshot,
@@ -12,7 +24,8 @@ import {
 import { Icon, Spinner } from "./Icon";
 
 type HistorySource = "backend" | "local";
-type RangePreset = 7 | 14 | 30 | "custom";
+type RangePreset = ProxyTrafficHistoryPreset | "custom";
+type TopUpNotice = { tone: "success" | "error"; message: string };
 
 const numberFormatter = new Intl.NumberFormat();
 
@@ -96,15 +109,19 @@ export function UsageView() {
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyNotice, setHistoryNotice] = useState<string>();
   const [historyReload, setHistoryReload] = useState(0);
+  const [domainsExpanded, setDomainsExpanded] = useState(false);
+  const [topUpLoading, setTopUpLoading] = useState(false);
+  const [topUpNotice, setTopUpNotice] = useState<TopUpNotice>();
   const fraction = proxyFraction(s.proxy);
 
   useEffect(() => {
-    const start = new Date(`${from}T00:00:00`);
-    const end = new Date(`${to}T00:00:00`);
-    const rangeDays = Math.round((end.getTime() - start.getTime()) / 86_400_000);
-    if (Number.isNaN(rangeDays) || rangeDays < 0 || rangeDays > 30) {
+    setDomainsExpanded(false);
+  }, [history]);
+
+  useEffect(() => {
+    if (!isProxyTrafficHistoryRangeValid(from, to)) {
       setHistory(undefined);
-      setHistoryNotice("Choose a valid range of up to 30 days.");
+      setHistoryNotice("Choose a valid range of up to 1 year.");
       setHistoryLoading(false);
       return;
     }
@@ -140,7 +157,7 @@ export function UsageView() {
     };
   }, [from, historyReload, s.usageHistory, timezone, to]);
 
-  const applyPreset = (days: 7 | 14 | 30) => {
+  const applyPreset = (days: ProxyTrafficHistoryPreset) => {
     setPreset(days);
     setTo(today);
     setFrom(shiftDate(today, -(days - 1)));
@@ -149,22 +166,63 @@ export function UsageView() {
     await s.refreshProxyData();
     setHistoryReload((value) => value + 1);
   };
+  const topUpProxyTraffic = async () => {
+    if (!s.proxy || topUpLoading) return;
+    const analyticsParams = {
+      proxy_state: s.proxy.state,
+      limited: s.proxy.limited,
+      percent_used_bucket:
+        s.proxy.percent_used == null
+          ? "unknown"
+          : Math.min(100, Math.floor(s.proxy.percent_used / 10) * 10),
+    };
+    setTopUpLoading(true);
+    setTopUpNotice(undefined);
+    trackEvent("proxy_top_up_requested", analyticsParams);
+    try {
+      const payload = await nextctlJson<{ proxy_traffic: ProxyTraffic }>([
+        "proxy-traffic",
+        "top-up",
+      ]);
+      try {
+        await s.loadProxy();
+      } catch {
+        useStore.setState({
+          proxy: payload.proxy_traffic,
+          proxyWarning: proxyTrafficWarning(payload.proxy_traffic),
+        });
+      }
+      setTopUpNotice({
+        tone: "success",
+        message: `Added ${humanBytes(payload.proxy_traffic.top_up_bytes ?? proxyTrafficTopUpBytes)} of proxy traffic.`,
+      });
+      trackEvent("proxy_top_up_succeeded", analyticsParams);
+    } catch (error) {
+      setTopUpNotice({
+        tone: "error",
+        message: error instanceof Error && error.message.trim()
+          ? error.message
+          : "Couldn't add proxy traffic.",
+      });
+      trackEvent("proxy_top_up_failed", analyticsParams);
+    } finally {
+      setTopUpLoading(false);
+    }
+  };
   const points = history?.data_points ?? [];
+  const topDomains = history?.top_domains ?? [];
+  const visibleTopDomains = domainsByTraffic(topDomains, domainsExpanded);
+  const showProxyTrafficTopUp = shouldShowProxyTrafficTopUp(s.proxy);
   const maximumBytes = Math.max(...points.map((point) => point.used_bytes), 1);
   const peak = peakPoint(points);
   const averageBytes = points.length ? (history?.total_bytes ?? 0) / points.length : 0;
-  const runningSessions = Object.values(s.statuses).filter((status) => status === "running").length
-    + (s.defaultSession?.status === "running" ? 1 : 0);
-  const currentRuntime = runningSessions
-    ? s.defaultSession?.backend || "Clawbrowser"
-    : "No active session";
 
   return (
     <div className="page proxy-usage-page">
       <div className="proxy-usage-header">
         <div>
           <h2>Proxy usage</h2>
-          <p className="muted">Traffic, requests, sources, and top domains from NodeMaven.</p>
+          <p className="muted">Traffic, requests, and top domains from NodeMaven.</p>
         </div>
         <button className="btn-bordered" disabled={s.isRefreshing} onClick={() => void refreshUsage()}>
           {s.isRefreshing ? <Spinner size={13} /> : <Icon name="arrow.clockwise" size={13} />}
@@ -212,27 +270,46 @@ export function UsageView() {
                 {s.proxyWarning}
               </div>
             )}
-            {s.proxy.dashboard_url && (
-              <a
-                className="link small"
-                href={s.proxy.dashboard_url}
-                target="_blank"
-                rel="noreferrer"
-                onClick={() => {
-                  const params = {
-                    proxy_state: s.proxy?.state ?? "unknown",
-                    limited: s.proxy?.limited ?? false,
-                    percent_used_bucket:
-                      s.proxy?.percent_used == null
-                        ? "unknown"
-                        : Math.min(100, Math.floor(s.proxy.percent_used / 10) * 10),
-                  };
-                  trackEvent("proxy_top_up_requested", params);
-                  trackEvent("proxy_top_up_clicked", params);
-                }}
+            {(showProxyTrafficTopUp || s.proxy.dashboard_url) && (
+              <div className="proxy-usage-top-up-actions">
+                {showProxyTrafficTopUp && (
+                  <button
+                    className="btn-bordered-prominent"
+                    disabled={topUpLoading}
+                    type="button"
+                    onClick={() => void topUpProxyTraffic()}
+                  >
+                    {topUpLoading ? <Spinner size={13} /> : <Icon name="plus" size={13} />}
+                    {topUpLoading ? "Adding 1 GB" : "Add 1 GB"}
+                  </button>
+                )}
+                {s.proxy.dashboard_url && (
+                  <a
+                    className="link small"
+                    href={s.proxy.dashboard_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => trackEvent("proxy_dashboard_opened", {
+                      source: "usage",
+                      proxy_state: s.proxy?.state ?? "unknown",
+                    })}
+                  >
+                    Manage in dashboard →
+                  </a>
+                )}
+              </div>
+            )}
+            {topUpNotice && (
+              <div
+                className={`proxy-usage-top-up-notice ${topUpNotice.tone}`}
+                role={topUpNotice.tone === "error" ? "alert" : "status"}
               >
-                Top up in dashboard →
-              </a>
+                <Icon
+                  name={topUpNotice.tone === "error" ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"}
+                  size={14}
+                />
+                {topUpNotice.message}
+              </div>
             )}
           </>
         ) : (
@@ -249,13 +326,13 @@ export function UsageView() {
       <section className="proxy-usage-analytics">
         <div className="proxy-usage-toolbar">
           <div className="proxy-usage-presets" role="group" aria-label="Usage range">
-            {([7, 14, 30] as const).map((days) => (
+            {proxyTrafficHistoryPresetDays.map((days) => (
               <button
                 key={days}
                 className={preset === days ? "active" : ""}
                 onClick={() => applyPreset(days)}
               >
-                {days} days
+                {days === proxyTrafficHistoryMaxDays ? "1 year" : `${days} days`}
               </button>
             ))}
           </div>
@@ -265,6 +342,7 @@ export function UsageView() {
               <input
                 type="date"
                 value={from}
+                min={shiftDate(to, -(proxyTrafficHistoryMaxDays - 1))}
                 max={to}
                 onChange={(event) => {
                   setPreset("custom");
@@ -278,7 +356,9 @@ export function UsageView() {
                 type="date"
                 value={to}
                 min={from}
-                max={today}
+                max={shiftDate(from, proxyTrafficHistoryMaxDays - 1) < today
+                  ? shiftDate(from, proxyTrafficHistoryMaxDays - 1)
+                  : today}
                 onChange={(event) => {
                   setPreset("custom");
                   setTo(event.target.value);
@@ -356,47 +436,14 @@ export function UsageView() {
               <div className="claw-card proxy-usage-detail-card">
                 <div className="proxy-usage-card-heading">
                   <div>
-                    <strong>Traffic source</strong>
-                    <span className="muted small">NodeMaven proxy vs browser transport</span>
-                  </div>
-                  <Icon name="point.3.connected.trianglepath.dotted" size={18} />
-                </div>
-                <div className="proxy-usage-runtime-row">
-                  <span>
-                    <span className="muted small">Runtime now</span>
-                    <strong>{currentRuntime}</strong>
-                  </span>
-                  <span>
-                    <span className="muted small">Running sessions</span>
-                    <strong>{runningSessions}</strong>
-                  </span>
-                </div>
-                {history.sources.length ? history.sources.map((source) => {
-                  const share = history.total_bytes ? source.used_bytes / history.total_bytes * 100 : 0;
-                  return (
-                    <div key={source.source} className="proxy-usage-source-row">
-                      <div className="row small">
-                        <strong>{source.source === "proxy" ? "Managed proxy" : "NodeMaven Browser"}</strong>
-                        <span className="spacer" />
-                        <span>{humanBytes(source.used_bytes)} · {numberFormatter.format(source.requests)} req</span>
-                      </div>
-                      <div className="bar"><div className="bar-fill" style={{ width: `${Math.min(share, 100)}%` }} /></div>
-                    </div>
-                  );
-                }) : <div className="proxy-usage-empty">Source breakdown requires backend analytics.</div>}
-              </div>
-
-              <div className="claw-card proxy-usage-detail-card">
-                <div className="proxy-usage-card-heading">
-                  <div>
                     <strong>Top domains</strong>
                     <span className="muted small">Highest traffic destinations in this range</span>
                   </div>
                   <Icon name="globe" size={18} />
                 </div>
-                {history.top_domains.length ? (
+                {topDomains.length ? (
                   <div className="proxy-usage-domain-list">
-                    {history.top_domains.map((domain) => (
+                    {visibleTopDomains.map((domain) => (
                       <div key={domain.domain} className="proxy-usage-domain-row">
                         <strong title={domain.domain}>{domain.domain}</strong>
                         <span>{humanBytes(domain.used_bytes)}</span>
@@ -405,6 +452,16 @@ export function UsageView() {
                     ))}
                   </div>
                 ) : <div className="proxy-usage-empty">Domain analytics require backend history.</div>}
+                {topDomains.length > topDomainsPreviewCount && (
+                  <button
+                    className="link proxy-usage-domain-toggle"
+                    type="button"
+                    aria-expanded={domainsExpanded}
+                    onClick={() => setDomainsExpanded((expanded) => !expanded)}
+                  >
+                    {domainsExpanded ? "Show top 10" : `View all (${topDomains.length})`}
+                  </button>
+                )}
               </div>
             </div>
           </>

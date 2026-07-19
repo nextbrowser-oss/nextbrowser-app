@@ -735,7 +735,24 @@ button, input, textarea, select { color: var(--text); }
 }
 .proxy-usage-allocation-meta { margin-top: 8px; }
 .proxy-usage-card .warning-banner { margin-top: 12px; }
-.proxy-usage-card > .link { display: inline-flex; margin-top: 13px; }
+.proxy-usage-top-up-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 13px;
+}
+.proxy-usage-top-up-notice {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+.proxy-usage-top-up-notice.success { background: var(--green-soft); color: var(--green); }
+.proxy-usage-top-up-notice.error { background: var(--red-soft); color: var(--red); }
 .proxy-usage-analytics {
   display: flex;
   flex-direction: column;
@@ -906,32 +923,9 @@ button, input, textarea, select { color: var(--text); }
 }
 .proxy-usage-details-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
 }
 .proxy-usage-detail-card { min-height: 250px; }
-.proxy-usage-runtime-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 15px;
-}
-.proxy-usage-runtime-row > span {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-  padding: 10px;
-  border-radius: 8px;
-  background: var(--surface-2);
-}
-.proxy-usage-runtime-row strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.proxy-usage-source-row { margin-top: 15px; }
-.proxy-usage-source-row .bar { height: 6px; margin-top: 7px; }
 .proxy-usage-domain-list { margin-top: 11px; }
 .proxy-usage-domain-row {
   display: grid;
@@ -948,6 +942,14 @@ button, input, textarea, select { color: var(--text); }
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.proxy-usage-domain-toggle {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
 }
 .proxy-locked {
   width: 100%;
@@ -2704,7 +2706,6 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 @media (max-width: 1100px) {
   .chat-vps-button .chat-vps-label { display: none; }
   .proxy-usage-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .proxy-usage-details-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 700px) {
   .vps-modal { width: calc(100vw - 24px); max-height: calc(100vh - 24px); }
@@ -2722,7 +2723,6 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   .proxy-usage-date-range input { width: 100%; }
   .proxy-usage-source-badge { margin-left: 0; }
   .proxy-usage-kpis { grid-template-columns: 1fr; }
-  .proxy-usage-runtime-row { grid-template-columns: 1fr; }
 }
 .profile-menu { min-width: 300px; padding: 16px; }
 .profile-menu-head {

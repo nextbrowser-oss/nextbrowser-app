@@ -27,6 +27,7 @@ import { executionTargetForTurn, type ExecutionTarget } from "./lib/executionTar
 import { hasVPSPromptMarker, vpsConnectionInstructions } from "./lib/vpsPrompt";
 import { promptWithAttachments } from "./lib/chatAttachments";
 import { normalizeNextctlVersion } from "./lib/version";
+import { proxyTrafficWarning } from "./lib/proxyTraffic";
 import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
 import type { RemoteStreamInfo } from "./remoteControl";
 import { loadJson, saveJson } from "./lib/storage";
@@ -1590,18 +1591,7 @@ export const useStore = create<State>((set, get) => {
   loadProxy: async () => {
     const wrap = await nextctlJson<{ proxy_traffic: ProxyTraffic }>(["proxy-traffic"]);
     const p = wrap.proxy_traffic;
-    const frac =
-      p.percent_used != null
-        ? p.percent_used / 100
-        : p.limit_bytes
-          ? p.used_bytes / p.limit_bytes
-          : 0;
-    const proxyWarning =
-      frac >= 1
-        ? "Proxy traffic limit reached. Add data in the dashboard."
-        : frac >= 0.9
-          ? "Proxy traffic almost exhausted."
-          : undefined;
+    const proxyWarning = proxyTrafficWarning(p);
     const snap: UsageSnapshot = {
       id: uid(),
       date: now(),
