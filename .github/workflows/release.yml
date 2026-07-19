@@ -21,6 +21,34 @@ jobs:
       - name: Sync version from tag
         if: github.ref_type == 'tag'
         run: node scripts/sync-version.mjs ${{ github.ref_name }}
+      - name: Require macOS distribution credentials
+        if: github.ref_type == 'tag'
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          MAC_IDENTITY: ${{ secrets.MAC_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            MAC_CSC_LINK \
+            MAC_CSC_KEY_PASSWORD \
+            MAC_IDENTITY \
+            APPLE_ID \
+            APPLE_APP_SPECIFIC_PASSWORD \
+            APPLE_TEAM_ID; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -ne 0 ]; then
+            printf 'Missing required macOS release secrets: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
       - name: Configure macOS signing
         # Only export CSC_*/APPLE_* when a certificate secret is actually set.
         # An empty CSC_LINK still counts as "defined" and makes electron-builder
@@ -49,7 +77,7 @@ jobs:
               echo "CSC_IDENTITY_AUTO_DISCOVERY=true"
             } >> "$GITHUB_ENV"
           else
-            echo "No signing certificate — building ad-hoc signed (unsigned distribution)."
+            echo "No signing certificate — building an ad-hoc signed manual artifact."
             echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
           fi
       - run: npm test
@@ -65,9 +93,38 @@ jobs:
             # Unsigned release: package.json identity "-" makes electron-builder
             # re-sign the bundle ad-hoc, which yields a valid signature (the
             # normal "unidentified developer" gate) instead of a broken one that
-            # macOS reports as "damaged".
+            # macOS reports as "damaged". Tagged releases cannot enter this path.
             npm run dist:mac
           fi
+      - name: Verify macOS distribution trust
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          app_path="$(find release -mindepth 2 -maxdepth 2 -type d -name 'NextBrowser.app' -print -quit)"
+          if [ -z "$app_path" ]; then
+            echo "Packaged macOS app was not found." >&2
+            exit 1
+          fi
+
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          signature_info="$(codesign -dv --verbose=4 "$app_path" 2>&1)"
+          printf '%s\n' "$signature_info"
+
+          if ! grep -q '^Authority=Developer ID Application:' <<<"$signature_info"; then
+            echo "App is not signed with a Developer ID Application certificate." >&2
+            exit 1
+          fi
+          if grep -q '^Signature=adhoc$' <<<"$signature_info"; then
+            echo "Ad-hoc signatures are not allowed in tagged releases." >&2
+            exit 1
+          fi
+          if grep -q '^TeamIdentifier=not set$' <<<"$signature_info"; then
+            echo "Signed app does not have an Apple team identifier." >&2
+            exit 1
+          fi
+
+          xcrun stapler validate "$app_path"
+          spctl --assess --type execute --verbose=4 "$app_path"
       - name: Publish macOS build
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
