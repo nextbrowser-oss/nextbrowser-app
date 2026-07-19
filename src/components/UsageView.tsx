@@ -263,33 +263,17 @@ export function UsageView() {
                 {s.proxyWarning}
               </div>
             )}
-            {(showProxyTrafficTopUp || s.proxy.dashboard_url) && (
+            {showProxyTrafficTopUp && (
               <div className="proxy-usage-top-up-actions">
-                {showProxyTrafficTopUp && (
-                  <button
-                    className="btn-bordered-prominent"
-                    disabled={topUpLoading}
-                    type="button"
-                    onClick={() => void topUpProxyTraffic()}
-                  >
-                    {topUpLoading ? <Spinner size={13} /> : <Icon name="plus" size={13} />}
-                    {topUpLoading ? "Adding 1 GB" : "Add 1 GB"}
-                  </button>
-                )}
-                {s.proxy.dashboard_url && (
-                  <a
-                    className="link small"
-                    href={s.proxy.dashboard_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={() => trackEvent("proxy_dashboard_opened", {
-                      source: "usage",
-                      proxy_state: s.proxy?.state ?? "unknown",
-                    })}
-                  >
-                    Manage in dashboard →
-                  </a>
-                )}
+                <button
+                  className="btn-bordered-prominent"
+                  disabled={topUpLoading}
+                  type="button"
+                  onClick={() => void topUpProxyTraffic()}
+                >
+                  {topUpLoading ? <Spinner size={13} /> : <Icon name="plus" size={13} />}
+                  {topUpLoading ? "Adding 1 GB" : "Add 1 GB"}
+                </button>
               </div>
             )}
             {topUpNotice && (
