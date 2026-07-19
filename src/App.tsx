@@ -17,6 +17,7 @@ import { getPreviewMode, getPreviewTab } from "./preview";
 import { humanBytes, proxyFraction, type AppTab, type Conversation } from "./types";
 import { resolveTheme, type Theme } from "./theme";
 import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
+import { isAppBackShortcut, isPrimaryAppTab, type PrimaryAppTab } from "./lib/appNavigation";
 import { invoke, listen } from "./electronBridge";
 import { agentById } from "./agents";
 
@@ -460,6 +461,7 @@ export function App() {
   const setSidebarWidth = useStore((s) => s.setSidebarWidth);
   const setAppActive = useStore((s) => s.setAppActive);
   const didTrackThemeChange = useRef(false);
+  const lastPrimaryTab = useRef<PrimaryAppTab>(isPrimaryAppTab(tab) ? tab : "chat");
   useButtonTooltips();
 
   const checkAppUpdate = () => {
@@ -487,6 +489,36 @@ export function App() {
     setSettingsOpen(false);
     setSettingsFocus(null);
   };
+
+  useEffect(() => {
+    if (isPrimaryAppTab(tab)) lastPrimaryTab.current = tab;
+  }, [tab]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        !isAppBackShortcut(event)
+        || event.defaultPrevented
+        || event.repeat
+        || event.isComposing
+      ) return;
+
+      if (settingsOpen) {
+        event.preventDefault();
+        setSettingsOpen(false);
+        setSettingsFocus(null);
+        return;
+      }
+
+      if (document.querySelector(".modal-overlay") || isPrimaryAppTab(tab)) return;
+
+      event.preventDefault();
+      setTab(lastPrimaryTab.current);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [settingsOpen, setTab, tab]);
 
   useEffect(() => {
     initAnalytics();
@@ -694,6 +726,17 @@ export function App() {
       {!sidebarCollapsed && <div id="sidebar-resize" className="resize-handle" />}
       <main className="content">
         <nav className="tabbar">
+          {!isPrimaryAppTab(tab) && (
+            <button
+              className="tabbar-back"
+              type="button"
+              onClick={() => setTab(lastPrimaryTab.current)}
+              title={`Back to ${lastPrimaryTab.current === "live" ? "Live" : "Chat"} · Esc`}
+              aria-label={`Back to ${lastPrimaryTab.current === "live" ? "Live" : "Chat"}`}
+            >
+              <Icon name="chevron.left" size={18} strokeWidth={2.25} />
+            </button>
+          )}
           <div className="tabbar-group" role="tablist" aria-label="Main views">
             {TABS.map((t) => (
               <button

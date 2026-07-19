@@ -13,6 +13,7 @@ import {
   topDomainsPreviewCount,
   type ProxyTrafficHistoryPreset,
 } from "../lib/proxyTraffic";
+import { formatHistoryDateLabel } from "../lib/trafficChart";
 import {
   humanBytes,
   proxyFraction,
@@ -22,6 +23,7 @@ import {
   type UsageSnapshot,
 } from "../types";
 import { Icon, Spinner } from "./Icon";
+import { TrafficChart } from "./TrafficChart";
 
 type HistorySource = "backend" | "local";
 type RangePreset = ProxyTrafficHistoryPreset | "custom";
@@ -84,14 +86,6 @@ function peakPoint(points: ProxyTrafficHistoryPoint[]): ProxyTrafficHistoryPoint
     (peak, point) => (!peak || point.used_bytes > peak.used_bytes ? point : peak),
     undefined,
   );
-}
-
-function shortLabel(label: string): string {
-  const parsed = new Date(`${label}T12:00:00`);
-  if (!Number.isNaN(parsed.getTime())) {
-    return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  }
-  return label.length > 7 ? label.slice(0, 7) : label;
 }
 
 export function UsageView() {
@@ -213,7 +207,6 @@ export function UsageView() {
   const topDomains = history?.top_domains ?? [];
   const visibleTopDomains = domainsByTraffic(topDomains, domainsExpanded);
   const showProxyTrafficTopUp = shouldShowProxyTrafficTopUp(s.proxy);
-  const maximumBytes = Math.max(...points.map((point) => point.used_bytes), 1);
   const peak = peakPoint(points);
   const averageBytes = points.length ? (history?.total_bytes ?? 0) / points.length : 0;
 
@@ -398,7 +391,7 @@ export function UsageView() {
               <div className="claw-card proxy-usage-kpi">
                 <span className="muted small">Peak day</span>
                 <strong>{peak ? humanBytes(peak.used_bytes) : "—"}</strong>
-                {peak && <span className="muted small">{shortLabel(peak.label)}</span>}
+                {peak && <span className="muted small">{formatHistoryDateLabel(peak.label)}</span>}
               </div>
             </div>
 
@@ -411,22 +404,7 @@ export function UsageView() {
                 <Icon name="chart.bar.fill" size={18} className="accent-icon" />
               </div>
               {points.length ? (
-                <div className="proxy-usage-chart" role="img" aria-label="Proxy traffic by day">
-                  {points.map((point) => (
-                    <div
-                      key={point.label}
-                      className="proxy-usage-chart-column"
-                      title={`${point.label}: ${humanBytes(point.used_bytes)} · ${numberFormatter.format(point.requests)} requests`}
-                    >
-                      <span className="proxy-usage-chart-value">{humanBytes(point.used_bytes)}</span>
-                      <span
-                        className="proxy-usage-chart-bar"
-                        style={{ height: `${Math.max(point.used_bytes / maximumBytes * 100, point.used_bytes ? 5 : 2)}%` }}
-                      />
-                      <span className="proxy-usage-chart-label">{shortLabel(point.label)}</span>
-                    </div>
-                  ))}
-                </div>
+                <TrafficChart points={points} />
               ) : (
                 <div className="proxy-usage-empty">No traffic recorded in this range.</div>
               )}
@@ -442,14 +420,33 @@ export function UsageView() {
                   <Icon name="globe" size={18} />
                 </div>
                 {topDomains.length ? (
-                  <div className="proxy-usage-domain-list">
-                    {visibleTopDomains.map((domain) => (
-                      <div key={domain.domain} className="proxy-usage-domain-row">
-                        <strong title={domain.domain}>{domain.domain}</strong>
-                        <span>{humanBytes(domain.used_bytes)}</span>
-                        <span className="muted small">{numberFormatter.format(domain.requests)} req</span>
-                      </div>
-                    ))}
+                  <div className="proxy-usage-domain-table-wrap">
+                    <table className="proxy-usage-domain-table">
+                      <colgroup>
+                        <col className="proxy-usage-domain-rank-column" />
+                        <col />
+                        <col className="proxy-usage-domain-traffic-column" />
+                        <col className="proxy-usage-domain-requests-column" />
+                      </colgroup>
+                      <thead>
+                        <tr>
+                          <th scope="col">#</th>
+                          <th scope="col">Domain</th>
+                          <th scope="col">Traffic</th>
+                          <th scope="col">Requests</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleTopDomains.map((domain, index) => (
+                          <tr key={domain.domain}>
+                            <td className="proxy-usage-domain-rank">{index + 1}</td>
+                            <td className="proxy-usage-domain-name" title={domain.domain}>{domain.domain}</td>
+                            <td>{humanBytes(domain.used_bytes)}</td>
+                            <td>{numberFormatter.format(domain.requests)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 ) : <div className="proxy-usage-empty">Domain analytics require backend history.</div>}
                 {topDomains.length > topDomainsPreviewCount && (
