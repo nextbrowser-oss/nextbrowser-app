@@ -8,7 +8,9 @@ import {
 } from "../skillsCatalog";
 import type { CustomScript } from "../types";
 import { uid } from "../lib/ids";
+import { internalError } from "../lib/userFacingError";
 import { Icon } from "./Icon";
+import { UserFacingError } from "./UserFacingError";
 
 export function SkillsView() {
   const s = useStore();
@@ -55,8 +57,8 @@ export function SkillsView() {
             ? `installed: ${ref.slug ?? e.title}`
             : "no skill published yet",
       }));
-    } catch (err) {
-      setStatus((p) => ({ ...p, [e.id]: String(err) }));
+    } catch {
+      setStatus((p) => ({ ...p, [e.id]: internalError("We couldn't apply this skill.") }));
     }
   };
 
@@ -103,9 +105,9 @@ export function SkillsView() {
           <div className="warning-banner skills-warning">
             <Icon name="exclamationmark.triangle.fill" size={16} />
             <div>
-              <strong>Resolved nextctl ({s.nextctlVersion}) has no `skill` command.</strong>
+              <strong>Skills need an updated NextBrowser component.</strong>
               <div className="muted small">
-                Update nextctl or set NEXTCTL_BIN to a build that supports it.
+                Update NextBrowser and try again.
               </div>
             </div>
           </div>
@@ -169,7 +171,11 @@ export function SkillsView() {
                     {st === "failed" && (
                       <div className="small error skill-status">
                         Apply failed
-                        {applyError && <pre className="skill-error-detail">{applyError}</pre>}
+                        {applyError && (
+                          <div className="skill-error-detail">
+                            <UserFacingError message={applyError} surface="skill_apply" />
+                          </div>
+                        )}
                       </div>
                     )}
                   </>
@@ -198,7 +204,11 @@ export function SkillsView() {
                     </>
                   )}
                 </div>
-                {status[e.id] && <div className="small muted">{status[e.id]}</div>}
+                {status[e.id] && st !== "failed" && (
+                  <div className="small muted">
+                    <UserFacingError message={status[e.id]} surface="skill_apply" />
+                  </div>
+                )}
               </div>
             );
           })}
@@ -295,7 +305,10 @@ function CustomScriptCard({
       {sync === "synced" && <span className="ok small">Synced to your account</span>}
       {sync === "failed" && (
         <span className="error small sync-failed-row">
-          Not synced
+          <UserFacingError
+            message={internalError("We couldn't sync this script.")}
+            surface="script_sync"
+          />
           <button className="link small" title="Retry script sync" onClick={onSync}>
             Retry
           </button>

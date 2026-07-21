@@ -18,8 +18,10 @@ import { humanBytes, proxyFraction, type AppTab, type Conversation } from "./typ
 import { resolveTheme, type Theme } from "./theme";
 import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
 import { isAppBackShortcut, isPrimaryAppTab, type PrimaryAppTab } from "./lib/appNavigation";
+import { internalError } from "./lib/userFacingError";
 import { invoke, listen } from "./electronBridge";
 import { agentById } from "./agents";
+import { UserFacingError } from "./components/UserFacingError";
 
 const TABS: { id: AppTab; label: string; icon: string }[] = [
   { id: "chat", label: "Chat", icon: "bubble.left.and.bubble.right.fill" },
@@ -53,7 +55,7 @@ function updateLabel(status?: AppUpdateStatus | null): string {
   if (status.status === "not-available") return "Up to date";
   if (status.status === "checking") return "Checking...";
   if (status.status === "disabled") return "Updates unavailable in this build";
-  if (status.status === "error") return status.message ?? "Update check failed";
+  if (status.status === "error") return internalError("We couldn't update NextBrowser.");
   return "Check for updates";
 }
 
@@ -165,6 +167,18 @@ function SocialButtons() {
   );
 }
 
+function GlobalErrorNotice({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="global-error-notice" role="alert">
+      <Icon name="exclamationmark.triangle.fill" size={15} />
+      <UserFacingError message={internalError()} surface="unexpected_app_error" />
+      <button className="plain-icon-btn plain-icon-btn-compact" onClick={onClose} aria-label="Dismiss error">
+        <Icon name="xmark" size={12} />
+      </button>
+    </div>
+  );
+}
+
 function SettingsModal({
   onClose,
   onOpenUsage,
@@ -233,7 +247,11 @@ function SettingsModal({
           <div className="settings-row settings-update-row">
             <span className="muted small">App update</span>
             <div className="settings-update-cell">
-              <strong className={updateAvailable(appUpdate) ? "warn" : ""}>{updateLabel(appUpdate)}</strong>
+              <strong className={updateAvailable(appUpdate) ? "warn" : ""}>
+                {appUpdate.status === "error"
+                  ? <UserFacingError message={updateLabel(appUpdate)} surface="app_update" />
+                  : updateLabel(appUpdate)}
+              </strong>
               {manualUpdate ? (
                 updateAvailable(appUpdate) ? (
                   <button className="mini primary-mini" onClick={onOpenRelease}>
@@ -322,7 +340,11 @@ function SettingsModal({
                 </button>
               )}
             </div>
-            {agentError && <div className="error small settings-agent-error">{agentError}</div>}
+            {agentError && (
+              <div className="error small settings-agent-error">
+                <UserFacingError message={agentError} surface="agent_settings" />
+              </div>
+            )}
           </div>
           <button
             className="settings-feature-link"
@@ -450,6 +472,7 @@ export function App() {
   const [settingsFocus, setSettingsFocus] = useState<"agent" | null>(null);
   const [appUpdate, setAppUpdate] = useState<AppUpdateStatus>({ status: "idle" });
   const [updatePromptDismissed, setUpdatePromptDismissed] = useState(false);
+  const [unexpectedError, setUnexpectedError] = useState(false);
   const preview = getPreviewMode();
   const checking = useStore((s) => s.checking);
   const tab = useStore((s) => s.tab);
@@ -464,17 +487,29 @@ export function App() {
   const lastPrimaryTab = useRef<PrimaryAppTab>(isPrimaryAppTab(tab) ? tab : "chat");
   useButtonTooltips();
 
+  useEffect(() => {
+    const showUnexpectedError = () => setUnexpectedError(true);
+    window.addEventListener("error", showUnexpectedError);
+    window.addEventListener("unhandledrejection", showUnexpectedError);
+    return () => {
+      window.removeEventListener("error", showUnexpectedError);
+      window.removeEventListener("unhandledrejection", showUnexpectedError);
+    };
+  }, []);
+
   const checkAppUpdate = () => {
-    void invoke<AppUpdateStatus>("app_check_for_update").then(setAppUpdate).catch(() => undefined);
+    void invoke<AppUpdateStatus>("app_check_for_update").then(setAppUpdate).catch(() => {
+      setAppUpdate({ status: "error", message: internalError("We couldn't check for updates.") });
+    });
   };
   const downloadAppUpdate = () => {
-    void invoke<AppUpdateStatus>("app_download_update").then(setAppUpdate).catch((error) => {
-      setAppUpdate({ status: "error", message: error instanceof Error ? error.message : String(error) });
+    void invoke<AppUpdateStatus>("app_download_update").then(setAppUpdate).catch(() => {
+      setAppUpdate({ status: "error", message: internalError("We couldn't download the update.") });
     });
   };
   const installAppUpdate = () => {
-    void invoke<boolean>("app_install_update").catch((error) => {
-      setAppUpdate({ status: "error", message: error instanceof Error ? error.message : String(error) });
+    void invoke<boolean>("app_install_update").catch(() => {
+      setAppUpdate({ status: "error", message: internalError("We couldn't install the update.") });
     });
   };
   const openLatestRelease = () => {
@@ -711,6 +746,7 @@ export function App() {
           <Spinner size={18} />
           <div className="muted small">Checking saved credentials…</div>
         </div>
+        {unexpectedError && <GlobalErrorNotice onClose={() => setUnexpectedError(false)} />}
       </>
     );
   }
@@ -799,6 +835,7 @@ export function App() {
       )}
       <DashboardKeyModal />
       {showOnboarding && <OnboardingView />}
+      {unexpectedError && <GlobalErrorNotice onClose={() => setUnexpectedError(false)} />}
     </div>
   );
 }

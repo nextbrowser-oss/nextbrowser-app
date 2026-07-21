@@ -9,7 +9,9 @@ import { filePathForFile, invoke } from "../electronBridge";
 import { conversationPreview } from "../types";
 import { agentById } from "../agents";
 import { trackEvent } from "../lib/analytics";
+import { needsSupportLink } from "../lib/userFacingError";
 import { VPSSetupModal } from "./VPSSetupModal";
+import { UserFacingError } from "./UserFacingError";
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -675,7 +677,9 @@ function MessageBubble({
   if (m.role === "system") {
     return (
       <div className="msg msg-system">
-        <div className="msg-body">{m.text}</div>
+        <div className="msg-body">
+          <UserFacingError message={m.text} surface="chat_system" />
+        </div>
       </div>
     );
   }
@@ -800,7 +804,9 @@ function MessageBubble({
           </div>
         )}
         <div className="msg-body">
-          {(m.status === "failed" || m.status === "timedOut") && m.text.length > 180 ? (
+          {needsSupportLink(m.text) ? (
+            <UserFacingError message={m.text} surface="agent_turn" />
+          ) : (m.status === "failed" || m.status === "timedOut") && m.text.length > 180 ? (
             <div className="error-collapse">
               <div className="error-summary">
                 <Icon name="exclamationmark.triangle.fill" size={13} className="error" />

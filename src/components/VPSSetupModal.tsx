@@ -8,7 +8,9 @@ import {
   type SSHHost,
   type VPSConnection,
 } from "../lib/vpsPrompt";
+import { internalError, needsSupportLink } from "../lib/userFacingError";
 import { Icon, Spinner } from "./Icon";
+import { UserFacingError } from "./UserFacingError";
 
 const CUSTOM_CONFIGS_FILE = "ssh-config-paths.json";
 const MAX_CUSTOM_CONFIGS = 16;
@@ -46,6 +48,16 @@ function resolvedTarget(host: SSHHost): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function submitErrorMessage(error: unknown): string {
+  const message = errorMessage(error);
+  if (
+    message === "Finish or cancel queued local work before starting a VPS task."
+    || message === "The agent is still connecting. Wait a moment and try again."
+    || needsSupportLink(message)
+  ) return message;
+  return internalError("We couldn't start the VPS task.");
 }
 
 function connectionLabel(connection: VPSConnection): string {
@@ -135,8 +147,8 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
           seen.add(key);
           nextHosts.push(normalizedHost);
         }
-      } catch (requestError) {
-        failures.push(`${request.label}: ${errorMessage(requestError)}`);
+      } catch {
+        failures.push(request.label);
       }
     }
     if (generation !== loadGenerationRef.current) return;
@@ -146,7 +158,9 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
       ? current
       : hostKey(nextHosts[0] ?? { alias: "", configPath: "", explicitConfig: false }));
     if (!nextHosts.length) setMode("manual");
-    if (failures.length) setError(`Some SSH configs could not be read. ${failures.join(" ")}`);
+    if (failures.length) {
+      setError("Some SSH configuration files couldn't be read. Check the selected files and try again.");
+    }
     setScanWarning(warnings.length ? warnings.join(" ") : null);
     setLoading(false);
   };
@@ -171,9 +185,9 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
         if (cancelled) return;
         updateCustomPaths(paths);
         await loadHosts(paths);
-      } catch (loadError) {
+      } catch {
         if (cancelled) return;
-        setError(`Could not load SSH connections: ${errorMessage(loadError)}`);
+        setError(internalError("We couldn't load your SSH connections."));
         setLoading(false);
       }
     };
@@ -293,8 +307,8 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
       updateCustomPaths(paths);
       await loadHosts(paths);
       setMode("hosts");
-    } catch (addError) {
-      setError(`Could not add SSH config: ${errorMessage(addError)}`);
+    } catch {
+      setError(internalError("We couldn't add the SSH configuration."));
     } finally {
       configMutationRef.current = false;
       setConfigMutation(null);
@@ -311,8 +325,8 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
       await saveCustomPaths(paths);
       updateCustomPaths(paths);
       await loadHosts(paths);
-    } catch (removeError) {
-      setError(`Could not remove SSH config: ${errorMessage(removeError)}`);
+    } catch {
+      setError(internalError("We couldn't remove the SSH configuration."));
     } finally {
       configMutationRef.current = false;
       setConfigMutation(null);
@@ -329,7 +343,7 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
       await sendVPSPrompt(prompt, connectionLabel(connection));
       onClose();
     } catch (submitError) {
-      setError(`Could not start the VPS task: ${errorMessage(submitError)}`);
+      setError(submitErrorMessage(submitError));
     } finally {
       setSubmitting(false);
     }
@@ -566,7 +580,11 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
 
         {warning && <div className="small vps-warning" role="status">{warning}</div>}
         {scanWarning && <div className="small vps-warning" role="status">{scanWarning}</div>}
-        {error && <div className="error small vps-error" role="alert">{error}</div>}
+        {error && (
+          <div className="error small vps-error" role="alert">
+            <UserFacingError message={error} surface="vps_setup" />
+          </div>
+        )}
 
         <div className="modal-actions">
           <button type="button" className="secondary" disabled={submitting || mutatingConfig} onClick={onClose}>Cancel</button>

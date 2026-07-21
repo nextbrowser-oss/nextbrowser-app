@@ -7,6 +7,7 @@ const fsSync = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
+const { topUpProxyTraffic } = require("./proxy-traffic.cjs");
 const { defaultSSHConfigPath, discoverSSHHosts, isAllowedExplicitConfigPath } = require("./ssh-config.cjs");
 
 const execFileAsync = promisify(execFile);
@@ -420,6 +421,7 @@ async function invokeCommand(command, args = {}) {
       const r = await run(bin, ["version"]); return r.stdout.trim();
     }
     case "nextctl_supports_skill": { const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found"); return nextctlHasSkill(bin); }
+    case "proxy_traffic_top_up": return await topUpProxyTraffic();
     case "pairing_start": {
       return apiFetchJSON(args.apiBaseUrl, "/v1/pairing-requests/browser", {
         method: "POST",

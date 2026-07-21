@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type WheelEvent as ReactWheelEvent } from "react";
 import { RemoteControlClient, type RemoteLiveTab, type RemoteMediaStats, type RemoteStreamInfo } from "../remoteControl";
 import { useStore } from "../store";
+import { internalError } from "../lib/userFacingError";
 import { Icon, Spinner } from "./Icon";
+import { UserFacingError } from "./UserFacingError";
 
 type LiveState = "idle" | "connecting" | "live" | "error";
 
@@ -77,10 +79,13 @@ export function LiveView() {
     const client = new RemoteControlClient(info, {
       onState: (next) => {
         if (next === "connected") setState("live");
-        if (next === "error") setState("error");
+        if (next === "error") {
+          setError(internalError("We couldn't connect Live View."));
+          setState("error");
+        }
       },
-      onError: (message) => {
-        setError(message);
+      onError: () => {
+        setError(internalError("We couldn't connect Live View."));
         setState("error");
       },
       onStream: (stream) => {
@@ -113,9 +118,9 @@ export function LiveView() {
       const info = await s.startRemoteStream(requestedKey === "__default" ? undefined : requestedKey || undefined);
       setStreamInfo(info);
       await connectRemoteViewer(info);
-    } catch (e) {
+    } catch {
       setState("error");
-      setError(e instanceof Error ? e.message : String(e));
+      setError(internalError("We couldn't start Live View."));
     }
   };
 
@@ -135,9 +140,9 @@ export function LiveView() {
         await s.refreshSessions();
         await start(undefined);
       }
-    } catch (e) {
+    } catch {
       setState("error");
-      setError(e instanceof Error ? e.message : String(e));
+      setError(internalError("We couldn't launch the remote session."));
     }
   };
 
@@ -333,7 +338,12 @@ export function LiveView() {
         {state === "error" && (
           <div className="live-error">
             <Icon name="exclamationmark.triangle.fill" size={32} className="warn" />
-            <p>{error || "Connection failed"}</p>
+            <p>
+              <UserFacingError
+                message={error || internalError("We couldn't connect Live View.")}
+                surface="live_view"
+              />
+            </p>
             <button className="primary live-stream-btn" onClick={() => launchAndStream()}>
               <Icon name="play.fill" size={12} />
               Launch to stream

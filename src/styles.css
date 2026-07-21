@@ -753,6 +753,34 @@ button, input, textarea, select { color: var(--text); }
 }
 .proxy-usage-top-up-notice.success { background: var(--green-soft); color: var(--green); }
 .proxy-usage-top-up-notice.error { background: var(--red-soft); color: var(--red); }
+.user-facing-error a,
+.proxy-usage-top-up-notice a {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.global-error-notice {
+  position: fixed;
+  z-index: 3000;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(620px, calc(100vw - 36px));
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--red) 35%, var(--line));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--red-soft) 75%, var(--panel));
+  color: var(--red);
+  box-shadow: 0 14px 36px var(--shadow);
+  font-size: 12px;
+}
+.global-error-notice .plain-icon-btn {
+  margin-left: auto;
+  color: inherit;
+}
 .proxy-usage-analytics {
   display: flex;
   flex-direction: column;
@@ -1014,13 +1042,45 @@ button, input, textarea, select { color: var(--text); }
   font-weight: 500;
   text-overflow: ellipsis;
 }
-.proxy-usage-domain-toggle {
+.proxy-usage-domain-pagination {
   display: flex;
+  align-items: center;
   justify-content: center;
-  width: 100%;
-  margin-top: 8px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
+  gap: 5px;
+  margin-top: 12px;
+}
+.proxy-usage-domain-pagination button {
+  display: grid;
+  min-width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.proxy-usage-domain-pagination button:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: var(--surface-4);
+  color: var(--text);
+}
+.proxy-usage-domain-pagination button.active {
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--line));
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.proxy-usage-domain-pagination button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+.proxy-usage-domain-pagination-gap {
+  min-width: 18px;
+  color: var(--muted);
+  text-align: center;
 }
 .proxy-locked {
   width: 100%;

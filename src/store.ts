@@ -29,6 +29,7 @@ import { promptWithAttachments } from "./lib/chatAttachments";
 import { normalizeNextctlVersion } from "./lib/version";
 import { proxyTrafficWarning } from "./lib/proxyTraffic";
 import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
+import { internalError } from "./lib/userFacingError";
 import type { RemoteStreamInfo } from "./remoteControl";
 import { loadJson, saveJson } from "./lib/storage";
 import { apiBaseUrl } from "./constants";
@@ -153,8 +154,8 @@ const NEXTCTL_DAILY_UPDATE_MS = 24 * 60 * 60 * 1000;
 const NEXTCTL_DAILY_UPDATE_POLL_MS = 60 * 60 * 1000;
 const NEXTCTL_UPDATE_STATE_FILE = "nextctl-update.json";
 
-function clawbrowserInstallPrompt(agentAdapter: string): string {
-  return `NextBrowser cannot find local nextctl/Clawbrowser components. Install them for this machine before doing browser work.
+function nextBrowserInstallPrompt(agentAdapter: string): string {
+  return `NextBrowser needs to finish installing its local browser components before browser work can start.
 
 Use the official nextctl release bootstrap, then install the browser runtime and this agent integration.
 
@@ -267,7 +268,6 @@ async function pullCatalogInstructions(entry: SkillEntry, preferredAgentId: stri
     "claude-code",
     "codex",
   ].filter((adapter, index, all) => all.indexOf(adapter) === index);
-  const failures: string[] = [];
   for (const adapter of adapters) {
     try {
       const ref = await nextctlJson<SkillRef>([
@@ -278,12 +278,11 @@ async function pullCatalogInstructions(entry: SkillEntry, preferredAgentId: stri
         adapter,
       ]);
       if (ref.found === true) return ref;
-      failures.push(`${adapter}: not found`);
-    } catch (error) {
-      failures.push(`${adapter}: ${error instanceof Error ? error.message : String(error)}`);
+    } catch {
+      /* Try the next supported agent adapter. */
     }
   }
-  throw new Error(`Could not pull "${entry.title}" script instructions. ${failures.join(" · ")}`);
+  throw new Error(internalError(`We couldn't prepare "${entry.title}".`));
 }
 
 interface State {
@@ -936,11 +935,8 @@ export const useStore = create<State>((set, get) => {
               text = text ? `${text}\n[stopped]` : "[stopped]";
             } else if (code !== 0 && m.status === "streaming") {
               status = "failed";
-              const detail = stderr.trim();
-              if (detail) {
-                const name = agentById(agentId).name;
-                text = text ? `${text}\n[${name} error] ${detail}` : `[${name} error] ${detail}`;
-              }
+              const message = internalError(`${agentById(agentId).name} stopped unexpectedly.`);
+              text = text ? `${text}\n${message}` : message;
             } else if (m.status === "streaming") {
               status = "done";
               if (!text) text = "(no output)";
@@ -1147,7 +1143,11 @@ export const useStore = create<State>((set, get) => {
               });
               return m;
             }
-            return { ...m, status: "failed" as const, text: "(orphaned queued reply)" };
+            return {
+              ...m,
+              status: "failed" as const,
+              text: internalError("We couldn't restore this queued message."),
+            };
           }
           return m;
         });
@@ -1215,7 +1215,12 @@ export const useStore = create<State>((set, get) => {
 
   processItem: async (agentId: string, item: QueuedItem) => {
     if (!get().runtime[agentId]?.ready) {
-      get().setMessageStatus(item.conversationId, item.replyId, "failed", "Agent not connected.");
+      get().setMessageStatus(
+        item.conversationId,
+        item.replyId,
+        "failed",
+        "Connect the selected agent and try again.",
+      );
       return;
     }
     set((s) => ({
@@ -1285,10 +1290,14 @@ export const useStore = create<State>((set, get) => {
       // The Rust command returns after spawning. Await the matching done event so
       // this agent's queue remains strictly serial, like Swift AgentRunner.
       await completion;
-    } catch (e) {
+    } catch {
       completionResolvers.delete(item.replyId);
       replyExecutionTargets.delete(item.replyId);
-      get().appendToMessage(item.conversationId, item.replyId, `\n[error] ${e}`);
+      get().appendToMessage(
+        item.conversationId,
+        item.replyId,
+        `\n${internalError("We couldn't start the agent.")}`,
+      );
       get().setMessageStatus(item.conversationId, item.replyId, "failed");
       trackEvent("agent_turn_spawn_failed", { agent: agentId });
       set((s) => ({
@@ -1436,8 +1445,8 @@ export const useStore = create<State>((set, get) => {
       if (!localStorage.getItem("onboardingComplete")) set({ showOnboarding: true });
       trackEvent("login", { method: "dashboard_key" });
       trackTiming("dashboard_key_save_succeeded", startedAt);
-    } catch (e) {
-      set({ loginError: String(e) });
+    } catch {
+      set({ loginError: internalError("We couldn't connect your account.") });
       trackTiming("dashboard_key_save_failed", startedAt);
     } finally {
       set({ isLoggingIn: false });
@@ -1466,8 +1475,8 @@ export const useStore = create<State>((set, get) => {
       });
       await invoke<null>("open_external", { url: response.verification_url });
       trackTiming("account_pairing_opened", startedAt);
-    } catch (error) {
-      set({ loginError: error instanceof Error ? error.message : String(error) });
+    } catch {
+      set({ loginError: internalError("We couldn't start browser sign-in.") });
       trackTiming("account_pairing_failed", startedAt);
     } finally {
       set({ isLoggingIn: false });
@@ -1506,8 +1515,8 @@ export const useStore = create<State>((set, get) => {
       } else if (result.status === "expired" || result.status === "rejected") {
         set({ loginError: result.status === "expired" ? "The sign-in request expired. Start again." : "The sign-in request was rejected." });
       }
-    } catch (error) {
-      set({ loginError: error instanceof Error ? error.message : String(error) });
+    } catch {
+      set({ loginError: internalError("We couldn't finish browser sign-in.") });
     } finally {
       set({ isLoggingIn: false });
     }
@@ -1973,9 +1982,9 @@ export const useStore = create<State>((set, get) => {
         }
         const conv = get().activeConversation();
         const alreadyQueued = conv?.messages.some((message) =>
-          message.text.includes("NextBrowser cannot find local nextctl/Clawbrowser components"),
+          message.text.includes("NextBrowser needs to finish installing its local browser components"),
         );
-        if (!alreadyQueued) get().enqueue(clawbrowserInstallPrompt(adapter));
+        if (!alreadyQueued) get().enqueue(nextBrowserInstallPrompt(adapter));
         trackEvent("install_prompt_sent", { agent: agentId, adapter });
         return;
       }
@@ -1986,7 +1995,7 @@ export const useStore = create<State>((set, get) => {
           console.warn(`Could not install nextctl skill for ${adapter}: ${nextctlErrorMessage(result)}`);
         }
       }).catch((error) => console.warn(`Could not install nextctl skill for ${adapter}:`, error));
-    } catch (e) {
+    } catch {
       trackTiming("agent_connect_failed", startedAt, { agent: agentId });
       set((s) => ({
         runtime: {
@@ -1995,7 +2004,7 @@ export const useStore = create<State>((set, get) => {
             ...s.runtime[agentId],
             ready: false,
             authorizing: false,
-            error: String(e),
+            error: internalError(`We couldn't connect ${a.name}.`),
           },
         },
       }));
@@ -2079,12 +2088,12 @@ export const useStore = create<State>((set, get) => {
         }
       }
       trackEvent("agent_login_timeout", { agent: agentId });
-    } catch (e) {
+    } catch {
       trackEvent("agent_login_failed", { agent: agentId });
       set((s) => ({
         runtime: {
           ...s.runtime,
-          [agentId]: { ...s.runtime[agentId], error: String(e) },
+          [agentId]: { ...s.runtime[agentId], error: internalError(`We couldn't open ${a.name} sign-in.`) },
         },
       }));
     }
@@ -2139,10 +2148,13 @@ export const useStore = create<State>((set, get) => {
         }
       }
       trackEvent("agent_logout_timeout", { agent: agentId });
-    } catch (e) {
+    } catch {
       trackEvent("agent_logout_failed", { agent: agentId });
       set((s) => ({
-        runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], error: String(e) } },
+        runtime: {
+          ...s.runtime,
+          [agentId]: { ...s.runtime[agentId], error: internalError(`We couldn't open ${a.name} sign-out.`) },
+        },
       }));
     }
   },
@@ -2218,7 +2230,7 @@ export const useStore = create<State>((set, get) => {
         set({ nextctlUpdateStatus: undefined });
         trackEvent("nextctl_update_not_available");
       } else {
-        set({ nextctlUpdateStatus: "update failed" });
+        set({ nextctlUpdateStatus: internalError("We couldn't update the NextBrowser component.") });
         trackEvent("nextctl_update_failed", { exit_code: res.code });
       }
       if (pendingTarget(get(), "vps")) return true;
@@ -2229,10 +2241,12 @@ export const useStore = create<State>((set, get) => {
       set({ nextctlVersion: normalizeNextctlVersion(ver), nextctlSupportsSkill: supportsSkill, nextctlAvailable: true });
       trackTiming("nextctl_update_completed", startedAt, { supports_skill: supportsSkill });
       return true;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      set({ nextctlUpdateStatus: message || "update failed", nextctlAvailable: false });
-      trackTiming("nextctl_update_failed", startedAt, { has_message: !!message });
+    } catch {
+      set({
+        nextctlUpdateStatus: internalError("We couldn't update the NextBrowser component."),
+        nextctlAvailable: false,
+      });
+      trackTiming("nextctl_update_failed", startedAt);
       return true;
     } finally {
       set({ nextctlUpdating: false });
@@ -2594,14 +2608,14 @@ export const useStore = create<State>((set, get) => {
       set((s) => ({
         skillState: {
           ...s.skillState,
-          [skillKey(get().agentId, `${entry.id}:error`)]: "Resolved nextctl does not support the `skill` command. Update nextctl or set NEXTCTL_BIN to a newer build.",
+          [skillKey(get().agentId, `${entry.id}:error`)]: internalError("We couldn't prepare skills."),
         },
       }));
       return undefined;
     }
     let activeRef: SkillRef | undefined;
     let anyRef: SkillRef | undefined;
-    const failures: string[] = [];
+    let failures = 0;
     for (const target of targets) {
       const key = skillKey(target.id, entry.id);
       try {
@@ -2624,12 +2638,12 @@ export const useStore = create<State>((set, get) => {
         }
       } catch (error) {
         requestAccountSignIn(set, error);
-        failures.push(`${target.id}: ${error instanceof Error ? error.message : String(error)}`);
+        failures += 1;
         set((s) => ({ skillState: { ...s.skillState, [key]: "failed" } }));
       }
     }
-    if (!activeRef && !anyRef && failures.length) {
-      const message = `Skill installation failed. ${failures.join(" · ")}`;
+    if (!activeRef && !anyRef && failures > 0) {
+      const message = internalError("We couldn't install this skill.");
       set((s) => ({
         skillState: {
           ...s.skillState,
@@ -2687,13 +2701,12 @@ export const useStore = create<State>((set, get) => {
     let ref: SkillRef | undefined;
     try {
       ref = await get().applySkill(entry);
-    } catch (error) {
+    } catch {
       const cidForError = get().activeConversation()?.id ?? get().newChat();
-      const message = error instanceof Error ? error.message : String(error);
       const errMsg: ChatMessage = {
         id: uid(),
         role: "system",
-        text: `Apply failed for "${entry.title}": ${message}`,
+        text: internalError(`We couldn't apply "${entry.title}".`),
         status: "done",
         createdAt: now(),
       };
@@ -2799,7 +2812,7 @@ export const useStore = create<State>((set, get) => {
           result = `✓ Ran "${entry.title}" on ${on}.`;
           trackEvent("script_run_completed", { script_type: "local_eval", has_host: !!onHost });
         } else {
-          result = `Couldn't run "${entry.title}": ${nextctlErrorMessage(res)}`;
+          result = internalError(`We couldn't run "${entry.title}".`);
           trackEvent("script_run_failed", { script_type: "local_eval", exit_code: res.code });
         }
         const resultMsg: ChatMessage = {
@@ -2816,12 +2829,12 @@ export const useStore = create<State>((set, get) => {
           persistConvs(conversations);
           return { conversations };
         });
-      } catch (e) {
+      } catch {
         trackEvent("script_run_failed", { script_type: "local_eval" });
         const errMsg: ChatMessage = {
           id: uid(),
           role: "system",
-          text: `Couldn't run "${entry.title}": ${e}`,
+          text: internalError(`We couldn't run "${entry.title}".`),
           status: "done",
           createdAt: now(),
         };
@@ -2843,14 +2856,13 @@ export const useStore = create<State>((set, get) => {
       ref = entry.selector.kind === "script"
         ? await pullCatalogInstructions(entry, get().agentId)
         : await get().applySkill(entry);
-    } catch (error) {
+    } catch {
       set({ tab: "chat" });
       const cid = get().activeConversation()?.id ?? get().newChat();
-      const message = error instanceof Error ? error.message : String(error);
       const errMsg: ChatMessage = {
         id: uid(),
         role: "system",
-        text: `Couldn't pull "${entry.title}": ${message}`,
+        text: internalError(`We couldn't prepare "${entry.title}".`),
         status: "done",
         createdAt: now(),
       };

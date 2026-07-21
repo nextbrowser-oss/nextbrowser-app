@@ -178,8 +178,12 @@ export class RemoteControlClient {
     this.unlistenSignal = await listen<{ id: string; type: string; data?: string; message?: string }>("remote_signal_event", ({ payload }) => {
       if (payload.id !== this.signalID) return;
       if (payload.type === "message" && payload.data) void this.handleSignalMessage(payload.data);
-      if (payload.type === "error") this.cb.onError?.(payload.message || "Remote viewer signaling failed.");
-      if (payload.type === "close" && !this.closed) this.cb.onError?.("Remote viewer signaling closed.");
+      if (payload.type === "error") {
+        this.cb.onError?.(internalError("We couldn't connect Live View."));
+      }
+      if (payload.type === "close" && !this.closed) {
+        this.cb.onError?.(internalError("The Live View connection closed unexpectedly."));
+      }
     });
     this.signalID = await invoke<string>("remote_signal_open", { url: this.info.viewer_ws_url || "" });
   }
@@ -207,8 +211,10 @@ export class RemoteControlClient {
       else await this.pc.addIceCandidate(candidate);
       return;
     }
-    if (message.type === "error") this.cb.onError?.(message.message || "Remote viewer error.");
-    if (message.type === "closed") this.cb.onError?.(message.message || "Remote session closed.");
+    if (message.type === "error") this.cb.onError?.(internalError("We couldn't connect Live View."));
+    if (message.type === "closed") {
+      this.cb.onError?.(internalError("The Live View session closed unexpectedly."));
+    }
   }
 
   private handleControlMessage(raw: string) {
@@ -235,7 +241,7 @@ export class RemoteControlClient {
       return;
     }
     if (message.type === "tab_error") {
-      this.cb.onError?.(message.payload?.message || "Tab switch failed.");
+      this.cb.onError?.(internalError("We couldn't switch browser tabs."));
       return;
     }
     if (message.type === "media_stats") this.cb.onMediaStats?.(message.payload || {});
@@ -287,3 +293,4 @@ export class RemoteControlClient {
   }
 }
 import { invoke, listen } from "./electronBridge";
+import { internalError } from "./lib/userFacingError";

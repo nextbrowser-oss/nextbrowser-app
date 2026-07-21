@@ -1,6 +1,7 @@
 // CDP screencast + interactive control — port of ScreencastClient.swift
 
 import { invoke } from "./electronBridge";
+import { internalError } from "./lib/userFacingError";
 
 export type ScreencastState = "idle" | "connecting" | "live" | "error";
 
@@ -78,9 +79,9 @@ export class Screencast {
     try {
       const wsUrl = await resolvePageWsUrl(httpBase);
       await this.connect(wsUrl);
-    } catch (e) {
+    } catch {
       this.cb.onState("error");
-      this.cb.onError(String(e));
+      this.cb.onError(internalError("We couldn't start the browser preview."));
     }
   }
 
@@ -109,7 +110,7 @@ export class Screencast {
       ws.onerror = () => {
         if (this.running) {
           this.cb.onState("error");
-          this.cb.onError("WebSocket error");
+          this.cb.onError(internalError("We couldn't connect the browser preview."));
         }
         reject(new Error("WebSocket error"));
       };

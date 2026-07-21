@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useStore } from "../store";
 import { Icon, Spinner } from "./Icon";
+import { UserFacingError } from "./UserFacingError";
 
 export function DashboardKeyModal() {
   const open = useStore((s) => s.dashboardKeyPromptOpen);
@@ -53,7 +54,11 @@ export function DashboardKeyModal() {
             Continue in browser
           </button>
         )}
-        {error && <div className="error small login-error">{error}</div>}
+        {error && (
+          <div className="error small login-error">
+            <UserFacingError message={error} surface="account_sign_in" />
+          </div>
+        )}
         <div className="row" style={{ marginTop: 12, gap: 8 }}>
           <button className="secondary" onClick={close}>
             {pairing ? "Cancel sign-in" : "Cancel"}

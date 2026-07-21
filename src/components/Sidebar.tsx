@@ -7,7 +7,9 @@ import { Icon, Spinner } from "./Icon";
 import { withLocalScripts } from "../skillsCatalog";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
 import { manualProxyDefaultName, parseManualProxyUrl, type ManualProxyScheme } from "../lib/manualProxy";
+import { internalError, needsSupportLink } from "../lib/userFacingError";
 import type { AppTab } from "../types";
+import { UserFacingError } from "./UserFacingError";
 
 type ManualProxyInputMode = "url" | "fields";
 
@@ -116,8 +118,8 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
       await s.createManualProxyProfile(input);
       resetManualProxyForm();
       setManualProxyOpen(false);
-    } catch (error) {
-      setManualError(error instanceof Error ? error.message : String(error));
+    } catch {
+      setManualError(internalError("We couldn't create the proxy profile."));
     } finally {
       setManualSaving(false);
     }
@@ -353,8 +355,8 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
           {s.nextctlUpdating ? <Spinner size={12} /> : <Icon name="arrow.triangle.2.circlepath" size={12} />}
         </button>
         {s.nextctlUpdateStatus && (
-          <span className={s.nextctlUpdateStatus.includes("fail") ? "warn" : ""}>
-            · {s.nextctlUpdateStatus}
+          <span className={needsSupportLink(s.nextctlUpdateStatus) ? "warn" : ""}>
+            · <UserFacingError message={s.nextctlUpdateStatus} surface="component_update" />
           </span>
         )}
         {!s.nextctlSupportsSkill && <span className="warn"> · no skill cmd</span>}
@@ -555,7 +557,11 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
                 </label>
               </>
             )}
-            {manualError && <div className="error manual-proxy-error">{manualError}</div>}
+            {manualError && (
+              <div className="error manual-proxy-error">
+                <UserFacingError message={manualError} surface="manual_proxy" />
+              </div>
+            )}
             <div className="modal-actions">
               <button type="button" className="secondary" disabled={manualSaving} onClick={() => setManualProxyOpen(false)}>
                 Cancel
