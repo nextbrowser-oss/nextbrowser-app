@@ -150,8 +150,8 @@ const STALL_MS = 120_000;
 const WATCHDOG_MS = 5_000;
 const PROXY_REFRESH_MS = 120_000;
 const SCHEDULE_TICK_MS = 30_000;
-const NEXTCTL_DAILY_UPDATE_MS = 24 * 60 * 60 * 1000;
-const NEXTCTL_DAILY_UPDATE_POLL_MS = 60 * 60 * 1000;
+const NEXTCTL_DAILY_UPDATE_MS = 20 * 60 * 1000;
+const NEXTCTL_DAILY_UPDATE_POLL_MS = 60 * 1000;
 const NEXTCTL_UPDATE_STATE_FILE = "nextctl-update.json";
 
 function nextBrowserInstallPrompt(agentAdapter: string): string {
