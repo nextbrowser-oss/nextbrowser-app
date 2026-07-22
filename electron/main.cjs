@@ -7,11 +7,13 @@ const fsSync = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
+const pty = require("node-pty");
 const { topUpProxyTraffic } = require("./proxy-traffic.cjs");
 const { defaultSSHConfigPath, discoverSSHHosts, isAllowedExplicitConfigPath } = require("./ssh-config.cjs");
 
 const execFileAsync = promisify(execFile);
 const children = new Map();
+const terminals = new Map();
 const remoteSignalSockets = new Map();
 const APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const NEXTCTL_RELEASE_BASE = "https://github.com/nextbrowser-oss/nbc_releases/releases/latest/download";
@@ -21,6 +23,36 @@ let appUpdateStatus = { status: "idle" };
 let appUpdateTimer = null;
 let nextctlInstallStatus = { status: "idle" };
 let nextctlInstallPromise = null;
+
+const TERMINAL_AGENTS = {
+  claude: { binary: "claude", envVar: "CLAUDE_BIN" },
+  codex: { binary: "codex", envVar: "CODEX_BIN" },
+  hermes: { binary: "hermes", envVar: "HERMES_BIN" },
+  kilo: { binary: "kilo", envVar: "KILO_BIN" },
+  openclaw: { binary: "openclaw", envVar: "OPENCLAW_BIN" },
+  cline: { binary: "cline", envVar: "CLINE_BIN" },
+  pi: { binary: "pi", envVar: "PI_BIN" },
+  gemini: { binary: "gemini", envVar: "GEMINI_BIN" },
+  qwen: { binary: "qwen", envVar: "QWEN_BIN" },
+  opencode: { binary: "opencode", envVar: "OPENCODE_BIN" },
+  cursor: { binary: "cursor-agent", envVar: "CURSOR_AGENT_BIN" },
+  crush: { binary: "crush", envVar: "CRUSH_BIN" },
+  goose: { binary: "goose", envVar: "GOOSE_BIN" },
+  aider: { binary: "aider", envVar: "AIDER_BIN" },
+  amp: { binary: "amp", envVar: "AMP_BIN" },
+  llm: { binary: "llm", envVar: "LLM_BIN" },
+  aichat: { binary: "aichat", envVar: "AICHAT_BIN" },
+  sgpt: { binary: "sgpt", envVar: "SGPT_BIN" },
+  mods: { binary: "mods", envVar: "MODS_BIN" },
+  gptme: { binary: "gptme", envVar: "GPTME_BIN" },
+  cody: { binary: "cody", envVar: "CODY_BIN" },
+  plandex: { binary: "plandex", envVar: "PLANDEX_BIN" },
+  codebuff: { binary: "codebuff", envVar: "CODEBUFF_BIN" },
+  interpreter: { binary: "interpreter", envVar: "INTERPRETER_BIN" },
+  amazonq: { binary: "q", envVar: "Q_BIN" },
+  continue: { binary: "cn", envVar: "CN_BIN" },
+  droid: { binary: "droid", envVar: "DROID_BIN" },
+};
 
 function home() { return os.homedir(); }
 function executableNames(name) {
@@ -137,6 +169,12 @@ function resolveBinary(name, envVar) {
   return null;
 }
 function childEnv(extra = {}) { return { ...process.env, PATH: searchDirs().join(path.delimiter), ...extra }; }
+function terminalEnv() {
+  return Object.fromEntries(
+    Object.entries(childEnv({ TERM: "xterm-256color", COLORTERM: "truecolor" }))
+      .filter(([, value]) => typeof value === "string"),
+  );
+}
 function commandSpec(binary, args) {
   const ext = path.extname(binary).toLowerCase();
   if (process.platform === "win32" && [".cmd", ".bat"].includes(ext)) return { file: "cmd.exe", args: ["/D", "/S", "/C", binary, ...args] };
@@ -566,6 +604,68 @@ async function invokeCommand(command, args = {}) {
       if (args.stdinText != null) child.stdin.end(args.stdinText); return null;
     }
     case "agent_terminate": { const child = children.get(args.replyId); if (child) { child.kill(); children.delete(args.replyId); } return null; }
+    case "terminal_start": {
+      const agent = TERMINAL_AGENTS[String(args.agentId || "")];
+      if (!agent) throw new Error("This agent is not available in the experimental terminal.");
+      const bin = resolveBinary(agent.binary, agent.envVar);
+      if (!bin) throw new Error(`${agent.binary} CLI not found.`);
+      const id = randomUUID();
+      const spec = commandSpec(bin, []);
+      const terminal = pty.spawn(spec.file, spec.args, {
+        name: "xterm-256color",
+        cols: Math.max(2, Math.min(500, Number(args.cols) || 80)),
+        rows: Math.max(2, Math.min(300, Number(args.rows) || 24)),
+        cwd: args.workingDir || home(),
+        env: terminalEnv(),
+      });
+      const record = { process: terminal, ready: false, buffer: [], exit: null };
+      terminals.set(id, record);
+      terminal.onData((data) => {
+        if (record.ready) emit("terminal:data", [id, data]);
+        else record.buffer.push(data);
+      });
+      terminal.onExit(({ exitCode, signal }) => {
+        record.exit = [exitCode, signal];
+        if (record.ready) {
+          terminals.delete(id);
+          emit("terminal:exit", [id, exitCode, signal]);
+        }
+      });
+      return id;
+    }
+    case "terminal_ready": {
+      const id = String(args.id || "");
+      const record = terminals.get(id);
+      if (!record) return null;
+      record.ready = true;
+      for (const data of record.buffer) emit("terminal:data", [id, data]);
+      record.buffer = [];
+      if (record.exit) {
+        terminals.delete(id);
+        emit("terminal:exit", [id, record.exit[0], record.exit[1]]);
+      }
+      return null;
+    }
+    case "terminal_input": {
+      const record = terminals.get(String(args.id || ""));
+      if (record) record.process.write(String(args.data || "").slice(0, 1024 * 1024));
+      return null;
+    }
+    case "terminal_resize": {
+      const record = terminals.get(String(args.id || ""));
+      if (record) record.process.resize(
+        Math.max(2, Math.min(500, Number(args.cols) || 80)),
+        Math.max(2, Math.min(300, Number(args.rows) || 24)),
+      );
+      return null;
+    }
+    case "terminal_kill": {
+      const id = String(args.id || "");
+      const record = terminals.get(id);
+      if (record) record.process.kill();
+      terminals.delete(id);
+      return null;
+    }
     case "cdp_page_ws_url": {
       const response = await fetch(`${String(args.httpBase).replace(/\/$/, "")}/json/list`); if (!response.ok) throw new Error(`CDP target request failed (${response.status}).`);
       const targets = await response.json(); const target = targets.find((t) => t.type === "page" && t.webSocketDebuggerUrl) || targets.find((t) => t.webSocketDebuggerUrl);
@@ -681,4 +781,6 @@ app.on("before-quit", () => {
   for (const socket of remoteSignalSockets.values()) socket.close();
   remoteSignalSockets.clear();
   for (const child of children.values()) child.kill();
+  for (const terminal of terminals.values()) terminal.process.kill();
+  terminals.clear();
 });

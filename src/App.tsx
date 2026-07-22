@@ -211,6 +211,8 @@ function SettingsModal({
   const authorizeAgent = useStore((s) => s.authorizeAgent);
   const loginAgent = useStore((s) => s.loginAgent);
   const logoutAgent = useStore((s) => s.logoutAgent);
+  const terminalChat = useStore((s) => s.terminalChat);
+  const setTerminalChat = useStore((s) => s.setTerminalChat);
   const profiles = useStore((s) => {
     const defaultKnown = !!s.defaultSession?.session?.name || (s.defaultSession?.status ?? "unknown") !== "unknown";
     const hasListedDefault = s.profiles.some((profile) => profile.name === "default");
@@ -365,6 +367,25 @@ function SettingsModal({
                 <AgentInstallLink agent={agentSpec} error={agentError} surface="agent_settings" />
               </div>
             )}
+          </div>
+          <div className="settings-experiment-row">
+            <span className="settings-feature-icon">
+              <Icon name="terminal" size={17} />
+            </span>
+            <span className="settings-feature-copy">
+              <strong>Terminal chat <span className="experimental-pill">Experimental</span></strong>
+              <span className="muted small">Open Chat as a native interactive terminal with the selected agent already running.</span>
+            </span>
+            <button
+              type="button"
+              className={"settings-switch" + (terminalChat ? " is-on" : "")}
+              role="switch"
+              aria-checked={terminalChat}
+              aria-label="Terminal chat"
+              onClick={() => setTerminalChat(!terminalChat)}
+            >
+              <span />
+            </button>
           </div>
           <button
             className="settings-feature-link"
