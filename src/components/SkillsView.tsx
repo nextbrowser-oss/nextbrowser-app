@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../store";
 import {
-  withLocalScripts,
   type SkillEntry,
   selectorIcon,
   selectorTargetHost,
@@ -12,17 +11,18 @@ import { internalError } from "../lib/userFacingError";
 import { Icon } from "./Icon";
 import { UserFacingError } from "./UserFacingError";
 
-export function SkillsView() {
+export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () => void }) {
   const s = useStore();
-  const categories = withLocalScripts(s.skillCategories);
-  const [category, setCategory] = useState("");
+  const categories = s.skillCategories;
+  const [category, setCategory] = useState("__skills__");
   const [status, setStatus] = useState<Record<string, string>>({});
   const [scriptEditor, setScriptEditor] = useState<CustomScript | "new" | null>(null);
 
-  const cat = categories.find((c) => c.id === category) ?? categories[0];
-  useEffect(() => {
-    if (cat && cat.id !== category) setCategory(cat.id);
-  }, [cat, category]);
+  const cat = categories.find((c) => c.id === category);
+  const isSkillsOverview = category === "__skills__";
+  const isScripts = category === "my-scripts";
+  const skillCount = categories.reduce((total, current) => total + current.entries.length, 0);
+  const visibleEntries = isSkillsOverview ? categories.flatMap((current) => current.entries) : (cat?.entries ?? []);
   useEffect(() => {
     const pendingCategory = localStorage.getItem("openSkillsCategory");
     if (pendingCategory) {
@@ -74,7 +74,15 @@ export function SkillsView() {
   return (
     <div className="skills-root">
       <nav className="skills-nav thin-material">
-        <div className="skills-nav-label">CATEGORIES</div>
+        <div className="skills-nav-label">SKILLS</div>
+        <button
+          className={"skills-nav-item" + (isSkillsOverview ? " active" : "")}
+          onClick={() => setCategory("__skills__")}
+        >
+          <Icon name="sparkles" size={18} className="skills-nav-icon" />
+          <span className="skills-nav-title">Skills</span>
+          <span className="muted small skills-nav-count">{skillCount}</span>
+        </button>
         {categories.map((c) => (
           <button
             key={c.id}
@@ -86,22 +94,37 @@ export function SkillsView() {
             <span className="muted small skills-nav-count">{c.entries.length}</span>
           </button>
         ))}
+        <div className="skills-nav-label skills-nav-secondary-label">TOOLS</div>
+        <button
+          className={"skills-nav-item" + (isScripts ? " active" : "")}
+          onClick={() => setCategory("my-scripts")}
+        >
+          <Icon name="scroll.fill" size={18} className="skills-nav-icon" />
+          <span className="skills-nav-title">Scripts</span>
+          <span className="muted small skills-nav-count">{s.customScripts.length}</span>
+        </button>
       </nav>
       <hr className="divider skills-divider" />
       <div className="skills-main">
         <div className="skills-main-head">
           <h2 className="skills-category-title">
-            <Icon name={cat?.icon ?? "sparkles"} size={22} className="accent-icon" />
-            {cat?.title ?? "Skills"}
+            <Icon name={isScripts ? "scroll.fill" : cat?.icon ?? "sparkles"} size={22} className="accent-icon" />
+            {isScripts ? "Scripts" : cat?.title ?? "Skills"}
           </h2>
-          <p className="muted">{cat?.blurb ?? "No published skills are available for this account."}</p>
-          <p className="skills-apply-hint muted small">
-            <Icon name="arrow.down.circle" size={14} />
-            Apply pulls from the deployed backend and installs into every agent (Claude Code + Codex).
+          <p className="muted">
+            {isScripts
+              ? "Quick reusable commands for common browser tasks."
+              : cat?.blurb ?? "Extend your agents with reusable browser capabilities."}
           </p>
+          {!isScripts && (
+            <p className="skills-apply-hint muted small">
+              <Icon name="arrow.down.circle" size={14} />
+              Applied skills work with any connected agent.
+            </p>
+          )}
         </div>
 
-        {!s.nextctlSupportsSkill && (
+        {!isScripts && !s.nextctlSupportsSkill && (
           <div className="warning-banner skills-warning">
             <Icon name="exclamationmark.triangle.fill" size={16} />
             <div>
@@ -112,21 +135,29 @@ export function SkillsView() {
             </div>
           </div>
         )}
-        {s.nextctlSupportsSkill && !ready && (
+        {!isScripts && s.nextctlSupportsSkill && !ready && (
           <div className="skills-connect-hint">
             <Icon name="bolt.fill" size={16} />
             <div>
               <strong>Connect an agent to install and run skills.</strong>
-              <div className="muted small">Skills are installed into the selected local agent runtime.</div>
+              <div className="muted small">Skills work with any connected agent.</div>
             </div>
-            <button className="btn-bordered-prominent" onClick={() => s.authorizeAgent()}>
+            <button className="btn-bordered-prominent" onClick={onOpenAgentSettings}>
               Connect agent
             </button>
           </div>
         )}
 
-        <div className="skills-grid">
-          {(cat?.entries ?? []).map((e) => {
+        {!isScripts && visibleEntries.length === 0 && (
+          <div className="skills-empty-state">
+            <span className="skills-empty-icon"><Icon name="sparkles" size={22} /></span>
+            <strong>No skills available yet</strong>
+            <span className="muted small">Published skills will appear here and work with any connected agent.</span>
+          </div>
+        )}
+
+        {!isScripts && <div className="skills-grid">
+          {visibleEntries.map((e) => {
             const st = applyState(e.id);
             const applyError = s.skillApplyError(e.id);
             const publishedScript = e.selector.kind === "script" && !e.js;
@@ -212,9 +243,9 @@ export function SkillsView() {
               </div>
             );
           })}
-        </div>
+        </div>}
 
-        {cat?.id === "my-scripts" && (
+        {isScripts && (
           <div className="custom-scripts">
             <hr className="divider" />
             <div className="row custom-scripts-head">

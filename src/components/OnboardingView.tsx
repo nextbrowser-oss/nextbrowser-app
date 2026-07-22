@@ -23,7 +23,7 @@ const STEPS = [
     icon: "globe.americas.fill",
     tint: "#ff9500",
     title: "Pick a session",
-    subtitle: "Start a profile or rotate country — e.g. Spain for a local proxy exit.",
+    subtitle: "Start a profile or rotate to the proxy country you need.",
     action: null,
   },
   {

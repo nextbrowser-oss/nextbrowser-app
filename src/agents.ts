@@ -23,6 +23,7 @@ export interface AgentSpec {
   /// non-interactive logout, so the UI hides the "Log out" action.
   logoutArgs: string[];
   statusArgs: string[] | null;
+  installUrl?: string;
 }
 
 function envVar(bin: string): string {
@@ -34,7 +35,7 @@ function spec(
   name: string,
   binary: string,
   runStyle: RunStyle,
-  opts: { primary?: boolean; loginArgs?: string[]; logoutArgs?: string[]; statusArgs?: string[] | null } = {},
+  opts: { primary?: boolean; loginArgs?: string[]; logoutArgs?: string[]; statusArgs?: string[] | null; installUrl?: string } = {},
 ): AgentSpec {
   return {
     id,
@@ -46,12 +47,13 @@ function spec(
     loginArgs: opts.loginArgs ?? [],
     logoutArgs: opts.logoutArgs ?? [],
     statusArgs: opts.statusArgs ?? null,
+    installUrl: opts.installUrl,
   };
 }
 
 export const AGENTS: AgentSpec[] = [
-  spec("claude", "Claude Code", "claude", "claudePrint", { primary: true, loginArgs: ["auth", "login"], logoutArgs: ["auth", "logout"], statusArgs: ["auth", "status"] }),
-  spec("codex", "Codex", "codex", "codexExec", { primary: true, loginArgs: ["login"], logoutArgs: ["logout"], statusArgs: ["login", "status"] }),
+  spec("claude", "Claude Code", "claude", "claudePrint", { primary: true, loginArgs: ["auth", "login"], logoutArgs: ["auth", "logout"], statusArgs: ["auth", "status"], installUrl: "https://docs.anthropic.com/en/docs/claude-code/getting-started" }),
+  spec("codex", "Codex", "codex", "codexExec", { primary: true, loginArgs: ["login"], logoutArgs: ["logout"], statusArgs: ["login", "status"], installUrl: "https://learn.chatgpt.com/docs/codex/cli" }),
   spec("hermes", "Hermes Agent", "hermes", "hermesOneshot", { loginArgs: ["setup"] }),
   spec("kilo", "Kilo Code", "kilo", "runSubcommand"),
   spec("openclaw", "OpenClaw", "openclaw", "openclawAgent", { loginArgs: ["onboard"] }),

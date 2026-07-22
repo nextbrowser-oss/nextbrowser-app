@@ -55,6 +55,8 @@ export function ChatView() {
   const messages = conv?.messages ?? [];
   const remoteOnly = conv?.executionTarget === "vps";
   const ready = s.agentReady();
+  const agentDetected = !!s.agentVersion();
+  const agentNeedsLogin = agentDetected && s.agentLoggedIn() === false;
   const running = s.hasRunning();
   const queued = s.queuedCount();
   const collapsed = s.chatListCollapsed;
@@ -223,16 +225,6 @@ export function ChatView() {
             <strong className="chat-title">{conv?.title ?? agentName}</strong>
             <span className="muted small">{agentName}</span>
           </div>
-          <span className={"connection-pill" + (ready ? " is-ready" : "")}>
-            <span className={ready ? "status-dot ok-dot" : "status-dot muted-dot"} />
-            {ready ? "ready" : "not connected"}
-          </span>
-          {queued > 0 && (
-            <span className="queue-badge">
-              <Icon name="tray.full.fill" size={12} />
-              {queued} queued
-            </span>
-          )}
           <span className="spacer" />
           {remoteOnly && (
             <span
@@ -263,33 +255,15 @@ export function ChatView() {
             </span>
           )}
           {!remoteOnly && showDefaultSession && (
-            <span className="default-session-pill">
+            <span
+              className="default-session-pill"
+              data-tooltip="Local browser session without a named profile"
+              tabIndex={0}
+            >
               <Icon name="globe" size={12} />
               default
             </span>
           )}
-          <button
-            className="plain-icon-btn"
-            disabled={running || messages.length === 0}
-            onClick={() => {
-              if (window.confirm("Clear this chat history? This removes all messages in the current conversation.")) {
-                s.clearChat();
-              }
-            }}
-            title="Clear all messages in this chat"
-            aria-label="Clear all messages in this chat"
-          >
-            <Icon name="eraser" size={16} />
-          </button>
-          <button
-            className="plain-icon-btn"
-            disabled={messages.length === 0}
-            onClick={() => s.forkConversation()}
-            title="Fork this chat into a new conversation"
-            aria-label="Fork this chat into a new conversation"
-          >
-            <Icon name="arrow.triangle.branch" size={16} />
-          </button>
         </div>
         <hr className="divider" />
 
@@ -300,16 +274,20 @@ export function ChatView() {
                 <BrandLogo size={38} />
               </div>
               <div>
-                <strong>Ready for browser work</strong>
+                <strong>{agentNeedsLogin ? `Sign in to ${agentName}` : ready ? "Ready for browser work" : "Connect an agent"}</strong>
                 <p className="muted">
                   Choose the next step and NextBrowser will keep the active agent, profile, and browser session in sync.
                 </p>
               </div>
               <div className="empty-actions">
                 {!ready && (
-                  <button className="btn-bordered-prominent" title="Connect the selected agent CLI" onClick={() => s.authorizeAgent()}>
+                  <button
+                    className="btn-bordered-prominent"
+                    title={agentNeedsLogin ? `Log in to ${agentName}` : "Connect the selected agent CLI"}
+                    onClick={() => agentNeedsLogin ? s.loginAgent() : s.authorizeAgent()}
+                  >
                     <Icon name="bolt.fill" size={14} />
-                    Connect agent
+                    {agentNeedsLogin ? "Login" : "Connect agent"}
                   </button>
                 )}
                 <button className="btn-bordered" title="Open Skills" onClick={() => s.setTab("skills")}>
@@ -338,14 +316,14 @@ export function ChatView() {
                   title="Rotate the active browser profile to Spain and verify the proxy country"
                   onClick={() =>
                     s.tryGuidePrompt(
-                      "Using the nextctl CLI, rotate the active browser profile to Spain (ES) with --verify, then start the session and confirm the proxy country.",
+                      "Using the nextctl CLI, start the active browser profile with verification and confirm its current proxy country and IP.",
                     )
                   }
                 >
                   <Icon name="globe" size={15} />
                   <span>
-                    <strong>Spanish proxy check</strong>
-                    <span className="muted small">Rotate to ES and verify country</span>
+                    <strong>Proxy check</strong>
+                    <span className="muted small">Verify proxy country and IP</span>
                   </span>
                 </button>
                 <button
@@ -641,7 +619,6 @@ export function ChatView() {
 
 function MessageBubble({
   message: m,
-  canQueue,
   onCancel,
   onEdit,
   onStop,
@@ -754,8 +731,7 @@ function MessageBubble({
   const bubbleClass =
     "assistant-bubble" +
     (m.status === "failed" ? " bubble-failed" : "") +
-    (m.status === "timedOut" ? " bubble-warn" : "") +
-    (m.status === "streaming" && m.stalled ? " bubble-stalled" : "");
+    (m.status === "timedOut" ? " bubble-warn" : "");
 
   return (
     <div className="msg-assistant-wrap">
@@ -764,32 +740,13 @@ function MessageBubble({
           <span className={"status-badge status-" + m.status}>
             {m.status === "streaming"
               ? m.stalled
-                ? `No activity · ${elapsed(m.lastActivityAt ?? m.runStartedAt)}`
+                ? `Still working · ${elapsed(m.runStartedAt)}`
                 : `${m.activityLabel ?? "Thinking"} · ${elapsed(m.runStartedAt)}`
               : statusLabel(m)}
           </span>
           {running && m.status === "streaming" && (
             <button className="plain-icon-btn plain-icon-btn-compact stop-inline" onClick={onStop}>
               <Icon name="stop.fill" size={12} className="error" />
-            </button>
-          )}
-          {canQueue && (
-            <>
-              <button className="plain-icon-btn plain-icon-btn-compact" onClick={onEdit} title="Edit">
-                <Icon name="pencil" size={12} />
-              </button>
-              <button className="plain-icon-btn plain-icon-btn-compact" onClick={onCancel} title="Remove">
-                <Icon name="trash" size={12} className="error" />
-              </button>
-            </>
-          )}
-          {m.text && (
-            <button
-              className="plain-icon-btn plain-icon-btn-compact"
-              title="Copy message"
-              onClick={() => void navigator.clipboard.writeText(m.text)}
-            >
-              <Icon name="doc.on.doc" size={12} />
             </button>
           )}
         </div>
@@ -818,19 +775,22 @@ function MessageBubble({
               {showErrorDetails && <pre className="error-details">{m.text}</pre>}
             </div>
           ) : (
-            <MarkdownText text={m.text || (m.status === "streaming" ? "…" : "")} />
+            <MarkdownText text={m.text || (m.status === "streaming" ? "Working on your request…" : "")} />
           )}
         </div>
-        {m.stalled && (
-          <div className="stall-hint muted small">
-            <Icon name="exclamationmark.triangle.fill" size={12} className="warn" />
-            No activity for {elapsed(m.lastActivityAt ?? m.runStartedAt)} — possibly stuck.
-            <button className="mini danger-mini" onClick={onStop}>
-              Stop
-            </button>
-          </div>
-        )}
       </div>
+      {m.text && (
+        <div className="msg-assistant-meta muted small">
+          <button
+            className="plain-icon-btn plain-icon-btn-compact"
+            title="Copy message"
+            onClick={() => void navigator.clipboard.writeText(m.text)}
+          >
+            <Icon name="doc.on.doc" size={12} />
+          </button>
+          <span>{formatTime(m.createdAt)}</span>
+        </div>
+      )}
     </div>
   );
 }

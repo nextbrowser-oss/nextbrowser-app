@@ -240,7 +240,7 @@ const DEMOS = [
     title: "Proxy",
     caption: "Rotate country to ES so the session exits through Spain.",
     tint: "#ff9500",
-    tryPrompt: "Using the nextctl CLI, rotate the active browser profile to Spain (ES) with --verify, then start the session and confirm the proxy country.",
+    tryPrompt: "Using the nextctl CLI, start the active browser profile with verification and confirm its current proxy country and IP.",
     Demo: SpanishProxyDemo,
   },
   {
