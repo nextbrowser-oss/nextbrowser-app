@@ -287,6 +287,7 @@ async function pullCatalogInstructions(entry: SkillEntry, preferredAgentId: stri
 
 interface State {
   authed: boolean;
+  accountEmail?: string;
   checking: boolean;
   loginError?: string;
   isLoggingIn: boolean;
@@ -294,6 +295,7 @@ interface State {
   proxyWarning?: string;
   profiles: Profile[];
   statuses: Record<string, string>;
+  profileSessions: Record<string, SessionStatus>;
   profileIdentities: Record<string, ProxyIdentity>;
   selectedProfile?: string;
   defaultSession?: SessionStatus;
@@ -348,7 +350,7 @@ interface State {
   stopProfile: (n: string) => Promise<void>;
   rotateProfile: (n: string) => Promise<void>;
   rotateProfileCountry: (n: string, country: string) => Promise<void>;
-  createManagedProfile: () => Promise<void>;
+  createManagedProfile: (name: string, country: string) => Promise<void>;
   createManualProxyProfile: (input: ManualProxyProfileInput) => Promise<void>;
   deleteProfile: (n: string) => Promise<void>;
   selectProfile: (n?: string) => void;
@@ -447,6 +449,7 @@ interface APIKeyIdentity {
   valid: boolean;
   key_id?: string;
   owner_id?: string;
+  email?: string;
 }
 
 const completionResolvers = new Map<string, (result: AgentDone) => void>();
@@ -592,7 +595,9 @@ async function verifyProxyIdentity(profile?: string): Promise<ProxyIdentity | un
 async function refreshAnalyticsIdentity(): Promise<void> {
   const wrap = await nextctlJson<{ identity: APIKeyIdentity }>(["identity"]);
   const ownerId = wrap.identity.owner_id?.trim();
+  const accountEmail = wrap.identity.email?.trim();
   setAnalyticsUserId(ownerId || undefined);
+  useStore.setState({ accountEmail: accountEmail || undefined });
   trackEvent("analytics_identity_loaded", {
     has_owner_id: !!ownerId,
     has_key_id: !!wrap.identity.key_id,
@@ -749,10 +754,12 @@ export const useStore = create<State>((set, get) => {
 
   return {
   authed: false,
+  accountEmail: undefined,
   checking: true,
   isLoggingIn: false,
   profiles: [],
   statuses: {},
+  profileSessions: {},
   profileIdentities: {},
   profileSearch: "",
   isRefreshing: false,
@@ -794,7 +801,10 @@ export const useStore = create<State>((set, get) => {
     return get().conversationsForAgent(s.agentId)[0];
   },
 
-  agentReady: () => get().runtime[get().agentId]?.ready ?? false,
+  agentReady: () => {
+    const runtime = get().runtime[get().agentId];
+    return !!runtime?.ready && runtime.loggedIn !== false;
+  },
   agentVersion: () => get().runtime[get().agentId]?.version,
   agentError: () => get().runtime[get().agentId]?.error,
   agentLoggedIn: () => get().runtime[get().agentId]?.loggedIn,
@@ -1536,6 +1546,7 @@ export const useStore = create<State>((set, get) => {
     proxyTimer = scheduleTimer = sessionPollTimer = null;
     set({
       authed: false,
+      accountEmail: undefined,
       runtime: initRuntimes(),
       connectAnnounced: new Set(),
       proxy: undefined,
@@ -1543,6 +1554,7 @@ export const useStore = create<State>((set, get) => {
       accountPairing: undefined,
       profiles: [],
       statuses: {},
+      profileSessions: {},
       profileIdentities: {},
       defaultSession: undefined,
       skillState: {},
@@ -1634,7 +1646,7 @@ export const useStore = create<State>((set, get) => {
   loadProfiles: async () => {
     try {
       const list = await nextctlJson<{ profiles: Profile[] }>(["profiles", "ls"]);
-      set({ profiles: list.profiles });
+      set({ profiles: list.profiles, profileSessions: {} });
       trackEvent("profiles_loaded", {
         profile_count: list.profiles.length,
         country_count: new Set(list.profiles.map((p) => p.country).filter(Boolean)).size,
@@ -1642,13 +1654,20 @@ export const useStore = create<State>((set, get) => {
       for (const p of list.profiles) {
         try {
           const st = await nextctlJson<SessionStatus>(["status", "--profile", p.name]);
-          set((s) => ({ statuses: { ...s.statuses, [p.name]: st.status } }));
+          set((s) => ({
+            statuses: { ...s.statuses, [p.name]: st.status },
+            profileSessions: { ...s.profileSessions, [p.name]: st },
+          }));
           if (st.status === "running") {
             const identity = await verifyProxyIdentity(p.name);
             if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, [p.name]: identity } }));
           }
         } catch {
-          set((s) => ({ statuses: { ...s.statuses, [p.name]: "unknown" } }));
+          set((s) => {
+            const profileSessions = { ...s.profileSessions };
+            delete profileSessions[p.name];
+            return { statuses: { ...s.statuses, [p.name]: "unknown" }, profileSessions };
+          });
         }
       }
     } catch {
@@ -1832,17 +1851,18 @@ export const useStore = create<State>((set, get) => {
     }
   },
 
-  createManagedProfile: async () => {
+  createManagedProfile: async (rawName, rawCountry) => {
     const startedAt = performance.now();
-    const existing = new Set(get().profiles.map((profile) => profile.name));
-    let name = "profile";
-    for (let index = 2; existing.has(name); index += 1) name = `profile-${index}`;
-    trackEvent("profile_create_requested", { kind: "managed" });
+    const name = rawName.trim();
+    const country = rawCountry.trim().toUpperCase();
+    if (!name) throw new Error("Profile name is required.");
+    if (!/^[A-Z]{2}$/.test(country)) throw new Error("Choose a valid proxy country.");
+    trackEvent("profile_create_requested", { kind: "managed", country });
     try {
-      await nextctlRunChecked(["profiles", "create", name, "--format", "json"]);
+      await nextctlRunChecked(["profiles", "create", name, "--country", country, "--format", "json"]);
       await get().loadProfiles();
       get().selectProfile(name);
-      trackTiming("profile_create_completed", startedAt, { kind: "managed" });
+      trackTiming("profile_create_completed", startedAt, { kind: "managed", country });
     } catch (error) {
       requestAccountSignIn(set, error);
       throw error;

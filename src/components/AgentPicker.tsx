@@ -101,7 +101,6 @@ export function AgentPicker({ compact = false, createChatOnSwitch = false, label
                   onClick={() => choose(agent.id)}
                 >
                   <span>{agent.name}</span>
-                  <span className="muted small">{agent.binary}</span>
                   {agent.id === agentId && <Icon name="checkmark" size={12} className="accent-icon" />}
                 </button>
               ))}

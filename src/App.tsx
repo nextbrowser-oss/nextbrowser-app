@@ -200,8 +200,8 @@ function SettingsModal({
   onInstallUpdate: () => void;
   onOpenRelease: () => void;
 }) {
+  const [agentLogoutPending, setAgentLogoutPending] = useState(false);
   const nextctlVersion = useStore((s) => s.nextctlVersion);
-  const nextctlSupportsSkill = useStore((s) => s.nextctlSupportsSkill);
   const agentId = useStore((s) => s.agentId);
   const agentReady = useStore((s) => s.agentReady());
   const agentVersion = useStore((s) => s.agentVersion());
@@ -216,11 +216,23 @@ function SettingsModal({
     return s.profiles.length + (defaultKnown && !hasListedDefault ? 1 : 0);
   });
   const proxy = useStore((s) => s.proxy);
-  const logout = useStore((s) => s.logout);
-  const agentName = agentById(agentId).name;
+  const agentSpec = agentById(agentId);
+  const agentName = agentSpec.name;
+  const agentDetected = !!agentVersion;
+  const agentNeedsLogin = agentDetected && agentLoggedIn === false;
+  const showAgentInstall = !!agentSpec.installUrl && /CLI not found/i.test(agentError ?? "");
   const proxyUsed = proxy ? humanBytes(proxy.used_bytes) : "Locked";
   const proxyLimit = proxy?.limit_bytes ? humanBytes(proxy.limit_bytes) : proxy ? "unlimited" : "Sign in";
   const proxyPercent = proxy?.limited ? Math.round(proxyFraction(proxy) * 100) : null;
+  const handleAgentLogout = async () => {
+    if (agentLogoutPending) return;
+    setAgentLogoutPending(true);
+    try {
+      await logoutAgent();
+    } finally {
+      setAgentLogoutPending(false);
+    }
+  };
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
@@ -231,6 +243,10 @@ function SettingsModal({
             <strong>Settings</strong>
             <div className="muted small">Local app and runtime status</div>
           </div>
+          <span className="spacer" />
+          <button className="plain-icon-btn" onClick={onClose} title="Close" aria-label="Close settings">
+            <Icon name="xmark" size={17} className="error" />
+          </button>
         </div>
         <div className="settings-health">
           <div>
@@ -242,7 +258,18 @@ function SettingsModal({
         <div className="settings-section">
           <div className="settings-row">
             <span className="muted small">NextBrowser</span>
-            <strong>{__APP_VERSION__}</strong>
+            <div className="settings-version-cell">
+              <button
+                className="plain-icon-btn plain-icon-btn-compact"
+                onClick={onCheckUpdate}
+                disabled={appUpdate.status === "checking" || appUpdate.status === "downloading"}
+                title="Check for updates"
+                aria-label="Check for updates"
+              >
+                {appUpdate.status === "checking" ? <Spinner size={12} /> : <Icon name="arrow.clockwise" size={12} />}
+              </button>
+              <strong>{__APP_VERSION__}</strong>
+            </div>
           </div>
           <div className="settings-row settings-update-row">
             <span className="muted small">App update</span>
@@ -257,11 +284,7 @@ function SettingsModal({
                   <button className="mini primary-mini" onClick={onOpenRelease}>
                     Open release page
                   </button>
-                ) : (
-                  <button className="mini" onClick={onCheckUpdate}>
-                    Check
-                  </button>
-                )
+                ) : null
               ) : (
                 <>
                   {appUpdate.status === "available" && (
@@ -274,11 +297,6 @@ function SettingsModal({
                       Restart and update
                     </button>
                   )}
-                  {appUpdate.status !== "available" && appUpdate.status !== "downloaded" && appUpdate.status !== "downloading" && (
-                    <button className="mini" onClick={onCheckUpdate}>
-                      Check
-                    </button>
-                  )}
                 </>
               )}
             </div>
@@ -286,12 +304,6 @@ function SettingsModal({
           <div className="settings-row">
             <span className="muted small">nextctl</span>
             <strong>{nextctlVersion || "not detected"}</strong>
-          </div>
-          <div className="settings-row">
-            <span className="muted small">Skill install</span>
-            <span className={nextctlSupportsSkill ? "ok small" : "warn small"}>
-              {nextctlSupportsSkill ? "supported" : "needs update"}
-            </span>
           </div>
           <div className="settings-row">
             <span className="muted small">Profiles</span>
@@ -316,33 +328,46 @@ function SettingsModal({
                 <span className="muted small">Choose the local agent used for chats, skills, and scheduled runs.</span>
               </span>
               <span className={"agent-state-pill" + (agentReady ? " is-ready" : "")}>
-                {agentReady ? "Ready" : "Offline"}
+                {agentReady ? "Ready" : agentNeedsLogin ? "Login required" : "Offline"}
               </span>
             </div>
             <div className="settings-agent-picker-row">
               <AgentPicker label="Active" />
-              <span className="muted small">{agentReady ? agentVersion || "connected" : `${agentName} is not connected`}</span>
+              <span className="muted small">
+                {agentReady ? agentVersion || "connected" : agentNeedsLogin ? `${agentName} is signed out` : `${agentName} is not connected`}
+              </span>
             </div>
             <div className="settings-agent-actions">
-              {!agentReady && (
+              {!agentDetected && (
                 <button className="mini primary-mini" title={`Connect ${agentName}`} onClick={() => authorizeAgent()}>
                   Connect
                 </button>
               )}
-              {agentReady && agentLoggedIn !== true && (
+              {agentDetected && agentLoggedIn !== true && !agentLogoutPending && (
                 <button className="mini" title={`Open ${agentName} login`} onClick={() => loginAgent()}>
                   Login
                 </button>
               )}
-              {agentReady && agentLoggedIn === true && agentById(agentId).logoutArgs.length > 0 && (
-                <button className="mini" title={`Sign out of ${agentName}`} onClick={() => logoutAgent()}>
-                  Logout
+              {agentDetected && agentLogoutPending && (
+                <button className="mini" disabled aria-live="polite">
+                  <Spinner size={12} /> Signing out…
+                </button>
+              )}
+              {agentReady && agentLoggedIn === true && !agentLogoutPending && agentById(agentId).logoutArgs.length > 0 && (
+                <button className="mini" title={`Sign out of ${agentName}`} onClick={() => void handleAgentLogout()}>
+                  Log out
                 </button>
               )}
             </div>
             {agentError && (
               <div className="error small settings-agent-error">
                 <UserFacingError message={agentError} surface="agent_settings" />
+                {showAgentInstall && (
+                  <button className="agent-install-link" onClick={() => void invoke("open_external", { url: agentSpec.installUrl })}>
+                    Install {agentName}
+                    <Icon name="arrow.up.forward.app" size={12} />
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -365,22 +390,8 @@ function SettingsModal({
             {proxyPercent != null && <span className="status-pill">{proxyPercent}%</span>}
             <Icon name="chevron.right" size={14} className="muted" />
           </button>
-          <button
-            className="settings-link settings-link-danger"
-            onClick={() => {
-              logout();
-              onClose();
-            }}
-          >
-            <span>Sign out</span>
-            <Icon name="rectangle.portrait.and.arrow.right" size={14} />
-          </button>
         </div>
 
-        <div className="row settings-actions">
-          <span className="spacer" />
-          <button className="secondary" onClick={onClose}>Close</button>
-        </div>
       </div>
     </div>
   );
@@ -639,7 +650,7 @@ export function App() {
         {
           id: "preview-conv-2",
           agent: "claude",
-          title: "Spanish proxy test",
+          title: "Proxy verification",
           createdAt: Date.now() - 86400000,
           updatedAt: Date.now() - 7200000,
           messages: [],
@@ -757,7 +768,7 @@ export function App() {
         className={"sidebar thin-material" + (sidebarCollapsed ? " sidebar-collapsed" : "")}
         style={{ width: sidebarCollapsed ? 68 : sidebarWidth }}
       >
-        <Sidebar onOpenAgentSettings={() => openSettings("agent")} />
+        <Sidebar onOpenAgentSettings={() => openSettings("agent")} onHome={() => setTab("chat")} />
       </aside>
       {!sidebarCollapsed && <div id="sidebar-resize" className="resize-handle" />}
       <main className="content">
@@ -779,7 +790,7 @@ export function App() {
                 key={t.id}
                 className={"tab-hit" + (tab === t.id ? " tab-hit-active" : "")}
                 onClick={() => setTab(t.id)}
-                title={`Open ${t.label}`}
+                data-tooltip={t.label}
                 aria-label={`Open ${t.label}`}
               >
                 <span className={"tab-pill" + (tab === t.id ? " tab-pill-active" : "")}>
@@ -799,7 +810,7 @@ export function App() {
         <hr className="divider" />
         <div className={"tab-content" + (tab === "skills" ? " tab-content-bleed" : "")}>
           {tab === "chat" && <ChatView />}
-          {tab === "skills" && <SkillsView />}
+          {tab === "skills" && <SkillsView onOpenAgentSettings={() => openSettings("agent")} />}
           {tab === "live" && <LiveView />}
           {tab === "usage" && <UsageView />}
           {tab === "guide" && <GuideView />}

@@ -15,6 +15,7 @@ type ManualProxyInputMode = "url" | "fields";
 
 interface SidebarProps {
   onOpenAgentSettings: () => void;
+  onHome: () => void;
 }
 
 const NAV_ITEMS: Array<{ id: AppTab; label: string; icon: string }> = [
@@ -23,7 +24,7 @@ const NAV_ITEMS: Array<{ id: AppTab; label: string; icon: string }> = [
   { id: "guide", label: "Guide", icon: "book.fill" },
 ];
 
-export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
+export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const s = useStore();
   const [menuProfile, setMenuProfile] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -38,6 +39,11 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
   const [manualPassword, setManualPassword] = useState("");
   const [manualError, setManualError] = useState<string | null>(null);
   const [manualSaving, setManualSaving] = useState(false);
+  const [createProfileOpen, setCreateProfileOpen] = useState(false);
+  const [profileName, setProfileName] = useState("");
+  const [profileCountry, setProfileCountry] = useState("US");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   const agentName = agentById(s.agentId).name;
   const ready = s.agentReady();
@@ -48,9 +54,17 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
   const defaultRunning = defaultStatus === "running";
   const defaultBusy = ["starting", "stopping", "rotating"].includes(defaultStatus);
   const defaultIdentity = s.profileIdentities.__default;
-  const showDefaultProfile = defaultKnown && !s.profiles.some((p) => p.name === "default");
+  const defaultSessionDuplicate = defaultRunning && Object.values(s.profileSessions).some((session) =>
+    session.status === "running" && (
+      (!!session.pid && session.pid === s.defaultSession?.pid) ||
+      (!!session.session?.endpoint && session.session.endpoint === s.defaultSession?.session?.endpoint)
+    ),
+  );
+  const showDefaultProfile = defaultKnown &&
+    !defaultSessionDuplicate &&
+    !s.profiles.some((p) => p.name === "default");
   const visibleProfileCount = s.profiles.length + (showDefaultProfile ? 1 : 0);
-  const runningCount = s.profiles.filter((p) => s.statuses[p.name] === "running").length + (defaultRunning ? 1 : 0);
+  const runningCount = s.profiles.filter((p) => s.statuses[p.name] === "running").length + (showDefaultProfile && defaultRunning ? 1 : 0);
 
   const badgeFor = (id: AppTab) => {
     if (id === "skills") return skillCount ? String(skillCount) : undefined;
@@ -125,23 +139,40 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
     }
   };
 
+  const submitManagedProfile = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!profileName.trim()) {
+      setProfileError("Profile name is required.");
+      return;
+    }
+    if (profileSaving) return;
+    setProfileSaving(true);
+    setProfileError(null);
+    try {
+      await s.createManagedProfile(profileName, profileCountry);
+      setCreateProfileOpen(false);
+      setProfileName("");
+      setProfileCountry("US");
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
   if (s.sidebarCollapsed) {
     return (
       <div className="sidebar-mini">
         <button
           className="plain-icon-btn sidebar-collapse-toggle"
-          title="Expand sidebar"
+          data-tooltip="Expand sidebar"
           aria-label="Expand sidebar"
           onClick={() => s.setSidebarCollapsed(false)}
         >
           <Icon name="sidebar.left" size={17} />
         </button>
-        <BrandLogo size={28} />
-        <button className="mini-nav-btn" title={`Agent: ${agentName}`} onClick={onOpenAgentSettings}>
-          <Icon name="cpu.fill" size={18} />
-          <span>{ready ? "on" : "off"}</span>
-        </button>
-        <button className="mini-nav-btn" title={`${visibleProfileCount} profiles, ${runningCount} running`} onClick={() => s.setTab("live")}>
+        <button className="sidebar-logo-home" onClick={onHome} data-tooltip="Back to main view" aria-label="Back to main view"><BrandLogo size={28} /></button>
+        <button className="mini-nav-btn" data-tooltip={`${visibleProfileCount} profiles, ${runningCount} running`} aria-label={`${visibleProfileCount} profiles, ${runningCount} running`} onClick={() => s.setTab("live")}>
           <Icon name="person.crop.circle" size={18} />
           <span>{runningCount}/{visibleProfileCount}</span>
         </button>
@@ -149,7 +180,8 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
           <button
             key={item.id}
             className={"mini-nav-btn" + (s.tab === item.id ? " active" : "")}
-            title={`Open ${item.label}`}
+            data-tooltip={item.label}
+            aria-label={`Open ${item.label}`}
             onClick={() => s.setTab(item.id)}
           >
             <Icon name={item.icon} size={18} />
@@ -157,8 +189,9 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
           </button>
         ))}
         <span className="spacer" />
-        <button className="mini-nav-btn" title="Sign out" onClick={() => s.logout()}>
-          <Icon name="rectangle.portrait.and.arrow.right" size={18} />
+        <button className="mini-nav-btn" data-tooltip={`Agent: ${agentName}`} aria-label={`Agent: ${agentName}`} onClick={onOpenAgentSettings}>
+          <Icon name="cpu.fill" size={18} />
+          <span>{ready ? "on" : "off"}</span>
         </button>
       </div>
     );
@@ -168,7 +201,7 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
     <div className="sidebar-shell">
       <div className="sidebar-brand">
         <div className="row">
-          <BrandHeader subtitle="native agent console" />
+          <button className="sidebar-brand-home" onClick={onHome} title="Back to main view"><BrandHeader subtitle="native agent console" /></button>
           <span className="spacer" />
           <button
             className="plain-icon-btn plain-icon-btn-compact sidebar-collapse-toggle"
@@ -179,14 +212,6 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
             <Icon name="sidebar.leading" size={15} />
           </button>
         </div>
-        <button className="sidebar-agent-strip" title="Open agent settings" onClick={onOpenAgentSettings}>
-          <Icon name="cpu.fill" size={13} />
-          <span className="muted small">Agent</span>
-          <strong>{agentName}</strong>
-          <span className={"agent-state-pill" + (ready ? " is-ready" : "")}>
-            {ready ? "Ready" : "Offline"}
-          </span>
-        </button>
       </div>
 
       <nav className="sidebar-scroll sidebar-nav-list" aria-label="Sidebar pages">
@@ -229,16 +254,21 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
           <div className="session-quick-actions">
             <button
               className="btn-bordered full"
-              title="Create a new managed profile"
+              title="Create profile"
               disabled={s.isRefreshing}
-              onClick={() => void s.createManagedProfile()}
+              onClick={() => {
+                setProfileName("");
+                setProfileCountry("US");
+                setProfileError(null);
+                setCreateProfileOpen(true);
+              }}
             >
               <Icon name="plus" size={14} />
-              New profile
+              Create profile
             </button>
             <button
               className="mini proxy-profile-btn"
-              title="Add manual proxy profile"
+              title="Create a profile with a manual proxy"
               onClick={() => {
                 resetManualProxyForm();
                 setManualProxyOpen(true);
@@ -343,6 +373,18 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
       </nav>
 
       <hr className="divider" />
+      <div className="sidebar-account-footer">
+        <Icon name="person.crop.circle" size={14} />
+        <span title={s.accountEmail || "Connected account"}>{s.accountEmail || "Connected account"}</span>
+        <button
+          className="plain-icon-btn plain-icon-btn-compact"
+          title="Sign out of NextBrowser"
+          aria-label="Sign out of NextBrowser"
+          onClick={() => s.logout()}
+        >
+          <Icon name="rectangle.portrait.and.arrow.right" size={13} />
+        </button>
+      </div>
       <div className="nextctl-footer muted small">
         <Icon name="terminal" size={12} />
         <span>nextctl {s.nextctlVersion || "..."}</span>
@@ -361,11 +403,57 @@ export function Sidebar({ onOpenAgentSettings }: SidebarProps) {
         )}
         {!s.nextctlSupportsSkill && <span className="warn"> · no skill cmd</span>}
         <span className="spacer" />
-        <button className="sign-out-footer" title="Sign out" onClick={() => s.logout()}>
-          <Icon name="rectangle.portrait.and.arrow.right" size={13} />
-          Sign out
+        <button
+          className={"agent-footer-status" + (ready ? " is-ready" : "")}
+          title="Agent settings"
+          aria-label="Open agent settings"
+          onClick={onOpenAgentSettings}
+        >
+          <span className="status-dot" />
+          <span>{ready ? agentName : "No agent"}</span>
+          <Icon name="chevron.down" size={11} />
         </button>
       </div>
+
+      {createProfileOpen && createPortal((
+        <div className="modal-overlay" onMouseDown={() => !profileSaving && setCreateProfileOpen(false)}>
+          <form className="modal-card create-profile-modal" onSubmit={submitManagedProfile} onMouseDown={(event) => event.stopPropagation()}>
+            <div className="profile-menu-head">
+              <span className="profile-menu-name">Create profile</span>
+            </div>
+            <label className="modal-field">
+              <span>Profile name</span>
+              <input
+                value={profileName}
+                onChange={(event) => {
+                  setProfileName(event.target.value);
+                  setProfileError(null);
+                }}
+                placeholder="My profile"
+                autoFocus
+              />
+            </label>
+            <label className="modal-field">
+              <span>Proxy country</span>
+              <select value={profileCountry} onChange={(event) => setProfileCountry(event.target.value)}>
+                {ROTATION_COUNTRIES.map((country) => (
+                  <option key={country.code} value={country.code}>
+                    {countryFlag(country.code)} {country.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {profileError && <div className="error small profile-create-error">{profileError}</div>}
+            <div className="modal-actions">
+              <button type="button" className="secondary" disabled={profileSaving} onClick={() => setCreateProfileOpen(false)}>Cancel</button>
+              <button type="submit" className="primary" disabled={profileSaving || !profileName.trim()}>
+                {profileSaving ? <Spinner size={13} /> : <Icon name="plus" size={13} />}
+                {profileSaving ? "Creating…" : "Create profile"}
+              </button>
+            </div>
+          </form>
+        </div>
+      ), document.body)}
 
       {menuProfile && createPortal((() => {
         const isDefaultProfile = menuProfile === "__default";
@@ -662,9 +750,9 @@ function ProfileRow({
           <>
             <button
               className="plain-icon-btn"
-              title={`Stop ${name}`}
+              title="Stop"
               aria-label={`Stop ${name}`}
-              data-tooltip={`Stop ${name}`}
+              data-tooltip="Stop"
               disabled={busy}
               onClick={(event) => {
                 event.stopPropagation();
@@ -689,9 +777,9 @@ function ProfileRow({
         ) : (
           <button
             className="plain-icon-btn"
-            title={`Start ${name}`}
+            title="Start"
             aria-label={`Start ${name}`}
-            data-tooltip={`Start ${name}`}
+            data-tooltip="Start"
             disabled={busy}
             onClick={(event) => {
               event.stopPropagation();
