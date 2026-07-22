@@ -316,6 +316,7 @@ interface State {
   sidebarWidth: number;
   sidebarCollapsed: boolean;
   chatListCollapsed: boolean;
+  terminalChat: boolean;
   dashboardKeyPromptOpen: boolean;
   accountPairing?: AccountPairingState;
   nextctlVersion: string;
@@ -365,6 +366,7 @@ interface State {
   setSidebarWidth: (w: number) => void;
   setSidebarCollapsed: (v: boolean) => void;
   setChatListCollapsed: (v: boolean) => void;
+  setTerminalChat: (v: boolean) => void;
   setDashboardKeyPromptOpen: (v: boolean) => void;
   finishOnboarding: () => void;
   showOnboardingAgain: () => void;
@@ -435,6 +437,7 @@ interface State {
 let proxyTimer: ReturnType<typeof setInterval> | null = null;
 let scheduleTimer: ReturnType<typeof setInterval> | null = null;
 let sessionPollTimer: ReturnType<typeof setInterval> | null = null;
+let sessionPollInFlight = false;
 let nextctlDailyUpdateTimer: ReturnType<typeof setInterval> | null = null;
 let vpsSetupReservations = 0;
 let localNextctlOperations = 0;
@@ -779,6 +782,7 @@ export const useStore = create<State>((set, get) => {
   sidebarWidth: Number(localStorage.getItem("sidebarWidth") ?? 300),
   sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "true",
   chatListCollapsed: localStorage.getItem("chatListCollapsed") === "true",
+  terminalChat: localStorage.getItem("terminalChat") === "true",
   dashboardKeyPromptOpen: false,
   accountPairing: undefined,
   nextctlVersion: "",
@@ -1423,16 +1427,24 @@ export const useStore = create<State>((set, get) => {
 
   startSessionPoll: () => {
     if (sessionPollTimer) return;
-    sessionPollTimer = setInterval(() => {
+    sessionPollTimer = setInterval(async () => {
       if (!runningTarget(get(), "local")) {
         if (sessionPollTimer) clearInterval(sessionPollTimer);
         sessionPollTimer = null;
+        sessionPollInFlight = false;
         return;
       }
-      if (pendingTarget(get(), "vps")) return;
-      get().loadProfiles().catch(() => {});
-      get().loadDefaultSession().catch(() => {});
-    }, 2000);
+      if (pendingTarget(get(), "vps") || sessionPollInFlight) return;
+      sessionPollInFlight = true;
+      try {
+        await Promise.all([
+          get().loadProfiles().catch(() => {}),
+          get().loadDefaultSession().catch(() => {}),
+        ]);
+      } finally {
+        sessionPollInFlight = false;
+      }
+    }, 5000);
   },
 
   login: async (key) => {
@@ -1646,7 +1658,11 @@ export const useStore = create<State>((set, get) => {
   loadProfiles: async () => {
     try {
       const list = await nextctlJson<{ profiles: Profile[] }>(["profiles", "ls"]);
-      set({ profiles: list.profiles, profileSessions: {} });
+      const statuses: Record<string, string> = {};
+      const profileSessions: Record<string, SessionStatus> = {};
+      const profileIdentities: Record<string, ProxyIdentity> = {};
+      const defaultIdentity = get().profileIdentities.__default;
+      if (defaultIdentity) profileIdentities.__default = defaultIdentity;
       trackEvent("profiles_loaded", {
         profile_count: list.profiles.length,
         country_count: new Set(list.profiles.map((p) => p.country).filter(Boolean)).size,
@@ -1654,22 +1670,20 @@ export const useStore = create<State>((set, get) => {
       for (const p of list.profiles) {
         try {
           const st = await nextctlJson<SessionStatus>(["status", "--profile", p.name]);
-          set((s) => ({
-            statuses: { ...s.statuses, [p.name]: st.status },
-            profileSessions: { ...s.profileSessions, [p.name]: st },
-          }));
+          statuses[p.name] = st.status;
+          profileSessions[p.name] = st;
           if (st.status === "running") {
             const identity = await verifyProxyIdentity(p.name);
-            if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, [p.name]: identity } }));
+            if (identity) profileIdentities[p.name] = identity;
+          } else if (get().profileIdentities[p.name]) {
+            profileIdentities[p.name] = get().profileIdentities[p.name];
           }
         } catch {
-          set((s) => {
-            const profileSessions = { ...s.profileSessions };
-            delete profileSessions[p.name];
-            return { statuses: { ...s.statuses, [p.name]: "unknown" }, profileSessions };
-          });
+          statuses[p.name] = "unknown";
+          if (get().profileIdentities[p.name]) profileIdentities[p.name] = get().profileIdentities[p.name];
         }
       }
+      set({ profiles: list.profiles, statuses, profileSessions, profileIdentities });
     } catch {
       /* non-fatal */
     }
@@ -1685,7 +1699,6 @@ export const useStore = create<State>((set, get) => {
       }
       trackEvent("default_profile_loaded", { status: st.status, backend: st.backend ?? "unknown" });
     } catch {
-      set({ defaultSession: undefined });
       trackEvent("default_profile_unavailable");
     }
   },
@@ -2216,6 +2229,10 @@ export const useStore = create<State>((set, get) => {
   setChatListCollapsed: (v) => {
     localStorage.setItem("chatListCollapsed", String(v));
     set({ chatListCollapsed: v });
+  },
+  setTerminalChat: (v) => {
+    localStorage.setItem("terminalChat", String(v));
+    set({ terminalChat: v });
   },
   setDashboardKeyPromptOpen: (v) => {
     trackEvent(v ? "dashboard_key_prompt_opened" : "dashboard_key_prompt_closed");

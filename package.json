@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "concurrently -k \"vite --port 1421\" \"wait-on tcp:1421 && cross-env VITE_DEV_SERVER_URL=http://localhost:1421 electron .\"",
     "build": "tsc && vite build",
-    "test": "vitest run --exclude electron/ssh-config.test.cjs --exclude electron/proxy-traffic.test.cjs && node --test electron/ssh-config.test.cjs electron/proxy-traffic.test.cjs",
+    "test": "vitest run --exclude electron/ssh-config.test.cjs --exclude electron/proxy-traffic.test.cjs && node --test electron/ssh-config.test.cjs electron/proxy-traffic.test.cjs && node scripts/verify-pty.cjs",
     "start": "electron .",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder --publish never",
@@ -20,8 +20,11 @@
     "icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "electron-updater": "^6.8.9",
     "lucide-react": "^1.22.0",
+    "node-pty": "^1.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",

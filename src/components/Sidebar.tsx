@@ -248,7 +248,6 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               {s.isRefreshing ? <Spinner size={12} /> : <Icon name="arrow.clockwise" size={12} />}
             </button>
             <span className="spacer" />
-            {s.anyAgentRunning() && <Spinner size={12} />}
           </div>
 
           <div className="session-quick-actions">
