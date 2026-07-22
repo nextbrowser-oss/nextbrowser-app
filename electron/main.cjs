@@ -593,6 +593,7 @@ async function invokeCommand(command, args = {}) {
       return null;
     }
     case "working_directory": { const dir = path.join(dataDir(), "workspace"); await fs.mkdir(dir, { recursive: true }); return dir; }
+    case "app_platform": return { platform: process.platform, arch: process.arch };
     case "agent_run": {
       const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} CLI not found.`);
       const spec = commandSpec(bin, args.args || []); const child = spawn(spec.file, spec.args, { cwd: args.workingDir || undefined, env: childEnv(), windowsHide: true, stdio: [args.stdinText != null ? "pipe" : "ignore", "pipe", "pipe"] });

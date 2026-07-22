@@ -22,6 +22,7 @@ import { internalError } from "./lib/userFacingError";
 import { invoke, listen } from "./electronBridge";
 import { agentById } from "./agents";
 import { UserFacingError } from "./components/UserFacingError";
+import { releaseDownloadUrl } from "./lib/releaseDownload";
 
 const TABS: { id: AppTab; label: string; icon: string }[] = [
   { id: "chat", label: "Chat", icon: "bubble.left.and.bubble.right.fill" },
@@ -284,7 +285,7 @@ function SettingsModal({
               {manualUpdate ? (
                 updateAvailable(appUpdate) ? (
                   <button className="mini primary-mini" onClick={onOpenRelease}>
-                    Open release page
+                    Download update
                   </button>
                 ) : null
               ) : (
@@ -449,7 +450,7 @@ function AppUpdatePrompt({
         </div>
         <p className="muted">
           {manual
-            ? "Open the releases page to download and install the new version."
+            ? "Download and install the new version."
             : downloaded
               ? "The update is downloaded. Restart to finish installing."
               : downloading
@@ -460,7 +461,7 @@ function AppUpdatePrompt({
           <button className="secondary" onClick={onLater}>Later</button>
           <span className="spacer" />
           {manual ? (
-            <button className="primary" onClick={onOpenRelease}>Open release page</button>
+            <button className="primary" onClick={onOpenRelease}>Download update</button>
           ) : (
             <button
               className="primary"
@@ -544,9 +545,18 @@ export function App() {
       setAppUpdate({ status: "error", message: internalError("We couldn't install the update.") });
     });
   };
-  const openLatestRelease = () => {
+  const openLatestRelease = async () => {
     trackEvent("app_update_open_release", { version: appUpdate.version ?? undefined });
-    window.open(latestReleaseUrl, "_blank", "noopener,noreferrer");
+    let url = latestReleaseUrl;
+    try {
+      const info = await invoke<{ platform: string; arch: string }>("app_platform");
+      url = releaseDownloadUrl(appUpdate.version, info.platform, info.arch);
+    } catch {
+      // Browser previews and unsupported packaged builds use the releases page.
+    }
+    await invoke("open_external", { url }).catch(() => {
+      window.open(url, "_blank", "noopener,noreferrer");
+    });
   };
   const openSettings = (focus: "agent" | null = null) => {
     setSettingsFocus(focus);
