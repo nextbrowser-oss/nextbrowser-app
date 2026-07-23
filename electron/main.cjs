@@ -446,13 +446,13 @@ async function invokeCommand(command, args = {}) {
       return null;
     }
     case "agent_authorize": {
-      const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} CLI not found.`);
+      const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} executable not found.`);
       const r = await run(bin, ["--version"]); if (r.code !== 0) throw new Error(`${args.binary} is not ready: ${(r.stdout + r.stderr).trim()}`);
       return (r.stdout + r.stderr).trim() || args.binary;
     }
     case "agent_check_login": {
       if (!args.statusArgs?.length) return null;
-      const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} CLI not found.`);
+      const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} executable not found.`);
       const r = await run(bin, args.statusArgs); const text = `${r.stdout}${r.stderr}`.toLowerCase();
       if (["not logged in", "logged out", "please run", "not authenticated"].some((v) => text.includes(v))) return false;
       if (["logged in", "authenticated", "account", "email", "subscription"].some((v) => text.includes(v))) return true;
@@ -460,7 +460,7 @@ async function invokeCommand(command, args = {}) {
       return r.code === 0;
     }
     case "open_terminal_login": {
-      const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} CLI not found.`);
+      const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} executable not found.`);
       const loginArgs = args.loginArgs || [];
       if (process.platform === "darwin") {
         const cmd = [bin, ...loginArgs].map(quotePosix).join(" ").replaceAll("\\", "\\\\").replaceAll('"', '\\"');
@@ -556,7 +556,7 @@ async function invokeCommand(command, args = {}) {
     }
     case "working_directory": { const dir = path.join(dataDir(), "workspace"); await fs.mkdir(dir, { recursive: true }); return dir; }
     case "agent_run": {
-      const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} CLI not found.`);
+      const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} executable not found.`);
       const spec = commandSpec(bin, args.args || []); const child = spawn(spec.file, spec.args, { cwd: args.workingDir || undefined, env: childEnv(), windowsHide: true, stdio: [args.stdinText != null ? "pipe" : "ignore", "pipe", "pipe"] });
       children.set(args.replyId, child); let stderr = "";
       child.stdout.on("data", (chunk) => emit("agent:chunk", [args.replyId, chunk.toString()]));

@@ -323,6 +323,24 @@ describe("VPS execution target isolation", () => {
     expect(localNextctlCalls()).toHaveLength(0);
   });
 
+  it("keeps missing Codex app failures actionable", async () => {
+    useStore.setState((state) => ({
+      runtime: {
+        ...state.runtime,
+        codex: { ...state.runtime.codex, ready: false, authorizing: false, error: undefined },
+      },
+    }));
+    bridge.invoke.mockRejectedValueOnce(
+      new Error("Error invoking remote method 'nextbrowser:invoke': Error: codex executable not found."),
+    );
+
+    await useStore.getState().authorizeAgent();
+
+    expect(useStore.getState().agentError()).toBe(
+      "ChatGPT desktop app with Codex not found. NextBrowser connects through the executable bundled with the app. Install it, then try again.",
+    );
+  });
+
   it("rejects a VPS marker inserted into a queued local turn", () => {
     const local = conversation("local", "local");
     useStore.setState({ conversations: [local], activeConvId: { codex: local.id } });

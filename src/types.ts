@@ -245,12 +245,13 @@ export function proxyFraction(p?: ProxyTraffic | null): number {
 }
 
 export function humanBytes(bytes: number): string {
-  const u = ["B", "KB", "MB", "GB", "TB"];
+  const u = ["B", "KiB", "MiB", "GiB", "TiB"];
   let n = bytes;
   let i = 0;
   while (n >= 1024 && i < u.length - 1) {
     n /= 1024;
     i++;
   }
-  return `${n.toFixed(n < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
+  const digits = n < 10 && i > 0 && !Number.isInteger(n) ? 1 : 0;
+  return `${n.toFixed(digits)} ${u[i]}`;
 }

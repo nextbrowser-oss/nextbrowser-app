@@ -5,6 +5,7 @@ import {
   domainsPageByTraffic,
   isProxyTrafficHistoryRangeValid,
   mergeProxyTrafficHistories,
+  proxyTrafficHistoryCoverage,
   proxyTrafficHistoryMaxDays,
   proxyTrafficHistoryPresetDays,
   proxyTrafficHistoryRequestDays,
@@ -43,6 +44,13 @@ describe("proxy traffic history range", () => {
       from: "2026-07-17",
       to: "2026-07-21",
     });
+  });
+
+  it("classifies complete, partial, and unavailable history loads", () => {
+    expect(proxyTrafficHistoryCoverage(3, 3)).toBe("complete");
+    expect(proxyTrafficHistoryCoverage(3, 2)).toBe("partial");
+    expect(proxyTrafficHistoryCoverage(3, 0)).toBe("unavailable");
+    expect(proxyTrafficHistoryCoverage(0, 0)).toBe("unavailable");
   });
 
   it("merges available backend windows and fills missing days with zeroes", () => {
@@ -157,7 +165,7 @@ describe("proxy traffic domain sorting", () => {
 });
 
 describe("proxy traffic top-up", () => {
-  it("matches the dashboard top-up cycle at 3 GB boundaries", () => {
+  it("matches the dashboard top-up cycle at 3 GiB boundaries", () => {
     expect(shouldShowProxyTrafficTopUp({
       limited: true,
       used_bytes: 3 * proxyTrafficTopUpBytes - proxyTrafficTopUpThresholdBytes - 1,

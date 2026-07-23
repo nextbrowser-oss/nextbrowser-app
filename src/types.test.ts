@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { conversationPreview, weekdaysSummary, type Conversation } from "./types";
+import { conversationPreview, humanBytes, weekdaysSummary, type Conversation } from "./types";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "./lib/countryFlag";
 import { normalizeNextctlVersion } from "./lib/version";
 
@@ -28,5 +28,12 @@ describe("Swift-compatible model helpers", () => {
     expect(ROTATION_COUNTRIES.map((c) => c.name)).toEqual(
       [...ROTATION_COUNTRIES.map((c) => c.name)].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })),
     );
+  });
+
+  it("labels binary byte units accurately", () => {
+    expect(humanBytes(1_000)).toBe("1000 B");
+    expect(humanBytes(1_024)).toBe("1 KiB");
+    expect(humanBytes(1.5 * 1024 * 1024)).toBe("1.5 MiB");
+    expect(humanBytes(1024 * 1024 * 1024)).toBe("1 GiB");
   });
 });

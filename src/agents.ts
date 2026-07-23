@@ -1,5 +1,5 @@
 // Agent catalog, a faithful port of clawdesk/Models/Models.swift `AgentKind`.
-// Claude Code & Codex are primary; the rest are best-effort CLI integrations.
+// Claude Code & Codex are primary; the rest are best-effort integrations.
 
 export type RunStyle =
   | "claudePrint"
@@ -24,6 +24,7 @@ export interface AgentSpec {
   logoutArgs: string[];
   statusArgs: string[] | null;
   installUrl?: string;
+  installKind: "cli" | "app";
 }
 
 function envVar(bin: string): string {
@@ -35,7 +36,14 @@ function spec(
   name: string,
   binary: string,
   runStyle: RunStyle,
-  opts: { primary?: boolean; loginArgs?: string[]; logoutArgs?: string[]; statusArgs?: string[] | null; installUrl?: string } = {},
+  opts: {
+    primary?: boolean;
+    loginArgs?: string[];
+    logoutArgs?: string[];
+    statusArgs?: string[] | null;
+    installUrl?: string;
+    installKind?: "cli" | "app";
+  } = {},
 ): AgentSpec {
   return {
     id,
@@ -48,12 +56,13 @@ function spec(
     logoutArgs: opts.logoutArgs ?? [],
     statusArgs: opts.statusArgs ?? null,
     installUrl: opts.installUrl,
+    installKind: opts.installKind ?? "cli",
   };
 }
 
 export const AGENTS: AgentSpec[] = [
-  spec("claude", "Claude Code", "claude", "claudePrint", { primary: true, loginArgs: ["auth", "login"], logoutArgs: ["auth", "logout"], statusArgs: ["auth", "status"], installUrl: "https://docs.anthropic.com/en/docs/claude-code/getting-started" }),
-  spec("codex", "Codex", "codex", "codexExec", { primary: true, loginArgs: ["login"], logoutArgs: ["logout"], statusArgs: ["login", "status"], installUrl: "https://learn.chatgpt.com/docs/codex/cli" }),
+  spec("claude", "Claude Code", "claude", "claudePrint", { primary: true, loginArgs: ["auth", "login"], logoutArgs: ["auth", "logout"], statusArgs: ["auth", "status"], installUrl: "https://code.claude.com/docs/en/installation" }),
+  spec("codex", "Codex", "codex", "codexExec", { primary: true, loginArgs: ["login"], logoutArgs: ["logout"], statusArgs: ["login", "status"], installUrl: "https://chatgpt.com/download/", installKind: "app" }),
   spec("hermes", "Hermes Agent", "hermes", "hermesOneshot", { loginArgs: ["setup"] }),
   spec("kilo", "Kilo Code", "kilo", "runSubcommand"),
   spec("openclaw", "OpenClaw", "openclaw", "openclawAgent", { loginArgs: ["onboard"] }),
@@ -86,6 +95,29 @@ export const ADDITIONAL_AGENTS = AGENTS.filter((a) => !a.primary);
 
 export function agentById(id: string): AgentSpec {
   return AGENTS.find((a) => a.id === id) ?? AGENTS[0];
+}
+
+export function agentInstallName(agent: AgentSpec): string {
+  if (agent.id === "codex") return "ChatGPT desktop app with Codex";
+  return agent.installKind === "app" ? `${agent.name} app` : `${agent.name} CLI`;
+}
+
+export function missingAgentInstallError(error: unknown, agent: AgentSpec): string | undefined {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
+  const binary = agent.binary.toLowerCase();
+  if (
+    !normalized.includes(`${binary} executable not found`)
+    && !normalized.includes(`${binary} cli not found`)
+  ) return undefined;
+  const requirement = agent.installKind === "app"
+    ? "NextBrowser connects through the executable bundled with the app."
+    : "NextBrowser needs the CLI executable to connect.";
+  return `${agentInstallName(agent)} not found. ${requirement} Install it, then try again.`;
+}
+
+export function isMissingAgentInstallError(message: string): boolean {
+  return /(?:CLI|app(?: with Codex)?) not found/i.test(message);
 }
 
 /** Adapter name understood by `nextctl install --agent`. */

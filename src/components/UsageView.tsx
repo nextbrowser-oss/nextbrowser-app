@@ -9,6 +9,7 @@ import {
   domainsPageByTraffic,
   isProxyTrafficHistoryRangeValid,
   mergeProxyTrafficHistories,
+  proxyTrafficHistoryCoverage,
   proxyTrafficHistoryMaxDays,
   proxyTrafficHistoryPresetDays,
   proxyTrafficHistoryWindows,
@@ -16,6 +17,7 @@ import {
   proxyTrafficWarning,
   shouldShowProxyTrafficTopUp,
   proxyTrafficDomainsPageSize,
+  type ProxyTrafficHistoryCoverage,
   type ProxyTrafficHistoryPreset,
 } from "../lib/proxyTraffic";
 import { formatHistoryDateLabel } from "../lib/trafficChart";
@@ -36,6 +38,13 @@ type TopUpNotice = { tone: "success" | "error"; message: string };
 const numberFormatter = new Intl.NumberFormat();
 const historyRequestConcurrency = 3;
 
+interface BackendHistoryResult {
+  coverage: ProxyTrafficHistoryCoverage;
+  history?: ProxyTrafficHistory;
+  loadedWindows: number;
+  requestedWindows: number;
+}
+
 function dateValue(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -53,7 +62,7 @@ async function loadBackendHistory(
   from: string,
   to: string,
   timezone: string,
-): Promise<ProxyTrafficHistory> {
+): Promise<BackendHistoryResult> {
   const windows = proxyTrafficHistoryWindows(from, to);
   const histories: ProxyTrafficHistory[] = [];
 
@@ -76,7 +85,15 @@ async function loadBackendHistory(
     }
   }
 
-  return mergeProxyTrafficHistories(histories, from, to, timezone);
+  const coverage = proxyTrafficHistoryCoverage(windows.length, histories.length);
+  return {
+    coverage,
+    history: histories.length
+      ? mergeProxyTrafficHistories(histories, from, to, timezone)
+      : undefined,
+    loadedWindows: histories.length,
+    requestedWindows: windows.length,
+  };
 }
 
 function peakPoint(points: ProxyTrafficHistoryPoint[]): ProxyTrafficHistoryPoint | undefined {
@@ -110,6 +127,12 @@ export function UsageView() {
   }, [history]);
 
   useEffect(() => {
+    if (!s.authed) {
+      setHistory(undefined);
+      setHistoryNotice("Sign in to view proxy usage.");
+      setHistoryLoading(false);
+      return;
+    }
     if (!isProxyTrafficHistoryRangeValid(from, to)) {
       setHistory(undefined);
       setHistoryNotice("Choose a valid range of up to 1 year.");
@@ -118,12 +141,25 @@ export function UsageView() {
     }
 
     let cancelled = false;
+    setHistory(undefined);
     setHistoryLoading(true);
     setHistoryNotice(undefined);
     void loadBackendHistory(from, to, timezone)
-      .then((proxyTrafficHistory) => {
+      .then((result) => {
         if (cancelled) return;
-        setHistory(proxyTrafficHistory);
+        setHistory(result.history);
+        if (result.coverage === "partial") {
+          setHistoryNotice(
+            `Some periods couldn't load (${result.loadedWindows} of ${result.requestedWindows}). Totals exclude them; gaps may appear as zero.`,
+          );
+        } else if (result.coverage === "unavailable") {
+          setHistoryNotice("Usage history is unavailable. No history data is shown.");
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setHistory(undefined);
+        setHistoryNotice("Usage history is unavailable. Try again.");
       })
       .finally(() => {
         if (!cancelled) setHistoryLoading(false);
@@ -131,7 +167,7 @@ export function UsageView() {
     return () => {
       cancelled = true;
     };
-  }, [from, historyReload, timezone, to]);
+  }, [from, historyReload, s.authed, timezone, to]);
 
   const applyPreset = (days: ProxyTrafficHistoryPreset) => {
     setPreset(days);
@@ -194,7 +230,12 @@ export function UsageView() {
           <h2>Proxy usage</h2>
           <p className="muted">Traffic, requests, and domains from NodeMaven.</p>
         </div>
-        <button className="btn-bordered" disabled={s.isRefreshing} onClick={() => void refreshUsage()}>
+        <button
+          className="btn-bordered"
+          disabled={s.isRefreshing || !s.authed}
+          title={s.authed ? "Refresh proxy usage" : "Sign in to refresh proxy usage"}
+          onClick={() => void refreshUsage()}
+        >
           {s.isRefreshing ? <Spinner size={13} /> : <Icon name="arrow.clockwise" size={13} />}
           Refresh
         </button>
@@ -205,8 +246,17 @@ export function UsageView() {
           <div>
             <div className="section">CURRENT ALLOCATION</div>
             <div className="proxy-usage-current-title">
-              {s.proxy ? humanBytes(s.proxy.used_bytes) : "Usage locked"}
-              <span className="muted"> / {s.proxy?.limit_bytes ? humanBytes(s.proxy.limit_bytes) : "unlimited"}</span>
+              {s.proxy ? humanBytes(s.proxy.used_bytes) : "Usage unavailable"}
+              {s.proxy && (
+                <span className="muted">
+                  {" / "}
+                  {s.proxy.limited
+                    ? s.proxy.limit_bytes != null
+                      ? humanBytes(s.proxy.limit_bytes)
+                      : "limit unavailable"
+                    : "no fixed limit"}
+                </span>
+              )}
             </div>
           </div>
           {s.proxy && <span className="status-pill proxy-state">{s.proxy.state}</span>}
@@ -230,7 +280,13 @@ export function UsageView() {
               />
             </div>
             <div className="row small proxy-usage-allocation-meta">
-              <span>{s.proxy.percent_used == null ? "Unlimited plan" : `${Math.round(s.proxy.percent_used)}% used`}</span>
+              <span>
+                {s.proxy.limited
+                  ? s.proxy.percent_used == null
+                    ? "Usage percentage unavailable"
+                    : `${Math.round(s.proxy.percent_used)}% used`
+                  : "No fixed traffic limit"}
+              </span>
               <span className="spacer" />
               {s.proxy.remaining_bytes != null && <span>{humanBytes(s.proxy.remaining_bytes)} remaining</span>}
             </div>
@@ -249,7 +305,7 @@ export function UsageView() {
                   onClick={() => void topUpProxyTraffic()}
                 >
                   {topUpLoading ? <Spinner size={13} /> : <Icon name="plus" size={13} />}
-                  {topUpLoading ? "Adding 1 GB" : "Add 1 GB"}
+                  {topUpLoading ? "Adding 1 GiB" : "Add 1 GiB"}
                 </button>
               </div>
             )}
@@ -266,6 +322,14 @@ export function UsageView() {
               </div>
             )}
           </>
+        ) : s.authed ? (
+          <div className="proxy-locked" role="status">
+            <Icon name="info.circle.fill" size={16} />
+            <span>
+              <strong>Allocation unavailable</strong>
+              <span className="muted small">Refresh to try loading the latest proxy allocation.</span>
+            </span>
+          </div>
         ) : (
           <button className="proxy-locked" onClick={() => s.setDashboardKeyPromptOpen(true)}>
             <Icon name="lock.fill" size={16} />
@@ -320,7 +384,7 @@ export function UsageView() {
               />
             </label>
           </div>
-          <span className="proxy-usage-source-badge backend">NodeMaven live</span>
+          <span className="proxy-usage-source-badge backend">NodeMaven data</span>
         </div>
 
         {historyNotice && (
@@ -362,6 +426,21 @@ export function UsageView() {
                 </div>
                 <Icon name="chart.bar.fill" size={18} className="accent-icon" />
               </div>
+              {history.sources.length > 0 && (
+                <div className="proxy-usage-source-totals" aria-label="Traffic source totals">
+                  <span className="muted">Source totals</span>
+                  <span className="spacer" />
+                  {history.sources.map((source) => (
+                    <span key={source.source}>
+                      <strong>{source.source === "browser" ? "Browser" : "Proxy"}</strong>
+                      {" "}
+                      {humanBytes(source.used_bytes)}
+                      {" · "}
+                      {numberFormatter.format(source.requests)} req
+                    </span>
+                  ))}
+                </div>
+              )}
               {points.length ? (
                 <TrafficChart points={points} />
               ) : (
@@ -374,7 +453,7 @@ export function UsageView() {
                 <div className="proxy-usage-card-heading">
                   <div>
                     <strong>Domains</strong>
-                    <span className="muted small">All destinations in this range · {topDomains.length} domains</span>
+                    <span className="muted small">Top destinations returned for this range · {topDomains.length} shown</span>
                   </div>
                   <Icon name="globe" size={18} />
                 </div>

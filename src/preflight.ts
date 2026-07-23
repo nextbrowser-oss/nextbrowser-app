@@ -1,7 +1,7 @@
 // Deterministic session preparation before scripts/skills run.
 // Port of clawdesk AppState.prepareSession + helpers.
 
-import { nextctlJson, nextctlRun } from "./nextctl";
+import { nextctlErrorMessage, nextctlJson, nextctlRun } from "./nextctl";
 import type { SessionStatus, TabsList } from "./types";
 
 export function hostOf(raw?: string | null): string {
@@ -44,33 +44,49 @@ async function hasUsablePage(args: string[]): Promise<boolean> {
 async function activateMatchingTab(args: string[], host: string): Promise<boolean> {
   const want = hostOf(host);
   if (!want) return false;
+  let list: TabsList;
   try {
-    const list = await nextctlJson<TabsList>([...args, "tabs", "list"]);
-    const match = list.tabs.find((t) => hostOf(t.url) === want);
-    if (!match) return false;
-    if (match.active || match.current) return true;
-    await nextctlRun([...args, "tabs", "activate", match.id, "--format", "json"]);
-    return true;
+    list = await nextctlJson<TabsList>([...args, "tabs", "list"]);
   } catch {
     return false;
+  }
+  const match = list.tabs.find((t) => hostOf(t.url) === want);
+  if (!match) return false;
+  if (match.active || match.current) return true;
+  await runChecked(
+    [...args, "tabs", "activate", match.id, "--format", "json"],
+    `Could not switch to ${host}`,
+  );
+  return true;
+}
+
+async function runChecked(args: string[], message: string): Promise<void> {
+  const result = await nextctlRun(args);
+  let envelopeFailed = false;
+  try {
+    const envelope = JSON.parse(result.stdout) as { ok?: boolean; error?: unknown };
+    envelopeFailed = envelope.ok === false || envelope.error != null;
+  } catch {
+    /* plain output is valid for older nextctl builds */
+  }
+  if (result.code !== 0 || envelopeFailed) {
+    throw new Error(`${message}: ${nextctlErrorMessage(result)}`);
   }
 }
 
-async function openBlankActivePage(args: string[]): Promise<boolean> {
-  try {
-    const data = await nextctlJson<{ tab?: { id: string } }>([
-      ...args,
-      "open",
-      "about:blank",
-      "--new-tab",
-    ]);
-    const id = data.tab?.id;
-    if (!id) return false;
-    await nextctlRun([...args, "tabs", "activate", id, "--format", "json"]);
-    return true;
-  } catch {
-    return false;
-  }
+async function openBlankActivePage(args: string[]): Promise<void> {
+  const data = await nextctlJson<{ tab?: { id: string } }>([
+    ...args,
+    "open",
+    "about:blank",
+    "--new-tab",
+  ]);
+  const id = data.tab?.id;
+  if (!id) throw new Error("Could not open a blank page: nextctl returned no tab.");
+  await runChecked(
+    [...args, "tabs", "activate", id, "--format", "json"],
+    "Could not activate the blank page",
+  );
 }
 
 export interface PrepareResult {
@@ -98,7 +114,10 @@ export async function prepareSession(opts: {
   if (running) {
     step("Session running");
   } else {
-    await nextctlRun([...args, "start", "--format", "json"]).catch(() => undefined);
+    await runChecked(
+      [...args, "start", "--format", "json"],
+      "Could not start NextBrowser",
+    );
     step("Started NextBrowser");
   }
 
@@ -107,11 +126,15 @@ export async function prepareSession(opts: {
       step(`Switched to ${rawHost}`);
     } else {
       const target = rawHost.includes("://") ? rawHost : `https://${rawHost}`;
-      await nextctlRun([...args, "open", target, "--format", "json"]).catch(() => undefined);
+      await runChecked(
+        [...args, "open", target, "--format", "json"],
+        `Could not open ${rawHost}`,
+      );
       step(`Opened ${rawHost}`);
     }
-    await nextctlRun([...args, "wait", "--load", "--timeout", "10s", "--format", "json"]).catch(
-      () => undefined,
+    await runChecked(
+      [...args, "wait", "--load", "--timeout", "10s", "--format", "json"],
+      `Could not finish loading ${rawHost}`,
     );
     step("Page ready");
   } else if (!(await hasUsablePage(args))) {

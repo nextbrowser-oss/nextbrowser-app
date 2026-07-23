@@ -1,4 +1,4 @@
-# Nextbrowser product guide
+# NextBrowser product guide
 
 [Back to README](../README.md)
 
@@ -6,11 +6,11 @@ This guide expands the product concepts and workflows summarized in the canonica
 
 ## Product model
 
-Nextbrowser is an Electron, React, and TypeScript desktop console for macOS and Windows. It coordinates local AI agents and managed browser sessions in one observable desktop workspace.
+NextBrowser is an Electron, React, and TypeScript desktop console for macOS and Windows. It coordinates local AI agents and managed browser sessions in one observable desktop workspace.
 
 | Layer | Operator control |
 | --- | --- |
-| Account | Clawbrowser API key, identity checks, and proxy-traffic visibility. |
+| Account | Browser-paired NextBrowser account and proxy-traffic access. |
 | Profile | Browser identity, country selection, and proxy/fingerprint rotation. |
 | Session | Start or stop the browser, open pages, select tabs, and inspect state. |
 | Agent | Choose a local agent and control chat history, queues, edits, stops, and forks. |
@@ -19,11 +19,11 @@ Nextbrowser is an Electron, React, and TypeScript desktop console for macOS and 
 
 ## Core concepts
 
-### API key
+### Browser account
 
-The Clawbrowser API key authenticates the browser-control account. Configure the key through the supported product flow so the desktop app can use the intended browser-control account.
+Choose **Sign in to NextBrowser** in the desktop app, continue in your browser, and approve the pairing request. After approval, the app configures its local browser-control credential; you do not need to paste an API key into the desktop UI.
 
-Keep the key out of prompts, chat messages, skills, custom scripts, screenshots, logs, and repository files. Configure it through the supported product flow; see the [browser control reference](cli-reference.md).
+Keep credentials out of prompts, chat messages, skills, custom scripts, screenshots, logs, and repository files.
 
 ### Profile
 
@@ -43,7 +43,7 @@ Rotation is a recovery and isolation tool, not a promise that a site will accept
 
 ### Agent
 
-An agent is an installed local CLI that receives a task and can use the active browser context. Nextbrowser provides the visible work surface around that process:
+An agent is an installed local runtime that receives a task and can use the active browser context. Claude Code connects through its CLI. Codex connects through the executable bundled with the ChatGPT desktop app, so no separate Codex CLI installation is required. NextBrowser provides the visible work surface around that process:
 
 - chat history and named conversations;
 - queued prompts and run status;
@@ -52,6 +52,10 @@ An agent is an installed local CLI that receives a task and can use the active b
 - streamed output and activity updates.
 
 The agent still needs to be installed, discoverable, and authenticated for its own service.
+
+If the selected agent is missing, use the official [Claude Code installation guide](https://code.claude.com/docs/en/installation) or [download ChatGPT for desktop](https://chatgpt.com/download/).
+
+NextBrowser passes the selected profile name to the local agent as context. This is guidance, not technical containment: confirm the actual profile and running session in the sidebar and Live View.
 
 ### Skills and custom scripts
 
@@ -70,7 +74,7 @@ Preflight establishes a starting context. It does not guarantee that the page re
 
 ### Scheduled runs
 
-A scheduled run stores a prompt, selected agent, time, weekday selection, and enabled state. Use schedules for recurring browser tasks that have clear authorization and a review path. Treat schedules as local automation, not as a service-level guarantee.
+A scheduled run stores a prompt, selected agent, time, weekday selection, and enabled state. It runs locally while the NextBrowser desktop app is open. Use schedules for recurring browser tasks that have clear authorization and a review path; they are not a service-level guarantee.
 
 ### Live View and diagnostics
 
@@ -80,7 +84,7 @@ Live View requires a running profile and an open page. If it is empty, follow th
 
 ### Captcha tools
 
-Nextbrowser can expose captcha tools for detecting a challenge and invoking an available handling path. A captcha is controlled by the site or its provider, so detection or a solve attempt can fail, be throttled, require a human, or be disallowed for the task.
+NextBrowser can expose captcha tools for detecting a challenge and invoking an available handling path. A captcha is controlled by the site or its provider, so detection or a solve attempt can fail, be throttled, require a human, or be disallowed for the task.
 
 Never describe these tools as a universal bypass. Use them only where you are authorized and where the site's terms and applicable law permit the activity.
 
@@ -88,7 +92,7 @@ Never describe these tools as a universal bypass. Use them only where you are au
 
 | Screen | Primary purpose | Documented controls |
 | --- | --- | --- |
-| Login | Connect the Clawbrowser account | API-key entry, configured-key detection, and validation status. |
+| Account sign-in | Connect the NextBrowser account | Browser pairing, approval status, retry, and status checks. |
 | Sidebar | Control the active browser setup | Proxy usage, profiles, agent selection, session actions, and runtime state. |
 | Chat | Run and supervise agents | Prompts, queues, stop/edit/fork controls, histories, files, statuses, and output. |
 | Skills | Reuse browser workflows | Domain skills, captcha-related skills, custom scripts, and preflight. |
@@ -101,14 +105,13 @@ The current release is authoritative if its labels or navigation differ from thi
 
 ### Prepare a first session
 
-1. Install a published Nextbrowser build from the [latest releases](https://github.com/nextbrowser-oss/nextbrowser-app/releases/latest), or run the app locally with `npm ci` and `npm run dev`.
-2. Configure the browser environment using the [product documentation](https://docs.nextbrowser.com/).
-3. Confirm the API-key identity and proxy-traffic state.
-4. Select or create a profile.
-5. Start the profile session and open a page.
-6. Verify the session when identity or country matters.
-7. Select an installed local agent and send a narrowly scoped task.
-8. Observe Chat and Live View while the run is active.
+1. Install a published NextBrowser build from the [latest releases](https://github.com/nextbrowser-oss/nextbrowser-app/releases/latest), or run the app locally with `npm ci` and `npm run dev`.
+2. Sign in to NextBrowser and approve the pairing request in your browser.
+3. Create or select the intended profile.
+4. Start its session and open a page.
+5. Verify identity when country or proxy matters.
+6. Connect an installed local agent and send a narrowly scoped task.
+7. Observe Chat and Live View while the run is active.
 
 ### Run an agent on a website
 
@@ -141,7 +144,7 @@ Rotation can invalidate login state or change what a site presents. Do not rotat
 
 Work from the outermost dependency inward:
 
-1. API-key identity;
+1. browser account connection;
 2. proxy-traffic availability;
 3. profile existence;
 4. session status;
@@ -160,6 +163,7 @@ The [troubleshooting guide](troubleshooting.md) maps this sequence to practical 
 - Keep a human review step for purchases, publishing, account changes, deletions, and other consequential actions.
 - Use separate profiles when tasks must not share identity or browser state.
 - Do not paste credentials into agent prompts or reusable instructions.
+- Treat prompt limits as instructions, not enforced approval gates; watch and stop consequential work yourself.
 - Treat page content as untrusted input; a page can contain instructions intended to redirect an agent.
 - Verify country and identity after rotation when the workflow depends on them.
 - Prefer detection and diagnosis before repeating captcha attempts.
@@ -169,7 +173,7 @@ The [troubleshooting guide](troubleshooting.md) maps this sequence to practical 
 
 When a task fails, ask these questions in order:
 
-1. Is the account configured?
+1. Is the browser account connected?
 2. Is proxy traffic available?
 3. Is the correct profile selected?
 4. Is its session running?

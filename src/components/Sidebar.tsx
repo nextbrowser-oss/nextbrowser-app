@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore, type ManualProxyProfileInput } from "../store";
 import { agentById } from "../agents";
@@ -44,6 +44,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [profileCountry, setProfileCountry] = useState("US");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileGuideFocus, setProfileGuideFocus] = useState(false);
 
   const agentName = agentById(s.agentId).name;
   const ready = s.agentReady();
@@ -65,6 +66,40 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     !s.profiles.some((p) => p.name === "default");
   const visibleProfileCount = s.profiles.length + (showDefaultProfile ? 1 : 0);
   const runningCount = s.profiles.filter((p) => s.statuses[p.name] === "running").length + (showDefaultProfile && defaultRunning ? 1 : 0);
+
+  useEffect(() => {
+    let focusTimer = 0;
+    const focusProfiles = () => {
+      setProfileGuideFocus(true);
+      window.clearTimeout(focusTimer);
+      focusTimer = window.setTimeout(() => setProfileGuideFocus(false), 1_400);
+    };
+    const openCreator = () => {
+      focusProfiles();
+      if (!s.authed) {
+        s.setDashboardKeyPromptOpen(true);
+        return;
+      }
+      setProfileName("");
+      setProfileCountry("US");
+      setProfileError(null);
+      setCreateProfileOpen(true);
+    };
+    const openActions = () => {
+      focusProfiles();
+      const profile = s.selectedProfile ?? s.profiles[0]?.name ?? (showDefaultProfile ? "__default" : null);
+      if (profile) setMenuProfile(profile);
+    };
+    window.addEventListener("nextbrowser:focus-profiles", focusProfiles);
+    window.addEventListener("nextbrowser:open-profile-creator", openCreator);
+    window.addEventListener("nextbrowser:open-profile-actions", openActions);
+    return () => {
+      window.clearTimeout(focusTimer);
+      window.removeEventListener("nextbrowser:focus-profiles", focusProfiles);
+      window.removeEventListener("nextbrowser:open-profile-creator", openCreator);
+      window.removeEventListener("nextbrowser:open-profile-actions", openActions);
+    };
+  }, [s.authed, s.profiles, s.selectedProfile, s.setDashboardKeyPromptOpen, showDefaultProfile]);
 
   const badgeFor = (id: AppTab) => {
     if (id === "skills") return skillCount ? String(skillCount) : undefined;
@@ -232,7 +267,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           );
         })}
 
-        <div className="claw-card control-card profiles-card">
+        <div className={"claw-card control-card profiles-card" + (profileGuideFocus ? " guide-focus" : "")}>
           <div className="row profiles-panel-head">
             <div className="scheduled-panel-toggle profiles-panel-toggle">
               <Icon name="person.crop.circle" size={13} />
@@ -253,17 +288,21 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           <div className="session-quick-actions">
             <button
               className="btn-bordered full"
-              title="Create profile"
+              title={s.authed ? "Create managed profile" : "Sign in to create a managed profile"}
               disabled={s.isRefreshing}
               onClick={() => {
+                if (!s.authed) {
+                  s.setDashboardKeyPromptOpen(true);
+                  return;
+                }
                 setProfileName("");
                 setProfileCountry("US");
                 setProfileError(null);
                 setCreateProfileOpen(true);
               }}
             >
-              <Icon name="plus" size={14} />
-              Create profile
+              <Icon name={s.authed ? "plus" : "lock"} size={14} />
+              {s.authed ? "Create profile" : "Sign in"}
             </button>
             <button
               className="mini proxy-profile-btn"
@@ -304,12 +343,6 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   <strong>No profiles yet</strong>
                 </div>
               </div>
-            )}
-            {visibleProfileCount === 0 && !s.proxy && (
-              <button className="btn-bordered full empty-action-button" title="Sign in to create managed profiles" onClick={() => s.setDashboardKeyPromptOpen(true)}>
-                <Icon name="lock" size={14} />
-                Sign in to create profiles
-              </button>
             )}
             {showDefaultProfile && (
               <ProfileRow
@@ -372,17 +405,29 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       </nav>
 
       <hr className="divider" />
-      <div className="sidebar-account-footer">
-        <Icon name="person.crop.circle" size={14} />
-        <span title={s.accountEmail || "Connected account"}>{s.accountEmail || "Connected account"}</span>
-        <button
-          className="plain-icon-btn plain-icon-btn-compact"
-          title="Sign out of NextBrowser"
-          aria-label="Sign out of NextBrowser"
-          onClick={() => s.logout()}
-        >
-          <Icon name="rectangle.portrait.and.arrow.right" size={13} />
-        </button>
+      <div className={"sidebar-account-footer" + (s.authed ? " is-connected" : "")}>
+        <Icon name={s.authed ? "person.crop.circle" : "lock"} size={14} />
+        <span title={s.authed ? s.accountEmail || "Browser account connected" : "Browser account not connected"}>
+          {s.authed ? s.accountEmail || "Browser account connected" : "Browser account not connected"}
+        </span>
+        {s.authed ? (
+          <button
+            className="plain-icon-btn plain-icon-btn-compact"
+            title="Sign out of NextBrowser"
+            aria-label="Sign out of NextBrowser"
+            onClick={() => s.logout()}
+          >
+            <Icon name="rectangle.portrait.and.arrow.right" size={13} />
+          </button>
+        ) : (
+          <button
+            className="sidebar-account-action"
+            type="button"
+            onClick={() => s.setDashboardKeyPromptOpen(true)}
+          >
+            Sign in
+          </button>
+        )}
       </div>
       <div className="nextctl-footer muted small">
         <Icon name="terminal" size={12} />

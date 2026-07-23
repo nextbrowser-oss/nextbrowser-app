@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ComponentType, type ReactNode } from "react";
+import { saveGuideDraft } from "../lib/guideDraft";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
 
@@ -72,11 +73,11 @@ function LaunchBrowserDemo({ phase }: { phase: number }) {
           <span className="demo-accent-bar" />
           <span className="muted">Chat</span>
           <span className="spacer" />
-          <span className="ok small">Claude Code</span>
+          <span className="ok small">Agent</span>
         </div>
-        <DemoChatBubble text="Open Clawbrowser and go to amazon.com" opacity={chatOpacity} />
+        <DemoChatBubble text="Open the selected profile and go to amazon.com/deals" opacity={chatOpacity} />
         <DemoChatBubble
-          text="Starting session… opening amazon.com"
+          text="Plan: start the session, then open the page"
           side="assistant"
           opacity={replyOpacity}
         />
@@ -116,7 +117,7 @@ function SpanishProxyDemo({ phase }: { phase: number }) {
           </div>
           <div className="demo-profile-active">
             <Icon name="person.crop.circle.fill" size={10} />
-            <span>work-session</span>
+            <span>selected-profile</span>
             <span className="spacer" />
             <span className="dot green" />
           </div>
@@ -131,14 +132,14 @@ function SpanishProxyDemo({ phase }: { phase: number }) {
           )}
         </div>
         <div className="demo-proxy-main">
-          <DemoChatBubble text="Start Clawbrowser with a proxy (ES)" />
+          <DemoChatBubble text="Rotate this profile to ES, then verify it" />
           {esSelected && (
             <div className="demo-es-badge">🇪🇸 Spain ✓</div>
           )}
           <div className="demo-proxy-active" style={{ opacity: badgeOpacity }}>
             <Icon name="network" size={10} />
-            <span>ES · Madrid</span>
-            <span className="muted small">proxy active</span>
+            <span>ES</span>
+            <span className="muted small">verify country & IP</span>
           </div>
         </div>
       </div>
@@ -146,36 +147,36 @@ function SpanishProxyDemo({ phase }: { phase: number }) {
   );
 }
 
-function ParseListingsDemo({ phase }: { phase: number }) {
+function PublishedSkillDemo({ phase }: { phase: number }) {
   const chipOpacity = phase < 0.7 ? 1 : Math.max(0, 1 - (phase - 0.7) * 6);
   const rowsVisible = Math.min(4, Math.floor(Math.max(0, phase - 0.22) * 6));
   const rows = [
-    ["2BR · Downtown", "$1,850"],
-    ["Studio · North", "$1,420"],
-    ["3BR · Riverside", "$2,650"],
-    ["Loft · West End", "$1,990"],
+    ["Item A", "$18"],
+    ["Item B", "$24"],
+    ["Item C", "$31"],
+    ["Item D", "$42"],
   ];
 
   return (
     <DemoCanvas>
       <div className="demo-parse">
-        <div className="muted small">Skills → Use</div>
+        <div className="muted small">Skills → Apply</div>
         <div className="demo-skill-chip" style={{ opacity: chipOpacity }}>
           <Icon name="sparkles" size={12} />
           <div>
             <div className="muted" style={{ fontSize: 8 }}>
-              Use skill
+              Example skill
             </div>
-            <strong style={{ fontSize: 10 }}>Cian listings</strong>
+            <strong style={{ fontSize: 10 }}>Data extractor</strong>
             <div className="muted" style={{ fontSize: 8 }}>
-              cian.ru
+              published workflow
             </div>
           </div>
         </div>
         {rowsVisible > 0 && (
           <div className="demo-table">
             <div className="ok small" style={{ fontWeight: 600 }}>
-              Extracted 12 listings
+              Example structured output
             </div>
             <div className="demo-table-head">
               <span>Listing</span>
@@ -195,8 +196,8 @@ function ParseListingsDemo({ phase }: { phase: number }) {
 }
 
 function CaptchaSolveDemo({ phase }: { phase: number }) {
-  const solving = phase > 0.28 && phase < 0.62;
-  const solved = phase >= 0.62;
+  const checking = phase > 0.28 && phase < 0.62;
+  const needsHuman = phase >= 0.62;
 
   return (
     <DemoCanvas>
@@ -204,65 +205,111 @@ function CaptchaSolveDemo({ phase }: { phase: number }) {
         <DemoBrowserChrome url="accounts.site.com/signup" />
         <div className="demo-captcha-body">
           <div className="demo-field" />
-          <div className={"demo-captcha-box" + (solved ? " solved" : "")}>
+          <div className="demo-captcha-box">
             <div className="demo-checkbox">
-              {solving && <span className="spin">◌</span>}
-              {solved && <span className="ok">✓</span>}
+              {checking && <span className="spin">◌</span>}
+              {needsHuman && <span>!</span>}
             </div>
             <div>
               <strong style={{ fontSize: 9 }}>
-                {solved ? "Captcha solved" : solving ? "Solving…" : "I'm not a robot"}
+                {needsHuman ? "Human check needed" : checking ? "Checking support…" : "Challenge detected"}
               </strong>
-              {solved && <div className="ok small">reCAPTCHA v2 · auto</div>}
+              {needsHuman && <div className="muted small">continue in Live View</div>}
             </div>
             <Icon
               name="checkmark.shield.fill"
               size={16}
-              className={solved ? "ok" : "muted"}
+              className="muted"
             />
           </div>
-          <div className={"demo-submit" + (solved ? " on" : "")} />
+          <div className="demo-submit" />
         </div>
       </div>
     </DemoCanvas>
   );
 }
 
-const DEMOS = [
+type GuideUsageAction =
+  | { kind: "chat"; prompt: string }
+  | { kind: "skills"; category?: "captcha" };
+
+export const GUIDE_USAGE_DEMOS: Array<{
+  title: string;
+  caption: string;
+  tint: string;
+  action: GuideUsageAction;
+  actionLabel: string;
+  Demo: ComponentType<{ phase: number }>;
+}> = [
   {
-    title: "Launch Clawbrowser",
-    caption: "Ask the agent in chat — it opens a managed Clawbrowser session for you.",
+    title: "Open a browser",
+    caption: "Review a ready-made prompt in Chat, then send it when your agent and profile are ready.",
     tint: "#5ac8fa",
-    tryPrompt: "Open Clawbrowser and navigate to amazon.com/deals",
+    action: {
+      kind: "chat",
+      prompt:
+        "Using the selected NextBrowser profile, start its browser session if needed and navigate to https://amazon.com/deals. Stop and report if the session cannot start or navigation fails.",
+    },
+    actionLabel: "Open in Chat",
     Demo: LaunchBrowserDemo,
   },
   {
-    title: "Proxy",
-    caption: "Rotate country to ES so the session exits through Spain.",
+    title: "Rotate proxy to Spain",
+    caption: "Review a prompt that requests country ES and verifies the resulting country and IP.",
     tint: "#ff9500",
-    tryPrompt: "Using the nextctl CLI, start the active browser profile with verification and confirm its current proxy country and IP.",
+    action: {
+      kind: "chat",
+      prompt:
+        "For the selected NextBrowser profile, rotate its proxy country to ES, start the session if needed, verify the resulting proxy country and IP, then report the result. Stop and report if rotation or verification fails.",
+    },
+    actionLabel: "Open in Chat",
     Demo: SpanishProxyDemo,
   },
   {
-    title: "Parse listings",
-    caption: "Apply a skill, hit Use, and let the agent extract structured data.",
+    title: "Use a published skill",
+    caption: "See what's currently available, then apply a workflow before you run it.",
     tint: "#63e6e2",
-    tryPrompt:
-      "Use the Cian listings skill to extract structured apartment data from cian.ru.",
-    Demo: ParseListingsDemo,
+    action: { kind: "skills" },
+    actionLabel: "Browse skills",
+    Demo: PublishedSkillDemo,
   },
   {
-    title: "Solve captcha",
-    caption: "Captcha skills unblock sign-up and form flows automatically.",
+    title: "Handle a captcha",
+    caption: "Check for a compatible handler, and use Live View when human input is needed.",
     tint: "#34c759",
-    tryPrompt:
-      "Sign up on the target site and auto-solve any reCAPTCHA using the installed captcha skill.",
+    action: { kind: "skills", category: "captcha" },
+    actionLabel: "Browse skills",
     Demo: CaptchaSolveDemo,
   },
 ];
 
 export function GuideUsageSection() {
-  const tryPrompt = useStore((s) => s.tryGuidePrompt);
+  const setTab = useStore((s) => s.setTab);
+  const captchaCategory = useStore((s) =>
+    s.skillCategories.find((category) =>
+      category.entries.some((entry) => entry.selector.kind === "captcha"),
+    ),
+  );
+
+  const openDemo = (demo: (typeof GUIDE_USAGE_DEMOS)[number]) => {
+    if (demo.action.kind === "chat") {
+      const prompt = saveGuideDraft(localStorage, demo.action.prompt);
+      if (!prompt) return;
+      window.dispatchEvent(new CustomEvent("nextbrowser:guide-draft", { detail: prompt }));
+      setTab("chat");
+      return;
+    }
+
+    if (demo.action.category === "captcha" && captchaCategory) {
+      localStorage.setItem("openSkillsCategory", captchaCategory.id);
+    }
+    setTab("skills");
+    if (demo.action.category === "captcha" && captchaCategory) {
+      window.requestAnimationFrame(() => window.dispatchEvent(
+        new CustomEvent("nextbrowser:open-skills-category", { detail: captchaCategory.id }),
+      ));
+    }
+  };
 
   return (
     <section className="guide-usage">
@@ -270,26 +317,39 @@ export function GuideUsageSection() {
         <Icon name="play.rectangle.on.rectangle.fill" size={20} />
         Usage
       </h3>
-      <p className="muted">Animated walkthroughs — how a typical session looks.</p>
+      <p className="muted">Illustrative previews, not live results. Chat examples open as drafts; Skills shows what's available now.</p>
       <div className="usage-grid">
-        {DEMOS.map((d) => (
-          <div key={d.title} className="usage-card claw-card">
-            <div className="demo-player-wrap">
-              <DemoPlayer>
-                {(phase) => <d.Demo phase={phase} />}
-              </DemoPlayer>
-              <span className="demo-live-badge" style={{ color: d.tint }}>
-                <span className="live-dot" style={{ background: d.tint }} />
-                LIVE
+        {GUIDE_USAGE_DEMOS.map((d) => {
+          const isCaptchaSkills = d.action.kind === "skills" && d.action.category === "captcha";
+          const actionLabel = isCaptchaSkills && captchaCategory
+            ? `Open ${captchaCategory.title}`
+            : d.actionLabel;
+          return (
+            <button
+              key={d.title}
+              type="button"
+              className="usage-card claw-card"
+              data-guide-demo={d.title}
+              aria-label={`${actionLabel}: ${d.title}`}
+              onClick={() => openDemo(d)}
+            >
+              <div className="demo-player-wrap">
+                <DemoPlayer>
+                  {(phase) => <d.Demo phase={phase} />}
+                </DemoPlayer>
+                <span className="demo-illustration-badge" style={{ color: d.tint }}>
+                  ILLUSTRATION
+                </span>
+              </div>
+              <strong className="usage-card-title">{d.title}</strong>
+              <p className="muted small usage-card-caption">{d.caption}</p>
+              <span className="usage-card-action" style={{ color: d.tint }}>
+                {actionLabel}
+                <Icon name="chevron.right" size={13} />
               </span>
-            </div>
-            <strong className="usage-card-title">{d.title}</strong>
-            <p className="muted small usage-card-caption">{d.caption}</p>
-            <button className="btn-bordered small usage-try-btn" onClick={() => tryPrompt(d.tryPrompt)}>
-              Try in chat
             </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

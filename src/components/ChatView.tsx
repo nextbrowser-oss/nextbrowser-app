@@ -12,6 +12,8 @@ import { trackEvent } from "../lib/analytics";
 import { needsSupportLink } from "../lib/userFacingError";
 import { VPSSetupModal } from "./VPSSetupModal";
 import { UserFacingError } from "./UserFacingError";
+import { AgentInstallLink } from "./AgentInstallLink";
+import { takeGuideDraft } from "../lib/guideDraft";
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -57,11 +59,13 @@ export function ChatView() {
   const ready = s.agentReady();
   const agentDetected = !!s.agentVersion();
   const agentNeedsLogin = agentDetected && s.agentLoggedIn() === false;
+  const agentError = s.agentError();
   const running = s.hasRunning();
   const queued = s.queuedCount();
   const collapsed = s.chatListCollapsed;
 
   const [draft, setDraft] = useState("");
+  const [guideDraftLoaded, setGuideDraftLoaded] = useState(false);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [scriptOpen, setScriptOpen] = useState(false);
   const [renameId, setRenameId] = useState<string | null>(null);
@@ -72,6 +76,25 @@ export function ChatView() {
   const [promptDetail, setPromptDetail] = useState<string | null>(null);
   const [vpsSetupOpen, setVPSSetupOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const stageDraft = (value: string) => {
+      const next = value.trim();
+      if (!next) return;
+      setDraft(next);
+      setGuideDraftLoaded(true);
+      window.requestAnimationFrame(() => composerRef.current?.focus());
+    };
+    const stored = takeGuideDraft(localStorage);
+    if (stored) stageDraft(stored);
+    const onGuideDraft = (event: Event) => {
+      const staged = takeGuideDraft(localStorage);
+      if (event instanceof CustomEvent) stageDraft(staged ?? String(event.detail ?? ""));
+    };
+    window.addEventListener("nextbrowser:guide-draft", onGuideDraft);
+    return () => window.removeEventListener("nextbrowser:guide-draft", onGuideDraft);
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -81,6 +104,7 @@ export function ChatView() {
     const t = draft.trim();
     if (!t && attachments.length === 0) return;
     setDraft("");
+    setGuideDraftLoaded(false);
     s.enqueue(t || "Please inspect the attached file(s).", undefined, undefined, attachments);
     setAttachments([]);
   };
@@ -158,7 +182,8 @@ export function ChatView() {
     return next?.role === "assistant" && next.status === "queued" ? next : undefined;
   };
 
-  const agentName = agentById(agentId).name;
+  const agentSpec = agentById(agentId);
+  const agentName = agentSpec.name;
   const showDefaultSession =
     !s.selectedProfile && s.defaultSession?.status === "running";
 
@@ -276,7 +301,7 @@ export function ChatView() {
               <div>
                 <strong>{agentNeedsLogin ? `Sign in to ${agentName}` : ready ? "Ready for browser work" : "Connect an agent"}</strong>
                 <p className="muted">
-                  Choose the next step and NextBrowser will keep the active agent, profile, and browser session in sync.
+                  Choose the next step, then confirm the selected agent, profile, and running session before you send a task.
                 </p>
               </div>
               <div className="empty-actions">
@@ -373,6 +398,30 @@ export function ChatView() {
         </div>
 
         <hr className="divider" />
+        {!ready && agentError && (
+          <div className="chat-agent-error error small">
+            <UserFacingError message={agentError} surface="agent_chat" />
+            <AgentInstallLink agent={agentSpec} error={agentError} surface="agent_chat" />
+          </div>
+        )}
+        {guideDraftLoaded && (
+          <div className="guide-draft-notice" role="status">
+            <Icon name="doc.text" size={14} />
+            <span>
+              <strong>Example loaded.</strong>{" "}
+              {ready ? "Review it, then send when ready." : "Connect an agent before sending."}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setDraft("");
+                setGuideDraftLoaded(false);
+              }}
+            >
+              Clear
+            </button>
+          </div>
+        )}
         {attachments.length > 0 && (
           <div className="pending-attachments">
             {attachments.map((file) => (
@@ -393,6 +442,7 @@ export function ChatView() {
         )}
         <div className="composer" onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
           <textarea
+            ref={composerRef}
             value={draft}
             placeholder={
               ready

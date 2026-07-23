@@ -24,6 +24,8 @@ export interface ProxyTrafficHistoryWindow {
   to: string;
 }
 
+export type ProxyTrafficHistoryCoverage = "complete" | "partial" | "unavailable";
+
 const historyDatePattern = /^(\d{4})[.-](\d{1,2})[.-](\d{1,2})$/;
 
 function isoDate(value: Date): string {
@@ -85,6 +87,14 @@ export function proxyTrafficHistoryWindows(
     cursor = shiftISODate(end, 1);
   }
   return windows;
+}
+
+export function proxyTrafficHistoryCoverage(
+  requestedWindows: number,
+  loadedWindows: number,
+): ProxyTrafficHistoryCoverage {
+  if (requestedWindows < 1 || loadedWindows < 1) return "unavailable";
+  return loadedWindows >= requestedWindows ? "complete" : "partial";
 }
 
 export function mergeProxyTrafficHistories(

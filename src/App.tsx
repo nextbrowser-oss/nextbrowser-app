@@ -22,6 +22,7 @@ import { internalError } from "./lib/userFacingError";
 import { invoke, listen } from "./electronBridge";
 import { agentById } from "./agents";
 import { UserFacingError } from "./components/UserFacingError";
+import { AgentInstallLink } from "./components/AgentInstallLink";
 
 const TABS: { id: AppTab; label: string; icon: string }[] = [
   { id: "chat", label: "Chat", icon: "bubble.left.and.bubble.right.fill" },
@@ -220,7 +221,6 @@ function SettingsModal({
   const agentName = agentSpec.name;
   const agentDetected = !!agentVersion;
   const agentNeedsLogin = agentDetected && agentLoggedIn === false;
-  const showAgentInstall = !!agentSpec.installUrl && /CLI not found/i.test(agentError ?? "");
   const proxyUsed = proxy ? humanBytes(proxy.used_bytes) : "Locked";
   const proxyLimit = proxy?.limit_bytes ? humanBytes(proxy.limit_bytes) : proxy ? "unlimited" : "Sign in";
   const proxyPercent = proxy?.limited ? Math.round(proxyFraction(proxy) * 100) : null;
@@ -362,12 +362,7 @@ function SettingsModal({
             {agentError && (
               <div className="error small settings-agent-error">
                 <UserFacingError message={agentError} surface="agent_settings" />
-                {showAgentInstall && (
-                  <button className="agent-install-link" onClick={() => void invoke("open_external", { url: agentSpec.installUrl })}>
-                    Install {agentName}
-                    <Icon name="arrow.up.forward.app" size={12} />
-                  </button>
-                )}
+                <AgentInstallLink agent={agentSpec} error={agentError} surface="agent_settings" />
               </div>
             )}
           </div>
@@ -633,7 +628,16 @@ export function App() {
       return;
     }
     if (preview === "onboarding") {
-      useStore.setState({ checking: false, authed: true, showOnboarding: true, nextctlVersion: "1.0.0" });
+      useStore.setState({
+        checking: false,
+        authed: false,
+        showOnboarding: true,
+        nextctlVersion: "1.0.0",
+        profiles: [],
+        statuses: {},
+        defaultSession: undefined,
+        proxy: undefined,
+      });
       return;
     }
     if (preview === "main") {
@@ -813,7 +817,7 @@ export function App() {
           {tab === "skills" && <SkillsView onOpenAgentSettings={() => openSettings("agent")} />}
           {tab === "live" && <LiveView />}
           {tab === "usage" && <UsageView />}
-          {tab === "guide" && <GuideView />}
+          {tab === "guide" && <GuideView onOpenAgentSettings={() => openSettings("agent")} />}
           {tab === "scheduled" && (
             <div className="page scheduled-page">
               <ScheduledRunsPanel asPage />

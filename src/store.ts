@@ -12,6 +12,7 @@ import {
   AGENTS,
   agentById,
   agentInvocation,
+  missingAgentInstallError,
   nextctlAgentAdapter,
   type AgentSpec,
 } from "./agents";
@@ -30,6 +31,10 @@ import { normalizeNextctlVersion } from "./lib/version";
 import { proxyTrafficWarning } from "./lib/proxyTraffic";
 import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
 import { internalError } from "./lib/userFacingError";
+import {
+  hasCompletedCurrentOnboarding,
+  saveOnboardingCompletion,
+} from "./lib/onboarding";
 import type { RemoteStreamInfo } from "./remoteControl";
 import { loadJson, saveJson } from "./lib/storage";
 import { apiBaseUrl } from "./constants";
@@ -426,6 +431,7 @@ interface State {
   appendToMessage: (cid: string, mid: string, chunk: string) => void;
   makeStepMessage: (cid: string) => string;
   appendStep: (cid: string, mid: string, step: string) => void;
+  failStep: (cid: string, mid: string, error: unknown) => void;
   startSessionPoll: () => void;
   tickNextctlDailyUpdate: () => Promise<void>;
   ensureConversation: (agentId: string) => void;
@@ -593,20 +599,23 @@ async function verifyProxyIdentity(profile?: string): Promise<ProxyIdentity | un
   }
 }
 
-async function refreshAnalyticsIdentity(): Promise<void> {
+async function refreshAnalyticsIdentity(): Promise<boolean> {
   const wrap = await nextctlJson<{ identity: APIKeyIdentity }>(["identity"]);
-  const ownerId = wrap.identity.owner_id?.trim();
-  const accountEmail = wrap.identity.email?.trim();
+  const valid = wrap.identity?.valid === true;
+  const ownerId = valid ? wrap.identity.owner_id?.trim() : undefined;
+  const accountEmail = valid ? wrap.identity.email?.trim() : undefined;
   setAnalyticsUserId(ownerId || undefined);
   useStore.setState({ accountEmail: accountEmail || undefined });
   trackEvent("analytics_identity_loaded", {
+    valid,
     has_owner_id: !!ownerId,
-    has_key_id: !!wrap.identity.key_id,
+    has_key_id: valid && !!wrap.identity.key_id,
   });
+  return valid;
 }
 
-async function refreshLocalNextctlMetadata(): Promise<void> {
-  if (pendingTarget(useStore.getState(), "vps")) return;
+async function refreshLocalNextctlMetadata(): Promise<boolean> {
+  if (pendingTarget(useStore.getState(), "vps")) return false;
   const nextctlPath = await runLocalNextctlOperation(() =>
     invoke<string | null>("nextctl_resolve").catch(() => null),
   );
@@ -621,24 +630,46 @@ async function refreshLocalNextctlMetadata(): Promise<void> {
       nextctlAvailable: true,
     });
     trackEvent("nextctl_detected", { supports_skill: supportsSkill });
-    await refreshAnalyticsIdentity().catch(() => {
+    try {
+      const valid = await refreshAnalyticsIdentity();
+      if (!valid) {
+        trackEvent("analytics_identity_unavailable", { phase: "bootstrap", reason: "invalid" });
+      }
+      return valid;
+    } catch {
+      setAnalyticsUserId(undefined);
+      useStore.setState({ accountEmail: undefined });
       trackEvent("analytics_identity_unavailable", { phase: "bootstrap" });
-    });
+      return false;
+    }
   } catch {
-    useStore.setState({ nextctlVersion: "not found", nextctlSupportsSkill: false, nextctlAvailable: false });
+    setAnalyticsUserId(undefined);
+    useStore.setState({
+      accountEmail: undefined,
+      nextctlVersion: "not found",
+      nextctlSupportsSkill: false,
+      nextctlAvailable: false,
+    });
     trackEvent("nextctl_missing");
+    return false;
   }
 }
 
 async function finishAPIKeyLogin(apiKey: string): Promise<void> {
-  await nextctlRun(["config", "set", "--api-key", apiKey]);
-  await refreshAnalyticsIdentity().catch(() => {
+  await nextctlRunChecked(["config", "set", "--api-key", apiKey]);
+  const valid = await refreshAnalyticsIdentity().catch(() => {
     trackEvent("analytics_identity_unavailable", { phase: "login" });
+    return false;
   });
+  if (!valid) throw new Error("The saved API key did not produce a valid account identity.");
 }
 
 async function refreshCompletedAccountPairing(method: "pairing" | "pairing_json"): Promise<void> {
-  await refreshLocalNextctlMetadata();
+  const valid = await refreshLocalNextctlMetadata();
+  if (!valid) {
+    useStore.setState({ authed: false });
+    throw new Error("Browser sign-in completed, but the account identity could not be verified.");
+  }
   useStore.setState({
     authed: true,
     nextctlAvailable: true,
@@ -649,7 +680,7 @@ async function refreshCompletedAccountPairing(method: "pairing" | "pairing_json"
   useStore.getState().startTimers();
   void useStore.getState().refreshAll();
   void useStore.getState().authorizeAgent();
-  if (!localStorage.getItem("onboardingComplete")) useStore.setState({ showOnboarding: true });
+  if (!hasCompletedCurrentOnboarding(localStorage)) useStore.setState({ showOnboarding: true });
   trackEvent("login", { method });
 }
 
@@ -660,9 +691,23 @@ function isAccountRequiredError(error: unknown): boolean {
   return keyMissing || /unauthorized|forbidden|401|403|sign in|login required/i.test(message);
 }
 
+function preflightFailureMessage(error: unknown): string {
+  const detail = error instanceof Error ? error.message.trim() : "";
+  return detail
+    ? `Browser setup stopped. ${detail}`
+    : "Browser setup stopped. Check the session and try again.";
+}
+
 async function nextctlRunChecked(args: string[], extraEnv?: Record<string, string>): Promise<void> {
   const result = await nextctlRun(args, extraEnv);
-  if (result.code !== 0) throw new Error(nextctlErrorMessage(result));
+  let envelopeFailed = false;
+  try {
+    const envelope = JSON.parse(result.stdout) as { ok?: boolean; error?: unknown };
+    envelopeFailed = envelope.ok === false || envelope.error != null;
+  } catch {
+    /* plain output is valid for older nextctl builds */
+  }
+  if (result.code !== 0 || envelopeFailed) throw new Error(nextctlErrorMessage(result));
 }
 
 function requestAccountSignIn(setState: (state: Partial<State>) => void, error: unknown) {
@@ -986,17 +1031,17 @@ export const useStore = create<State>((set, get) => {
       void get().pollAccountPairing();
     });
 
-    if (!pendingTarget(get(), "vps")) {
-      await refreshLocalNextctlMetadata();
-    }
-    set({ authed: true });
+    const authenticated = !pendingTarget(get(), "vps")
+      ? await refreshLocalNextctlMetadata()
+      : false;
+    set({ authed: authenticated });
     get().startTimers();
     void get().tickNextctlDailyUpdate();
 
     try {
-      if (!pendingTarget(get(), "vps")) await get().refreshAll();
+      if (authenticated && !pendingTarget(get(), "vps")) await get().refreshAll();
       await get().authorizeAgent({ deferMissingNextctlPrompt: true });
-      if (!localStorage.getItem("onboardingComplete")) {
+      if (!hasCompletedCurrentOnboarding(localStorage)) {
         set({ showOnboarding: true });
       }
       trackTiming("bootstrap_completed", startedAt, {
@@ -1422,6 +1467,24 @@ export const useStore = create<State>((set, get) => {
     });
   },
 
+  failStep: (cid: string, mid: string, error: unknown) => {
+    const text = preflightFailureMessage(error);
+    set((s) => {
+      const conversations = s.conversations.map((conversation) =>
+        conversation.id === cid
+          ? {
+              ...conversation,
+              messages: conversation.messages.map((message) =>
+                message.id === mid ? { ...message, text, status: "failed" as const } : message,
+              ),
+            }
+          : conversation,
+      );
+      persistConvs(conversations);
+      return { conversations };
+    });
+  },
+
   startSessionPoll: () => {
     if (sessionPollTimer) return;
     sessionPollTimer = setInterval(async () => {
@@ -1461,7 +1524,7 @@ export const useStore = create<State>((set, get) => {
       get().startTimers();
       await get().refreshAll();
       await get().authorizeAgent();
-      if (!localStorage.getItem("onboardingComplete")) set({ showOnboarding: true });
+      if (!hasCompletedCurrentOnboarding(localStorage)) set({ showOnboarding: true });
       trackEvent("login", { method: "dashboard_key" });
       trackTiming("dashboard_key_save_succeeded", startedAt);
     } catch {
@@ -2025,8 +2088,9 @@ export const useStore = create<State>((set, get) => {
           console.warn(`Could not install nextctl skill for ${adapter}: ${nextctlErrorMessage(result)}`);
         }
       }).catch((error) => console.warn(`Could not install nextctl skill for ${adapter}:`, error));
-    } catch {
+    } catch (error) {
       trackTiming("agent_connect_failed", startedAt, { agent: agentId });
+      const missingInstall = missingAgentInstallError(error, a);
       set((s) => ({
         runtime: {
           ...s.runtime,
@@ -2034,7 +2098,7 @@ export const useStore = create<State>((set, get) => {
             ...s.runtime[agentId],
             ready: false,
             authorizing: false,
-            error: internalError(`We couldn't connect ${a.name}.`),
+            error: missingInstall ?? internalError(`We couldn't connect ${a.name}.`),
           },
         },
       }));
@@ -2130,10 +2194,9 @@ export const useStore = create<State>((set, get) => {
   },
 
   // Switch the signed-in account for an agent that owns its own auth (Claude
-  // Code, Codex). Their credentials live inside the CLI, so the only reliable
-  // way to change accounts is to run the CLI's own logout in a real terminal
-  // (interactive, shows output) — the same proven path as "Log in". Afterwards
-  // we poll login status so the UI flips back to "Log in" once signed out.
+  // Code, Codex). The installed agent runtime manages its credentials, so the
+  // reliable way to change accounts is to run its logout command in a real
+  // terminal. Afterwards we poll login status so the UI flips back to "Log in".
   logoutAgent: async () => {
     const agentId = get().agentId;
     const a = agentById(agentId);
@@ -2232,7 +2295,7 @@ export const useStore = create<State>((set, get) => {
     set({ dashboardKeyPromptOpen: v, loginError: v ? undefined : get().loginError });
   },
   finishOnboarding: () => {
-    localStorage.setItem("onboardingComplete", "true");
+    saveOnboardingCompletion(localStorage);
     set({ showOnboarding: false });
   },
   showOnboardingAgain: () => set({ showOnboarding: true }),
@@ -2751,13 +2814,20 @@ export const useStore = create<State>((set, get) => {
     }
     if (!get().agentReady()) return;
     const stepId = get().makeStepMessage(cid);
-    const prep = await prepareLocalSession({
-      host: selectorTargetHost(entry.selector),
-      selectedProfile: get().selectedProfile,
-      statuses: get().statuses,
-      defaultSession: get().defaultSession,
-      onStep: (step) => get().appendStep(cid, stepId, step),
-    });
+    let prep;
+    try {
+      prep = await prepareLocalSession({
+        host: selectorTargetHost(entry.selector),
+        selectedProfile: get().selectedProfile,
+        statuses: get().statuses,
+        defaultSession: get().defaultSession,
+        onStep: (step) => get().appendStep(cid, stepId, step),
+      });
+    } catch (error) {
+      get().failStep(cid, stepId, error);
+      trackEvent("session_preflight_failed", { source: "skill" });
+      return;
+    }
 
     const md = await installedSkillMarkdown(ref);
 
@@ -2822,13 +2892,20 @@ export const useStore = create<State>((set, get) => {
         return { conversations };
       });
       const stepId = get().makeStepMessage(cid);
-      const prep = await prepareLocalSession({
-        host: onHost || undefined,
-        selectedProfile: get().selectedProfile,
-        statuses: get().statuses,
-        defaultSession: get().defaultSession,
-        onStep: (step) => get().appendStep(cid, stepId, step),
-      });
+      let prep;
+      try {
+        prep = await prepareLocalSession({
+          host: onHost || undefined,
+          selectedProfile: get().selectedProfile,
+          statuses: get().statuses,
+          defaultSession: get().defaultSession,
+          onStep: (step) => get().appendStep(cid, stepId, step),
+        });
+      } catch (error) {
+        get().failStep(cid, stepId, error);
+        trackEvent("session_preflight_failed", { source: "local_script" });
+        return;
+      }
       try {
         const { env, res } = await nextctlEnvelope<unknown>([
           ...prep.profileArgs,
@@ -2909,13 +2986,20 @@ export const useStore = create<State>((set, get) => {
     set({ tab: "chat" });
     const cid = get().activeConversation()?.id ?? get().newChat();
     const stepId = get().makeStepMessage(cid);
-    const prep = await prepareLocalSession({
-      host: onHost || undefined,
-      selectedProfile: get().selectedProfile,
-      statuses: get().statuses,
-      defaultSession: get().defaultSession,
-      onStep: (step) => get().appendStep(cid, stepId, step),
-    });
+    let prep;
+    try {
+      prep = await prepareLocalSession({
+        host: onHost || undefined,
+        selectedProfile: get().selectedProfile,
+        statuses: get().statuses,
+        defaultSession: get().defaultSession,
+        onStep: (step) => get().appendStep(cid, stepId, step),
+      });
+    } catch (error) {
+      get().failStep(cid, stepId, error);
+      trackEvent("session_preflight_failed", { source: "agent_script" });
+      return;
+    }
     const where = onHost
       ? `on ${onHost}`
       : `in the active NextBrowser session (${get().currentSessionDisplayName()})`;
@@ -3096,13 +3180,20 @@ export const useStore = create<State>((set, get) => {
       return;
     }
     const stepId = get().makeStepMessage(cid);
-    const prep = await prepareLocalSession({
-      host: domain || undefined,
-      selectedProfile: get().selectedProfile,
-      statuses: get().statuses,
-      defaultSession: get().defaultSession,
-      onStep: (step) => get().appendStep(cid, stepId, step),
-    });
+    let prep;
+    try {
+      prep = await prepareLocalSession({
+        host: domain || undefined,
+        selectedProfile: get().selectedProfile,
+        statuses: get().statuses,
+        defaultSession: get().defaultSession,
+        onStep: (step) => get().appendStep(cid, stepId, step),
+      });
+    } catch (error) {
+      get().failStep(cid, stepId, error);
+      trackEvent("session_preflight_failed", { source: "custom_script" });
+      return;
+    }
     if (!get().agentReady()) return;
     const target = domain || `the active NextBrowser session (${get().currentSessionDisplayName()})`;
     const chip: UserCommandChip = {
