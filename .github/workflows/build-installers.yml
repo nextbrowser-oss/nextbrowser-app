@@ -1,0 +1,101 @@
+name: Build installers
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to build
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - windows
+          - macos
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: Build macOS installer
+    if: inputs.platform == 'both' || inputs.platform == 'macos'
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Configure macOS signing
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "${MAC_CSC_LINK:-}" ]; then
+            {
+              echo "CSC_LINK=$MAC_CSC_LINK"
+              echo "CSC_KEY_PASSWORD=$MAC_CSC_KEY_PASSWORD"
+              echo "APPLE_ID=$APPLE_ID"
+              echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_APP_SPECIFIC_PASSWORD"
+              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+              echo "CSC_IDENTITY_AUTO_DISCOVERY=true"
+            } >> "$GITHUB_ENV"
+          else
+            echo "::warning::No Developer ID certificate configured; the artifact will be ad-hoc signed."
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+          fi
+      - name: Build macOS DMG and ZIP
+        env:
+          MAC_IDENTITY: ${{ secrets.MAC_IDENTITY }}
+        run: |
+          if [ -n "${CSC_LINK:-}" ]; then
+            npm run dist:mac -- -c.mac.identity="$MAC_IDENTITY"
+          else
+            npm run dist:mac
+          fi
+      - name: Verify application signature
+        run: |
+          set -euo pipefail
+          app_path="$(find release -mindepth 2 -maxdepth 2 -type d -name 'NextBrowser.app' -print -quit)"
+          if [ -z "$app_path" ]; then
+            echo "Packaged macOS app was not found." >&2
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+      - name: Upload macOS installers
+        uses: actions/upload-artifact@v5
+        with:
+          name: NextBrowser-macOS-${{ github.sha }}
+          path: |
+            release/*.dmg
+            release/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  windows:
+    name: Build Windows installer
+    if: inputs.platform == 'both' || inputs.platform == 'windows'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Build Windows installer
+        run: npm run dist:win
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v5
+        with:
+          name: NextBrowser-Windows-${{ github.sha }}
+          path: release/*.exe
+          if-no-files-found: error
+          retention-days: 14
