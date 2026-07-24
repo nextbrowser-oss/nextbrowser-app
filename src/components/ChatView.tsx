@@ -14,6 +14,7 @@ import { VPSSetupModal } from "./VPSSetupModal";
 import { UserFacingError } from "./UserFacingError";
 import { AgentInstallLink } from "./AgentInstallLink";
 import { takeGuideDraft } from "../lib/guideDraft";
+import { AgentTerminal } from "./AgentTerminal";
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -292,6 +293,15 @@ export function ChatView() {
         </div>
         <hr className="divider" />
 
+        {s.terminalChat ? (
+          <AgentTerminal
+            agentId={agentId}
+            agentName={agentName}
+            workingDir={s.workingDir}
+            onClose={() => s.setTerminalChat(false)}
+          />
+        ) : (
+          <>
         <div className="messages">
           {messages.length === 0 && (
             <div className="empty-state chat-empty-state">
@@ -548,6 +558,8 @@ export function ChatView() {
           <div className="queue-hint muted small">
             Send freely — replies are processed in order. {queued} waiting.
           </div>
+        )}
+          </>
         )}
       </div>
 

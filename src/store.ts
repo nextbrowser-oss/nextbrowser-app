@@ -321,6 +321,7 @@ interface State {
   sidebarWidth: number;
   sidebarCollapsed: boolean;
   chatListCollapsed: boolean;
+  terminalChat: boolean;
   dashboardKeyPromptOpen: boolean;
   accountPairing?: AccountPairingState;
   nextctlVersion: string;
@@ -370,6 +371,7 @@ interface State {
   setSidebarWidth: (w: number) => void;
   setSidebarCollapsed: (v: boolean) => void;
   setChatListCollapsed: (v: boolean) => void;
+  setTerminalChat: (v: boolean) => void;
   setDashboardKeyPromptOpen: (v: boolean) => void;
   finishOnboarding: () => void;
   showOnboardingAgain: () => void;
@@ -825,6 +827,7 @@ export const useStore = create<State>((set, get) => {
   sidebarWidth: Number(localStorage.getItem("sidebarWidth") ?? 300),
   sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "true",
   chatListCollapsed: localStorage.getItem("chatListCollapsed") === "true",
+  terminalChat: localStorage.getItem("terminalChat") === "true",
   dashboardKeyPromptOpen: false,
   accountPairing: undefined,
   nextctlVersion: "",
@@ -2289,6 +2292,10 @@ export const useStore = create<State>((set, get) => {
   setChatListCollapsed: (v) => {
     localStorage.setItem("chatListCollapsed", String(v));
     set({ chatListCollapsed: v });
+  },
+  setTerminalChat: (v) => {
+    localStorage.setItem("terminalChat", String(v));
+    set({ terminalChat: v });
   },
   setDashboardKeyPromptOpen: (v) => {
     trackEvent(v ? "dashboard_key_prompt_opened" : "dashboard_key_prompt_closed");
