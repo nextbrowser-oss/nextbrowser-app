@@ -9,6 +9,11 @@ export interface RunResult {
   code: number;
 }
 
+export interface NextctlRunOptions {
+  requestId?: string;
+  timeoutMs?: number;
+}
+
 export interface Envelope<T> {
   ok: boolean;
   command?: string;
@@ -20,8 +25,18 @@ export interface Envelope<T> {
 export async function nextctlRun(
   args: string[],
   extraEnv?: Record<string, string>,
+  options: NextctlRunOptions = {},
 ): Promise<RunResult> {
-  return invoke<RunResult>("nextctl_run", { args, extraEnv: extraEnv ?? null });
+  return invoke<RunResult>("nextctl_run", {
+    args,
+    extraEnv: extraEnv ?? null,
+    requestId: options.requestId,
+    timeoutMs: options.timeoutMs ?? 60_000,
+  });
+}
+
+export async function cancelNextctlRun(requestId: string): Promise<boolean> {
+  return invoke<boolean>("nextctl_cancel", { requestId });
 }
 
 export function nextctlErrorMessage(res: RunResult): string {

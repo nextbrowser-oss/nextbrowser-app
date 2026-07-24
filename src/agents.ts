@@ -111,9 +111,11 @@ export function missingAgentInstallError(error: unknown, agent: AgentSpec): stri
     && !normalized.includes(`${binary} cli not found`)
   ) return undefined;
   const requirement = agent.installKind === "app"
-    ? "NextBrowser connects through the executable bundled with the app."
-    : "NextBrowser needs the CLI executable to connect.";
-  return `${agentInstallName(agent)} not found. ${requirement} Install it, then try again.`;
+    ? "NextBrowser connects through the executable bundled with the app. Install it, then try again."
+    : agent.id === "claude"
+      ? "NextBrowser needs the Claude Code CLI, not the Claude desktop app, to connect. Install the CLI, then try again."
+      : "NextBrowser needs the CLI executable to connect. Install it, then try again.";
+  return `${agentInstallName(agent)} not found. ${requirement}`;
 }
 
 export function isMissingAgentInstallError(message: string): boolean {

@@ -57,7 +57,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
 export const ONBOARDING_AGENT_SETUP = {
   claude: {
     badge: "CLI",
-    requirement: "Install and sign in to the Claude Code CLI.",
+    requirement: "Install and sign in to the Claude Code CLI, not the Claude desktop app.",
     linkLabel: "Claude Code setup guide",
   },
   codex: {

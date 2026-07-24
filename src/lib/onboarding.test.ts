@@ -35,6 +35,7 @@ describe("first-run onboarding", () => {
 
   it("states the different Claude and Codex installation requirements", () => {
     expect(ONBOARDING_AGENT_SETUP.claude.requirement).toContain("Claude Code CLI");
+    expect(ONBOARDING_AGENT_SETUP.claude.requirement).toContain("not the Claude desktop app");
     expect(ONBOARDING_AGENT_SETUP.codex.requirement).toContain("ChatGPT desktop app with Codex");
     expect(ONBOARDING_AGENT_SETUP.codex.requirement).toContain("No separate Codex CLI");
   });

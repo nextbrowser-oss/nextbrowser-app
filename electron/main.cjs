@@ -1,17 +1,20 @@
 const { app, BrowserWindow, ipcMain, shell, nativeImage, dialog } = require("electron");
 const { autoUpdater } = require("electron-updater");
-const { spawn, execFile } = require("node:child_process");
-const { promisify } = require("node:util");
+const { spawn } = require("node:child_process");
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const pty = require("node-pty");
+const {
+  cancelAllCommands,
+  cancelCommand,
+  runCommand,
+} = require("./command-runner.cjs");
 const { topUpProxyTraffic } = require("./proxy-traffic.cjs");
 const { defaultSSHConfigPath, discoverSSHHosts, isAllowedExplicitConfigPath } = require("./ssh-config.cjs");
 
-const execFileAsync = promisify(execFile);
 const children = new Map();
 const terminals = new Map();
 const remoteSignalSockets = new Map();
@@ -181,14 +184,15 @@ function commandSpec(binary, args) {
   if (process.platform === "win32" && ext === ".ps1") return { file: "powershell.exe", args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", binary, ...args] };
   return { file: binary, args };
 }
-async function run(binary, args, extraEnv = {}) {
+async function run(binary, args, extraEnv = {}, options = {}) {
   const spec = commandSpec(binary, args);
-  try {
-    const result = await execFileAsync(spec.file, spec.args, { env: childEnv(extraEnv), windowsHide: true, maxBuffer: 32 * 1024 * 1024 });
-    return { stdout: result.stdout || "", stderr: result.stderr || "", code: 0 };
-  } catch (error) {
-    return { stdout: error.stdout || "", stderr: error.stderr || error.message || "", code: Number.isInteger(error.code) ? error.code : -1 };
-  }
+  return runCommand(spec.file, spec.args, {
+    env: childEnv(extraEnv),
+    windowsHide: true,
+    maxBuffer: 32 * 1024 * 1024,
+    requestId: options.requestId,
+    timeoutMs: options.timeoutMs,
+  });
 }
 async function nextctlHasSkill(binary) {
   const r = await run(binary, ["--help"]); return `${r.stdout}\n${r.stderr}`.includes("\n  skill");
@@ -452,8 +456,12 @@ async function invokeCommand(command, args = {}) {
     case "nextctl_install_status": return nextctlInstallStatus;
     case "nextctl_run": {
       const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("nextctl not found. Install Clawbrowser CLI or set NEXTCTL_BIN.");
-      return run(bin, args.args || [], args.extraEnv || {});
+      return run(bin, args.args || [], args.extraEnv || {}, {
+        requestId: args.requestId,
+        timeoutMs: args.timeoutMs,
+      });
     }
+    case "nextctl_cancel": return cancelCommand(args.requestId);
     case "nextctl_version": {
       const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found");
       const r = await run(bin, ["version"]); return r.stdout.trim();
@@ -783,4 +791,5 @@ app.on("before-quit", () => {
   for (const child of children.values()) child.kill();
   for (const terminal of terminals.values()) terminal.process.kill();
   terminals.clear();
+  cancelAllCommands();
 });

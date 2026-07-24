@@ -133,3 +133,41 @@ describe("desktop account bootstrap", () => {
     expect(nextctlCalls.some((args) => args[0] === "proxy-traffic")).toBe(false);
   });
 });
+
+describe("onboarding setup handoff", () => {
+  it("returns to the same tutorial step after an external setup flow", async () => {
+    const { useStore } = await import("./store");
+    useStore.setState({
+      showOnboarding: true,
+      onboardingStepIndex: 2,
+    });
+
+    useStore.getState().suspendOnboardingForSetup();
+
+    expect(useStore.getState()).toMatchObject({
+      showOnboarding: false,
+      onboardingStepIndex: 2,
+      onboardingReturnPending: true,
+    });
+
+    useStore.getState().resumeOnboardingAfterSetup();
+
+    expect(useStore.getState()).toMatchObject({
+      showOnboarding: true,
+      onboardingStepIndex: 2,
+      onboardingReturnPending: false,
+    });
+  });
+
+  it("does not reopen onboarding for setup flows started elsewhere", async () => {
+    const { useStore } = await import("./store");
+    useStore.setState({
+      showOnboarding: false,
+      onboardingReturnPending: false,
+    });
+
+    useStore.getState().resumeOnboardingAfterSetup();
+
+    expect(useStore.getState().showOnboarding).toBe(false);
+  });
+});

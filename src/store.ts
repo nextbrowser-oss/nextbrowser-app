@@ -5,6 +5,7 @@ import {
   nextctlErrorMessage,
   nextctlJson as rawNextctlJson,
   nextctlRun as rawNextctlRun,
+  type NextctlRunOptions,
   type RunResult,
 } from "./nextctl";
 import { prepareSession } from "./preflight";
@@ -318,6 +319,8 @@ interface State {
   scriptSync: Record<string, ScriptSyncState>;
   usageHistory: UsageSnapshot[];
   showOnboarding: boolean;
+  onboardingStepIndex: number;
+  onboardingReturnPending: boolean;
   sidebarWidth: number;
   sidebarCollapsed: boolean;
   chatListCollapsed: boolean;
@@ -356,7 +359,11 @@ interface State {
   stopProfile: (n: string) => Promise<void>;
   rotateProfile: (n: string) => Promise<void>;
   rotateProfileCountry: (n: string, country: string) => Promise<void>;
-  createManagedProfile: (name: string, country: string) => Promise<void>;
+  createManagedProfile: (
+    name: string,
+    country: string,
+    options?: NextctlRunOptions,
+  ) => Promise<void>;
   createManualProxyProfile: (input: ManualProxyProfileInput) => Promise<void>;
   deleteProfile: (n: string) => Promise<void>;
   selectProfile: (n?: string) => void;
@@ -373,6 +380,9 @@ interface State {
   setChatListCollapsed: (v: boolean) => void;
   setTerminalChat: (v: boolean) => void;
   setDashboardKeyPromptOpen: (v: boolean) => void;
+  setOnboardingStepIndex: (index: number) => void;
+  suspendOnboardingForSetup: () => void;
+  resumeOnboardingAfterSetup: () => void;
   finishOnboarding: () => void;
   showOnboardingAgain: () => void;
   checkNextctlUpdate: () => Promise<boolean>;
@@ -508,8 +518,9 @@ async function runLocalNextctlOperation<T>(operation: () => Promise<T>): Promise
 async function nextctlRun(
   args: string[],
   extraEnv?: Record<string, string>,
+  options?: NextctlRunOptions,
 ): Promise<RunResult> {
-  return runLocalNextctlOperation(() => rawNextctlRun(args, extraEnv));
+  return runLocalNextctlOperation(() => rawNextctlRun(args, extraEnv, options));
 }
 
 async function nextctlJson<T>(
@@ -682,7 +693,11 @@ async function refreshCompletedAccountPairing(method: "pairing" | "pairing_json"
   useStore.getState().startTimers();
   void useStore.getState().refreshAll();
   void useStore.getState().authorizeAgent();
-  if (!hasCompletedCurrentOnboarding(localStorage)) useStore.setState({ showOnboarding: true });
+  if (useStore.getState().onboardingReturnPending) {
+    useStore.getState().resumeOnboardingAfterSetup();
+  } else if (!hasCompletedCurrentOnboarding(localStorage)) {
+    useStore.setState({ showOnboarding: true });
+  }
   trackEvent("login", { method });
 }
 
@@ -700,8 +715,12 @@ function preflightFailureMessage(error: unknown): string {
     : "Browser setup stopped. Check the session and try again.";
 }
 
-async function nextctlRunChecked(args: string[], extraEnv?: Record<string, string>): Promise<void> {
-  const result = await nextctlRun(args, extraEnv);
+async function nextctlRunChecked(
+  args: string[],
+  extraEnv?: Record<string, string>,
+  options?: NextctlRunOptions,
+): Promise<void> {
+  const result = await nextctlRun(args, extraEnv, options);
   let envelopeFailed = false;
   try {
     const envelope = JSON.parse(result.stdout) as { ok?: boolean; error?: unknown };
@@ -824,6 +843,8 @@ export const useStore = create<State>((set, get) => {
   scriptSync: {},
   usageHistory: [],
   showOnboarding: false,
+  onboardingStepIndex: 0,
+  onboardingReturnPending: false,
   sidebarWidth: Number(localStorage.getItem("sidebarWidth") ?? 300),
   sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "true",
   chatListCollapsed: localStorage.getItem("chatListCollapsed") === "true",
@@ -1927,7 +1948,7 @@ export const useStore = create<State>((set, get) => {
     }
   },
 
-  createManagedProfile: async (rawName, rawCountry) => {
+  createManagedProfile: async (rawName, rawCountry, options) => {
     const startedAt = performance.now();
     const name = rawName.trim();
     const country = rawCountry.trim().toUpperCase();
@@ -1935,7 +1956,11 @@ export const useStore = create<State>((set, get) => {
     if (!/^[A-Z]{2}$/.test(country)) throw new Error("Choose a valid proxy country.");
     trackEvent("profile_create_requested", { kind: "managed", country });
     try {
-      await nextctlRunChecked(["profiles", "create", name, "--country", country, "--format", "json"]);
+      await nextctlRunChecked(
+        ["profiles", "create", name, "--country", country, "--format", "json"],
+        undefined,
+        options,
+      );
       await get().loadProfiles();
       get().selectProfile(name);
       trackTiming("profile_create_completed", startedAt, { kind: "managed", country });
@@ -2301,11 +2326,31 @@ export const useStore = create<State>((set, get) => {
     trackEvent(v ? "dashboard_key_prompt_opened" : "dashboard_key_prompt_closed");
     set({ dashboardKeyPromptOpen: v, loginError: v ? undefined : get().loginError });
   },
+  setOnboardingStepIndex: (index) => set({ onboardingStepIndex: index }),
+  suspendOnboardingForSetup: () => set({
+    showOnboarding: false,
+    onboardingReturnPending: true,
+  }),
+  resumeOnboardingAfterSetup: () => {
+    if (!get().onboardingReturnPending) return;
+    set({
+      showOnboarding: true,
+      onboardingReturnPending: false,
+    });
+  },
   finishOnboarding: () => {
     saveOnboardingCompletion(localStorage);
-    set({ showOnboarding: false });
+    set({
+      showOnboarding: false,
+      onboardingStepIndex: 0,
+      onboardingReturnPending: false,
+    });
   },
-  showOnboardingAgain: () => set({ showOnboarding: true }),
+  showOnboardingAgain: () => set({
+    showOnboarding: true,
+    onboardingStepIndex: 0,
+    onboardingReturnPending: false,
+  }),
 
   checkNextctlUpdate: async () => {
     if (pendingTarget(get(), "vps")) return false;

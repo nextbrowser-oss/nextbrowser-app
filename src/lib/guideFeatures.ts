@@ -4,6 +4,7 @@ export type GuideAction =
   | "account"
   | "agent"
   | "profiles"
+  | "start_session"
   | "identity"
   | "captcha"
   | "vps"

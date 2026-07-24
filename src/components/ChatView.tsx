@@ -572,7 +572,7 @@ export function ChatView() {
           />
           <div
             className="schedule-action-menu conv-context-menu"
-            style={{ position: "fixed", top: convMenu.y, left: convMenu.x, right: "auto", zIndex: 1000 }}
+            style={{ position: "fixed", top: convMenu.y, left: convMenu.x, right: "auto" }}
           >
             <button
               onClick={() => {

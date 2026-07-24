@@ -13,6 +13,7 @@ export function DashboardKeyModal() {
   const pairing = useStore((s) => s.accountPairing);
   const error = useStore((s) => s.loginError);
   const loading = useStore((s) => s.isLoggingIn);
+  const resumeOnboarding = useStore((s) => s.resumeOnboardingAfterSetup);
 
   useEffect(() => {
     if (!open || !pairing) return undefined;
@@ -28,6 +29,7 @@ export function DashboardKeyModal() {
   const close = () => {
     if (pairing) cancelPairing();
     setOpen(false);
+    resumeOnboarding();
   };
 
   return (

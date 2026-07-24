@@ -334,12 +334,12 @@ export function GuideUsageSection() {
               onClick={() => openDemo(d)}
             >
               <div className="demo-player-wrap">
-                <DemoPlayer>
-                  {(phase) => <d.Demo phase={phase} />}
-                </DemoPlayer>
                 <span className="demo-illustration-badge" style={{ color: d.tint }}>
                   ILLUSTRATION
                 </span>
+                <DemoPlayer>
+                  {(phase) => <d.Demo phase={phase} />}
+                </DemoPlayer>
               </div>
               <strong className="usage-card-title">{d.title}</strong>
               <p className="muted small usage-card-caption">{d.caption}</p>

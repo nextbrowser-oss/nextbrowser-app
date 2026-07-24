@@ -19,6 +19,15 @@ describe("Guide usage examples", () => {
     expect(html).not.toMatch(/>LIVE</);
   });
 
+  it("keeps illustration labels outside the animated canvas content", () => {
+    const html = renderToStaticMarkup(<GuideUsageSection />);
+    const labelIndex = html.indexOf('class="demo-illustration-badge"');
+    const playerIndex = html.indexOf('class="demo-player"');
+
+    expect(labelIndex).toBeGreaterThan(-1);
+    expect(playerIndex).toBeGreaterThan(labelIndex);
+  });
+
   it("stages only concrete browser prompts in Chat", () => {
     const chatExamples = GUIDE_USAGE_DEMOS.filter((demo) => demo.action.kind === "chat");
     const skillExamples = GUIDE_USAGE_DEMOS.filter((demo) => demo.action.kind === "skills");

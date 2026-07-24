@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore, type ManualProxyProfileInput } from "../store";
 import { agentById } from "../agents";
@@ -6,12 +6,15 @@ import { BrandHeader, BrandLogo } from "./BrandLogo";
 import { Icon, Spinner } from "./Icon";
 import { withLocalScripts } from "../skillsCatalog";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
+import { guideProfileTarget } from "../lib/guideQuickStart";
 import { manualProxyDefaultName, parseManualProxyUrl, type ManualProxyScheme } from "../lib/manualProxy";
 import { internalError, needsSupportLink } from "../lib/userFacingError";
+import { cancelNextctlRun } from "../nextctl";
 import type { AppTab } from "../types";
 import { UserFacingError } from "./UserFacingError";
 
 type ManualProxyInputMode = "url" | "fields";
+const PROFILE_CREATE_TIMEOUT_MS = 30_000;
 
 interface SidebarProps {
   onOpenAgentSettings: () => void;
@@ -45,6 +48,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
+  const profileCreateRequestRef = useRef<string | null>(null);
 
   const agentName = agentById(s.agentId).name;
   const ready = s.agentReady();
@@ -90,16 +94,51 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       const profile = s.selectedProfile ?? s.profiles[0]?.name ?? (showDefaultProfile ? "__default" : null);
       if (profile) setMenuProfile(profile);
     };
+    const startSelectedProfile = () => {
+      focusProfiles();
+      s.setProfileSearch("");
+      const profile = guideProfileTarget(
+        s.selectedProfile,
+        s.profiles.map((item) => item.name),
+        showDefaultProfile,
+      );
+      if (!profile) return;
+      if (profile === "__default") {
+        s.selectProfile(undefined);
+        if (!defaultRunning && !defaultBusy) void s.startDefaultSession();
+        return;
+      }
+      s.selectProfile(profile);
+      const status = s.statuses[profile] ?? s.profileSessions[profile]?.status ?? "unknown";
+      if (status !== "running" && !["starting", "stopping", "rotating"].includes(status)) {
+        void s.startProfile(profile);
+      }
+    };
     window.addEventListener("nextbrowser:focus-profiles", focusProfiles);
     window.addEventListener("nextbrowser:open-profile-creator", openCreator);
     window.addEventListener("nextbrowser:open-profile-actions", openActions);
+    window.addEventListener("nextbrowser:start-selected-profile", startSelectedProfile);
     return () => {
       window.clearTimeout(focusTimer);
       window.removeEventListener("nextbrowser:focus-profiles", focusProfiles);
       window.removeEventListener("nextbrowser:open-profile-creator", openCreator);
       window.removeEventListener("nextbrowser:open-profile-actions", openActions);
+      window.removeEventListener("nextbrowser:start-selected-profile", startSelectedProfile);
     };
-  }, [s.authed, s.profiles, s.selectedProfile, s.setDashboardKeyPromptOpen, showDefaultProfile]);
+  }, [
+    defaultBusy,
+    defaultRunning,
+    s.authed,
+    s.profileSessions,
+    s.profiles,
+    s.selectedProfile,
+    s.setDashboardKeyPromptOpen,
+    s.setProfileSearch,
+    s.startDefaultSession,
+    s.startProfile,
+    s.statuses,
+    showDefaultProfile,
+  ]);
 
   const badgeFor = (id: AppTab) => {
     if (id === "skills") return skillCount ? String(skillCount) : undefined;
@@ -128,6 +167,15 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     setManualUsername("");
     setManualPassword("");
     setManualError(null);
+  };
+
+  const closeProfileCreator = () => {
+    const requestId = profileCreateRequestRef.current;
+    profileCreateRequestRef.current = null;
+    if (requestId) void cancelNextctlRun(requestId);
+    setProfileSaving(false);
+    setCreateProfileOpen(false);
+    s.resumeOnboardingAfterSetup();
   };
 
   const submitManualProxy = async (event: FormEvent) => {
@@ -181,17 +229,33 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       return;
     }
     if (profileSaving) return;
+    const requestId = `profile-create-${crypto.randomUUID()}`;
+    profileCreateRequestRef.current = requestId;
     setProfileSaving(true);
     setProfileError(null);
     try {
-      await s.createManagedProfile(profileName, profileCountry);
+      await s.createManagedProfile(profileName, profileCountry, {
+        requestId,
+        timeoutMs: PROFILE_CREATE_TIMEOUT_MS,
+      });
+      if (profileCreateRequestRef.current !== requestId) return;
       setCreateProfileOpen(false);
       setProfileName("");
       setProfileCountry("US");
+      s.resumeOnboardingAfterSetup();
     } catch (error) {
-      setProfileError(error instanceof Error ? error.message : String(error));
+      if (profileCreateRequestRef.current !== requestId) return;
+      const message = error instanceof Error ? error.message : String(error);
+      setProfileError(
+        /timed out/i.test(message)
+          ? "Profile creation took too long and was stopped. Check your connection, then try again."
+          : message,
+      );
     } finally {
-      setProfileSaving(false);
+      if (profileCreateRequestRef.current === requestId) {
+        profileCreateRequestRef.current = null;
+        setProfileSaving(false);
+      }
     }
   };
 
@@ -217,6 +281,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             className={"mini-nav-btn" + (s.tab === item.id ? " active" : "")}
             data-tooltip={item.label}
             aria-label={`Open ${item.label}`}
+            aria-current={s.tab === item.id ? "page" : undefined}
             onClick={() => s.setTab(item.id)}
           >
             <Icon name={item.icon} size={18} />
@@ -257,6 +322,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               key={item.id}
               className={"claw-card sidebar-link-card sidebar-page-link" + (s.tab === item.id ? " active" : "")}
               title={`Open ${item.label}`}
+              aria-current={s.tab === item.id ? "page" : undefined}
               onClick={() => s.setTab(item.id)}
             >
               <Icon name={item.icon} size={14} />
@@ -460,15 +526,41 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       </div>
 
       {createProfileOpen && createPortal((
-        <div className="modal-overlay" onMouseDown={() => !profileSaving && setCreateProfileOpen(false)}>
-          <form className="modal-card create-profile-modal" onSubmit={submitManagedProfile} onMouseDown={(event) => event.stopPropagation()}>
+        <div
+          className="modal-overlay"
+          onMouseDown={closeProfileCreator}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            closeProfileCreator();
+          }}
+        >
+          <form
+            className="modal-card create-profile-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-profile-title"
+            onSubmit={submitManagedProfile}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
             <div className="profile-menu-head">
-              <span className="profile-menu-name">Create profile</span>
+              <span id="create-profile-title" className="profile-menu-name">Create profile</span>
+              <span className="spacer" />
+              <button
+                type="button"
+                className="plain-icon-btn"
+                title={profileSaving ? "Cancel profile creation" : "Close"}
+                aria-label={profileSaving ? "Cancel profile creation" : "Close profile creation"}
+                onClick={closeProfileCreator}
+              >
+                <Icon name="xmark.circle.fill" size={18} />
+              </button>
             </div>
             <label className="modal-field">
               <span>Profile name</span>
               <input
                 value={profileName}
+                disabled={profileSaving}
                 onChange={(event) => {
                   setProfileName(event.target.value);
                   setProfileError(null);
@@ -479,7 +571,11 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             </label>
             <label className="modal-field">
               <span>Proxy country</span>
-              <select value={profileCountry} onChange={(event) => setProfileCountry(event.target.value)}>
+              <select
+                value={profileCountry}
+                disabled={profileSaving}
+                onChange={(event) => setProfileCountry(event.target.value)}
+              >
                 {ROTATION_COUNTRIES.map((country) => (
                   <option key={country.code} value={country.code}>
                     {countryFlag(country.code)} {country.name}
@@ -489,7 +585,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             </label>
             {profileError && <div className="error small profile-create-error">{profileError}</div>}
             <div className="modal-actions">
-              <button type="button" className="secondary" disabled={profileSaving} onClick={() => setCreateProfileOpen(false)}>Cancel</button>
+              <button type="button" className="secondary" onClick={closeProfileCreator}>
+                {profileSaving ? "Cancel creation" : "Cancel"}
+              </button>
               <button type="submit" className="primary" disabled={profileSaving || !profileName.trim()}>
                 {profileSaving ? <Spinner size={13} /> : <Icon name="plus" size={13} />}
                 {profileSaving ? "Creating…" : "Create profile"}

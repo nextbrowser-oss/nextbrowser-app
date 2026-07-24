@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "concurrently -k \"vite --port 1421\" \"wait-on tcp:1421 && cross-env VITE_DEV_SERVER_URL=http://localhost:1421 electron .\"",
     "build": "tsc && vite build",
-    "test": "vitest run --exclude electron/ssh-config.test.cjs --exclude electron/proxy-traffic.test.cjs && node --test electron/ssh-config.test.cjs electron/proxy-traffic.test.cjs && node scripts/verify-pty.cjs",
+    "test": "vitest run --exclude electron/command-runner.test.cjs --exclude electron/ssh-config.test.cjs --exclude electron/proxy-traffic.test.cjs && node --test electron/command-runner.test.cjs electron/ssh-config.test.cjs electron/proxy-traffic.test.cjs && node scripts/verify-pty.cjs",
     "start": "electron .",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder --publish never",

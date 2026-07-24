@@ -27,7 +27,7 @@ describe("agent invocation parity", () => {
     const message = missingAgentInstallError(error, agentById("claude"));
 
     expect(message).toBe(
-      "Claude Code CLI not found. NextBrowser needs the CLI executable to connect. Install it, then try again.",
+      "Claude Code CLI not found. NextBrowser needs the Claude Code CLI, not the Claude desktop app, to connect. Install the CLI, then try again.",
     );
     expect(isMissingAgentInstallError(message ?? "")).toBe(true);
   });

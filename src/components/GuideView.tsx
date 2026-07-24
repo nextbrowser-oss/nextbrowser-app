@@ -7,8 +7,9 @@ import {
   type GuideAction,
   type GuideFeature,
 } from "../lib/guideFeatures";
+import { guideSessionSetupEvent } from "../lib/guideQuickStart";
+import { sequentialProgress } from "../lib/sequentialProgress";
 import { useStore } from "../store";
-import { sessionRunning } from "../types";
 import { BrandLogo } from "./BrandLogo";
 import { GuideUsageSection } from "./GuideUsageDemos";
 import { Icon } from "./Icon";
@@ -65,11 +66,12 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
     const hasListedDefault = s.profiles.some((profile) => profile.name === "default");
     return s.profiles.length + (defaultKnown && !hasListedDefault ? 1 : 0);
   });
-  const hasRunningSession = useStore((s) =>
-    sessionRunning(s.defaultSession) ||
-    Object.values(s.profileSessions).some(sessionRunning) ||
-    Object.values(s.statuses).some((status) => status === "running"),
+  const selectedSessionStatus = useStore((s) => s.selectedProfile
+    ? s.statuses[s.selectedProfile] ?? s.profileSessions[s.selectedProfile]?.status ?? "unknown"
+    : s.defaultSession?.status ?? "unknown"
   );
+  const selectedSessionRunning = selectedSessionStatus === "running";
+  const selectedSessionStarting = selectedSessionStatus === "starting";
   const conversationCount = useStore((s) =>
     s.conversations.filter((conversation) => conversation.agent === s.agentId).length,
   );
@@ -80,6 +82,13 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
   );
   const [vpsSetupOpen, setVPSSetupOpen] = useState(false);
   const agentName = agentById(agentId).name;
+  const readiness = [
+    authed,
+    agentReady,
+    selectedSessionRunning,
+    conversationCount > 0,
+  ];
+  const progress = sequentialProgress(readiness);
 
   const dispatchGuideEvent = (name: string) => {
     window.requestAnimationFrame(() => window.dispatchEvent(new CustomEvent(name)));
@@ -100,6 +109,12 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
       setSidebarCollapsed(false);
       dispatchGuideEvent("nextbrowser:focus-profiles");
       if (profileCount === 0) dispatchGuideEvent("nextbrowser:open-profile-creator");
+      return;
+    }
+    if (action === "start_session") {
+      setSidebarCollapsed(false);
+      dispatchGuideEvent("nextbrowser:focus-profiles");
+      dispatchGuideEvent(guideSessionSetupEvent(profileCount));
       return;
     }
     if (action === "identity") {
@@ -131,38 +146,48 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
     setTab(action);
   };
 
-  const quickSteps = [
+  const quickSteps: Array<{
+    label: string;
+    detail: string;
+    action: GuideAction;
+  }> = [
     {
       label: authed ? "Account connected" : "Connect account",
       detail: authed ? "Managed features are available" : "For profiles, traffic, and skills",
-      complete: authed,
-      action: "account" as GuideAction,
+      action: "account",
     },
     {
       label: agentReady ? `${agentName} connected` : "Connect agent",
-      detail: agentReady ? "Ready" : "Claude Code or Codex",
-      complete: agentReady,
-      action: "agent" as GuideAction,
+      detail: progress.states[1] === "locked"
+        ? `Complete step ${progress.currentIndex + 1} first`
+        : agentReady ? "Ready" : "Claude Code CLI or Codex in ChatGPT",
+      action: "agent",
     },
     {
-      label: hasRunningSession
-        ? "Session running"
+      label: selectedSessionRunning
+        ? "Selected session running"
+        : selectedSessionStarting
+          ? "Starting session…"
         : profileCount > 0
           ? "Start session"
           : "Create profile",
-      detail: hasRunningSession
+      detail: progress.states[2] === "locked"
+        ? `Complete step ${progress.currentIndex + 1} first`
+        : selectedSessionRunning
         ? "Ready for Chat and Live View"
+        : selectedSessionStarting
+          ? "Waiting for the browser to become ready"
         : profileCount > 0
-          ? "Choose a profile and press Start"
-          : "Managed or manual proxy",
-      complete: hasRunningSession,
-      action: "profiles" as GuideAction,
+          ? "Start the selected or first saved profile"
+          : "Create a profile, then start it",
+      action: "start_session",
     },
     {
       label: conversationCount > 0 ? "Continue in Chat" : "Start a chat",
-      detail: conversationCount > 0 ? `${agentName} conversation ready` : `Create one for ${agentName}`,
-      complete: conversationCount > 0,
-      action: "chat" as GuideAction,
+      detail: progress.states[3] === "locked"
+        ? `Complete step ${progress.currentIndex + 1} first`
+        : conversationCount > 0 ? `${agentName} conversation ready` : `Create one for ${agentName}`,
+      action: "chat",
     },
   ];
 
@@ -187,27 +212,37 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
             <span className="guide-eyebrow">Start here</span>
             <h3 id="guide-start-title">Get ready in four steps</h3>
           </div>
-          <span className="muted small">Finish the essentials, then explore examples and workflows.</span>
+          <span className="muted small">
+            {progress.currentIndex === -1
+              ? "Everything is ready — continue in Chat or open Live View."
+              : `Step ${progress.currentIndex + 1} is next. Later steps unlock in order.`}
+          </span>
         </div>
         <div className="quick-start claw-card">
-          {quickSteps.map((step, index) => (
-            <button
-              key={step.action}
-              type="button"
-              className={"quick-step" + (step.complete ? " is-complete" : "")}
-              onClick={() => runAction(step.action, `quick_step_${index + 1}`)}
-              aria-label={`${step.label}. ${step.detail}`}
-            >
-              <span className="step-num">
-                {step.complete ? <Icon name="checkmark" size={12} strokeWidth={2.5} /> : index + 1}
-              </span>
-              <span className="quick-step-copy">
-                <strong>{step.label}</strong>
-                <span>{step.detail}</span>
-              </span>
-              <Icon name="chevron.right" size={13} className="quick-step-chevron" />
-            </button>
-          ))}
+          {quickSteps.map((step, index) => {
+            const state = progress.states[index];
+            const destinationIndex = state === "locked" ? progress.currentIndex : index;
+            const destination = quickSteps[destinationIndex];
+            return (
+              <button
+                key={step.action}
+                type="button"
+                className={`quick-step is-${state}`}
+                data-step-state={state}
+                onClick={() => runAction(destination.action, `quick_step_${index + 1}`)}
+                aria-label={`${step.label}. ${step.detail}`}
+              >
+                <span className="step-num">
+                  {state === "complete" ? <Icon name="checkmark" size={12} strokeWidth={2.5} /> : index + 1}
+                </span>
+                <span className="quick-step-copy">
+                  <strong>{step.label}</strong>
+                  <span>{step.detail}</span>
+                </span>
+                <Icon name="chevron.right" size={13} className="quick-step-chevron" />
+              </button>
+            );
+          })}
         </div>
       </section>
 

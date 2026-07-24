@@ -52,7 +52,9 @@ export function OnboardingView() {
       : s.defaultSession?.status === "running"
   );
   const setDashboardKeyPromptOpen = useStore((s) => s.setDashboardKeyPromptOpen);
-  const [stepIndex, setStepIndex] = useState(0);
+  const stepIndex = useStore((s) => s.onboardingStepIndex);
+  const setStepIndex = useStore((s) => s.setOnboardingStepIndex);
+  const suspendForSetup = useStore((s) => s.suspendOnboardingForSetup);
   const [copyState, setCopyState] = useState<CopyState>("idle");
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
@@ -140,7 +142,7 @@ export function OnboardingView() {
 
   const openAccountSetup = () => {
     trackEvent("onboarding_setup_opened", { setup: "account" });
-    useStore.setState({ showOnboarding: false });
+    suspendForSetup();
     setDashboardKeyPromptOpen(true);
   };
 
@@ -148,7 +150,7 @@ export function OnboardingView() {
     trackEvent("onboarding_setup_opened", { setup: "profile" });
     setTab("guide");
     setSidebarCollapsed(false);
-    useStore.setState({ showOnboarding: false });
+    suspendForSetup();
     window.dispatchEvent(new CustomEvent("nextbrowser:open-profile-creator"));
   };
 
@@ -351,7 +353,7 @@ export function OnboardingView() {
                   </div>
                 )}
                 <p className="onboarding-fine-print">
-                  Claude Code uses its CLI. Codex uses the executable bundled with the ChatGPT desktop app. Authentication stays with that agent.
+                  Claude Code uses its CLI, not the Claude desktop app. Codex uses the executable bundled with the ChatGPT desktop app. Authentication stays with that agent.
                 </p>
               </div>
             )}
