@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useStore } from "./store";
 import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
@@ -17,7 +17,14 @@ import { getPreviewMode, getPreviewTab } from "./preview";
 import { humanBytes, proxyFraction, type AppTab, type Conversation } from "./types";
 import { resolveTheme, type Theme } from "./theme";
 import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
-import { isAppBackShortcut, isPrimaryAppTab, type PrimaryAppTab } from "./lib/appNavigation";
+import {
+  appTabLabel,
+  isAppBackShortcut,
+  isPrimaryAppTab,
+  popPreviousAppTab,
+  previousAppTab,
+  recordPreviousAppTab,
+} from "./lib/appNavigation";
 import { internalError } from "./lib/userFacingError";
 import { invoke, listen } from "./electronBridge";
 import { agentById } from "./agents";
@@ -511,7 +518,10 @@ export function App() {
   const setSidebarWidth = useStore((s) => s.setSidebarWidth);
   const setAppActive = useStore((s) => s.setAppActive);
   const didTrackThemeChange = useRef(false);
-  const lastPrimaryTab = useRef<PrimaryAppTab>(isPrimaryAppTab(tab) ? tab : "chat");
+  const tabHistory = useRef<AppTab[]>([]);
+  const observedTab = useRef(tab);
+  const pendingBackTarget = useRef<AppTab | null>(null);
+  const [backTarget, setBackTarget] = useState<AppTab>();
   useButtonTooltips();
 
   useEffect(() => {
@@ -552,9 +562,28 @@ export function App() {
     setSettingsFocus(null);
   };
 
-  useEffect(() => {
-    if (isPrimaryAppTab(tab)) lastPrimaryTab.current = tab;
+  useLayoutEffect(() => {
+    const previousTab = observedTab.current;
+    if (previousTab === tab) return;
+
+    if (pendingBackTarget.current === tab) {
+      pendingBackTarget.current = null;
+    } else {
+      tabHistory.current = recordPreviousAppTab(tabHistory.current, previousTab);
+    }
+    observedTab.current = tab;
+    setBackTarget(previousAppTab(tabHistory.current));
   }, [tab]);
+
+  const navigateBack = useCallback(() => {
+    const navigation = popPreviousAppTab(tabHistory.current);
+    if (!navigation.target) return;
+
+    tabHistory.current = navigation.history;
+    pendingBackTarget.current = navigation.target;
+    setBackTarget(previousAppTab(navigation.history));
+    setTab(navigation.target);
+  }, [setTab]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -572,15 +601,19 @@ export function App() {
         return;
       }
 
-      if (document.querySelector(".modal-overlay") || isPrimaryAppTab(tab)) return;
+      if (
+        document.querySelector(".modal-overlay")
+        || isPrimaryAppTab(tab)
+        || !backTarget
+      ) return;
 
       event.preventDefault();
-      setTab(lastPrimaryTab.current);
+      navigateBack();
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [settingsOpen, setTab, tab]);
+  }, [backTarget, navigateBack, settingsOpen, tab]);
 
   useEffect(() => {
     initAnalytics();
@@ -798,13 +831,13 @@ export function App() {
       {!sidebarCollapsed && <div id="sidebar-resize" className="resize-handle" />}
       <main className="content">
         <nav className="tabbar">
-          {!isPrimaryAppTab(tab) && (
+          {!isPrimaryAppTab(tab) && backTarget && (
             <button
               className="tabbar-back"
               type="button"
-              onClick={() => setTab(lastPrimaryTab.current)}
-              title={`Back to ${lastPrimaryTab.current === "live" ? "Live" : "Chat"} · Esc`}
-              aria-label={`Back to ${lastPrimaryTab.current === "live" ? "Live" : "Chat"}`}
+              onClick={navigateBack}
+              title={`Back to ${appTabLabel(backTarget)} · Esc`}
+              aria-label={`Back to ${appTabLabel(backTarget)}`}
             >
               <Icon name="chevron.left" size={18} strokeWidth={2.25} />
             </button>

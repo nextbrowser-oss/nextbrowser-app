@@ -3,14 +3,20 @@ import { agentById } from "../agents";
 import { brandName } from "../constants";
 import { trackEvent } from "../lib/analytics";
 import {
+  CAPTCHA_GUIDE_PROMPT,
   GUIDE_FEATURE_GROUPS,
   type GuideAction,
   type GuideFeature,
 } from "../lib/guideFeatures";
+import { saveGuideDraft } from "../lib/guideDraft";
 import { guideSessionSetupEvent } from "../lib/guideQuickStart";
 import { sequentialProgress } from "../lib/sequentialProgress";
 import { useStore } from "../store";
 import { BrandLogo } from "./BrandLogo";
+import {
+  GuideActionModal,
+  type GuideActionConfirmation,
+} from "./GuideActionModal";
 import { GuideUsageSection } from "./GuideUsageDemos";
 import { Icon } from "./Icon";
 import { VPSSetupModal } from "./VPSSetupModal";
@@ -75,11 +81,11 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
   const conversationCount = useStore((s) =>
     s.conversations.filter((conversation) => conversation.agent === s.agentId).length,
   );
-  const captchaCategory = useStore((s) =>
-    s.skillCategories.find((category) =>
-      category.entries.some((entry) => entry.selector.kind === "captcha"),
-    ),
-  );
+  const [pendingAction, setPendingAction] = useState<{
+    action: GuideAction;
+    source: string;
+    confirmation: GuideActionConfirmation;
+  }>();
   const [vpsSetupOpen, setVPSSetupOpen] = useState(false);
   const agentName = agentById(agentId).name;
   const readiness = [
@@ -128,15 +134,10 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
       return;
     }
     if (action === "captcha") {
-      if (captchaCategory) {
-        localStorage.setItem("openSkillsCategory", captchaCategory.id);
-      }
-      setTab("skills");
-      if (captchaCategory) {
-        window.requestAnimationFrame(() => window.dispatchEvent(
-          new CustomEvent("nextbrowser:open-skills-category", { detail: captchaCategory.id }),
-        ));
-      }
+      const prompt = saveGuideDraft(localStorage, CAPTCHA_GUIDE_PROMPT);
+      if (!prompt) return;
+      window.dispatchEvent(new CustomEvent("nextbrowser:guide-draft", { detail: prompt }));
+      setTab("chat");
       return;
     }
     if (action === "vps") {
@@ -150,18 +151,27 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
     label: string;
     detail: string;
     action: GuideAction;
+    actionLabel: string;
+    icon: string;
+    tint: string;
   }> = [
     {
       label: authed ? "Account connected" : "Connect account",
-      detail: authed ? "Managed features are available" : "For profiles, traffic, and skills",
+      detail: authed ? "Ready" : "Profiles, traffic, and skills",
       action: "account",
+      actionLabel: authed ? "View usage" : "Connect account",
+      icon: "key.fill",
+      tint: "#007aff",
     },
     {
       label: agentReady ? `${agentName} connected` : "Connect agent",
       detail: progress.states[1] === "locked"
-        ? `Complete step ${progress.currentIndex + 1} first`
-        : agentReady ? "Ready" : "Claude Code CLI or Codex in ChatGPT",
+        ? `Finish step ${progress.currentIndex + 1} first`
+        : agentReady ? "Ready" : "Claude Code or Codex",
       action: "agent",
+      actionLabel: "Open agent settings",
+      icon: "cpu.fill",
+      tint: "#af52de",
     },
     {
       label: selectedSessionRunning
@@ -172,24 +182,51 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
           ? "Start session"
           : "Create profile",
       detail: progress.states[2] === "locked"
-        ? `Complete step ${progress.currentIndex + 1} first`
+        ? `Finish step ${progress.currentIndex + 1} first`
         : selectedSessionRunning
-        ? "Ready for Chat and Live View"
+        ? "Ready"
         : selectedSessionStarting
-          ? "Waiting for the browser to become ready"
+          ? "Starting…"
         : profileCount > 0
-          ? "Start the selected or first saved profile"
-          : "Create a profile, then start it",
+          ? "Start a browser profile"
+          : "Create a browser profile",
       action: "start_session",
+      actionLabel: profileCount > 0 ? "Open session setup" : "Create profile",
+      icon: "play.circle",
+      tint: "#34c759",
     },
     {
       label: conversationCount > 0 ? "Continue in Chat" : "Start a chat",
       detail: progress.states[3] === "locked"
-        ? `Complete step ${progress.currentIndex + 1} first`
-        : conversationCount > 0 ? `${agentName} conversation ready` : `Create one for ${agentName}`,
+        ? `Finish step ${progress.currentIndex + 1} first`
+        : conversationCount > 0 ? "Ready" : `Chat with ${agentName}`,
       action: "chat",
+      actionLabel: "Open Chat",
+      icon: "bubble.left.and.bubble.right.fill",
+      tint: "#ff2d55",
     },
   ];
+
+  const requestAction = (
+    action: GuideAction,
+    source: string,
+    confirmation: GuideActionConfirmation,
+  ) => {
+    setPendingAction({ action, source, confirmation });
+  };
+
+  const confirmAction = () => {
+    if (!pendingAction) return;
+    const { action, source } = pendingAction;
+    setPendingAction(undefined);
+    runAction(action, source);
+  };
+
+  const featureActionLabel = (feature: GuideFeature) => {
+    if (feature.action === "account") return authed ? "View usage" : "Connect account";
+    if (feature.id === "identity" && profileCount === 0) return "Create profile";
+    return feature.actionLabel;
+  };
 
   return (
     <div className="page guide-page">
@@ -197,7 +234,7 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
         <BrandLogo size={52} />
         <div>
           <h2>{brandName}</h2>
-          <p className="muted">Set up a browser profile and agent, then work from Chat or Live View.</p>
+          <p className="muted">Connect what you need, then start a task.</p>
         </div>
         <span className="spacer" />
         <button className="btn-bordered" onClick={showTour}>
@@ -208,14 +245,11 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
 
       <section className="guide-start-section" aria-labelledby="guide-start-title">
         <div className="guide-section-heading">
-          <div>
-            <span className="guide-eyebrow">Start here</span>
-            <h3 id="guide-start-title">Get ready in four steps</h3>
-          </div>
+          <h3 id="guide-start-title">Get started</h3>
           <span className="muted small">
             {progress.currentIndex === -1
-              ? "Everything is ready — continue in Chat or open Live View."
-              : `Step ${progress.currentIndex + 1} is next. Later steps unlock in order.`}
+              ? "Ready"
+              : `Next: ${quickSteps[progress.currentIndex].label}`}
           </span>
         </div>
         <div className="quick-start claw-card">
@@ -229,7 +263,16 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
                 type="button"
                 className={`quick-step is-${state}`}
                 data-step-state={state}
-                onClick={() => runAction(destination.action, `quick_step_${index + 1}`)}
+                onClick={() => requestAction(
+                  destination.action,
+                  `quick_step_${index + 1}`,
+                  {
+                    title: `${destination.actionLabel}?`,
+                    confirmLabel: destination.actionLabel,
+                    icon: destination.icon,
+                    tint: destination.tint,
+                  },
+                )}
                 aria-label={`${step.label}. ${step.detail}`}
               >
                 <span className="step-num">
@@ -250,40 +293,46 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
 
       <section className="guide-features" aria-labelledby="guide-features-title">
         <div className="guide-section-heading guide-features-heading">
-          <div>
-            <span className="guide-eyebrow">Explore</span>
-            <h3 id="guide-features-title">Everything is one click away</h3>
-          </div>
-          <span className="muted small">Open a workspace, control, or setup flow directly from any card.</span>
+          <h3 id="guide-features-title">Explore</h3>
         </div>
         {GUIDE_FEATURE_GROUPS.map((group) => (
           <section key={group.id} className="guide-feature-group" aria-labelledby={`guide-group-${group.id}`}>
             <div className="guide-feature-group-heading">
               <h4 id={`guide-group-${group.id}`}>{group.title}</h4>
-              <p className="muted small">{group.description}</p>
             </div>
             <div className="feature-grid">
-              {group.features.map((feature) => (
-                <GuideFeatureCard
-                  key={feature.id}
-                  feature={feature}
-                  actionLabel={
-                    feature.action === "account"
-                      ? authed ? "View usage" : "Connect account"
-                      : feature.id === "identity" && profileCount === 0
-                        ? "Create a profile first"
-                        : feature.id === "captcha" && captchaCategory
-                          ? `Open ${captchaCategory.title}`
-                          : undefined
-                  }
-                  onActivate={() => runAction(feature.action, `feature_${feature.id}`)}
-                />
-              ))}
+              {group.features.map((feature) => {
+                const actionLabel = featureActionLabel(feature);
+                return (
+                  <GuideFeatureCard
+                    key={feature.id}
+                    feature={feature}
+                    actionLabel={actionLabel}
+                    onActivate={() => requestAction(
+                      feature.action,
+                      `feature_${feature.id}`,
+                      {
+                        title: `${actionLabel}?`,
+                        confirmLabel: actionLabel,
+                        icon: feature.icon,
+                        tint: feature.tint,
+                      },
+                    )}
+                  />
+                );
+              })}
             </div>
           </section>
         ))}
       </section>
 
+      {pendingAction && (
+        <GuideActionModal
+          confirmation={pendingAction.confirmation}
+          onCancel={() => setPendingAction(undefined)}
+          onConfirm={confirmAction}
+        />
+      )}
       {vpsSetupOpen && <VPSSetupModal onClose={() => setVPSSetupOpen(false)} />}
     </div>
   );

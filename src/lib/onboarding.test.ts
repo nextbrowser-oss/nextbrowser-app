@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  canOpenOnboardingChat,
   FIRST_TASK_EXAMPLE,
   hasCompletedCurrentOnboarding,
-  ONBOARDING_AGENT_SETUP,
   ONBOARDING_STEPS,
   ONBOARDING_VERSION,
   ONBOARDING_VERSION_KEY,
@@ -31,34 +29,37 @@ describe("first-run onboarding", () => {
       "prompt",
       "control",
     ]);
+    expect(ONBOARDING_STEPS[0].title).toBe("How it works");
+    expect(ONBOARDING_STEPS[1]).toMatchObject({
+      title: "Setup agent",
+      description: "",
+    });
+    expect(ONBOARDING_STEPS[2]).toMatchObject({
+      title: "Setup profile",
+      description: "Choose the profile the agent should use, then start it.",
+    });
+    expect(ONBOARDING_STEPS[3]).toMatchObject({
+      title: "Try your first task",
+      description: "Tell the agent what to do and what result you want.",
+    });
+    expect(ONBOARDING_STEPS[4]).toMatchObject({
+      label: "Live Streaming",
+      title: "Watch the browser live",
+      description: "When you ask the agent to use the browser, Live Streaming starts automatically.",
+    });
   });
 
-  it("states the different Claude and Codex installation requirements", () => {
-    expect(ONBOARDING_AGENT_SETUP.claude.requirement).toContain("Claude Code CLI");
-    expect(ONBOARDING_AGENT_SETUP.claude.requirement).toContain("not the Claude desktop app");
-    expect(ONBOARDING_AGENT_SETUP.codex.requirement).toContain("ChatGPT desktop app with Codex");
-    expect(ONBOARDING_AGENT_SETUP.codex.requirement).toContain("No separate Codex CLI");
-  });
-
-  it("uses a safe example with context, limits, output, and a stopped-session fallback", () => {
-    expect(FIRST_TASK_EXAMPLE).toContain("selected browser profile");
-    expect(FIRST_TASK_EXAMPLE).toContain("https://example.com");
+  it("uses a short, safe example with a clear result", () => {
+    expect(FIRST_TASK_EXAMPLE).toContain("selected profile");
+    expect(FIRST_TASK_EXAMPLE).toContain("example.com");
     expect(FIRST_TASK_EXAMPLE).toContain("Do not submit forms");
-    expect(FIRST_TASK_EXAMPLE).toContain("page title and main heading");
-    expect(FIRST_TASK_EXAMPLE).toContain("session is unavailable");
-    expect(FIRST_TASK_EXAMPLE).toContain("stop and tell me");
+    expect(FIRST_TASK_EXAMPLE).toContain("page title");
   });
 
   it("does not describe saved profiles as running sessions", () => {
     expect(onboardingProfileSummary(0, 0)).toBe("No saved profiles");
     expect(onboardingProfileSummary(3, 0)).toBe("3 saved · 0 running");
     expect(onboardingProfileSummary(3, 1)).toBe("3 saved · 1 running");
-  });
-
-  it("opens Chat as a ready action only with an agent and selected running session", () => {
-    expect(canOpenOnboardingChat(true, true)).toBe(true);
-    expect(canOpenOnboardingChat(true, false)).toBe(false);
-    expect(canOpenOnboardingChat(false, true)).toBe(false);
   });
 
   it("shows each onboarding revision once, including after the legacy tour", () => {

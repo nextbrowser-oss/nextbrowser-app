@@ -20,60 +20,61 @@ export interface GuideFeature {
   actionLabel: string;
 }
 
+export const CAPTCHA_GUIDE_PROMPT =
+  "On the current page in the selected browser profile, detect the captcha. Check for a matching nbc captcha skill, then try `nbc captcha auto`. If it cannot be solved automatically, stop and ask me to take over in Live.";
+
 interface GuideFeatureGroup {
   id: string;
   title: string;
-  description: string;
   features: GuideFeature[];
 }
 
 export const GUIDE_FEATURE_GROUPS: GuideFeatureGroup[] = [
   {
     id: "browser",
-    title: "Browser & identity",
-    description: "Prepare the right browser context, identity, and live session before work begins.",
+    title: "Browser",
     features: [
       {
         id: "account",
         icon: "key.fill",
-        title: "Account & access",
-        caption: "Connect your browser account to use managed profiles, proxy traffic, Remote Control, and published skills.",
+        title: "Account",
+        caption: "Connect for profiles, traffic, and skills.",
         tint: "#007aff",
         action: "account",
-        actionLabel: "Connect account",
+        actionLabel: "Connect",
       },
       {
         id: "profiles",
         icon: "person.2.fill",
-        title: "Profiles & sessions",
-        caption: "Create a managed or manual-proxy profile, then start, stop, select, or remove it in the sidebar.",
+        title: "Profiles",
+        caption: "Create, select, start, or stop profiles.",
         tint: "#5856d6",
         action: "profiles",
-        actionLabel: "Show profiles",
+        actionLabel: "Open profiles",
       },
       {
         id: "identity",
         icon: "globe",
-        title: "Identity rotation",
-        caption: "Use a profile's menu to rotate its identity, choose a country, or verify its current proxy.",
+        title: "Identity",
+        caption: "Change a profile's country or proxy identity.",
         tint: "#34c759",
         action: "identity",
-        actionLabel: "Show profile actions",
+        actionLabel: "Open profile actions",
       },
       {
         id: "traffic",
         icon: "chart.bar.fill",
-        title: "Proxy traffic",
-        caption: "Inspect your allocation, date-range history, request count, and reported top domains.",
+        title: "Traffic",
+        caption: "See usage, requests, and top domains.",
         tint: "#5ac8fa",
         action: "usage",
-        actionLabel: "View traffic",
+        actionLabel: "View usage",
       },
       {
         id: "live",
         icon: "video.fill",
         title: "Live View",
-        caption: "Watch and interact with a running browser session, including its open tabs.",
+        caption: "Watch and control the active browser.",
         tint: "#ff3b30",
         action: "live",
         actionLabel: "Open Live View",
@@ -82,23 +83,22 @@ export const GUIDE_FEATURE_GROUPS: GuideFeatureGroup[] = [
   },
   {
     id: "agents",
-    title: "Agent workspace",
-    description: "Connect a local coding agent, supervise its work, and keep every conversation recoverable.",
+    title: "Agent",
     features: [
       {
         id: "agents",
         icon: "cpu.fill",
-        title: "Claude Code & Codex",
-        caption: "Connect through the Claude Code CLI or Codex bundled with the ChatGPT desktop app.",
+        title: "Agents",
+        caption: "Connect Claude Code or Codex.",
         tint: "#af52de",
         action: "agent",
-        actionLabel: "Choose an agent",
+        actionLabel: "Choose agent",
       },
       {
         id: "agent-auth",
         icon: "person.badge.key.fill",
-        title: "Agent authentication",
-        caption: "Open the selected agent's login flow in Terminal and recheck its sign-in state.",
+        title: "Agent sign-in",
+        caption: "Sign in or check the connection.",
         tint: "#ff9500",
         action: "agent",
         actionLabel: "Open agent settings",
@@ -107,16 +107,16 @@ export const GUIDE_FEATURE_GROUPS: GuideFeatureGroup[] = [
         id: "conversations",
         icon: "clock.arrow.circlepath",
         title: "Conversations",
-        caption: "Keep named chat histories per agent and fork a conversation when the task branches.",
+        caption: "Open, rename, or fork saved chats.",
         tint: "#32ade6",
         action: "chat",
-        actionLabel: "Open conversations",
+        actionLabel: "Open Chat",
       },
       {
         id: "queue",
         icon: "tray.full.fill",
-        title: "Queue controls",
-        caption: "Queue prompts in order, edit or cancel waiting work, and stop the active run.",
+        title: "Queue",
+        caption: "Manage active and queued tasks.",
         tint: "#ff2d55",
         action: "chat",
         actionLabel: "Open Chat",
@@ -125,7 +125,7 @@ export const GUIDE_FEATURE_GROUPS: GuideFeatureGroup[] = [
         id: "activity",
         icon: "paperclip",
         title: "Files & activity",
-        caption: "Attach local files and inspect streamed output, activity labels, tool events, and stalled runs.",
+        caption: "Attach files and review task activity.",
         tint: "#ffcc00",
         action: "chat",
         actionLabel: "Open Chat",
@@ -134,23 +134,22 @@ export const GUIDE_FEATURE_GROUPS: GuideFeatureGroup[] = [
   },
   {
     id: "automation",
-    title: "Automation & remote work",
-    description: "Turn repeatable browser work into supervised local or VPS workflows.",
+    title: "Automation",
     features: [
       {
         id: "skills",
         icon: "square.grid.2x2.fill",
-        title: "Skills & scripts",
-        caption: "Browse published skills when available, or create private browser scripts for repeatable work.",
+        title: "Skills",
+        caption: "Use or create reusable browser workflows.",
         tint: "#63e6e2",
         action: "skills",
-        actionLabel: "Browse workflows",
+        actionLabel: "Open Skills",
       },
       {
         id: "scheduled",
         icon: "clock.arrow.circlepath",
-        title: "Scheduled runs",
-        caption: "Run recurring prompts at chosen times and weekdays while NextBrowser is open.",
+        title: "Schedules",
+        caption: "Run recurring tasks while NextBrowser is open.",
         tint: "#8e8cff",
         action: "scheduled",
         actionLabel: "Open schedules",
@@ -158,8 +157,8 @@ export const GUIDE_FEATURE_GROUPS: GuideFeatureGroup[] = [
       {
         id: "vps",
         icon: "terminal",
-        title: "VPS sessions",
-        caption: "Create a remote-only chat over SSH using a configured host or manual connection.",
+        title: "VPS",
+        caption: "Run a chat on a remote server.",
         tint: "#30b0c7",
         action: "vps",
         actionLabel: "Set up a VPS",
@@ -167,11 +166,11 @@ export const GUIDE_FEATURE_GROUPS: GuideFeatureGroup[] = [
       {
         id: "captcha",
         icon: "checkmark.shield.fill",
-        title: "Captcha handling",
-        caption: "Available captcha skills can attempt supported challenges; some still need human action.",
+        title: "Captcha",
+        caption: "Let nbc solve it or continue in Live.",
         tint: "#34c759",
         action: "captcha",
-        actionLabel: "Browse skills",
+        actionLabel: "Try in Chat",
       },
     ],
   },

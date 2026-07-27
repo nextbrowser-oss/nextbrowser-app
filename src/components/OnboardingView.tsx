@@ -1,21 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { agentById, agentInstallName, PRIMARY_AGENTS } from "../agents";
+import { agentById, PRIMARY_AGENTS } from "../agents";
 import { trackEvent } from "../lib/analytics";
 import {
-  canOpenOnboardingChat,
   FIRST_TASK_EXAMPLE,
-  ONBOARDING_AGENT_SETUP,
   ONBOARDING_STEPS,
   onboardingProfileSummary,
 } from "../lib/onboarding";
+import { saveGuideDraft } from "../lib/guideDraft";
 import { useStore } from "../store";
 import type { AppTab } from "../types";
 import { AgentInstallLink } from "./AgentInstallLink";
 import { BrandLogo } from "./BrandLogo";
+import { GuideActionModal } from "./GuideActionModal";
 import { Icon, Spinner } from "./Icon";
 import { UserFacingError } from "./UserFacingError";
-
-type CopyState = "idle" | "copied" | "failed";
 
 export function OnboardingView() {
   const finish = useStore((s) => s.finishOnboarding);
@@ -45,17 +43,21 @@ export function OnboardingView() {
     return listedRunning
       + (!listedDefault && s.defaultSession?.status === "running" ? 1 : 0);
   });
-  const selectedProfile = useStore((s) => s.selectedProfile);
   const selectedSessionRunning = useStore((s) =>
     s.selectedProfile
       ? s.statuses[s.selectedProfile] === "running"
       : s.defaultSession?.status === "running"
   );
+  const selectedSessionStarting = useStore((s) =>
+    s.selectedProfile
+      ? s.statuses[s.selectedProfile] === "starting"
+      : s.defaultSession?.status === "starting"
+  );
   const setDashboardKeyPromptOpen = useStore((s) => s.setDashboardKeyPromptOpen);
   const stepIndex = useStore((s) => s.onboardingStepIndex);
   const setStepIndex = useStore((s) => s.setOnboardingStepIndex);
   const suspendForSetup = useStore((s) => s.suspendOnboardingForSetup);
-  const [copyState, setCopyState] = useState<CopyState>("idle");
+  const [tryChatConfirmOpen, setTryChatConfirmOpen] = useState(false);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -64,11 +66,10 @@ export function OnboardingView() {
   const agentDetected = !!agentVersion;
   const agentNeedsLogin = agentDetected && agentLoggedIn === false;
   const isLastStep = stepIndex === ONBOARDING_STEPS.length - 1;
-  const canOpenChat = canOpenOnboardingChat(ready, selectedSessionRunning);
 
   useEffect(() => {
     headingRef.current?.focus();
-    setCopyState("idle");
+    setTryChatConfirmOpen(false);
     trackEvent("onboarding_step_viewed", {
       step: current.id,
       step_number: stepIndex + 1,
@@ -100,6 +101,13 @@ export function OnboardingView() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (tryChatConfirmOpen) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setTryChatConfirmOpen(false);
+        }
+        return;
+      }
       if (event.key === "Escape") {
         event.preventDefault();
         closeTutorial("skipped");
@@ -129,7 +137,7 @@ export function OnboardingView() {
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [closeTutorial]);
+  }, [closeTutorial, tryChatConfirmOpen]);
 
   const connectAgent = () => {
     trackEvent("onboarding_agent_action", {
@@ -150,18 +158,36 @@ export function OnboardingView() {
     trackEvent("onboarding_setup_opened", { setup: "profile" });
     setTab("guide");
     setSidebarCollapsed(false);
-    suspendForSetup();
+    finish();
     window.dispatchEvent(new CustomEvent("nextbrowser:open-profile-creator"));
   };
 
-  const copyExample = async () => {
-    try {
-      await navigator.clipboard.writeText(FIRST_TASK_EXAMPLE);
-      setCopyState("copied");
-      trackEvent("onboarding_example_copied");
-    } catch {
-      setCopyState("failed");
+  const startProfileForLive = () => {
+    trackEvent("onboarding_live_profile_action", {
+      action: profileCount > 0 ? "start" : "setup",
+    });
+    if (profileCount === 0) {
+      openProfileSetup();
+      return;
     }
+    setSidebarCollapsed(false);
+    window.requestAnimationFrame(() => window.dispatchEvent(
+      new CustomEvent("nextbrowser:start-selected-profile"),
+    ));
+  };
+
+  const openTryChatConfirmation = () => {
+    trackEvent("onboarding_try_chat_requested");
+    setTryChatConfirmOpen(true);
+  };
+
+  const confirmTryChat = () => {
+    const prompt = saveGuideDraft(localStorage, FIRST_TASK_EXAMPLE);
+    if (!prompt) return;
+    trackEvent("onboarding_try_chat_confirmed");
+    setTryChatConfirmOpen(false);
+    window.dispatchEvent(new CustomEvent("nextbrowser:guide-draft", { detail: prompt }));
+    closeTutorial("completed", "chat");
   };
 
   return (
@@ -172,7 +198,7 @@ export function OnboardingView() {
         role="dialog"
         aria-modal="true"
         aria-labelledby="onboarding-title"
-        aria-describedby="onboarding-description"
+        aria-describedby={current.description ? "onboarding-description" : undefined}
       >
         <aside className="onboarding-rail">
           <div className="onboarding-brand">
@@ -232,9 +258,10 @@ export function OnboardingView() {
                 <Icon name={current.icon} size={24} strokeWidth={2.2} />
               </span>
               <div>
-                <span className="onboarding-eyebrow">{current.label}</span>
                 <h2 id="onboarding-title" ref={headingRef} tabIndex={-1}>{current.title}</h2>
-                <p id="onboarding-description" className="muted">{current.description}</p>
+                {current.description && (
+                  <p id="onboarding-description" className="muted">{current.description}</p>
+                )}
               </div>
             </div>
 
@@ -257,15 +284,6 @@ export function OnboardingView() {
                     </div>
                   ))}
                 </div>
-                <div className="onboarding-human-example">
-                  <span className="onboarding-example-label">In plain English</span>
-                  <p>
-                    “Open a product page, collect the first 10 prices, and return a table — but do not buy or submit anything.”
-                  </p>
-                  <span className="muted small">
-                    NextBrowser tells the agent which profile you selected. Check Sidebar or Live to confirm the correct session is running.
-                  </span>
-                </div>
                 <div className={"onboarding-account-status" + (authed ? " is-ready" : "")}>
                   <Icon name={authed ? "checkmark.circle.fill" : "info.circle"} size={16} />
                   <span>
@@ -285,7 +303,6 @@ export function OnboardingView() {
               <div className="onboarding-step-content">
                 <div className="onboarding-agent-options">
                   {PRIMARY_AGENTS.map((item) => {
-                    const setup = ONBOARDING_AGENT_SETUP[item.id as keyof typeof ONBOARDING_AGENT_SETUP];
                     const selected = item.id === agentId;
                     return (
                       <div className={"onboarding-agent-option" + (selected ? " is-selected" : "")} key={item.id}>
@@ -300,45 +317,30 @@ export function OnboardingView() {
                             <strong>{item.name}</strong>
                             {selected && <Icon name="checkmark.circle.fill" size={17} className="ok" />}
                           </span>
-                          <span className="onboarding-agent-kind">{setup.badge}</span>
-                          <span className="muted small">{setup.requirement}</span>
                         </button>
-                        {item.installUrl && (
-                          <a href={item.installUrl} target="_blank" rel="noreferrer">
-                            {setup.linkLabel}
-                            <Icon name="arrow.up.forward.app" size={12} />
-                          </a>
-                        )}
                       </div>
                     );
                   })}
                 </div>
 
-                <div className="onboarding-agent-connect">
+                <div className={"onboarding-agent-connect" + (ready ? " is-ready" : "")}>
                   <div>
-                    <span className="onboarding-example-label">Selected agent</span>
                     <strong>{agent.name}</strong>
-                    <span className="muted small">
-                      {ready
-                        ? `${agentVersion || agent.name} is ready for tasks.`
-                        : agentNeedsLogin
-                          ? `${agent.name} is installed but needs sign-in.`
-                          : `NextBrowser will look for ${
-                            agent.id === "codex"
-                              ? "Codex in the ChatGPT desktop app"
-                              : agentInstallName(agent)
-                          } on this computer.`}
-                    </span>
                   </div>
                   <button
                     type="button"
-                    className={ready ? "btn-bordered" : "btn-bordered-prominent"}
+                    className={ready ? "btn-bordered onboarding-agent-connected" : "btn-bordered-prominent"}
                     disabled={ready || authorizing}
                     onClick={connectAgent}
                   >
                     {authorizing && <Spinner size={13} />}
                     {ready
-                      ? "Connected"
+                      ? (
+                        <>
+                          <Icon name="checkmark.circle.fill" size={15} />
+                          Connected
+                        </>
+                      )
                       : authorizing
                         ? "Checking…"
                         : agentNeedsLogin
@@ -352,164 +354,111 @@ export function OnboardingView() {
                     <AgentInstallLink agent={agent} error={agentError} surface="onboarding" />
                   </div>
                 )}
-                <p className="onboarding-fine-print">
-                  Claude Code uses its CLI, not the Claude desktop app. Codex uses the executable bundled with the ChatGPT desktop app. Authentication stays with that agent.
-                </p>
               </div>
             )}
 
             {current.id === "profile" && (
               <div className="onboarding-step-content">
-                <div className="onboarding-concept-grid">
-                  <div className="onboarding-concept-card">
-                    <span className="onboarding-concept-icon"><Icon name="person.2.fill" size={18} /></span>
-                    <div>
-                      <strong>Profile = saved browser context</strong>
-                      <span>It can keep cookies, logins, proxy settings, and browser state together.</span>
-                    </div>
-                  </div>
-                  <div className="onboarding-concept-card">
-                    <span className="onboarding-concept-icon"><Icon name="play.circle" size={18} /></span>
-                    <div>
-                      <strong>Session = running browser</strong>
-                      <span>Start the profile’s session when you want the agent to use its pages.</span>
-                    </div>
-                  </div>
+                <div className={"onboarding-profile-status" + (runningProfileCount > 0 ? " is-ready" : "")}>
+                  <Icon
+                    name={runningProfileCount > 0 ? "checkmark.circle.fill" : "person.2.fill"}
+                    size={18}
+                  />
+                  <span>
+                    <strong>
+                      {runningProfileCount > 0
+                        ? "Profile ready"
+                        : profileCount > 0
+                          ? "Start a profile"
+                          : "Create a profile"}
+                    </strong>
+                    <span>{onboardingProfileSummary(profileCount, runningProfileCount)}</span>
+                  </span>
+                  <button type="button" className="btn-bordered" onClick={openProfileSetup}>
+                    Set up profile
+                    <Icon name="chevron.right" size={13} />
+                  </button>
                 </div>
-
-                <div className="onboarding-profile-example">
-                  <div className="onboarding-example-heading">
-                    <div>
-                      <span className="onboarding-example-label">Illustrative examples</span>
-                      <strong>Use separate profiles when contexts must not mix</strong>
-                    </div>
-                    <span className={"onboarding-status-pill" + (runningProfileCount > 0 ? " is-ready" : "")}>
-                      {onboardingProfileSummary(profileCount, runningProfileCount)}
-                    </span>
-                  </div>
-                  <div className="onboarding-profile-rows" aria-label="Illustrative browser profile examples">
-                    <div>
-                      <span className="onboarding-profile-avatar">S</span>
-                      <span><strong>shop-us</strong><small>Shopping research · United States</small></span>
-                      <span className="onboarding-profile-state">● Running</span>
-                    </div>
-                    <div>
-                      <span className="onboarding-profile-avatar alternate">C</span>
-                      <span><strong>client-research</strong><small>Separate customer login · Germany</small></span>
-                      <span className="muted small">Stopped</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="onboarding-sequence" aria-label="Profile setup sequence">
-                  {["Choose", "Start", "Open page", "Verify*"].map((label, index) => (
-                    <div key={label}>
-                      <span>{index + 1}</span>
-                      <strong>{label}</strong>
-                      {index < 3 && <Icon name="chevron.right" size={13} />}
-                    </div>
-                  ))}
-                </div>
-                <p className="onboarding-fine-print">
-                  Create or select a profile first. Verify identity when country or proxy matters, especially after rotation.
-                </p>
-                <button type="button" className="btn-bordered" onClick={openProfileSetup}>
-                  Set up a profile
-                  <Icon name="chevron.right" size={13} />
-                </button>
               </div>
             )}
 
             {current.id === "prompt" && (
               <div className="onboarding-step-content">
-                <div className="onboarding-prompt-formula">
-                  {[
-                    ["Goal", "What should happen?"],
-                    ["Context", "Which profile or page?"],
-                    ["Limits", "What must not happen?"],
-                    ["Result", "What should be returned?"],
-                  ].map(([label, text]) => (
-                    <div key={label}>
-                      <strong>{label}</strong>
-                      <span>{text}</span>
-                    </div>
-                  ))}
-                </div>
                 <div className="onboarding-prompt-example">
                   <div className="onboarding-example-heading">
-                    <div>
-                      <span className="onboarding-example-label">Safe first task</span>
-                      <strong>A complete prompt you can reuse</strong>
-                    </div>
-                    <button type="button" className="mini" onClick={() => void copyExample()}>
-                      <Icon name={copyState === "copied" ? "checkmark" : "doc.on.doc"} size={12} />
-                      {copyState === "copied" ? "Copied" : copyState === "failed" ? "Select and copy" : "Copy prompt"}
+                    <strong>Example task</strong>
+                    <button type="button" className="btn-bordered-prominent" onClick={openTryChatConfirmation}>
+                      Try in Chat
+                      <Icon name="chevron.right" size={13} />
                     </button>
                   </div>
                   <p>{FIRST_TASK_EXAMPLE}</p>
-                </div>
-                <div className="onboarding-tip">
-                  <Icon name="info.circle" size={16} />
-                  <span>
-                    <strong>Prompt limits are instructions, not an approval lock.</strong>
-                    Watch the page and stop the run before purchases, publishing, account changes, deletion, or anything else consequential.
-                  </span>
                 </div>
               </div>
             )}
 
             {current.id === "control" && (
               <div className="onboarding-step-content">
-                <div className="onboarding-control-grid">
+                <div className="onboarding-live-grid">
                   {[
                     {
-                      icon: "bubble.left.and.bubble.right.fill",
-                      title: "Chat",
-                      text: "Read streamed output, queue follow-ups, edit waiting work, or stop the active run.",
+                      icon: "play.circle",
+                      title: "Follow the run",
+                      text: "See each click, page change, and result.",
                     },
                     {
-                      icon: "video.fill",
-                      title: "Live",
-                      text: "See the actual browser page and switch between the open tabs in its running session.",
+                      icon: "square.stack.3d.up.fill",
+                      title: "Switch tabs",
+                      text: "Move between the session’s open tabs.",
                     },
                     {
-                      icon: "person.crop.circle",
-                      title: "Sidebar",
-                      text: "Confirm which profile is selected, whether its session is running, and which agent is active.",
+                      icon: "square.and.pencil",
+                      title: "Take control",
+                      text: "Click or type when the agent needs help.",
                     },
                   ].map((item) => (
-                    <div className="onboarding-control-card" key={item.title}>
+                    <div className="onboarding-live-card" key={item.title}>
                       <Icon name={item.icon} size={19} />
                       <strong>{item.title}</strong>
                       <span>{item.text}</span>
                     </div>
                   ))}
                 </div>
-                <div className="onboarding-readiness">
-                  <span className={authed ? "is-ready" : ""}>
-                    <Icon name={authed ? "checkmark.circle.fill" : "info.circle"} size={15} />
-                    Browser account
-                  </span>
-                  <span className={ready ? "is-ready" : ""}>
-                    <Icon name={ready ? "checkmark.circle.fill" : "info.circle"} size={15} />
-                    Local agent
-                  </span>
-                  <span className={selectedSessionRunning ? "is-ready" : ""}>
-                    <Icon name={selectedSessionRunning ? "checkmark.circle.fill" : "info.circle"} size={15} />
-                    {selectedProfile ? "Selected session" : "Default session"}
-                  </span>
-                </div>
-                <div className={"onboarding-safety-callout" + (canOpenChat ? " is-ready" : "")}>
+                <div className={"onboarding-live-status" + (selectedSessionRunning ? " is-ready" : "")}>
                   <Icon
-                    name={canOpenChat ? "checkmark.shield.fill" : "exclamationmark.triangle.fill"}
-                    size={20}
+                    name={selectedSessionRunning ? "checkmark.circle.fill" : "info.circle"}
+                    size={16}
                   />
-                  <span>
-                    <strong>{canOpenChat ? "Ready for a first browser task." : "Finish setup before a browser task."}</strong>
-                    {canOpenChat
-                      ? "Check the actual page before accepting important changes. Captchas may still require manual takeover."
-                      : "Guide shows where to connect the agent and start the intended profile session."}
-                  </span>
+                  <strong>
+                    {selectedSessionRunning
+                      ? "Live Streaming is ready"
+                      : "Start a profile to use Live Streaming"}
+                  </strong>
+                  {selectedSessionRunning ? (
+                    <button
+                      type="button"
+                      className="btn-bordered-prominent"
+                      onClick={() => closeTutorial("completed", "live")}
+                    >
+                      Open Live
+                      <Icon name="chevron.right" size={13} />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn-bordered"
+                      disabled={selectedSessionStarting}
+                      onClick={startProfileForLive}
+                    >
+                      {selectedSessionStarting && <Spinner size={13} />}
+                      {profileCount === 0
+                        ? "Set up profile"
+                        : selectedSessionStarting
+                          ? "Starting…"
+                          : "Start profile"}
+                      {!selectedSessionStarting && <Icon name="chevron.right" size={13} />}
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -527,22 +476,10 @@ export function OnboardingView() {
             )}
             <span className="spacer" />
             {isLastStep ? (
-              canOpenChat ? (
-                <>
-                  <button type="button" className="btn-bordered" onClick={() => closeTutorial("completed", "guide")}>
-                    Open Guide
-                  </button>
-                  <button type="button" className="btn-bordered-prominent" onClick={() => closeTutorial("completed", "chat")}>
-                    Open Chat
-                    <Icon name="chevron.right" size={13} />
-                  </button>
-                </>
-              ) : (
-                <button type="button" className="btn-bordered-prominent" onClick={() => closeTutorial("completed", "guide")}>
-                  Continue in Guide
-                  <Icon name="chevron.right" size={13} />
-                </button>
-              )
+              <button type="button" className="btn-bordered-prominent" onClick={() => closeTutorial("completed", "guide")}>
+                Continue in Guide
+                <Icon name="chevron.right" size={13} />
+              </button>
             ) : (
               <button type="button" className="btn-bordered-prominent" onClick={() => goToStep(stepIndex + 1)}>
                 Continue
@@ -552,6 +489,18 @@ export function OnboardingView() {
           </footer>
         </section>
       </div>
+      {tryChatConfirmOpen && (
+        <GuideActionModal
+          confirmation={{
+            title: "Try this task in Chat?",
+            confirmLabel: "Try in Chat",
+            icon: "bubble.left.and.bubble.right.fill",
+            tint: "#ff9500",
+          }}
+          onCancel={() => setTryChatConfirmOpen(false)}
+          onConfirm={confirmTryChat}
+        />
+      )}
     </div>
   );
 }

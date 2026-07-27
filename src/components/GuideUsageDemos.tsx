@@ -1,6 +1,8 @@
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
+import { CAPTCHA_GUIDE_PROMPT } from "../lib/guideFeatures";
 import { saveGuideDraft } from "../lib/guideDraft";
 import { useStore } from "../store";
+import { GuideActionModal } from "./GuideActionModal";
 import { Icon } from "./Icon";
 
 const DURATION = 4.8;
@@ -231,7 +233,7 @@ function CaptchaSolveDemo({ phase }: { phase: number }) {
 
 type GuideUsageAction =
   | { kind: "chat"; prompt: string }
-  | { kind: "skills"; category?: "captcha" };
+  | { kind: "skills" };
 
 export const GUIDE_USAGE_DEMOS: Array<{
   title: string;
@@ -242,32 +244,32 @@ export const GUIDE_USAGE_DEMOS: Array<{
   Demo: ComponentType<{ phase: number }>;
 }> = [
   {
-    title: "Open a browser",
-    caption: "Review a ready-made prompt in Chat, then send it when your agent and profile are ready.",
+    title: "Open a page",
+    caption: "Open a ready-made browser task in Chat.",
     tint: "#5ac8fa",
     action: {
       kind: "chat",
       prompt:
         "Using the selected NextBrowser profile, start its browser session if needed and navigate to https://amazon.com/deals. Stop and report if the session cannot start or navigation fails.",
     },
-    actionLabel: "Open in Chat",
+    actionLabel: "Open Chat",
     Demo: LaunchBrowserDemo,
   },
   {
-    title: "Rotate proxy to Spain",
-    caption: "Review a prompt that requests country ES and verifies the resulting country and IP.",
+    title: "Change proxy country",
+    caption: "Draft a task to rotate and verify the proxy.",
     tint: "#ff9500",
     action: {
       kind: "chat",
       prompt:
         "For the selected NextBrowser profile, rotate its proxy country to ES, start the session if needed, verify the resulting proxy country and IP, then report the result. Stop and report if rotation or verification fails.",
     },
-    actionLabel: "Open in Chat",
+    actionLabel: "Open Chat",
     Demo: SpanishProxyDemo,
   },
   {
-    title: "Use a published skill",
-    caption: "See what's currently available, then apply a workflow before you run it.",
+    title: "Use a skill",
+    caption: "Browse available browser skills.",
     tint: "#63e6e2",
     action: { kind: "skills" },
     actionLabel: "Browse skills",
@@ -275,21 +277,17 @@ export const GUIDE_USAGE_DEMOS: Array<{
   },
   {
     title: "Handle a captcha",
-    caption: "Check for a compatible handler, and use Live View when human input is needed.",
+    caption: "Let nbc solve it or continue in Live.",
     tint: "#34c759",
-    action: { kind: "skills", category: "captcha" },
-    actionLabel: "Browse skills",
+    action: { kind: "chat", prompt: CAPTCHA_GUIDE_PROMPT },
+    actionLabel: "Try in Chat",
     Demo: CaptchaSolveDemo,
   },
 ];
 
 export function GuideUsageSection() {
   const setTab = useStore((s) => s.setTab);
-  const captchaCategory = useStore((s) =>
-    s.skillCategories.find((category) =>
-      category.entries.some((entry) => entry.selector.kind === "captcha"),
-    ),
-  );
+  const [pendingDemo, setPendingDemo] = useState<(typeof GUIDE_USAGE_DEMOS)[number]>();
 
   const openDemo = (demo: (typeof GUIDE_USAGE_DEMOS)[number]) => {
     if (demo.action.kind === "chat") {
@@ -300,57 +298,68 @@ export function GuideUsageSection() {
       return;
     }
 
-    if (demo.action.category === "captcha" && captchaCategory) {
-      localStorage.setItem("openSkillsCategory", captchaCategory.id);
-    }
     setTab("skills");
-    if (demo.action.category === "captcha" && captchaCategory) {
-      window.requestAnimationFrame(() => window.dispatchEvent(
-        new CustomEvent("nextbrowser:open-skills-category", { detail: captchaCategory.id }),
-      ));
-    }
+  };
+
+  const actionLabelFor = (demo: (typeof GUIDE_USAGE_DEMOS)[number]) => demo.actionLabel;
+
+  const confirmDemo = () => {
+    if (!pendingDemo) return;
+    const demo = pendingDemo;
+    setPendingDemo(undefined);
+    openDemo(demo);
   };
 
   return (
-    <section className="guide-usage">
-      <h3 className="guide-section-title">
-        <Icon name="play.rectangle.on.rectangle.fill" size={20} />
-        Usage
-      </h3>
-      <p className="muted">Illustrative previews, not live results. Chat examples open as drafts; Skills shows what's available now.</p>
-      <div className="usage-grid">
-        {GUIDE_USAGE_DEMOS.map((d) => {
-          const isCaptchaSkills = d.action.kind === "skills" && d.action.category === "captcha";
-          const actionLabel = isCaptchaSkills && captchaCategory
-            ? `Open ${captchaCategory.title}`
-            : d.actionLabel;
-          return (
-            <button
-              key={d.title}
-              type="button"
-              className="usage-card claw-card"
-              data-guide-demo={d.title}
-              aria-label={`${actionLabel}: ${d.title}`}
-              onClick={() => openDemo(d)}
-            >
-              <div className="demo-player-wrap">
-                <span className="demo-illustration-badge" style={{ color: d.tint }}>
-                  ILLUSTRATION
+    <>
+      <section className="guide-usage">
+        <h3 className="guide-section-title">
+          <Icon name="play.rectangle.on.rectangle.fill" size={20} />
+          Examples
+        </h3>
+        <p className="muted">Examples only. Chat tasks open as drafts.</p>
+        <div className="usage-grid">
+          {GUIDE_USAGE_DEMOS.map((demo) => {
+            const actionLabel = actionLabelFor(demo);
+            return (
+              <button
+                key={demo.title}
+                type="button"
+                className="usage-card claw-card"
+                data-guide-demo={demo.title}
+                aria-label={`${actionLabel}: ${demo.title}`}
+                onClick={() => setPendingDemo(demo)}
+              >
+                <div className="demo-player-wrap">
+                  <DemoPlayer>
+                    {(phase) => <demo.Demo phase={phase} />}
+                  </DemoPlayer>
+                </div>
+                <strong className="usage-card-title">{demo.title}</strong>
+                <p className="muted small usage-card-caption">{demo.caption}</p>
+                <span className="usage-card-action" style={{ color: demo.tint }}>
+                  {actionLabel}
+                  <Icon name="chevron.right" size={13} />
                 </span>
-                <DemoPlayer>
-                  {(phase) => <d.Demo phase={phase} />}
-                </DemoPlayer>
-              </div>
-              <strong className="usage-card-title">{d.title}</strong>
-              <p className="muted small usage-card-caption">{d.caption}</p>
-              <span className="usage-card-action" style={{ color: d.tint }}>
-                {actionLabel}
-                <Icon name="chevron.right" size={13} />
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </section>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+      {pendingDemo && (
+        <GuideActionModal
+          confirmation={{
+            title: `${actionLabelFor(pendingDemo)}?`,
+            confirmLabel: actionLabelFor(pendingDemo),
+            icon: pendingDemo.action.kind === "chat"
+              ? "bubble.left.and.bubble.right.fill"
+              : "square.grid.2x2.fill",
+            tint: pendingDemo.tint,
+          }}
+          onCancel={() => setPendingDemo(undefined)}
+          onConfirm={confirmDemo}
+        />
+      )}
+    </>
   );
 }
