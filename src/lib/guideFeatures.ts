@@ -6,7 +6,6 @@ export type GuideAction =
   | "profiles"
   | "start_session"
   | "identity"
-  | "captcha"
   | "vps"
   | Extract<AppTab, "chat" | "skills" | "live" | "usage" | "scheduled">;
 
@@ -20,9 +19,6 @@ export interface GuideFeature {
   actionLabel: string;
 }
 
-export const CAPTCHA_GUIDE_PROMPT =
-  "On the current page in the selected browser profile, detect the captcha. Check for a matching nbc captcha skill, then try `nbc captcha auto`. If it cannot be solved automatically, stop and ask me to take over in Live.";
-
 interface GuideFeatureGroup {
   id: string;
   title: string;
@@ -34,15 +30,6 @@ export const GUIDE_FEATURE_GROUPS: GuideFeatureGroup[] = [
     id: "browser",
     title: "Browser",
     features: [
-      {
-        id: "account",
-        icon: "key.fill",
-        title: "Account",
-        caption: "Connect for profiles, traffic, and skills.",
-        tint: "#007aff",
-        action: "account",
-        actionLabel: "Connect",
-      },
       {
         id: "profiles",
         icon: "person.2.fill",
@@ -56,7 +43,7 @@ export const GUIDE_FEATURE_GROUPS: GuideFeatureGroup[] = [
         id: "identity",
         icon: "globe",
         title: "Identity",
-        caption: "Change a profile's country or proxy identity.",
+        caption: "Change country or proxy for a profile.",
         tint: "#34c759",
         action: "identity",
         actionLabel: "Open profile actions",
@@ -73,11 +60,11 @@ export const GUIDE_FEATURE_GROUPS: GuideFeatureGroup[] = [
       {
         id: "live",
         icon: "video.fill",
-        title: "Live View",
+        title: "Live Streaming",
         caption: "Watch and control the active browser.",
         tint: "#ff3b30",
         action: "live",
-        actionLabel: "Open Live View",
+        actionLabel: "Open Live Streaming",
       },
     ],
   },
@@ -88,45 +75,18 @@ export const GUIDE_FEATURE_GROUPS: GuideFeatureGroup[] = [
       {
         id: "agents",
         icon: "cpu.fill",
-        title: "Agents",
+        title: "Agent",
         caption: "Connect Claude Code or Codex.",
         tint: "#af52de",
         action: "agent",
         actionLabel: "Choose agent",
       },
       {
-        id: "agent-auth",
-        icon: "person.badge.key.fill",
-        title: "Agent sign-in",
-        caption: "Sign in or check the connection.",
-        tint: "#ff9500",
-        action: "agent",
-        actionLabel: "Open agent settings",
-      },
-      {
         id: "conversations",
-        icon: "clock.arrow.circlepath",
-        title: "Conversations",
-        caption: "Open, rename, or fork saved chats.",
-        tint: "#32ade6",
-        action: "chat",
-        actionLabel: "Open Chat",
-      },
-      {
-        id: "queue",
-        icon: "tray.full.fill",
-        title: "Queue",
-        caption: "Manage active and queued tasks.",
+        icon: "bubble.left.and.bubble.right.fill",
+        title: "Chat",
+        caption: "Start or continue a task.",
         tint: "#ff2d55",
-        action: "chat",
-        actionLabel: "Open Chat",
-      },
-      {
-        id: "activity",
-        icon: "paperclip",
-        title: "Files & activity",
-        caption: "Attach files and review task activity.",
-        tint: "#ffcc00",
         action: "chat",
         actionLabel: "Open Chat",
       },
@@ -134,7 +94,7 @@ export const GUIDE_FEATURE_GROUPS: GuideFeatureGroup[] = [
   },
   {
     id: "automation",
-    title: "Automation",
+    title: "Tools",
     features: [
       {
         id: "skills",
@@ -162,15 +122,6 @@ export const GUIDE_FEATURE_GROUPS: GuideFeatureGroup[] = [
         tint: "#30b0c7",
         action: "vps",
         actionLabel: "Set up a VPS",
-      },
-      {
-        id: "captcha",
-        icon: "checkmark.shield.fill",
-        title: "Captcha",
-        caption: "Let nbc solve it or continue in Live.",
-        tint: "#34c759",
-        action: "captcha",
-        actionLabel: "Try in Chat",
       },
     ],
   },

@@ -1,5 +1,4 @@
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
-import { CAPTCHA_GUIDE_PROMPT } from "../lib/guideFeatures";
 import { saveGuideDraft } from "../lib/guideDraft";
 import { useStore } from "../store";
 import { GuideActionModal } from "./GuideActionModal";
@@ -197,40 +196,6 @@ function PublishedSkillDemo({ phase }: { phase: number }) {
   );
 }
 
-function CaptchaSolveDemo({ phase }: { phase: number }) {
-  const checking = phase > 0.28 && phase < 0.62;
-  const needsHuman = phase >= 0.62;
-
-  return (
-    <DemoCanvas>
-      <div className="demo-captcha-wrap">
-        <DemoBrowserChrome url="accounts.site.com/signup" />
-        <div className="demo-captcha-body">
-          <div className="demo-field" />
-          <div className="demo-captcha-box">
-            <div className="demo-checkbox">
-              {checking && <span className="spin">◌</span>}
-              {needsHuman && <span>!</span>}
-            </div>
-            <div>
-              <strong style={{ fontSize: 9 }}>
-                {needsHuman ? "Human check needed" : checking ? "Checking support…" : "Challenge detected"}
-              </strong>
-              {needsHuman && <div className="muted small">continue in Live View</div>}
-            </div>
-            <Icon
-              name="checkmark.shield.fill"
-              size={16}
-              className="muted"
-            />
-          </div>
-          <div className="demo-submit" />
-        </div>
-      </div>
-    </DemoCanvas>
-  );
-}
-
 type GuideUsageAction =
   | { kind: "chat"; prompt: string }
   | { kind: "skills" };
@@ -274,14 +239,6 @@ export const GUIDE_USAGE_DEMOS: Array<{
     action: { kind: "skills" },
     actionLabel: "Browse skills",
     Demo: PublishedSkillDemo,
-  },
-  {
-    title: "Handle a captcha",
-    caption: "Let nbc solve it or continue in Live.",
-    tint: "#34c759",
-    action: { kind: "chat", prompt: CAPTCHA_GUIDE_PROMPT },
-    actionLabel: "Try in Chat",
-    Demo: CaptchaSolveDemo,
   },
 ];
 

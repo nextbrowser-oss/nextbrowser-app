@@ -3,12 +3,10 @@ import { agentById } from "../agents";
 import { brandName } from "../constants";
 import { trackEvent } from "../lib/analytics";
 import {
-  CAPTCHA_GUIDE_PROMPT,
   GUIDE_FEATURE_GROUPS,
   type GuideAction,
   type GuideFeature,
 } from "../lib/guideFeatures";
-import { saveGuideDraft } from "../lib/guideDraft";
 import { guideSessionSetupEvent } from "../lib/guideQuickStart";
 import { sequentialProgress } from "../lib/sequentialProgress";
 import { useStore } from "../store";
@@ -131,13 +129,6 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
           ? "nextbrowser:open-profile-creator"
           : "nextbrowser:open-profile-actions",
       );
-      return;
-    }
-    if (action === "captcha") {
-      const prompt = saveGuideDraft(localStorage, CAPTCHA_GUIDE_PROMPT);
-      if (!prompt) return;
-      window.dispatchEvent(new CustomEvent("nextbrowser:guide-draft", { detail: prompt }));
-      setTab("chat");
       return;
     }
     if (action === "vps") {

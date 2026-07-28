@@ -24,11 +24,10 @@ describe("Guide usage examples", () => {
     const chatExamples = GUIDE_USAGE_DEMOS.filter((demo) => demo.action.kind === "chat");
     const skillExamples = GUIDE_USAGE_DEMOS.filter((demo) => demo.action.kind === "skills");
 
-    expect(chatExamples).toHaveLength(3);
+    expect(chatExamples).toHaveLength(2);
     expect(chatExamples.map((demo) => demo.actionLabel)).toEqual([
       "Open Chat",
       "Open Chat",
-      "Try in Chat",
     ]);
     expect(skillExamples).toHaveLength(1);
     expect(skillExamples.every((demo) => demo.actionLabel === "Browse skills")).toBe(true);
@@ -42,22 +41,12 @@ describe("Guide usage examples", () => {
     expect(prompt).toMatch(/verify.*country and IP/i);
   });
 
-  it("keeps example visuals generic and shows a human captcha branch", () => {
+  it("keeps example visuals generic", () => {
     const html = GUIDE_USAGE_DEMOS
       .map((demo) => renderToStaticMarkup(createElement(demo.Demo, { phase: 0.8 })))
       .join(" ");
 
     expect(html).toContain("Example structured output");
-    expect(html).toContain("Human check needed");
-    expect(html).not.toMatch(/Cian|Madrid|Captcha solved|supported skill · success/i);
-  });
-
-  it("uses the real nbc captcha command and falls back to Live", () => {
-    const captcha = GUIDE_USAGE_DEMOS.find((demo) => demo.title === "Handle a captcha");
-    const prompt = captcha?.action.kind === "chat" ? captcha.action.prompt : "";
-
-    expect(captcha?.actionLabel).toBe("Try in Chat");
-    expect(prompt).toContain("nbc captcha auto");
-    expect(prompt).toMatch(/take over in Live/i);
+    expect(html).not.toMatch(/Cian|Madrid|supported skill · success/i);
   });
 });
