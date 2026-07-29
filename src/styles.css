@@ -1902,6 +1902,8 @@ button, input, textarea, select { color: var(--text); }
 }
 .tab-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .tab-content-bleed { overflow: hidden; }
+.persistent-tab-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.persistent-tab-panel.is-hidden { display: none; }
 
 /* Chat */
 .chat { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow-x: hidden; }

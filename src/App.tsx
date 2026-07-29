@@ -869,7 +869,9 @@ export function App() {
         <div className={"tab-content" + (tab === "skills" ? " tab-content-bleed" : "")}>
           {tab === "chat" && <ChatView />}
           {tab === "skills" && <SkillsView onOpenAgentSettings={() => openSettings("agent")} />}
-          {tab === "live" && <LiveView />}
+          <div className={"persistent-tab-panel" + (tab === "live" ? "" : " is-hidden")}>
+            <LiveView active={tab === "live"} />
+          </div>
           {tab === "usage" && <UsageView />}
           {tab === "guide" && <GuideView onOpenAgentSettings={() => openSettings("agent")} />}
           {tab === "scheduled" && (
