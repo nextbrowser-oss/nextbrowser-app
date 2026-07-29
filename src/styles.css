@@ -2767,6 +2767,7 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   align-items: center;
   gap: 10px;
   padding: 11px 12px;
+  margin-bottom: 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface-1);
