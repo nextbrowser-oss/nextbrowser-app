@@ -128,7 +128,7 @@ Nextbrowser هو سطح التحكم المكتبي. تحدد الملفات ا�
 
 ## المجتمع والدعم
 
-- انضم إلى [Discord الخاص بـ Nextbrowser](https://discord.gg/jfYjwJQdQ) للتواصل مع المجتمع والحصول على مساعدة في الإعداد ومتابعة تحديثات المنتج.
+- انضم إلى [Discord الخاص بـ Nextbrowser](https://discord.gg/qnKUKMvGB9) للتواصل مع المجتمع والحصول على مساعدة في الإعداد ومتابعة تحديثات المنتج.
 - اطرح الأسئلة العامة وشارك الأفكار في [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions).
 - استخدم [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) للعمل القابل للتنفيذ والمحدد النطاق.
 - اتبع [SECURITY.md](../../../SECURITY.md) للإبلاغ الخاص عن الثغرات؛ لا تنشر تفاصيل الأمان في issue.

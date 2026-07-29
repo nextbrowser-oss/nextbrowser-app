@@ -127,7 +127,7 @@ Công việc roadmap được theo dõi qua [GitHub Issues](https://github.com/n
 
 ## Cộng đồng và hỗ trợ
 
-- Tham gia [Discord Nextbrowser](https://discord.gg/jfYjwJQdQ) để trò chuyện cùng cộng đồng, nhận trợ giúp thiết lập và theo dõi cập nhật sản phẩm.
+- Tham gia [Discord Nextbrowser](https://discord.gg/qnKUKMvGB9) để trò chuyện cùng cộng đồng, nhận trợ giúp thiết lập và theo dõi cập nhật sản phẩm.
 - Đặt câu hỏi chung và chia sẻ ý tưởng trong [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions).
 - Dùng [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) cho công việc có thể thực hiện và có phạm vi rõ ràng.
 - Làm theo [SECURITY.md](../../../SECURITY.md) để báo cáo lỗ hổng một cách riêng tư; không đăng chi tiết bảo mật trong issue.

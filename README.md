@@ -127,7 +127,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. Use the structu
 
 ## Community and support
 
-- Join the [Nextbrowser Discord](https://discord.gg/jfYjwJQdQ) for community chat, setup help, and product updates.
+- Join the [Nextbrowser Discord](https://discord.gg/qnKUKMvGB9) for community chat, setup help, and product updates.
 - Ask general questions and share ideas in [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions).
 - Use [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) for actionable, scoped work.
 - Follow [SECURITY.md](SECURITY.md) for private vulnerability reporting; do not publish security details in an issue.

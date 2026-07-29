@@ -128,7 +128,7 @@ Nextbrowser — это рабочая поверхность для управл
 
 ## Сообщество и поддержка
 
-- Присоединяйтесь к [Discord Nextbrowser](https://discord.gg/jfYjwJQdQ) для общения с сообществом, помощи с настройкой и новостей продукта.
+- Присоединяйтесь к [Discord Nextbrowser](https://discord.gg/qnKUKMvGB9) для общения с сообществом, помощи с настройкой и новостей продукта.
 - Задавайте общие вопросы и делитесь идеями в [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions).
 - Используйте [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) для конкретной работы с чёткими границами.
 - Следуйте [SECURITY.md](../../../SECURITY.md) для приватного сообщения об уязвимостях; не публикуйте сведения о безопасности в issue.

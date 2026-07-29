@@ -127,7 +127,7 @@ Change खोलने से पहले [CONTRIBUTING.md](../../../CONTRIBUTI
 
 ## समुदाय और सहायता
 
-- समुदाय से बातचीत, सेटअप सहायता और उत्पाद अपडेट के लिए [Nextbrowser Discord](https://discord.gg/jfYjwJQdQ) से जुड़ें।
+- समुदाय से बातचीत, सेटअप सहायता और उत्पाद अपडेट के लिए [Nextbrowser Discord](https://discord.gg/qnKUKMvGB9) से जुड़ें।
 - सामान्य प्रश्न पूछने और विचार साझा करने के लिए [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions) का उपयोग करें।
 - Actionable और स्पष्ट दायरे वाले कार्य के लिए [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) का उपयोग करें।
 - Vulnerability की private reporting के लिए [SECURITY.md](../../../SECURITY.md) का पालन करें; issue में security details प्रकाशित न करें।

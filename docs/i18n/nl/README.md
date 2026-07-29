@@ -127,7 +127,7 @@ Lees [CONTRIBUTING.md](../../../CONTRIBUTING.md) voordat je een wijziging indien
 
 ## Community en ondersteuning
 
-- Word lid van de [Nextbrowser Discord](https://discord.gg/jfYjwJQdQ) voor gesprekken met de community, hulp bij de installatie en productupdates.
+- Word lid van de [Nextbrowser Discord](https://discord.gg/qnKUKMvGB9) voor gesprekken met de community, hulp bij de installatie en productupdates.
 - Stel algemene vragen en deel ideeën in [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions).
 - Gebruik [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) voor uitvoerbaar, afgebakend werk.
 - Volg [SECURITY.md](../../../SECURITY.md) om kwetsbaarheden privé te melden; publiceer geen beveiligingsdetails in een issue.

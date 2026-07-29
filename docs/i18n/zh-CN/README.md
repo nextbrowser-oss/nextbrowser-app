@@ -127,7 +127,7 @@ Nextbrowser 是桌面控制界面。Profile 定义浏览器身份，session 提�
 
 ## 社区与支持
 
-- 加入 [Nextbrowser Discord](https://discord.gg/jfYjwJQdQ)，参与社区交流、获取配置帮助和产品更新。
+- 加入 [Nextbrowser Discord](https://discord.gg/qnKUKMvGB9)，参与社区交流、获取配置帮助和产品更新。
 - 在 [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions) 中提出一般问题并分享想法。
 - 使用 [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) 跟踪可执行且范围明确的工作。
 - 按照 [SECURITY.md](../../../SECURITY.md) 私下报告漏洞；不要在 issue 中发布安全细节。
