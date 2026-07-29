@@ -82,3 +82,46 @@ describe("conversation deletion", () => {
     });
   });
 });
+
+describe("conversation persistence", () => {
+  it("writes snapshots sequentially so older queued state cannot overwrite newer state", async () => {
+    let releaseFirstWrite: (() => void) | undefined;
+    const firstWrite = new Promise<void>((resolve) => {
+      releaseFirstWrite = resolve;
+    });
+    bridge.invoke.mockImplementation((command: string) => {
+      if (command === "app_data_write" && bridge.invoke.mock.calls.filter(([name]) => name === "app_data_write").length === 1) {
+        return firstWrite;
+      }
+      return Promise.resolve(null);
+    });
+
+    const { useStore } = await import("./store");
+    const chat = conversation("chat", "codex", 1);
+    useStore.setState({
+      agentId: "codex",
+      conversations: [chat],
+      activeConvId: { codex: chat.id },
+    });
+
+    useStore.getState().renameConversation(chat.id, "queued snapshot");
+    await vi.waitFor(() => {
+      expect(bridge.invoke.mock.calls.filter(([command]) => command === "app_data_write")).toHaveLength(1);
+    });
+
+    useStore.getState().renameConversation(chat.id, "streaming snapshot");
+    await Promise.resolve();
+    expect(bridge.invoke.mock.calls.filter(([command]) => command === "app_data_write")).toHaveLength(1);
+
+    releaseFirstWrite?.();
+    await vi.waitFor(() => {
+      expect(bridge.invoke.mock.calls.filter(([command]) => command === "app_data_write")).toHaveLength(2);
+    });
+
+    const writes = bridge.invoke.mock.calls.filter(([command]) => command === "app_data_write");
+    const first = JSON.parse(String(writes[0]?.[1]?.content)) as Conversation[];
+    const second = JSON.parse(String(writes[1]?.[1]?.content)) as Conversation[];
+    expect(first[0]?.title).toBe("queued snapshot");
+    expect(second[0]?.title).toBe("streaming snapshot");
+  });
+});

@@ -555,8 +555,24 @@ async function waitForLocalNextctlIdle(getState: () => State): Promise<void> {
   }
 }
 
-function persistConvs(conversations: Conversation[]) {
-  void saveJson("conversations.json", serializeConversations(conversations));
+let conversationWriteTail: Promise<void> = Promise.resolve();
+
+function persistConvs(conversations: Conversation[]): Promise<void> {
+  const snapshot = serializeConversations(conversations);
+  conversationWriteTail = conversationWriteTail
+    .catch(() => {
+      // A failed write must not prevent newer state from being persisted.
+    })
+    .then(() => saveJson("conversations.json", snapshot));
+  // Most state updates intentionally do not block on disk IO. Attach a handler
+  // so those writes cannot create unhandled rejections; callers that need a
+  // durability boundary can still await the original promise.
+  void conversationWriteTail.catch(() => {});
+  return conversationWriteTail;
+}
+
+function flushConversations(): Promise<void> {
+  return conversationWriteTail;
 }
 
 function persistSchedules(runs: ScheduledRun[]) {
@@ -1315,6 +1331,27 @@ export const useStore = create<State>((set, get) => {
     }));
     replyExecutionTargets.set(item.replyId, item.executionTarget);
     get().setMessageStatus(item.conversationId, item.replyId, "streaming");
+    try {
+      // Persist the dispatched state before spawning the agent. Otherwise an
+      // app restart can restore the older queued snapshot and send the same
+      // user prompt a second time.
+      await flushConversations();
+    } catch {
+      replyExecutionTargets.delete(item.replyId);
+      get().setMessageStatus(
+        item.conversationId,
+        item.replyId,
+        "failed",
+        "The request was not sent because its state could not be saved.",
+      );
+      set((s) => ({
+        runtime: {
+          ...s.runtime,
+          [agentId]: { ...s.runtime[agentId], runningReplyId: undefined },
+        },
+      }));
+      return;
+    }
     trackEvent("agent_turn_started", {
       agent: agentId,
       has_profile: !!get().selectedProfile,
