@@ -127,7 +127,7 @@ Nextbrowser คือพื้นผิวควบคุมบนเดสก�
 
 ## ชุมชนและการสนับสนุน
 
-- เข้าร่วม [Discord ของ Nextbrowser](https://discord.gg/jfYjwJQdQ) เพื่อพูดคุยกับชุมชน รับความช่วยเหลือในการตั้งค่า และติดตามอัปเดตผลิตภัณฑ์
+- เข้าร่วม [Discord ของ Nextbrowser](https://discord.gg/qnKUKMvGB9) เพื่อพูดคุยกับชุมชน รับความช่วยเหลือในการตั้งค่า และติดตามอัปเดตผลิตภัณฑ์
 - ถามคำถามทั่วไปและแบ่งปันแนวคิดใน [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions)
 - ใช้ [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) สำหรับงานที่ดำเนินการได้และมีขอบเขตชัดเจน
 - ปฏิบัติตาม [SECURITY.md](../../../SECURITY.md) เพื่อรายงานช่องโหว่เป็นการส่วนตัว อย่าเผยแพร่รายละเอียดด้าน security ใน issue

@@ -127,7 +127,7 @@ Nextbrowser는 데스크톱 제어 화면입니다. 프로필은 브라우저 ID
 
 ## 커뮤니티 및 지원
 
-- [Nextbrowser Discord](https://discord.gg/jfYjwJQdQ)에 참여해 커뮤니티 대화, 설정 도움말, 제품 업데이트를 확인하세요.
+- [Nextbrowser Discord](https://discord.gg/qnKUKMvGB9)에 참여해 커뮤니티 대화, 설정 도움말, 제품 업데이트를 확인하세요.
 - 일반적인 질문과 아이디어 공유에는 [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions)를 이용하세요.
 - 실행 가능하고 범위가 명확한 작업에는 [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues)를 사용하세요.
 - 취약점은 [SECURITY.md](../../../SECURITY.md)에 따라 비공개로 신고하고, issue에 보안 세부 정보를 게시하지 마세요.

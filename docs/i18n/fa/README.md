@@ -128,7 +128,7 @@ Nextbrowser سطح کنترل دسکتاپ است. پروفایل‌ها هوی�
 
 ## جامعه و پشتیبانی
 
-- برای گفت‌وگو با جامعه، دریافت راهنمایی راه‌اندازی و دنبال‌کردن به‌روزرسانی‌های محصول به [Discord نکست‌براوزر](https://discord.gg/jfYjwJQdQ) بپیوندید.
+- برای گفت‌وگو با جامعه، دریافت راهنمایی راه‌اندازی و دنبال‌کردن به‌روزرسانی‌های محصول به [Discord نکست‌براوزر](https://discord.gg/qnKUKMvGB9) بپیوندید.
 - پرسش‌های عمومی را مطرح و ایده‌ها را در [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions) به اشتراک بگذارید.
 - برای کارهای اقدام‌پذیر و دارای محدوده مشخص از [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) استفاده کنید.
 - برای گزارش خصوصی آسیب‌پذیری از [SECURITY.md](../../../SECURITY.md) پیروی کنید؛ جزئیات امنیتی را در issue منتشر نکنید.

@@ -127,7 +127,7 @@ Lies [CONTRIBUTING.md](../../../CONTRIBUTING.md), bevor du eine Änderung einrei
 
 ## Community und Support
 
-- Tritt dem [Nextbrowser Discord](https://discord.gg/jfYjwJQdQ) bei, um dich mit der Community auszutauschen, Hilfe bei der Einrichtung zu erhalten und Produktneuigkeiten zu verfolgen.
+- Tritt dem [Nextbrowser Discord](https://discord.gg/qnKUKMvGB9) bei, um dich mit der Community auszutauschen, Hilfe bei der Einrichtung zu erhalten und Produktneuigkeiten zu verfolgen.
 - Stelle allgemeine Fragen und teile Ideen in [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions).
 - Nutze [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) für umsetzbare, klar abgegrenzte Arbeit.
 - Befolge [SECURITY.md](../../../SECURITY.md), um Schwachstellen vertraulich zu melden; veröffentliche keine Sicherheitsdetails in einem Issue.

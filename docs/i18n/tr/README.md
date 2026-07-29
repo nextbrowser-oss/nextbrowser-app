@@ -128,7 +128,7 @@ Bir değişiklik açmadan önce [CONTRIBUTING.md](../../../CONTRIBUTING.md) dosy
 
 ## Topluluk ve destek
 
-- Topluluk sohbeti, kurulum yardımı ve ürün güncellemeleri için [Nextbrowser Discord](https://discord.gg/jfYjwJQdQ) sunucusuna katılın.
+- Topluluk sohbeti, kurulum yardımı ve ürün güncellemeleri için [Nextbrowser Discord](https://discord.gg/qnKUKMvGB9) sunucusuna katılın.
 - Genel soruları sorun ve fikirlerinizi [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions) üzerinde paylaşın.
 - Eyleme dönük, kapsamı belirli işler için [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) kullanın.
 - Güvenlik açıklarını gizli bildirmek için [SECURITY.md](../../../SECURITY.md) dosyasını izleyin; güvenlik ayrıntılarını bir issue içinde yayımlamayın.

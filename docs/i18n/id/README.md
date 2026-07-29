@@ -128,7 +128,7 @@ Baca [CONTRIBUTING.md](../../../CONTRIBUTING.md) sebelum membuka perubahan. Guna
 
 ## Komunitas dan dukungan
 
-- Bergabunglah dengan [Discord Nextbrowser](https://discord.gg/jfYjwJQdQ) untuk berdiskusi dengan komunitas, mendapatkan bantuan penyiapan, dan mengikuti pembaruan produk.
+- Bergabunglah dengan [Discord Nextbrowser](https://discord.gg/qnKUKMvGB9) untuk berdiskusi dengan komunitas, mendapatkan bantuan penyiapan, dan mengikuti pembaruan produk.
 - Ajukan pertanyaan umum dan bagikan ide di [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions).
 - Gunakan [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) untuk pekerjaan yang dapat ditindaklanjuti dan memiliki cakupan jelas.
 - Ikuti [SECURITY.md](../../../SECURITY.md) untuk pelaporan kerentanan secara privat; jangan publikasikan detail keamanan dalam issue.

@@ -128,7 +128,7 @@ Nextbrowser — це десктопна поверхня керування. П�
 
 ## Спільнота та підтримка
 
-- Приєднуйтеся до [Discord Nextbrowser](https://discord.gg/jfYjwJQdQ) для спілкування зі спільнотою, допомоги з налаштуванням і новин продукту.
+- Приєднуйтеся до [Discord Nextbrowser](https://discord.gg/qnKUKMvGB9) для спілкування зі спільнотою, допомоги з налаштуванням і новин продукту.
 - Ставте загальні запитання та діліться ідеями в [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions).
 - Використовуйте [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) для конкретної роботи з чіткими межами.
 - Дотримуйтеся [SECURITY.md](../../../SECURITY.md) для приватного повідомлення про вразливості; не публікуйте відомості про безпеку в issue.

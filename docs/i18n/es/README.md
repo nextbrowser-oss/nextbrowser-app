@@ -127,7 +127,7 @@ Lee [CONTRIBUTING.md](../../../CONTRIBUTING.md) antes de abrir un cambio. Utiliz
 
 ## Comunidad y soporte
 
-- Únete al [Discord de Nextbrowser](https://discord.gg/jfYjwJQdQ) para conversar con la comunidad, obtener ayuda con la configuración y recibir novedades del producto.
+- Únete al [Discord de Nextbrowser](https://discord.gg/qnKUKMvGB9) para conversar con la comunidad, obtener ayuda con la configuración y recibir novedades del producto.
 - Haz preguntas generales y comparte ideas en [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions).
 - Utiliza [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) para trabajo accionable y bien delimitado.
 - Sigue [SECURITY.md](../../../SECURITY.md) para informar vulnerabilidades de forma privada; no publiques detalles de seguridad en un issue.

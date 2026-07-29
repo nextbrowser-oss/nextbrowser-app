@@ -127,7 +127,7 @@ Nextbrowser はデスクトップの操作画面です。プロファイルが�
 
 ## コミュニティとサポート
 
-- [Nextbrowser Discord](https://discord.gg/jfYjwJQdQ) に参加して、コミュニティ交流、セットアップのサポート、製品の最新情報を確認してください。
+- [Nextbrowser Discord](https://discord.gg/qnKUKMvGB9) に参加して、コミュニティ交流、セットアップのサポート、製品の最新情報を確認してください。
 - 一般的な質問やアイデアの共有には [GitHub Discussions](https://github.com/nextbrowser-oss/nextbrowser-app/discussions) を利用してください。
 - 実行可能で範囲が明確な作業には [GitHub Issues](https://github.com/nextbrowser-oss/nextbrowser-app/issues) を使用してください。
 - 脆弱性の非公開報告については [SECURITY.md](../../../SECURITY.md) に従い、issue にセキュリティの詳細を投稿しないでください。
