@@ -3,11 +3,19 @@ import type { ExecutionTarget } from "./executionTarget";
 import { hasVPSPromptMarker } from "./vpsPrompt";
 
 const LOCAL_NEXTCTL_PROMPT =
-  "[You control the NextBrowser browser through the `nextctl` command-line tool, " +
-  "which is already installed. Use it (e.g. `nextctl open <url>`, " +
-  "`nextctl click`, `nextctl input`, `nextctl status`, `nextctl start`, " +
-  "`nextctl rotate`) to open pages, act on them, and manage sessions/proxies. " +
-  "Run `nextctl --help` if unsure of a subcommand.]";
+  "[You control the NextBrowser browser through the installed Clawbrowser CLI. " +
+  "Prefer `nbc` when available and fall back to `nextctl`; check with " +
+  "`command -v nbc || command -v nextctl`. Use that CLI to open pages, act on them, " +
+  "and manage sessions/proxies. Run its `--help` if unsure of a subcommand. " +
+  "Authentication is managed by NextBrowser: never search for, read, print, copy, " +
+  "or ask the user to paste API keys or Clawbrowser configuration. On an authentication " +
+  "error, retry once, then ask the user to reconnect their account in NextBrowser. " +
+  "Browser tasks are browser-only: " +
+  "do not scan the user's home directory, Library, Documents, Downloads, Desktop, mounted volumes, " +
+  "media libraries, or other applications' data; do not use OS automation for Music or other apps. " +
+  "Limit filesystem access to the current NextBrowser workspace and the specific agent/nextctl " +
+  "configuration files needed to run the requested browser task. If a task genuinely needs a local " +
+  "file outside the workspace, ask the user for that exact file instead of exploring folders.]";
 
 const MISSING_LOCAL_NEXTCTL_PROMPT =
   "[NextBrowser is installed, but the local `nextctl`/Clawbrowser components are missing or not on PATH. " +

@@ -12,6 +12,60 @@ interface AgentTerminalProps {
   onClose: () => void;
 }
 
+const DARK_TERMINAL_THEME = {
+  background: "#181818",
+  foreground: "#d9d9dc",
+  cursor: "#a5a6ff",
+  cursorAccent: "#181818",
+  selectionBackground: "#55578080",
+  black: "#242426",
+  red: "#ef6b73",
+  green: "#61c98b",
+  yellow: "#d7b76a",
+  blue: "#7697e8",
+  magenta: "#b48cdb",
+  cyan: "#64b8c5",
+  white: "#d9d9dc",
+  brightBlack: "#85858d",
+  brightRed: "#ff848b",
+  brightGreen: "#78dda0",
+  brightYellow: "#e9cb80",
+  brightBlue: "#91aff5",
+  brightMagenta: "#c8a2ec",
+  brightCyan: "#7bcbd6",
+  brightWhite: "#f4f4f5",
+};
+
+const LIGHT_TERMINAL_THEME = {
+  background: "#f7f7f8",
+  foreground: "#29292d",
+  cursor: "#5555d9",
+  cursorAccent: "#f7f7f8",
+  selectionBackground: "#b9baf080",
+  black: "#29292d",
+  red: "#b52c39",
+  green: "#247a48",
+  yellow: "#86630b",
+  blue: "#355fb3",
+  magenta: "#7745a2",
+  cyan: "#17717d",
+  white: "#e8e8ea",
+  brightBlack: "#707078",
+  brightRed: "#cf3e49",
+  brightGreen: "#318e56",
+  brightYellow: "#987316",
+  brightBlue: "#4972c7",
+  brightMagenta: "#8b59b5",
+  brightCyan: "#25838f",
+  brightWhite: "#ffffff",
+};
+
+function activeTerminalTheme() {
+  return document.documentElement.dataset.theme === "light"
+    ? LIGHT_TERMINAL_THEME
+    : DARK_TERMINAL_THEME;
+}
+
 export function AgentTerminal({ agentId, agentName, workingDir, onClose }: AgentTerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalIdRef = useRef<string>();
@@ -25,7 +79,6 @@ export function AgentTerminal({ agentId, agentName, workingDir, onClose }: Agent
     let removeData: (() => void) | undefined;
     let removeExit: (() => void) | undefined;
 
-    const dark = document.documentElement.dataset.theme !== "light";
     const terminal = new Terminal({
       cursorBlink: true,
       convertEol: true,
@@ -33,9 +86,7 @@ export function AgentTerminal({ agentId, agentName, workingDir, onClose }: Agent
       fontSize: 12,
       lineHeight: 1.25,
       scrollback: 10_000,
-      theme: dark
-        ? { background: "#171717", foreground: "#e7e7e7", cursor: "#8b8cff", selectionBackground: "#46466a" }
-        : { background: "#fbfbfb", foreground: "#252525", cursor: "#5555d9", selectionBackground: "#cfcff5" },
+      theme: activeTerminalTheme(),
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);
@@ -58,6 +109,13 @@ export function AgentTerminal({ agentId, agentName, workingDir, onClose }: Agent
     };
     const observer = new ResizeObserver(resize);
     observer.observe(host);
+    const themeObserver = new MutationObserver(() => {
+      terminal.options.theme = activeTerminalTheme();
+    });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
     const input = terminal.onData((data) => {
       const id = terminalIdRef.current;
       if (id) void invoke("terminal_input", { id, data });
@@ -100,6 +158,7 @@ export function AgentTerminal({ agentId, agentName, workingDir, onClose }: Agent
     return () => {
       disposed = true;
       observer.disconnect();
+      themeObserver.disconnect();
       input.dispose();
       removeData?.();
       removeExit?.();

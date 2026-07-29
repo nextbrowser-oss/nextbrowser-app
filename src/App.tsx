@@ -12,7 +12,7 @@ import { DashboardKeyModal } from "./components/DashboardKeyModal";
 import { BrandLogo } from "./components/BrandLogo";
 import { Icon, Spinner } from "./components/Icon";
 import { AgentPicker } from "./components/AgentPicker";
-import { brandName, dashboardUrl, discordUrl, latestReleaseUrl, repoApiUrl, repoUrl } from "./constants";
+import { brandName, dashboardUrl, discordUrl, latestReleaseUrl, repoUrl } from "./constants";
 import { getPreviewMode, getPreviewTab } from "./preview";
 import { humanBytes, proxyFraction, type AppTab, type Conversation } from "./types";
 import { resolveTheme, type Theme } from "./theme";
@@ -116,7 +116,7 @@ function DiscordMark({ size = 17 }: { size?: number }) {
 }
 
 function formatStars(count?: number | null): string {
-  if (count == null) return "5";
+  if (count == null) return "—";
   if (count < 1000) return `${count}`;
   const rounded = count < 10_000 ? Math.round(count / 100) / 10 : Math.round(count / 1000);
   return `${rounded}k`;
@@ -157,14 +157,15 @@ function SocialButtons() {
   const [stars, setStars] = useState<number | null>(null);
 
   useEffect(() => {
-    const controller = new AbortController();
-    fetch(repoApiUrl, { signal: controller.signal })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data: { stargazers_count?: number } | null) => {
-        if (typeof data?.stargazers_count === "number") setStars(data.stargazers_count);
+    let cancelled = false;
+    invoke<number | null>("github_stars")
+      .then((count) => {
+        if (!cancelled && typeof count === "number") setStars(count);
       })
       .catch(() => undefined);
-    return () => controller.abort();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
