@@ -6,6 +6,9 @@ const fsSync = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
+const { agentWorkspaceDir } = require("./agent-workspace.cjs");
+const { fetchGitHubStars } = require("./github-stars.cjs");
+const { ensureWorkspaceInstructions } = require("./workspace-instructions.cjs");
 const pty = require("node-pty");
 const {
   cancelAllCommands,
@@ -29,7 +32,14 @@ let nextctlInstallPromise = null;
 
 const TERMINAL_AGENTS = {
   claude: { binary: "claude", envVar: "CLAUDE_BIN" },
-  codex: { binary: "codex", envVar: "CODEX_BIN" },
+  // Terminal chat runs inside NextBrowser's dedicated workspace. Let Codex use
+  // browser MCP tools without prompting on every call, while retaining a
+  // workspace-write filesystem sandbox.
+  codex: {
+    binary: "codex",
+    envVar: "CODEX_BIN",
+    args: ["--ask-for-approval", "never", "--sandbox", "workspace-write"],
+  },
   hermes: { binary: "hermes", envVar: "HERMES_BIN" },
   kilo: { binary: "kilo", envVar: "KILO_BIN" },
   openclaw: { binary: "openclaw", envVar: "OPENCLAW_BIN" },
@@ -420,6 +430,13 @@ async function apiFetchJSON(baseURL, route, options = {}) {
 
 async function invokeCommand(command, args = {}) {
   switch (command) {
+    case "github_stars": {
+      try {
+        return await fetchGitHubStars(fetch, { signal: AbortSignal.timeout(5000) });
+      } catch {
+        return null;
+      }
+    }
     case "app_update_status": return appUpdateStatus;
     case "app_check_for_update": {
       await checkForAppUpdate();
@@ -600,7 +617,16 @@ async function invokeCommand(command, args = {}) {
       }
       return null;
     }
-    case "working_directory": { const dir = path.join(dataDir(), "workspace"); await fs.mkdir(dir, { recursive: true }); return dir; }
+    case "working_directory": {
+      // Keep coding-agent discovery outside ~/Library/Application Support.
+      // Agents walk parent directories for config/instruction files; inside
+      // Library that can make macOS attribute unrelated TCC access requests
+      // (Music, other apps' data, protected folders) to NextBrowser.
+      const dir = agentWorkspaceDir(home());
+      await fs.mkdir(dir, { recursive: true });
+      await ensureWorkspaceInstructions(dir);
+      return dir;
+    }
     case "agent_run": {
       const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} executable not found.`);
       const spec = commandSpec(bin, args.args || []); const child = spawn(spec.file, spec.args, { cwd: args.workingDir || undefined, env: childEnv(), windowsHide: true, stdio: [args.stdinText != null ? "pipe" : "ignore", "pipe", "pipe"] });
@@ -618,7 +644,7 @@ async function invokeCommand(command, args = {}) {
       const bin = resolveBinary(agent.binary, agent.envVar);
       if (!bin) throw new Error(`${agent.binary} CLI not found.`);
       const id = randomUUID();
-      const spec = commandSpec(bin, []);
+      const spec = commandSpec(bin, agent.args || []);
       const terminal = pty.spawn(spec.file, spec.args, {
         name: "xterm-256color",
         cols: Math.max(2, Math.min(500, Number(args.cols) || 80)),

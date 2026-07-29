@@ -120,8 +120,11 @@ describe("composePrompt VPS mode", () => {
       { nextctlAvailable: true },
     );
 
-    expect(prompt).toContain("which is already installed");
+    expect(prompt).toContain("installed Clawbrowser CLI");
     expect(prompt).toContain("Active NextBrowser profile: work");
+    expect(prompt).toContain("Browser tasks are browser-only");
+    expect(prompt).toContain("do not scan the user's home directory");
+    expect(prompt).toContain("do not use OS automation for Music");
     expect(prompt).not.toContain("Strict VPS remote-only mode");
   });
 
@@ -139,7 +142,7 @@ describe("composePrompt VPS mode", () => {
       { nextctlAvailable: true },
     );
 
-    expect(prompt).toContain("which is already installed");
+    expect(prompt).toContain("installed Clawbrowser CLI");
     expect(prompt).not.toContain("Strict VPS remote-only mode");
   });
 
@@ -154,7 +157,7 @@ describe("composePrompt VPS mode", () => {
       { nextctlAvailable: true },
     );
 
-    expect(prompt).toContain("which is already installed");
+    expect(prompt).toContain("installed Clawbrowser CLI");
     expect(prompt).not.toContain("Strict VPS remote-only mode");
   });
 
@@ -177,7 +180,7 @@ describe("composePrompt VPS mode", () => {
       { nextctlAvailable: true, executionTarget: "local" },
     );
 
-    expect(prompt).toContain("which is already installed");
+    expect(prompt).toContain("installed Clawbrowser CLI");
     expect(prompt).toContain("Active NextBrowser profile: work");
     expect(prompt).not.toContain("Strict VPS remote-only mode");
     expect(prompt).not.toContain(VPS_PROMPT_MARKER);
