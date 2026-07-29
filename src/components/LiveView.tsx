@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type WheelEvent as ReactWheelEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
 import { RemoteControlClient, type RemoteLiveTab, type RemoteMediaStats, type RemoteStreamInfo } from "../remoteControl";
 import { useStore } from "../store";
 import { internalError } from "../lib/userFacingError";
@@ -6,6 +6,7 @@ import { Icon, Spinner } from "./Icon";
 import { UserFacingError } from "./UserFacingError";
 
 type LiveState = "idle" | "connecting" | "live" | "error";
+const LIVE_VIEW_BACKGROUND_TTL_MS = 10 * 60 * 1000;
 
 function modifierBits(event: MouseEvent | WheelEvent | KeyboardEvent) {
   return (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0);
@@ -31,12 +32,13 @@ function mergeTabs(current: RemoteLiveTab[], incoming: RemoteLiveTab[]) {
   return [...next.values()];
 }
 
-export function LiveView() {
+export function LiveView({ active }: { active: boolean }) {
   const s = useStore();
   const [sessionKey, setSessionKey] = useState<string>("");
   const [streamInfo, setStreamInfo] = useState<RemoteStreamInfo | null>(null);
   const [state, setState] = useState<LiveState>("idle");
   const [error, setError] = useState("");
+  const [inputWarning, setInputWarning] = useState("");
   const [remoteTabs, setRemoteTabs] = useState<RemoteLiveTab[]>([]);
   const [pendingRemoteTab, setPendingRemoteTab] = useState("");
   const [mediaStats, setMediaStats] = useState<RemoteMediaStats>({});
@@ -44,6 +46,9 @@ export function LiveView() {
   const remoteClientRef = useRef<RemoteControlClient | null>(null);
   const remoteEmbedRef = useRef<HTMLDivElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const inactiveTimerRef = useRef<number | null>(null);
+  const inputWarningTimerRef = useRef<number | null>(null);
+  const pointerDragRef = useRef<{ pointerId: number; button: string; buttons: number; x: number; y: number } | null>(null);
   const runningProfiles = s.profiles.filter((profile) => s.statuses[profile.name] === "running");
   const defaultRunning = s.defaultSession?.status === "running";
   const profileOptions = [
@@ -59,6 +64,10 @@ export function LiveView() {
   const nativeViewer = !!streamInfo?.viewer_ws_url;
 
   const stop = () => {
+    if (inactiveTimerRef.current !== null) {
+      window.clearTimeout(inactiveTimerRef.current);
+      inactiveTimerRef.current = null;
+    }
     remoteClientRef.current?.close();
     remoteClientRef.current = null;
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
@@ -68,6 +77,7 @@ export function LiveView() {
     setRemoteTabs([]);
     setPendingRemoteTab("");
     setMediaStats({});
+    setInputWarning("");
   };
 
   const connectRemoteViewer = async (info: RemoteStreamInfo) => {
@@ -103,6 +113,14 @@ export function LiveView() {
         setRemoteTabs((tabs) => tabs.map((tab) => ({ ...tab, active: tab.target_id === targetID })));
       },
       onMediaStats: setMediaStats,
+      onInputError: () => {
+        setInputWarning("Input was not applied. Try again.");
+        if (inputWarningTimerRef.current !== null) window.clearTimeout(inputWarningTimerRef.current);
+        inputWarningTimerRef.current = window.setTimeout(() => {
+          inputWarningTimerRef.current = null;
+          setInputWarning("");
+        }, 3000);
+      },
     });
     remoteClientRef.current = client;
     await client.start();
@@ -173,16 +191,53 @@ export function LiveView() {
   };
 
   useEffect(() => {
+    if (!active) return;
     const current =
       s.selectedProfile ||
       (s.defaultSession?.status === "running" ? "__default" : "") ||
       s.profiles.find((profile) => s.statuses[profile.name] === "running")?.name ||
       "";
     setSessionKey(current);
-    if (current && (current === "__default" || s.statuses[current] === "running")) void start(current);
-    return () => remoteClientRef.current?.close();
-    // LiveView is mounted afresh on tab selection, matching Swift onAppear.
+    if (
+      !remoteClientRef.current &&
+      state !== "connecting" &&
+      !streamInfo &&
+      current &&
+      (current === "__default" || s.statuses[current] === "running")
+    ) {
+      void start(current);
+    }
+    // The component stays mounted while another app tab is active.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
+  useEffect(() => {
+    if (active) {
+      if (inactiveTimerRef.current !== null) {
+        window.clearTimeout(inactiveTimerRef.current);
+        inactiveTimerRef.current = null;
+      }
+      return;
+    }
+    if (!remoteClientRef.current && !streamInfo) return;
+    inactiveTimerRef.current = window.setTimeout(() => {
+      inactiveTimerRef.current = null;
+      stop();
+    }, LIVE_VIEW_BACKGROUND_TTL_MS);
+    return () => {
+      if (inactiveTimerRef.current !== null) {
+        window.clearTimeout(inactiveTimerRef.current);
+        inactiveTimerRef.current = null;
+      }
+    };
+    // Only transitions between app tabs should reset the grace period.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
+  useEffect(() => () => {
+    if (inactiveTimerRef.current !== null) window.clearTimeout(inactiveTimerRef.current);
+    if (inputWarningTimerRef.current !== null) window.clearTimeout(inputWarningTimerRef.current);
+    remoteClientRef.current?.close();
   }, []);
 
   useEffect(() => {
@@ -192,23 +247,59 @@ export function LiveView() {
     void video.play().catch(() => undefined);
   }, [remoteMediaStream, state]);
 
-  const handleMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
-    remoteEmbedRef.current?.focus();
+  const releasePointer = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = pointerDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
     const point = pointForEvent(event.nativeEvent);
     remoteClientRef.current?.sendInput({
       type: "mouse",
-      payload: { event: "mousePressed", x: point.x, y: point.y, button: buttonName(event.button), buttons: 1, clickCount: event.detail || 1, modifiers: modifierBits(event.nativeEvent) },
+      payload: { event: "mouseReleased", x: point.x, y: point.y, button: drag.button, buttons: 0, clickCount: event.detail || 1, modifiers: modifierBits(event.nativeEvent) },
+    });
+    pointerDragRef.current = null;
+  };
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button < 0) return;
+    remoteEmbedRef.current?.focus();
+    const point = pointForEvent(event.nativeEvent);
+    const button = buttonName(event.button);
+    const buttons = event.buttons || 1;
+    remoteClientRef.current?.sendInput({
+      type: "mouse",
+      payload: { event: "mousePressed", x: point.x, y: point.y, button, buttons, clickCount: event.detail || 1, modifiers: modifierBits(event.nativeEvent) },
+    });
+    pointerDragRef.current = { pointerId: event.pointerId, button, buttons, x: point.x, y: point.y };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  };
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = pointerDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const point = pointForEvent(event.nativeEvent);
+    drag.x = point.x;
+    drag.y = point.y;
+    if (event.buttons === 0) {
+      releasePointer(event);
+      return;
+    }
+    remoteClientRef.current?.sendInput({
+      type: "mouse",
+      payload: { event: "mouseMoved", x: point.x, y: point.y, button: drag.button, buttons: event.buttons || drag.buttons, modifiers: modifierBits(event.nativeEvent) },
     });
     event.preventDefault();
   };
 
-  const handleMouseUp = (event: ReactMouseEvent<HTMLDivElement>) => {
-    const point = pointForEvent(event.nativeEvent);
-    remoteClientRef.current?.sendInput({
-      type: "mouse",
-      payload: { event: "mouseReleased", x: point.x, y: point.y, button: buttonName(event.button), buttons: 0, clickCount: event.detail || 1, modifiers: modifierBits(event.nativeEvent) },
-    });
+  const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    releasePointer(event);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
     event.preventDefault();
+  };
+
+  const handlePointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
+    releasePointer(event);
   };
 
   const handleWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
@@ -374,8 +465,10 @@ export function LiveView() {
             ref={remoteEmbedRef}
             className="remote-live-embed"
             tabIndex={0}
-            onMouseDown={handleMouseDown}
-            onMouseUp={handleMouseUp}
+            onPointerCancel={handlePointerCancel}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
             onWheel={handleWheel}
             onKeyDown={handleKeyDown}
             onKeyUp={handleKeyUp}
@@ -392,9 +485,9 @@ export function LiveView() {
       </div>
       {state === "live" && (
         <div className="live-hint muted small">
-          {nativeViewer
+          {inputWarning || (nativeViewer
             ? "Remote Control is running natively in NextBrowser. Click, scroll, type, or use the tab bar above."
-            : "Remote Control is embedded in NextBrowser through the backend dashboard viewer."}
+            : "Remote Control is embedded in NextBrowser through the backend dashboard viewer.")}
         </div>
       )}
     </div>

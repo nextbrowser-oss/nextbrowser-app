@@ -46,6 +46,7 @@ type CallbackSet = {
   onTabs?: (tabs: RemoteLiveTab[]) => void;
   onTabSelected?: (targetID: string) => void;
   onMediaStats?: (stats: RemoteMediaStats) => void;
+  onInputError?: () => void;
 };
 
 type InputEnvelope = {
@@ -62,13 +63,13 @@ export class RemoteControlClient {
   private pc: RTCPeerConnection | null = null;
   private control: RTCDataChannel | null = null;
   private input: RTCDataChannel | null = null;
-  private revision = 1;
+  private revision = 0;
   private seq = 0;
   private closed = false;
   private helloSent = false;
   private pendingControl: string[] = [];
-  private pendingInput: string[] = [];
   private pendingCandidates: RTCIceCandidateInit[] = [];
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(info: RemoteStreamInfo, cb: CallbackSet) {
     this.info = info;
@@ -78,6 +79,24 @@ export class RemoteControlClient {
   async start() {
     if (!this.info.viewer_ws_url) throw new Error("Remote stream did not include viewer_ws_url.");
     this.closed = false;
+    this.cb.onState?.("connecting");
+    await this.openSignalSocket();
+    await this.startPeerConnection();
+  }
+
+  private async startPeerConnection() {
+    if (this.closed) return;
+    this.clearReconnectTimer();
+    this.control?.close();
+    this.input?.close();
+    this.pc?.close();
+    this.control = null;
+    this.input = null;
+    this.pc = null;
+    this.helloSent = false;
+    this.pendingCandidates = [];
+    this.revision += 1;
+    const revision = this.revision;
     this.cb.onState?.("connecting");
     const pc = new RTCPeerConnection({
       iceServers: (this.info.ice_servers || [])
@@ -97,22 +116,29 @@ export class RemoteControlClient {
       this.flushControl();
     };
     this.control.onmessage = (event) => this.handleControlMessage(String(event.data));
-    this.input.onopen = () => this.flushInput();
-    this.input.onmessage = () => undefined;
+    this.input.onopen = () => undefined;
+    this.input.onmessage = (event) => {
+      try {
+        const message = JSON.parse(String(event.data));
+        if (message.type === "input_result" && message.ok === false) this.cb.onInputError?.();
+      } catch {
+        // Ignore non-protocol input messages.
+      }
+    };
     pc.ontrack = (event) => {
       const [stream] = event.streams;
       if (stream) this.cb.onStream?.(stream);
     };
     pc.onicecandidate = (event) => {
       if (!event.candidate) {
-        this.sendSignal({ type: "ice_complete", session_id: this.info.id, revision: this.revision, payload: null });
+        this.sendSignal({ type: "ice_complete", session_id: this.info.id, revision, payload: null });
         return;
       }
       const candidate = event.candidate.toJSON();
       this.sendSignal({
         type: "ice_candidate",
         session_id: this.info.id,
-        revision: this.revision,
+        revision,
         payload: {
           candidate: candidate.candidate,
           sdpMid: candidate.sdpMid,
@@ -121,25 +147,33 @@ export class RemoteControlClient {
       });
     };
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === "connected") this.cb.onState?.("connected");
-      if (pc.connectionState === "failed" || pc.connectionState === "closed") {
-        if (!this.closed) this.cb.onState?.("error");
+      if (this.pc !== pc || this.closed) return;
+      if (pc.connectionState === "connected") {
+        this.clearReconnectTimer();
+        this.cb.onState?.("connected");
+      }
+      if (pc.connectionState === "disconnected") {
+        this.scheduleReconnect(1500);
+      }
+      if (pc.connectionState === "failed") {
+        this.scheduleReconnect(250);
       }
     };
 
-    await this.openSignalSocket();
     const offer = await pc.createOffer();
+    if (this.closed || this.pc !== pc) return;
     await pc.setLocalDescription(offer);
     this.sendSignal({
       type: "rtc_offer",
       session_id: this.info.id,
-      revision: this.revision,
+      revision,
       payload: { type: offer.type, sdp: offer.sdp },
     });
   }
 
   close() {
     this.closed = true;
+    this.clearReconnectTimer();
     this.sendControl({ type: "close" });
     if (this.signalID) void invoke("remote_signal_close", { id: this.signalID }).catch(() => undefined);
     this.unlistenSignal?.();
@@ -154,6 +188,27 @@ export class RemoteControlClient {
     this.input = null;
     this.pc = null;
     this.cb.onState?.("idle");
+  }
+
+  private scheduleReconnect(delay: number) {
+    if (this.closed || this.reconnectTimer) return;
+    this.cb.onState?.("connecting");
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.closed || this.pc?.connectionState === "connected") return;
+      void (async () => {
+        if (!this.signalID) await this.openSignalSocket();
+        await this.startPeerConnection();
+      })().catch(() => {
+        if (!this.closed) this.cb.onState?.("error");
+      });
+    }, delay);
+  }
+
+  private clearReconnectTimer() {
+    if (!this.reconnectTimer) return;
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
   }
 
   selectTab(targetID: string) {
@@ -175,16 +230,24 @@ export class RemoteControlClient {
   }
 
   private async openSignalSocket() {
-    this.unlistenSignal = await listen<{ id: string; type: string; data?: string; message?: string }>("remote_signal_event", ({ payload }) => {
-      if (payload.id !== this.signalID) return;
-      if (payload.type === "message" && payload.data) void this.handleSignalMessage(payload.data);
-      if (payload.type === "error") {
-        this.cb.onError?.(internalError("We couldn't connect Live View."));
-      }
-      if (payload.type === "close" && !this.closed) {
-        this.cb.onError?.(internalError("The Live View connection closed unexpectedly."));
-      }
-    });
+    if (!this.unlistenSignal) {
+      this.unlistenSignal = await listen<{ id: string; type: string; data?: string; message?: string }>("remote_signal_event", ({ payload }) => {
+        if (payload.id !== this.signalID) return;
+        if (payload.type === "message" && payload.data) void this.handleSignalMessage(payload.data);
+        if (payload.type === "error" && !this.closed) {
+          const failedSignalID = this.signalID;
+          this.signalID = "";
+          if (failedSignalID) void invoke("remote_signal_close", { id: failedSignalID }).catch(() => undefined);
+          this.pc?.close();
+          this.scheduleReconnect(250);
+        }
+        if (payload.type === "close" && !this.closed) {
+          this.signalID = "";
+          this.pc?.close();
+          this.scheduleReconnect(250);
+        }
+      });
+    }
     this.signalID = await invoke<string>("remote_signal_open", { url: this.info.viewer_ws_url || "" });
   }
 
@@ -195,6 +258,7 @@ export class RemoteControlClient {
     } catch {
       return;
     }
+    if (message.revision !== undefined && message.revision !== this.revision) return;
     if (message.type === "rtc_answer" && message.payload?.sdp && this.pc) {
       await this.pc.setRemoteDescription({ type: "answer", sdp: message.payload.sdp });
       const candidates = this.pendingCandidates.splice(0);
@@ -272,18 +336,12 @@ export class RemoteControlClient {
 
   private sendInputText(raw: string) {
     if (this.input?.readyState === "open") this.input.send(raw);
-    else this.pendingInput.push(raw);
+    else this.cb.onInputError?.();
   }
 
   private flushControl() {
     while (this.control?.readyState === "open" && this.pendingControl.length) {
       this.control.send(this.pendingControl.shift() || "");
-    }
-  }
-
-  private flushInput() {
-    while (this.input?.readyState === "open" && this.pendingInput.length) {
-      this.input.send(this.pendingInput.shift() || "");
     }
   }
 
