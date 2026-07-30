@@ -31,7 +31,10 @@ let nextctlInstallStatus = { status: "idle" };
 let nextctlInstallPromise = null;
 
 const CODEX_TERMINAL_PROFILE = "nextbrowser";
-const CODEX_TERMINAL_PROFILE_CONTENT = `[plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser]
+const CODEX_TERMINAL_PROFILE_CONTENT = `[plugins."browser@openai-bundled"]
+enabled = false
+
+[plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser]
 default_tools_approval_mode = "approve"
 `;
 

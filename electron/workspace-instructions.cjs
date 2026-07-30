@@ -8,7 +8,9 @@ const MANAGED_INSTRUCTIONS = `${START}
 
 - For browser tasks, use the connected Clawbrowser MCP tools immediately when they are available. They keep one CDP connection warm. Use the CLI only when MCP is unavailable; then prefer \`nbc\` and fall back to \`nextctl\`.
 - Do not probe for the CLI, run a duplicate CLI \`start\`, or switch between CLI and MCP after a successful MCP call.
+- Clawbrowser is the only browser integration enabled in Terminal Chat. Read only its browser skill; do not search for or read instructions for another browser integration.
 - Start or reuse the requested profile exactly once. Pass the target URL to \`start\`; do not separately open the same URL unless navigation actually failed.
+- Include \`wait_for: {"settle": true}\` and \`return_state: true\` in the same MCP \`start\` call when the next step needs page controls; do not issue separate \`wait\` and \`state\` calls.
 - For catalogs, listings, and search results, use one \`paginate_extract\` call after the page is ready. Do not manually repeat \`scroll\` → \`wait\` → \`state\`; \`paginate_extract\` scrolls, waits, extracts, deduplicates, filters, and sorts in one operation.
 - Combine actions with \`wait_for\` and \`return_state: true\` when another decision is needed. Do not wait for \`load\` after a plain scroll because scrolling does not navigate.
 - Do not use another browser integration when the user asks for Clawbrowser or when the task is being run inside NextBrowser.
