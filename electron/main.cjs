@@ -30,6 +30,42 @@ let appUpdateTimer = null;
 let nextctlInstallStatus = { status: "idle" };
 let nextctlInstallPromise = null;
 
+const CLAWBROWSER_MCP_TOOLS = [
+  "doctor", "browser_performance", "site_recipe_save", "site_recipe_list",
+  "site_recipe_run", "start", "rotate", "status", "proxy_traffic_status",
+  "endpoint", "stop", "verify", "open", "open_url", "tabs_list",
+  "list_tabs", "tabs_activate", "tabs_close", "close_tabs",
+  "profiles_create", "profiles_list", "profiles_inspect", "profiles_rm",
+  "extensions_install", "state", "extract", "paginate_extract",
+  "tabs_extract", "click", "input", "press", "select", "scroll", "wait",
+  "screenshot", "dismiss", "captcha_solve",
+];
+
+function codexClawbrowserArgs() {
+  const pluginRoot = 'plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser';
+  return [
+    "--ask-for-approval", "never",
+    "--sandbox", "workspace-write",
+    "-c", "sandbox_workspace_write.network_access=true",
+    "-c", `${pluginRoot}.default_tools_approval_mode="approve"`,
+    ...CLAWBROWSER_MCP_TOOLS.flatMap((tool) => [
+      "-c", `${pluginRoot}.tools.${tool}.approval_mode="approve"`,
+    ]),
+  ];
+}
+
+function clawbrowserWritableDirs() {
+  if (process.platform === "win32") {
+    const localAppData = String(process.env.LOCALAPPDATA || path.join(home(), "AppData", "Local"));
+    return [path.join(localAppData, "Clawbrowser")];
+  }
+  return [
+    path.join(home(), ".cache", "clawbrowser"),
+    path.join(home(), ".config", "clawbrowser"),
+    path.join(home(), ".local", "share", "clawbrowser"),
+  ];
+}
+
 const TERMINAL_AGENTS = {
   claude: { binary: "claude", envVar: "CLAUDE_BIN" },
   // Terminal chat runs inside NextBrowser's dedicated workspace. Let Codex use
@@ -38,12 +74,7 @@ const TERMINAL_AGENTS = {
   codex: {
     binary: "codex",
     envVar: "CODEX_BIN",
-    args: [
-      "--ask-for-approval", "never",
-      "--sandbox", "workspace-write",
-      "-c", "sandbox_workspace_write.network_access=true",
-      "-c", 'plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser.default_tools_approval_mode="approve"',
-    ],
+    args: codexClawbrowserArgs(),
   },
   hermes: { binary: "hermes", envVar: "HERMES_BIN" },
   kilo: { binary: "kilo", envVar: "KILO_BIN" },
@@ -649,7 +680,13 @@ async function invokeCommand(command, args = {}) {
       const bin = resolveBinary(agent.binary, agent.envVar);
       if (!bin) throw new Error(`${agent.binary} CLI not found.`);
       const id = randomUUID();
-      const spec = commandSpec(bin, agent.args || []);
+      const writableDirs = args.agentId === "codex" ? clawbrowserWritableDirs() : [];
+      await Promise.all(writableDirs.map((dir) => fs.mkdir(dir, { recursive: true })));
+      const terminalArgs = [
+        ...(agent.args || []),
+        ...writableDirs.flatMap((dir) => ["--add-dir", dir]),
+      ];
+      const spec = commandSpec(bin, terminalArgs);
       const terminal = pty.spawn(spec.file, spec.args, {
         name: "xterm-256color",
         cols: Math.max(2, Math.min(500, Number(args.cols) || 80)),
