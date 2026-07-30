@@ -23,10 +23,12 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   assert.match(main, /"--sandbox", "workspace-write"/);
   assert.match(main, /sandbox_workspace_write\.network_access=true/);
+  assert.match(main, /approvals_reviewer="auto_review"/);
   assert.match(main, /default_tools_approval_mode="auto"/);
   assert.match(main, /tools\.\$\{tool\}\.approval_mode="auto"/);
   assert.match(main, /"--add-dir", dir/);
   assert.match(main, /\.cache", "clawbrowser"/);
   assert.match(main, /\.local", "share", "clawbrowser"/);
+  assert.match(main, /\.local", "state", "clawbrowser"/);
   assert.doesNotMatch(main, /dangerously-bypass-approvals-and-sandbox/);
 });

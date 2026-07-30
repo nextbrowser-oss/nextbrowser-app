@@ -47,6 +47,7 @@ function codexClawbrowserArgs() {
     "--ask-for-approval", "never",
     "--sandbox", "workspace-write",
     "-c", "sandbox_workspace_write.network_access=true",
+    "-c", 'approvals_reviewer="auto_review"',
     "-c", `${pluginRoot}.default_tools_approval_mode="auto"`,
     ...CLAWBROWSER_MCP_TOOLS.flatMap((tool) => [
       "-c", `${pluginRoot}.tools.${tool}.approval_mode="auto"`,
@@ -63,6 +64,7 @@ function clawbrowserWritableDirs() {
     path.join(home(), ".cache", "clawbrowser"),
     path.join(home(), ".config", "clawbrowser"),
     path.join(home(), ".local", "share", "clawbrowser"),
+    path.join(home(), ".local", "state", "clawbrowser"),
   ];
 }
 
