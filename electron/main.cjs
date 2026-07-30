@@ -30,29 +30,28 @@ let appUpdateTimer = null;
 let nextctlInstallStatus = { status: "idle" };
 let nextctlInstallPromise = null;
 
-const CLAWBROWSER_MCP_TOOLS = [
-  "doctor", "browser_performance", "site_recipe_save", "site_recipe_list",
-  "site_recipe_run", "start", "rotate", "status", "proxy_traffic_status",
-  "endpoint", "stop", "verify", "open", "open_url", "tabs_list",
-  "list_tabs", "tabs_activate", "tabs_close", "close_tabs",
-  "profiles_create", "profiles_list", "profiles_inspect", "profiles_rm",
-  "extensions_install", "state", "extract", "paginate_extract",
-  "tabs_extract", "click", "input", "press", "select", "scroll", "wait",
-  "screenshot", "dismiss", "captcha_solve",
-];
+const CODEX_TERMINAL_PROFILE = "nextbrowser";
+const CODEX_TERMINAL_PROFILE_CONTENT = `[plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser]
+default_tools_approval_mode = "approve"
+`;
 
 function codexClawbrowserArgs() {
-  const pluginRoot = 'plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser';
   return [
+    "--profile", CODEX_TERMINAL_PROFILE,
     "--ask-for-approval", "never",
     "--sandbox", "workspace-write",
     "-c", "sandbox_workspace_write.network_access=true",
-    "-c", 'approvals_reviewer="auto_review"',
-    "-c", `${pluginRoot}.default_tools_approval_mode="auto"`,
-    ...CLAWBROWSER_MCP_TOOLS.flatMap((tool) => [
-      "-c", `${pluginRoot}.tools.${tool}.approval_mode="auto"`,
-    ]),
   ];
+}
+
+async function ensureCodexTerminalProfile() {
+  const codexDir = String(process.env.CODEX_HOME || path.join(home(), ".codex"));
+  await fs.mkdir(codexDir, { recursive: true });
+  await fs.writeFile(
+    path.join(codexDir, `${CODEX_TERMINAL_PROFILE}.config.toml`),
+    CODEX_TERMINAL_PROFILE_CONTENT,
+    { encoding: "utf8", mode: 0o600 },
+  );
 }
 
 function clawbrowserWritableDirs() {
@@ -683,6 +682,7 @@ async function invokeCommand(command, args = {}) {
       if (!bin) throw new Error(`${agent.binary} CLI not found.`);
       const id = randomUUID();
       const writableDirs = args.agentId === "codex" ? clawbrowserWritableDirs() : [];
+      if (args.agentId === "codex") await ensureCodexTerminalProfile();
       await Promise.all(writableDirs.map((dir) => fs.mkdir(dir, { recursive: true })));
       const terminalArgs = [
         ...(agent.args || []),
