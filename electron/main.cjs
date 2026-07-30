@@ -42,6 +42,7 @@ const TERMINAL_AGENTS = {
       "--ask-for-approval", "never",
       "--sandbox", "workspace-write",
       "-c", "sandbox_workspace_write.network_access=true",
+      "-c", 'plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser.default_tools_approval_mode="approve"',
     ],
   },
   hermes: { binary: "hermes", envVar: "HERMES_BIN" },
