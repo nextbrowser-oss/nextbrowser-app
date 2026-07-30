@@ -7,6 +7,7 @@ test("adds browser and secret-handling guidance", () => {
   assert.match(result, /Prefer `nbc`/);
   assert.match(result, /Never search for, read, print, copy/);
   assert.match(result, /`999\.md` as a website/);
+  assert.match(result, /"открой браузер".*mean Clawbrowser/);
 });
 
 test("preserves user-authored instructions", () => {
