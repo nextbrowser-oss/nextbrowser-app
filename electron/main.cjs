@@ -38,7 +38,11 @@ const TERMINAL_AGENTS = {
   codex: {
     binary: "codex",
     envVar: "CODEX_BIN",
-    args: ["--ask-for-approval", "never", "--sandbox", "workspace-write"],
+    args: [
+      "--ask-for-approval", "never",
+      "--sandbox", "workspace-write",
+      "-c", "sandbox_workspace_write.network_access=true",
+    ],
   },
   hermes: { binary: "hermes", envVar: "HERMES_BIN" },
   kilo: { binary: "kilo", envVar: "KILO_BIN" },

@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 
@@ -16,4 +17,11 @@ test("agent workspace stays outside macOS Library and protected user folders", (
 
 test("agent workspace requires an explicit home directory", () => {
   assert.throws(() => agentWorkspaceDir(""), /home directory/i);
+});
+
+test("terminal Codex keeps workspace isolation while allowing Clawbrowser network calls", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  assert.match(main, /"--sandbox", "workspace-write"/);
+  assert.match(main, /sandbox_workspace_write\.network_access=true/);
+  assert.doesNotMatch(main, /dangerously-bypass-approvals-and-sandbox/);
 });
