@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="https://github.com/nextbrowser-oss/nextbrowser-app/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/nextbrowser-oss/nextbrowser-app?label=release"></a>
-  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2ea44f"></a>
+  <a href="LICENSE"><img alt="AGPL-3.0-only License" src="https://img.shields.io/badge/license-AGPL--3.0--only-2ea44f"></a>
   <img alt="Platforms: macOS and Windows" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Windows-2563eb">
   <a href="docs/i18n/README.md"><img alt="Documentation languages: 20" src="https://img.shields.io/badge/languages-20-0f766e"></a>
 </p>
@@ -135,6 +135,8 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. Use the structu
 
 ## License
 
-Nextbrowser is open-source software available under the [MIT License](LICENSE).
+Nextbrowser is open-source software available under the [GNU Affero General Public License v3.0 only](LICENSE).
+
+AGPL-3.0 permits commercial use, modification, and redistribution. If you distribute a modified version or run a modified version as a network service, the license requires you to offer the corresponding source code under the same license. This repository's dependencies remain under their respective licenses.
 
 Copyright © 2026 Nextbrowser contributors.

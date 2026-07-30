@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: 7d99b995b47d93fc8a39fab53df59eab6cc4102b4b900d0d581d9ff8175bb1b5 -->
+<!-- i18n-source-sha256: 616aa881d990c05acd12e1e2d3e86245a02a3e97c741a14537c60b65f7c2eb30 -->
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Nextbrowser 로고" width="112" />
 </p>
@@ -135,4 +135,4 @@ Nextbrowser는 데스크톱 제어 화면입니다. 프로필은 브라우저 ID
 
 ## 라이선스
 
-**MIT** 라이선스로 배포됩니다. 전문: [MIT License](../../../LICENSE).
+**GNU AGPL-3.0** 라이선스로 배포됩니다. 전문: [GNU AGPL-3.0](../../../LICENSE).

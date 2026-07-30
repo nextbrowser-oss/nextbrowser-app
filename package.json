@@ -3,7 +3,7 @@
   "version": "0.1.13",
   "description": "NextBrowser desktop agent console for macOS and Windows",
   "author": "NextBrowser",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",

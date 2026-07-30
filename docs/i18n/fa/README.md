@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: 7d99b995b47d93fc8a39fab53df59eab6cc4102b4b900d0d581d9ff8175bb1b5 -->
+<!-- i18n-source-sha256: 616aa881d990c05acd12e1e2d3e86245a02a3e97c741a14537c60b65f7c2eb30 -->
 
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="نشان Nextbrowser" width="112" />
@@ -136,4 +136,4 @@ Nextbrowser سطح کنترل دسکتاپ است. پروفایل‌ها هوی�
 
 ## مجوز
 
-تحت مجوز **MIT** توزیع می‌شود. متن کامل: [MIT License](../../../LICENSE).
+تحت مجوز **GNU AGPL-3.0** توزیع می‌شود. متن کامل: [GNU AGPL-3.0](../../../LICENSE).
