@@ -6,6 +6,7 @@ test("adds browser and secret-handling guidance", () => {
   const result = mergeManagedInstructions("");
   assert.match(result, /Prefer `nbc`/);
   assert.match(result, /Never search for, read, print, copy/);
+  assert.match(result, /`999\.md` as a website/);
 });
 
 test("preserves user-authored instructions", () => {
