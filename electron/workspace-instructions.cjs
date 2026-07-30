@@ -6,7 +6,11 @@ const END = "<!-- NEXTBROWSER MANAGED INSTRUCTIONS END -->";
 const MANAGED_INSTRUCTIONS = `${START}
 # NextBrowser browser workspace
 
-- For browser tasks, use the installed Clawbrowser CLI immediately. Prefer \`nbc\` when available and fall back to \`nextctl\`; check with \`command -v nbc || command -v nextctl\`.
+- For browser tasks, use the connected Clawbrowser MCP tools immediately when they are available. They keep one CDP connection warm. Use the CLI only when MCP is unavailable; then prefer \`nbc\` and fall back to \`nextctl\`.
+- Do not probe for the CLI, run a duplicate CLI \`start\`, or switch between CLI and MCP after a successful MCP call.
+- Start or reuse the requested profile exactly once. Pass the target URL to \`start\`; do not separately open the same URL unless navigation actually failed.
+- For catalogs, listings, and search results, use one \`paginate_extract\` call after the page is ready. Do not manually repeat \`scroll\` → \`wait\` → \`state\`; \`paginate_extract\` scrolls, waits, extracts, deduplicates, filters, and sorts in one operation.
+- Combine actions with \`wait_for\` and \`return_state: true\` when another decision is needed. Do not wait for \`load\` after a plain scroll because scrolling does not navigate.
 - Do not use another browser integration when the user asks for Clawbrowser or when the task is being run inside NextBrowser.
 - Inside NextBrowser, generic requests such as "open the browser", "use the browser", "открой браузер", or "используй браузер" mean Clawbrowser. Use another browser only when the user explicitly names it.
 - Use an explicit named profile for commands that act on a browser.

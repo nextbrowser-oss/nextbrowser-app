@@ -8,6 +8,7 @@ import { Icon, Spinner } from "./Icon";
 interface AgentTerminalProps {
   agentId: string;
   agentName: string;
+  conversationId?: string;
   workingDir?: string;
   onClose: () => void;
 }
@@ -66,7 +67,7 @@ function activeTerminalTheme() {
     : DARK_TERMINAL_THEME;
 }
 
-export function AgentTerminal({ agentId, agentName, workingDir, onClose }: AgentTerminalProps) {
+export function AgentTerminal({ agentId, agentName, conversationId, workingDir, onClose }: AgentTerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalIdRef = useRef<string>();
   const [status, setStatus] = useState<"starting" | "running" | "exited" | "failed">("starting");
@@ -167,7 +168,10 @@ export function AgentTerminal({ agentId, agentName, workingDir, onClose }: Agent
       if (id) void invoke("terminal_kill", { id });
       terminal.dispose();
     };
-  }, [agentId, workingDir]);
+  // A terminal is the interactive state of one chat, not a global agent
+  // process. Restart it when the selected conversation changes so pending
+  // input, scrollback, or an unfinished prompt cannot leak into another chat.
+  }, [agentId, conversationId, workingDir]);
 
   return (
     <section className="agent-terminal-panel" aria-label={`${agentName} terminal`}>

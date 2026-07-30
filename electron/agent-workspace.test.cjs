@@ -32,3 +32,10 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   assert.match(main, /\.local", "state", "clawbrowser"/);
   assert.doesNotMatch(main, /dangerously-bypass-approvals-and-sandbox/);
 });
+
+test("terminal chat is isolated by conversation", () => {
+  const terminal = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AgentTerminal.tsx"), "utf8");
+  const chat = fs.readFileSync(path.join(__dirname, "..", "src", "components", "ChatView.tsx"), "utf8");
+  assert.match(terminal, /\[agentId, conversationId, workingDir\]/);
+  assert.match(chat, /conversationId=\{conv\?\.id\}/);
+});
