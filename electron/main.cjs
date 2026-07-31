@@ -30,6 +30,46 @@ let appUpdateTimer = null;
 let nextctlInstallStatus = { status: "idle" };
 let nextctlInstallPromise = null;
 
+const CODEX_TERMINAL_PROFILE = "nextbrowser";
+const CODEX_TERMINAL_PROFILE_CONTENT = `[plugins."browser@openai-bundled"]
+enabled = false
+
+[plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser]
+default_tools_approval_mode = "approve"
+`;
+
+function codexClawbrowserArgs() {
+  return [
+    "--profile", CODEX_TERMINAL_PROFILE,
+    "--ask-for-approval", "never",
+    "--sandbox", "workspace-write",
+    "-c", "sandbox_workspace_write.network_access=true",
+  ];
+}
+
+async function ensureCodexTerminalProfile() {
+  const codexDir = String(process.env.CODEX_HOME || path.join(home(), ".codex"));
+  await fs.mkdir(codexDir, { recursive: true });
+  await fs.writeFile(
+    path.join(codexDir, `${CODEX_TERMINAL_PROFILE}.config.toml`),
+    CODEX_TERMINAL_PROFILE_CONTENT,
+    { encoding: "utf8", mode: 0o600 },
+  );
+}
+
+function clawbrowserWritableDirs() {
+  if (process.platform === "win32") {
+    const localAppData = String(process.env.LOCALAPPDATA || path.join(home(), "AppData", "Local"));
+    return [path.join(localAppData, "Clawbrowser")];
+  }
+  return [
+    path.join(home(), ".cache", "clawbrowser"),
+    path.join(home(), ".config", "clawbrowser"),
+    path.join(home(), ".local", "share", "clawbrowser"),
+    path.join(home(), ".local", "state", "clawbrowser"),
+  ];
+}
+
 const TERMINAL_AGENTS = {
   claude: { binary: "claude", envVar: "CLAUDE_BIN" },
   // Terminal chat runs inside NextBrowser's dedicated workspace. Let Codex use
@@ -38,7 +78,7 @@ const TERMINAL_AGENTS = {
   codex: {
     binary: "codex",
     envVar: "CODEX_BIN",
-    args: ["--ask-for-approval", "never", "--sandbox", "workspace-write"],
+    args: codexClawbrowserArgs(),
   },
   hermes: { binary: "hermes", envVar: "HERMES_BIN" },
   kilo: { binary: "kilo", envVar: "KILO_BIN" },
@@ -644,7 +684,14 @@ async function invokeCommand(command, args = {}) {
       const bin = resolveBinary(agent.binary, agent.envVar);
       if (!bin) throw new Error(`${agent.binary} CLI not found.`);
       const id = randomUUID();
-      const spec = commandSpec(bin, agent.args || []);
+      const writableDirs = args.agentId === "codex" ? clawbrowserWritableDirs() : [];
+      if (args.agentId === "codex") await ensureCodexTerminalProfile();
+      await Promise.all(writableDirs.map((dir) => fs.mkdir(dir, { recursive: true })));
+      const terminalArgs = [
+        ...(agent.args || []),
+        ...writableDirs.flatMap((dir) => ["--add-dir", dir]),
+      ];
+      const spec = commandSpec(bin, terminalArgs);
       const terminal = pty.spawn(spec.file, spec.args, {
         name: "xterm-256color",
         cols: Math.max(2, Math.min(500, Number(args.cols) || 80)),

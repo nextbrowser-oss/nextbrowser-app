@@ -297,6 +297,7 @@ export function ChatView() {
           <AgentTerminal
             agentId={agentId}
             agentName={agentName}
+            conversationId={conv?.id}
             workingDir={s.workingDir}
             onClose={() => s.setTerminalChat(false)}
           />

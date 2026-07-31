@@ -7,6 +7,11 @@ const LOCAL_NEXTCTL_PROMPT =
   "Prefer `nbc` when available and fall back to `nextctl`; check with " +
   "`command -v nbc || command -v nextctl`. Use that CLI to open pages, act on them, " +
   "and manage sessions/proxies. Run its `--help` if unsure of a subcommand. " +
+  "Inside NextBrowser, generic requests such as `open the browser`, `use the browser`, " +
+  "`открой браузер`, or `используй браузер` mean Clawbrowser; use another browser only " +
+  "when the user explicitly names it. " +
+  "In browser requests, a dotted hostname such as `999.md` is a website, not a local file; " +
+  "open a bare hostname as `https://<host>` unless the user explicitly asks for a file or path. " +
   "Authentication is managed by NextBrowser: never search for, read, print, copy, " +
   "or ask the user to paste API keys or Clawbrowser configuration. On an authentication " +
   "error, retry once, then ask the user to reconnect their account in NextBrowser. " +

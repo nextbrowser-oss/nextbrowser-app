@@ -1117,6 +1117,10 @@ export const useStore = create<State>((set, get) => {
   },
 
   tickNextctlDailyUpdate: async () => {
+    // A development build may intentionally point at a locally compiled nbc.
+    // Never replace that test binary with the latest published release while
+    // the app is running under Vite/Electron development mode.
+    if (import.meta.env.DEV) return;
     if (!get().nextctlAvailable) return;
     if (get().nextctlUpdating) return;
     if (pendingTarget(get(), "vps")) return;
