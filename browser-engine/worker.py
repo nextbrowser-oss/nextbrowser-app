@@ -40,6 +40,8 @@ _session: BrowserSession | None = None
 _lock = asyncio.Lock()
 _cdp_url = os.environ.get("NEXTBROWSER_CDP_URL", "").strip()
 _prepared = False
+_prepared_country = ""
+_prepared_profile = ""
 
 
 async def session() -> BrowserSession:
@@ -128,6 +130,17 @@ async def sync_nextctl_active_tab(current: BrowserSession) -> None:
         return
 
 
+async def activate_requested_url(current: BrowserSession, url: str | None) -> None:
+    if not url:
+        return
+    requested = url.rstrip("/")
+    tabs = await current.get_tabs()
+    match = next((tab for tab in tabs if tab.url.rstrip("/") == requested), None)
+    if match is not None:
+        emitted = current.event_bus.dispatch(SwitchTabEvent(target_id=str(match.target_id)))
+        await emitted.event_result(raise_if_none=False, raise_if_any=True)
+
+
 @mcp.tool()
 async def browser_prepare(
     country: str | None = None,
@@ -135,7 +148,7 @@ async def browser_prepare(
     profile: str | None = None,
 ) -> str:
     """Prepare the browser identity before browsing. MUST be the first browser tool called when the user requests a proxy, country, or identity. Country is a two-letter ISO code such as US. Returns only after nextctl has started/rotated and verified the proxy session."""
-    global _cdp_url, _session, _prepared
+    global _cdp_url, _session, _prepared, _prepared_country, _prepared_profile
     async with _lock:
         requested_country = (country or "").strip().upper()
         if requested_country and not re.fullmatch(r"[A-Z]{2}", requested_country):
@@ -145,6 +158,27 @@ async def browser_prepare(
             raise ValueError("profile contains unsupported characters")
         if url and not re.match(r"^https?://", url, re.IGNORECASE):
             raise ValueError("url must use http or https")
+
+        same_identity = (
+            _prepared
+            and selected_profile == _prepared_profile
+            and (not requested_country or requested_country == _prepared_country)
+        )
+        if same_identity:
+            try:
+                current = await session()
+                await activate_requested_url(current, url)
+                return json.dumps({
+                    "prepared": True,
+                    "verified": bool(_prepared_country),
+                    "reused": True,
+                    "country": _prepared_country or None,
+                    "profile": selected_profile or "default",
+                    "endpoint": _cdp_url,
+                    "next_step": "Preparation is complete. Do not call browser_prepare again; continue with browser_state, browser_actions, or navigation.",
+                }, ensure_ascii=False)
+            except Exception:
+                _prepared = False
 
         scope: list[str] = []
         if selected_profile:
@@ -179,17 +213,20 @@ async def browser_prepare(
             except Exception:
                 pass
         try:
-            await session()
+            current = await session()
+            await activate_requested_url(current, url)
         except Exception:
             _prepared = False
             raise
+        _prepared_country = requested_country
+        _prepared_profile = selected_profile
         return json.dumps({
             "prepared": True,
             "verified": bool(requested_country),
             "country": requested_country or None,
             "profile": selected_profile or "default",
             "endpoint": _cdp_url,
-            "next_step": "Use browser_state or browser_navigate only after this success response.",
+            "next_step": "Preparation is complete. Do not call browser_prepare again; continue with browser_state, browser_actions, or navigation.",
         }, ensure_ascii=False)
 
 

@@ -58,7 +58,7 @@ function browserEngineAgentArgs(agentId, engine) {
     "-c", `mcp_servers.nextbrowser_browser.env.NEXTBROWSER_NEXTCTL_BIN=${JSON.stringify(engine.nextctlBin)}`,
     "-c", `mcp_servers.nextbrowser_browser.env.NEXTBROWSER_PROFILE=${JSON.stringify(engine.profile || "")}`,
     "-c", "mcp_servers.nextbrowser_browser.default_tools_approval_mode=\"approve\"",
-    "-c", `developer_instructions=${JSON.stringify("Browser engine mode is active. Use only the nextbrowser-browser MCP tools. ALWAYS call browser_prepare before every other nextbrowser-browser tool and proceed only after it succeeds. If the request mentions a proxy, country, or identity, pass the requested two-letter ISO country so nextctl rotates and verifies the proxy before browser work. Never navigate, inspect, or act before preparation. Do not use clawbrowser MCP, nbc, nextctl, or shell commands for browser work.")}`,
+    "-c", `developer_instructions=${JSON.stringify("Browser engine mode is active. Use only the nextbrowser-browser MCP tools. Call browser_prepare exactly once at the beginning of a browser task and proceed only after it succeeds. Do not call browser_prepare again during the same task unless it failed or the user explicitly requests a different identity. If the request mentions a proxy, country, or identity, pass the requested two-letter ISO country so nextctl rotates and verifies the proxy before browser work. Never navigate, inspect, or act before preparation. Do not use clawbrowser MCP, nbc, nextctl, or shell commands for browser work.")}`,
   ];
   if (agentId === "claude") return [
     "--strict-mcp-config", "--mcp-config", JSON.stringify({
