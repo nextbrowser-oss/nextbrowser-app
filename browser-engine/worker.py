@@ -45,6 +45,7 @@ async def session() -> BrowserSession:
             raise RuntimeError("NEXTBROWSER_CDP_URL is required")
         _session = BrowserSession(cdp_url=_cdp_url, keep_alive=True)
         await _session.start()
+        await sync_nextctl_active_tab(_session)
     return _session
 
 
@@ -99,6 +100,26 @@ async def run_nextctl(args: list[str]) -> dict[str, Any]:
         error = envelope.get("error") or {}
         raise RuntimeError(error.get("message") or "nextctl could not prepare the browser session")
     return envelope
+
+
+async def sync_nextctl_active_tab(current: BrowserSession) -> None:
+    """Keep Browser Use attached to the tab selected by nextctl/Clawbrowser."""
+    if not _cdp_url or not os.environ.get("NEXTBROWSER_NEXTCTL_BIN", "").strip():
+        return
+    try:
+        envelope = await run_nextctl(["--cdp", _cdp_url, "tabs", "list", "--format", "json"])
+        tabs = (envelope.get("data") or {}).get("tabs") or []
+        selected = next((tab for tab in tabs if tab.get("active") or tab.get("current")), None)
+        target_id = str((selected or {}).get("id") or "")
+        if not target_id:
+            return
+        browser_tabs = await current.get_tabs()
+        if any(str(tab.target_id) == target_id for tab in browser_tabs):
+            emitted = current.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
+            await emitted.event_result(raise_if_none=False, raise_if_any=True)
+    except Exception:
+        # Attaching must still work with old nextctl builds or explicit raw CDP URLs.
+        return
 
 
 @mcp.tool()
