@@ -55,6 +55,7 @@ function browserEngineAgentArgs(agentId, engine) {
     "-c", "sandbox_workspace_write.network_access=true",
     "-c", `mcp_servers.nextbrowser_browser.command=${JSON.stringify(engine.command)}`,
     "-c", `mcp_servers.nextbrowser_browser.env.NEXTBROWSER_CDP_URL=${JSON.stringify(engine.cdpUrl)}`,
+    "-c", `developer_instructions=${JSON.stringify("Browser engine mode is active. Use only the nextbrowser-browser MCP tools for browser inspection and actions. Do not use clawbrowser MCP, nbc, nextctl, or shell commands for browser work. The browser session is already running.")}`,
   ];
   if (agentId === "claude") return [
     "--strict-mcp-config", "--mcp-config", JSON.stringify({
@@ -67,6 +68,25 @@ function browserEngineAgentArgs(agentId, engine) {
     }),
   ];
   throw new Error("Browser engine is currently supported by Codex and Claude Code only.");
+}
+
+async function isolatedCodexHome() {
+  const target = path.join(dataDir(), "codex-browser-engine");
+  const sourceHome = String(process.env.CODEX_HOME || path.join(home(), ".codex"));
+  const sourceAuth = path.join(sourceHome, "auth.json");
+  const targetAuth = path.join(target, "auth.json");
+  await fs.mkdir(target, { recursive: true });
+  try {
+    await fs.copyFile(sourceAuth, targetAuth);
+    if (process.platform !== "win32") await fs.chmod(targetAuth, 0o600);
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+    throw new Error("Codex login was not found. Sign in to Codex before enabling the browser engine.");
+  }
+  // Keep this home intentionally minimal: auth is shared as a snapshot, while
+  // user plugins, skills, and MCP servers must not leak into the A/B engine run.
+  await fs.writeFile(path.join(target, "config.toml"), "", { encoding: "utf8", mode: 0o600 });
+  return target;
 }
 
 async function ensureCodexTerminalProfile() {
@@ -244,9 +264,9 @@ function resolveBinary(name, envVar) {
   return null;
 }
 function childEnv(extra = {}) { return { ...process.env, PATH: searchDirs().join(path.delimiter), ...extra }; }
-function terminalEnv() {
+function terminalEnv(extra = {}) {
   return Object.fromEntries(
-    Object.entries(childEnv({ TERM: "xterm-256color", COLORTERM: "truecolor" }))
+    Object.entries(childEnv({ TERM: "xterm-256color", COLORTERM: "truecolor", ...extra }))
       .filter(([, value]) => typeof value === "string"),
   );
 }
@@ -757,13 +777,16 @@ async function invokeCommand(command, args = {}) {
         ...(args.browserEngine ? browserEngineAgentArgs(args.agentId, args.browserEngine) : (agent.args || [])),
         ...writableDirs.flatMap((dir) => ["--add-dir", dir]),
       ];
+      const terminalExtraEnv = args.browserEngine && args.agentId === "codex"
+        ? { CODEX_HOME: await isolatedCodexHome() }
+        : {};
       const spec = commandSpec(bin, terminalArgs);
       const terminal = pty.spawn(spec.file, spec.args, {
         name: "xterm-256color",
         cols: Math.max(2, Math.min(500, Number(args.cols) || 80)),
         rows: Math.max(2, Math.min(300, Number(args.rows) || 24)),
         cwd: args.workingDir || home(),
-        env: terminalEnv(),
+        env: terminalEnv(terminalExtraEnv),
       });
       const record = { process: terminal, ready: false, buffer: [], exit: null };
       terminals.set(id, record);

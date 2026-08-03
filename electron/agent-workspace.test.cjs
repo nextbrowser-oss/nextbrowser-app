@@ -40,3 +40,12 @@ test("terminal chat is isolated by conversation", () => {
   assert.match(terminal, /\[agentId, browserEngine, conversationId, selectedProfile, workingDir\]/);
   assert.match(chat, /conversationId=\{conv\?\.id\}/);
 });
+
+test("experimental Codex browser engine excludes user plugins while retaining login", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  assert.match(main, /async function isolatedCodexHome\(\)/);
+  assert.match(main, /fs\.copyFile\(sourceAuth, targetAuth\)/);
+  assert.match(main, /\{ CODEX_HOME: await isolatedCodexHome\(\) \}/);
+  assert.match(main, /Use only the nextbrowser-browser MCP tools/);
+  assert.doesNotMatch(main, /if \(agentId === "codex"\) return \[\s*"--ignore-user-config"/);
+});
