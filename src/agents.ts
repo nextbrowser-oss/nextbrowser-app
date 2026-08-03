@@ -174,6 +174,7 @@ export function agentInvocation(
             "-c", `mcp_servers.nextbrowser_browser.command=${JSON.stringify(browserEngine.command)}`,
             "-c", `mcp_servers.nextbrowser_browser.env.NEXTBROWSER_CDP_URL=${JSON.stringify(browserEngine.cdpUrl)}`,
             "-c", "mcp_servers.nextbrowser_browser.startup_timeout_sec=30",
+            "-c", "mcp_servers.nextbrowser_browser.default_tools_approval_mode=\"approve\"",
           ] : []),
           "-",
         ],

@@ -27,6 +27,7 @@ describe("agent invocation parity", () => {
     expect(invocation.args).toContain("--ignore-user-config");
     expect(invocation.args.join(" ")).toContain("nextbrowser_browser");
     expect(invocation.args.join(" ")).toContain("127.0.0.1:9222");
+    expect(invocation.args.join(" ")).toContain("default_tools_approval_mode");
     expect(invocation.stdin).toBe("scrape");
   });
   it("uses Claude strict MCP config without adding an LLM credential", () => {

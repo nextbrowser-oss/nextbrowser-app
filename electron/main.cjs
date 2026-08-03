@@ -55,6 +55,7 @@ function browserEngineAgentArgs(agentId, engine) {
     "-c", "sandbox_workspace_write.network_access=true",
     "-c", `mcp_servers.nextbrowser_browser.command=${JSON.stringify(engine.command)}`,
     "-c", `mcp_servers.nextbrowser_browser.env.NEXTBROWSER_CDP_URL=${JSON.stringify(engine.cdpUrl)}`,
+    "-c", "mcp_servers.nextbrowser_browser.default_tools_approval_mode=\"approve\"",
     "-c", `developer_instructions=${JSON.stringify("Browser engine mode is active. Use only the nextbrowser-browser MCP tools for browser inspection and actions. Do not use clawbrowser MCP, nbc, nextctl, or shell commands for browser work. The browser session is already running.")}`,
   ];
   if (agentId === "claude") return [
