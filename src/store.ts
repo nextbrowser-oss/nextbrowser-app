@@ -1399,7 +1399,7 @@ export const useStore = create<State>((set, get) => {
         browserEngineConfig = await invoke<BrowserEngineConfig>("browser_engine_prepare", {
           profile: get().selectedProfile || null,
         });
-        prompt += "\n\nBrowser engine mode is enabled. Use only the nextbrowser-browser MCP tools for browser work. If the request mentions a proxy, country, or identity, you MUST call browser_prepare with the ISO country before any navigation or page inspection and proceed only when it succeeds. Do not invoke clawbrowser MCP, nbc, nextctl, or shell commands for browser work. You remain responsible for planning and interpreting results.";
+        prompt += "\n\nBrowser engine mode is enabled. Use only the nextbrowser-browser MCP tools for browser work. ALWAYS call browser_prepare before every other browser tool and proceed only after it succeeds. If the request mentions a proxy, country, or identity, pass the requested two-letter ISO country so nextctl rotates and verifies the proxy before browser work. Never navigate, inspect, or act before preparation. Do not invoke clawbrowser MCP, nbc, nextctl, or shell commands for browser work. You remain responsible for planning and interpreting results.";
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         get().setMessageStatus(item.conversationId, item.replyId, "failed", `Browser engine could not start: ${message}`);

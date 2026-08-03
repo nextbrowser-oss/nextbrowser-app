@@ -39,10 +39,13 @@ mcp = FastMCP("nextbrowser-browser-engine", log_level="ERROR")
 _session: BrowserSession | None = None
 _lock = asyncio.Lock()
 _cdp_url = os.environ.get("NEXTBROWSER_CDP_URL", "").strip()
+_prepared = False
 
 
 async def session() -> BrowserSession:
     global _session
+    if not _prepared:
+        raise RuntimeError("Browser session is not prepared. Call browser_prepare before any browser action or inspection.")
     if _session is None:
         if not _cdp_url:
             raise RuntimeError("NEXTBROWSER_CDP_URL is required")
@@ -132,7 +135,7 @@ async def browser_prepare(
     profile: str | None = None,
 ) -> str:
     """Prepare the browser identity before browsing. MUST be the first browser tool called when the user requests a proxy, country, or identity. Country is a two-letter ISO code such as US. Returns only after nextctl has started/rotated and verified the proxy session."""
-    global _cdp_url, _session
+    global _cdp_url, _session, _prepared
     async with _lock:
         requested_country = (country or "").strip().upper()
         if requested_country and not re.fullmatch(r"[A-Z]{2}", requested_country):
@@ -143,16 +146,24 @@ async def browser_prepare(
         if url and not re.match(r"^https?://", url, re.IGNORECASE):
             raise ValueError("url must use http or https")
 
-        args: list[str] = []
+        scope: list[str] = []
         if selected_profile:
-            args.extend(["--profile", selected_profile])
-        args.append("rotate" if requested_country else "start")
+            scope.extend(["--profile", selected_profile])
         if requested_country:
-            args.extend(["--country", requested_country, "--proxy-scheme", "http", "--verify"])
-        if url:
-            args.extend(["--url", url])
-        args.extend(["--format", "json"])
-        envelope = await run_nextctl(args)
+            args = scope + ["rotate", "--country", requested_country, "--proxy-scheme", "http", "--verify"]
+            if url:
+                args.extend(["--url", url])
+            envelope = await run_nextctl(args + ["--format", "json"])
+        else:
+            envelope = await run_nextctl(scope + ["status", "--format", "json"])
+            status_data = envelope.get("data") or {}
+            if status_data.get("status") != "running":
+                args = scope + ["start"]
+                if url:
+                    args.extend(["--url", url])
+                envelope = await run_nextctl(args + ["--format", "json"])
+            elif url:
+                envelope = await run_nextctl(scope + ["open", url, "--format", "json"])
         data = envelope.get("data") or {}
         endpoint = (data.get("session") or {}).get("endpoint") or data.get("endpoint")
         if not endpoint:
@@ -161,12 +172,17 @@ async def browser_prepare(
         old_session = _session
         _session = None
         _cdp_url = str(endpoint)
+        _prepared = True
         if old_session is not None:
             try:
                 await old_session.event_bus.stop(clear=True, timeout=2)
             except Exception:
                 pass
-        await session()
+        try:
+            await session()
+        except Exception:
+            _prepared = False
+            raise
         return json.dumps({
             "prepared": True,
             "verified": bool(requested_country),
