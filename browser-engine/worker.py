@@ -34,6 +34,7 @@ from browser_use.browser.events import (
     TypeTextEvent,
 )
 from mcp.server.fastmcp import FastMCP
+from verification import require_green_verification
 
 mcp = FastMCP("nextbrowser-browser-engine", log_level="ERROR")
 _session: BrowserSession | None = None
@@ -42,6 +43,8 @@ _cdp_url = os.environ.get("NEXTBROWSER_CDP_URL", "").strip()
 _prepared = False
 _prepared_country = ""
 _prepared_profile = ""
+_prepared_at = 0.0
+PREPARE_REUSE_SECONDS = 60.0
 
 
 async def session() -> BrowserSession:
@@ -148,7 +151,7 @@ async def browser_prepare(
     profile: str | None = None,
 ) -> str:
     """Prepare the browser identity before browsing. MUST be the first browser tool called when the user requests a proxy, country, or identity. Country is a two-letter ISO code such as US. Returns only after nextctl has started/rotated and verified the proxy session."""
-    global _cdp_url, _session, _prepared, _prepared_country, _prepared_profile
+    global _cdp_url, _session, _prepared, _prepared_country, _prepared_profile, _prepared_at
     async with _lock:
         requested_country = (country or "").strip().upper()
         if requested_country and not re.fullmatch(r"[A-Z]{2}", requested_country):
@@ -161,6 +164,7 @@ async def browser_prepare(
 
         same_identity = (
             _prepared
+            and time.monotonic() - _prepared_at < PREPARE_REUSE_SECONDS
             and selected_profile == _prepared_profile
             and (not requested_country or requested_country == _prepared_country)
         )
@@ -170,7 +174,7 @@ async def browser_prepare(
                 await activate_requested_url(current, url)
                 return json.dumps({
                     "prepared": True,
-                    "verified": bool(_prepared_country),
+                    "verified": True,
                     "reused": True,
                     "country": _prepared_country or None,
                     "profile": selected_profile or "default",
@@ -185,21 +189,24 @@ async def browser_prepare(
             scope.extend(["--profile", selected_profile])
         if requested_country:
             args = scope + ["rotate", "--country", requested_country, "--proxy-scheme", "http", "--verify"]
-            if url:
-                args.extend(["--url", url])
             envelope = await run_nextctl(args + ["--format", "json"])
         else:
             envelope = await run_nextctl(scope + ["status", "--format", "json"])
             status_data = envelope.get("data") or {}
             if status_data.get("status") != "running":
-                args = scope + ["start"]
-                if url:
-                    args.extend(["--url", url])
-                envelope = await run_nextctl(args + ["--format", "json"])
-            elif url:
-                envelope = await run_nextctl(scope + ["open", url, "--format", "json"])
+                envelope = await run_nextctl(scope + ["start", "--verify", "--format", "json"])
+
+        verification_envelope = await run_nextctl(scope + ["verify", "--timeout", "30s", "--format", "json"])
+        verification = require_green_verification(verification_envelope, requested_country)
+        if url:
+            await run_nextctl(scope + ["open", url, "--format", "json"])
         data = envelope.get("data") or {}
-        endpoint = (data.get("session") or {}).get("endpoint") or data.get("endpoint")
+        verification_data = verification_envelope.get("data") or {}
+        endpoint = (
+            (verification_data.get("session") or {}).get("endpoint")
+            or (data.get("session") or {}).get("endpoint")
+            or data.get("endpoint")
+        )
         if not endpoint:
             raise RuntimeError("nextctl prepared the session but returned no CDP endpoint")
 
@@ -220,9 +227,12 @@ async def browser_prepare(
             raise
         _prepared_country = requested_country
         _prepared_profile = selected_profile
+        _prepared_at = time.monotonic()
         return json.dumps({
             "prepared": True,
-            "verified": bool(requested_country),
+            "verified": True,
+            "verification_status": verification.get("status"),
+            "verification_checks": len(verification.get("checks") or []),
             "country": requested_country or None,
             "profile": selected_profile or "default",
             "endpoint": _cdp_url,
