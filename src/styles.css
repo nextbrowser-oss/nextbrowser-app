@@ -2061,6 +2061,13 @@ button, input, textarea, select { color: var(--text); }
   background: #181818;
   box-shadow: 0 8px 24px color-mix(in srgb, var(--shadow) 55%, transparent);
 }
+.terminal-chat-layer {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.terminal-chat-layer.is-hidden { display: none; }
 .agent-terminal-header {
   display: flex;
   align-items: center;

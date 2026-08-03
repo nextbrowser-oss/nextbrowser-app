@@ -76,8 +76,20 @@ export function ChatView() {
   const [convMenu, setConvMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [promptDetail, setPromptDetail] = useState<string | null>(null);
   const [vpsSetupOpen, setVPSSetupOpen] = useState(false);
+  const [terminalVisible, setTerminalVisible] = useState(s.terminalChat);
+  const [terminalMounted, setTerminalMounted] = useState(s.terminalChat);
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (s.terminalChat) {
+      setTerminalMounted(true);
+      setTerminalVisible(true);
+      return;
+    }
+    setTerminalVisible(false);
+    setTerminalMounted(false);
+  }, [s.terminalChat]);
 
   useEffect(() => {
     const stageDraft = (value: string) => {
@@ -274,6 +286,17 @@ export function ChatView() {
               <span className="chat-vps-label">Use VPS</span>
             </button>
           )}
+          {s.terminalChat && terminalMounted && !terminalVisible && (
+            <button
+              className="mini chat-vps-button"
+              aria-label={`Return to ${agentName} terminal`}
+              title={`Return to ${agentName} terminal`}
+              onClick={() => setTerminalVisible(true)}
+            >
+              <Icon name="terminal" size={13} />
+              <span className="chat-vps-label">Terminal</span>
+            </button>
+          )}
           {!remoteOnly && s.selectedProfile && (
             <span className="profile-pill">
               <Icon name="person.crop.circle" size={12} />
@@ -293,15 +316,18 @@ export function ChatView() {
         </div>
         <hr className="divider" />
 
-        {s.terminalChat ? (
-          <AgentTerminal
-            agentId={agentId}
-            agentName={agentName}
-            conversationId={conv?.id}
-            workingDir={s.workingDir}
-            onClose={() => s.setTerminalChat(false)}
-          />
-        ) : (
+        {terminalMounted && (
+          <div className={"terminal-chat-layer" + (terminalVisible ? "" : " is-hidden")} aria-hidden={!terminalVisible}>
+            <AgentTerminal
+              agentId={agentId}
+              agentName={agentName}
+              conversationId={conv?.id}
+              workingDir={s.workingDir}
+              onClose={() => setTerminalVisible(false)}
+            />
+          </div>
+        )}
+        {!terminalVisible && (
           <>
         <div className="messages">
           {messages.length === 0 && (

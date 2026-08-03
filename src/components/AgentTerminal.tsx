@@ -184,7 +184,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
         {status === "running" && <span className="terminal-status-dot" title="Running" />}
         {status === "exited" && <span className="muted small">Exited</span>}
         {status === "failed" && <span className="error small" title={error}>Failed</span>}
-        <button className="plain-icon-btn plain-icon-btn-compact" onClick={onClose} title="Close terminal" aria-label="Close terminal">
+        <button className="plain-icon-btn plain-icon-btn-compact" onClick={onClose} title="Hide terminal" aria-label="Hide terminal">
           <Icon name="xmark" size={13} />
         </button>
       </header>
