@@ -50,7 +50,6 @@ function codexClawbrowserArgs() {
 function browserEngineAgentArgs(agentId, engine) {
   if (!engine) return [];
   if (agentId === "codex") return [
-    "--ignore-user-config",
     "--ask-for-approval", "never",
     "--sandbox", "workspace-write",
     "-c", "sandbox_workspace_write.network_access=true",
