@@ -3360,6 +3360,17 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   max-height: 220px;
   overflow-y: auto;
 }
+.country-search { margin: 0 0 8px; width: 100%; }
+.country-picker-selection {
+  margin-top: -4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.country-picker-grid {
+  max-height: 190px;
+  padding-right: 2px;
+}
+.country-picker-empty { padding: 12px; text-align: center; }
 .country-chip {
   display: flex;
   align-items: center;
