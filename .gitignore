@@ -11,5 +11,6 @@ screenshots
 browser-engine/build/
 browser-engine/dist/
 browser-engine/*.spec
+__pycache__/
 .xwin-cache
 xwin-cache
