@@ -8,5 +8,8 @@ src-tauri/gen
 .DS_Store
 *.log
 screenshots
+browser-engine/build/
+browser-engine/dist/
+browser-engine/*.spec
 .xwin-cache
 xwin-cache

@@ -299,6 +299,8 @@ export function ChatView() {
             agentName={agentName}
             conversationId={conv?.id}
             workingDir={s.workingDir}
+            browserEngine={s.browserEngine}
+            selectedProfile={s.selectedProfile}
             onClose={() => s.setTerminalChat(false)}
           />
         ) : (

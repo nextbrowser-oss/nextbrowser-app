@@ -15,6 +15,8 @@ import {
   agentInvocation,
   missingAgentInstallError,
   nextctlAgentAdapter,
+  supportsBrowserEngine,
+  type BrowserEngineConfig,
   type AgentSpec,
 } from "./agents";
 import {
@@ -325,6 +327,8 @@ interface State {
   sidebarCollapsed: boolean;
   chatListCollapsed: boolean;
   terminalChat: boolean;
+  browserEngine: boolean;
+  browserEngineAvailable: boolean;
   dashboardKeyPromptOpen: boolean;
   accountPairing?: AccountPairingState;
   nextctlVersion: string;
@@ -379,6 +383,7 @@ interface State {
   setSidebarCollapsed: (v: boolean) => void;
   setChatListCollapsed: (v: boolean) => void;
   setTerminalChat: (v: boolean) => void;
+  setBrowserEngine: (v: boolean) => void;
   setDashboardKeyPromptOpen: (v: boolean) => void;
   setOnboardingStepIndex: (index: number) => void;
   suspendOnboardingForSetup: () => void;
@@ -865,6 +870,8 @@ export const useStore = create<State>((set, get) => {
   sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "true",
   chatListCollapsed: localStorage.getItem("chatListCollapsed") === "true",
   terminalChat: localStorage.getItem("terminalChat") === "true",
+  browserEngine: localStorage.getItem("browserEngine") === "true",
+  browserEngineAvailable: false,
   dashboardKeyPromptOpen: false,
   accountPairing: undefined,
   nextctlVersion: "",
@@ -921,13 +928,14 @@ export const useStore = create<State>((set, get) => {
     didBootstrap = true;
     const startedAt = performance.now();
     trackEvent("bootstrap_started");
-    const [rawConvs, rawSchedules, rawScripts, rawAppliedScripts, rawHistory, wd] = await Promise.all([
+    const [rawConvs, rawSchedules, rawScripts, rawAppliedScripts, rawHistory, wd, engineStatus] = await Promise.all([
       loadJson<Conversation[]>("conversations.json", []),
       loadJson<ScheduledRun[]>("scheduled-runs.json", []),
       loadJson<CustomScript[]>("custom-scripts.json", []),
       loadJson<SkillEntry[]>("applied-scripts.json", []),
       loadJson<UsageSnapshot[]>("usage-history.json", []),
       invoke<string>("working_directory").catch(() => ""),
+      invoke<{ available: boolean }>("browser_engine_status").catch(() => ({ available: false })),
     ]);
     const convs = rawConvs.map(normalizeConversation);
     const schedules = rawSchedules.map(normalizeSchedule);
@@ -946,6 +954,7 @@ export const useStore = create<State>((set, get) => {
       appliedScripts: rawAppliedScripts.filter((entry) => entry?.selector?.kind === "script"),
       usageHistory: history,
       workingDir: wd,
+      browserEngineAvailable: engineStatus.available,
     });
     get().reconcileQueues();
 
@@ -1364,7 +1373,7 @@ export const useStore = create<State>((set, get) => {
     });
     if (item.executionTarget === "local") get().startSessionPoll();
 
-    const prompt = composePrompt(
+    let prompt = composePrompt(
       get().conversations,
       item.conversationId,
       item.replyId,
@@ -1373,7 +1382,33 @@ export const useStore = create<State>((set, get) => {
       { nextctlAvailable: get().nextctlAvailable, executionTarget: item.executionTarget },
     );
     const a = agentById(agentId);
-    const { args, stdin } = agentInvocation(a, prompt);
+    let browserEngineConfig: BrowserEngineConfig | undefined;
+    if (get().browserEngine && item.executionTarget === "local") {
+      if (!supportsBrowserEngine(agentId)) {
+        get().setMessageStatus(item.conversationId, item.replyId, "failed", "Browser engine is currently supported by Codex and Claude Code only.");
+        replyExecutionTargets.delete(item.replyId);
+        set((s) => ({ runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], runningReplyId: undefined } } }));
+        return;
+      }
+      try {
+        await prepareLocalSession({
+          selectedProfile: get().selectedProfile,
+          statuses: get().statuses,
+          defaultSession: get().defaultSession,
+        });
+        browserEngineConfig = await invoke<BrowserEngineConfig>("browser_engine_prepare", {
+          profile: get().selectedProfile || null,
+        });
+        prompt += "\n\nBrowser engine mode is enabled. Use only the nextbrowser-browser MCP tools for browser page inspection and actions. The browser session is already running; do not start another browser and do not use nextctl for page actions. You remain responsible for planning and interpreting results.";
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        get().setMessageStatus(item.conversationId, item.replyId, "failed", `Browser engine could not start: ${message}`);
+        replyExecutionTargets.delete(item.replyId);
+        set((s) => ({ runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], runningReplyId: undefined } } }));
+        return;
+      }
+    }
+    const { args, stdin } = agentInvocation(a, prompt, browserEngineConfig);
 
     const watchdog = setInterval(() => {
       const conv = get().conversations.find((c) => c.id === item.conversationId);
@@ -2362,6 +2397,10 @@ export const useStore = create<State>((set, get) => {
   setTerminalChat: (v) => {
     localStorage.setItem("terminalChat", String(v));
     set({ terminalChat: v });
+  },
+  setBrowserEngine: (v) => {
+    localStorage.setItem("browserEngine", String(v));
+    set({ browserEngine: v });
   },
   setDashboardKeyPromptOpen: (v) => {
     trackEvent(v ? "dashboard_key_prompt_opened" : "dashboard_key_prompt_closed");

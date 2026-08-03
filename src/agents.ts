@@ -127,17 +127,56 @@ export function nextctlAgentAdapter(id: string): string {
   return id === "claude" ? "claude-code" : id;
 }
 
+export interface BrowserEngineConfig {
+  command: string;
+  cdpUrl: string;
+}
+
+export function supportsBrowserEngine(agentId: string): boolean {
+  return agentId === "codex" || agentId === "claude";
+}
+
+function browserEngineMcp(config: BrowserEngineConfig) {
+  return {
+    mcpServers: {
+      "nextbrowser-browser": {
+        command: config.command,
+        env: { NEXTBROWSER_CDP_URL: config.cdpUrl },
+      },
+    },
+  };
+}
+
 /// Build CLI args (+ optional stdin) for one non-interactive prompt.
 export function agentInvocation(
   spec: AgentSpec,
   prompt: string,
+  browserEngine?: BrowserEngineConfig,
 ): { args: string[]; stdin?: string } {
   switch (spec.runStyle) {
     case "claudePrint":
-      return { args: ["-p", "--dangerously-skip-permissions", prompt] };
+      return { args: [
+        "-p",
+        "--dangerously-skip-permissions",
+        ...(browserEngine
+          ? ["--strict-mcp-config", "--mcp-config", JSON.stringify(browserEngineMcp(browserEngine))]
+          : []),
+        prompt,
+      ] };
     case "codexExec":
       return {
-        args: ["exec", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", "-"],
+        args: [
+          "exec",
+          "--skip-git-repo-check",
+          "--dangerously-bypass-approvals-and-sandbox",
+          ...(browserEngine ? [
+            "--ignore-user-config",
+            "-c", `mcp_servers.nextbrowser_browser.command=${JSON.stringify(browserEngine.command)}`,
+            "-c", `mcp_servers.nextbrowser_browser.env.NEXTBROWSER_CDP_URL=${JSON.stringify(browserEngine.cdpUrl)}`,
+            "-c", "mcp_servers.nextbrowser_browser.startup_timeout_sec=30",
+          ] : []),
+          "-",
+        ],
         stdin: prompt,
       };
     case "hermesOneshot":

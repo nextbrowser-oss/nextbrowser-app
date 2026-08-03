@@ -47,6 +47,29 @@ function codexClawbrowserArgs() {
   ];
 }
 
+function browserEngineAgentArgs(agentId, engine) {
+  if (!engine) return [];
+  if (agentId === "codex") return [
+    "--ignore-user-config",
+    "--ask-for-approval", "never",
+    "--sandbox", "workspace-write",
+    "-c", "sandbox_workspace_write.network_access=true",
+    "-c", `mcp_servers.nextbrowser_browser.command=${JSON.stringify(engine.command)}`,
+    "-c", `mcp_servers.nextbrowser_browser.env.NEXTBROWSER_CDP_URL=${JSON.stringify(engine.cdpUrl)}`,
+  ];
+  if (agentId === "claude") return [
+    "--strict-mcp-config", "--mcp-config", JSON.stringify({
+      mcpServers: {
+        "nextbrowser-browser": {
+          command: engine.command,
+          env: { NEXTBROWSER_CDP_URL: engine.cdpUrl },
+        },
+      },
+    }),
+  ];
+  throw new Error("Browser engine is currently supported by Codex and Claude Code only.");
+}
+
 async function ensureCodexTerminalProfile() {
   const codexDir = String(process.env.CODEX_HOME || path.join(home(), ".codex"));
   await fs.mkdir(codexDir, { recursive: true });
@@ -354,6 +377,45 @@ async function resolveOrInstallNextctl() {
   return installManagedNextctl();
 }
 function dataDir() { return path.join(app.getPath("userData")); }
+
+function browserEngineExecutable() {
+  const executable = process.platform === "win32" ? "nextbrowser-browser-engine.exe" : "nextbrowser-browser-engine";
+  const configured = process.env.NEXTBROWSER_BROWSER_ENGINE_BIN;
+  const candidates = [
+    configured && expand(configured),
+    app.isPackaged && path.join(process.resourcesPath, "browser-engine", executable),
+    path.join(__dirname, "..", "browser-engine", "dist", "nextbrowser-browser-engine", executable),
+  ].filter(Boolean);
+  return candidates.find(launchable) || null;
+}
+
+async function browserEnginePrepare(profile) {
+  const command = browserEngineExecutable();
+  if (!command) throw new Error("The experimental browser engine is not installed in this build.");
+  const bin = await resolveOrInstallNextctl();
+  if (!bin) throw new Error("nextctl is required to resolve the running browser session.");
+  const profileArgs = profile ? ["--profile", String(profile)] : [];
+  const readStatus = async () => {
+    const result = await run(bin, [...profileArgs, "status", "--format", "json"]);
+    try { return JSON.parse(result.stdout); }
+    catch { throw new Error("nextctl returned an invalid browser status."); }
+  };
+  let envelope = await readStatus();
+  let data = envelope && envelope.data !== undefined ? envelope.data : envelope;
+  let cdpUrl = data?.session?.endpoint || data?.endpoint;
+  if (envelope?.ok && !cdpUrl && data?.status !== "running") {
+    const started = await run(bin, [...profileArgs, "start", "--format", "json"]);
+    let startEnvelope;
+    try { startEnvelope = JSON.parse(started.stdout); }
+    catch { throw new Error("nextctl returned an invalid browser start result."); }
+    if (!startEnvelope?.ok) throw new Error(startEnvelope?.error?.message || "The browser session could not start.");
+    envelope = await readStatus();
+    data = envelope && envelope.data !== undefined ? envelope.data : envelope;
+    cdpUrl = data?.session?.endpoint || data?.endpoint;
+  }
+  if (!envelope?.ok || !cdpUrl) throw new Error(envelope?.error?.message || "The browser session has no CDP endpoint.");
+  return { command, cdpUrl };
+}
 async function migrateLegacyData() {
   const legacy = path.join(app.getPath("appData"), "clawdesk-electron");
   const current = dataDir();
@@ -524,6 +586,11 @@ async function invokeCommand(command, args = {}) {
       const r = await run(bin, ["version"]); return r.stdout.trim();
     }
     case "nextctl_supports_skill": { const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found"); return nextctlHasSkill(bin); }
+    case "browser_engine_status": {
+      const command = browserEngineExecutable();
+      return { available: !!command, command };
+    }
+    case "browser_engine_prepare": return browserEnginePrepare(args.profile || "");
     case "proxy_traffic_top_up": return await topUpProxyTraffic();
     case "pairing_start": {
       return apiFetchJSON(args.apiBaseUrl, "/v1/pairing-requests/browser", {
@@ -685,10 +752,10 @@ async function invokeCommand(command, args = {}) {
       if (!bin) throw new Error(`${agent.binary} CLI not found.`);
       const id = randomUUID();
       const writableDirs = args.agentId === "codex" ? clawbrowserWritableDirs() : [];
-      if (args.agentId === "codex") await ensureCodexTerminalProfile();
+      if (args.agentId === "codex" && !args.browserEngine) await ensureCodexTerminalProfile();
       await Promise.all(writableDirs.map((dir) => fs.mkdir(dir, { recursive: true })));
       const terminalArgs = [
-        ...(agent.args || []),
+        ...(args.browserEngine ? browserEngineAgentArgs(args.agentId, args.browserEngine) : (agent.args || [])),
         ...writableDirs.flatMap((dir) => ["--add-dir", dir]),
       ];
       const spec = commandSpec(bin, terminalArgs);
