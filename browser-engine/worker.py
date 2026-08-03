@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 from typing import Any, Literal
 
@@ -34,15 +35,15 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("nextbrowser-browser-engine", log_level="ERROR")
 _session: BrowserSession | None = None
 _lock = asyncio.Lock()
+_cdp_url = os.environ.get("NEXTBROWSER_CDP_URL", "").strip()
 
 
 async def session() -> BrowserSession:
     global _session
     if _session is None:
-        cdp_url = os.environ.get("NEXTBROWSER_CDP_URL", "").strip()
-        if not cdp_url:
+        if not _cdp_url:
             raise RuntimeError("NEXTBROWSER_CDP_URL is required")
-        _session = BrowserSession(cdp_url=cdp_url, keep_alive=True)
+        _session = BrowserSession(cdp_url=_cdp_url, keep_alive=True)
         await _session.start()
     return _session
 
@@ -72,6 +73,86 @@ async def state_payload(include_screenshot: bool = False) -> dict[str, Any]:
     }
 
 
+async def run_nextctl(args: list[str]) -> dict[str, Any]:
+    binary = os.environ.get("NEXTBROWSER_NEXTCTL_BIN", "").strip()
+    if not binary:
+        raise RuntimeError("nextctl is unavailable in this engine session")
+    process = await asyncio.create_subprocess_exec(
+        binary,
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120)
+    except TimeoutError:
+        process.kill()
+        await process.wait()
+        raise RuntimeError("nextctl timed out while preparing the proxy session")
+    output = stdout.decode("utf-8", errors="replace").strip()
+    try:
+        envelope = json.loads(output)
+    except json.JSONDecodeError:
+        detail = stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(detail or "nextctl returned no valid preparation result")
+    if process.returncode != 0 or not envelope.get("ok"):
+        error = envelope.get("error") or {}
+        raise RuntimeError(error.get("message") or "nextctl could not prepare the browser session")
+    return envelope
+
+
+@mcp.tool()
+async def browser_prepare(
+    country: str | None = None,
+    url: str | None = None,
+    profile: str | None = None,
+) -> str:
+    """Prepare the browser identity before browsing. MUST be the first browser tool called when the user requests a proxy, country, or identity. Country is a two-letter ISO code such as US. Returns only after nextctl has started/rotated and verified the proxy session."""
+    global _cdp_url, _session
+    async with _lock:
+        requested_country = (country or "").strip().upper()
+        if requested_country and not re.fullmatch(r"[A-Z]{2}", requested_country):
+            raise ValueError("country must be a two-letter ISO code such as US")
+        selected_profile = (profile or os.environ.get("NEXTBROWSER_PROFILE", "")).strip()
+        if selected_profile and not re.fullmatch(r"[A-Za-z0-9._-]+", selected_profile):
+            raise ValueError("profile contains unsupported characters")
+        if url and not re.match(r"^https?://", url, re.IGNORECASE):
+            raise ValueError("url must use http or https")
+
+        args: list[str] = []
+        if selected_profile:
+            args.extend(["--profile", selected_profile])
+        args.append("rotate" if requested_country else "start")
+        if requested_country:
+            args.extend(["--country", requested_country, "--proxy-scheme", "http", "--verify"])
+        if url:
+            args.extend(["--url", url])
+        args.extend(["--format", "json"])
+        envelope = await run_nextctl(args)
+        data = envelope.get("data") or {}
+        endpoint = (data.get("session") or {}).get("endpoint") or data.get("endpoint")
+        if not endpoint:
+            raise RuntimeError("nextctl prepared the session but returned no CDP endpoint")
+
+        old_session = _session
+        _session = None
+        _cdp_url = str(endpoint)
+        if old_session is not None:
+            try:
+                await old_session.event_bus.stop(clear=True, timeout=2)
+            except Exception:
+                pass
+        await session()
+        return json.dumps({
+            "prepared": True,
+            "verified": bool(requested_country),
+            "country": requested_country or None,
+            "profile": selected_profile or "default",
+            "endpoint": _cdp_url,
+            "next_step": "Use browser_state or browser_navigate only after this success response.",
+        }, ensure_ascii=False)
+
+
 @mcp.tool()
 async def browser_state(include_screenshot: bool = False) -> str:
     """Get the current semantic DOM. Use element indexes shown in semantic_dom for click/type."""
@@ -81,7 +162,7 @@ async def browser_state(include_screenshot: bool = False) -> str:
 
 @mcp.tool()
 async def browser_navigate(url: str, new_tab: bool = False) -> str:
-    """Navigate the active tab to a URL, or open it in a new tab."""
+    """Navigate the active tab to a URL, or open it in a new tab. If the request specified a proxy/country/identity, call browser_prepare first."""
     async with _lock:
         await dispatch(NavigateToUrlEvent(url=url, new_tab=new_tab, wait_until="domcontentloaded"))
         return json.dumps(await state_payload(), ensure_ascii=False)
@@ -205,8 +286,6 @@ async def main() -> None:
     # Browser Use keeps background watchdog tasks for a live session. This
     # sidecar owns neither the browser nor reusable state, so EOF is a terminal
     # condition and a direct process exit avoids hanging while those tasks wait.
-    sys.stdout.flush()
-    sys.stderr.flush()
     os._exit(0)
 
 

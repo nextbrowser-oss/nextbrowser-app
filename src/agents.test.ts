@@ -23,6 +23,7 @@ describe("agent invocation parity", () => {
     const invocation = agentInvocation(agentById("codex"), "scrape", {
       command: "/opt/nextbrowser-browser-engine",
       cdpUrl: "http://127.0.0.1:9222",
+      nextctlBin: "/opt/nbc",
     });
     expect(invocation.args).toContain("--ignore-user-config");
     expect(invocation.args.join(" ")).toContain("nextbrowser_browser");
@@ -34,6 +35,7 @@ describe("agent invocation parity", () => {
     const invocation = agentInvocation(agentById("claude"), "post", {
       command: "engine.exe",
       cdpUrl: "http://127.0.0.1:9333",
+      nextctlBin: "nbc.exe",
     });
     expect(invocation.args).toContain("--strict-mcp-config");
     expect(invocation.args.join(" ")).toContain("nextbrowser-browser");

@@ -130,6 +130,8 @@ export function nextctlAgentAdapter(id: string): string {
 export interface BrowserEngineConfig {
   command: string;
   cdpUrl: string;
+  nextctlBin: string;
+  profile?: string;
 }
 
 export function supportsBrowserEngine(agentId: string): boolean {
@@ -141,7 +143,11 @@ function browserEngineMcp(config: BrowserEngineConfig) {
     mcpServers: {
       "nextbrowser-browser": {
         command: config.command,
-        env: { NEXTBROWSER_CDP_URL: config.cdpUrl },
+        env: {
+          NEXTBROWSER_CDP_URL: config.cdpUrl,
+          NEXTBROWSER_NEXTCTL_BIN: config.nextctlBin,
+          NEXTBROWSER_PROFILE: config.profile ?? "",
+        },
       },
     },
   };
@@ -173,6 +179,8 @@ export function agentInvocation(
             "--ignore-user-config",
             "-c", `mcp_servers.nextbrowser_browser.command=${JSON.stringify(browserEngine.command)}`,
             "-c", `mcp_servers.nextbrowser_browser.env.NEXTBROWSER_CDP_URL=${JSON.stringify(browserEngine.cdpUrl)}`,
+            "-c", `mcp_servers.nextbrowser_browser.env.NEXTBROWSER_NEXTCTL_BIN=${JSON.stringify(browserEngine.nextctlBin)}`,
+            "-c", `mcp_servers.nextbrowser_browser.env.NEXTBROWSER_PROFILE=${JSON.stringify(browserEngine.profile ?? "")}`,
             "-c", "mcp_servers.nextbrowser_browser.startup_timeout_sec=30",
             "-c", "mcp_servers.nextbrowser_browser.default_tools_approval_mode=\"approve\"",
           ] : []),

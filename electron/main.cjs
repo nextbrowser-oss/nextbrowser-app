@@ -55,15 +55,21 @@ function browserEngineAgentArgs(agentId, engine) {
     "-c", "sandbox_workspace_write.network_access=true",
     "-c", `mcp_servers.nextbrowser_browser.command=${JSON.stringify(engine.command)}`,
     "-c", `mcp_servers.nextbrowser_browser.env.NEXTBROWSER_CDP_URL=${JSON.stringify(engine.cdpUrl)}`,
+    "-c", `mcp_servers.nextbrowser_browser.env.NEXTBROWSER_NEXTCTL_BIN=${JSON.stringify(engine.nextctlBin)}`,
+    "-c", `mcp_servers.nextbrowser_browser.env.NEXTBROWSER_PROFILE=${JSON.stringify(engine.profile || "")}`,
     "-c", "mcp_servers.nextbrowser_browser.default_tools_approval_mode=\"approve\"",
-    "-c", `developer_instructions=${JSON.stringify("Browser engine mode is active. Use only the nextbrowser-browser MCP tools for browser inspection and actions. Do not use clawbrowser MCP, nbc, nextctl, or shell commands for browser work. The browser session is already running.")}`,
+    "-c", `developer_instructions=${JSON.stringify("Browser engine mode is active. Use only the nextbrowser-browser MCP tools for browser work. If the request mentions a proxy, country, or identity, you MUST call browser_prepare with the ISO country before any navigation or page inspection and proceed only when it succeeds. Do not use clawbrowser MCP, nbc, nextctl, or shell commands for browser work.")}`,
   ];
   if (agentId === "claude") return [
     "--strict-mcp-config", "--mcp-config", JSON.stringify({
       mcpServers: {
         "nextbrowser-browser": {
           command: engine.command,
-          env: { NEXTBROWSER_CDP_URL: engine.cdpUrl },
+          env: {
+            NEXTBROWSER_CDP_URL: engine.cdpUrl,
+            NEXTBROWSER_NEXTCTL_BIN: engine.nextctlBin,
+            NEXTBROWSER_PROFILE: engine.profile || "",
+          },
         },
       },
     }),
@@ -434,7 +440,7 @@ async function browserEnginePrepare(profile) {
     cdpUrl = data?.session?.endpoint || data?.endpoint;
   }
   if (!envelope?.ok || !cdpUrl) throw new Error(envelope?.error?.message || "The browser session has no CDP endpoint.");
-  return { command, cdpUrl };
+  return { command, cdpUrl, nextctlBin: bin, profile: profile || "" };
 }
 async function migrateLegacyData() {
   const legacy = path.join(app.getPath("appData"), "clawdesk-electron");
