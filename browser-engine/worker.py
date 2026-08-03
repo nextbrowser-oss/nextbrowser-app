@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import sys
+import time
 from typing import Any, Literal
 
 VERSION = "0.1.0"
@@ -27,6 +28,8 @@ from browser_use.browser.events import (
     NavigateToUrlEvent,
     ScreenshotEvent,
     ScrollEvent,
+    SelectDropdownOptionEvent,
+    SendKeysEvent,
     SwitchTabEvent,
     TypeTextEvent,
 )
@@ -218,6 +221,93 @@ async def browser_type(index: int, text: str, clear: bool = True) -> str:
             raise ValueError(f"Element index {index} is not present in the current DOM; call browser_state again")
         await dispatch(TypeTextEvent(node=node, text=text, clear=clear))
         return json.dumps(await state_payload(), ensure_ascii=False)
+
+
+@mcp.tool()
+async def browser_actions(actions: list[dict[str, Any]], return_state: bool = True) -> str:
+    """Run up to 32 mixed input, select, press, scroll, and click steps in one call. Stops on the first failure and returns one final semantic state."""
+    if not 1 <= len(actions) <= 32:
+        raise ValueError("actions must contain between 1 and 32 steps")
+    async with _lock:
+        current = await session()
+        results: list[dict[str, Any]] = []
+        for index, step in enumerate(actions):
+            started = time.perf_counter()
+            kind = str(step.get("type", "")).strip().lower()
+            try:
+                if kind in {"input", "type", "click", "select"}:
+                    element_index = step.get("element_id", step.get("index"))
+                    if not isinstance(element_index, int):
+                        raise ValueError(f"{kind} requires an integer element_id")
+                    state = await current.get_browser_state_summary(include_screenshot=False)
+                    node = state.dom_state.selector_map.get(element_index) if state.dom_state else None
+                    if node is None:
+                        raise ValueError(f"element {element_index} is not present in the current DOM")
+                    if kind in {"input", "type"}:
+                        text = step.get("text")
+                        if not isinstance(text, str):
+                            raise ValueError("input requires text")
+                        await dispatch(TypeTextEvent(node=node, text=text, clear=bool(step.get("clear", True))))
+                    elif kind == "click":
+                        await dispatch(ClickElementEvent(node=node))
+                    else:
+                        value = step.get("value")
+                        if not isinstance(value, str) or not value:
+                            raise ValueError("select requires value")
+                        await dispatch(SelectDropdownOptionEvent(node=node, text=value))
+                elif kind == "press":
+                    key = step.get("key")
+                    if not isinstance(key, str) or not key:
+                        raise ValueError("press requires key")
+                    await dispatch(SendKeysEvent(keys=key))
+                elif kind == "scroll":
+                    direction = str(step.get("direction", "down")).lower()
+                    if direction not in {"up", "down", "left", "right"}:
+                        raise ValueError("scroll direction must be up, down, left, or right")
+                    amount = int(step.get("amount", 600))
+                    await dispatch(ScrollEvent(direction=direction, amount=amount))
+                elif kind == "wait":
+                    wait_for = step.get("wait_for")
+                    if not isinstance(wait_for, dict):
+                        raise ValueError("wait requires wait_for")
+                    timeout = float(wait_for.get("timeout", 10))
+                    if timeout <= 0:
+                        raise ValueError("wait timeout must be positive")
+                    deadline = time.monotonic() + timeout
+                    matched = False
+                    while time.monotonic() < deadline:
+                        cdp = await current.get_or_create_cdp_session()
+                        if wait_for.get("load"):
+                            expression = "document.readyState === 'complete'"
+                        elif isinstance(wait_for.get("selector"), str):
+                            expression = f"Boolean(document.querySelector({json.dumps(wait_for['selector'])}))"
+                        elif isinstance(wait_for.get("text"), str):
+                            expression = f"Boolean(document.body && document.body.innerText.includes({json.dumps(wait_for['text'])}))"
+                        elif wait_for.get("settle"):
+                            await asyncio.sleep(0.5)
+                            matched = True
+                            break
+                        else:
+                            raise ValueError("wait_for requires load, settle, selector, or text")
+                        evaluated = await cdp.cdp_client.send.Runtime.evaluate(
+                            params={"expression": expression, "returnByValue": True}, session_id=cdp.session_id
+                        )
+                        if evaluated.get("result", {}).get("value") is True:
+                            matched = True
+                            break
+                        await asyncio.sleep(0.1)
+                    if not matched:
+                        raise TimeoutError("wait condition timed out")
+                else:
+                    raise ValueError(f"unsupported action type {kind!r}")
+                results.append({"index": index, "type": kind, "ok": True, "duration_ms": round((time.perf_counter() - started) * 1000)})
+            except Exception as exc:
+                results.append({"index": index, "type": kind, "ok": False, "duration_ms": round((time.perf_counter() - started) * 1000), "error": str(exc)})
+                return json.dumps({"ok": False, "completed": index, "results": results}, ensure_ascii=False)
+        payload: dict[str, Any] = {"ok": True, "completed": len(actions), "results": results}
+        if return_state:
+            payload["state"] = await state_payload()
+        return json.dumps(payload, ensure_ascii=False)
 
 
 @mcp.tool()
