@@ -203,7 +203,6 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
           }}
           title="Save this terminal browser workflow as a private skill"
         >
-          <Icon name="sparkles" size={12} />
           Save browser workflow
         </button>
         <button className="plain-icon-btn plain-icon-btn-compact" onClick={onClose} title="Hide terminal" aria-label="Hide terminal">

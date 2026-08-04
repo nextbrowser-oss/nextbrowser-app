@@ -16,6 +16,12 @@ import { AgentInstallLink } from "./AgentInstallLink";
 import { takeGuideDraft } from "../lib/guideDraft";
 import { AgentTerminal } from "./AgentTerminal";
 import { uid } from "../lib/ids";
+import {
+  terminalBrowserTask,
+  workflowDomain,
+  workflowInstructions,
+  workflowTitle,
+} from "../lib/workflowCapture";
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -51,20 +57,6 @@ function errorSummary(text: string): string {
   return cleaned.length > 140 ? cleaned.slice(0, 140) + "…" : cleaned;
 }
 
-function workflowDomain(text: string): string {
-  const match = text.match(/(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+(?:\.[a-z0-9-]+)+)/i);
-  return match?.[1]?.toLowerCase() ?? "";
-}
-
-function workflowTitle(task: string, domain: string): string {
-  const plain = task.replace(/https?:\/\/\S+/g, "").trim().replace(/\s+/g, " ");
-  return (plain || (domain ? `${domain} workflow` : "Browser workflow")).slice(0, 64);
-}
-
-function terminalTask(transcript: string): string {
-  const prompts = transcript.split("\n").map((line) => line.trim()).filter((line) => line.startsWith("›"));
-  return prompts.at(-1)?.replace(/^›\s*/, "").trim() ?? "";
-}
 
 export function ChatView() {
   const s = useStore();
@@ -343,7 +335,7 @@ export function ChatView() {
               onClose={() => setTerminalVisible(false)}
               onSaveWorkflow={(transcript) => {
                 setWorkflowDraft({
-                  task: terminalTask(transcript),
+                  task: terminalBrowserTask(transcript),
                   answer: {
                     id: uid(), role: "assistant", text: transcript, status: "done",
                     createdAt: Date.now(),
@@ -930,7 +922,7 @@ function MessageBubble({
           </button>
           {m.status === "done" && (
             <button className="save-workflow-btn" title="Save this browser workflow as a local skill" onClick={onSaveWorkflow}>
-              <Icon name="sparkles" size={12} /> Save browser workflow
+              Save browser workflow
             </button>
           )}
           <span>{formatTime(m.createdAt)}</span>
@@ -946,10 +938,10 @@ function SaveWorkflowModal({ task, answer, onClose, onSave }: {
   onClose: () => void;
   onSave: (title: string, domain: string, instructions: string) => void;
 }) {
-  const inferredDomain = workflowDomain(`${task}\n${answer.text}`);
+  const inferredDomain = workflowDomain(task) || workflowDomain(answer.text);
   const [title, setTitle] = useState(workflowTitle(task, inferredDomain));
   const [domain, setDomain] = useState(inferredDomain);
-  const [instructions, setInstructions] = useState(answer.text);
+  const [instructions, setInstructions] = useState(workflowInstructions(task, answer.text));
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
       <div className="modal-card workflow-save-modal" onMouseDown={(event) => event.stopPropagation()}>
