@@ -74,6 +74,34 @@ async function runChecked(args: string[], message: string): Promise<void> {
   }
 }
 
+interface VerificationCheck {
+  pass?: boolean;
+  surface?: string;
+}
+
+interface VerificationResult {
+  verify?: {
+    finalized?: boolean;
+    status?: string;
+    checks?: VerificationCheck[];
+  };
+}
+
+async function requireGreenVerification(args: string[]): Promise<void> {
+  const data = await nextctlJson<VerificationResult>([
+    ...args,
+    "verify",
+    "--timeout",
+    "30s",
+  ]);
+  const verification = data.verify;
+  const failed = verification?.checks?.filter((check) => check.pass !== true) ?? [];
+  if (verification?.finalized !== true || verification.status !== "pass" || failed.length > 0) {
+    const surfaces = failed.map((check) => check.surface).filter(Boolean).join(", ");
+    throw new Error(`Browser verification is not green${surfaces ? `: ${surfaces}` : "."}`);
+  }
+}
+
 async function openBlankActivePage(args: string[]): Promise<void> {
   const data = await nextctlJson<{ tab?: { id: string } }>([
     ...args,
@@ -120,6 +148,9 @@ export async function prepareSession(opts: {
     );
     step("Started NextBrowser");
   }
+
+  await requireGreenVerification(args);
+  step("Browser verified");
 
   if (rawHost) {
     if (await activateMatchingTab(args, rawHost)) {
