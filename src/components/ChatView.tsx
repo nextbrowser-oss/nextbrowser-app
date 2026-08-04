@@ -2,12 +2,12 @@ import { type ClipboardEvent, type DragEvent, useEffect, useRef, useState } from
 import { useStore } from "../store";
 import { SCRIPTS } from "../skillsCatalog";
 import { MarkdownText } from "./MarkdownText";
-import { Icon } from "./Icon";
+import { Icon, Spinner } from "./Icon";
 import { BrandLogo } from "./BrandLogo";
 import type { ChatAttachment, ChatMessage } from "../types";
 import { filePathForFile, invoke } from "../electronBridge";
 import { conversationPreview } from "../types";
-import { agentById } from "../agents";
+import { agentById, agentInvocation, type AgentSpec } from "../agents";
 import { trackEvent } from "../lib/analytics";
 import { needsSupportLink } from "../lib/userFacingError";
 import { VPSSetupModal } from "./VPSSetupModal";
@@ -22,6 +22,30 @@ import {
   workflowInstructions,
   workflowTitle,
 } from "../lib/workflowCapture";
+import {
+  parseDistilledWorkflow,
+  workflowDistillationPrompt,
+  type DistilledWorkflow,
+} from "../lib/workflowDistillation";
+
+async function authorWorkflowWithAgent(agent: AgentSpec, workingDir: string, fallback: DistilledWorkflow): Promise<DistilledWorkflow | undefined> {
+  const prompt = workflowDistillationPrompt(fallback);
+  const invocation = agentInvocation(agent, prompt);
+  const { args, stdin } = agent.id === "codex"
+    ? { args: ["exec", "--skip-git-repo-check", "--sandbox", "read-only", "-"], stdin: prompt }
+    : agent.id === "claude"
+      ? { args: ["-p", "--permission-mode", "dontAsk", "--tools", "", prompt], stdin: undefined }
+      : invocation;
+  try {
+    const result = await invoke<{ code: number; stdout: string }>("workflow_author_run", {
+      binary: agent.binary, envVar: agent.envVar, args,
+      stdinText: stdin ?? null, workingDir: workingDir || null,
+    });
+    return result.code === 0 ? parseDistilledWorkflow(result.stdout, fallback) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -728,6 +752,8 @@ export function ChatView() {
         <SaveWorkflowModal
           task={workflowDraft.task}
           answer={workflowDraft.answer}
+          agent={ready ? agentSpec : undefined}
+          workingDir={s.workingDir}
           onClose={() => setWorkflowDraft(null)}
           onSave={(title, domain, instructions) => {
             void s.saveLocalSkill({
@@ -932,31 +958,58 @@ function MessageBubble({
   );
 }
 
-function SaveWorkflowModal({ task, answer, onClose, onSave }: {
+function SaveWorkflowModal({ task, answer, agent, workingDir, onClose, onSave }: {
   task: string;
   answer: ChatMessage;
+  agent?: AgentSpec;
+  workingDir: string;
   onClose: () => void;
   onSave: (title: string, domain: string, instructions: string) => void;
 }) {
   const inferredDomain = workflowDomain(task) || workflowDomain(answer.text);
   const [title, setTitle] = useState(workflowTitle(task, inferredDomain));
   const [domain, setDomain] = useState(inferredDomain);
-  const [instructions, setInstructions] = useState(workflowInstructions(task, answer.text));
+  const fallbackInstructions = workflowInstructions(task, answer.text);
+  const [instructions, setInstructions] = useState(fallbackInstructions);
+  const [refining, setRefining] = useState(!!agent);
+  const [authorStatus, setAuthorStatus] = useState(agent ? `Asking ${agent.name} to improve this skill…` : "Using the captured browser workflow.");
+  useEffect(() => {
+    if (!agent) return;
+    let cancelled = false;
+    const fallback = { title: workflowTitle(task, inferredDomain), domain: inferredDomain, instructions: fallbackInstructions };
+    void authorWorkflowWithAgent(agent, workingDir, fallback).then((authored) => {
+      if (cancelled) return;
+      if (authored) {
+        setTitle(authored.title);
+        setDomain(authored.domain);
+        setInstructions(authored.instructions);
+        setAuthorStatus(`Improved and validated by ${agent.name}.`);
+      } else {
+        setAuthorStatus(`${agent.name} did not return a valid skill. Using the captured workflow.`);
+      }
+      setRefining(false);
+    });
+    return () => { cancelled = true; };
+  }, [agent?.id, answer.id, task, inferredDomain, fallbackInstructions, workingDir]);
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
       <div className="modal-card workflow-save-modal" onMouseDown={(event) => event.stopPropagation()}>
         <strong>Save as skill</strong>
         <p className="muted small">Saved locally first, then backed up privately to your account.</p>
+        <div className="small workflow-author-status" role="status">
+          {refining && <Spinner size={12} />}
+          <span className={refining ? "muted" : "ok"}>{authorStatus}</span>
+        </div>
         <label className="field-label">Skill name</label>
-        <input value={title} autoFocus onChange={(event) => setTitle(event.target.value)} />
+        <input value={title} autoFocus disabled={refining} onChange={(event) => setTitle(event.target.value)} />
         <label className="field-label">Website</label>
-        <input value={domain} placeholder="example.com (optional)" onChange={(event) => setDomain(event.target.value)} />
+        <input value={domain} disabled={refining} placeholder="example.com (optional)" onChange={(event) => setDomain(event.target.value)} />
         <label className="field-label">Reusable instructions</label>
-        <textarea rows={8} value={instructions} onChange={(event) => setInstructions(event.target.value)} />
+        <textarea rows={10} disabled={refining} value={instructions} onChange={(event) => setInstructions(event.target.value)} />
         <div className="row" style={{ marginTop: 10, gap: 8 }}>
           <span className="spacer" />
           <button className="secondary" onClick={onClose}>Cancel</button>
-          <button className="primary" disabled={!title.trim() || !instructions.trim()} onClick={() => onSave(title.trim(), domain.trim(), instructions.trim())}>Save skill</button>
+          <button className="primary" disabled={refining || !title.trim() || !instructions.trim()} onClick={() => onSave(title.trim(), domain.trim(), instructions.trim())}>{refining ? "Preparing…" : "Save skill"}</button>
         </div>
       </div>
     </div>

@@ -2147,6 +2147,7 @@ button, input, textarea, select { color: var(--text); }
 .workflow-save-modal { width: min(560px, calc(100vw - 48px)); }
 .workflow-save-modal .field-label { display: block; margin: 10px 0 5px; color: var(--muted); font-size: 12px; }
 .workflow-save-modal textarea { width: 100%; resize: vertical; }
+.workflow-author-status { display: flex; align-items: center; gap: 7px; min-height: 20px; margin: 8px 0 2px; }
 .msg-assistant-wrap { display: flex; flex-direction: column; align-items: flex-start; }
 .assistant-bubble {
   max-width: 85%;
