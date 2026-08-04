@@ -61,6 +61,11 @@ function workflowTitle(task: string, domain: string): string {
   return (plain || (domain ? `${domain} workflow` : "Browser workflow")).slice(0, 64);
 }
 
+function terminalTask(transcript: string): string {
+  const prompts = transcript.split("\n").map((line) => line.trim()).filter((line) => line.startsWith("›"));
+  return prompts.at(-1)?.replace(/^›\s*/, "").trim() ?? "";
+}
+
 export function ChatView() {
   const s = useStore();
   const agentId = s.agentId;
@@ -336,6 +341,15 @@ export function ChatView() {
               conversationId={conv?.id}
               workingDir={s.workingDir}
               onClose={() => setTerminalVisible(false)}
+              onSaveWorkflow={(transcript) => {
+                setWorkflowDraft({
+                  task: terminalTask(transcript),
+                  answer: {
+                    id: uid(), role: "assistant", text: transcript, status: "done",
+                    createdAt: Date.now(),
+                  },
+                });
+              }}
             />
           </div>
         )}
@@ -914,7 +928,7 @@ function MessageBubble({
           >
             <Icon name="doc.on.doc" size={12} />
           </button>
-          {m.status === "done" && ((m.toolEvents?.length ?? 0) > 0 || /https?:\/\//i.test(m.text)) && (
+          {m.status === "done" && (
             <button className="save-workflow-btn" title="Save this browser workflow as a local skill" onClick={onSaveWorkflow}>
               <Icon name="sparkles" size={12} /> Save browser workflow
             </button>

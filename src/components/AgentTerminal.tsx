@@ -11,6 +11,7 @@ interface AgentTerminalProps {
   conversationId?: string;
   workingDir?: string;
   onClose: () => void;
+  onSaveWorkflow: (transcript: string) => void;
 }
 
 const DARK_TERMINAL_THEME = {
@@ -67,9 +68,10 @@ function activeTerminalTheme() {
     : DARK_TERMINAL_THEME;
 }
 
-export function AgentTerminal({ agentId, agentName, conversationId, workingDir, onClose }: AgentTerminalProps) {
+export function AgentTerminal({ agentId, agentName, conversationId, workingDir, onClose, onSaveWorkflow }: AgentTerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalIdRef = useRef<string>();
+  const terminalRef = useRef<Terminal>();
   const [status, setStatus] = useState<"starting" | "running" | "exited" | "failed">("starting");
   const [error, setError] = useState<string>();
 
@@ -92,6 +94,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
     const fit = new FitAddon();
     terminal.loadAddon(fit);
     terminal.open(host);
+    terminalRef.current = terminal;
 
     const resize = () => {
       if (disposed || !host.isConnected || host.clientWidth === 0 || host.clientHeight === 0) return;
@@ -165,6 +168,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
       removeExit?.();
       const id = terminalIdRef.current;
       terminalIdRef.current = undefined;
+      terminalRef.current = undefined;
       if (id) void invoke("terminal_kill", { id });
       terminal.dispose();
     };
@@ -184,6 +188,24 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
         {status === "running" && <span className="terminal-status-dot" title="Running" />}
         {status === "exited" && <span className="muted small">Exited</span>}
         {status === "failed" && <span className="error small" title={error}>Failed</span>}
+        <button
+          className="mini terminal-save-skill"
+          disabled={status !== "running"}
+          onClick={() => {
+            const terminal = terminalRef.current;
+            if (!terminal) return;
+            const buffer = terminal.buffer.active;
+            const first = Math.max(0, buffer.length - 500);
+            const transcript = Array.from({ length: buffer.length - first }, (_, index) =>
+              buffer.getLine(first + index)?.translateToString(true) ?? ""
+            ).join("\n").trim();
+            if (transcript) onSaveWorkflow(transcript);
+          }}
+          title="Save this terminal browser workflow as a private skill"
+        >
+          <Icon name="sparkles" size={12} />
+          Save browser workflow
+        </button>
         <button className="plain-icon-btn plain-icon-btn-compact" onClick={onClose} title="Hide terminal" aria-label="Hide terminal">
           <Icon name="xmark" size={13} />
         </button>
