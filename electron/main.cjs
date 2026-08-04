@@ -47,6 +47,7 @@ function codexClawbrowserArgs(nextctlBin) {
     "-c", `mcp_servers.clawbrowser.command=${JSON.stringify(nextctlBin)}`,
     "-c", `mcp_servers.clawbrowser.args=${JSON.stringify(["mcp"])}`,
     "-c", "mcp_servers.clawbrowser.startup_timeout_sec=30",
+    "-c", "mcp_servers.clawbrowser.default_tools_approval_mode=approve",
   ];
 }
 
