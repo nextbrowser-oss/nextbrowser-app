@@ -40,7 +40,7 @@ export function selectorIcon(s: Selector): string {
 }
 
 export function withLocalScripts(categories: SkillCategory[]): SkillCategory[] {
-  return [...categories, { id: "my-scripts", title: "My scripts", blurb: "Private reusable scripts synced to your account.", icon: "scroll.fill", entries: [] }];
+  return [...categories, { id: "my-scripts", title: "My scripts", blurb: "Private reusable scripts backed up to your account.", icon: "scroll.fill", entries: [] }];
 }
 
 export const SCRIPTS: SkillEntry[] = [];

@@ -15,6 +15,7 @@ import { UserFacingError } from "./UserFacingError";
 import { AgentInstallLink } from "./AgentInstallLink";
 import { takeGuideDraft } from "../lib/guideDraft";
 import { AgentTerminal } from "./AgentTerminal";
+import { uid } from "../lib/ids";
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -50,6 +51,16 @@ function errorSummary(text: string): string {
   return cleaned.length > 140 ? cleaned.slice(0, 140) + "…" : cleaned;
 }
 
+function workflowDomain(text: string): string {
+  const match = text.match(/(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+(?:\.[a-z0-9-]+)+)/i);
+  return match?.[1]?.toLowerCase() ?? "";
+}
+
+function workflowTitle(task: string, domain: string): string {
+  const plain = task.replace(/https?:\/\/\S+/g, "").trim().replace(/\s+/g, " ");
+  return (plain || (domain ? `${domain} workflow` : "Browser workflow")).slice(0, 64);
+}
+
 export function ChatView() {
   const s = useStore();
   const agentId = s.agentId;
@@ -76,6 +87,7 @@ export function ChatView() {
   const [convMenu, setConvMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [promptDetail, setPromptDetail] = useState<string | null>(null);
   const [vpsSetupOpen, setVPSSetupOpen] = useState(false);
+  const [workflowDraft, setWorkflowDraft] = useState<{ task: string; answer: ChatMessage } | null>(null);
   const [terminalVisible, setTerminalVisible] = useState(s.terminalChat);
   const [terminalMounted, setTerminalMounted] = useState(s.terminalChat);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -429,6 +441,11 @@ export function ChatView() {
                 });
                 setPromptDetail(m.text);
               }}
+              onSaveWorkflow={() => {
+                const index = messages.findIndex((candidate) => candidate.id === m.id);
+                const user = [...messages.slice(0, index)].reverse().find((candidate) => candidate.role === "user");
+                setWorkflowDraft({ task: user?.text ?? "", answer: m });
+              }}
             />
           ))}
           <div ref={bottomRef} />
@@ -701,6 +718,24 @@ export function ChatView() {
         </div>
       )}
 
+      {workflowDraft && (
+        <SaveWorkflowModal
+          task={workflowDraft.task}
+          answer={workflowDraft.answer}
+          onClose={() => setWorkflowDraft(null)}
+          onSave={(title, domain, instructions) => {
+            void s.saveLocalSkill({
+              id: uid(), title, domain, task: workflowDraft.task, instructions,
+              actions: (workflowDraft.answer.toolEvents ?? []).map((event) => event.detail ?? event.name),
+              createdAt: Date.now(), updatedAt: Date.now(),
+            });
+            setWorkflowDraft(null);
+            localStorage.setItem("openSkillsCategory", "my-skills");
+            s.setTab("skills");
+          }}
+        />
+      )}
+
       {vpsSetupOpen && <VPSSetupModal onClose={() => setVPSSetupOpen(false)} />}
     </div>
   );
@@ -714,6 +749,7 @@ function MessageBubble({
   running,
   queuedReplyId,
   onShowPrompt,
+  onSaveWorkflow,
 }: {
   message: ChatMessage;
   canQueue: boolean;
@@ -723,6 +759,7 @@ function MessageBubble({
   running: boolean;
   queuedReplyId?: string;
   onShowPrompt: () => void;
+  onSaveWorkflow: () => void;
 }) {
   const [clock, setClock] = useState(Date.now());
   const [showErrorDetails, setShowErrorDetails] = useState(false);
@@ -877,9 +914,45 @@ function MessageBubble({
           >
             <Icon name="doc.on.doc" size={12} />
           </button>
+          {m.status === "done" && ((m.toolEvents?.length ?? 0) > 0 || /https?:\/\//i.test(m.text)) && (
+            <button className="save-workflow-btn" title="Save this browser workflow as a local skill" onClick={onSaveWorkflow}>
+              <Icon name="sparkles" size={12} /> Save browser workflow
+            </button>
+          )}
           <span>{formatTime(m.createdAt)}</span>
         </div>
       )}
+    </div>
+  );
+}
+
+function SaveWorkflowModal({ task, answer, onClose, onSave }: {
+  task: string;
+  answer: ChatMessage;
+  onClose: () => void;
+  onSave: (title: string, domain: string, instructions: string) => void;
+}) {
+  const inferredDomain = workflowDomain(`${task}\n${answer.text}`);
+  const [title, setTitle] = useState(workflowTitle(task, inferredDomain));
+  const [domain, setDomain] = useState(inferredDomain);
+  const [instructions, setInstructions] = useState(answer.text);
+  return (
+    <div className="modal-overlay" onMouseDown={onClose}>
+      <div className="modal-card workflow-save-modal" onMouseDown={(event) => event.stopPropagation()}>
+        <strong>Save browser workflow</strong>
+        <p className="muted small">Saved locally first, then backed up privately to your account.</p>
+        <label className="field-label">Skill name</label>
+        <input value={title} autoFocus onChange={(event) => setTitle(event.target.value)} />
+        <label className="field-label">Website</label>
+        <input value={domain} placeholder="example.com (optional)" onChange={(event) => setDomain(event.target.value)} />
+        <label className="field-label">Reusable instructions</label>
+        <textarea rows={8} value={instructions} onChange={(event) => setInstructions(event.target.value)} />
+        <div className="row" style={{ marginTop: 10, gap: 8 }}>
+          <span className="spacer" />
+          <button className="secondary" onClick={onClose}>Cancel</button>
+          <button className="primary" disabled={!title.trim() || !instructions.trim()} onClick={() => onSave(title.trim(), domain.trim(), instructions.trim())}>Save skill</button>
+        </div>
+      </div>
     </div>
   );
 }

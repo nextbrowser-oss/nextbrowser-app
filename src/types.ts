@@ -179,6 +179,19 @@ export interface CustomScript {
   submittedAt?: number;
 }
 
+export interface BrowserWorkflowSkill {
+  id: string;
+  title: string;
+  domain: string;
+  task: string;
+  instructions: string;
+  actions: string[];
+  createdAt: number;
+  updatedAt: number;
+  serverSlug?: string;
+  submittedAt?: number;
+}
+
 export function customPrivateSlug(script: CustomScript): string {
   return script.serverSlug ?? `custom-${script.id.slice(0, 8).toLowerCase()}`;
 }

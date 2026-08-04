@@ -5,7 +5,7 @@ import {
   selectorIcon,
   selectorTargetHost,
 } from "../skillsCatalog";
-import type { CustomScript } from "../types";
+import type { BrowserWorkflowSkill, CustomScript } from "../types";
 import { uid } from "../lib/ids";
 import { internalError } from "../lib/userFacingError";
 import { Icon } from "./Icon";
@@ -20,8 +20,10 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
 
   const cat = categories.find((c) => c.id === category);
   const isSkillsOverview = category === "__skills__";
+  const isMySkills = category === "my-skills";
   const isScripts = category === "my-scripts";
   const skillCount = categories.reduce((total, current) => total + current.entries.length, 0);
+  const publishedScripts = s.appliedScripts.filter((entry) => entry.selector.kind === "script");
   const visibleEntries = isSkillsOverview ? categories.flatMap((current) => current.entries) : (cat?.entries ?? []);
   useEffect(() => {
     const pendingCategory = localStorage.getItem("openSkillsCategory");
@@ -83,6 +85,14 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
           <span className="skills-nav-title">Skills</span>
           <span className="muted small skills-nav-count">{skillCount}</span>
         </button>
+        <button
+          className={"skills-nav-item" + (isMySkills ? " active" : "")}
+          onClick={() => setCategory("my-skills")}
+        >
+          <Icon name="person.crop.circle" size={18} className="skills-nav-icon" />
+          <span className="skills-nav-title">My skills</span>
+          <span className="muted small skills-nav-count">{s.localSkills.length + s.privateCloudSkills.filter((cloud) => !s.localSkills.some((local) => local.serverSlug === cloud.id)).length}</span>
+        </button>
         {categories.map((c) => (
           <button
             key={c.id}
@@ -101,22 +111,24 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
         >
           <Icon name="scroll.fill" size={18} className="skills-nav-icon" />
           <span className="skills-nav-title">Scripts</span>
-          <span className="muted small skills-nav-count">{s.customScripts.length}</span>
+          <span className="muted small skills-nav-count">{publishedScripts.length + s.customScripts.length}</span>
         </button>
       </nav>
       <hr className="divider skills-divider" />
       <div className="skills-main">
         <div className="skills-main-head">
           <h2 className="skills-category-title">
-            <Icon name={isScripts ? "scroll.fill" : cat?.icon ?? "sparkles"} size={22} className="accent-icon" />
-            {isScripts ? "Scripts" : cat?.title ?? "Skills"}
+            <Icon name={isScripts ? "scroll.fill" : isMySkills ? "person.crop.circle" : cat?.icon ?? "sparkles"} size={22} className="accent-icon" />
+            {isScripts ? "Scripts" : isMySkills ? "My skills" : cat?.title ?? "Skills"}
           </h2>
           <p className="muted">
             {isScripts
               ? "Quick reusable commands for common browser tasks."
+              : isMySkills
+                ? "Browser workflows saved locally on this device."
               : cat?.blurb ?? "Extend your agents with reusable browser capabilities."}
           </p>
-          {!isScripts && (
+          {!isScripts && !isMySkills && (
             <p className="skills-apply-hint muted small">
               <Icon name="arrow.down.circle" size={14} />
               Applied skills work with any connected agent.
@@ -124,7 +136,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
           )}
         </div>
 
-        {!isScripts && !s.nextctlSupportsSkill && (
+        {!isScripts && !isMySkills && !s.nextctlSupportsSkill && (
           <div className="warning-banner skills-warning">
             <Icon name="exclamationmark.triangle.fill" size={16} />
             <div>
@@ -135,7 +147,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
             </div>
           </div>
         )}
-        {!isScripts && s.nextctlSupportsSkill && !ready && (
+        {!isScripts && !isMySkills && s.nextctlSupportsSkill && !ready && (
           <div className="skills-connect-hint">
             <Icon name="bolt.fill" size={16} />
             <div>
@@ -148,7 +160,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
           </div>
         )}
 
-        {!isScripts && visibleEntries.length === 0 && (
+        {!isScripts && !isMySkills && visibleEntries.length === 0 && (
           <div className="skills-empty-state">
             <span className="skills-empty-icon"><Icon name="sparkles" size={22} /></span>
             <strong>No skills available yet</strong>
@@ -156,7 +168,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
           </div>
         )}
 
-        {!isScripts && <div className="skills-grid">
+        {!isScripts && !isMySkills && <div className="skills-grid">
           {visibleEntries.map((e) => {
             const st = applyState(e.id);
             const applyError = s.skillApplyError(e.id);
@@ -245,8 +257,72 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
           })}
         </div>}
 
+        {isMySkills && (
+          s.localSkills.length === 0 && s.privateCloudSkills.length === 0 ? (
+            <div className="skills-empty-state">
+              <span className="skills-empty-icon"><Icon name="sparkles" size={22} /></span>
+              <strong>No local skills yet</strong>
+              <span className="muted small">After a successful browser task, use “Save browser workflow” below the answer.</span>
+            </div>
+          ) : (
+            <div className="skills-grid">
+              {s.localSkills.map((skill) => (
+                <LocalSkillCard
+                  key={skill.id}
+                  skill={skill}
+                  ready={ready}
+                  sync={s.localSkillSync[skill.id] ?? (skill.submittedAt ? "synced" : "idle")}
+                  onRun={() => void s.runLocalSkill(skill)}
+                  onSync={() => void s.saveLocalSkill(skill)}
+                  onDelete={() => s.deleteLocalSkill(skill.id)}
+                />
+              ))}
+              {s.privateCloudSkills
+                .filter((cloud) => !s.localSkills.some((local) => local.serverSlug === cloud.id))
+                .map((skill) => (
+                  <div className="skill-card claw-card" key={skill.id}>
+                    <div className="skill-card-head">
+                      <Icon name="sparkles" size={16} className="accent-icon" />
+                      <div className="skill-title">{skill.title}</div>
+                      <span className="mode-badge agent">Private cloud</span>
+                    </div>
+                    <div className="muted small">{skill.description || "Private skill from your account"}</div>
+                    <div className="skill-actions">
+                      <button className="btn-bordered-prominent full" disabled={!ready} onClick={() => void s.runScript(skill)}>Run</button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )
+        )}
+
         {isScripts && (
           <div className="custom-scripts">
+            {publishedScripts.length > 0 && (
+              <>
+                <div className="row custom-scripts-head">
+                  <div>
+                    <h3 className="custom-scripts-title"><Icon name="checkmark.seal.fill" size={18} /> Published scripts</h3>
+                    <p className="muted small">Ready-to-run scripts from your account.</p>
+                  </div>
+                </div>
+                <div className="skills-grid">
+                  {publishedScripts.map((script) => (
+                    <div className="skill-card claw-card" key={script.id}>
+                      <div className="skill-card-head">
+                        <Icon name="scroll.fill" size={16} className="accent-icon" />
+                        <div className="skill-title">{script.title}</div>
+                        <span className="mode-badge agent">Script</span>
+                      </div>
+                      <div className="muted small">{script.description || script.subtitle}</div>
+                      <div className="skill-actions">
+                        <button className="btn-bordered-prominent full" disabled={!ready} onClick={() => void s.runScript(script)}>Run</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
             <hr className="divider" />
             <div className="row custom-scripts-head">
               <div>
@@ -255,7 +331,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                   My scripts
                 </h3>
                 <p className="muted small">
-                  Synced to your account on our server, but never shared back to other users.
+                  Backed up privately to your account and never shared with other users.
                 </p>
               </div>
               <button className="btn-bordered-prominent" title="Create a new private custom script" onClick={() => setScriptEditor("new")}>
@@ -304,6 +380,38 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
   );
 }
 
+function LocalSkillCard({ skill, ready, sync, onRun, onSync, onDelete }: {
+  skill: BrowserWorkflowSkill;
+  ready: boolean;
+  sync: string;
+  onRun: () => void;
+  onSync: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="skill-card claw-card">
+      <div className="skill-card-head">
+        <Icon name="sparkles" size={16} className="accent-icon" />
+        <div className="skill-title">{skill.title}</div>
+        <span className="mode-badge agent">Local</span>
+      </div>
+      <div className="muted small">{skill.domain || "Any website"}</div>
+      <p className="small instructions-preview">{skill.instructions.slice(0, 150)}{skill.instructions.length > 150 ? "…" : ""}</p>
+      <div className="small muted">{skill.actions.length} recorded browser action{skill.actions.length === 1 ? "" : "s"}</div>
+      {sync === "idle" && <button className="link small sync-link" onClick={onSync}>Back up privately</button>}
+      {sync === "syncing" && <span className="muted small">Backing up…</span>}
+      {sync === "synced" && <span className="ok small"><Icon name="lock.fill" size={11} /> Private cloud backup</span>}
+      {sync === "failed" && <button className="link small" onClick={onSync}>Saved locally · Retry backup</button>}
+      <div className="skill-actions">
+        <button className="btn-bordered-prominent full" disabled={!ready} onClick={onRun}>Run</button>
+        <button className="plain-icon-btn" title="Delete local skill" onClick={onDelete}>
+          <Icon name="trash" size={14} className="error" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function CustomScriptCard({
   script,
   sync,
@@ -327,24 +435,10 @@ function CustomScriptCard({
       <div className="muted small">{script.domain || "(any domain)"}</div>
       <div className="muted small">Runs in {sessionName}</div>
       <p className="small instructions-preview">{script.instructions.slice(0, 120)}…</p>
-      {(!sync || sync === "idle") && (
-        <button className="link small sync-link" title="Sync this script to your account" onClick={onSync}>
-          Sync to server
-        </button>
-      )}
-      {sync === "syncing" && <span className="muted small">Syncing…</span>}
-      {sync === "synced" && <span className="ok small">Synced to your account</span>}
-      {sync === "failed" && (
-        <span className="error small sync-failed-row">
-          <UserFacingError
-            message={internalError("We couldn't sync this script.")}
-            surface="script_sync"
-          />
-          <button className="link small" title="Retry script sync" onClick={onSync}>
-            Retry
-          </button>
-        </span>
-      )}
+      {(!sync || sync === "idle") && <button className="link small sync-link" onClick={onSync}>Back up privately</button>}
+      {sync === "syncing" && <span className="muted small">Backing up…</span>}
+      {sync === "synced" && <span className="ok small"><Icon name="lock.fill" size={11} /> Private cloud backup</span>}
+      {sync === "failed" && <button className="link small" onClick={onSync}>Backup failed · Retry</button>}
       <div className="skill-actions">
         <button className="btn-bordered-prominent full" title={`Use ${script.title} in chat`} onClick={onUse}>
           Use

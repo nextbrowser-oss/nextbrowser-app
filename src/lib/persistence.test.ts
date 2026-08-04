@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   normalizeConversation,
   normalizeSchedule,
+  normalizeWorkflowSkill,
   serializeConversations,
   serializeSchedules,
+  serializeWorkflowSkills,
 } from "./persistence";
 import type { Conversation, ScheduledRun } from "../types";
 import { VPS_PROMPT_MARKER } from "./vpsPrompt";
@@ -75,5 +77,17 @@ describe("Swift-compatible persistence", () => {
     const normalized = normalizeSchedule(raw);
     expect(normalized.lastFiredAt).toBe(Date.parse("2026-07-03T10:20:30Z"));
     expect(serializeSchedules([normalized])[0].lastFiredAt).toBe(804_766_830);
+  });
+
+  it("round-trips locally saved browser workflow skills", () => {
+    const normalized = normalizeWorkflowSkill({
+      id: "wf", title: "Search cars", domain: "999.md", task: "Find Matiz",
+      instructions: "Search and deduplicate listings.", actions: ["navigate", "extract"],
+      createdAt: "2026-08-04T10:00:00Z", updatedAt: "2026-08-04T10:01:00Z",
+    } as never);
+    expect(normalized.createdAt).toBe(Date.parse("2026-08-04T10:00:00Z"));
+    expect(serializeWorkflowSkills([normalized])[0]).toMatchObject({
+      domain: "999.md", actions: ["navigate", "extract"], createdAt: "2026-08-04T10:00:00Z",
+    });
   });
 });
