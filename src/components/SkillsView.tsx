@@ -262,7 +262,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
             <div className="skills-empty-state">
               <span className="skills-empty-icon"><Icon name="sparkles" size={22} /></span>
               <strong>No local skills yet</strong>
-              <span className="muted small">After a successful browser task, use “Save browser workflow” below the answer.</span>
+              <span className="muted small">After a successful browser task, use “Save as skill” below the answer.</span>
             </div>
           ) : (
             <div className="skills-grid">

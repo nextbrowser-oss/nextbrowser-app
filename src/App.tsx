@@ -868,7 +868,9 @@ export function App() {
         </nav>
         <hr className="divider" />
         <div className={"tab-content" + (tab === "skills" ? " tab-content-bleed" : "")}>
-          {tab === "chat" && <ChatView />}
+          <div className={"persistent-tab-panel" + (tab === "chat" ? "" : " is-hidden")}>
+            <ChatView />
+          </div>
           {tab === "skills" && <SkillsView onOpenAgentSettings={() => openSettings("agent")} />}
           <div className={"persistent-tab-panel" + (tab === "live" ? "" : " is-hidden")}>
             <LiveView active={tab === "live"} />

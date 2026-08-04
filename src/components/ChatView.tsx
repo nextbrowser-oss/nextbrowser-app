@@ -922,7 +922,7 @@ function MessageBubble({
           </button>
           {m.status === "done" && (
             <button className="save-workflow-btn" title="Save this browser workflow as a local skill" onClick={onSaveWorkflow}>
-              Save browser workflow
+              Save as skill
             </button>
           )}
           <span>{formatTime(m.createdAt)}</span>
@@ -945,7 +945,7 @@ function SaveWorkflowModal({ task, answer, onClose, onSave }: {
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
       <div className="modal-card workflow-save-modal" onMouseDown={(event) => event.stopPropagation()}>
-        <strong>Save browser workflow</strong>
+        <strong>Save as skill</strong>
         <p className="muted small">Saved locally first, then backed up privately to your account.</p>
         <label className="field-label">Skill name</label>
         <input value={title} autoFocus onChange={(event) => setTitle(event.target.value)} />
