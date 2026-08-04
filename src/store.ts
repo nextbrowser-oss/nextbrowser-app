@@ -41,16 +41,19 @@ import { loadJson, saveJson } from "./lib/storage";
 import { apiBaseUrl } from "./constants";
 import {
   normalizeConversation,
+  normalizeWorkflowSkill,
   normalizeSchedule,
   normalizeScript,
   normalizeUsage,
   serializeConversations,
+  serializeWorkflowSkills,
   serializeSchedules,
   serializeScripts,
   serializeUsage,
 } from "./lib/persistence";
 import type {
   AppTab,
+  BrowserWorkflowSkill,
   ChatAttachment,
   ChatMessage,
   Conversation,
@@ -66,10 +69,6 @@ import type {
   UsageSnapshot,
 } from "./types";
 import type { RotationCountry } from "./lib/countryFlag";
-import {
-  customPrivateSlug,
-  customPublishSelector,
-} from "./types";
 
 interface QueuedItem {
   conversationId: string;
@@ -322,6 +321,7 @@ interface State {
   skillState: Record<string, SkillApplyState | string>;
   scheduledRuns: ScheduledRun[];
   customScripts: CustomScript[];
+  localSkills: BrowserWorkflowSkill[];
   appliedScripts: SkillEntry[];
   scriptSync: Record<string, ScriptSyncState>;
   usageHistory: UsageSnapshot[];
@@ -439,6 +439,9 @@ interface State {
   saveCustomScript: (script: CustomScript) => Promise<void>;
   deleteCustomScript: (id: string) => void;
   runCustomScript: (script: CustomScript) => Promise<void>;
+  saveLocalSkill: (skill: BrowserWorkflowSkill) => Promise<void>;
+  deleteLocalSkill: (id: string) => void;
+  runLocalSkill: (skill: BrowserWorkflowSkill) => Promise<void>;
 
   // Internal queue/runtime helpers
   reconcileQueues: () => void;
@@ -595,6 +598,10 @@ function persistSchedules(runs: ScheduledRun[]) {
 
 function persistScripts(scripts: CustomScript[]) {
   void saveJson("custom-scripts.json", serializeScripts(scripts));
+}
+
+function persistLocalSkills(skills: BrowserWorkflowSkill[]) {
+  void saveJson("local-skills.json", serializeWorkflowSkills(skills));
 }
 
 function persistAppliedScripts(scripts: SkillEntry[]) {
@@ -870,6 +877,7 @@ export const useStore = create<State>((set, get) => {
   skillCategories: [],
   scheduledRuns: [],
   customScripts: [],
+  localSkills: [],
   appliedScripts: [],
   scriptSync: {},
   usageHistory: [],
@@ -936,10 +944,11 @@ export const useStore = create<State>((set, get) => {
     didBootstrap = true;
     const startedAt = performance.now();
     trackEvent("bootstrap_started");
-    const [rawConvs, rawSchedules, rawScripts, rawAppliedScripts, rawHistory, wd] = await Promise.all([
+    const [rawConvs, rawSchedules, rawScripts, rawLocalSkills, rawAppliedScripts, rawHistory, wd] = await Promise.all([
       loadJson<Conversation[]>("conversations.json", []),
       loadJson<ScheduledRun[]>("scheduled-runs.json", []),
       loadJson<CustomScript[]>("custom-scripts.json", []),
+      loadJson<BrowserWorkflowSkill[]>("local-skills.json", []),
       loadJson<SkillEntry[]>("applied-scripts.json", []),
       loadJson<UsageSnapshot[]>("usage-history.json", []),
       invoke<string>("working_directory").catch(() => ""),
@@ -958,6 +967,7 @@ export const useStore = create<State>((set, get) => {
       activeConvId,
       scheduledRuns: schedules,
       customScripts: scripts,
+      localSkills: rawLocalSkills.map(normalizeWorkflowSkill),
       appliedScripts: rawAppliedScripts.filter((entry) => entry?.selector?.kind === "script"),
       usageHistory: history,
       workingDir: wd,
@@ -1857,19 +1867,28 @@ export const useStore = create<State>((set, get) => {
     if (!get().nextctlSupportsSkill) return;
     try {
       const catalog = await nextctlJson<{ categories: Array<{ id: string; title: string; icon: string; order: number; skills: SkillRef[] }> }>(["skill", "list"]);
-      set({
-        skillCategories: catalog.categories.map((category) => ({
+      const backendScripts: SkillEntry[] = [];
+      const skillCategories: SkillCategory[] = catalog.categories.map((category) => ({
           id: category.id, title: category.title, icon: category.icon,
           blurb: `Published ${category.title.toLowerCase()} available from the backend.`,
           entries: category.skills
             .filter((ref) => ref.slug && ref.title && ref.selector && (ref.kind === "domain" || ref.kind === "captcha"))
-            .map((ref) => ({
+            .map((ref): SkillEntry => ({
               id: ref.slug!, title: ref.title!, subtitle: ref.selector!, description: ref.description,
               category: category.id, categoryTitle: category.title,
               categoryIcon: category.icon, categoryOrder: category.order,
               selector: { kind: ref.kind === "domain" && ref.selector!.endsWith(".script") ? "script" : ref.kind!, value: ref.selector! },
-            })),
-        })),
+            }))
+            .filter((entry) => {
+              if (entry.selector.kind !== "script") return true;
+              backendScripts.push(entry);
+              return false;
+            }),
+        }));
+      const localApplied = get().appliedScripts.filter((entry) => !entry.id.startsWith("catalog:"));
+      set({
+        skillCategories,
+        appliedScripts: [...localApplied, ...backendScripts.map((entry) => ({ ...entry, id: `catalog:${entry.id}` }))],
       });
       trackEvent("skill_catalog_loaded", {
         category_count: catalog.categories.length,
@@ -3217,58 +3236,12 @@ export const useStore = create<State>((set, get) => {
       ? get().customScripts.map((s) => (s.id === script.id ? updated : s))
       : [...get().customScripts, updated];
     persistScripts(scripts);
-    set({ customScripts: scripts, scriptSync: { ...get().scriptSync, [script.id]: "syncing" } });
-    let tempPath: string | undefined;
-    try {
-      const slug = customPrivateSlug(updated);
-      const selector = customPublishSelector(updated);
-      const description = updated.domain
-        ? `Private custom script for ${updated.domain} (not shared).`
-        : "Private custom script (not shared).";
-      const markdown = `---\nname: ${updated.title || "Custom script"}\ndescription: ${description}\n---\n\n${updated.instructions}`;
-      tempPath = await invoke<string>("write_temp_skill", { slug, content: markdown });
-      const { env, res } = await nextctlEnvelope<SkillRef>([
-        "skill",
-        "add",
-        "--domain",
-        selector,
-        "--private",
-        "--slug",
-        slug,
-        "--title",
-        updated.title || slug,
-        "--description",
-        "Private custom script (not shared)",
-        "--file",
-        tempPath,
-      ]);
-      if (res.code !== 0 || env.ok === false) throw new Error(nextctlErrorMessage(res));
-      const synced = {
-        ...updated,
-        serverSlug: env.data?.slug ?? slug,
-        submittedAt: now(),
-      };
-      const final = scripts.map((s) => (s.id === script.id ? synced : s));
-      persistScripts(final);
-      set({
-        customScripts: final,
-        scriptSync: { ...get().scriptSync, [script.id]: "synced" },
-      });
-      trackTiming("custom_script_save_completed", startedAt, {
-        existing: !!existing,
-        has_domain: !!script.domain.trim(),
-      });
-    } catch {
-      set((s) => ({
-        scriptSync: { ...s.scriptSync, [script.id]: "failed" },
-      }));
-      trackTiming("custom_script_save_failed", startedAt, {
-        existing: !!existing,
-        has_domain: !!script.domain.trim(),
-      });
-    } finally {
-      if (tempPath) void invoke("remove_temp_file", { path: tempPath });
-    }
+    set({ customScripts: scripts, scriptSync: { ...get().scriptSync, [script.id]: "idle" } });
+    trackTiming("custom_script_save_completed", startedAt, {
+      existing: !!existing,
+      has_domain: !!script.domain.trim(),
+      storage: "local",
+    });
   },
 
   deleteCustomScript: (id) => {
@@ -3324,6 +3297,39 @@ export const useStore = create<State>((set, get) => {
     const note = pageReadyNote(prep.host, prep.directFallback);
     const prompt = `Run my custom script "${script.title}" on ${target} in the active NextBrowser session.${note}\nFollow these steps exactly:\n\n${script.instructions}`;
     get().enqueue(prompt, chip, cid);
+  },
+
+  saveLocalSkill: async (skill) => {
+    const existing = get().localSkills.some((item) => item.id === skill.id);
+    const updated = { ...skill, updatedAt: now(), createdAt: existing ? skill.createdAt : now() };
+    const localSkills = existing
+      ? get().localSkills.map((item) => item.id === skill.id ? updated : item)
+      : [...get().localSkills, updated];
+    persistLocalSkills(localSkills);
+    set({ localSkills });
+    const slug = `workflow-${skill.id.slice(0, 8)}`;
+    const body = `---\nname: ${skill.title}\ndescription: Reusable browser workflow${skill.domain ? ` for ${skill.domain}` : ""}.\n---\n\n# ${skill.title}\n\n## When to use\n\n${skill.task}\n\n## Workflow\n\n${skill.instructions}\n\n## Recorded browser actions\n\n${skill.actions.map((action, index) => `${index + 1}. ${action}`).join("\n") || "No action trace was captured."}\n`;
+    await invoke<string>("write_local_skill", { slug, content: body });
+    trackEvent("browser_workflow_saved", { has_domain: !!skill.domain, action_count: skill.actions.length });
+  },
+
+  deleteLocalSkill: (id) => {
+    const localSkills = get().localSkills.filter((skill) => skill.id !== id);
+    persistLocalSkills(localSkills);
+    set({ localSkills });
+    void invoke("delete_local_skill", { slug: `workflow-${id.slice(0, 8)}` });
+  },
+
+  runLocalSkill: async (skill) => {
+    if (!get().agentReady()) return;
+    set({ tab: "chat" });
+    const cid = get().activeConversation()?.id ?? get().newChat();
+    const target = skill.domain || "the active website";
+    get().enqueue(
+      `Use my local browser skill "${skill.title}" for ${target}. Reuse this proven workflow, adapting selectors only when the page changed.\n\nOriginal task:\n${skill.task}\n\nWorkflow instructions:\n${skill.instructions}\n\nObserved browser actions:\n${skill.actions.map((action, index) => `${index + 1}. ${action}`).join("\n") || "No recorded action trace; follow the workflow instructions."}`,
+      { kind: "skill", title: skill.title, detail: skill.domain || "Local skill" },
+      cid,
+    );
   },
 
   startRemoteStream: async (profile) => {

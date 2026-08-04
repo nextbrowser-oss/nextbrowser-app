@@ -1,6 +1,7 @@
 import { uid } from "./ids";
 import type {
   Conversation,
+  BrowserWorkflowSkill,
   CustomScript,
   ScheduledRun,
   UsageSnapshot,
@@ -123,6 +124,18 @@ export function serializeScripts(scripts: CustomScript[]) {
     createdAt: isoSeconds(script.createdAt),
     updatedAt: isoSeconds(script.updatedAt),
     submittedAt: script.submittedAt == null ? undefined : isoSeconds(script.submittedAt),
+  }));
+}
+
+export function normalizeWorkflowSkill(skill: BrowserWorkflowSkill): BrowserWorkflowSkill {
+  return { ...skill, createdAt: parseMillis(skill.createdAt), updatedAt: parseMillis(skill.updatedAt) };
+}
+
+export function serializeWorkflowSkills(skills: BrowserWorkflowSkill[]) {
+  return skills.map((skill) => ({
+    ...skill,
+    createdAt: isoSeconds(skill.createdAt),
+    updatedAt: isoSeconds(skill.updatedAt),
   }));
 }
 

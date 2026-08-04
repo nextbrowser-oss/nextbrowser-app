@@ -670,6 +670,19 @@ async function invokeCommand(command, args = {}) {
       const slug = String(args.slug || "custom").replace(/[^A-Za-z0-9_-]/g, "") || "custom";
       const file = path.join(os.tmpdir(), `${slug}-${process.pid}-${Date.now()}.md`); await fs.writeFile(file, args.content, "utf8"); return file;
     }
+    case "write_local_skill": {
+      const slug = String(args.slug || "browser-workflow").toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || "browser-workflow";
+      const dir = path.join(dataDir(), "local-skills", slug);
+      await fs.mkdir(dir, { recursive: true });
+      const file = path.join(dir, "SKILL.md");
+      await fs.writeFile(file, String(args.content || ""), "utf8");
+      return file;
+    }
+    case "delete_local_skill": {
+      const slug = String(args.slug || "").toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+      if (slug) await fs.rm(path.join(dataDir(), "local-skills", slug), { recursive: true, force: true });
+      return null;
+    }
     case "remove_temp_file": {
       const file = path.resolve(args.path); if (path.dirname(file) !== path.resolve(os.tmpdir())) throw new Error("Refusing to remove a file outside the temporary directory.");
       await fs.rm(file, { force: true }); return null;
