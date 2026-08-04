@@ -45,6 +45,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [createProfileOpen, setCreateProfileOpen] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [profileCountry, setProfileCountry] = useState("US");
+  const [profileCountryQuery, setProfileCountryQuery] = useState("");
+  const [menuCountryQuery, setMenuCountryQuery] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
@@ -70,6 +72,19 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     !s.profiles.some((p) => p.name === "default");
   const visibleProfileCount = s.profiles.length + (showDefaultProfile ? 1 : 0);
   const runningCount = s.profiles.filter((p) => s.statuses[p.name] === "running").length + (showDefaultProfile && defaultRunning ? 1 : 0);
+  const proxyCountries = s.proxyCountries.length ? s.proxyCountries : ROTATION_COUNTRIES;
+  const matchingCountries = (query: string) => {
+    const normalized = query.trim().toLocaleLowerCase();
+    if (!normalized) return proxyCountries;
+    return proxyCountries.filter((country) =>
+      country.name.toLocaleLowerCase().includes(normalized) || country.code.toLocaleLowerCase().includes(normalized),
+    );
+  };
+
+  useEffect(() => {
+    setMenuCountryQuery("");
+    if (menuProfile) void s.loadProxyCountries().catch(() => {});
+  }, [menuProfile]);
 
   useEffect(() => {
     let focusTimer = 0;
@@ -86,8 +101,10 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       }
       setProfileName("");
       setProfileCountry("US");
+      setProfileCountryQuery("");
       setProfileError(null);
       setCreateProfileOpen(true);
+      void s.loadProxyCountries().catch(() => {});
     };
     const openActions = () => {
       focusProfiles();
@@ -571,18 +588,35 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             </label>
             <label className="modal-field">
               <span>Proxy country</span>
-              <select
-                value={profileCountry}
+              <input
+                value={profileCountryQuery}
                 disabled={profileSaving}
-                onChange={(event) => setProfileCountry(event.target.value)}
-              >
-                {ROTATION_COUNTRIES.map((country) => (
-                  <option key={country.code} value={country.code}>
-                    {countryFlag(country.code)} {country.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(event) => setProfileCountryQuery(event.target.value)}
+                placeholder="Search by country or code…"
+                aria-label="Search proxy countries"
+              />
             </label>
+            <div className="country-picker-selection">
+              Selected: {countryFlag(profileCountry)} {proxyCountries.find((country) => country.code === profileCountry)?.name ?? profileCountry}
+            </div>
+            <div className="country-grid country-picker-grid">
+              {matchingCountries(profileCountryQuery).map((country) => (
+                <button
+                  type="button"
+                  key={country.code}
+                  className={"mini country-chip" + (profileCountry === country.code ? " active" : "")}
+                  onClick={() => {
+                    setProfileCountry(country.code);
+                    setProfileCountryQuery("");
+                  }}
+                >
+                  <span className="country-chip-flag">{countryFlag(country.code)}</span>
+                  <span className="country-chip-code">{country.code}</span>
+                  <span className="country-chip-name">{country.name}</span>
+                </button>
+              ))}
+              {matchingCountries(profileCountryQuery).length === 0 && <div className="muted small country-picker-empty">No countries found</div>}
+            </div>
             {profileError && <div className="error small profile-create-error">{profileError}</div>}
             <div className="modal-actions">
               <button type="button" className="secondary" onClick={closeProfileCreator}>
@@ -648,8 +682,16 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               {!manual && (
                 <>
                   <div className="section profile-menu-label">Rotate country</div>
+                  <input
+                    className="country-search"
+                    value={menuCountryQuery}
+                    onChange={(event) => setMenuCountryQuery(event.target.value)}
+                    placeholder="Search by country or code…"
+                    aria-label="Search proxy countries"
+                    autoFocus={false}
+                  />
                   <div className="country-grid">
-                    {ROTATION_COUNTRIES.map((c) => (
+                    {matchingCountries(menuCountryQuery).map((c) => (
                       <button
                         key={c.code}
                         className={"mini country-chip" + (activeCountry === c.code.toLowerCase() ? " active" : "")}
@@ -665,6 +707,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                         <span className="country-chip-name">{c.name}</span>
                       </button>
                     ))}
+                    {matchingCountries(menuCountryQuery).length === 0 && <div className="muted small country-picker-empty">No countries found</div>}
                   </div>
                 </>
               )}

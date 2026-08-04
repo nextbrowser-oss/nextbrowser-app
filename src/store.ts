@@ -65,6 +65,7 @@ import type {
   UserCommandChip,
   UsageSnapshot,
 } from "./types";
+import type { RotationCountry } from "./lib/countryFlag";
 import {
   customPrivateSlug,
   customPublishSelector,
@@ -300,6 +301,7 @@ interface State {
   proxy?: ProxyTraffic;
   proxyWarning?: string;
   profiles: Profile[];
+  proxyCountries: RotationCountry[];
   statuses: Record<string, string>;
   profileSessions: Record<string, SessionStatus>;
   profileIdentities: Record<string, ProxyIdentity>;
@@ -349,6 +351,7 @@ interface State {
   refreshSessions: () => Promise<void>;
   loadProxy: () => Promise<void>;
   loadProfiles: () => Promise<void>;
+  loadProxyCountries: () => Promise<void>;
   loadDefaultSession: () => Promise<void>;
   loadSkillCatalog: () => Promise<void>;
   startDefaultSession: () => Promise<void>;
@@ -841,6 +844,7 @@ export const useStore = create<State>((set, get) => {
   checking: true,
   isLoggingIn: false,
   profiles: [],
+  proxyCountries: [],
   statuses: {},
   profileSessions: {},
   profileIdentities: {},
@@ -1706,6 +1710,7 @@ export const useStore = create<State>((set, get) => {
     try {
       await Promise.all([
         get().loadProxy().catch(() => {}),
+        get().loadProxyCountries().catch(() => {}),
         get().loadProfiles(),
         get().loadDefaultSession(),
         get().loadSkillCatalog(),
@@ -1812,6 +1817,15 @@ export const useStore = create<State>((set, get) => {
     } catch {
       /* non-fatal */
     }
+  },
+
+  loadProxyCountries: async () => {
+    const response = await nextctlJson<{ countries: RotationCountry[] }>(["proxy", "countries"]);
+    const countries = (response.countries ?? [])
+      .filter((country) => /^[A-Za-z]{2}$/.test(country.code) && country.name?.trim())
+      .map((country) => ({ code: country.code.toUpperCase(), name: country.name.trim() }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    if (countries.length) set({ proxyCountries: countries });
   },
 
   loadDefaultSession: async () => {
