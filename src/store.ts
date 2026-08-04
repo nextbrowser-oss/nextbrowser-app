@@ -444,7 +444,7 @@ interface State {
   runCustomScript: (script: CustomScript) => Promise<void>;
   saveLocalSkill: (skill: BrowserWorkflowSkill) => Promise<void>;
   deleteLocalSkill: (id: string) => void;
-  runLocalSkill: (skill: BrowserWorkflowSkill) => Promise<void>;
+  runLocalSkill: (skill: BrowserWorkflowSkill, task?: string) => Promise<void>;
 
   // Internal queue/runtime helpers
   reconcileQueues: () => void;
@@ -3372,16 +3372,45 @@ export const useStore = create<State>((set, get) => {
     void invoke("delete_local_skill", { slug: `workflow-${id.slice(0, 8)}` });
   },
 
-  runLocalSkill: async (skill) => {
+  runLocalSkill: async (skill, taskOverride) => {
     if (!get().agentReady()) return;
+    const task = taskOverride?.trim() || skill.task.trim();
+    if (!task) return;
     set({ tab: "chat" });
     const cid = get().activeConversation()?.id ?? get().newChat();
+    const remoteOnly = get().conversations.find((conversation) => conversation.id === cid)?.executionTarget === "vps";
     const target = skill.domain || "the active website";
+    const chip: UserCommandChip = { kind: "skill", title: skill.title, detail: skill.domain || "Local skill" };
+    if (remoteOnly) {
+      get().enqueue(
+        `Use my local browser skill "${skill.title}" for ${target} on the selected VPS only. Do not prepare or change any local NextBrowser session.\n\nTask for this run:\n${task}\n\nWorkflow instructions:\n${skill.instructions}`,
+        chip, cid,
+      );
+      return;
+    }
+    const stepId = get().makeStepMessage(cid);
+    let prep;
+    try {
+      prep = await prepareLocalSession({
+        host: skill.domain || undefined,
+        selectedProfile: get().selectedProfile,
+        statuses: get().statuses,
+        defaultSession: get().defaultSession,
+        onStep: (step) => get().appendStep(cid, stepId, step),
+      });
+    } catch (error) {
+      get().failStep(cid, stepId, error);
+      trackEvent("session_preflight_failed", { source: "local_skill" });
+      return;
+    }
+    if (!get().agentReady()) return;
+    const note = pageReadyNote(prep.host, prep.directFallback);
     get().enqueue(
-      `Use my local browser skill "${skill.title}" for ${target}. Reuse this proven workflow, adapting selectors only when the page changed.\n\nOriginal task:\n${skill.task}\n\nWorkflow instructions:\n${skill.instructions}\n\nObserved browser actions:\n${skill.actions.map((action, index) => `${index + 1}. ${action}`).join("\n") || "No recorded action trace; follow the workflow instructions."}`,
-      { kind: "skill", title: skill.title, detail: skill.domain || "Local skill" },
+      `Use my local browser skill "${skill.title}" for ${target} in the active verified NextBrowser session.${note}\nThe app already prepared the session, verified the selected proxy, and opened the website. Do not run saved start/prepare operations again. Begin with the first task-specific action. Reuse the proven fast path, adapting selectors only if the page changed.\n\nTask for this run:\n${task}\n\nWorkflow instructions:\n${skill.instructions}\n\nObserved browser actions (reference only):\n${skill.actions.map((action, index) => `${index + 1}. ${action}`).join("\n") || "No recorded action trace; follow the workflow instructions."}`,
+      chip,
       cid,
     );
+    trackEvent("local_skill_run_queued", { has_domain: !!skill.domain, customized_task: task !== skill.task.trim() });
   },
 
   startRemoteStream: async (profile) => {

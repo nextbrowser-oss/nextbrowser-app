@@ -719,6 +719,28 @@ async function invokeCommand(command, args = {}) {
       child.on("close", (code) => { children.delete(args.replyId); emit("agent:done", [args.replyId, code ?? -1, stderr]); });
       if (args.stdinText != null) child.stdin.end(args.stdinText); return null;
     }
+    case "workflow_author_run": {
+      const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} executable not found.`);
+      const spec = commandSpec(bin, args.args || []);
+      return new Promise((resolve, reject) => {
+        const child = spawn(spec.file, spec.args, {
+          cwd: args.workingDir || undefined,
+          env: childEnv(), windowsHide: true,
+          stdio: [args.stdinText != null ? "pipe" : "ignore", "pipe", "pipe"],
+        });
+        let stdout = ""; let stderr = ""; let settled = false;
+        const append = (current, chunk) => (current + chunk.toString()).slice(-32 * 1024);
+        child.stdout.on("data", (chunk) => { stdout = append(stdout, chunk); });
+        child.stderr.on("data", (chunk) => { stderr = append(stderr, chunk); });
+        const timer = setTimeout(() => { if (!settled) child.kill(); }, 45_000);
+        child.on("error", (error) => { clearTimeout(timer); if (!settled) { settled = true; reject(error); } });
+        child.on("close", (code) => {
+          clearTimeout(timer);
+          if (!settled) { settled = true; resolve({ code: code ?? -1, stdout, stderr }); }
+        });
+        if (args.stdinText != null) child.stdin.end(args.stdinText);
+      });
+    }
     case "agent_terminate": { const child = children.get(args.replyId); if (child) { child.kill(); children.delete(args.replyId); } return null; }
     case "terminal_start": {
       const agent = TERMINAL_AGENTS[String(args.agentId || "")];

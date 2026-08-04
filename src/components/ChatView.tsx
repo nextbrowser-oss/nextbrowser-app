@@ -2,12 +2,12 @@ import { type ClipboardEvent, type DragEvent, useEffect, useRef, useState } from
 import { useStore } from "../store";
 import { SCRIPTS } from "../skillsCatalog";
 import { MarkdownText } from "./MarkdownText";
-import { Icon } from "./Icon";
+import { Icon, Spinner } from "./Icon";
 import { BrandLogo } from "./BrandLogo";
 import type { ChatAttachment, ChatMessage } from "../types";
 import { filePathForFile, invoke } from "../electronBridge";
 import { conversationPreview } from "../types";
-import { agentById } from "../agents";
+import { agentById, agentInvocation, type AgentSpec } from "../agents";
 import { trackEvent } from "../lib/analytics";
 import { needsSupportLink } from "../lib/userFacingError";
 import { VPSSetupModal } from "./VPSSetupModal";
@@ -16,6 +16,37 @@ import { AgentInstallLink } from "./AgentInstallLink";
 import { takeGuideDraft } from "../lib/guideDraft";
 import { AgentTerminal } from "./AgentTerminal";
 import { uid } from "../lib/ids";
+import {
+  terminalBrowserTask,
+  capturedWorkflowDomain,
+  workflowInstructions,
+  workflowQuality,
+  workflowTitle,
+} from "../lib/workflowCapture";
+import {
+  parseDistilledWorkflow,
+  workflowDistillationPrompt,
+  type DistilledWorkflow,
+} from "../lib/workflowDistillation";
+
+async function authorWorkflowWithAgent(agent: AgentSpec, workingDir: string, fallback: DistilledWorkflow): Promise<DistilledWorkflow | undefined> {
+  const prompt = workflowDistillationPrompt(fallback);
+  const invocation = agentInvocation(agent, prompt);
+  const { args, stdin } = agent.id === "codex"
+    ? { args: ["exec", "--skip-git-repo-check", "--sandbox", "read-only", "-"], stdin: prompt }
+    : agent.id === "claude"
+      ? { args: ["-p", "--permission-mode", "dontAsk", "--tools", "", prompt], stdin: undefined }
+      : invocation;
+  try {
+    const result = await invoke<{ code: number; stdout: string }>("workflow_author_run", {
+      binary: agent.binary, envVar: agent.envVar, args,
+      stdinText: stdin ?? null, workingDir: workingDir || null,
+    });
+    return result.code === 0 ? parseDistilledWorkflow(result.stdout, fallback) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -51,15 +82,6 @@ function errorSummary(text: string): string {
   return cleaned.length > 140 ? cleaned.slice(0, 140) + "…" : cleaned;
 }
 
-function workflowDomain(text: string): string {
-  const match = text.match(/(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+(?:\.[a-z0-9-]+)+)/i);
-  return match?.[1]?.toLowerCase() ?? "";
-}
-
-function workflowTitle(task: string, domain: string): string {
-  const plain = task.replace(/https?:\/\/\S+/g, "").trim().replace(/\s+/g, " ");
-  return (plain || (domain ? `${domain} workflow` : "Browser workflow")).slice(0, 64);
-}
 
 export function ChatView() {
   const s = useStore();
@@ -87,7 +109,9 @@ export function ChatView() {
   const [convMenu, setConvMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [promptDetail, setPromptDetail] = useState<string | null>(null);
   const [vpsSetupOpen, setVPSSetupOpen] = useState(false);
-  const [workflowDraft, setWorkflowDraft] = useState<{ task: string; answer: ChatMessage } | null>(null);
+  const [workflowDraft, setWorkflowDraft] = useState<{ task: string; answer: ChatMessage; prepared: DistilledWorkflow } | null>(null);
+  const [preparingWorkflowId, setPreparingWorkflowId] = useState<string | null>(null);
+  const [workflowRejection, setWorkflowRejection] = useState<string | null>(null);
   const [terminalVisible, setTerminalVisible] = useState(s.terminalChat);
   const [terminalMounted, setTerminalMounted] = useState(s.terminalChat);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -209,6 +233,27 @@ export function ChatView() {
 
   const agentSpec = agentById(agentId);
   const agentName = agentSpec.name;
+  const prepareWorkflow = async (task: string, answer: ChatMessage, sourceId: string) => {
+    if (preparingWorkflowId) return;
+    setPreparingWorkflowId(sourceId);
+    const toolTrace = (answer.toolEvents ?? []).map((event) =>
+      `Called ${event.name}${event.detail ? `(${event.detail})` : ""}`,
+    ).join("\n");
+    const evidence = [toolTrace, answer.text].filter(Boolean).join("\n");
+    const capturedAnswer = { ...answer, text: evidence };
+    const domain = capturedWorkflowDomain(task, evidence);
+    const quality = workflowQuality(task, evidence, domain);
+    const fallback = {
+      title: workflowTitle(task, domain), domain,
+      instructions: workflowInstructions(task, evidence),
+      ...quality,
+    };
+    const authored = quality.reusable && ready ? await authorWorkflowWithAgent(agentSpec, s.workingDir, fallback) : undefined;
+    const prepared = authored ?? fallback;
+    if (!prepared.reusable) setWorkflowRejection(prepared.reason);
+    else setWorkflowDraft({ task, answer: capturedAnswer, prepared });
+    setPreparingWorkflowId(null);
+  };
   const showDefaultSession =
     !s.selectedProfile && s.defaultSession?.status === "running";
 
@@ -335,7 +380,15 @@ export function ChatView() {
               agentName={agentName}
               conversationId={conv?.id}
               workingDir={s.workingDir}
+              savingWorkflow={preparingWorkflowId === "terminal"}
               onClose={() => setTerminalVisible(false)}
+              onSaveWorkflow={(transcript) => {
+                const answer = {
+                  id: uid(), role: "assistant" as const, text: transcript, status: "done" as const,
+                  createdAt: Date.now(),
+                };
+                void prepareWorkflow(terminalBrowserTask(transcript), answer, "terminal");
+              }}
             />
           </div>
         )}
@@ -444,8 +497,9 @@ export function ChatView() {
               onSaveWorkflow={() => {
                 const index = messages.findIndex((candidate) => candidate.id === m.id);
                 const user = [...messages.slice(0, index)].reverse().find((candidate) => candidate.role === "user");
-                setWorkflowDraft({ task: user?.text ?? "", answer: m });
+                void prepareWorkflow(user?.text ?? "", m, m.id);
               }}
+              savingWorkflow={preparingWorkflowId === m.id}
             />
           ))}
           <div ref={bottomRef} />
@@ -722,6 +776,7 @@ export function ChatView() {
         <SaveWorkflowModal
           task={workflowDraft.task}
           answer={workflowDraft.answer}
+          prepared={workflowDraft.prepared}
           onClose={() => setWorkflowDraft(null)}
           onSave={(title, domain, instructions) => {
             void s.saveLocalSkill({
@@ -734,6 +789,17 @@ export function ChatView() {
             s.setTab("skills");
           }}
         />
+      )}
+
+      {workflowRejection && (
+        <div className="modal-overlay" onMouseDown={() => setWorkflowRejection(null)}>
+          <div className="modal-card workflow-quality-modal" onMouseDown={(event) => event.stopPropagation()}>
+            <strong>Nothing reusable to save yet</strong>
+            <p className="muted">{workflowRejection}</p>
+            <p className="muted small">Complete a browser search, extraction, form, or posting task successfully, then try again.</p>
+            <div className="row"><span className="spacer" /><button className="primary" onClick={() => setWorkflowRejection(null)}>OK</button></div>
+          </div>
+        </div>
       )}
 
       {vpsSetupOpen && <VPSSetupModal onClose={() => setVPSSetupOpen(false)} />}
@@ -750,6 +816,7 @@ function MessageBubble({
   queuedReplyId,
   onShowPrompt,
   onSaveWorkflow,
+  savingWorkflow,
 }: {
   message: ChatMessage;
   canQueue: boolean;
@@ -760,6 +827,7 @@ function MessageBubble({
   queuedReplyId?: string;
   onShowPrompt: () => void;
   onSaveWorkflow: () => void;
+  savingWorkflow: boolean;
 }) {
   const [clock, setClock] = useState(Date.now());
   const [showErrorDetails, setShowErrorDetails] = useState(false);
@@ -914,9 +982,9 @@ function MessageBubble({
           >
             <Icon name="doc.on.doc" size={12} />
           </button>
-          {m.status === "done" && ((m.toolEvents?.length ?? 0) > 0 || /https?:\/\//i.test(m.text)) && (
-            <button className="save-workflow-btn" title="Save this browser workflow as a local skill" onClick={onSaveWorkflow}>
-              <Icon name="sparkles" size={12} /> Save browser workflow
+          {m.status === "done" && (
+            <button className="save-workflow-btn" disabled={savingWorkflow} title="Save this browser workflow as a local skill" onClick={onSaveWorkflow}>
+              {savingWorkflow && <Spinner size={11} />} {savingWorkflow ? "Preparing…" : "Save as skill"}
             </button>
           )}
           <span>{formatTime(m.createdAt)}</span>
@@ -926,27 +994,27 @@ function MessageBubble({
   );
 }
 
-function SaveWorkflowModal({ task, answer, onClose, onSave }: {
+function SaveWorkflowModal({ prepared, onClose, onSave }: {
   task: string;
   answer: ChatMessage;
+  prepared: DistilledWorkflow;
   onClose: () => void;
   onSave: (title: string, domain: string, instructions: string) => void;
 }) {
-  const inferredDomain = workflowDomain(`${task}\n${answer.text}`);
-  const [title, setTitle] = useState(workflowTitle(task, inferredDomain));
-  const [domain, setDomain] = useState(inferredDomain);
-  const [instructions, setInstructions] = useState(answer.text);
+  const [title, setTitle] = useState(prepared.title);
+  const [domain, setDomain] = useState(prepared.domain);
+  const [instructions, setInstructions] = useState(prepared.instructions);
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
       <div className="modal-card workflow-save-modal" onMouseDown={(event) => event.stopPropagation()}>
-        <strong>Save browser workflow</strong>
+        <strong>Save as skill</strong>
         <p className="muted small">Saved locally first, then backed up privately to your account.</p>
         <label className="field-label">Skill name</label>
         <input value={title} autoFocus onChange={(event) => setTitle(event.target.value)} />
         <label className="field-label">Website</label>
         <input value={domain} placeholder="example.com (optional)" onChange={(event) => setDomain(event.target.value)} />
         <label className="field-label">Reusable instructions</label>
-        <textarea rows={8} value={instructions} onChange={(event) => setInstructions(event.target.value)} />
+        <textarea rows={10} value={instructions} onChange={(event) => setInstructions(event.target.value)} />
         <div className="row" style={{ marginTop: 10, gap: 8 }}>
           <span className="spacer" />
           <button className="secondary" onClick={onClose}>Cancel</button>
