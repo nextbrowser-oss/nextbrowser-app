@@ -30,6 +30,11 @@ describe("terminal workflow capture", () => {
     expect(capturedWorkflowDomain(terminalBrowserTask(verified), verified)).toBe("makler.md");
   });
 
+  it("uses a public result link when normal chat output has no embedded tool trace", () => {
+    const answer = "Нашёл объявление: [Daewoo Matiz](https://makler.md/ro/transport/cars/an/467749). Verification: https://app.clawbrowser.ai/dashboard/browser-streaming.";
+    expect(capturedWorkflowDomain("найди все матизы", answer)).toBe("makler.md");
+  });
+
   it("creates a useful title and normalized instructions", () => {
     const task = terminalBrowserTask(transcript);
     expect(workflowTitle(task, "makler.md")).toBe("makler.md — матизы");

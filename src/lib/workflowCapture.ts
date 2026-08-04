@@ -114,6 +114,15 @@ function publicDomainFromURL(value: unknown): string {
   }
 }
 
+function publicDomainsInText(text: string): string[] {
+  const domains: string[] = [];
+  for (const match of text.matchAll(/https?:\/\/[^\s<>"')\]]+/gi)) {
+    const domain = publicDomainFromURL(match[0].replace(/[.,;:!?]+$/, ""));
+    if (domain && !domains.includes(domain)) domains.push(domain);
+  }
+  return domains;
+}
+
 /** Resolve the task's website without accidentally selecting verification/API URLs from tool output. */
 export function capturedWorkflowDomain(task: string, transcript: string): string {
   const requested = workflowDomain(task);
@@ -122,7 +131,9 @@ export function capturedWorkflowDomain(task: string, transcript: string): string
     const domain = publicDomainFromURL(call.args.url);
     if (domain) return domain;
   }
-  return "";
+  // Normal chat messages may keep tool events outside the rendered answer. Result
+  // links are still a reliable fallback once internal verification hosts are removed.
+  return publicDomainsInText(transcript)[0] ?? "";
 }
 
 export function terminalBrowserTask(transcript: string): string {
