@@ -196,9 +196,15 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
             if (!terminal) return;
             const buffer = terminal.buffer.active;
             const first = Math.max(0, buffer.length - 500);
-            const transcript = Array.from({ length: buffer.length - first }, (_, index) =>
-              buffer.getLine(first + index)?.translateToString(true) ?? ""
-            ).join("\n").trim();
+            const rows: string[] = [];
+            for (let index = first; index < buffer.length; index += 1) {
+              const line = buffer.getLine(index);
+              if (!line) continue;
+              const text = line.translateToString(true);
+              if (line.isWrapped && rows.length > 0) rows[rows.length - 1] += text;
+              else rows.push(text);
+            }
+            const transcript = rows.join("\n").trim();
             if (transcript) onSaveWorkflow(transcript);
           }}
           title="Save this terminal browser workflow as a private skill"
