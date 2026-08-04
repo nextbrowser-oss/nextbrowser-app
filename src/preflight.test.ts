@@ -138,4 +138,48 @@ describe("prepareSession command reporting", () => {
     expect(onStep).not.toHaveBeenCalledWith("Browser verified");
     expect(nextctl.run).not.toHaveBeenCalled();
   });
+
+  it("retries verification when the user chooses retry", async () => {
+    const onStep = vi.fn();
+    const onVerificationFailure = vi.fn().mockResolvedValue("retry");
+    nextctl.json
+      .mockResolvedValueOnce({
+        verify: { finalized: true, status: "fail", checks: [{ surface: "Proxy", pass: false }] },
+      })
+      .mockResolvedValueOnce(greenVerification)
+      .mockResolvedValueOnce({ tabs: [{ id: "page", url: "about:blank" }] });
+
+    const result = await prepareSession({
+      statuses: {},
+      defaultSession: { status: "running" },
+      onStep,
+      onVerificationFailure,
+    });
+
+    expect(onVerificationFailure).toHaveBeenCalledTimes(1);
+    expect(onStep).toHaveBeenCalledWith("Browser verified");
+    expect(result.directFallback).toBe(false);
+  });
+
+  it("switches the current task to the direct session when the user bypasses the proxy", async () => {
+    const onStep = vi.fn();
+    nextctl.json
+      .mockResolvedValueOnce({
+        verify: { finalized: true, status: "fail", checks: [{ surface: "Proxy", pass: false }] },
+      })
+      .mockResolvedValueOnce({ tabs: [{ id: "direct", url: "about:blank" }] });
+
+    const result = await prepareSession({
+      selectedProfile: "proxy-profile",
+      statuses: { "proxy-profile": "running" },
+      defaultSession: { status: "running" },
+      onStep,
+      onVerificationFailure: async () => "direct",
+    });
+
+    expect(result.profileArgs).toEqual([]);
+    expect(result.directFallback).toBe(true);
+    expect(onStep).toHaveBeenCalledWith("Continuing without proxy");
+    expect(nextctl.run).not.toHaveBeenCalled();
+  });
 });

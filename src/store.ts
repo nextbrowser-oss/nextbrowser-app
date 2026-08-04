@@ -8,7 +8,7 @@ import {
   type NextctlRunOptions,
   type RunResult,
 } from "./nextctl";
-import { prepareSession } from "./preflight";
+import { prepareSession, type VerificationFailureChoice } from "./preflight";
 import {
   AGENTS,
   agentById,
@@ -217,9 +217,12 @@ function skillKey(agentId: string, entryId: string) {
   return `${agentId}:${entryId}`;
 }
 
-function pageReadyNote(openedHost?: string): string {
-  if (!openedHost) return "";
-  return ` The page ${openedHost} is already open in the active NextBrowser profile — work there and don't navigate away unless the steps require it.`;
+function pageReadyNote(openedHost?: string, directFallback = false): string {
+  const direct = directFallback
+    ? " Use the default direct NextBrowser session for this task; do not switch back to the selected proxy profile."
+    : "";
+  if (!openedHost) return direct;
+  return ` The page ${openedHost} is already open in the active NextBrowser profile — work there and don't navigate away unless the steps require it.${direct}`;
 }
 
 function skillAgentPrompt(
@@ -228,10 +231,11 @@ function skillAgentPrompt(
   md: string | undefined,
   slug: string | undefined,
   openedHost?: string,
+  directFallback = false,
 ): string {
   const startHint = openedHost
-    ? pageReadyNote(openedHost)
-    : ` Start by opening ${target} in the active NextBrowser profile.`;
+    ? pageReadyNote(openedHost, directFallback)
+    : ` Start by opening ${target} in the active NextBrowser profile.${pageReadyNote(undefined, directFallback)}`;
   if (md) {
     return `Use the "${title}" skill to work with ${target}.${startHint} Follow this SKILL.md exactly, step by step:\n\n${md}`;
   }
@@ -247,8 +251,9 @@ function scriptAgentPrompt(
   md: string | undefined,
   slug: string | undefined,
   openedHost?: string,
+  directFallback = false,
 ): string {
-  const note = pageReadyNote(openedHost);
+  const note = pageReadyNote(openedHost, directFallback);
   if (md) {
     return `Run the "${title}" script ${where}.${note} Follow this SKILL.md exactly, step by step:\n\n${md}`;
   }
@@ -543,7 +548,13 @@ async function nextctlEnvelope<T>(
 async function prepareLocalSession(
   options: Parameters<typeof prepareSession>[0],
 ): ReturnType<typeof prepareSession> {
-  return runLocalNextctlOperation(() => prepareSession(options));
+  return runLocalNextctlOperation(() => prepareSession({
+    ...options,
+    onVerificationFailure: options.onVerificationFailure ?? ((failure) =>
+      invoke<VerificationFailureChoice>("browser_verification_failure_choice", {
+        failedSurfaces: failure.failedSurfaces,
+      })),
+  }));
 }
 
 async function waitForLocalNextctlIdle(getState: () => State): Promise<void> {
@@ -2945,6 +2956,7 @@ export const useStore = create<State>((set, get) => {
       md,
       ref?.slug ?? ref?.title,
       prep.host,
+      prep.directFallback,
     );
     get().enqueue(prompt, chip, cid);
     await get().loadDefaultSession();
@@ -3117,6 +3129,7 @@ export const useStore = create<State>((set, get) => {
       md,
       ref?.slug ?? ref?.title,
       prep.host,
+      prep.directFallback,
     );
     get().enqueue(
       prompt,
@@ -3308,7 +3321,7 @@ export const useStore = create<State>((set, get) => {
       title: script.title,
       detail: domain || get().currentSessionDisplayName(),
     };
-    const note = pageReadyNote(prep.host);
+    const note = pageReadyNote(prep.host, prep.directFallback);
     const prompt = `Run my custom script "${script.title}" on ${target} in the active NextBrowser session.${note}\nFollow these steps exactly:\n\n${script.instructions}`;
     get().enqueue(prompt, chip, cid);
   },

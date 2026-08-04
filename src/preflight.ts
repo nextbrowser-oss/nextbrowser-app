@@ -87,6 +87,24 @@ interface VerificationResult {
   };
 }
 
+export type VerificationFailureChoice = "retry" | "direct" | "cancel";
+
+export interface VerificationFailure {
+  message: string;
+  failedSurfaces: string[];
+}
+
+class BrowserVerificationError extends Error {
+  readonly failedSurfaces: string[];
+
+  constructor(failedSurfaces: string[]) {
+    const suffix = failedSurfaces.length ? `: ${failedSurfaces.join(", ")}` : ".";
+    super(`Browser verification is not green${suffix}`);
+    this.name = "BrowserVerificationError";
+    this.failedSurfaces = failedSurfaces;
+  }
+}
+
 async function requireGreenVerification(args: string[]): Promise<void> {
   const data = await nextctlJson<VerificationResult>([
     ...args,
@@ -97,8 +115,8 @@ async function requireGreenVerification(args: string[]): Promise<void> {
   const verification = data.verify;
   const failed = verification?.checks?.filter((check) => check.pass !== true) ?? [];
   if (verification?.finalized !== true || verification.status !== "pass" || failed.length > 0) {
-    const surfaces = failed.map((check) => check.surface).filter(Boolean).join(", ");
-    throw new Error(`Browser verification is not green${surfaces ? `: ${surfaces}` : "."}`);
+    const surfaces = failed.flatMap((check) => check.surface ? [check.surface] : []);
+    throw new BrowserVerificationError(surfaces);
   }
 }
 
@@ -121,6 +139,7 @@ export interface PrepareResult {
   profileArgs: string[];
   host?: string;
   steps: string[];
+  directFallback?: boolean;
 }
 
 export async function prepareSession(opts: {
@@ -129,9 +148,11 @@ export async function prepareSession(opts: {
   statuses: Record<string, string>;
   defaultSession?: SessionStatus;
   onStep?: (step: string) => void;
+  onVerificationFailure?: (failure: VerificationFailure) => Promise<VerificationFailureChoice>;
 }): Promise<PrepareResult> {
-  const args = profileArgs(opts.selectedProfile);
+  let args = profileArgs(opts.selectedProfile);
   const steps: string[] = [];
+  let directFallback = false;
   const rawHost = opts.host?.trim();
   const step = (text: string) => {
     steps.push(text);
@@ -149,8 +170,29 @@ export async function prepareSession(opts: {
     step("Started NextBrowser");
   }
 
-  await requireGreenVerification(args);
-  step("Browser verified");
+  while (true) {
+    try {
+      await requireGreenVerification(args);
+      step("Browser verified");
+      break;
+    } catch (error) {
+      if (!(error instanceof BrowserVerificationError) || !opts.onVerificationFailure) throw error;
+      const choice = await opts.onVerificationFailure({
+        message: error.message,
+        failedSurfaces: error.failedSurfaces,
+      });
+      if (choice === "retry") continue;
+      if (choice !== "direct") throw error;
+
+      args = [];
+      directFallback = true;
+      if (opts.defaultSession?.status !== "running") {
+        await runChecked(["start", "--format", "json"], "Could not start a direct NextBrowser session");
+      }
+      step("Continuing without proxy");
+      break;
+    }
+  }
 
   if (rawHost) {
     if (await activateMatchingTab(args, rawHost)) {
@@ -173,5 +215,5 @@ export async function prepareSession(opts: {
     step("Opened a blank page");
   }
 
-  return { profileArgs: args, host: rawHost || undefined, steps };
+  return { profileArgs: args, host: rawHost || undefined, steps, directFallback };
 }
