@@ -188,6 +188,8 @@ export interface BrowserWorkflowSkill {
   actions: string[];
   createdAt: number;
   updatedAt: number;
+  serverSlug?: string;
+  submittedAt?: number;
 }
 
 export function customPrivateSlug(script: CustomScript): string {

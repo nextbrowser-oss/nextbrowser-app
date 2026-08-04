@@ -128,7 +128,12 @@ export function serializeScripts(scripts: CustomScript[]) {
 }
 
 export function normalizeWorkflowSkill(skill: BrowserWorkflowSkill): BrowserWorkflowSkill {
-  return { ...skill, createdAt: parseMillis(skill.createdAt), updatedAt: parseMillis(skill.updatedAt) };
+  return {
+    ...skill,
+    createdAt: parseMillis(skill.createdAt),
+    updatedAt: parseMillis(skill.updatedAt),
+    submittedAt: skill.submittedAt == null ? undefined : parseMillis(skill.submittedAt),
+  };
 }
 
 export function serializeWorkflowSkills(skills: BrowserWorkflowSkill[]) {
@@ -136,6 +141,7 @@ export function serializeWorkflowSkills(skills: BrowserWorkflowSkill[]) {
     ...skill,
     createdAt: isoSeconds(skill.createdAt),
     updatedAt: isoSeconds(skill.updatedAt),
+    submittedAt: skill.submittedAt == null ? undefined : isoSeconds(skill.submittedAt),
   }));
 }
 

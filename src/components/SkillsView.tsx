@@ -91,7 +91,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
         >
           <Icon name="person.crop.circle" size={18} className="skills-nav-icon" />
           <span className="skills-nav-title">My skills</span>
-          <span className="muted small skills-nav-count">{s.localSkills.length}</span>
+          <span className="muted small skills-nav-count">{s.localSkills.length + s.privateCloudSkills.filter((cloud) => !s.localSkills.some((local) => local.serverSlug === cloud.id)).length}</span>
         </button>
         {categories.map((c) => (
           <button
@@ -258,7 +258,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
         </div>}
 
         {isMySkills && (
-          s.localSkills.length === 0 ? (
+          s.localSkills.length === 0 && s.privateCloudSkills.length === 0 ? (
             <div className="skills-empty-state">
               <span className="skills-empty-icon"><Icon name="sparkles" size={22} /></span>
               <strong>No local skills yet</strong>
@@ -271,10 +271,27 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                   key={skill.id}
                   skill={skill}
                   ready={ready}
+                  sync={s.localSkillSync[skill.id] ?? (skill.submittedAt ? "synced" : "idle")}
                   onRun={() => void s.runLocalSkill(skill)}
+                  onSync={() => void s.saveLocalSkill(skill)}
                   onDelete={() => s.deleteLocalSkill(skill.id)}
                 />
               ))}
+              {s.privateCloudSkills
+                .filter((cloud) => !s.localSkills.some((local) => local.serverSlug === cloud.id))
+                .map((skill) => (
+                  <div className="skill-card claw-card" key={skill.id}>
+                    <div className="skill-card-head">
+                      <Icon name="sparkles" size={16} className="accent-icon" />
+                      <div className="skill-title">{skill.title}</div>
+                      <span className="mode-badge agent">Private cloud</span>
+                    </div>
+                    <div className="muted small">{skill.description || "Private skill from your account"}</div>
+                    <div className="skill-actions">
+                      <button className="btn-bordered-prominent full" disabled={!ready} onClick={() => void s.runScript(skill)}>Run</button>
+                    </div>
+                  </div>
+                ))}
             </div>
           )
         )}
@@ -314,7 +331,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                   My scripts
                 </h3>
                 <p className="muted small">
-                  Stored only on this device and never uploaded to the cloud catalog.
+                  Backed up privately to your account and never shared with other users.
                 </p>
               </div>
               <button className="btn-bordered-prominent" title="Create a new private custom script" onClick={() => setScriptEditor("new")}>
@@ -335,10 +352,12 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                   <CustomScriptCard
                     key={cs.id}
                     script={cs}
+                    sync={s.scriptSync[cs.id]}
                     sessionName={sessionName}
                     onEdit={() => setScriptEditor(cs)}
                     onDelete={() => s.deleteCustomScript(cs.id)}
                     onUse={() => s.runCustomScript(cs)}
+                    onSync={() => void s.saveCustomScript(cs)}
                   />
                 ))}
               </div>
@@ -361,10 +380,12 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
   );
 }
 
-function LocalSkillCard({ skill, ready, onRun, onDelete }: {
+function LocalSkillCard({ skill, ready, sync, onRun, onSync, onDelete }: {
   skill: BrowserWorkflowSkill;
   ready: boolean;
+  sync: string;
   onRun: () => void;
+  onSync: () => void;
   onDelete: () => void;
 }) {
   return (
@@ -377,6 +398,10 @@ function LocalSkillCard({ skill, ready, onRun, onDelete }: {
       <div className="muted small">{skill.domain || "Any website"}</div>
       <p className="small instructions-preview">{skill.instructions.slice(0, 150)}{skill.instructions.length > 150 ? "…" : ""}</p>
       <div className="small muted">{skill.actions.length} recorded browser action{skill.actions.length === 1 ? "" : "s"}</div>
+      {sync === "idle" && <button className="link small sync-link" onClick={onSync}>Back up privately</button>}
+      {sync === "syncing" && <span className="muted small">Backing up…</span>}
+      {sync === "synced" && <span className="ok small"><Icon name="lock.fill" size={11} /> Private cloud backup</span>}
+      {sync === "failed" && <button className="link small" onClick={onSync}>Saved locally · Retry backup</button>}
       <div className="skill-actions">
         <button className="btn-bordered-prominent full" disabled={!ready} onClick={onRun}>Run</button>
         <button className="plain-icon-btn" title="Delete local skill" onClick={onDelete}>
@@ -389,16 +414,20 @@ function LocalSkillCard({ skill, ready, onRun, onDelete }: {
 
 function CustomScriptCard({
   script,
+  sync,
   sessionName,
   onEdit,
   onDelete,
   onUse,
+  onSync,
 }: {
   script: CustomScript;
+  sync?: string;
   sessionName: string;
   onEdit: () => void;
   onDelete: () => void;
   onUse: () => void;
+  onSync: () => void;
 }) {
   return (
     <div className="skill-card claw-card custom-script-card">
@@ -406,7 +435,10 @@ function CustomScriptCard({
       <div className="muted small">{script.domain || "(any domain)"}</div>
       <div className="muted small">Runs in {sessionName}</div>
       <p className="small instructions-preview">{script.instructions.slice(0, 120)}…</p>
-      <span className="muted small"><Icon name="lock.fill" size={11} /> Local only</span>
+      {(!sync || sync === "idle") && <button className="link small sync-link" onClick={onSync}>Back up privately</button>}
+      {sync === "syncing" && <span className="muted small">Backing up…</span>}
+      {sync === "synced" && <span className="ok small"><Icon name="lock.fill" size={11} /> Private cloud backup</span>}
+      {sync === "failed" && <button className="link small" onClick={onSync}>Backup failed · Retry</button>}
       <div className="skill-actions">
         <button className="btn-bordered-prominent full" title={`Use ${script.title} in chat`} onClick={onUse}>
           Use
@@ -465,6 +497,8 @@ function CustomScriptSheet({
                 instructions: instructions.trim(),
                 createdAt: script?.createdAt ?? Date.now(),
                 updatedAt: Date.now(),
+                serverSlug: script?.serverSlug,
+                submittedAt: script?.submittedAt,
               })
             }
           >

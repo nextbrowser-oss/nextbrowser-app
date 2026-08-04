@@ -69,6 +69,7 @@ import type {
   UsageSnapshot,
 } from "./types";
 import type { RotationCountry } from "./lib/countryFlag";
+import { customPrivateSlug, customPublishSelector } from "./types";
 
 interface QueuedItem {
   conversationId: string;
@@ -322,6 +323,8 @@ interface State {
   scheduledRuns: ScheduledRun[];
   customScripts: CustomScript[];
   localSkills: BrowserWorkflowSkill[];
+  localSkillSync: Record<string, ScriptSyncState>;
+  privateCloudSkills: SkillEntry[];
   appliedScripts: SkillEntry[];
   scriptSync: Record<string, ScriptSyncState>;
   usageHistory: UsageSnapshot[];
@@ -878,6 +881,8 @@ export const useStore = create<State>((set, get) => {
   scheduledRuns: [],
   customScripts: [],
   localSkills: [],
+  localSkillSync: {},
+  privateCloudSkills: [],
   appliedScripts: [],
   scriptSync: {},
   usageHistory: [],
@@ -1868,6 +1873,7 @@ export const useStore = create<State>((set, get) => {
     try {
       const catalog = await nextctlJson<{ categories: Array<{ id: string; title: string; icon: string; order: number; skills: SkillRef[] }> }>(["skill", "list"]);
       const backendScripts: SkillEntry[] = [];
+      const privateCloudSkills: SkillEntry[] = [];
       const skillCategories: SkillCategory[] = catalog.categories.map((category) => ({
           id: category.id, title: category.title, icon: category.icon,
           blurb: `Published ${category.title.toLowerCase()} available from the backend.`,
@@ -1880,14 +1886,19 @@ export const useStore = create<State>((set, get) => {
               selector: { kind: ref.kind === "domain" && ref.selector!.endsWith(".script") ? "script" : ref.kind!, value: ref.selector! },
             }))
             .filter((entry) => {
+              if (category.id === "my-skills") {
+                privateCloudSkills.push(entry);
+                return false;
+              }
               if (entry.selector.kind !== "script") return true;
               backendScripts.push(entry);
               return false;
             }),
-        }));
+        })).filter((category) => category.id !== "my-skills");
       const localApplied = get().appliedScripts.filter((entry) => !entry.id.startsWith("catalog:"));
       set({
         skillCategories,
+        privateCloudSkills,
         appliedScripts: [...localApplied, ...backendScripts.map((entry) => ({ ...entry, id: `catalog:${entry.id}` }))],
       });
       trackEvent("skill_catalog_loaded", {
@@ -3236,12 +3247,32 @@ export const useStore = create<State>((set, get) => {
       ? get().customScripts.map((s) => (s.id === script.id ? updated : s))
       : [...get().customScripts, updated];
     persistScripts(scripts);
-    set({ customScripts: scripts, scriptSync: { ...get().scriptSync, [script.id]: "idle" } });
-    trackTiming("custom_script_save_completed", startedAt, {
-      existing: !!existing,
-      has_domain: !!script.domain.trim(),
-      storage: "local",
-    });
+    set({ customScripts: scripts, scriptSync: { ...get().scriptSync, [script.id]: "syncing" } });
+    let tempPath: string | undefined;
+    try {
+      const slug = customPrivateSlug(updated);
+      const selector = customPublishSelector(updated);
+      const description = updated.domain
+        ? `Private custom script for ${updated.domain} (not shared).`
+        : "Private custom script (not shared).";
+      const markdown = `---\nname: ${updated.title || "Custom script"}\ndescription: ${description}\n---\n\n${updated.instructions}`;
+      tempPath = await invoke<string>("write_temp_skill", { slug, content: markdown });
+      const { env, res } = await nextctlEnvelope<SkillRef>([
+        "skill", "add", "--domain", selector, "--private", "--slug", slug,
+        "--title", updated.title || slug, "--description", description, "--file", tempPath,
+      ]);
+      if (res.code !== 0 || env.ok === false) throw new Error(nextctlErrorMessage(res));
+      const synced = { ...updated, serverSlug: env.data?.slug ?? slug, submittedAt: now() };
+      const final = scripts.map((s) => s.id === script.id ? synced : s);
+      persistScripts(final);
+      set({ customScripts: final, scriptSync: { ...get().scriptSync, [script.id]: "synced" } });
+      trackTiming("custom_script_save_completed", startedAt, { existing: !!existing, has_domain: !!script.domain.trim() });
+    } catch {
+      set((s) => ({ scriptSync: { ...s.scriptSync, [script.id]: "failed" } }));
+      trackTiming("custom_script_save_failed", startedAt, { existing: !!existing, has_domain: !!script.domain.trim() });
+    } finally {
+      if (tempPath) void invoke("remove_temp_file", { path: tempPath });
+    }
   },
 
   deleteCustomScript: (id) => {
@@ -3310,7 +3341,28 @@ export const useStore = create<State>((set, get) => {
     const slug = `workflow-${skill.id.slice(0, 8)}`;
     const body = `---\nname: ${skill.title}\ndescription: Reusable browser workflow${skill.domain ? ` for ${skill.domain}` : ""}.\n---\n\n# ${skill.title}\n\n## When to use\n\n${skill.task}\n\n## Workflow\n\n${skill.instructions}\n\n## Recorded browser actions\n\n${skill.actions.map((action, index) => `${index + 1}. ${action}`).join("\n") || "No action trace was captured."}\n`;
     await invoke<string>("write_local_skill", { slug, content: body });
-    trackEvent("browser_workflow_saved", { has_domain: !!skill.domain, action_count: skill.actions.length });
+    set((state) => ({ localSkillSync: { ...state.localSkillSync, [skill.id]: "syncing" } }));
+    let tempPath: string | undefined;
+    try {
+      tempPath = await invoke<string>("write_temp_skill", { slug, content: body });
+      const { env, res } = await nextctlEnvelope<SkillRef>([
+        "skill", "add", "--domain", `${slug}.script`, "--private", "--slug", slug,
+        "--title", skill.title, "--description", `Private browser skill${skill.domain ? ` for ${skill.domain}` : ""}.`,
+        "--category", "my-skills", "--category-title", "My skills", "--category-icon", "person.crop.circle",
+        "--file", tempPath,
+      ]);
+      if (res.code !== 0 || env.ok === false) throw new Error(nextctlErrorMessage(res));
+      const synced = { ...updated, serverSlug: env.data?.slug ?? slug, submittedAt: now() };
+      const final = localSkills.map((item) => item.id === skill.id ? synced : item);
+      persistLocalSkills(final);
+      set((state) => ({ localSkills: final, localSkillSync: { ...state.localSkillSync, [skill.id]: "synced" } }));
+      trackEvent("browser_workflow_saved", { has_domain: !!skill.domain, action_count: skill.actions.length, storage: "private_cloud" });
+    } catch {
+      set((state) => ({ localSkillSync: { ...state.localSkillSync, [skill.id]: "failed" } }));
+      trackEvent("browser_workflow_saved", { has_domain: !!skill.domain, action_count: skill.actions.length, storage: "local_only" });
+    } finally {
+      if (tempPath) void invoke("remove_temp_file", { path: tempPath });
+    }
   },
 
   deleteLocalSkill: (id) => {

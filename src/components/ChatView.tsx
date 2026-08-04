@@ -940,7 +940,7 @@ function SaveWorkflowModal({ task, answer, onClose, onSave }: {
     <div className="modal-overlay" onMouseDown={onClose}>
       <div className="modal-card workflow-save-modal" onMouseDown={(event) => event.stopPropagation()}>
         <strong>Save browser workflow</strong>
-        <p className="muted small">This creates a private skill stored only on this device.</p>
+        <p className="muted small">Saved locally first, then backed up privately to your account.</p>
         <label className="field-label">Skill name</label>
         <input value={title} autoFocus onChange={(event) => setTitle(event.target.value)} />
         <label className="field-label">Website</label>
