@@ -27,7 +27,12 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
       - run: npm ci
+      - run: python -m pip install -r browser-engine/requirements.txt
+      - run: python scripts/build-browser-engine.py
       - run: npm test
       - name: Configure macOS signing
         env:
@@ -88,7 +93,12 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
       - run: npm ci
+      - run: python -m pip install -r browser-engine/requirements.txt
+      - run: python scripts/build-browser-engine.py
       - run: npm test
       - name: Build Windows installer
         run: npm run dist:win

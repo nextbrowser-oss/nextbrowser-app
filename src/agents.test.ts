@@ -6,12 +6,40 @@ import {
   isMissingAgentInstallError,
   missingAgentInstallError,
   nextctlAgentAdapter,
+  supportsBrowserEngine,
 } from "./agents";
 
 describe("agent invocation parity", () => {
   it("maps app agent ids to nextctl adapters", () => {
     expect(nextctlAgentAdapter("claude")).toBe("claude-code");
     expect(nextctlAgentAdapter("codex")).toBe("codex");
+  });
+  it("limits the experimental browser engine to agents with isolated MCP config", () => {
+    expect(supportsBrowserEngine("codex")).toBe(true);
+    expect(supportsBrowserEngine("claude")).toBe(true);
+    expect(supportsBrowserEngine("gemini")).toBe(false);
+  });
+  it("injects only the browser engine MCP into Codex", () => {
+    const invocation = agentInvocation(agentById("codex"), "scrape", {
+      command: "/opt/nextbrowser-browser-engine",
+      cdpUrl: "http://127.0.0.1:9222",
+      nextctlBin: "/opt/nbc",
+    });
+    expect(invocation.args).toContain("--ignore-user-config");
+    expect(invocation.args.join(" ")).toContain("nextbrowser_browser");
+    expect(invocation.args.join(" ")).toContain("127.0.0.1:9222");
+    expect(invocation.args.join(" ")).toContain("default_tools_approval_mode");
+    expect(invocation.stdin).toBe("scrape");
+  });
+  it("uses Claude strict MCP config without adding an LLM credential", () => {
+    const invocation = agentInvocation(agentById("claude"), "post", {
+      command: "engine.exe",
+      cdpUrl: "http://127.0.0.1:9333",
+      nextctlBin: "nbc.exe",
+    });
+    expect(invocation.args).toContain("--strict-mcp-config");
+    expect(invocation.args.join(" ")).toContain("nextbrowser-browser");
+    expect(invocation.args.join(" ")).not.toMatch(/API_KEY|OPENAI|ANTHROPIC/);
   });
   it("links primary agents to their supported installation pages", () => {
     expect(agentById("claude").installUrl).toBe("https://code.claude.com/docs/en/installation");

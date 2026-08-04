@@ -27,7 +27,7 @@ import {
 } from "./lib/appNavigation";
 import { internalError } from "./lib/userFacingError";
 import { invoke, listen } from "./electronBridge";
-import { agentById } from "./agents";
+import { agentById, supportsBrowserEngine } from "./agents";
 import { UserFacingError } from "./components/UserFacingError";
 import { AgentInstallLink } from "./components/AgentInstallLink";
 
@@ -221,6 +221,9 @@ function SettingsModal({
   const logoutAgent = useStore((s) => s.logoutAgent);
   const terminalChat = useStore((s) => s.terminalChat);
   const setTerminalChat = useStore((s) => s.setTerminalChat);
+  const browserEngine = useStore((s) => s.browserEngine);
+  const browserEngineAvailable = useStore((s) => s.browserEngineAvailable);
+  const setBrowserEngine = useStore((s) => s.setBrowserEngine);
   const profiles = useStore((s) => {
     const defaultKnown = !!s.defaultSession?.session?.name || (s.defaultSession?.status ?? "unknown") !== "unknown";
     const hasListedDefault = s.profiles.some((profile) => profile.name === "default");
@@ -391,6 +394,30 @@ function SettingsModal({
               aria-checked={terminalChat}
               aria-label="Terminal chat"
               onClick={() => setTerminalChat(!terminalChat)}
+            >
+              <span />
+            </button>
+          </div>
+          <div className="settings-experiment-row">
+            <span className="settings-feature-icon">
+              <Icon name="globe" size={17} />
+            </span>
+            <span className="settings-feature-copy">
+              <strong>Browser Use engine <span className="experimental-pill">Experimental</span></strong>
+              <span className="muted small">
+                Browser Use handles semantic DOM and page actions. {supportsBrowserEngine(agentId)
+                  ? browserEngineAvailable ? "Your selected agent still plans every step." : "This build does not contain the engine component."
+                  : "Currently available for Codex and Claude Code."}
+              </span>
+            </span>
+            <button
+              type="button"
+              className={"settings-switch" + (browserEngine ? " is-on" : "")}
+              role="switch"
+              aria-checked={browserEngine}
+              aria-label="Browser Use engine"
+              disabled={!browserEngine && (!browserEngineAvailable || !supportsBrowserEngine(agentId))}
+              onClick={() => setBrowserEngine(!browserEngine)}
             >
               <span />
             </button>

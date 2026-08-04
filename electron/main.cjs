@@ -47,6 +47,55 @@ function codexClawbrowserArgs() {
   ];
 }
 
+function browserEngineAgentArgs(agentId, engine) {
+  if (!engine) return [];
+  if (agentId === "codex") return [
+    "--ask-for-approval", "never",
+    "--sandbox", "workspace-write",
+    "-c", "sandbox_workspace_write.network_access=true",
+    "-c", `mcp_servers.nextbrowser_browser.command=${JSON.stringify(engine.command)}`,
+    "-c", `mcp_servers.nextbrowser_browser.env.NEXTBROWSER_CDP_URL=${JSON.stringify(engine.cdpUrl)}`,
+    "-c", `mcp_servers.nextbrowser_browser.env.NEXTBROWSER_NEXTCTL_BIN=${JSON.stringify(engine.nextctlBin)}`,
+    "-c", `mcp_servers.nextbrowser_browser.env.NEXTBROWSER_PROFILE=${JSON.stringify(engine.profile || "")}`,
+    "-c", "mcp_servers.nextbrowser_browser.default_tools_approval_mode=\"approve\"",
+    "-c", `developer_instructions=${JSON.stringify("Browser engine mode is active. Use only the nextbrowser-browser MCP tools. Call browser_prepare exactly once at the beginning of a browser task and proceed only after it succeeds. Do not call browser_prepare again during the same task unless it failed or the user explicitly requests a different identity. If the request mentions a proxy, country, or identity, pass the requested two-letter ISO country so nextctl rotates and verifies the proxy before browser work. Never navigate, inspect, or act before preparation. Do not use clawbrowser MCP, nbc, nextctl, or shell commands for browser work.")}`,
+  ];
+  if (agentId === "claude") return [
+    "--strict-mcp-config", "--mcp-config", JSON.stringify({
+      mcpServers: {
+        "nextbrowser-browser": {
+          command: engine.command,
+          env: {
+            NEXTBROWSER_CDP_URL: engine.cdpUrl,
+            NEXTBROWSER_NEXTCTL_BIN: engine.nextctlBin,
+            NEXTBROWSER_PROFILE: engine.profile || "",
+          },
+        },
+      },
+    }),
+  ];
+  throw new Error("Browser engine is currently supported by Codex and Claude Code only.");
+}
+
+async function isolatedCodexHome() {
+  const target = path.join(dataDir(), "codex-browser-engine");
+  const sourceHome = String(process.env.CODEX_HOME || path.join(home(), ".codex"));
+  const sourceAuth = path.join(sourceHome, "auth.json");
+  const targetAuth = path.join(target, "auth.json");
+  await fs.mkdir(target, { recursive: true });
+  try {
+    await fs.copyFile(sourceAuth, targetAuth);
+    if (process.platform !== "win32") await fs.chmod(targetAuth, 0o600);
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+    throw new Error("Codex login was not found. Sign in to Codex before enabling the browser engine.");
+  }
+  // Keep this home intentionally minimal: auth is shared as a snapshot, while
+  // user plugins, skills, and MCP servers must not leak into the A/B engine run.
+  await fs.writeFile(path.join(target, "config.toml"), "", { encoding: "utf8", mode: 0o600 });
+  return target;
+}
+
 async function ensureCodexTerminalProfile() {
   const codexDir = String(process.env.CODEX_HOME || path.join(home(), ".codex"));
   await fs.mkdir(codexDir, { recursive: true });
@@ -222,9 +271,9 @@ function resolveBinary(name, envVar) {
   return null;
 }
 function childEnv(extra = {}) { return { ...process.env, PATH: searchDirs().join(path.delimiter), ...extra }; }
-function terminalEnv() {
+function terminalEnv(extra = {}) {
   return Object.fromEntries(
-    Object.entries(childEnv({ TERM: "xterm-256color", COLORTERM: "truecolor" }))
+    Object.entries(childEnv({ TERM: "xterm-256color", COLORTERM: "truecolor", ...extra }))
       .filter(([, value]) => typeof value === "string"),
   );
 }
@@ -354,6 +403,45 @@ async function resolveOrInstallNextctl() {
   return installManagedNextctl();
 }
 function dataDir() { return path.join(app.getPath("userData")); }
+
+function browserEngineExecutable() {
+  const executable = process.platform === "win32" ? "nextbrowser-browser-engine.exe" : "nextbrowser-browser-engine";
+  const configured = process.env.NEXTBROWSER_BROWSER_ENGINE_BIN;
+  const candidates = [
+    configured && expand(configured),
+    app.isPackaged && path.join(process.resourcesPath, "browser-engine", executable),
+    path.join(__dirname, "..", "browser-engine", "dist", "nextbrowser-browser-engine", executable),
+  ].filter(Boolean);
+  return candidates.find(launchable) || null;
+}
+
+async function browserEnginePrepare(profile) {
+  const command = browserEngineExecutable();
+  if (!command) throw new Error("The experimental browser engine is not installed in this build.");
+  const bin = await resolveOrInstallNextctl();
+  if (!bin) throw new Error("nextctl is required to resolve the running browser session.");
+  const profileArgs = profile ? ["--profile", String(profile)] : [];
+  const readStatus = async () => {
+    const result = await run(bin, [...profileArgs, "status", "--format", "json"]);
+    try { return JSON.parse(result.stdout); }
+    catch { throw new Error("nextctl returned an invalid browser status."); }
+  };
+  let envelope = await readStatus();
+  let data = envelope && envelope.data !== undefined ? envelope.data : envelope;
+  let cdpUrl = data?.session?.endpoint || data?.endpoint;
+  if (envelope?.ok && !cdpUrl && data?.status !== "running") {
+    const started = await run(bin, [...profileArgs, "start", "--format", "json"]);
+    let startEnvelope;
+    try { startEnvelope = JSON.parse(started.stdout); }
+    catch { throw new Error("nextctl returned an invalid browser start result."); }
+    if (!startEnvelope?.ok) throw new Error(startEnvelope?.error?.message || "The browser session could not start.");
+    envelope = await readStatus();
+    data = envelope && envelope.data !== undefined ? envelope.data : envelope;
+    cdpUrl = data?.session?.endpoint || data?.endpoint;
+  }
+  if (!envelope?.ok || !cdpUrl) throw new Error(envelope?.error?.message || "The browser session has no CDP endpoint.");
+  return { command, cdpUrl, nextctlBin: bin, profile: profile || "" };
+}
 async function migrateLegacyData() {
   const legacy = path.join(app.getPath("appData"), "clawdesk-electron");
   const current = dataDir();
@@ -524,6 +612,11 @@ async function invokeCommand(command, args = {}) {
       const r = await run(bin, ["version"]); return r.stdout.trim();
     }
     case "nextctl_supports_skill": { const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found"); return nextctlHasSkill(bin); }
+    case "browser_engine_status": {
+      const command = browserEngineExecutable();
+      return { available: !!command, command };
+    }
+    case "browser_engine_prepare": return browserEnginePrepare(args.profile || "");
     case "proxy_traffic_top_up": return await topUpProxyTraffic();
     case "pairing_start": {
       return apiFetchJSON(args.apiBaseUrl, "/v1/pairing-requests/browser", {
@@ -685,19 +778,22 @@ async function invokeCommand(command, args = {}) {
       if (!bin) throw new Error(`${agent.binary} CLI not found.`);
       const id = randomUUID();
       const writableDirs = args.agentId === "codex" ? clawbrowserWritableDirs() : [];
-      if (args.agentId === "codex") await ensureCodexTerminalProfile();
+      if (args.agentId === "codex" && !args.browserEngine) await ensureCodexTerminalProfile();
       await Promise.all(writableDirs.map((dir) => fs.mkdir(dir, { recursive: true })));
       const terminalArgs = [
-        ...(agent.args || []),
+        ...(args.browserEngine ? browserEngineAgentArgs(args.agentId, args.browserEngine) : (agent.args || [])),
         ...writableDirs.flatMap((dir) => ["--add-dir", dir]),
       ];
+      const terminalExtraEnv = args.browserEngine && args.agentId === "codex"
+        ? { CODEX_HOME: await isolatedCodexHome() }
+        : {};
       const spec = commandSpec(bin, terminalArgs);
       const terminal = pty.spawn(spec.file, spec.args, {
         name: "xterm-256color",
         cols: Math.max(2, Math.min(500, Number(args.cols) || 80)),
         rows: Math.max(2, Math.min(300, Number(args.rows) || 24)),
         cwd: args.workingDir || home(),
-        env: terminalEnv(),
+        env: terminalEnv(terminalExtraEnv),
       });
       const record = { process: terminal, ready: false, buffer: [], exit: null };
       terminals.set(id, record);

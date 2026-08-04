@@ -10,6 +10,8 @@ interface AgentTerminalProps {
   agentName: string;
   conversationId?: string;
   workingDir?: string;
+  browserEngine?: boolean;
+  selectedProfile?: string;
   onClose: () => void;
 }
 
@@ -67,7 +69,7 @@ function activeTerminalTheme() {
     : DARK_TERMINAL_THEME;
 }
 
-export function AgentTerminal({ agentId, agentName, conversationId, workingDir, onClose }: AgentTerminalProps) {
+export function AgentTerminal({ agentId, agentName, conversationId, workingDir, browserEngine, selectedProfile, onClose }: AgentTerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalIdRef = useRef<string>();
   const [status, setStatus] = useState<"starting" | "running" | "exited" | "failed">("starting");
@@ -131,11 +133,15 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
         terminal.write(`\r\n\x1b[90mProcess exited (${exitCode}).\x1b[0m\r\n`);
         setStatus("exited");
       });
+      const engine = browserEngine
+        ? await invoke<{ command: string; cdpUrl: string }>("browser_engine_prepare", { profile: selectedProfile || null })
+        : null;
       const id = await invoke<string>("terminal_start", {
         agentId,
         workingDir: workingDir || null,
         cols: terminal.cols,
         rows: terminal.rows,
+        browserEngine: engine,
       });
       if (disposed) {
         await invoke("terminal_kill", { id });
@@ -171,7 +177,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
   // A terminal is the interactive state of one chat, not a global agent
   // process. Restart it when the selected conversation changes so pending
   // input, scrollback, or an unfinished prompt cannot leak into another chat.
-  }, [agentId, conversationId, workingDir]);
+  }, [agentId, browserEngine, conversationId, selectedProfile, workingDir]);
 
   return (
     <section className="agent-terminal-panel" aria-label={`${agentName} terminal`}>
