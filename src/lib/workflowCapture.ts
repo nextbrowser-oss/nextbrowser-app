@@ -4,6 +4,9 @@ const CLAWBROWSER_CALL = /clawbrowser\.([a-z_]+)/g;
 interface CapturedCall {
   name: string;
   args: Record<string, unknown>;
+  start: number;
+  end: number;
+  score: number;
 }
 
 function capturedCalls(transcript: string): CapturedCall[] {
@@ -34,25 +37,49 @@ function capturedCalls(transcript: string): CapturedCall[] {
     if (close < 0) continue;
     try {
       const args = JSON.parse(transcript.slice(open + 1, close)) as Record<string, unknown>;
-      calls.push({ name, args });
+      calls.push({ name, args, start: match.index ?? 0, end: close + 1, score: 0 });
     } catch {
       // Truncated calls still contribute their tool name to the generic workflow.
     }
   }
-  return calls;
+  return calls.map((call, index) => {
+    const result = transcript.slice(call.end, calls[index + 1]?.start ?? transcript.length);
+    let score = 0;
+    if (/\b(error|failed|failure)\b/i.test(result) || /"(?:count|executed)"\s*:\s*0\b/.test(result) || /"rows"\s*:\s*\[\s*\]/.test(result)) score -= 10;
+    if (/"ok"\s*:\s*true/.test(result) || /"count"\s*:\s*[1-9]\d*/.test(result) || /"rows"\s*:\s*\[\s*\{/.test(result) || /Наш[её]л|found\s+[1-9]/i.test(result)) score += 10;
+    return { ...call, score };
+  });
 }
 
 function pick(source: Record<string, unknown>, keys: string[]): Record<string, unknown> {
   return Object.fromEntries(keys.filter((key) => source[key] !== undefined).map((key) => [key, source[key]]));
 }
 
+function best(calls: CapturedCall[]): CapturedCall | undefined {
+  return calls.reduce<CapturedCall | undefined>((selected, call) =>
+    !selected || call.score >= selected.score ? call : selected, undefined);
+}
+
+function selectedFastPath(transcript: string): CapturedCall[] {
+  const calls = capturedCalls(transcript);
+  return [
+    best(calls.filter((call) => ["start", "prepare"].includes(call.name))),
+    best(calls.filter((call) => ["open", "navigate"].includes(call.name))),
+    best(calls.filter((call) => ["multi_action", "input", "click", "press"].includes(call.name))),
+    best(calls.filter((call) => ["paginate_extract", "extract"].includes(call.name))),
+  ].filter((call): call is CapturedCall => !!call && call.score >= 0);
+}
+
 function fastPath(transcript: string): string[] {
-  return capturedCalls(transcript).flatMap(({ name, args }) => {
+  return selectedFastPath(transcript).flatMap(({ name, args }) => {
     if (["start", "prepare"].includes(name)) {
       return [`clawbrowser.${name}(${JSON.stringify(pick(args, ["profile", "country", "url", "verify", "wait_for"]))})`];
     }
     if (name === "multi_action") {
       return [`clawbrowser.multi_action(${JSON.stringify(pick(args, ["actions", "stop_on_navigation", "wait_for", "state_mode"]))})`];
+    }
+    if (["open", "navigate"].includes(name)) {
+      return [`clawbrowser.${name}(${JSON.stringify(pick(args, ["url", "new_tab", "wait_for"]))})`];
     }
     if (["paginate_extract", "extract"].includes(name)) {
       return [`clawbrowser.${name}(${JSON.stringify(pick(args, ["container", "fields", "filters", "dedupe_by", "transform", "scroll", "max_pages", "limit", "initial_wait", "timeout"]))})`];
@@ -102,13 +129,24 @@ export function workflowInstructions(task: string, transcript: string): string {
   if (unique.some((tool) => ["multi_action", "input", "click", "press"].includes(tool))) {
     steps.push("Use the site's controls to apply the requested search and filters, waiting for navigation or page settlement when needed.");
   }
+  const selected = selectedFastPath(transcript);
+  const hasSearchAction = selected.some((call) => ["multi_action", "input", "click", "press"].includes(call.name));
+  const selectedURL = selected
+    .map((call) => typeof call.args.url === "string" ? call.args.url : "")
+    .find((url) => /[?&](?:q|query|search)=/i.test(url));
+  const searchTask = /\b(find|search)\b|найди|поиск/i.test(task);
+  if (searchTask && !hasSearchAction && !selectedURL) {
+    steps.push("Before extraction, apply the requested search on the site and wait until the results page is loaded; the recorded run started from browser state that was not fully self-contained.");
+  }
   if (unique.some((tool) => ["paginate_extract", "extract", "state"].includes(tool))) {
     steps.push("Extract all matching results, paginate or scroll as needed, deduplicate by canonical URL, and exclude irrelevant matches.");
   }
   steps.push("Return a concise result list with titles, URLs, and the important details requested by the user.");
   const calls = fastPath(transcript);
+  const hasElementHints = calls.some((call) => call.includes('"element_id"'));
+  const incomplete = searchTask && !hasSearchAction && !selectedURL;
   const technical = calls.length
-    ? `\n\nTechnical fast path:\nRun these operations in order. Reuse the saved arguments first; inspect the page and adapt only if an operation fails or the page structure changed.\n\n${calls.map((call, index) => `${index + 1}. ${call}`).join("\n")}\n\nTreat saved element_id values as short-lived hints. Resolve the element again by role, label, text, or selector if the id no longer matches.`
+    ? `\n\nTechnical fast path:\nRun these operations in order. Reuse the saved arguments first; inspect the page and adapt only if an operation fails or the page structure changed.\n\n${calls.map((call, index) => `${index + 1}. ${call}`).join("\n")}${incomplete ? "\n\nThis fast path is partial: reproduce the requested site search before running extraction." : ""}${hasElementHints ? "\n\nTreat saved element_id values as short-lived hints. Resolve the element again by role, label, text, or selector if the id no longer matches." : ""}`
     : "";
   return `Task pattern:\n${task || "Repeat the saved browser task on the selected website."}\n\nWorkflow:\n${steps.map((step, index) => `${index + 1}. ${step}`).join("\n")}${technical}`;
 }

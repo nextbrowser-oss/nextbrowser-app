@@ -33,4 +33,24 @@ describe("terminal workflow capture", () => {
     expect(instructions).not.toContain("return_state");
     expect(instructions).not.toContain("gpt-5.6-sol");
   });
+
+  it("keeps one successful extraction and marks a non-self-contained search", () => {
+    const retryTranscript = `
+› открой makler.md c американской проксей и найди все матизы
+• Called clawbrowser.start({"profile":"us-makler-md","country":"US","url":"https://makler.md"})
+  {"ok":true}
+• Called clawbrowser.paginate_extract({"container":"li","fields":{"title":{"selector":"h3"}},"limit":500})
+  {"rows":[],"count":0}
+• Called clawbrowser.paginate_extract({"container":"li","fields":{"title":{"selector":"h3 a"}},"scroll":true,"limit":500})
+  Error: selector failed
+• Called clawbrowser.paginate_extract({"container":"a[href]","fields":{"title":{"selector":""},"url":{"selector":"","attribute":"href"}},"filters":[{"field":"title","op":"contains","value":"Matiz"}],"dedupe_by":["url"],"scroll":true,"limit":500})
+  {"rows":[{"title":"Daewoo Matiz","url":"https://makler.md/1"}],"count":1}
+`;
+    const instructions = workflowInstructions(terminalBrowserTask(retryTranscript), retryTranscript);
+    expect(instructions.match(/clawbrowser\.paginate_extract/g)).toHaveLength(1);
+    expect(instructions).toContain('"container":"a[href]"');
+    expect(instructions).toContain("fast path is partial");
+    expect(instructions).toContain("apply the requested search");
+    expect(instructions).not.toContain("element_id values");
+  });
 });
