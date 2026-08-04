@@ -136,6 +136,24 @@ export function capturedWorkflowDomain(task: string, transcript: string): string
   return publicDomainsInText(transcript)[0] ?? "";
 }
 
+export function workflowQuality(task: string, transcript: string, domain = capturedWorkflowDomain(task, transcript)): { reusable: boolean; reason: string } {
+  if (!domain) return { reusable: false, reason: "The website could not be identified." };
+  const calls = capturedCalls(transcript);
+  if (calls.length === 0) return { reusable: false, reason: "No browser actions were captured." };
+  const meaningful = calls.filter((call) => !["state", "tabs", "wait", "verify"].includes(call.name));
+  if (meaningful.length === 0) return { reusable: false, reason: "The run only inspected the browser and did not perform a reusable task." };
+  const last = calls.at(-1);
+  if (last && last.score < 0) return { reusable: false, reason: "The browser workflow ended with a failed action." };
+  const successfulExtraction = calls.some((call) => ["extract", "paginate_extract"].includes(call.name) && call.score > 0);
+  const postingConfirmation = /\b(posted|published|submitted|saved draft|commented|sent successfully)\b|опубликован|отправлен|сохран[её]н\s+черновик/i.test(transcript);
+  const interaction = calls.some((call) => ["multi_action", "input", "click", "press", "upload"].includes(call.name));
+  const navigation = calls.some((call) => ["start", "prepare", "open", "navigate"].includes(call.name));
+  if (!successfulExtraction && !postingConfirmation && !(interaction && navigation)) {
+    return { reusable: false, reason: "No successful extraction, posting confirmation, or complete browser interaction was captured." };
+  }
+  return { reusable: true, reason: "The trace contains a completed, repeatable browser workflow." };
+}
+
 export function terminalBrowserTask(transcript: string): string {
   const lastTool = Math.max(
     transcript.lastIndexOf("clawbrowser."),

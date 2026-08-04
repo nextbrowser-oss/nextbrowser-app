@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { capturedWorkflowDomain, terminalBrowserTask, workflowDomain, workflowInstructions, workflowTitle } from "./workflowCapture";
+import { capturedWorkflowDomain, terminalBrowserTask, workflowDomain, workflowInstructions, workflowQuality, workflowTitle } from "./workflowCapture";
 
 const transcript = `
 │ model:     gpt-5.6-sol low   /model to change │
@@ -66,5 +66,11 @@ describe("terminal workflow capture", () => {
     expect(instructions).toContain("fast path is partial");
     expect(instructions).toContain("apply the requested search");
     expect(instructions).not.toContain("element_id values");
+  });
+
+  it("rejects empty and failed runs but accepts successful extraction", () => {
+    expect(workflowQuality("открой makler.md", "No browser calls").reusable).toBe(false);
+    expect(workflowQuality("открой makler.md", 'Called clawbrowser.navigate({"url":"https://makler.md"})\nError: failed').reusable).toBe(false);
+    expect(workflowQuality(terminalBrowserTask(transcript), transcript).reusable).toBe(true);
   });
 });

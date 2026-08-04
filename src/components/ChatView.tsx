@@ -20,6 +20,7 @@ import {
   terminalBrowserTask,
   capturedWorkflowDomain,
   workflowInstructions,
+  workflowQuality,
   workflowTitle,
 } from "../lib/workflowCapture";
 import {
@@ -110,6 +111,7 @@ export function ChatView() {
   const [vpsSetupOpen, setVPSSetupOpen] = useState(false);
   const [workflowDraft, setWorkflowDraft] = useState<{ task: string; answer: ChatMessage; prepared: DistilledWorkflow } | null>(null);
   const [preparingWorkflowId, setPreparingWorkflowId] = useState<string | null>(null);
+  const [workflowRejection, setWorkflowRejection] = useState<string | null>(null);
   const [terminalVisible, setTerminalVisible] = useState(s.terminalChat);
   const [terminalMounted, setTerminalMounted] = useState(s.terminalChat);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -234,13 +236,22 @@ export function ChatView() {
   const prepareWorkflow = async (task: string, answer: ChatMessage, sourceId: string) => {
     if (preparingWorkflowId) return;
     setPreparingWorkflowId(sourceId);
-    const domain = capturedWorkflowDomain(task, answer.text);
+    const toolTrace = (answer.toolEvents ?? []).map((event) =>
+      `Called ${event.name}${event.detail ? `(${event.detail})` : ""}`,
+    ).join("\n");
+    const evidence = [toolTrace, answer.text].filter(Boolean).join("\n");
+    const capturedAnswer = { ...answer, text: evidence };
+    const domain = capturedWorkflowDomain(task, evidence);
+    const quality = workflowQuality(task, evidence, domain);
     const fallback = {
       title: workflowTitle(task, domain), domain,
-      instructions: workflowInstructions(task, answer.text),
+      instructions: workflowInstructions(task, evidence),
+      ...quality,
     };
-    const authored = ready ? await authorWorkflowWithAgent(agentSpec, s.workingDir, fallback) : undefined;
-    setWorkflowDraft({ task, answer, prepared: authored ?? fallback });
+    const authored = quality.reusable && ready ? await authorWorkflowWithAgent(agentSpec, s.workingDir, fallback) : undefined;
+    const prepared = authored ?? fallback;
+    if (!prepared.reusable) setWorkflowRejection(prepared.reason);
+    else setWorkflowDraft({ task, answer: capturedAnswer, prepared });
     setPreparingWorkflowId(null);
   };
   const showDefaultSession =
@@ -778,6 +789,17 @@ export function ChatView() {
             s.setTab("skills");
           }}
         />
+      )}
+
+      {workflowRejection && (
+        <div className="modal-overlay" onMouseDown={() => setWorkflowRejection(null)}>
+          <div className="modal-card workflow-quality-modal" onMouseDown={(event) => event.stopPropagation()}>
+            <strong>Nothing reusable to save yet</strong>
+            <p className="muted">{workflowRejection}</p>
+            <p className="muted small">Complete a browser search, extraction, form, or posting task successfully, then try again.</p>
+            <div className="row"><span className="spacer" /><button className="primary" onClick={() => setWorkflowRejection(null)}>OK</button></div>
+          </div>
+        </div>
       )}
 
       {vpsSetupOpen && <VPSSetupModal onClose={() => setVPSSetupOpen(false)} />}

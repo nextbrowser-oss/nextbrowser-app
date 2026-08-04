@@ -2145,6 +2145,7 @@ button, input, textarea, select { color: var(--text); }
 }
 .save-workflow-btn:hover { color: var(--text); }
 .workflow-save-modal { width: min(560px, calc(100vw - 48px)); }
+.workflow-quality-modal { width: min(430px, calc(100vw - 48px)); }
 .workflow-save-modal .field-label { display: block; margin: 10px 0 5px; color: var(--muted); font-size: 12px; }
 .workflow-save-modal textarea { width: 100%; resize: vertical; }
 .workflow-author-status { display: flex; align-items: center; gap: 7px; min-height: 20px; margin: 8px 0 2px; }
