@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { terminalBrowserTask, workflowDomain, workflowInstructions, workflowTitle } from "./workflowCapture";
+import { capturedWorkflowDomain, terminalBrowserTask, workflowDomain, workflowInstructions, workflowTitle } from "./workflowCapture";
 
 const transcript = `
 │ model:     gpt-5.6-sol low   /model to change │
@@ -19,6 +19,15 @@ describe("terminal workflow capture", () => {
 
   it("does not mistake a model version for a website", () => {
     expect(workflowDomain(`${terminalBrowserTask(transcript)}\n${transcript}`)).toBe("makler.md");
+  });
+
+  it("ignores verification and service domains when resolving the target website", () => {
+    const verified = `
+› найди все матизы
+• Called clawbrowser.start({"url":"https://app.clawbrowser.ai/dashboard/browser-streaming?id=rs_123"})
+• Called clawbrowser.navigate({"url":"https://makler.md/ro/an/search?query=Matiz"})
+`;
+    expect(capturedWorkflowDomain(terminalBrowserTask(verified), verified)).toBe("makler.md");
   });
 
   it("creates a useful title and normalized instructions", () => {

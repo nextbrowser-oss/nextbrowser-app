@@ -15,6 +15,14 @@ describe("workflow agent distillation", () => {
     expect(parseDistilledWorkflow(raw, fallback)?.title).toBe("Makler vehicle search");
   });
 
+  it("parses JSON surrounded by CLI output and permits generic endpoint guidance", () => {
+    const raw = `Codex CLI\n${JSON.stringify({
+      title: "Makler search", domain: "makler.md",
+      instructions: "Reuse the active endpoint only after proxy verification, then run clawbrowser.start({}) and clawbrowser.paginate_extract({}). " + "x".repeat(80),
+    })}\nDone`;
+    expect(parseDistilledWorkflow(raw, fallback)?.domain).toBe("makler.md");
+  });
+
   it("rejects invented tools, changed domains, and transient connection data", () => {
     expect(parseDistilledWorkflow(JSON.stringify({ title: "x", domain: "evil.test", instructions: "x".repeat(100) }), fallback)).toBeUndefined();
     expect(parseDistilledWorkflow(JSON.stringify({ title: "x", domain: "makler.md", instructions: `Use clawbrowser.delete_all({}). ${"x".repeat(100)}` }), fallback)).toBeUndefined();

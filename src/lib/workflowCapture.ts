@@ -95,6 +95,36 @@ export function workflowDomain(text: string): string {
   return bare?.[1]?.toLowerCase() ?? "";
 }
 
+const INTERNAL_BROWSER_HOSTS = new Set([
+  "app.clawbrowser.ai",
+  "api.nextbrowser.com",
+  "app.nextbrowser.com",
+]);
+
+function publicDomainFromURL(value: unknown): string {
+  if (typeof value !== "string") return "";
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    if (!["http:", "https:"].includes(url.protocol)) return "";
+    if (host === "localhost" || host === "127.0.0.1" || INTERNAL_BROWSER_HOSTS.has(host)) return "";
+    return workflowDomain(host);
+  } catch {
+    return "";
+  }
+}
+
+/** Resolve the task's website without accidentally selecting verification/API URLs from tool output. */
+export function capturedWorkflowDomain(task: string, transcript: string): string {
+  const requested = workflowDomain(task);
+  if (requested) return requested;
+  for (const call of capturedCalls(transcript)) {
+    const domain = publicDomainFromURL(call.args.url);
+    if (domain) return domain;
+  }
+  return "";
+}
+
 export function terminalBrowserTask(transcript: string): string {
   const lastTool = Math.max(
     transcript.lastIndexOf("clawbrowser."),

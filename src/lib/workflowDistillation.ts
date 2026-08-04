@@ -25,18 +25,32 @@ ${input.instructions}`;
 }
 
 export function parseDistilledWorkflow(raw: string, fallback: DistilledWorkflow): DistilledWorkflow | undefined {
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start < 0 || end <= start) return undefined;
   let value: unknown;
-  try { value = JSON.parse(raw.slice(start, end + 1)); } catch { return undefined; }
+  const starts = [...raw.matchAll(/\{/g)].map((match) => match.index ?? -1).filter((index) => index >= 0);
+  for (const start of starts) {
+    let depth = 0; let quoted = false; let escaped = false;
+    for (let index = start; index < raw.length; index += 1) {
+      const char = raw[index];
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === '"') quoted = false;
+      } else if (char === '"') quoted = true;
+      else if (char === "{") depth += 1;
+      else if (char === "}" && --depth === 0) {
+        try { value = JSON.parse(raw.slice(start, index + 1)); } catch { /* try the next object */ }
+        break;
+      }
+    }
+    if (value) break;
+  }
   if (!value || typeof value !== "object") return undefined;
   const record = value as Record<string, unknown>;
   const title = typeof record.title === "string" ? record.title.trim().slice(0, 64) : "";
   const domain = typeof record.domain === "string" ? record.domain.trim().toLowerCase() : "";
   const instructions = typeof record.instructions === "string" ? record.instructions.trim() : "";
   if (!title || domain !== fallback.domain || instructions.length < 80 || instructions.length > 16_000) return undefined;
-  if (/(?:dashboard_url|endpoint|rs_[a-z0-9]+|127\.0\.0\.1:\d+|localhost:\d+|api[_-]?key|bearer\s+)/i.test(instructions)) return undefined;
+  if (/(?:dashboard_url\s*[:=]|rs_[a-z0-9]+|127\.0\.0\.1:\d+|localhost:\d+|api[_-]?key\s*[:=]|bearer\s+[a-z0-9._-]+)/i.test(instructions)) return undefined;
   const allowedTools = new Set([...fallback.instructions.matchAll(/clawbrowser\.([a-z_]+)/g)].map((match) => match[1]));
   const producedTools = [...instructions.matchAll(/clawbrowser\.([a-z_]+)/g)].map((match) => match[1]);
   if (producedTools.some((tool) => !allowedTools.has(tool))) return undefined;

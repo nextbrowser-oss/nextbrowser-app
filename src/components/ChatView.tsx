@@ -18,7 +18,7 @@ import { AgentTerminal } from "./AgentTerminal";
 import { uid } from "../lib/ids";
 import {
   terminalBrowserTask,
-  workflowDomain,
+  capturedWorkflowDomain,
   workflowInstructions,
   workflowTitle,
 } from "../lib/workflowCapture";
@@ -966,7 +966,7 @@ function SaveWorkflowModal({ task, answer, agent, workingDir, onClose, onSave }:
   onClose: () => void;
   onSave: (title: string, domain: string, instructions: string) => void;
 }) {
-  const inferredDomain = workflowDomain(task) || workflowDomain(answer.text);
+  const inferredDomain = capturedWorkflowDomain(task, answer.text);
   const [title, setTitle] = useState(workflowTitle(task, inferredDomain));
   const [domain, setDomain] = useState(inferredDomain);
   const fallbackInstructions = workflowInstructions(task, answer.text);
