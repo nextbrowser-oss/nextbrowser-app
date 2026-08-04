@@ -581,6 +581,31 @@ async function invokeCommand(command, args = {}) {
       return null;
     }
     case "read_file": return fs.readFile(args.path, "utf8");
+    case "browser_verification_failure_choice": {
+      const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+      const surfaces = Array.isArray(args.failedSurfaces)
+        ? args.failedSurfaces.map((value) => String(value).trim()).filter(Boolean).slice(0, 8)
+        : [];
+      const detail = [
+        surfaces.length ? `Failed checks: ${surfaces.join(", ")}.` : "The browser verification did not complete successfully.",
+        "You can retry, or continue this task in the direct browser session without the selected proxy.",
+        "Continuing without proxy may expose your real IP and will not preserve the requested country.",
+      ].join("\n\n");
+      const options = {
+        type: "warning",
+        title: "Proxy verification failed",
+        message: "The selected proxy could not be verified.",
+        detail,
+        buttons: ["Retry verification", "Continue without proxy", "Cancel"],
+        defaultId: 0,
+        cancelId: 2,
+        noLink: true,
+      };
+      const result = owner
+        ? await dialog.showMessageBox(owner, options)
+        : await dialog.showMessageBox(options);
+      return ["retry", "direct", "cancel"][result.response] || "cancel";
+    }
     case "ssh_config_hosts": {
       const requestedPath = typeof args.configPath === "string" ? args.configPath.trim() : "";
       if (requestedPath.length > 4096 || requestedPath.includes("\0")) throw new Error("Invalid SSH config path.");

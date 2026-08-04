@@ -15,11 +15,19 @@ vi.mock("./nextctl", () => ({
 }));
 
 const success = { stdout: "", stderr: "", code: 0 };
+const greenVerification = {
+  verify: {
+    finalized: true,
+    status: "pass",
+    checks: [{ surface: "Proxy", pass: true }],
+  },
+};
 
 beforeEach(() => {
   nextctl.json.mockReset();
   nextctl.run.mockReset();
-  nextctl.json.mockResolvedValue({ tabs: [] });
+  nextctl.json.mockImplementation(async (args: string[]) =>
+    args.includes("verify") ? greenVerification : { tabs: [] });
   nextctl.run.mockResolvedValue(success);
 });
 
@@ -96,6 +104,7 @@ describe("prepareSession command reporting", () => {
   it("does not report a blank page when nextctl returns no tab", async () => {
     const onStep = vi.fn();
     nextctl.json
+      .mockResolvedValueOnce(greenVerification)
       .mockResolvedValueOnce({ tabs: [] })
       .mockResolvedValueOnce({});
 
@@ -106,5 +115,71 @@ describe("prepareSession command reporting", () => {
     })).rejects.toThrow("Could not open a blank page: nextctl returned no tab");
 
     expect(onStep).not.toHaveBeenCalledWith("Opened a blank page");
+  });
+
+  it("stops before navigation when browser verification is not green", async () => {
+    const onStep = vi.fn();
+    nextctl.json.mockResolvedValueOnce({
+      verify: {
+        finalized: true,
+        status: "fail",
+        checks: [{ surface: "Proxy", pass: false }],
+      },
+    });
+
+    await expect(prepareSession({
+      host: "example.com",
+      statuses: {},
+      defaultSession: { status: "running" },
+      onStep,
+    })).rejects.toThrow("Browser verification is not green: Proxy");
+
+    expect(onStep).toHaveBeenCalledWith("Session running");
+    expect(onStep).not.toHaveBeenCalledWith("Browser verified");
+    expect(nextctl.run).not.toHaveBeenCalled();
+  });
+
+  it("retries verification when the user chooses retry", async () => {
+    const onStep = vi.fn();
+    const onVerificationFailure = vi.fn().mockResolvedValue("retry");
+    nextctl.json
+      .mockResolvedValueOnce({
+        verify: { finalized: true, status: "fail", checks: [{ surface: "Proxy", pass: false }] },
+      })
+      .mockResolvedValueOnce(greenVerification)
+      .mockResolvedValueOnce({ tabs: [{ id: "page", url: "about:blank" }] });
+
+    const result = await prepareSession({
+      statuses: {},
+      defaultSession: { status: "running" },
+      onStep,
+      onVerificationFailure,
+    });
+
+    expect(onVerificationFailure).toHaveBeenCalledTimes(1);
+    expect(onStep).toHaveBeenCalledWith("Browser verified");
+    expect(result.directFallback).toBe(false);
+  });
+
+  it("switches the current task to the direct session when the user bypasses the proxy", async () => {
+    const onStep = vi.fn();
+    nextctl.json
+      .mockResolvedValueOnce({
+        verify: { finalized: true, status: "fail", checks: [{ surface: "Proxy", pass: false }] },
+      })
+      .mockResolvedValueOnce({ tabs: [{ id: "direct", url: "about:blank" }] });
+
+    const result = await prepareSession({
+      selectedProfile: "proxy-profile",
+      statuses: { "proxy-profile": "running" },
+      defaultSession: { status: "running" },
+      onStep,
+      onVerificationFailure: async () => "direct",
+    });
+
+    expect(result.profileArgs).toEqual([]);
+    expect(result.directFallback).toBe(true);
+    expect(onStep).toHaveBeenCalledWith("Continuing without proxy");
+    expect(nextctl.run).not.toHaveBeenCalled();
   });
 });
