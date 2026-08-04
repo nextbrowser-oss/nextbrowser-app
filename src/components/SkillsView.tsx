@@ -17,6 +17,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
   const [category, setCategory] = useState("__skills__");
   const [status, setStatus] = useState<Record<string, string>>({});
   const [scriptEditor, setScriptEditor] = useState<CustomScript | "new" | null>(null);
+  const [skillRun, setSkillRun] = useState<BrowserWorkflowSkill | null>(null);
 
   const cat = categories.find((c) => c.id === category);
   const isSkillsOverview = category === "__skills__";
@@ -272,7 +273,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                   skill={skill}
                   ready={ready}
                   sync={s.localSkillSync[skill.id] ?? (skill.submittedAt ? "synced" : "idle")}
-                  onRun={() => void s.runLocalSkill(skill)}
+                  onRun={() => setSkillRun(skill)}
                   onSync={() => void s.saveLocalSkill(skill)}
                   onDelete={() => s.deleteLocalSkill(skill.id)}
                 />
@@ -376,6 +377,45 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
           }}
         />
       )}
+      {skillRun && (
+        <RunLocalSkillSheet
+          skill={skillRun}
+          sessionName={sessionName}
+          onClose={() => setSkillRun(null)}
+          onRun={(task) => {
+            const skill = skillRun;
+            setSkillRun(null);
+            void s.runLocalSkill(skill, task);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function RunLocalSkillSheet({ skill, sessionName, onClose, onRun }: {
+  skill: BrowserWorkflowSkill;
+  sessionName: string;
+  onClose: () => void;
+  onRun: (task: string) => void;
+}) {
+  const [task, setTask] = useState(skill.task);
+  return (
+    <div className="modal-overlay" onMouseDown={onClose}>
+      <div className="modal-card skill-run-modal" onMouseDown={(event) => event.stopPropagation()}>
+        <strong>Run {skill.title}</strong>
+        <p className="muted small">
+          The app will verify <strong>{sessionName}</strong>{skill.domain ? ` and open ${skill.domain}` : ""} before the agent starts.
+        </p>
+        <label className="field-label">Task for this run</label>
+        <textarea rows={5} autoFocus value={task} onChange={(event) => setTask(event.target.value)} />
+        <p className="muted small">Change the search, filters, content, or other values while keeping the saved workflow.</p>
+        <div className="row" style={{ gap: 8 }}>
+          <span className="spacer" />
+          <button className="secondary" onClick={onClose}>Cancel</button>
+          <button className="primary" disabled={!task.trim()} onClick={() => onRun(task.trim())}>Run skill</button>
+        </div>
+      </div>
     </div>
   );
 }
