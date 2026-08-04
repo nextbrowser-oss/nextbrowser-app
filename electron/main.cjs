@@ -38,12 +38,15 @@ enabled = false
 default_tools_approval_mode = "approve"
 `;
 
-function codexClawbrowserArgs() {
+function codexClawbrowserArgs(nextctlBin) {
   return [
     "--profile", CODEX_TERMINAL_PROFILE,
     "--ask-for-approval", "never",
     "--sandbox", "workspace-write",
     "-c", "sandbox_workspace_write.network_access=true",
+    "-c", `mcp_servers.clawbrowser.command=${JSON.stringify(nextctlBin)}`,
+    "-c", `mcp_servers.clawbrowser.args=${JSON.stringify(["mcp"])}`,
+    "-c", "mcp_servers.clawbrowser.startup_timeout_sec=30",
   ];
 }
 
@@ -78,7 +81,6 @@ const TERMINAL_AGENTS = {
   codex: {
     binary: "codex",
     envVar: "CODEX_BIN",
-    args: codexClawbrowserArgs(),
   },
   hermes: { binary: "hermes", envVar: "HERMES_BIN" },
   kilo: { binary: "kilo", envVar: "KILO_BIN" },
@@ -710,10 +712,16 @@ async function invokeCommand(command, args = {}) {
       if (!bin) throw new Error(`${agent.binary} CLI not found.`);
       const id = randomUUID();
       const writableDirs = args.agentId === "codex" ? clawbrowserWritableDirs() : [];
-      if (args.agentId === "codex") await ensureCodexTerminalProfile();
+      let agentArgs = agent.args || [];
+      if (args.agentId === "codex") {
+        await ensureCodexTerminalProfile();
+        const nextctlBin = await resolveOrInstallNextctl();
+        if (!nextctlBin) throw new Error("nextctl is required for Clawbrowser MCP.");
+        agentArgs = codexClawbrowserArgs(nextctlBin);
+      }
       await Promise.all(writableDirs.map((dir) => fs.mkdir(dir, { recursive: true })));
       const terminalArgs = [
-        ...(agent.args || []),
+        ...agentArgs,
         ...writableDirs.flatMap((dir) => ["--add-dir", dir]),
       ];
       const spec = commandSpec(bin, terminalArgs);
