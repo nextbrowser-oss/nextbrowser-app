@@ -551,6 +551,7 @@ async function invokeCommand(command, args = {}) {
       await shell.openExternal(String(args.url || ""));
       return null;
     }
+    case "app_platform": return { platform: process.platform, arch: process.arch };
     case "agent_authorize": {
       const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} executable not found.`);
       const r = await run(bin, ["--version"]); if (r.code !== 0) throw new Error(`${args.binary} is not ready: ${(r.stdout + r.stderr).trim()}`);
