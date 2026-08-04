@@ -10,6 +10,7 @@ interface AgentTerminalProps {
   agentName: string;
   conversationId?: string;
   workingDir?: string;
+  savingWorkflow?: boolean;
   onClose: () => void;
   onSaveWorkflow: (transcript: string) => void;
 }
@@ -68,7 +69,7 @@ function activeTerminalTheme() {
     : DARK_TERMINAL_THEME;
 }
 
-export function AgentTerminal({ agentId, agentName, conversationId, workingDir, onClose, onSaveWorkflow }: AgentTerminalProps) {
+export function AgentTerminal({ agentId, agentName, conversationId, workingDir, savingWorkflow, onClose, onSaveWorkflow }: AgentTerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalIdRef = useRef<string>();
   const terminalRef = useRef<Terminal>();
@@ -190,7 +191,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
         {status === "failed" && <span className="error small" title={error}>Failed</span>}
         <button
           className="mini terminal-save-skill"
-          disabled={status !== "running"}
+          disabled={status !== "running" || savingWorkflow}
           onClick={() => {
             const terminal = terminalRef.current;
             if (!terminal) return;
@@ -209,7 +210,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
           }}
           title="Save this terminal browser workflow as a private skill"
         >
-          Save as skill
+          {savingWorkflow && <Spinner size={11} />} {savingWorkflow ? "Preparing…" : "Save as skill"}
         </button>
         <button className="plain-icon-btn plain-icon-btn-compact" onClick={onClose} title="Hide terminal" aria-label="Hide terminal">
           <Icon name="xmark" size={13} />

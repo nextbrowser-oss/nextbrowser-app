@@ -108,7 +108,8 @@ export function ChatView() {
   const [convMenu, setConvMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [promptDetail, setPromptDetail] = useState<string | null>(null);
   const [vpsSetupOpen, setVPSSetupOpen] = useState(false);
-  const [workflowDraft, setWorkflowDraft] = useState<{ task: string; answer: ChatMessage } | null>(null);
+  const [workflowDraft, setWorkflowDraft] = useState<{ task: string; answer: ChatMessage; prepared: DistilledWorkflow } | null>(null);
+  const [preparingWorkflowId, setPreparingWorkflowId] = useState<string | null>(null);
   const [terminalVisible, setTerminalVisible] = useState(s.terminalChat);
   const [terminalMounted, setTerminalMounted] = useState(s.terminalChat);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -230,6 +231,18 @@ export function ChatView() {
 
   const agentSpec = agentById(agentId);
   const agentName = agentSpec.name;
+  const prepareWorkflow = async (task: string, answer: ChatMessage, sourceId: string) => {
+    if (preparingWorkflowId) return;
+    setPreparingWorkflowId(sourceId);
+    const domain = capturedWorkflowDomain(task, answer.text);
+    const fallback = {
+      title: workflowTitle(task, domain), domain,
+      instructions: workflowInstructions(task, answer.text),
+    };
+    const authored = ready ? await authorWorkflowWithAgent(agentSpec, s.workingDir, fallback) : undefined;
+    setWorkflowDraft({ task, answer, prepared: authored ?? fallback });
+    setPreparingWorkflowId(null);
+  };
   const showDefaultSession =
     !s.selectedProfile && s.defaultSession?.status === "running";
 
@@ -356,15 +369,14 @@ export function ChatView() {
               agentName={agentName}
               conversationId={conv?.id}
               workingDir={s.workingDir}
+              savingWorkflow={preparingWorkflowId === "terminal"}
               onClose={() => setTerminalVisible(false)}
               onSaveWorkflow={(transcript) => {
-                setWorkflowDraft({
-                  task: terminalBrowserTask(transcript),
-                  answer: {
-                    id: uid(), role: "assistant", text: transcript, status: "done",
-                    createdAt: Date.now(),
-                  },
-                });
+                const answer = {
+                  id: uid(), role: "assistant" as const, text: transcript, status: "done" as const,
+                  createdAt: Date.now(),
+                };
+                void prepareWorkflow(terminalBrowserTask(transcript), answer, "terminal");
               }}
             />
           </div>
@@ -474,8 +486,9 @@ export function ChatView() {
               onSaveWorkflow={() => {
                 const index = messages.findIndex((candidate) => candidate.id === m.id);
                 const user = [...messages.slice(0, index)].reverse().find((candidate) => candidate.role === "user");
-                setWorkflowDraft({ task: user?.text ?? "", answer: m });
+                void prepareWorkflow(user?.text ?? "", m, m.id);
               }}
+              savingWorkflow={preparingWorkflowId === m.id}
             />
           ))}
           <div ref={bottomRef} />
@@ -752,8 +765,7 @@ export function ChatView() {
         <SaveWorkflowModal
           task={workflowDraft.task}
           answer={workflowDraft.answer}
-          agent={ready ? agentSpec : undefined}
-          workingDir={s.workingDir}
+          prepared={workflowDraft.prepared}
           onClose={() => setWorkflowDraft(null)}
           onSave={(title, domain, instructions) => {
             void s.saveLocalSkill({
@@ -782,6 +794,7 @@ function MessageBubble({
   queuedReplyId,
   onShowPrompt,
   onSaveWorkflow,
+  savingWorkflow,
 }: {
   message: ChatMessage;
   canQueue: boolean;
@@ -792,6 +805,7 @@ function MessageBubble({
   queuedReplyId?: string;
   onShowPrompt: () => void;
   onSaveWorkflow: () => void;
+  savingWorkflow: boolean;
 }) {
   const [clock, setClock] = useState(Date.now());
   const [showErrorDetails, setShowErrorDetails] = useState(false);
@@ -947,8 +961,8 @@ function MessageBubble({
             <Icon name="doc.on.doc" size={12} />
           </button>
           {m.status === "done" && (
-            <button className="save-workflow-btn" title="Save this browser workflow as a local skill" onClick={onSaveWorkflow}>
-              Save as skill
+            <button className="save-workflow-btn" disabled={savingWorkflow} title="Save this browser workflow as a local skill" onClick={onSaveWorkflow}>
+              {savingWorkflow && <Spinner size={11} />} {savingWorkflow ? "Preparing…" : "Save as skill"}
             </button>
           )}
           <span>{formatTime(m.createdAt)}</span>
@@ -958,58 +972,31 @@ function MessageBubble({
   );
 }
 
-function SaveWorkflowModal({ task, answer, agent, workingDir, onClose, onSave }: {
+function SaveWorkflowModal({ prepared, onClose, onSave }: {
   task: string;
   answer: ChatMessage;
-  agent?: AgentSpec;
-  workingDir: string;
+  prepared: DistilledWorkflow;
   onClose: () => void;
   onSave: (title: string, domain: string, instructions: string) => void;
 }) {
-  const inferredDomain = capturedWorkflowDomain(task, answer.text);
-  const [title, setTitle] = useState(workflowTitle(task, inferredDomain));
-  const [domain, setDomain] = useState(inferredDomain);
-  const fallbackInstructions = workflowInstructions(task, answer.text);
-  const [instructions, setInstructions] = useState(fallbackInstructions);
-  const [refining, setRefining] = useState(!!agent);
-  const [authorStatus, setAuthorStatus] = useState(agent ? `Asking ${agent.name} to improve this skill…` : "Using the captured browser workflow.");
-  useEffect(() => {
-    if (!agent) return;
-    let cancelled = false;
-    const fallback = { title: workflowTitle(task, inferredDomain), domain: inferredDomain, instructions: fallbackInstructions };
-    void authorWorkflowWithAgent(agent, workingDir, fallback).then((authored) => {
-      if (cancelled) return;
-      if (authored) {
-        setTitle(authored.title);
-        setDomain(authored.domain);
-        setInstructions(authored.instructions);
-        setAuthorStatus(`Improved and validated by ${agent.name}.`);
-      } else {
-        setAuthorStatus(`${agent.name} did not return a valid skill. Using the captured workflow.`);
-      }
-      setRefining(false);
-    });
-    return () => { cancelled = true; };
-  }, [agent?.id, answer.id, task, inferredDomain, fallbackInstructions, workingDir]);
+  const [title, setTitle] = useState(prepared.title);
+  const [domain, setDomain] = useState(prepared.domain);
+  const [instructions, setInstructions] = useState(prepared.instructions);
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
       <div className="modal-card workflow-save-modal" onMouseDown={(event) => event.stopPropagation()}>
         <strong>Save as skill</strong>
         <p className="muted small">Saved locally first, then backed up privately to your account.</p>
-        <div className="small workflow-author-status" role="status">
-          {refining && <Spinner size={12} />}
-          <span className={refining ? "muted" : "ok"}>{authorStatus}</span>
-        </div>
         <label className="field-label">Skill name</label>
-        <input value={title} autoFocus disabled={refining} onChange={(event) => setTitle(event.target.value)} />
+        <input value={title} autoFocus onChange={(event) => setTitle(event.target.value)} />
         <label className="field-label">Website</label>
-        <input value={domain} disabled={refining} placeholder="example.com (optional)" onChange={(event) => setDomain(event.target.value)} />
+        <input value={domain} placeholder="example.com (optional)" onChange={(event) => setDomain(event.target.value)} />
         <label className="field-label">Reusable instructions</label>
-        <textarea rows={10} disabled={refining} value={instructions} onChange={(event) => setInstructions(event.target.value)} />
+        <textarea rows={10} value={instructions} onChange={(event) => setInstructions(event.target.value)} />
         <div className="row" style={{ marginTop: 10, gap: 8 }}>
           <span className="spacer" />
           <button className="secondary" onClick={onClose}>Cancel</button>
-          <button className="primary" disabled={refining || !title.trim() || !instructions.trim()} onClick={() => onSave(title.trim(), domain.trim(), instructions.trim())}>{refining ? "Preparing…" : "Save skill"}</button>
+          <button className="primary" disabled={!title.trim() || !instructions.trim()} onClick={() => onSave(title.trim(), domain.trim(), instructions.trim())}>Save skill</button>
         </div>
       </div>
     </div>
