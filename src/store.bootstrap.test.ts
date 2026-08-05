@@ -132,6 +132,40 @@ describe("desktop account bootstrap", () => {
       .map(([, payload]) => payload.args as string[]);
     expect(nextctlCalls.some((args) => args[0] === "proxy-traffic")).toBe(false);
   });
+
+  it("clears the saved credential before disconnecting the account", async () => {
+    bridge.invoke.mockResolvedValue(null);
+    const { useStore } = await import("./store");
+    useStore.setState({
+      authed: true,
+      accountEmail: "person@example.com",
+      profiles: [{ name: "work" }],
+      selectedProfile: "work",
+    });
+
+    await useStore.getState().logout();
+
+    expect(bridge.invoke).toHaveBeenCalledWith("account_logout");
+    expect(useStore.getState()).toMatchObject({
+      authed: false,
+      accountEmail: undefined,
+      profiles: [],
+      selectedProfile: undefined,
+    });
+  });
+
+  it("stays connected when the saved credential cannot be cleared", async () => {
+    bridge.invoke.mockRejectedValue(new Error("permission denied"));
+    const { useStore } = await import("./store");
+    useStore.setState({ authed: true, accountEmail: "person@example.com" });
+
+    await expect(useStore.getState().logout()).rejects.toThrow("permission denied");
+
+    expect(useStore.getState()).toMatchObject({
+      authed: true,
+      accountEmail: "person@example.com",
+    });
+  });
 });
 
 describe("onboarding setup handoff", () => {

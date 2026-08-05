@@ -49,6 +49,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
+  const [logoutPending, setLogoutPending] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
   const profileCreateRequestRef = useRef<string | null>(null);
 
   const agentName = agentById(s.agentId).name;
@@ -174,6 +176,19 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     setManualUsername("");
     setManualPassword("");
     setManualError(null);
+  };
+
+  const logout = async () => {
+    if (logoutPending) return;
+    setLogoutPending(true);
+    setLogoutError(null);
+    try {
+      await s.logout();
+    } catch {
+      setLogoutError(internalError("We couldn't sign you out. Please try again."));
+    } finally {
+      setLogoutPending(false);
+    }
   };
 
   const closeProfileCreator = () => {
@@ -488,9 +503,12 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             className="plain-icon-btn plain-icon-btn-compact"
             title="Sign out of NextBrowser"
             aria-label="Sign out of NextBrowser"
-            onClick={() => s.logout()}
+            disabled={logoutPending}
+            onClick={() => void logout()}
           >
-            <Icon name="rectangle.portrait.and.arrow.right" size={13} />
+            {logoutPending
+              ? <Spinner size={13} />
+              : <Icon name="rectangle.portrait.and.arrow.right" size={13} />}
           </button>
         ) : (
           <button
@@ -502,6 +520,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           </button>
         )}
       </div>
+      {logoutError && <div className="sidebar-account-error" role="alert">{logoutError}</div>}
       <div className="nextctl-footer muted small">
         <Icon name="terminal" size={12} />
         <span>nextctl {s.nextctlVersion || "..."}</span>

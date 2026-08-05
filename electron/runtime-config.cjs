@@ -103,10 +103,30 @@ async function applyLegacyRuntimeMigration({
   return steps;
 }
 
+async function clearRuntimeCredential({ runtimeRoot }) {
+  const configDir = path.join(runtimeRoot, "config");
+  const configPath = path.join(configDir, "config.json");
+  let payload = {};
+  try {
+    const raw = await fs.readFile(configPath, "utf8");
+    payload = JSON.parse(raw);
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("NextBrowser config must contain a JSON object");
+  }
+  delete payload.api_key;
+  await fs.mkdir(configDir, { recursive: true, mode: 0o700 });
+  await fs.writeFile(configPath, `${JSON.stringify(payload)}\n`, { encoding: "utf8", mode: 0o600 });
+  if (process.platform !== "win32") await fs.chmod(configPath, 0o600);
+}
+
 module.exports = {
   NEXTBROWSER_TOKEN_PREFIX,
   legacyConfigPath,
   legacyStateRoot,
   planRuntimeMigration,
   applyLegacyRuntimeMigration,
+  clearRuntimeCredential,
 };

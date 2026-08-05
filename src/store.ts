@@ -352,7 +352,7 @@ interface State {
   reopenAccountPairing: () => Promise<void>;
   pollAccountPairing: () => Promise<void>;
   cancelAccountPairing: () => void;
-  logout: () => void;
+  logout: () => Promise<void>;
   refreshAll: () => Promise<void>;
   refreshProxyData: () => Promise<void>;
   refreshSessions: () => Promise<void>;
@@ -1713,7 +1713,8 @@ export const useStore = create<State>((set, get) => {
     set({ accountPairing: undefined, loginError: undefined, isLoggingIn: false });
   },
 
-  logout: () => {
+  logout: async () => {
+    await invoke<null>("account_logout");
     trackEvent("dashboard_logout");
     setAnalyticsUserId(undefined);
     if (proxyTimer) clearInterval(proxyTimer);
@@ -1727,11 +1728,13 @@ export const useStore = create<State>((set, get) => {
       connectAnnounced: new Set(),
       proxy: undefined,
       proxyWarning: undefined,
+      dashboardKeyPromptOpen: false,
       accountPairing: undefined,
       profiles: [],
       statuses: {},
       profileSessions: {},
       profileIdentities: {},
+      selectedProfile: undefined,
       defaultSession: undefined,
       skillState: {},
       tab: "chat",

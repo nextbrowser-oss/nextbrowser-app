@@ -15,7 +15,7 @@ const {
   resolveBinary,
   searchDirs,
 } = require("./binary-resolver.cjs");
-const { applyLegacyRuntimeMigration } = require("./runtime-config.cjs");
+const { applyLegacyRuntimeMigration, clearRuntimeCredential } = require("./runtime-config.cjs");
 const { fetchGitHubStars } = require("./github-stars.cjs");
 const { ensureWorkspaceInstructions } = require("./workspace-instructions.cjs");
 const pty = require("node-pty");
@@ -451,6 +451,10 @@ async function invokeCommand(command, args = {}) {
     }
     case "nextctl_supports_skill": { const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found"); return nextctlHasSkill(bin); }
     case "proxy_traffic_top_up": return await topUpProxyTraffic({ env: childEnv() });
+    case "account_logout": {
+      await clearRuntimeCredential({ runtimeRoot: nextbrowserRuntimeRoot() });
+      return null;
+    }
     case "pairing_start": {
       return apiFetchJSON(args.apiBaseUrl, "/v1/pairing-requests/browser", {
         method: "POST",

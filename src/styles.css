@@ -1722,6 +1722,12 @@ button, input, textarea, select { color: var(--text); }
   color: var(--text);
 }
 .sidebar-account-footer > svg { flex: none; }
+.sidebar-account-error {
+  padding: 0 12px 8px;
+  background: var(--surface-1);
+  color: var(--red);
+  font-size: 11px;
+}
 .sidebar-account-action {
   flex: none;
   min-height: 26px;
