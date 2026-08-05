@@ -14,9 +14,12 @@ const {
 const homeDir = "/home/u";
 const runtimeRoot = "/data/NextBrowser/runtime";
 const isolatedConfig = path.join(runtimeRoot, "config", "config.json");
-const legacyConfig = "/home/u/.config/clawbrowser/config.json";
-const legacyProfiles = "/home/u/.local/state/clawbrowser/profiles";
-const legacyProxies = "/home/u/.local/state/clawbrowser/profile-proxies";
+// Build legacy paths through the module's own resolvers so expectations match
+// the code's path.join output on every OS (Windows uses backslashes).
+const legacyConfig = legacyConfigPath({ homeDir, platform: "linux", env: {} });
+const legacyStateDir = legacyStateRoot({ homeDir, env: {} });
+const legacyProfiles = path.join(legacyStateDir, "profiles");
+const legacyProxies = path.join(legacyStateDir, "profile-proxies");
 
 function plan(files) {
   return planRuntimeMigration({
@@ -101,7 +104,10 @@ test("applies the migration against a real filesystem, then is a no-op", async (
   );
   assert.ok(fsSync.existsSync(path.join(runtimeRoot, "profiles", "profiles", "work.json")));
   assert.ok(fsSync.existsSync(path.join(runtimeRoot, "profiles", "profile-proxies", "work.json")));
-  assert.equal((await fs.stat(migratedConfig)).mode & 0o777, 0o600);
+  if (process.platform !== "win32") {
+    // Windows does not honor POSIX permission bits.
+    assert.equal((await fs.stat(migratedConfig)).mode & 0o777, 0o600);
+  }
 
   // Second run: isolated config now exists -> nothing to do.
   const second = await applyLegacyRuntimeMigration(opts);
@@ -109,11 +115,11 @@ test("applies the migration against a real filesystem, then is a no-op", async (
 });
 
 test("legacyConfigPath and legacyStateRoot match nbc defaults", () => {
-  assert.equal(legacyConfigPath({ homeDir, platform: "linux", env: {} }), legacyConfig);
+  assert.equal(legacyConfigPath({ homeDir, platform: "linux", env: {} }), path.join(homeDir, ".config", "clawbrowser", "config.json"));
   assert.equal(
     legacyConfigPath({ homeDir: "C:\\Users\\u", platform: "win32", env: { LOCALAPPDATA: "C:\\Users\\u\\AppData\\Local" } }),
     path.join("C:\\Users\\u\\AppData\\Local", "Clawbrowser", "config.json"),
   );
-  assert.equal(legacyStateRoot({ homeDir, env: {} }), "/home/u/.local/state/clawbrowser");
-  assert.equal(legacyStateRoot({ homeDir, env: { XDG_STATE_HOME: "/xdg/state" } }), "/xdg/state/clawbrowser");
+  assert.equal(legacyStateRoot({ homeDir, env: {} }), path.join(homeDir, ".local", "state", "clawbrowser"));
+  assert.equal(legacyStateRoot({ homeDir, env: { XDG_STATE_HOME: "/xdg/state" } }), path.join("/xdg/state", "clawbrowser"));
 });
