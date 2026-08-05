@@ -39,6 +39,7 @@ import {
 import type { RemoteStreamInfo } from "./remoteControl";
 import { loadJson, saveJson } from "./lib/storage";
 import { apiBaseUrl } from "./constants";
+import { accountLoginURL } from "./lib/accountAuth";
 import {
   normalizeConversation,
   normalizeWorkflowSkill,
@@ -1650,16 +1651,17 @@ export const useStore = create<State>((set, get) => {
         version: __APP_VERSION__,
         displayName: "NextBrowser Desktop",
       });
+      const verificationUrl = accountLoginURL(response.verification_url);
       set({
         accountPairing: {
           pairingId: response.pairing_id,
-          verificationUrl: response.verification_url,
+          verificationUrl,
           pollToken: response.poll_token,
           status: response.status as PairingPollResponse["status"],
           expiresAt: response.expires_at,
         },
       });
-      await invoke<null>("open_external", { url: response.verification_url });
+      await invoke<null>("open_external", { url: verificationUrl });
       trackTiming("account_pairing_opened", startedAt);
     } catch {
       set({ loginError: internalError("We couldn't start browser sign-in.") });

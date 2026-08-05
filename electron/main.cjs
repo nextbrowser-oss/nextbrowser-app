@@ -34,6 +34,8 @@ const APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const NEXTCTL_RELEASE_BASE = "https://github.com/nextbrowser-oss/nbc_releases/releases/latest/download";
 const DEFAULT_API_BASE_URL = "https://api.nextbrowser.com";
 const DEFAULT_AUTH_BASE_URL = "https://app.nextbrowser.com";
+const DEFAULT_AUTH0_ISSUER_BASE_URL = "https://dev-5v20zhlfh5c7o71v.us.auth0.com";
+const DEFAULT_AUTH0_CLIENT_ID = "E9Net5ggtBdR18nKT08eAqaXeSpbhCKt";
 const DEEP_LINK_PROTOCOL = "nextbrowser";
 let appUpdateStatus = { status: "idle" };
 let appUpdateTimer = null;
@@ -377,6 +379,14 @@ function apiBaseURL(raw) {
 function authBaseURL() {
   return String(process.env.NEXTBROWSER_AUTH_BASE_URL || DEFAULT_AUTH_BASE_URL).replace(/\/$/, "");
 }
+function authLogoutURL() {
+  const issuer = String(process.env.NEXTBROWSER_AUTH0_ISSUER_BASE_URL || DEFAULT_AUTH0_ISSUER_BASE_URL).replace(/\/$/, "");
+  const clientId = String(process.env.NEXTBROWSER_AUTH0_CLIENT_ID || DEFAULT_AUTH0_CLIENT_ID).trim();
+  const url = new URL(`${issuer}/v2/logout`);
+  url.searchParams.set("client_id", clientId);
+  url.searchParams.set("returnTo", `${authBaseURL()}/`);
+  return url.toString();
+}
 async function apiFetchJSON(baseURL, route, options = {}) {
   const response = await fetch(`${apiBaseURL(baseURL)}${route}`, {
     ...options,
@@ -456,7 +466,7 @@ async function invokeCommand(command, args = {}) {
     case "nextctl_supports_skill": { const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found"); return nextctlHasSkill(bin); }
     case "proxy_traffic_top_up": return await topUpProxyTraffic({ env: childEnv() });
     case "account_logout": {
-      await shell.openExternal(`${authBaseURL()}/api/session/logout`);
+      await shell.openExternal(authLogoutURL());
       await clearRuntimeCredential({ runtimeRoot: nextbrowserRuntimeRoot() });
       return null;
     }
