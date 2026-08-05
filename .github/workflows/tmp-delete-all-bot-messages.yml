@@ -17,13 +17,16 @@ jobs:
         with:
           script: |
             async function slackApi(method, body = {}) {
+              const isForm = method === "conversations.replies";
               const response = await fetch(`https://slack.com/api/${method}`, {
                 method: "POST",
                 headers: {
                   authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-                  "content-type": "application/json; charset=utf-8",
+                  "content-type": isForm
+                    ? "application/x-www-form-urlencoded; charset=utf-8"
+                    : "application/json; charset=utf-8",
                 },
-                body: JSON.stringify(body),
+                body: isForm ? new URLSearchParams(body) : JSON.stringify(body),
               });
               const result = await response.json();
               if (!result.ok) throw new Error(`Slack ${method} failed: ${JSON.stringify(result)}`);
