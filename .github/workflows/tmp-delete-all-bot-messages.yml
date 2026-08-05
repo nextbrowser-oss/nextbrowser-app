@@ -64,11 +64,19 @@ jobs:
               cursor = history.response_metadata?.next_cursor || undefined;
             } while (cursor);
 
+            let deleted = 0;
+            let skipped = 0;
             for (const [ts] of ownMessages) {
-              await slackApi("chat.delete", {
-                channel: process.env.SLACK_CHANNEL_ID,
-                ts,
-              });
+              try {
+                await slackApi("chat.delete", {
+                  channel: process.env.SLACK_CHANNEL_ID,
+                  ts,
+                });
+                deleted += 1;
+              } catch (error) {
+                skipped += 1;
+                core.warning(`Could not delete message ${ts}: ${error.message}`);
+              }
             }
 
-            core.info(`Deleted ${ownMessages.size} messages from bot ${identity.user_id}.`);
+            core.info(`Deleted ${deleted} bot messages; skipped ${skipped}.`);
