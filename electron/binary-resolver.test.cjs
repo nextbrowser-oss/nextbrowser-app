@@ -70,5 +70,5 @@ test("reports whether a binary can be launched", (t) => {
 });
 
 test("expands a home-relative binary override", () => {
-  assert.equal(expand("~/bin/nbc", "/tmp/demo-home"), "/tmp/demo-home/bin/nbc");
+  assert.equal(expand("~/bin/nbc", "/tmp/demo-home"), path.join("/tmp/demo-home", "bin/nbc"));
 });
