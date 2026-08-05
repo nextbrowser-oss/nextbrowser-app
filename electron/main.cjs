@@ -33,6 +33,7 @@ const remoteSignalSockets = new Map();
 const APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const NEXTCTL_RELEASE_BASE = "https://github.com/nextbrowser-oss/nbc_releases/releases/latest/download";
 const DEFAULT_API_BASE_URL = "https://api.nextbrowser.com";
+const DEFAULT_AUTH_BASE_URL = "https://app.nextbrowser.com";
 const DEEP_LINK_PROTOCOL = "nextbrowser";
 let appUpdateStatus = { status: "idle" };
 let appUpdateTimer = null;
@@ -373,6 +374,9 @@ function startAutoUpdater() {
 function apiBaseURL(raw) {
   return String(raw || process.env.NEXTBROWSER_API_BASE_URL || process.env.CLAWBROWSER_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/$/, "");
 }
+function authBaseURL() {
+  return String(process.env.NEXTBROWSER_AUTH_BASE_URL || DEFAULT_AUTH_BASE_URL).replace(/\/$/, "");
+}
 async function apiFetchJSON(baseURL, route, options = {}) {
   const response = await fetch(`${apiBaseURL(baseURL)}${route}`, {
     ...options,
@@ -452,6 +456,7 @@ async function invokeCommand(command, args = {}) {
     case "nextctl_supports_skill": { const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found"); return nextctlHasSkill(bin); }
     case "proxy_traffic_top_up": return await topUpProxyTraffic({ env: childEnv() });
     case "account_logout": {
+      await shell.openExternal(`${authBaseURL()}/api/session/logout`);
       await clearRuntimeCredential({ runtimeRoot: nextbrowserRuntimeRoot() });
       return null;
     }
