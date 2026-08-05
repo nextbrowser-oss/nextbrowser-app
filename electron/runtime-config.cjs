@@ -1,0 +1,112 @@
+const fs = require("node:fs/promises");
+const fsSync = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+
+// NextBrowser runtime tokens are minted by the backend with this prefix
+// (see GenerateRuntimeToken / VerifyRuntimeToken). A Clawbrowser key never
+// carries it, which lets the migration tell the two apart when they share the
+// legacy config path.
+const NEXTBROWSER_TOKEN_PREFIX = "nb_live_";
+
+// Legacy (pre-isolation) config path. Before the app switched to an isolated
+// NEXTBROWSER_CONFIG_DIR, `nbc config set` wrote the key to nbc's default
+// config dir. Mirrors nbc ResolveConfigDir and electron/proxy-traffic.cjs.
+function legacyConfigPath({ homeDir = os.homedir(), platform = process.platform, env = process.env } = {}) {
+  if (platform === "win32") {
+    const localAppData = env.LOCALAPPDATA || path.join(homeDir, "AppData", "Local");
+    return path.join(localAppData, "Clawbrowser", "config.json");
+  }
+  return path.join(homeDir, ".config", "clawbrowser", "config.json");
+}
+
+// Legacy (pre-isolation) state root, which nbc also uses as the default profile
+// root (profiles.DefaultRoot -> session.DefaultStateRoot). Uniform across
+// platforms in nbc: $XDG_STATE_HOME/clawbrowser or ~/.local/state/clawbrowser.
+function legacyStateRoot({ homeDir = os.homedir(), env = process.env } = {}) {
+  const xdgStateHome = typeof env.XDG_STATE_HOME === "string" ? env.XDG_STATE_HOME.trim() : "";
+  const base = xdgStateHome || path.join(homeDir, ".local", "state");
+  return path.join(base, "clawbrowser");
+}
+
+// Build the one-time upgrade migration plan (ordered steps to copy). Returns []
+// (no-op) unless this machine has a genuine, not-yet-migrated NextBrowser
+// session. Safe by construction:
+//   - runs only when the isolated config is absent (i.e. first isolated launch),
+//   - only for a genuine NextBrowser runtime token, so a Clawbrowser key sharing
+//     the legacy path is never imported,
+//   - never overwrites an existing isolated target,
+//   - config.json is copied LAST so it acts as the completion marker: a crash
+//     mid-migration simply retries on the next launch.
+// Scope: login (config.json) + profile metadata (country / proxy / fingerprint
+// bindings). Ephemeral session state and the heavy per-session Chrome cache are
+// intentionally left behind (nbc rebuilds them per launch).
+function planRuntimeMigration({ runtimeRoot, homeDir, platform, env, exists, readFile }) {
+  const isolatedConfigPath = path.join(runtimeRoot, "config", "config.json");
+  if (exists(isolatedConfigPath)) return [];
+
+  const legacyPath = legacyConfigPath({ homeDir, platform, env });
+  if (path.resolve(legacyPath) === path.resolve(isolatedConfigPath) || !exists(legacyPath)) return [];
+
+  let apiKey = "";
+  try {
+    const parsed = JSON.parse(readFile(legacyPath));
+    apiKey = typeof parsed?.api_key === "string" ? parsed.api_key.trim() : "";
+  } catch {
+    return [];
+  }
+  if (!apiKey.startsWith(NEXTBROWSER_TOKEN_PREFIX)) return [];
+
+  const steps = [];
+  const stateRoot = legacyStateRoot({ homeDir, env });
+  const newProfileRoot = path.join(runtimeRoot, "profiles");
+  for (const sub of ["profiles", "profile-proxies"]) {
+    const from = path.join(stateRoot, sub);
+    const to = path.join(newProfileRoot, sub);
+    if (exists(from) && !exists(to)) steps.push({ kind: "dir", from, to });
+  }
+  // config.json last — completion marker for the run.
+  steps.push({ kind: "file", from: legacyPath, to: isolatedConfigPath });
+  return steps;
+}
+
+// Execute the plan against the real filesystem. Best-effort and idempotent:
+// each step is isolated so one failure never blocks the rest (config.json, the
+// completion marker, is always attempted). Returns the steps it ran.
+async function applyLegacyRuntimeMigration({
+  runtimeRoot,
+  homeDir = os.homedir(),
+  platform = process.platform,
+  env = process.env,
+} = {}) {
+  const steps = planRuntimeMigration({
+    runtimeRoot,
+    homeDir,
+    platform,
+    env,
+    exists: (p) => fsSync.existsSync(p),
+    readFile: (p) => fsSync.readFileSync(p, "utf8"),
+  });
+  for (const step of steps) {
+    try {
+      await fs.mkdir(path.dirname(step.to), { recursive: true, mode: 0o700 });
+      if (step.kind === "dir") {
+        await fs.cp(step.from, step.to, { recursive: true, force: false, errorOnExist: false });
+      } else {
+        await fs.copyFile(step.from, step.to);
+        await fs.chmod(step.to, 0o600);
+      }
+    } catch {
+      // Best-effort per step: a failed piece just isn't carried over.
+    }
+  }
+  return steps;
+}
+
+module.exports = {
+  NEXTBROWSER_TOKEN_PREFIX,
+  legacyConfigPath,
+  legacyStateRoot,
+  planRuntimeMigration,
+  applyLegacyRuntimeMigration,
+};

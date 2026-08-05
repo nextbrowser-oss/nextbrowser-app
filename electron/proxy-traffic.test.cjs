@@ -40,8 +40,28 @@ test("loads the backend key without exposing it to the renderer", async (t) => {
   });
 });
 
+test("loads the key from the isolated NextBrowser config directory", async (t) => {
+  const homeDir = await tempHome(t);
+  const nextbrowserConfigDir = path.join(homeDir, "NextBrowser", "runtime", "config");
+  await fs.mkdir(nextbrowserConfigDir, { recursive: true });
+  await fs.writeFile(
+    path.join(nextbrowserConfigDir, "config.json"),
+    JSON.stringify({ api_key: "nextbrowser-key" }),
+    { mode: 0o600 },
+  );
+
+  const config = await loadBackendConfig({
+    homeDir,
+    platform: "darwin",
+    env: { NEXTBROWSER_CONFIG_DIR: nextbrowserConfigDir },
+  });
+
+  assert.equal(config.apiKey, "nextbrowser-key");
+  assert.equal(config.baseURL, "https://api.nextbrowser.com");
+});
+
 test("normalizes the legacy dashboard host and rejects non-http URLs", () => {
-  assert.equal(normalizeAPIBaseURL("https://app.clawbrowser.ai/"), "https://api.clawbrowser.ai");
+  assert.equal(normalizeAPIBaseURL("https://app.nextbrowser.com/"), "https://api.nextbrowser.com");
   assert.throws(() => normalizeAPIBaseURL("file:///tmp/config.json"), /Unsupported NextBrowser API URL/);
   assert.throws(() => normalizeAPIBaseURL("https://user:password@api.example.test"), /Unsupported NextBrowser API URL/);
 });

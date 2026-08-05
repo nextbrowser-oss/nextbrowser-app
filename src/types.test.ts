@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { conversationPreview, humanBytes, weekdaysSummary, type Conversation } from "./types";
-import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "./lib/countryFlag";
+import { countryFlag, countryLabel, filterCountries, ROTATION_COUNTRIES } from "./lib/countryFlag";
 import { normalizeNextctlVersion } from "./lib/version";
 
 const conversation = (messages: Conversation["messages"]): Conversation => ({
@@ -25,6 +25,11 @@ describe("Swift-compatible model helpers", () => {
     expect(weekdaysSummary([1, 7])).toBe("Weekends");
     expect(countryFlag("es")).toBe("🇪🇸");
     expect(countryLabel("es", "Madrid")).toBe("🇪🇸 ES Madrid");
+    expect(ROTATION_COUNTRIES).toHaveLength(249);
+    expect(new Set(ROTATION_COUNTRIES.map((country) => country.code)).size).toBe(249);
+    expect(filterCountries("cote").map((country) => country.code)).toContain("CI");
+    expect(filterCountries("united").map((country) => country.code)).toEqual(expect.arrayContaining(["GB", "US"]));
+    expect(filterCountries("jp").map((country) => country.code)).toEqual(["JP"]);
     expect(ROTATION_COUNTRIES.map((c) => c.name)).toEqual(
       [...ROTATION_COUNTRIES.map((c) => c.name)].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })),
     );

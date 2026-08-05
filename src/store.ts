@@ -125,7 +125,6 @@ interface PairingPollResponse {
 
 interface AccountPairingState {
   pairingId: string;
-  pairingCode: string;
   verificationUrl: string;
   pollToken: string;
   status: PairingPollResponse["status"];
@@ -717,11 +716,22 @@ async function finishAPIKeyLogin(apiKey: string): Promise<void> {
   if (!valid) throw new Error("The saved API key did not produce a valid account identity.");
 }
 
-async function refreshCompletedAccountPairing(method: "pairing" | "pairing_json"): Promise<void> {
-  const valid = await refreshLocalNextctlMetadata();
-  if (!valid) {
-    useStore.setState({ authed: false });
-    throw new Error("Browser sign-in completed, but the account identity could not be verified.");
+async function refreshCompletedAccountPairing(
+  method: "pairing" | "pairing_json",
+  alreadyValidated = false,
+): Promise<void> {
+  // The api_key path already validated the key (config set + identity) inside
+  // finishAPIKeyLogin, so don't block the modal on a second round-trip. Sign the
+  // user in immediately and refresh local nextctl metadata (version/skill) in the
+  // background. The pairing_json path has no prior validation, so verify first.
+  if (alreadyValidated) {
+    void refreshLocalNextctlMetadata();
+  } else {
+    const valid = await refreshLocalNextctlMetadata();
+    if (!valid) {
+      useStore.setState({ authed: false });
+      throw new Error("Browser sign-in completed, but the account identity could not be verified.");
+    }
   }
   useStore.setState({
     authed: true,
@@ -1643,7 +1653,6 @@ export const useStore = create<State>((set, get) => {
       set({
         accountPairing: {
           pairingId: response.pairing_id,
-          pairingCode: response.pairing_code,
           verificationUrl: response.verification_url,
           pollToken: response.poll_token,
           status: response.status as PairingPollResponse["status"],
@@ -1686,7 +1695,7 @@ export const useStore = create<State>((set, get) => {
       });
       if (result.api_key) {
         await finishAPIKeyLogin(result.api_key);
-        await refreshCompletedAccountPairing("pairing");
+        await refreshCompletedAccountPairing("pairing", true);
       } else if (result.status === "completed") {
         await refreshCompletedAccountPairing("pairing_json");
       } else if (result.status === "expired" || result.status === "rejected") {

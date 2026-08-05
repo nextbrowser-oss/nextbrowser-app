@@ -7,6 +7,15 @@ const os = require("node:os");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { agentWorkspaceDir } = require("./agent-workspace.cjs");
+const {
+  executableNames,
+  expand,
+  findBinaryUnderRoots,
+  launchable,
+  resolveBinary,
+  searchDirs,
+} = require("./binary-resolver.cjs");
+const { applyLegacyRuntimeMigration } = require("./runtime-config.cjs");
 const { fetchGitHubStars } = require("./github-stars.cjs");
 const { ensureWorkspaceInstructions } = require("./workspace-instructions.cjs");
 const pty = require("node-pty");
@@ -23,7 +32,7 @@ const terminals = new Map();
 const remoteSignalSockets = new Map();
 const APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const NEXTCTL_RELEASE_BASE = "https://github.com/nextbrowser-oss/nbc_releases/releases/latest/download";
-const DEFAULT_API_BASE_URL = "https://api.clawbrowser.ai";
+const DEFAULT_API_BASE_URL = "https://api.nextbrowser.com";
 const DEEP_LINK_PROTOCOL = "nextbrowser";
 let appUpdateStatus = { status: "idle" };
 let appUpdateTimer = null;
@@ -111,120 +120,22 @@ const TERMINAL_AGENTS = {
 };
 
 function home() { return os.homedir(); }
-function executableNames(name) {
-  return process.platform === "win32"
-    ? [`${name}.exe`, `${name}.cmd`, `${name}.bat`, `${name}.ps1`, `${name}.com`, name]
-    : [name];
+function nextbrowserRuntimeRoot() { return path.join(app.getPath("userData"), "runtime"); }
+function childEnv(extra = {}) {
+  const runtimeRoot = nextbrowserRuntimeRoot();
+  return {
+    ...process.env,
+    PATH: searchDirs().join(path.delimiter),
+    NEXTBROWSER_CONFIG_DIR: path.join(runtimeRoot, "config"),
+    CLAWBROWSER_CACHE_DIR: path.join(runtimeRoot, "cache"),
+    CLAWBROWSER_DATA_DIR: path.join(runtimeRoot, "data"),
+    CLAWBROWSER_STATE_ROOT: path.join(runtimeRoot, "state"),
+    CLAWBROWSER_SESSION_ROOT: path.join(runtimeRoot, "sessions"),
+    NBC_PROFILE_ROOT: path.join(runtimeRoot, "profiles"),
+    CLAWBROWSER_API_BASE_URL: apiBaseURL(),
+    ...extra,
+  };
 }
-function searchDirs() {
-  const h = home();
-  const dirs = process.platform === "win32"
-    ? [
-        ".local/bin",
-        ".cargo/bin",
-        ".bun/bin",
-        ".volta/bin",
-        ".openclaw/bin",
-        ".codex",
-        ".codex/bin",
-        ".codex/local",
-        ".codex/local/bin",
-        ".codex/local/node_modules/.bin",
-        ".claude",
-        ".claude/bin",
-        ".claude/local",
-        ".claude/local/bin",
-        ".claude/local/node_modules/.bin",
-        "scoop/shims",
-      ].map((p) => path.join(h, p))
-    : [".local/bin", ".openclaw/bin", ".npm-global/bin", ".bun/bin", "Library/pnpm", ".local/share/pnpm", ".yarn/bin", ".volta/bin", ".cargo/bin", "go/bin", ".asdf/shims", ".local/share/mise/shims", ".nodenv/shims"].map((p) => path.join(h, p)).concat(["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]);
-  if (process.env.APPDATA) dirs.push(path.join(process.env.APPDATA, "npm"));
-  if (process.env.LOCALAPPDATA) dirs.push(path.join(process.env.LOCALAPPDATA, "pnpm"), path.join(process.env.LOCALAPPDATA, "Microsoft", "WinGet", "Links"));
-  if (process.env.ChocolateyInstall) dirs.push(path.join(process.env.ChocolateyInstall, "bin"));
-  dirs.push(...(process.env.PATH || "").split(path.delimiter));
-  return [...new Set(dirs.filter(Boolean))];
-}
-function launchable(file) {
-  try { fsSync.accessSync(file, process.platform === "win32" ? fsSync.constants.F_OK : fsSync.constants.X_OK); return fsSync.statSync(file).isFile(); }
-  catch { return false; }
-}
-function expand(raw) {
-  if (raw === "~") return home();
-  if (raw.startsWith("~/") || raw.startsWith("~\\")) return path.join(home(), raw.slice(2));
-  return raw;
-}
-function findBinaryUnderRoots(name, roots) {
-  const names = new Set(executableNames(name).map((candidate) => candidate.toLowerCase()));
-  const queue = roots.filter((root) => fsSync.existsSync(root)).map((root) => ({ dir: root, depth: 0 }));
-  const seen = new Set();
-  let visited = 0;
-  while (queue.length && visited < 500) {
-    const { dir, depth } = queue.shift();
-    const key = dir.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    visited += 1;
-    for (const candidate of executableNames(name)) {
-      const file = path.join(dir, candidate);
-      if (launchable(file)) return file;
-    }
-    if (depth >= 5) continue;
-    let entries = [];
-    try { entries = fsSync.readdirSync(dir, { withFileTypes: true }); }
-    catch { continue; }
-    for (const entry of entries) {
-      if (entry.isFile() && names.has(entry.name.toLowerCase())) {
-        const file = path.join(dir, entry.name);
-        if (launchable(file)) return file;
-      }
-      if (entry.isDirectory()) queue.push({ dir: path.join(dir, entry.name), depth: depth + 1 });
-    }
-  }
-  return null;
-}
-function binaryFallbackRoots(name) {
-  const h = home();
-  const roots = [];
-  if (process.platform === "win32" && ["codex", "claude"].includes(name)) {
-    roots.push(path.join(h, `.${name}`));
-  }
-  if (name !== "codex") return roots;
-
-  if (process.platform === "darwin") {
-    for (const appName of ["ChatGPT", "Codex"]) {
-      roots.push(
-        path.join("/Applications", `${appName}.app`, "Contents", "Resources"),
-        path.join(h, "Applications", `${appName}.app`, "Contents", "Resources"),
-      );
-    }
-  }
-  if (process.platform === "win32") {
-    const appNames = ["ChatGPT", "Codex"];
-    const programDirs = [
-      process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Programs"),
-      process.env.LOCALAPPDATA,
-      process.env.PROGRAMFILES,
-      process.env["PROGRAMFILES(X86)"],
-    ].filter(Boolean);
-    for (const dir of programDirs) {
-      for (const appName of appNames) roots.push(path.join(dir, appName));
-    }
-  }
-  return [...new Set(roots)];
-}
-function resolveBinary(name, envVar) {
-  if (envVar && process.env[envVar] && launchable(expand(process.env[envVar]))) return expand(process.env[envVar]);
-  for (const dir of searchDirs()) for (const candidate of executableNames(name)) {
-    const file = path.join(dir, candidate); if (launchable(file)) return file;
-  }
-  const fallback = findBinaryUnderRoots(name, binaryFallbackRoots(name));
-  if (fallback) return fallback;
-  if (process.platform !== "win32" && name === "hermes") {
-    const file = path.join(home(), ".hermes/hermes-agent/.venv/bin/hermes"); if (launchable(file)) return file;
-  }
-  return null;
-}
-function childEnv(extra = {}) { return { ...process.env, PATH: searchDirs().join(path.delimiter), ...extra }; }
 function terminalEnv() {
   return Object.fromEntries(
     Object.entries(childEnv({ TERM: "xterm-256color", COLORTERM: "truecolor" }))
@@ -363,6 +274,13 @@ async function migrateLegacyData() {
   if (legacy === current || !fsSync.existsSync(legacy) || fsSync.existsSync(current)) return;
   await fs.cp(legacy, current, { recursive: true, errorOnExist: false });
 }
+// Pre-isolation builds wrote config and profiles to nbc's shared default dirs.
+// On the first isolated launch, seed the runtime root from them once so existing
+// users keep their session (proxy stays on) and see all their profiles without
+// signing in again. Best-effort and idempotent; see runtime-config.cjs.
+async function migrateLegacyRuntimeConfig() {
+  await applyLegacyRuntimeMigration({ runtimeRoot: nextbrowserRuntimeRoot() });
+}
 function safeName(name) {
   if (!/^[A-Za-z0-9._-]+$/.test(name) || name.includes("..")) throw new Error("Invalid app-data filename.");
   return name;
@@ -398,8 +316,13 @@ function setAppUpdateStatus(status, patch = {}) {
   appUpdateStatus = { status, ...patch, updatedAt: Date.now() };
   emit("app:update", appUpdateStatus);
 }
+function appUpdatesSupported() {
+  return app.isPackaged &&
+    ["darwin", "win32"].includes(process.platform) &&
+    !app.getVersion().includes("-demo.");
+}
 function configureAutoUpdater() {
-  if (!app.isPackaged || !["darwin", "win32"].includes(process.platform)) return;
+  if (!appUpdatesSupported()) return;
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.on("checking-for-update", () => setAppUpdateStatus("checking"));
@@ -414,15 +337,15 @@ function reportUpdaterError(error) {
   // Builds without an update manifest (dev / electron-builder --dir) can't
   // self-update — treat that as disabled rather than a hard error, and never
   // let it bubble up as an uncaught exception.
-  if (/app-update\.yml/i.test(message)) {
+  if (/app-update\.yml|No published versions on GitHub/i.test(message)) {
     setAppUpdateStatus("disabled", { message: "App updates unavailable in this build." });
   } else {
     setAppUpdateStatus("error", { message });
   }
 }
 function checkForAppUpdate() {
-  if (!app.isPackaged || !["darwin", "win32"].includes(process.platform)) {
-    setAppUpdateStatus("disabled", { message: "App updates run only in packaged macOS/Windows builds." });
+  if (!appUpdatesSupported()) {
+    setAppUpdateStatus("disabled", { message: "App updates are unavailable in this build." });
     return null;
   }
   try {
@@ -442,13 +365,13 @@ function startAutoUpdater() {
     reportUpdaterError(error);
     return;
   }
-  if (!app.isPackaged || !["darwin", "win32"].includes(process.platform)) return;
+  if (!appUpdatesSupported()) return;
   setTimeout(() => { void checkForAppUpdate(); }, 3000);
   if (appUpdateTimer) clearInterval(appUpdateTimer);
   appUpdateTimer = setInterval(() => { void checkForAppUpdate(); }, APP_UPDATE_CHECK_INTERVAL_MS);
 }
 function apiBaseURL(raw) {
-  return String(raw || process.env.CLAWBROWSER_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/$/, "");
+  return String(raw || process.env.NEXTBROWSER_API_BASE_URL || process.env.CLAWBROWSER_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/$/, "");
 }
 async function apiFetchJSON(baseURL, route, options = {}) {
   const response = await fetch(`${apiBaseURL(baseURL)}${route}`, {
@@ -486,8 +409,8 @@ async function invokeCommand(command, args = {}) {
       return appUpdateStatus;
     }
     case "app_download_update": {
-      if (!app.isPackaged || !["darwin", "win32"].includes(process.platform)) {
-        setAppUpdateStatus("disabled", { message: "App updates run only in packaged macOS/Windows builds." });
+      if (!appUpdatesSupported()) {
+        setAppUpdateStatus("disabled", { message: "App updates are unavailable in this build." });
         return appUpdateStatus;
       }
       if (!["available", "downloaded"].includes(appUpdateStatus.status)) {
@@ -527,7 +450,7 @@ async function invokeCommand(command, args = {}) {
       const r = await run(bin, ["version"]); return r.stdout.trim();
     }
     case "nextctl_supports_skill": { const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found"); return nextctlHasSkill(bin); }
-    case "proxy_traffic_top_up": return await topUpProxyTraffic();
+    case "proxy_traffic_top_up": return await topUpProxyTraffic({ env: childEnv() });
     case "pairing_start": {
       return apiFetchJSON(args.apiBaseUrl, "/v1/pairing-requests/browser", {
         method: "POST",
@@ -907,6 +830,8 @@ if (!gotLock) {
   });
   app.whenReady().then(() => {
     return migrateLegacyData();
+  }).then(() => {
+    return migrateLegacyRuntimeConfig();
   }).then(() => {
     applyAppIcon();
     if (process.defaultApp) {

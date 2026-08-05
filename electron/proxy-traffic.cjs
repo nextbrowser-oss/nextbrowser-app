@@ -2,7 +2,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 
-const DEFAULT_API_BASE_URL = "https://api.clawbrowser.ai";
+const DEFAULT_API_BASE_URL = "https://api.nextbrowser.com";
 const PROXY_TRAFFIC_TOP_UP_PATH = "/v1/proxy/traffic/top-up";
 const PROXY_TRAFFIC_REQUEST_TIMEOUT_MS = 30_000;
 
@@ -11,6 +11,10 @@ function configPath({
   homeDir = os.homedir(),
   platform = process.platform,
 } = {}) {
+  const nextbrowserConfigDir = typeof env.NEXTBROWSER_CONFIG_DIR === "string"
+    ? env.NEXTBROWSER_CONFIG_DIR.trim()
+    : "";
+  if (nextbrowserConfigDir) return path.join(nextbrowserConfigDir, "config.json");
   if (platform === "win32") {
     const localAppData = env.LOCALAPPDATA || path.join(homeDir, "AppData", "Local");
     return path.join(localAppData, "Clawbrowser", "config.json");
@@ -26,8 +30,8 @@ function normalizeAPIBaseURL(raw) {
   if (parsed.username || parsed.password) {
     throw new Error("Unsupported NextBrowser API URL.");
   }
-  if (parsed.hostname.toLowerCase() === "app.clawbrowser.ai") {
-    parsed.hostname = "api.clawbrowser.ai";
+  if (parsed.hostname.toLowerCase() === "app.nextbrowser.com") {
+    parsed.hostname = "api.nextbrowser.com";
   }
   parsed.search = "";
   parsed.hash = "";
@@ -53,7 +57,8 @@ async function loadBackendConfig({
     throw new Error("NextBrowser account is not connected.");
   }
 
-  const configuredBaseURL = env.CLAWBROWSER_API_BASE_URL
+  const configuredBaseURL = env.NEXTBROWSER_API_BASE_URL
+    || env.CLAWBROWSER_API_BASE_URL
     || payload.api_base_url
     || payload.backend_api_base_url
     || payload.base_url
