@@ -1,0 +1,66 @@
+name: Temporary Slack test cleanup
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_urls:
+        description: Newline-separated issue URLs
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v8
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+          ISSUE_URLS: ${{ inputs.issue_urls }}
+        with:
+          script: |
+            async function slackApi(method, body) {
+              const response = await fetch(`https://slack.com/api/${method}`, {
+                method: "POST",
+                headers: {
+                  authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+                  "content-type": "application/json; charset=utf-8",
+                },
+                body: JSON.stringify(body),
+              });
+              const result = await response.json();
+              if (!result.ok) throw new Error(`Slack ${method} failed: ${JSON.stringify(result)}`);
+              return result;
+            }
+
+            const urls = process.env.ISSUE_URLS.split(/\s+/).filter(Boolean);
+            let cursor;
+            const roots = new Map();
+            do {
+              const history = await slackApi("conversations.history", {
+                channel: process.env.SLACK_CHANNEL_ID,
+                limit: 200,
+                ...(cursor ? { cursor } : {}),
+              });
+              for (const message of history.messages ?? []) {
+                const url = urls.find((candidate) => message.text?.includes(candidate));
+                if (url) roots.set(url, message.thread_ts ?? message.ts);
+              }
+              cursor = history.response_metadata?.next_cursor || undefined;
+            } while (cursor && roots.size < urls.length);
+
+            for (const url of urls) {
+              const ts = roots.get(url);
+              if (!ts) {
+                core.warning(`Not found: ${url}`);
+                continue;
+              }
+              await slackApi("chat.delete", {
+                channel: process.env.SLACK_CHANNEL_ID,
+                ts,
+              });
+              core.info(`Deleted: ${url}`);
+            }
