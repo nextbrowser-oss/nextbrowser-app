@@ -47,20 +47,23 @@ jobs:
               });
               for (const message of history.messages ?? []) {
                 const url = urls.find((candidate) => message.text?.includes(candidate));
-                if (url) roots.set(url, message.thread_ts ?? message.ts);
+                if (url) roots.set(url, {
+                  channel: message.channel || process.env.SLACK_CHANNEL_ID,
+                  ts: message.thread_ts ?? message.ts,
+                });
               }
               cursor = history.response_metadata?.next_cursor || undefined;
             } while (cursor && roots.size < urls.length);
 
             for (const url of urls) {
-              const rootTs = roots.get(url);
-              if (!rootTs) {
+              const root = roots.get(url);
+              if (!root?.channel || !root?.ts) {
                 core.warning(`Root not found: ${url}`);
                 continue;
               }
               const replies = await slackApi("conversations.replies", {
-                channel: process.env.SLACK_CHANNEL_ID,
-                ts: rootTs,
+                channel: root.channel,
+                ts: root.ts,
                 limit: 100,
               });
               const reply = replies.messages?.find((message) => /^Issue #\d+ closed$/.test(message.text ?? ""));
