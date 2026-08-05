@@ -1,0 +1,63 @@
+name: Temporary delete Clawbrowser Slack test thread
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v8
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+        with:
+          script: |
+            async function slackApi(method, body, form = false) {
+              const response = await fetch(`https://slack.com/api/${method}`, {
+                method: "POST",
+                headers: {
+                  authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+                  "content-type": form
+                    ? "application/x-www-form-urlencoded; charset=utf-8"
+                    : "application/json; charset=utf-8",
+                },
+                body: form ? new URLSearchParams(body) : JSON.stringify(body),
+              });
+              const result = await response.json();
+              if (!result.ok) throw new Error(`Slack ${method} failed: ${JSON.stringify(result)}`);
+              return result;
+            }
+
+            const issueUrl = "https://github.com/clawbrowser/clawbrowser/issues/27";
+            let cursor;
+            let root;
+            do {
+              const history = await slackApi("conversations.history", {
+                channel: process.env.SLACK_CHANNEL_ID,
+                limit: 200,
+                ...(cursor ? { cursor } : {}),
+              });
+              root = history.messages?.find((message) => message.text?.includes(issueUrl));
+              cursor = history.response_metadata?.next_cursor || undefined;
+            } while (!root && cursor);
+
+            if (!root?.ts) throw new Error("Clawbrowser test Slack root message not found");
+
+            const replies = await slackApi("conversations.replies", {
+              channel: process.env.SLACK_CHANNEL_ID,
+              ts: root.ts,
+              limit: 100,
+            }, true);
+
+            for (const message of [...(replies.messages ?? [])].reverse()) {
+              await slackApi("chat.delete", {
+                channel: process.env.SLACK_CHANNEL_ID,
+                ts: message.ts,
+              });
+            }
+
+            core.info(`Deleted Slack test thread for Clawbrowser #27 (${replies.messages?.length ?? 0} messages).`);
