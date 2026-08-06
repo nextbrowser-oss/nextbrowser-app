@@ -30,11 +30,14 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   assert.match(main, /const nextctlBin = await resolveOrInstallNextctl\(\)/);
   assert.match(main, /mcp_servers\.clawbrowser\.command=/);
   assert.match(main, /mcp_servers\.clawbrowser\.args=/);
+  assert.match(main, /mcp_servers\.clawbrowser\.env=/);
+  assert.match(main, /plugins\."clawbrowser@clawctl-local"\.mcp_servers\.clawbrowser\.enabled=false/);
   assert.match(main, /mcp_servers\.clawbrowser\.default_tools_approval_mode=approve/);
   assert.match(main, /"--add-dir", dir/);
   assert.match(main, /\.cache", "clawbrowser"/);
   assert.match(main, /\.local", "share", "clawbrowser"/);
   assert.match(main, /\.local", "state", "clawbrowser"/);
+  assert.match(main, /path\.join\(home\(\), "\.nextbrowser", "runtime"\)/);
   assert.doesNotMatch(main, /dangerously-bypass-approvals-and-sandbox/);
 });
 

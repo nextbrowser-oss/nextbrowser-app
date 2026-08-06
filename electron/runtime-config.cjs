@@ -103,6 +103,22 @@ async function applyLegacyRuntimeMigration({
   return steps;
 }
 
+// macOS treats ~/Library/Application Support as a protected location for
+// sandboxed terminal agents. Move the app-owned runtime to ~/.nextbrowser and
+// seed it once from the former userData/runtime directory. Copying (rather than
+// renaming) keeps rollback to an older app build possible.
+async function applyRuntimeRootMigration({ fromRoot, toRoot } = {}) {
+  if (!fromRoot || !toRoot || path.resolve(fromRoot) === path.resolve(toRoot)) return false;
+  if (!fsSync.existsSync(fromRoot) || fsSync.existsSync(toRoot)) return false;
+  try {
+    await fs.mkdir(path.dirname(toRoot), { recursive: true, mode: 0o700 });
+    await fs.cp(fromRoot, toRoot, { recursive: true, force: false, errorOnExist: false });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function clearRuntimeCredential({ runtimeRoot }) {
   const configDir = path.join(runtimeRoot, "config");
   const configPath = path.join(configDir, "config.json");
@@ -128,5 +144,6 @@ module.exports = {
   legacyStateRoot,
   planRuntimeMigration,
   applyLegacyRuntimeMigration,
+  applyRuntimeRootMigration,
   clearRuntimeCredential,
 };

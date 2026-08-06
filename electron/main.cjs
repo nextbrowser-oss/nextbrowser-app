@@ -15,7 +15,7 @@ const {
   resolveBinary,
   searchDirs,
 } = require("./binary-resolver.cjs");
-const { applyLegacyRuntimeMigration, clearRuntimeCredential } = require("./runtime-config.cjs");
+const { applyLegacyRuntimeMigration, applyRuntimeRootMigration, clearRuntimeCredential } = require("./runtime-config.cjs");
 const { fetchGitHubStars } = require("./github-stars.cjs");
 const { ensureWorkspaceInstructions } = require("./workspace-instructions.cjs");
 const pty = require("node-pty");
@@ -47,17 +47,31 @@ const CODEX_TERMINAL_PROFILE_CONTENT = `[plugins."browser@openai-bundled"]
 enabled = false
 
 [plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser]
+enabled = false
 default_tools_approval_mode = "approve"
 `;
 
 function codexClawbrowserArgs(nextctlBin) {
+  const runtimeEnv = childEnv();
+  const mcpEnvKeys = [
+    "NEXTBROWSER_CONFIG_DIR",
+    "CLAWBROWSER_CACHE_DIR",
+    "CLAWBROWSER_DATA_DIR",
+    "CLAWBROWSER_STATE_ROOT",
+    "CLAWBROWSER_SESSION_ROOT",
+    "NBC_PROFILE_ROOT",
+    "CLAWBROWSER_API_BASE_URL",
+  ];
+  const mcpEnv = `{${mcpEnvKeys.map((key) => `${key}=${JSON.stringify(runtimeEnv[key])}`).join(",")}}`;
   return [
     "--profile", CODEX_TERMINAL_PROFILE,
     "--ask-for-approval", "never",
     "--sandbox", "workspace-write",
     "-c", "sandbox_workspace_write.network_access=true",
+    "-c", 'plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser.enabled=false',
     "-c", `mcp_servers.clawbrowser.command=${JSON.stringify(nextctlBin)}`,
     "-c", `mcp_servers.clawbrowser.args=${JSON.stringify(["mcp"])}`,
+    "-c", `mcp_servers.clawbrowser.env=${mcpEnv}`,
     "-c", "mcp_servers.clawbrowser.startup_timeout_sec=30",
     "-c", "mcp_servers.clawbrowser.default_tools_approval_mode=approve",
   ];
@@ -79,6 +93,7 @@ function clawbrowserWritableDirs() {
     return [path.join(localAppData, "Clawbrowser")];
   }
   return [
+    nextbrowserRuntimeRoot(),
     path.join(home(), ".cache", "clawbrowser"),
     path.join(home(), ".config", "clawbrowser"),
     path.join(home(), ".local", "share", "clawbrowser"),
@@ -123,7 +138,12 @@ const TERMINAL_AGENTS = {
 };
 
 function home() { return os.homedir(); }
-function nextbrowserRuntimeRoot() { return path.join(app.getPath("userData"), "runtime"); }
+function legacyAppRuntimeRoot() { return path.join(app.getPath("userData"), "runtime"); }
+function nextbrowserRuntimeRoot() {
+  return process.platform === "darwin"
+    ? path.join(home(), ".nextbrowser", "runtime")
+    : legacyAppRuntimeRoot();
+}
 function childEnv(extra = {}) {
   const runtimeRoot = nextbrowserRuntimeRoot();
   return {
@@ -168,8 +188,11 @@ function setNextctlInstallStatus(status, patch = {}) {
   nextctlInstallStatus = { status, ...patch, updatedAt: Date.now() };
   emit("nextctl:install", nextctlInstallStatus);
 }
+function legacyManagedNextctlRoot() { return path.join(app.getPath("userData"), "managed-nextctl"); }
 function managedNextctlRoot() {
-  return path.join(app.getPath("userData"), "managed-nextctl");
+  return process.platform === "darwin"
+    ? path.join(home(), ".nextbrowser", "managed-nextctl")
+    : legacyManagedNextctlRoot();
 }
 function managedNextctlBin() {
   return process.platform === "win32"
@@ -282,6 +305,14 @@ async function migrateLegacyData() {
 // users keep their session (proxy stays on) and see all their profiles without
 // signing in again. Best-effort and idempotent; see runtime-config.cjs.
 async function migrateLegacyRuntimeConfig() {
+  await applyRuntimeRootMigration({
+    fromRoot: legacyAppRuntimeRoot(),
+    toRoot: nextbrowserRuntimeRoot(),
+  });
+  await applyRuntimeRootMigration({
+    fromRoot: legacyManagedNextctlRoot(),
+    toRoot: managedNextctlRoot(),
+  });
   await applyLegacyRuntimeMigration({ runtimeRoot: nextbrowserRuntimeRoot() });
 }
 function safeName(name) {

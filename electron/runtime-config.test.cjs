@@ -9,6 +9,7 @@ const {
   legacyStateRoot,
   planRuntimeMigration,
   applyLegacyRuntimeMigration,
+  applyRuntimeRootMigration,
   clearRuntimeCredential,
 } = require("./runtime-config.cjs");
 
@@ -161,4 +162,17 @@ test("clearRuntimeCredential rejects malformed config without overwriting it", a
 
   await assert.rejects(clearRuntimeCredential({ runtimeRoot: root }), SyntaxError);
   assert.equal(await fs.readFile(configPath, "utf8"), "{broken");
+});
+
+test("copies an existing app runtime to a terminal-safe root once", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "nb-runtime-root-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const fromRoot = path.join(root, "Library", "Application Support", "nextbrowser", "runtime");
+  const toRoot = path.join(root, ".nextbrowser", "runtime");
+  await fs.mkdir(path.join(fromRoot, "state"), { recursive: true });
+  await fs.writeFile(path.join(fromRoot, "state", "session.json"), "{}");
+
+  assert.equal(await applyRuntimeRootMigration({ fromRoot, toRoot }), true);
+  assert.equal(await fs.readFile(path.join(toRoot, "state", "session.json"), "utf8"), "{}");
+  assert.equal(await applyRuntimeRootMigration({ fromRoot, toRoot }), false);
 });
