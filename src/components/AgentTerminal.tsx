@@ -11,8 +11,11 @@ interface AgentTerminalProps {
   conversationId?: string;
   workingDir?: string;
   savingWorkflow?: boolean;
+  pendingHandoff?: { id: string; text: string };
   onClose: () => void;
   onSaveWorkflow: (transcript: string) => void;
+  onContinueInChat: (transcript: string) => void;
+  onHandoffConsumed: (id: string) => void;
 }
 
 const DARK_TERMINAL_THEME = {
@@ -69,12 +72,28 @@ function activeTerminalTheme() {
     : DARK_TERMINAL_THEME;
 }
 
-export function AgentTerminal({ agentId, agentName, conversationId, workingDir, savingWorkflow, onClose, onSaveWorkflow }: AgentTerminalProps) {
+export function AgentTerminal({ agentId, agentName, conversationId, workingDir, savingWorkflow, pendingHandoff, onClose, onSaveWorkflow, onContinueInChat, onHandoffConsumed }: AgentTerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalIdRef = useRef<string>();
   const terminalRef = useRef<Terminal>();
   const [status, setStatus] = useState<"starting" | "running" | "exited" | "failed">("starting");
   const [error, setError] = useState<string>();
+
+  const transcript = () => {
+    const terminal = terminalRef.current;
+    if (!terminal) return "";
+    const buffer = terminal.buffer.active;
+    const first = Math.max(0, buffer.length - 500);
+    const rows: string[] = [];
+    for (let index = first; index < buffer.length; index += 1) {
+      const line = buffer.getLine(index);
+      if (!line) continue;
+      const text = line.translateToString(true);
+      if (line.isWrapped && rows.length > 0) rows[rows.length - 1] += text;
+      else rows.push(text);
+    }
+    return rows.join("\n").trim();
+  };
 
   useEffect(() => {
     const host = hostRef.current;
@@ -178,6 +197,15 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
   // input, scrollback, or an unfinished prompt cannot leak into another chat.
   }, [agentId, conversationId, workingDir]);
 
+  useEffect(() => {
+    const id = terminalIdRef.current;
+    if (!pendingHandoff || !id || status !== "running") return;
+    // Bracketed paste keeps multiline context in the editor without submitting it.
+    void invoke("terminal_input", { id, data: `\x1b[200~${pendingHandoff.text}\x1b[201~` });
+    terminalRef.current?.focus();
+    onHandoffConsumed(pendingHandoff.id);
+  }, [pendingHandoff?.id, status, onHandoffConsumed]);
+
   return (
     <section className="agent-terminal-panel" aria-label={`${agentName} terminal`}>
       <header className="agent-terminal-header">
@@ -190,23 +218,22 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
         {status === "exited" && <span className="muted small">Exited</span>}
         {status === "failed" && <span className="error small" title={error}>Failed</span>}
         <button
+          className="mini"
+          disabled={status !== "running"}
+          onClick={() => {
+            const value = transcript();
+            if (value) onContinueInChat(value);
+          }}
+          title="Prepare this terminal context in regular chat"
+        >
+          Continue in Chat
+        </button>
+        <button
           className="mini terminal-save-skill"
           disabled={status !== "running" || savingWorkflow}
           onClick={() => {
-            const terminal = terminalRef.current;
-            if (!terminal) return;
-            const buffer = terminal.buffer.active;
-            const first = Math.max(0, buffer.length - 500);
-            const rows: string[] = [];
-            for (let index = first; index < buffer.length; index += 1) {
-              const line = buffer.getLine(index);
-              if (!line) continue;
-              const text = line.translateToString(true);
-              if (line.isWrapped && rows.length > 0) rows[rows.length - 1] += text;
-              else rows.push(text);
-            }
-            const transcript = rows.join("\n").trim();
-            if (transcript) onSaveWorkflow(transcript);
+            const value = transcript();
+            if (value) onSaveWorkflow(value);
           }}
           title="Save this terminal browser workflow as a private skill"
         >

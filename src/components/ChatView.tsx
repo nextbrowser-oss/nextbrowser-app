@@ -28,6 +28,7 @@ import {
   workflowDistillationPrompt,
   type DistilledWorkflow,
 } from "../lib/workflowDistillation";
+import { chatToTerminalHandoff, terminalToChatHandoff } from "../lib/contextHandoff";
 
 async function authorWorkflowWithAgent(agent: AgentSpec, workingDir: string, fallback: DistilledWorkflow): Promise<DistilledWorkflow | undefined> {
   const prompt = workflowDistillationPrompt(fallback);
@@ -114,6 +115,7 @@ export function ChatView() {
   const [workflowRejection, setWorkflowRejection] = useState<string | null>(null);
   const [terminalVisible, setTerminalVisible] = useState(s.terminalChat);
   const [terminalMounted, setTerminalMounted] = useState(s.terminalChat);
+  const [terminalHandoff, setTerminalHandoff] = useState<{ id: string; text: string }>();
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
 
@@ -344,15 +346,30 @@ export function ChatView() {
             </button>
           )}
           {s.terminalChat && terminalMounted && !terminalVisible && (
-            <button
-              className="mini chat-vps-button"
-              aria-label={`Return to ${agentName} terminal`}
-              title={`Return to ${agentName} terminal`}
-              onClick={() => setTerminalVisible(true)}
-            >
-              <Icon name="terminal" size={13} />
-              <span className="chat-vps-label">Terminal</span>
-            </button>
+            <>
+              {messages.length > 0 && (
+                <button
+                  className="mini chat-vps-button"
+                  title="Prepare recent chat context in Terminal Chat"
+                  onClick={() => {
+                    setTerminalHandoff({ id: uid(), text: chatToTerminalHandoff(messages, s.selectedProfile) });
+                    setTerminalVisible(true);
+                  }}
+                >
+                  <Icon name="arrow.right.circle" size={13} />
+                  <span className="chat-vps-label">Continue in Terminal</span>
+                </button>
+              )}
+              <button
+                className="mini chat-vps-button"
+                aria-label={`Return to ${agentName} terminal`}
+                title={`Return to ${agentName} terminal`}
+                onClick={() => setTerminalVisible(true)}
+              >
+                <Icon name="terminal" size={13} />
+                <span className="chat-vps-label">Terminal</span>
+              </button>
+            </>
           )}
           {!remoteOnly && s.selectedProfile && (
             <span className="profile-pill">
@@ -381,7 +398,14 @@ export function ChatView() {
               conversationId={conv?.id}
               workingDir={s.workingDir}
               savingWorkflow={preparingWorkflowId === "terminal"}
+              pendingHandoff={terminalHandoff}
+              onHandoffConsumed={(id) => setTerminalHandoff((current) => current?.id === id ? undefined : current)}
               onClose={() => setTerminalVisible(false)}
+              onContinueInChat={(transcript) => {
+                setDraft(terminalToChatHandoff(transcript, s.selectedProfile));
+                setTerminalVisible(false);
+                window.requestAnimationFrame(() => composerRef.current?.focus());
+              }}
               onSaveWorkflow={(transcript) => {
                 const answer = {
                   id: uid(), role: "assistant" as const, text: transcript, status: "done" as const,
