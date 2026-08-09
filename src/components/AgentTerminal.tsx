@@ -78,6 +78,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
   const terminalRef = useRef<Terminal>();
   const [status, setStatus] = useState<"starting" | "running" | "exited" | "failed">("starting");
   const [error, setError] = useState<string>();
+  const [restartNonce, setRestartNonce] = useState(0);
 
   const transcript = () => {
     const terminal = terminalRef.current;
@@ -98,9 +99,12 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
+    setStatus("starting");
+    setError(undefined);
     let disposed = false;
     let removeData: (() => void) | undefined;
     let removeExit: (() => void) | undefined;
+    let lastEscapeAt = 0;
 
     const terminal = new Terminal({
       cursorBlink: true,
@@ -115,6 +119,28 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
     terminal.loadAddon(fit);
     terminal.open(host);
     terminalRef.current = terminal;
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (event.type !== "keydown") return true;
+
+      if (event.key === "Enter" && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+        const id = terminalIdRef.current;
+        // A bracketed-paste newline is inserted into Codex's editor without
+        // submitting the prompt, independent of the host terminal emulator.
+        if (id) void invoke("terminal_input", { id, data: "\x1b[200~\n\x1b[201~" });
+        return false;
+      }
+
+      if (event.key === "Escape") {
+        const now = Date.now();
+        if (now - lastEscapeAt < 1_000) {
+          lastEscapeAt = 0;
+          return false;
+        }
+        lastEscapeAt = now;
+      }
+
+      return true;
+    });
 
     const resize = () => {
       if (disposed || !host.isConnected || host.clientWidth === 0 || host.clientHeight === 0) return;
@@ -195,7 +221,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
   // A terminal is the interactive state of one chat, not a global agent
   // process. Restart it when the selected conversation changes so pending
   // input, scrollback, or an unfinished prompt cannot leak into another chat.
-  }, [agentId, conversationId, workingDir]);
+  }, [agentId, conversationId, workingDir, restartNonce]);
 
   useEffect(() => {
     const id = terminalIdRef.current;
@@ -217,6 +243,15 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
         {status === "running" && <span className="terminal-status-dot" title="Running" />}
         {status === "exited" && <span className="muted small">Exited</span>}
         {status === "failed" && <span className="error small" title={error}>Failed</span>}
+        {(status === "exited" || status === "failed") && (
+          <button
+            className="mini"
+            onClick={() => setRestartNonce((value) => value + 1)}
+            title={`Restart ${agentName} terminal`}
+          >
+            Restart
+          </button>
+        )}
         <button
           className="mini"
           disabled={status !== "running"}
