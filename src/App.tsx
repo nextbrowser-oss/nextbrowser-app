@@ -123,6 +123,10 @@ function formatStars(count?: number | null): string {
   return `${rounded}k`;
 }
 
+// GitHub's API is unavailable in some regions. Prefer a slightly stale count
+// over rendering a broken-looking dash; a successful request replaces it.
+const GITHUB_STARS_FALLBACK = 11;
+
 function GithubStarButton({ stars }: { stars?: number | null }) {
   const label = "Star NextBrowser on GitHub";
   return (
@@ -155,7 +159,7 @@ function DiscordButton() {
 }
 
 function SocialButtons() {
-  const [stars, setStars] = useState<number | null>(null);
+  const [stars, setStars] = useState<number>(GITHUB_STARS_FALLBACK);
 
   useEffect(() => {
     let cancelled = false;

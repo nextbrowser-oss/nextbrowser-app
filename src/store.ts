@@ -2482,7 +2482,10 @@ export const useStore = create<State>((set, get) => {
     set({ nextctlUpdating: true, nextctlUpdateStatus: undefined });
     try {
       if (pendingTarget(get(), "vps")) return false;
-      const res = await nextctlRun(["update"]);
+      // Updating also refreshes Clawbrowser and agent assets. On slower or
+      // filtered networks that can legitimately take longer than the normal
+      // one-minute command timeout.
+      const res = await nextctlRun(["update"], undefined, { timeoutMs: 10 * 60_000 });
       const text = res.stdout + res.stderr;
       const line = text.split("\n").find((l) => l.includes("nextctl updated:"));
       if (line) {

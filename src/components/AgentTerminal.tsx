@@ -110,6 +110,9 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
     const terminal = new Terminal({
       cursorBlink: true,
       convertEol: true,
+      // Agent CLIs emit their own ANSI colors. Keep even explicit black/dark
+      // foreground sequences readable when the app switches theme.
+      minimumContrastRatio: 7,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
       fontSize: 12,
       lineHeight: 1.25,
