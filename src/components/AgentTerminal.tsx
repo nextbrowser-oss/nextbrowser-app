@@ -120,15 +120,20 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
     terminal.open(host);
     terminalRef.current = terminal;
     terminal.attachCustomKeyEventHandler((event) => {
-      if (event.type !== "keydown") return true;
-
       if (event.key === "Enter" && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
-        const id = terminalIdRef.current;
-        // Codex treats LF (the same byte as Ctrl+J) as an editor newline and
-        // CR as submit. Bracketed-pasting a newline can submit existing text.
-        if (id) void invoke("terminal_input", { id, data: "\n" });
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.type === "keydown" && !event.repeat) {
+          const id = terminalIdRef.current;
+          // Codex treats LF (the same byte as Ctrl+J) as an editor newline and
+          // CR as submit. Suppress every native Shift+Enter event so xterm
+          // cannot emit a second, submitting CR after this explicit LF.
+          if (id) void invoke("terminal_input", { id, data: "\n" });
+        }
         return false;
       }
+
+      if (event.type !== "keydown") return true;
 
       if (event.key === "Escape") {
         const now = Date.now();
