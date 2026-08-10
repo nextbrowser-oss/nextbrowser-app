@@ -26,6 +26,7 @@ const {
 } = require("./command-runner.cjs");
 const { topUpProxyTraffic } = require("./proxy-traffic.cjs");
 const { defaultSSHConfigPath, discoverSSHHosts, isAllowedExplicitConfigPath } = require("./ssh-config.cjs");
+const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
 
 const children = new Map();
 const terminals = new Map();
@@ -41,6 +42,7 @@ let appUpdateStatus = { status: "idle" };
 let appUpdateTimer = null;
 let nextctlInstallStatus = { status: "idle" };
 let nextctlInstallPromise = null;
+let browserInstallPromise = null;
 
 const CODEX_TERMINAL_PROFILE = "nextbrowser";
 const CODEX_TERMINAL_PROFILE_CONTENT = `[plugins."browser@openai-bundled"]
@@ -293,6 +295,34 @@ async function resolveOrInstallNextctl() {
   }
   return installManagedNextctl();
 }
+async function ensureClawbrowserRuntime(nextctlBin) {
+  const options = {
+    platform: process.platform,
+    homeDir: home(),
+    env: process.env,
+    runtimeRoot: nextbrowserRuntimeRoot(),
+  };
+  const existing = resolveBrowserRuntime(options);
+  if (existing) return existing;
+  if (browserInstallPromise) return browserInstallPromise;
+
+  browserInstallPromise = (async () => {
+    const runtimeRoot = nextbrowserRuntimeRoot();
+    await Promise.all([
+      "data", "cache", "installer-bin", "agent-plugins",
+    ].map((dir) => fs.mkdir(path.join(runtimeRoot, dir), { recursive: true })));
+    const result = await run(nextctlBin, browserInstallArgs(runtimeRoot), {}, { timeoutMs: 60 * 60 * 1000 });
+    const installed = resolveBrowserRuntime(options);
+    if (!installed) {
+      const detail = (result.stderr || result.stdout || "Clawbrowser installation failed").trim();
+      throw new Error(detail);
+    }
+    return installed;
+  })().finally(() => {
+    browserInstallPromise = null;
+  });
+  return browserInstallPromise;
+}
 function dataDir() { return path.join(app.getPath("userData")); }
 async function migrateLegacyData() {
   const legacy = path.join(app.getPath("appData"), "clawdesk-electron");
@@ -484,6 +514,7 @@ async function invokeCommand(command, args = {}) {
     case "nextctl_install_status": return nextctlInstallStatus;
     case "nextctl_run": {
       const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("nextctl not found. Install Clawbrowser CLI or set NEXTCTL_BIN.");
+      if (requiresBrowserRuntime(args.args)) await ensureClawbrowserRuntime(bin);
       return run(bin, args.args || [], args.extraEnv || {}, {
         requestId: args.requestId,
         timeoutMs: args.timeoutMs,
