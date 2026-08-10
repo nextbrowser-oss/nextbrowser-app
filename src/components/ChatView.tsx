@@ -281,9 +281,6 @@ export function ChatView() {
         <aside className="conv-sidebar thin-material">
           <div className="conv-sidebar-head">
             <span className="conv-sidebar-label">{agentName} chats</span>
-            <button className="plain-icon-btn" onClick={() => s.newChat()} title="New chat">
-              <Icon name="square.and.pencil" size={16} />
-            </button>
           </div>
           <hr className="divider" />
           <div className="conv-sidebar-list">
@@ -329,11 +326,9 @@ export function ChatView() {
           >
             <Icon name={collapsed ? "sidebar.left" : "sidebar.leading"} size={16} />
           </button>
-          {collapsed && (
-            <button className="plain-icon-btn" onClick={() => s.newChat()} title="New chat">
-              <Icon name="square.and.pencil" size={16} />
-            </button>
-          )}
+          <button className="plain-icon-btn" onClick={() => s.newChat()} title="New chat">
+            <Icon name="square.and.pencil" size={16} />
+          </button>
           <div className="chat-title-stack">
             <strong className="chat-title">{conv?.title ?? agentName}</strong>
             <span className="muted small">{agentName}</span>
