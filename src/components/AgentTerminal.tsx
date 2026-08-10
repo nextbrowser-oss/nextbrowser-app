@@ -12,10 +12,11 @@ interface AgentTerminalProps {
   workingDir?: string;
   savingWorkflow?: boolean;
   pendingHandoff?: { id: string; text: string };
-  onClose: () => void;
+  handoffToChatRequest?: string;
   onSaveWorkflow: (transcript: string) => void;
   onContinueInChat: (transcript: string) => void;
   onHandoffConsumed: (id: string) => void;
+  onChatHandoffConsumed: (id: string) => void;
 }
 
 const DARK_TERMINAL_THEME = {
@@ -72,7 +73,7 @@ function activeTerminalTheme() {
     : DARK_TERMINAL_THEME;
 }
 
-export function AgentTerminal({ agentId, agentName, conversationId, workingDir, savingWorkflow, pendingHandoff, onClose, onSaveWorkflow, onContinueInChat, onHandoffConsumed }: AgentTerminalProps) {
+export function AgentTerminal({ agentId, agentName, conversationId, workingDir, savingWorkflow, pendingHandoff, handoffToChatRequest, onSaveWorkflow, onContinueInChat, onHandoffConsumed, onChatHandoffConsumed }: AgentTerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalIdRef = useRef<string>();
   const terminalRef = useRef<Terminal>();
@@ -237,6 +238,13 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
     onHandoffConsumed(pendingHandoff.id);
   }, [pendingHandoff?.id, status, onHandoffConsumed]);
 
+  useEffect(() => {
+    if (!handoffToChatRequest || status !== "running") return;
+    const value = transcript();
+    if (value) onContinueInChat(value);
+    onChatHandoffConsumed(handoffToChatRequest);
+  }, [handoffToChatRequest, status, onContinueInChat, onChatHandoffConsumed]);
+
   return (
     <section className="agent-terminal-panel" aria-label={`${agentName} terminal`}>
       <header className="agent-terminal-header">
@@ -258,17 +266,6 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
           </button>
         )}
         <button
-          className="mini"
-          disabled={status !== "running"}
-          onClick={() => {
-            const value = transcript();
-            if (value) onContinueInChat(value);
-          }}
-          title="Prepare this terminal context in regular chat"
-        >
-          Continue in Chat
-        </button>
-        <button
           className="mini terminal-save-skill"
           disabled={status !== "running" || savingWorkflow}
           onClick={() => {
@@ -278,9 +275,6 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
           title="Save this terminal browser workflow as a private skill"
         >
           {savingWorkflow && <Spinner size={11} />} {savingWorkflow ? "Preparing…" : "Save as skill"}
-        </button>
-        <button className="plain-icon-btn plain-icon-btn-compact" onClick={onClose} title="Hide terminal" aria-label="Hide terminal">
-          <Icon name="xmark" size={13} />
         </button>
       </header>
       <div ref={hostRef} className="agent-terminal-host" />
