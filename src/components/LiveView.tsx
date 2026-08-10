@@ -51,15 +51,7 @@ export function LiveView({ active }: { active: boolean }) {
   const pointerDragRef = useRef<{ pointerId: number; button: string; buttons: number; x: number; y: number } | null>(null);
   const runningProfiles = s.profiles.filter((profile) => s.statuses[profile.name] === "running");
   const defaultRunning = s.defaultSession?.status === "running";
-  const profileOptions = [
-    ...(defaultRunning ? [{ name: "__default", label: "default", running: true }] : []),
-    ...s.profiles.map((profile) => ({
-      name: profile.name,
-      label: profile.name,
-      running: s.statuses[profile.name] === "running",
-    })),
-  ];
-  const launchTarget = sessionKey || (defaultRunning ? "__default" : "") || s.selectedProfile || s.profiles[0]?.name || "";
+  const launchTarget = sessionKey || s.selectedProfile || (defaultRunning ? "__default" : "") || s.profiles[0]?.name || "__default";
   const streamUrl = streamInfo?.viewer_url || streamInfo?.dashboard_url || "";
   const nativeViewer = !!streamInfo?.viewer_ws_url;
 
@@ -212,6 +204,16 @@ export function LiveView({ active }: { active: boolean }) {
   }, [active]);
 
   useEffect(() => {
+    if (!active) return;
+    const selected = s.selectedProfile || "__default";
+    if (selected === sessionKey) return;
+    stop();
+    setSessionKey(selected);
+    // Changing workflow level 3 deliberately changes the Live target.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, s.selectedProfile]);
+
+  useEffect(() => {
     if (active) {
       if (inactiveTimerRef.current !== null) {
         window.clearTimeout(inactiveTimerRef.current);
@@ -357,22 +359,11 @@ export function LiveView({ active }: { active: boolean }) {
     <div className="live">
       <div className="live-controls">
         <Icon name="video.fill" size={18} className="accent-icon" />
-        <select
-          className="live-session-select"
-          value={sessionKey}
-          title="Choose profile to stream"
-          onChange={(e) => {
-            stop();
-            setSessionKey(e.target.value);
-          }}
-        >
-          <option value="">Select profile</option>
-          {profileOptions.map((p) => (
-            <option key={p.name} value={p.name}>
-              {p.running ? p.label : `${p.label} (stopped)`}
-            </option>
-          ))}
-        </select>
+        <div className="live-context-profile" title="Profile selected in workflow level 3">
+          <span className={"dot " + ((sessionKey === "__default" ? defaultRunning : s.statuses[sessionKey] === "running") ? "green" : "gray")} />
+          <span className="muted small">Profile</span>
+          <strong>{sessionKey === "__default" ? "default" : sessionKey || s.selectedProfile || "default"}</strong>
+        </div>
         <span className={"live-pill " + state}>
           {state === "live" ? "live" : state}
         </span>

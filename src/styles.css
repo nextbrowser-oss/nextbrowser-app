@@ -1495,7 +1495,7 @@ button, input, textarea, select { color: var(--text); }
 
 /* Profiles */
 .profiles-card {
-  gap: 6px;
+  display: none;
 }
 .profiles-panel-head {
   align-items: center;
@@ -1756,6 +1756,95 @@ button, input, textarea, select { color: var(--text); }
   align-items: center;
   background: var(--bg);
 }
+.workflow-bar {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+}
+.workflow-step {
+  min-width: 0;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+}
+.workflow-agent-step { flex: 0 1 170px; max-width: 180px; overflow: hidden; }
+.workflow-agent-step .agent-picker { min-width: 0; width: 100%; }
+.workflow-agent-step .agent-picker-button { width: 100%; min-width: 0; overflow: hidden; }
+.workflow-agent-step .agent-picker-button strong { max-width: 82px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.workflow-step { cursor: pointer; text-align: left; }
+.workflow-step:hover, .workflow-step.is-open, .workflow-step.is-active { background: var(--surface-2); border-color: var(--line); }
+.workflow-step-number {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 99px;
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+.workflow-step-copy { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.workflow-step-copy > span { color: var(--muted); font-size: 10px; line-height: 1; }
+.workflow-step-copy strong { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.workflow-chevron { flex: none; color: var(--muted); opacity: .55; }
+.workflow-agent-step .agent-picker-button { min-height: 28px; padding: 2px 4px; border: 0; background: transparent; box-shadow: none; }
+.workflow-agent-step .agent-picker-button > .muted { font-size: 10px; }
+.workflow-health, .workflow-session-dot, .workflow-live-dot { width: 7px; height: 7px; flex: none; border-radius: 99px; background: var(--muted); }
+.workflow-health.is-ready, .workflow-session-dot.is-running, .workflow-live-dot { background: #35c66b; box-shadow: 0 0 0 3px color-mix(in srgb, #35c66b 15%, transparent); }
+.workflow-chat-step { flex: 0 1 205px; max-width: 220px; overflow: hidden; cursor: pointer; text-align: left; }
+.workflow-chat-step .workflow-step-copy { flex: 1; }
+.workflow-chat-popover { position: fixed; z-index: 110; overflow: auto; padding: 8px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg-elevated); box-shadow: 0 18px 50px var(--shadow); }
+.workflow-chat-menu-head { display: flex; align-items: center; gap: 8px; padding: 3px 3px 8px 7px; border-bottom: 1px solid var(--line); }
+.workflow-chat-menu-head > button { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; min-height: 28px; }
+.workflow-chat-list { display: flex; flex-direction: column; gap: 2px; padding-top: 6px; }
+.workflow-chat-list > button { min-height: 34px; display: flex; align-items: center; gap: 8px; padding: 7px 9px; border: 0; border-radius: 8px; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.workflow-chat-list > button:hover, .workflow-chat-list > button.is-active { background: var(--surface-2); }
+.workflow-chat-list > button > span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workflow-chat-empty { padding: 14px 9px; color: var(--muted); font-size: 11px; }
+.workflow-profile-step { flex: 1 1 230px; min-width: 170px; max-width: 300px; overflow: hidden; }
+.workflow-profile-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
+.workflow-live-step { flex: 0 0 auto; min-width: 126px; }
+.workflow-profile-popover {
+  position: fixed;
+  z-index: 110;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--bg-elevated);
+  box-shadow: 0 18px 50px var(--shadow);
+}
+.workflow-popover-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 14px; }
+.workflow-popover-head > div { display: flex; flex-direction: column; gap: 3px; }
+.workflow-popover-head span { color: var(--muted); font-size: 11px; }
+.workflow-popover-head > button { margin-left: auto; }
+.workflow-field { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.workflow-field > span { color: var(--muted); font-size: 11px; font-weight: 650; }
+.workflow-field select, .workflow-field input { width: 100%; min-height: 38px; }
+.workflow-field small { color: var(--muted); font-size: 10px; }
+.workflow-network-summary { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: center; margin-top: 14px; padding: 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-1); }
+.workflow-network-summary > span { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
+.workflow-network-summary > strong { justify-self: end; font-size: 11px; }
+.workflow-network-summary > small { grid-column: 2; justify-self: end; color: var(--muted); }
+.workflow-profile-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.workflow-profile-actions button { display: inline-flex; align-items: center; gap: 6px; }
+.live-context-profile { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-1); }
+.live-context-profile strong { font-size: 12px; }
+@media (max-width: 1050px) {
+  .workflow-step-number, .workflow-chevron, .workflow-profile-meta { display: none; }
+  .workflow-chat-step { max-width: 190px; }
+  .workflow-profile-step { max-width: 200px; }
+}
 :root:not([data-theme="light"]) .tabbar {
   background: #1b1b1b;
   border-bottom: 1px solid rgba(255, 255, 255, 0.055);
@@ -1799,7 +1888,7 @@ button, input, textarea, select { color: var(--text); }
   border-color: transparent;
   box-shadow: none;
 }
-.tabbar-spacer { flex: 1; }
+.tabbar-spacer { display: none; }
 .tabbar-controls {
   display: inline-flex;
   align-items: center;

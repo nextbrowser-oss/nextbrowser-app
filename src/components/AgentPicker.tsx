@@ -9,9 +9,10 @@ interface AgentPickerProps {
   createChatOnSwitch?: boolean;
   label?: string;
   tabLike?: boolean;
+  workflow?: boolean;
 }
 
-export function AgentPicker({ compact = false, createChatOnSwitch = false, label = "Agent", tabLike = false }: AgentPickerProps) {
+export function AgentPicker({ compact = false, createChatOnSwitch = false, label = "Agent", tabLike = false, workflow = false }: AgentPickerProps) {
   const agentId = useStore((s) => s.agentId);
   const switchAgent = useStore((s) => s.switchAgent);
   const newChat = useStore((s) => s.newChat);
@@ -60,7 +61,16 @@ export function AgentPicker({ compact = false, createChatOnSwitch = false, label
         title={title}
         aria-label={title}
       >
-        {tabLike ? (
+        {workflow ? (
+          <>
+            <Icon name="cpu.fill" size={14} />
+            <span className="workflow-step-copy">
+              <span>{label}</span>
+              <strong>{current.name}</strong>
+            </span>
+            <Icon name="chevron.down" size={11} className="muted" />
+          </>
+        ) : tabLike ? (
           <span className={"tab-pill" + (open ? " tab-pill-active" : "")}>
             <Icon name="cpu.fill" size={16} strokeWidth={2.25} />
             {label}

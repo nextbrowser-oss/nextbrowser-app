@@ -68,7 +68,9 @@ function browserInstallArgs(runtimeRoot) {
 }
 
 function requiresBrowserRuntime(args) {
-  return ["start", "setup", "launch", "rotate"].includes(String(args?.[0] || "").toLowerCase());
+  if (!["start", "setup", "launch", "rotate"].includes(String(args?.[0] || "").toLowerCase())) return false;
+  const runtimeIndex = args.indexOf("--runtime");
+  return runtimeIndex < 0 || String(args[runtimeIndex + 1] || "clawbrowser").toLowerCase() === "clawbrowser";
 }
 
 module.exports = {

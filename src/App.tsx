@@ -31,11 +31,7 @@ import { agentById } from "./agents";
 import { releaseDownloadUrl } from "./lib/releaseDownload";
 import { UserFacingError } from "./components/UserFacingError";
 import { AgentInstallLink } from "./components/AgentInstallLink";
-
-const TABS: { id: AppTab; label: string; icon: string }[] = [
-  { id: "chat", label: "Chat", icon: "bubble.left.and.bubble.right.fill" },
-  { id: "live", label: "Live", icon: "video.fill" },
-];
+import { WorkflowBar } from "./components/WorkflowBar";
 
 const PREVIEW_TABS = new Set<string>(["chat", "skills", "live", "usage", "guide", "scheduled"]);
 
@@ -837,7 +833,7 @@ export function App() {
         className={"sidebar thin-material" + (sidebarCollapsed ? " sidebar-collapsed" : "")}
         style={{ width: sidebarCollapsed ? 68 : sidebarWidth }}
       >
-        <Sidebar onOpenAgentSettings={() => openSettings("agent")} onHome={() => setTab("chat")} />
+        <Sidebar onHome={() => setTab("chat")} />
       </aside>
       {!sidebarCollapsed && <div id="sidebar-resize" className="resize-handle" />}
       <main className="content">
@@ -853,22 +849,7 @@ export function App() {
               <Icon name="chevron.left" size={18} strokeWidth={2.25} />
             </button>
           )}
-          <div className="tabbar-group" role="tablist" aria-label="Main views">
-            {TABS.map((t) => (
-              <button
-                key={t.id}
-                className={"tab-hit" + (tab === t.id ? " tab-hit-active" : "")}
-                onClick={() => setTab(t.id)}
-                data-tooltip={t.label}
-                aria-label={`Open ${t.label}`}
-              >
-                <span className={"tab-pill" + (tab === t.id ? " tab-pill-active" : "")}>
-                  <Icon name={t.icon} size={16} strokeWidth={2.25} />
-                  {t.label}
-                </span>
-              </button>
-            ))}
-          </div>
+          <WorkflowBar />
           <span className="tabbar-spacer" />
           <div className="tabbar-controls">
             <SocialButtons />

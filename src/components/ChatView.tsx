@@ -260,9 +260,6 @@ export function ChatView() {
     else setWorkflowDraft({ task, answer: capturedAnswer, prepared });
     setPreparingWorkflowId(null);
   };
-  const showDefaultSession =
-    !s.selectedProfile && s.defaultSession?.status === "running";
-
   return (
     <div className="chat-layout">
       {!collapsed && (
@@ -324,7 +321,6 @@ export function ChatView() {
           )}
           <div className="chat-title-stack">
             <strong className="chat-title">{conv?.title ?? agentName}</strong>
-            <span className="muted small">{agentName}</span>
           </div>
           <span className="spacer" />
           {remoteOnly && (
@@ -348,22 +344,6 @@ export function ChatView() {
               <Icon name="terminal" size={13} />
               <span className="chat-vps-label">Use VPS</span>
             </button>
-          )}
-          {!remoteOnly && s.selectedProfile && (
-            <span className="profile-pill">
-              <Icon name="person.crop.circle" size={12} />
-              {s.selectedProfile}
-            </span>
-          )}
-          {!remoteOnly && showDefaultSession && (
-            <span
-              className="default-session-pill"
-              data-tooltip="Local browser session without a named profile"
-              tabIndex={0}
-            >
-              <Icon name="globe" size={12} />
-              default
-            </span>
           )}
         </div>
         <hr className="divider" />

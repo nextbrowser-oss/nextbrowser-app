@@ -57,6 +57,14 @@ export interface Profile {
   created_at?: string | null;
 }
 
+export type BrowserRuntime = "clawbrowser" | "chromium" | "cdp" | "multilogin" | "adspower";
+
+export interface ProfileBrowserConfig {
+  runtime: BrowserRuntime;
+  runtimeBin?: string;
+  cdpEndpoint?: string;
+}
+
 export interface SessionInfo {
   name?: string | null;
   endpoint?: string | null;

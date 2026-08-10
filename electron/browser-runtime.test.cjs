@@ -44,4 +44,6 @@ test("uses isolated install paths and never overwrites managed nextctl", () => {
 test("installs lazily only for profile launch operations", () => {
   for (const command of ["start", "setup", "launch", "rotate"]) assert.equal(requiresBrowserRuntime([command]), true);
   for (const command of ["profiles", "status", "stop", "verify"]) assert.equal(requiresBrowserRuntime([command]), false);
+  assert.equal(requiresBrowserRuntime(["start", "--runtime", "chromium"]), false);
+  assert.equal(requiresBrowserRuntime(["start", "--runtime", "cdp"]), false);
 });

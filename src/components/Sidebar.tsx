@@ -1,7 +1,6 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore, type ManualProxyProfileInput } from "../store";
-import { agentById } from "../agents";
 import { BrandHeader, BrandLogo } from "./BrandLogo";
 import { Icon, Spinner } from "./Icon";
 import { withLocalScripts } from "../skillsCatalog";
@@ -11,6 +10,7 @@ import { manualProxyDefaultName, parseManualProxyUrl, type ManualProxyScheme } f
 import { internalError, needsSupportLink } from "../lib/userFacingError";
 import { cancelNextctlRun } from "../nextctl";
 import type { AppTab } from "../types";
+import type { BrowserRuntime } from "../types";
 import { CountrySelect } from "./CountrySelect";
 import { UserFacingError } from "./UserFacingError";
 
@@ -18,7 +18,6 @@ type ManualProxyInputMode = "url" | "fields";
 const PROFILE_CREATE_TIMEOUT_MS = 30_000;
 
 interface SidebarProps {
-  onOpenAgentSettings: () => void;
   onHome: () => void;
 }
 
@@ -28,7 +27,7 @@ const NAV_ITEMS: Array<{ id: AppTab; label: string; icon: string }> = [
   { id: "guide", label: "Guide", icon: "book.fill" },
 ];
 
-export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
+export function Sidebar({ onHome }: SidebarProps) {
   const s = useStore();
   const [menuProfile, setMenuProfile] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -46,6 +45,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [createProfileOpen, setCreateProfileOpen] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [profileCountry, setProfileCountry] = useState("US");
+  const [profileBrowserRuntime, setProfileBrowserRuntime] = useState<BrowserRuntime>("clawbrowser");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
@@ -53,8 +53,6 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const profileCreateRequestRef = useRef<string | null>(null);
 
-  const agentName = agentById(s.agentId).name;
-  const ready = s.agentReady();
   const profiles = s.filteredProfiles();
   const skillCount = withLocalScripts(s.skillCategories).reduce((total, category) => total + category.entries.length, 0);
   const defaultStatus = s.defaultSession?.status ?? "unknown";
@@ -72,7 +70,6 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     !defaultSessionDuplicate &&
     !s.profiles.some((p) => p.name === "default");
   const visibleProfileCount = s.profiles.length + (showDefaultProfile ? 1 : 0);
-  const runningCount = s.profiles.filter((p) => s.statuses[p.name] === "running").length + (showDefaultProfile && defaultRunning ? 1 : 0);
   const proxyCountries = s.proxyCountries.length ? s.proxyCountries : ROTATION_COUNTRIES;
 
   useEffect(() => {
@@ -94,6 +91,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       }
       setProfileName("");
       setProfileCountry("US");
+      setProfileBrowserRuntime("clawbrowser");
       setProfileError(null);
       setCreateProfileOpen(true);
       void s.loadProxyCountries().catch(() => {});
@@ -261,6 +259,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         timeoutMs: PROFILE_CREATE_TIMEOUT_MS,
       });
       if (profileCreateRequestRef.current !== requestId) return;
+      s.setProfileBrowserConfig(profileName.trim(), { runtime: profileBrowserRuntime });
       setCreateProfileOpen(false);
       setProfileName("");
       setProfileCountry("US");
@@ -293,10 +292,6 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           <Icon name="sidebar.left" size={17} />
         </button>
         <button className="sidebar-logo-home" onClick={onHome} data-tooltip="Back to main view" aria-label="Back to main view"><BrandLogo size={28} /></button>
-        <button className="mini-nav-btn" data-tooltip={`${visibleProfileCount} profiles, ${runningCount} running`} aria-label={`${visibleProfileCount} profiles, ${runningCount} running`} onClick={() => s.setTab("live")}>
-          <Icon name="person.crop.circle" size={18} />
-          <span>{runningCount}/{visibleProfileCount}</span>
-        </button>
         {NAV_ITEMS.map((item) => (
           <button
             key={item.id}
@@ -311,10 +306,6 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           </button>
         ))}
         <span className="spacer" />
-        <button className="mini-nav-btn" data-tooltip={`Agent: ${agentName}`} aria-label={`Agent: ${agentName}`} onClick={onOpenAgentSettings}>
-          <Icon name="cpu.fill" size={18} />
-          <span>{ready ? "on" : "off"}</span>
-        </button>
       </div>
     );
   }
@@ -538,17 +529,6 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           </span>
         )}
         {!s.nextctlSupportsSkill && <span className="warn"> · no skill cmd</span>}
-        <span className="spacer" />
-        <button
-          className={"agent-footer-status" + (ready ? " is-ready" : "")}
-          title="Agent settings"
-          aria-label="Open agent settings"
-          onClick={onOpenAgentSettings}
-        >
-          <span className="status-dot" />
-          <span>{ready ? agentName : "No agent"}</span>
-          <Icon name="chevron.down" size={11} />
-        </button>
       </div>
 
       {createProfileOpen && createPortal((
@@ -595,6 +575,14 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 autoFocus
               />
             </label>
+            <div className="modal-field">
+              <span>Browser</span>
+              <select value={profileBrowserRuntime} disabled={profileSaving} onChange={(event) => setProfileBrowserRuntime(event.target.value as BrowserRuntime)}>
+                <option value="clawbrowser">Clawbrowser (recommended)</option>
+                <option value="chromium">Chrome / Chromium</option>
+                <option value="cdp">Existing browser via CDP</option>
+              </select>
+            </div>
             <div className="modal-field">
               <span>Proxy country</span>
               <CountrySelect

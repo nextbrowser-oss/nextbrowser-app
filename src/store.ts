@@ -55,6 +55,7 @@ import {
 import type {
   AppTab,
   BrowserWorkflowSkill,
+  ProfileBrowserConfig,
   ChatAttachment,
   ChatMessage,
   Conversation,
@@ -77,6 +78,28 @@ interface QueuedItem {
   rawText: string;
   replyId: string;
   executionTarget: ExecutionTarget;
+}
+
+const PROFILE_BROWSER_CONFIGS_KEY = "profileBrowserConfigs";
+
+function loadProfileBrowserConfigs(): Record<string, ProfileBrowserConfig> {
+  try {
+    const value = JSON.parse(localStorage.getItem(PROFILE_BROWSER_CONFIGS_KEY) || "{}");
+    return value && typeof value === "object" ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+function profileBrowserArgs(config?: ProfileBrowserConfig): string[] {
+  if (!config || config.runtime === "clawbrowser") return [];
+  if (config.runtime === "chromium") {
+    return config.runtimeBin ? ["--runtime", "chromium", "--runtime-bin", config.runtimeBin] : ["--runtime", "chromium"];
+  }
+  if (config.runtime === "cdp") {
+    return config.cdpEndpoint ? ["--runtime", "cdp", "--cdp", config.cdpEndpoint] : ["--runtime", "cdp"];
+  }
+  return ["--runtime", config.runtime];
 }
 
 export interface ManualProxyProfileInput {
@@ -310,6 +333,7 @@ interface State {
   statuses: Record<string, string>;
   profileSessions: Record<string, SessionStatus>;
   profileIdentities: Record<string, ProxyIdentity>;
+  profileBrowserConfigs: Record<string, ProfileBrowserConfig>;
   selectedProfile?: string;
   defaultSession?: SessionStatus;
   profileSearch: string;
@@ -378,6 +402,7 @@ interface State {
   createManualProxyProfile: (input: ManualProxyProfileInput) => Promise<void>;
   deleteProfile: (n: string) => Promise<void>;
   selectProfile: (n?: string) => void;
+  setProfileBrowserConfig: (profile: string, config: ProfileBrowserConfig) => void;
   switchAgent: (id: string) => void;
   authorizeAgent: (options?: AgentAuthorizationOptions) => Promise<void>;
   loginAgent: () => Promise<void>;
@@ -880,6 +905,7 @@ export const useStore = create<State>((set, get) => {
   statuses: {},
   profileSessions: {},
   profileIdentities: {},
+  profileBrowserConfigs: loadProfileBrowserConfigs(),
   profileSearch: "",
   isRefreshing: false,
   agentId: localStorage.getItem("lastAgent") ?? "claude",
@@ -1929,7 +1955,7 @@ export const useStore = create<State>((set, get) => {
     const startedAt = performance.now();
     trackEvent("profile_start_requested", { scope: "default" });
     try {
-      await nextctlRunChecked(["start", "--format", "json"]);
+      await nextctlRunChecked(["start", ...profileBrowserArgs(get().profileBrowserConfigs.__default), "--format", "json"]);
       await get().loadDefaultSession();
       const identity = await verifyProxyIdentity();
       if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
@@ -1954,7 +1980,7 @@ export const useStore = create<State>((set, get) => {
     trackEvent("proxy_ip_change_requested", { scope: "default_profile" });
     trackEvent("profile_rotate_requested", { scope: "default" });
     try {
-      await nextctlRunChecked(["rotate", "--format", "json"]);
+      await nextctlRunChecked(["rotate", ...profileBrowserArgs(get().profileBrowserConfigs.__default), "--format", "json"]);
       await get().loadDefaultSession();
       await get().loadProxy().catch(() => {});
       const after = await verifyProxyIdentity();
@@ -1972,7 +1998,7 @@ export const useStore = create<State>((set, get) => {
     trackEvent("proxy_country_change_requested", { scope: "default_profile", country });
     trackEvent("profile_rotate_requested", { scope: "default", country });
     try {
-      await nextctlRunChecked(["rotate", "--country", country, "--verify", "--format", "json"]);
+      await nextctlRunChecked(["rotate", "--country", country, ...profileBrowserArgs(get().profileBrowserConfigs.__default), "--verify", "--format", "json"]);
       await get().loadDefaultSession();
       await get().loadProxy().catch(() => {});
       const after = await verifyProxyIdentity();
@@ -1991,7 +2017,7 @@ export const useStore = create<State>((set, get) => {
     trackEvent("profile_start_requested", { scope: "named" });
     set((s) => ({ statuses: { ...s.statuses, [n]: "starting" } }));
     try {
-      await nextctlRunChecked(["start", "--profile", n, "--format", "json"]);
+      await nextctlRunChecked(["start", "--profile", n, ...profileBrowserArgs(get().profileBrowserConfigs[n]), "--format", "json"]);
       await get().loadProfiles();
       const identity = await verifyProxyIdentity(n);
       if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: identity } }));
@@ -2017,7 +2043,7 @@ export const useStore = create<State>((set, get) => {
     trackEvent("profile_rotate_requested", { scope: "named" });
     set((s) => ({ statuses: { ...s.statuses, [n]: "rotating" } }));
     try {
-      await nextctlRunChecked(["rotate", "--profile", n, "--format", "json"]);
+      await nextctlRunChecked(["rotate", "--profile", n, ...profileBrowserArgs(get().profileBrowserConfigs[n]), "--format", "json"]);
       await get().loadProfiles();
       await get().loadProxy().catch(() => {});
       const after = await verifyProxyIdentity(n);
@@ -2042,6 +2068,7 @@ export const useStore = create<State>((set, get) => {
         n,
         "--country",
         country,
+        ...profileBrowserArgs(get().profileBrowserConfigs[n]),
         "--verify",
         "--format",
         "json",
@@ -2123,8 +2150,11 @@ export const useStore = create<State>((set, get) => {
     if (get().selectedProfile === n) set({ selectedProfile: undefined });
     set((s) => {
       const statuses = { ...s.statuses };
+      const profileBrowserConfigs = { ...s.profileBrowserConfigs };
       delete statuses[n];
-      return { statuses };
+      delete profileBrowserConfigs[n];
+      localStorage.setItem(PROFILE_BROWSER_CONFIGS_KEY, JSON.stringify(profileBrowserConfigs));
+      return { statuses, profileBrowserConfigs };
     });
     await get().loadProfiles();
     trackTiming("profile_delete_completed", startedAt);
@@ -2133,6 +2163,13 @@ export const useStore = create<State>((set, get) => {
   selectProfile: (n) => {
     trackEvent("profile_selected", { selected: !!n });
     set({ selectedProfile: n });
+  },
+
+  setProfileBrowserConfig: (profile, config) => {
+    const profileBrowserConfigs = { ...get().profileBrowserConfigs, [profile]: config };
+    localStorage.setItem(PROFILE_BROWSER_CONFIGS_KEY, JSON.stringify(profileBrowserConfigs));
+    set({ profileBrowserConfigs });
+    trackEvent("profile_browser_runtime_selected", { runtime: config.runtime });
   },
 
   switchAgent: (id) => {
@@ -3428,7 +3465,8 @@ export const useStore = create<State>((set, get) => {
   },
 
   startRemoteStream: async (profile) => {
-    const args = ["remote", ...(profile ? ["--profile", profile] : [])];
+    const key = profile || "__default";
+    const args = ["remote", ...(profile ? ["--profile", profile] : []), ...profileBrowserArgs(get().profileBrowserConfigs[key])];
     let res = await nextctlRun([...args, "--include-viewer-url", "--format", "json"]);
     if (res.code !== 0 && nextctlErrorMessage(res).includes("unknown flag")) {
       res = await nextctlRun([...args, "--format", "json"]);
