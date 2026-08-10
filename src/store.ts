@@ -79,6 +79,19 @@ interface QueuedItem {
   executionTarget: ExecutionTarget;
 }
 
+function privateSkillContext(skills: BrowserWorkflowSkill[], text: string): string {
+  const lower = text.toLowerCase();
+  const intent = /\b(post|publish|comment|reply|send)\b|опубли|отправ|коммент/i.test(text) ? "posting"
+    : /\b(find|search)\b|найди|поиск/i.test(text) ? "search"
+      : /\b(scrape|extract|parse)\b|скрейп|парс/i.test(text) ? "scrape"
+        : /\b(fill|upload|form)\b|заполни|загруз/i.test(text) ? "form" : "other";
+  const match = skills
+    .filter((skill) => skill.domain && lower.includes(skill.domain.toLowerCase()))
+    .sort((a, b) => Number(b.capability === intent) - Number(a.capability === intent) || b.updatedAt - a.updatedAt)[0];
+  if (!match || (match.capability !== intent && intent !== "other")) return "";
+  return `\n\nA private skill owned by this user matches the domain and intent. Execute its structured recipe first; fall back to its prose workflow only if the page changed. Do not repeat start/prepare because NextBrowser owns session setup.\nPrivate skill: ${match.title}\nRecipe: ${JSON.stringify(match.recipe)}\nFallback: ${match.instructions}`;
+}
+
 export interface ManualProxyProfileInput {
   name: string;
   scheme: "http" | "socks5";
@@ -443,7 +456,7 @@ interface State {
   deleteCustomScript: (id: string) => void;
   runCustomScript: (script: CustomScript) => Promise<void>;
   saveLocalSkill: (skill: BrowserWorkflowSkill) => Promise<void>;
-  deleteLocalSkill: (id: string) => void;
+  deleteLocalSkill: (id: string) => Promise<void>;
   runLocalSkill: (skill: BrowserWorkflowSkill, task?: string) => Promise<void>;
 
   // Internal queue/runtime helpers
@@ -1409,7 +1422,7 @@ export const useStore = create<State>((set, get) => {
       get().conversations,
       item.conversationId,
       item.replyId,
-      item.rawText,
+      item.rawText + privateSkillContext(get().localSkills, item.rawText),
       get().selectedProfile,
       { nextctlAvailable: get().nextctlAvailable, executionTarget: item.executionTarget },
     );
@@ -3353,16 +3366,21 @@ export const useStore = create<State>((set, get) => {
     persistLocalSkills(localSkills);
     set({ localSkills });
     const slug = `workflow-${skill.id.slice(0, 8)}`;
-    const body = `---\nname: ${skill.title}\ndescription: Reusable browser workflow${skill.domain ? ` for ${skill.domain}` : ""}.\n---\n\n# ${skill.title}\n\n## When to use\n\n${skill.task}\n\n## Workflow\n\n${skill.instructions}\n\n## Recorded browser actions\n\n${skill.actions.map((action, index) => `${index + 1}. ${action}`).join("\n") || "No action trace was captured."}\n`;
+    const description = `Reusable private ${skill.capability} browser workflow${skill.domain ? ` for ${skill.domain}` : ""}.`;
+    const body = `---\nname: ${JSON.stringify(skill.title)}\ndescription: ${JSON.stringify(description)}\n---\n\n# ${skill.title}\n\n## Workflow\n\n${skill.instructions}\n\n## Inputs\n\n\`\`\`json\n${JSON.stringify(skill.parametersSchema, null, 2)}\n\`\`\`\n\n## Output\n\n\`\`\`json\n${JSON.stringify(skill.outputSchema, null, 2)}\n\`\`\`\n\n## Recipe\n\nExecute these task-specific actions first. The app prepares the browser session separately. If a selector is stale, resolve it again and continue.\n\n\`\`\`json\n${JSON.stringify(skill.recipe, null, 2)}\n\`\`\`\n`;
     await invoke<string>("write_local_skill", { slug, content: body });
     set((state) => ({ localSkillSync: { ...state.localSkillSync, [skill.id]: "syncing" } }));
     let tempPath: string | undefined;
     try {
       tempPath = await invoke<string>("write_temp_skill", { slug, content: body });
       const { env, res } = await nextctlEnvelope<SkillRef>([
-        "skill", "add", "--domain", `${slug}.script`, "--private", "--slug", slug,
+        "skill", "add", "--domain", skill.domain, "--private", "--slug", slug,
         "--title", skill.title, "--description", `Private browser skill${skill.domain ? ` for ${skill.domain}` : ""}.`,
         "--category", "my-skills", "--category-title", "My skills", "--category-icon", "person.crop.circle",
+        "--capability", skill.capability,
+        "--parameters-json", JSON.stringify(skill.parametersSchema),
+        "--output-json", JSON.stringify(skill.outputSchema),
+        "--recipe-json", JSON.stringify(skill.recipe),
         "--file", tempPath,
       ]);
       if (res.code !== 0 || env.ok === false) throw new Error(nextctlErrorMessage(res));
@@ -3379,7 +3397,12 @@ export const useStore = create<State>((set, get) => {
     }
   },
 
-  deleteLocalSkill: (id) => {
+  deleteLocalSkill: async (id) => {
+    const skill = get().localSkills.find((item) => item.id === id);
+    if (skill?.serverSlug) {
+      const { res } = await nextctlEnvelope(["skill", "delete", skill.serverSlug]);
+      if (res.code !== 0) throw new Error(nextctlErrorMessage(res));
+    }
     const localSkills = get().localSkills.filter((skill) => skill.id !== id);
     persistLocalSkills(localSkills);
     set({ localSkills });
@@ -3420,7 +3443,7 @@ export const useStore = create<State>((set, get) => {
     if (!get().agentReady()) return;
     const note = pageReadyNote(prep.host, prep.directFallback);
     get().enqueue(
-      `Use my local browser skill "${skill.title}" for ${target} in the active verified NextBrowser session.${note}\nThe app already prepared the session, verified the selected proxy, and opened the website. Do not run saved start/prepare operations again. Begin with the first task-specific action. Reuse the proven fast path, adapting selectors only if the page changed.\n\nTask for this run:\n${task}\n\nWorkflow instructions:\n${skill.instructions}\n\nObserved browser actions (reference only):\n${skill.actions.map((action, index) => `${index + 1}. ${action}`).join("\n") || "No recorded action trace; follow the workflow instructions."}`,
+      `Use my local browser skill "${skill.title}" for ${target} in the active verified NextBrowser session.${note}\nThe app already prepared the session, verified the selected proxy, and opened the website. Do not run saved start/prepare operations again. Begin with the first task-specific action. Reuse the proven recipe, adapting selectors only if the page changed.\n\nTask for this run:\n${task}\n\nStructured recipe (execute first):\n${JSON.stringify(skill.recipe, null, 2)}\n\nWorkflow fallback:\n${skill.instructions}`,
       chip,
       cid,
     );

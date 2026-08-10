@@ -87,7 +87,7 @@ describe("Swift-compatible persistence", () => {
     } as never);
     expect(normalized.createdAt).toBe(Date.parse("2026-08-04T10:00:00Z"));
     expect(serializeWorkflowSkills([normalized])[0]).toMatchObject({
-      domain: "999.md", actions: ["navigate", "extract"], createdAt: "2026-08-04T10:00:00Z",
+      domain: "999.md", actions: [{ tool: "navigate", arguments: {} }, { tool: "extract", arguments: {} }], createdAt: "2026-08-04T10:00:00Z",
     });
   });
 });

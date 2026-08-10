@@ -1,7 +1,7 @@
 const PROMPT_MARKER = /^\s*›\s*(.+)$/gm;
 const CLAWBROWSER_CALL = /clawbrowser\.([a-z_]+)/g;
 
-interface CapturedCall {
+export interface CapturedCall {
   name: string;
   args: Record<string, unknown>;
   start: number;
@@ -51,6 +51,25 @@ function capturedCalls(transcript: string): CapturedCall[] {
   });
 }
 
+export type WorkflowCapability = "scrape" | "search" | "posting" | "form" | "navigation" | "other";
+
+export function workflowCapability(task: string, transcript: string): WorkflowCapability {
+  const tools = capturedCalls(transcript).map((call) => call.name);
+  if (/\b(post|publish|comment|reply|send)\b|опубли|отправ|коммент/i.test(task)) return "posting";
+  if (tools.some((tool) => ["paginate_extract", "extract"].includes(tool))) return /\b(find|search)\b|найди|поиск/i.test(task) ? "search" : "scrape";
+  if (tools.some((tool) => ["input", "upload"].includes(tool))) return "form";
+  if (tools.some((tool) => ["open", "navigate", "click", "press"].includes(tool))) return "navigation";
+  return "other";
+}
+
+export function workflowRecipe(task: string, transcript: string) {
+  const capability = workflowCapability(task, transcript);
+  const actions = selectedFastPath(transcript)
+    .filter(({ name }) => !["start", "prepare"].includes(name))
+    .map(({ name, args }) => ({ tool: name, arguments: args }));
+  return { version: 1 as const, capability, actions };
+}
+
 function pick(source: Record<string, unknown>, keys: string[]): Record<string, unknown> {
   return Object.fromEntries(keys.filter((key) => source[key] !== undefined).map((key) => [key, source[key]]));
 }
@@ -71,10 +90,7 @@ function selectedFastPath(transcript: string): CapturedCall[] {
 }
 
 function fastPath(transcript: string): string[] {
-  return selectedFastPath(transcript).flatMap(({ name, args }) => {
-    if (["start", "prepare"].includes(name)) {
-      return [`clawbrowser.${name}(${JSON.stringify(pick(args, ["profile", "country", "url", "verify", "wait_for"]))})`];
-    }
+  return selectedFastPath(transcript).filter(({ name }) => !["start", "prepare"].includes(name)).flatMap(({ name, args }) => {
     if (name === "multi_action") {
       return [`clawbrowser.multi_action(${JSON.stringify(pick(args, ["actions", "stop_on_navigation", "wait_for", "state_mode"]))})`];
     }
@@ -179,9 +195,6 @@ export function workflowInstructions(task: string, transcript: string): string {
   const tools = [...transcript.matchAll(CLAWBROWSER_CALL)].map((match) => match[1]);
   const unique = tools.filter((tool, index) => tools.indexOf(tool) === index);
   const steps: string[] = [];
-  if (unique.includes("start") || unique.includes("prepare")) {
-    steps.push("Start or reattach the requested Clawbrowser profile and verify the requested proxy country before interacting with the site.");
-  }
   if (unique.some((tool) => ["open", "navigate"].includes(tool))) {
     steps.push("Open the target website in the verified browser session.");
   }

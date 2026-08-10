@@ -4,17 +4,21 @@ export interface DistilledWorkflow {
   instructions: string;
   reusable: boolean;
   reason: string;
+  capability: "scrape" | "search" | "posting" | "form" | "navigation" | "other";
+  parametersSchema: Record<string, unknown>;
+  outputSchema: Record<string, unknown>;
+  recipe: { version: 1; capability: DistilledWorkflow["capability"]; actions: Array<{ tool: string; arguments: Record<string, unknown> }> };
 }
 
 export function workflowDistillationPrompt(input: DistilledWorkflow): string {
   return `You are converting an observed successful browser run into a reusable private skill.
 Do not call tools, browse, or inspect files. Use only the supplied cleaned trace.
 
-Return exactly one JSON object with fields: title, domain, instructions, reusable, reason.
+Return exactly one JSON object with fields: title, domain, instructions, reusable, reason, capability, parameters_schema, output_schema.
 
 Rules:
 - Preserve the real domain and only browser tools/arguments present in the cleaned trace.
-- Keep the workflow self-contained from proxy/session preparation through final results.
+- Keep only task-specific website actions through final results. NextBrowser prepares profiles, proxy, and sessions; omit start/prepare lifecycle steps.
 - Parameterize user-specific search values when useful, while retaining their current defaults.
 - Separate the proven fast path from fallback behavior.
 - Do not include results, IDs, endpoints, dashboard URLs, timestamps, tokens, or credentials.
@@ -61,5 +65,9 @@ export function parseDistilledWorkflow(raw: string, fallback: DistilledWorkflow)
   const allowedTools = new Set([...fallback.instructions.matchAll(/clawbrowser\.([a-z_]+)/g)].map((match) => match[1]));
   const producedTools = [...instructions.matchAll(/clawbrowser\.([a-z_]+)/g)].map((match) => match[1]);
   if (producedTools.some((tool) => !allowedTools.has(tool))) return undefined;
-  return { title, domain, instructions, reusable: true, reason };
+  const allowedCapabilities = new Set(["scrape", "search", "posting", "form", "navigation", "other"]);
+  const capability = typeof record.capability === "string" && allowedCapabilities.has(record.capability) ? record.capability as DistilledWorkflow["capability"] : fallback.capability;
+  const parametersSchema = record.parameters_schema && typeof record.parameters_schema === "object" && !Array.isArray(record.parameters_schema) ? record.parameters_schema as Record<string, unknown> : fallback.parametersSchema;
+  const outputSchema = record.output_schema && typeof record.output_schema === "object" && !Array.isArray(record.output_schema) ? record.output_schema as Record<string, unknown> : fallback.outputSchema;
+  return { title, domain, instructions, reusable: true, reason, capability, parametersSchema, outputSchema, recipe: { ...fallback.recipe, capability } };
 }

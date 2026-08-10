@@ -128,8 +128,24 @@ export function serializeScripts(scripts: CustomScript[]) {
 }
 
 export function normalizeWorkflowSkill(skill: BrowserWorkflowSkill): BrowserWorkflowSkill {
+  const legacyActions: unknown[] = Array.isArray(skill.actions) ? skill.actions : [];
+  const actions = legacyActions.flatMap((action) => {
+    if (action && typeof action === "object" && "tool" in action && typeof action.tool === "string") {
+      const args = "arguments" in action && action.arguments && typeof action.arguments === "object" ? action.arguments as Record<string, unknown> : {};
+      return [{ tool: action.tool, arguments: args }];
+    }
+    if (typeof action !== "string") return [];
+    const match = action.match(/(?:clawbrowser\.)?([a-z_]+)\((\{.*\})\)/s);
+    try { return match ? [{ tool: match[1], arguments: JSON.parse(match[2]) as Record<string, unknown> }] : [{ tool: action.replace(/^clawbrowser\./, ""), arguments: {} }]; } catch { return []; }
+  });
+  const capability = skill.capability ?? "other";
   return {
     ...skill,
+    actions,
+    capability,
+    parametersSchema: skill.parametersSchema ?? { type: "object", properties: {} },
+    outputSchema: skill.outputSchema ?? { type: "object", properties: {} },
+    recipe: skill.recipe ?? { version: 1, capability, actions },
     createdAt: parseMillis(skill.createdAt),
     updatedAt: parseMillis(skill.updatedAt),
     submittedAt: skill.submittedAt == null ? undefined : parseMillis(skill.submittedAt),
