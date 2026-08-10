@@ -1,0 +1,14 @@
+[
+  {
+    "task": "Find all Daewoo Matiz listings and include price, year, and URL.",
+    "expects": ["uses car listings", "paginates to the end", "deduplicates canonical URLs", "excludes parts"]
+  },
+  {
+    "task": "Find Mitsubishi Space Star cars from 2006 or earlier with an American proxy.",
+    "expects": ["verifies US proxy first", "applies year filter", "reports pages inspected"]
+  },
+  {
+    "task": "Compare BMW E60 cars under 5000 EUR and ignore dismantling listings.",
+    "expects": ["filters price", "rejects dismantling results", "returns structured listing details"]
+  }
+]

@@ -39,11 +39,28 @@ npm run dev
 
 - `src/` — React renderer, product UI, state, and renderer tests.
 - `electron/` — Electron main process, preload bridge, and native integration.
+- `skills/` — public browser skills contributed through focused pull requests.
 - `scripts/` — build and maintenance helpers.
 - `public/` and `build/` — application assets and packaging resources.
 - `docs/` — product documentation and README translations.
 
 The managed browser runtime is an external dependency. Do not copy its implementation into this repository or describe its behavior as native NextBrowser behavior without a verified source.
+
+## Contributing a browser skill
+
+Repository skills ship in the NextBrowser catalog and must be contributed through GitHub rather than created with the in-app **Save as skill** flow. Claim or open an issue for one website and one coherent workflow, then add a single directory under `skills/<kebab-case-id>/` containing:
+
+- `SKILL.md` with matching YAML frontmatter and resilient browser instructions;
+- `manifest.json` with the author, domains, operations, and UI category;
+- `tests/cases.json` with at least three distinct acceptance tasks.
+
+Run the repository validator before opening a pull request:
+
+```bash
+npm run validate:skills
+```
+
+Test the skill from a fresh agent chat. The pull request must include the tested tasks, outcomes, and a terminal transcript, screenshot, or short recording. Instructions must verify requested proxy state before interaction, avoid relying on short-lived element IDs, cover pagination when relevant, deduplicate results, and state recovery behavior. Never include credentials, cookies, private user data, or generated results in a skill.
 
 ## Making changes
 
