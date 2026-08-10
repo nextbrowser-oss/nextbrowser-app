@@ -11,8 +11,12 @@ interface AgentTerminalProps {
   conversationId?: string;
   workingDir?: string;
   savingWorkflow?: boolean;
-  onClose: () => void;
+  pendingHandoff?: { id: string; text: string };
+  handoffToChatRequest?: string;
   onSaveWorkflow: (transcript: string) => void;
+  onContinueInChat: (transcript: string) => void;
+  onHandoffConsumed: (id: string) => void;
+  onChatHandoffConsumed: (id: string) => void;
 }
 
 const DARK_TERMINAL_THEME = {
@@ -69,19 +73,39 @@ function activeTerminalTheme() {
     : DARK_TERMINAL_THEME;
 }
 
-export function AgentTerminal({ agentId, agentName, conversationId, workingDir, savingWorkflow, onClose, onSaveWorkflow }: AgentTerminalProps) {
+export function AgentTerminal({ agentId, agentName, conversationId, workingDir, savingWorkflow, pendingHandoff, handoffToChatRequest, onSaveWorkflow, onContinueInChat, onHandoffConsumed, onChatHandoffConsumed }: AgentTerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalIdRef = useRef<string>();
   const terminalRef = useRef<Terminal>();
   const [status, setStatus] = useState<"starting" | "running" | "exited" | "failed">("starting");
   const [error, setError] = useState<string>();
+  const [restartNonce, setRestartNonce] = useState(0);
+
+  const transcript = () => {
+    const terminal = terminalRef.current;
+    if (!terminal) return "";
+    const buffer = terminal.buffer.active;
+    const first = Math.max(0, buffer.length - 500);
+    const rows: string[] = [];
+    for (let index = first; index < buffer.length; index += 1) {
+      const line = buffer.getLine(index);
+      if (!line) continue;
+      const text = line.translateToString(true);
+      if (line.isWrapped && rows.length > 0) rows[rows.length - 1] += text;
+      else rows.push(text);
+    }
+    return rows.join("\n").trim();
+  };
 
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
+    setStatus("starting");
+    setError(undefined);
     let disposed = false;
     let removeData: (() => void) | undefined;
     let removeExit: (() => void) | undefined;
+    let lastEscapeAt = 0;
 
     const terminal = new Terminal({
       cursorBlink: true,
@@ -96,6 +120,33 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
     terminal.loadAddon(fit);
     terminal.open(host);
     terminalRef.current = terminal;
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (event.key === "Enter" && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.type === "keydown" && !event.repeat) {
+          const id = terminalIdRef.current;
+          // Codex treats LF (the same byte as Ctrl+J) as an editor newline and
+          // CR as submit. Suppress every native Shift+Enter event so xterm
+          // cannot emit a second, submitting CR after this explicit LF.
+          if (id) void invoke("terminal_input", { id, data: "\n" });
+        }
+        return false;
+      }
+
+      if (event.type !== "keydown") return true;
+
+      if (event.key === "Escape") {
+        const now = Date.now();
+        if (now - lastEscapeAt < 1_000) {
+          lastEscapeAt = 0;
+          return false;
+        }
+        lastEscapeAt = now;
+      }
+
+      return true;
+    });
 
     const resize = () => {
       if (disposed || !host.isConnected || host.clientWidth === 0 || host.clientHeight === 0) return;
@@ -176,7 +227,24 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
   // A terminal is the interactive state of one chat, not a global agent
   // process. Restart it when the selected conversation changes so pending
   // input, scrollback, or an unfinished prompt cannot leak into another chat.
-  }, [agentId, conversationId, workingDir]);
+  }, [agentId, conversationId, workingDir, restartNonce]);
+
+  useEffect(() => {
+    const id = terminalIdRef.current;
+    if (!pendingHandoff || !id || status !== "running") return;
+    // Paste the complete multiline handoff, then submit it once so switching
+    // the Settings toggle continues the task without another user action.
+    void invoke("terminal_input", { id, data: `\x1b[200~${pendingHandoff.text}\x1b[201~\r` });
+    terminalRef.current?.focus();
+    onHandoffConsumed(pendingHandoff.id);
+  }, [pendingHandoff?.id, status, onHandoffConsumed]);
+
+  useEffect(() => {
+    if (!handoffToChatRequest || status !== "running") return;
+    const value = transcript();
+    if (value) onContinueInChat(value);
+    onChatHandoffConsumed(handoffToChatRequest);
+  }, [handoffToChatRequest, status, onContinueInChat, onChatHandoffConsumed]);
 
   return (
     <section className="agent-terminal-panel" aria-label={`${agentName} terminal`}>
@@ -189,31 +257,25 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
         {status === "running" && <span className="terminal-status-dot" title="Running" />}
         {status === "exited" && <span className="muted small">Exited</span>}
         {status === "failed" && <span className="error small" title={error}>Failed</span>}
+        {(status === "exited" || status === "failed") && (
+          <button
+            className="mini"
+            onClick={() => setRestartNonce((value) => value + 1)}
+            title={`Restart ${agentName} terminal`}
+          >
+            Restart
+          </button>
+        )}
         <button
           className="mini terminal-save-skill"
           disabled={status !== "running" || savingWorkflow}
           onClick={() => {
-            const terminal = terminalRef.current;
-            if (!terminal) return;
-            const buffer = terminal.buffer.active;
-            const first = Math.max(0, buffer.length - 500);
-            const rows: string[] = [];
-            for (let index = first; index < buffer.length; index += 1) {
-              const line = buffer.getLine(index);
-              if (!line) continue;
-              const text = line.translateToString(true);
-              if (line.isWrapped && rows.length > 0) rows[rows.length - 1] += text;
-              else rows.push(text);
-            }
-            const transcript = rows.join("\n").trim();
-            if (transcript) onSaveWorkflow(transcript);
+            const value = transcript();
+            if (value) onSaveWorkflow(value);
           }}
           title="Save this terminal browser workflow as a private skill"
         >
           {savingWorkflow && <Spinner size={11} />} {savingWorkflow ? "Preparing…" : "Save as skill"}
-        </button>
-        <button className="plain-icon-btn plain-icon-btn-compact" onClick={onClose} title="Hide terminal" aria-label="Hide terminal">
-          <Icon name="xmark" size={13} />
         </button>
       </header>
       <div ref={hostRef} className="agent-terminal-host" />

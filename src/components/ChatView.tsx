@@ -28,6 +28,7 @@ import {
   workflowDistillationPrompt,
   type DistilledWorkflow,
 } from "../lib/workflowDistillation";
+import { chatToTerminalHandoff, terminalToChatHandoff } from "../lib/contextHandoff";
 
 async function authorWorkflowWithAgent(agent: AgentSpec, workingDir: string, fallback: DistilledWorkflow): Promise<DistilledWorkflow | undefined> {
   const prompt = workflowDistillationPrompt(fallback);
@@ -112,20 +113,25 @@ export function ChatView() {
   const [workflowDraft, setWorkflowDraft] = useState<{ task: string; answer: ChatMessage; prepared: DistilledWorkflow } | null>(null);
   const [preparingWorkflowId, setPreparingWorkflowId] = useState<string | null>(null);
   const [workflowRejection, setWorkflowRejection] = useState<string | null>(null);
-  const [terminalVisible, setTerminalVisible] = useState(s.terminalChat);
   const [terminalMounted, setTerminalMounted] = useState(s.terminalChat);
+  const [terminalHandoff, setTerminalHandoff] = useState<{ id: string; text: string }>();
+  const [terminalToChatRequest, setTerminalToChatRequest] = useState<string>();
+  const previousTerminalChat = useRef(s.terminalChat);
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
+    const wasTerminalChat = previousTerminalChat.current;
+    previousTerminalChat.current = s.terminalChat;
     if (s.terminalChat) {
       setTerminalMounted(true);
-      setTerminalVisible(true);
+      if (!wasTerminalChat && messages.length > 0) {
+        setTerminalHandoff({ id: uid(), text: chatToTerminalHandoff(messages, s.selectedProfile) });
+      }
       return;
     }
-    setTerminalVisible(false);
-    setTerminalMounted(false);
-  }, [s.terminalChat]);
+    if (wasTerminalChat && terminalMounted) setTerminalToChatRequest(uid());
+  }, [s.terminalChat, terminalMounted]);
 
   useEffect(() => {
     const stageDraft = (value: string) => {
@@ -343,17 +349,6 @@ export function ChatView() {
               <span className="chat-vps-label">Use VPS</span>
             </button>
           )}
-          {s.terminalChat && terminalMounted && !terminalVisible && (
-            <button
-              className="mini chat-vps-button"
-              aria-label={`Return to ${agentName} terminal`}
-              title={`Return to ${agentName} terminal`}
-              onClick={() => setTerminalVisible(true)}
-            >
-              <Icon name="terminal" size={13} />
-              <span className="chat-vps-label">Terminal</span>
-            </button>
-          )}
           {!remoteOnly && s.selectedProfile && (
             <span className="profile-pill">
               <Icon name="person.crop.circle" size={12} />
@@ -374,14 +369,23 @@ export function ChatView() {
         <hr className="divider" />
 
         {terminalMounted && (
-          <div className={"terminal-chat-layer" + (terminalVisible ? "" : " is-hidden")} aria-hidden={!terminalVisible}>
+          <div className={"terminal-chat-layer" + (s.terminalChat ? "" : " is-hidden")} aria-hidden={!s.terminalChat}>
             <AgentTerminal
               agentId={agentId}
               agentName={agentName}
               conversationId={conv?.id}
               workingDir={s.workingDir}
               savingWorkflow={preparingWorkflowId === "terminal"}
-              onClose={() => setTerminalVisible(false)}
+              pendingHandoff={terminalHandoff}
+              handoffToChatRequest={terminalToChatRequest}
+              onHandoffConsumed={(id) => setTerminalHandoff((current) => current?.id === id ? undefined : current)}
+              onChatHandoffConsumed={(id) => setTerminalToChatRequest((current) => current === id ? undefined : current)}
+              onContinueInChat={(transcript) => {
+                const handoff = terminalToChatHandoff(transcript, s.selectedProfile);
+                setDraft("");
+                setGuideDraftLoaded(false);
+                s.enqueue(handoff);
+              }}
               onSaveWorkflow={(transcript) => {
                 const answer = {
                   id: uid(), role: "assistant" as const, text: transcript, status: "done" as const,
@@ -392,7 +396,7 @@ export function ChatView() {
             />
           </div>
         )}
-        {!terminalVisible && (
+        {!s.terminalChat && (
           <>
         <div className="messages">
           {messages.length === 0 && (

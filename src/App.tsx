@@ -383,7 +383,7 @@ function SettingsModal({
             </span>
             <span className="settings-feature-copy">
               <strong>Terminal chat <span className="experimental-pill">Experimental</span></strong>
-              <span className="muted small">Open Chat as a native interactive terminal with the selected agent already running.</span>
+              <span className="muted small">Switch between the regular UI and a persistent agent terminal, automatically continuing with recent context.</span>
             </span>
             <button
               type="button"
