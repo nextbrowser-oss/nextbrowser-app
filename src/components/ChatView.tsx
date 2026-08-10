@@ -381,8 +381,10 @@ export function ChatView() {
               onHandoffConsumed={(id) => setTerminalHandoff((current) => current?.id === id ? undefined : current)}
               onChatHandoffConsumed={(id) => setTerminalToChatRequest((current) => current === id ? undefined : current)}
               onContinueInChat={(transcript) => {
-                setDraft(terminalToChatHandoff(transcript, s.selectedProfile));
-                window.requestAnimationFrame(() => composerRef.current?.focus());
+                const handoff = terminalToChatHandoff(transcript, s.selectedProfile);
+                setDraft("");
+                setGuideDraftLoaded(false);
+                s.enqueue(handoff);
               }}
               onSaveWorkflow={(transcript) => {
                 const answer = {

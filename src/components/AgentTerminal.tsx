@@ -232,8 +232,9 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
   useEffect(() => {
     const id = terminalIdRef.current;
     if (!pendingHandoff || !id || status !== "running") return;
-    // Bracketed paste keeps multiline context in the editor without submitting it.
-    void invoke("terminal_input", { id, data: `\x1b[200~${pendingHandoff.text}\x1b[201~` });
+    // Paste the complete multiline handoff, then submit it once so switching
+    // the Settings toggle continues the task without another user action.
+    void invoke("terminal_input", { id, data: `\x1b[200~${pendingHandoff.text}\x1b[201~\r` });
     terminalRef.current?.focus();
     onHandoffConsumed(pendingHandoff.id);
   }, [pendingHandoff?.id, status, onHandoffConsumed]);
