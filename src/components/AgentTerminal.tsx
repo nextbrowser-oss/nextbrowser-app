@@ -124,9 +124,9 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
 
       if (event.key === "Enter" && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
         const id = terminalIdRef.current;
-        // A bracketed-paste newline is inserted into Codex's editor without
-        // submitting the prompt, independent of the host terminal emulator.
-        if (id) void invoke("terminal_input", { id, data: "\x1b[200~\n\x1b[201~" });
+        // Codex treats LF (the same byte as Ctrl+J) as an editor newline and
+        // CR as submit. Bracketed-pasting a newline can submit existing text.
+        if (id) void invoke("terminal_input", { id, data: "\n" });
         return false;
       }
 
