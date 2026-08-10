@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { capturedWorkflowDomain, terminalBrowserTask, workflowDomain, workflowInstructions, workflowQuality, workflowTitle } from "./workflowCapture";
+import { capturedWorkflowDomain, terminalBrowserTask, workflowDomain, workflowInstructions, workflowQuality, workflowRecipe, workflowTitle } from "./workflowCapture";
 
 const transcript = `
 │ model:     gpt-5.6-sol low   /model to change │
@@ -39,13 +39,19 @@ describe("terminal workflow capture", () => {
     const task = terminalBrowserTask(transcript);
     expect(workflowTitle(task, "makler.md")).toBe("makler.md — матизы");
     const instructions = workflowInstructions(task, transcript);
-    expect(instructions).toContain("verify the requested proxy country");
     expect(instructions).toContain("deduplicate by canonical URL");
-    expect(instructions).toContain('clawbrowser.start({"profile":"us-makler-md","country":"US","url":"https://makler.md"})');
+    expect(instructions).not.toContain("clawbrowser.start");
     expect(instructions).toContain('"element_id":6');
     expect(instructions).toContain('"dedupe_by":["url"]');
     expect(instructions).not.toContain("return_state");
     expect(instructions).not.toContain("gpt-5.6-sol");
+  });
+
+  it("stores task actions but leaves session lifecycle to the app", () => {
+    const recipe = workflowRecipe(terminalBrowserTask(transcript), transcript);
+    expect(recipe.capability).toBe("search");
+    expect(recipe.actions.map((action) => action.tool)).toEqual(["multi_action", "paginate_extract"]);
+    expect(recipe.actions.some((action) => ["start", "prepare"].includes(action.tool))).toBe(false);
   });
 
   it("keeps one successful extraction and marks a non-self-contained search", () => {

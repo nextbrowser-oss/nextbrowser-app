@@ -185,12 +185,20 @@ export interface BrowserWorkflowSkill {
   domain: string;
   task: string;
   instructions: string;
-  actions: string[];
+  actions: BrowserWorkflowAction[];
+  capability: BrowserSkillCapability;
+  parametersSchema: Record<string, unknown>;
+  outputSchema: Record<string, unknown>;
+  recipe: BrowserWorkflowRecipe;
   createdAt: number;
   updatedAt: number;
   serverSlug?: string;
   submittedAt?: number;
 }
+
+export type BrowserSkillCapability = "scrape" | "search" | "posting" | "form" | "navigation" | "other";
+export interface BrowserWorkflowAction { tool: string; arguments: Record<string, unknown>; }
+export interface BrowserWorkflowRecipe { version: 1; capability: BrowserSkillCapability; actions: BrowserWorkflowAction[]; }
 
 export function customPrivateSlug(script: CustomScript): string {
   return script.serverSlug ?? `custom-${script.id.slice(0, 8).toLowerCase()}`;

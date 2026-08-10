@@ -5,6 +5,10 @@ const fallback = {
   title: "makler.md — матизы", domain: "makler.md",
   instructions: "Technical fast path: clawbrowser.start({}) then clawbrowser.paginate_extract({}). " + "x".repeat(100),
   reusable: true, reason: "Completed browser search",
+  capability: "search" as const,
+  parametersSchema: { type: "object", properties: {} },
+  outputSchema: { type: "object", properties: { results: { type: "array" } } },
+  recipe: { version: 1 as const, capability: "search" as const, actions: [{ tool: "paginate_extract", arguments: {} }] },
 };
 
 describe("workflow agent distillation", () => {

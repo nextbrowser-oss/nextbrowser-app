@@ -22,6 +22,8 @@ import {
   workflowInstructions,
   workflowQuality,
   workflowTitle,
+  workflowCapability,
+  workflowRecipe,
 } from "../lib/workflowCapture";
 import {
   parseDistilledWorkflow,
@@ -253,6 +255,10 @@ export function ChatView() {
       title: workflowTitle(task, domain), domain,
       instructions: workflowInstructions(task, evidence),
       ...quality,
+      capability: workflowCapability(task, evidence),
+      parametersSchema: { type: "object", properties: { task: { type: "string", default: task } } },
+      outputSchema: { type: "object", properties: { success: { type: "boolean" }, results: { type: "array" } } },
+      recipe: workflowRecipe(task, evidence),
     };
     const authored = quality.reusable && ready ? await authorWorkflowWithAgent(agentSpec, s.workingDir, fallback) : undefined;
     const prepared = authored ?? fallback;
@@ -785,7 +791,11 @@ export function ChatView() {
           onSave={(title, domain, instructions) => {
             void s.saveLocalSkill({
               id: uid(), title, domain, task: workflowDraft.task, instructions,
-              actions: (workflowDraft.answer.toolEvents ?? []).map((event) => event.detail ?? event.name),
+              actions: workflowDraft.prepared.recipe.actions,
+              capability: workflowDraft.prepared.capability,
+              parametersSchema: workflowDraft.prepared.parametersSchema,
+              outputSchema: workflowDraft.prepared.outputSchema,
+              recipe: workflowDraft.prepared.recipe,
               createdAt: Date.now(), updatedAt: Date.now(),
             });
             setWorkflowDraft(null);
