@@ -10,6 +10,7 @@ const conversation = (messages: Conversation["messages"]): Conversation => ({
 describe("Swift-compatible model helpers", () => {
   it("normalizes nextctl version output for the footer", () => {
     expect(normalizeNextctlVersion("nextctl 1.2.0\n")).toBe("1.2.0");
+    expect(normalizeNextctlVersion("nbc 1.0.1\n")).toBe("1.0.1");
     expect(normalizeNextctlVersion("1.2.0")).toBe("1.2.0");
   });
   it("prefers the last non-system command chip in conversation previews", () => {
