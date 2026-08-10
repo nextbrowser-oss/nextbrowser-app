@@ -119,6 +119,7 @@ export function ChatView() {
   const [terminalHandoff, setTerminalHandoff] = useState<{ id: string; text: string }>();
   const [terminalToChatRequest, setTerminalToChatRequest] = useState<string>();
   const previousTerminalChat = useRef(s.terminalChat);
+  const chatMessagesSharedWithTerminal = useRef(new Map<string, number>());
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
 
@@ -127,13 +128,18 @@ export function ChatView() {
     previousTerminalChat.current = s.terminalChat;
     if (s.terminalChat) {
       setTerminalMounted(true);
-      if (!wasTerminalChat && messages.length > 0) {
-        setTerminalHandoff({ id: uid(), text: chatToTerminalHandoff(messages, s.selectedProfile) });
+      const conversationKey = `${agentId}:${conv?.id ?? "new"}`;
+      const sharedCount = chatMessagesSharedWithTerminal.current.get(conversationKey) ?? 0;
+      if (!wasTerminalChat && messages.length > sharedCount) {
+        // Only send messages created since the previous handoff. Replaying the
+        // whole conversation can make an agent execute an already-finished task.
+        setTerminalHandoff({ id: uid(), text: chatToTerminalHandoff(messages.slice(sharedCount), s.selectedProfile) });
+        chatMessagesSharedWithTerminal.current.set(conversationKey, messages.length);
       }
       return;
     }
     if (wasTerminalChat && terminalMounted) setTerminalToChatRequest(uid());
-  }, [s.terminalChat, terminalMounted]);
+  }, [s.terminalChat, terminalMounted, agentId, conv?.id, messages.length, s.selectedProfile]);
 
   useEffect(() => {
     const stageDraft = (value: string) => {
@@ -275,9 +281,6 @@ export function ChatView() {
         <aside className="conv-sidebar thin-material">
           <div className="conv-sidebar-head">
             <span className="conv-sidebar-label">{agentName} chats</span>
-            <button className="plain-icon-btn" onClick={() => s.newChat()} title="New chat">
-              <Icon name="square.and.pencil" size={16} />
-            </button>
           </div>
           <hr className="divider" />
           <div className="conv-sidebar-list">
@@ -323,11 +326,9 @@ export function ChatView() {
           >
             <Icon name={collapsed ? "sidebar.left" : "sidebar.leading"} size={16} />
           </button>
-          {collapsed && (
-            <button className="plain-icon-btn" onClick={() => s.newChat()} title="New chat">
-              <Icon name="square.and.pencil" size={16} />
-            </button>
-          )}
+          <button className="plain-icon-btn" onClick={() => s.newChat()} title="New chat">
+            <Icon name="square.and.pencil" size={16} />
+          </button>
           <div className="chat-title-stack">
             <strong className="chat-title">{conv?.title ?? agentName}</strong>
             <span className="muted small">{agentName}</span>

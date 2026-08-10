@@ -73,6 +73,14 @@ function activeTerminalTheme() {
     : DARK_TERMINAL_THEME;
 }
 
+function handoffFingerprint(value: string): string {
+  return value
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\b(?:working|worked for)\s*\([^)]*\)/gi, "working")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function AgentTerminal({ agentId, agentName, conversationId, workingDir, savingWorkflow, pendingHandoff, handoffToChatRequest, onSaveWorkflow, onContinueInChat, onHandoffConsumed, onChatHandoffConsumed }: AgentTerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalIdRef = useRef<string>();
@@ -80,6 +88,13 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
   const [status, setStatus] = useState<"starting" | "running" | "exited" | "failed">("starting");
   const [error, setError] = useState<string>();
   const [restartNonce, setRestartNonce] = useState(0);
+  const onContinueInChatRef = useRef(onContinueInChat);
+  const onHandoffConsumedRef = useRef(onHandoffConsumed);
+  const onChatHandoffConsumedRef = useRef(onChatHandoffConsumed);
+  const lastTerminalHandoffRef = useRef("");
+  onContinueInChatRef.current = onContinueInChat;
+  onHandoffConsumedRef.current = onHandoffConsumed;
+  onChatHandoffConsumedRef.current = onChatHandoffConsumed;
 
   const transcript = () => {
     const terminal = terminalRef.current;
@@ -102,6 +117,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
     if (!host) return;
     setStatus("starting");
     setError(undefined);
+    lastTerminalHandoffRef.current = "";
     let disposed = false;
     let removeData: (() => void) | undefined;
     let removeExit: (() => void) | undefined;
@@ -239,15 +255,19 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
     // the Settings toggle continues the task without another user action.
     void invoke("terminal_input", { id, data: `\x1b[200~${pendingHandoff.text}\x1b[201~\r` });
     terminalRef.current?.focus();
-    onHandoffConsumed(pendingHandoff.id);
-  }, [pendingHandoff?.id, status, onHandoffConsumed]);
+    onHandoffConsumedRef.current(pendingHandoff.id);
+  }, [pendingHandoff?.id, status]);
 
   useEffect(() => {
     if (!handoffToChatRequest || status !== "running") return;
     const value = transcript();
-    if (value) onContinueInChat(value);
-    onChatHandoffConsumed(handoffToChatRequest);
-  }, [handoffToChatRequest, status, onContinueInChat, onChatHandoffConsumed]);
+    const fingerprint = handoffFingerprint(value);
+    if (value && fingerprint !== lastTerminalHandoffRef.current) {
+      lastTerminalHandoffRef.current = fingerprint;
+      onContinueInChatRef.current(value);
+    }
+    onChatHandoffConsumedRef.current(handoffToChatRequest);
+  }, [handoffToChatRequest, status]);
 
   return (
     <section className="agent-terminal-panel" aria-label={`${agentName} terminal`}>
