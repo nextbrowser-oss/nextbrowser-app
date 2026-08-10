@@ -73,6 +73,14 @@ function activeTerminalTheme() {
     : DARK_TERMINAL_THEME;
 }
 
+function handoffFingerprint(value: string): string {
+  return value
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\b(?:working|worked for)\s*\([^)]*\)/gi, "working")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function AgentTerminal({ agentId, agentName, conversationId, workingDir, savingWorkflow, pendingHandoff, handoffToChatRequest, onSaveWorkflow, onContinueInChat, onHandoffConsumed, onChatHandoffConsumed }: AgentTerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalIdRef = useRef<string>();
@@ -83,6 +91,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
   const onContinueInChatRef = useRef(onContinueInChat);
   const onHandoffConsumedRef = useRef(onHandoffConsumed);
   const onChatHandoffConsumedRef = useRef(onChatHandoffConsumed);
+  const lastTerminalHandoffRef = useRef("");
   onContinueInChatRef.current = onContinueInChat;
   onHandoffConsumedRef.current = onHandoffConsumed;
   onChatHandoffConsumedRef.current = onChatHandoffConsumed;
@@ -108,6 +117,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
     if (!host) return;
     setStatus("starting");
     setError(undefined);
+    lastTerminalHandoffRef.current = "";
     let disposed = false;
     let removeData: (() => void) | undefined;
     let removeExit: (() => void) | undefined;
@@ -251,7 +261,11 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
   useEffect(() => {
     if (!handoffToChatRequest || status !== "running") return;
     const value = transcript();
-    if (value) onContinueInChatRef.current(value);
+    const fingerprint = handoffFingerprint(value);
+    if (value && fingerprint !== lastTerminalHandoffRef.current) {
+      lastTerminalHandoffRef.current = fingerprint;
+      onContinueInChatRef.current(value);
+    }
     onChatHandoffConsumedRef.current(handoffToChatRequest);
   }, [handoffToChatRequest, status]);
 
