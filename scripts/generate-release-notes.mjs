@@ -3,43 +3,70 @@ import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 
 const groupOrder = ["Features", "Fixes", "Improvements"];
-const commitPattern = /^(feat|fix|perf|refactor)(?:\([\w.-]+\))?!?:\s+.+/;
+const commitGroups = {
+  feat: "Features",
+  fix: "Fixes",
+  perf: "Improvements",
+  refactor: "Improvements",
+};
+const ignoredCommitTypes = new Set(["build", "chore", "ci", "style", "test"]);
+const commitPattern = /^([a-z]+)(?:\([\w.-]+\))?(!)?:\s+(.+)$/i;
+
+function formatDescription(value, breaking) {
+  const description = value.trim();
+  const formatted = `${description.charAt(0).toUpperCase()}${description.slice(1)}`;
+  return breaking ? `${formatted} (breaking change)` : formatted;
+}
 
 export function groupCommitSubjects(subjects) {
   const groups = Object.fromEntries(groupOrder.map((name) => [name, []]));
   const changes = [];
+  const seen = new Set();
 
   for (const value of subjects) {
     const subject = value.trim();
     if (!subject) continue;
     const match = subject.match(commitPattern);
     if (!match) {
-      changes.push(subject);
+      addUnique(changes, formatDescription(subject, false), seen);
       continue;
     }
-    if (match[1] === "feat") groups.Features.push(subject);
-    if (match[1] === "fix") groups.Fixes.push(subject);
-    if (match[1] === "perf" || match[1] === "refactor") groups.Improvements.push(subject);
+
+    const type = match[1].toLowerCase();
+    if (ignoredCommitTypes.has(type)) continue;
+
+    const description = formatDescription(match[3], Boolean(match[2]));
+    const group = commitGroups[type];
+    addUnique(group ? groups[group] : changes, description, seen);
   }
 
   return { groups, changes };
 }
 
+function addUnique(items, value, seen) {
+  const key = value.toLowerCase();
+  if (seen.has(key)) return;
+  seen.add(key);
+  items.push(value);
+}
+
 export function renderReleaseNotes(subjects, repository, previousTag, currentTag) {
   const { groups, changes } = groupCommitSubjects(subjects);
   const lines = ["## Changelog"];
-  let groupedCount = 0;
+  let changeCount = 0;
 
   for (const name of groupOrder) {
     if (groups[name].length === 0) continue;
-    groupedCount += groups[name].length;
-    lines.push(`### ${name}`, ...groups[name].map((subject) => `* ${subject}`));
+    changeCount += groups[name].length;
+    lines.push("", `### ${name}`, ...groups[name].map((subject) => `- ${subject}`));
   }
 
-  if (groupedCount === 0) {
-    if (changes.length === 0) throw new Error("No commits found for release notes");
-    lines.push("### Changes", ...changes.map((subject) => `* ${subject}`));
+  if (changes.length > 0) {
+    changeCount += changes.length;
+    lines.push("", "### Changes", ...changes.map((subject) => `- ${subject}`));
   }
+
+  if (changeCount === 0) throw new Error("No user-facing commits found for release notes");
 
   if (previousTag) {
     lines.push("", `**Full Changelog**: https://github.com/${repository}/compare/${previousTag}...${currentTag}`);
