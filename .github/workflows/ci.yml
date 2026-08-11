@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -9,8 +10,19 @@ permissions:
   contents: read
 
 jobs:
+  validate-skills:
+    name: Validate repository skills
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - run: node scripts/validate-skills.mjs
+
   test:
     name: Test and package (${{ matrix.os }})
+    needs: validate-skills
     strategy:
       fail-fast: false
       matrix:

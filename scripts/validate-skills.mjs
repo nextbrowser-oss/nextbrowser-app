@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const root = path.resolve("skills");
+const root = path.resolve(process.argv[2] ?? "skills");
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const allowedOperations = new Set(["search", "scrape", "paginate", "post", "comment", "message", "form"]);
 const failures = [];
