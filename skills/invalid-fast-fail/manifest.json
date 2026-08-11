@@ -1,0 +1,14 @@
+{
+  "id": "wrong-id",
+  "name": "Invalid Fast Fail",
+  "description": "Intentionally invalid validation fixture.",
+  "author": "nextbrowser-oss",
+  "domains": [],
+  "operations": ["teleport"],
+  "category": {
+    "id": "invalid category",
+    "title": "Invalid",
+    "icon": "globe",
+    "order": 99
+  }
+}

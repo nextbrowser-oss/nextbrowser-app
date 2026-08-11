@@ -1,0 +1,6 @@
+[
+  {
+    "task": "One case is intentionally insufficient.",
+    "expects": ["fast validation failure"]
+  }
+]
