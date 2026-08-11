@@ -32,7 +32,10 @@ for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
   }
   const skillPath = path.join(dir, "SKILL.md");
   if (fs.existsSync(skillPath)) {
-    const skill = fs.readFileSync(skillPath, "utf8");
+    // Git commonly checks text files out with CRLF on Windows. Normalize the
+    // contents before validating Markdown structure so CI behaves identically
+    // on macOS, Linux, and Windows. Strip a possible UTF-8 BOM as well.
+    const skill = fs.readFileSync(skillPath, "utf8").replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
     if (!skill.startsWith("---\n")) failures.push(`${entry.name}: SKILL.md must start with YAML frontmatter`);
     if (!skill.includes(`name: ${entry.name}`)) failures.push(`${entry.name}: SKILL.md frontmatter name must match the manifest id`);
     if (skill.length < 400) failures.push(`${entry.name}: SKILL.md is too short to be useful`);
