@@ -1,0 +1,14 @@
+{
+  "id": "makler-car-search",
+  "name": "Makler Car Search",
+  "description": "Search, filter, paginate, and deduplicate vehicle listings on makler.md.",
+  "author": "nextbrowser-oss",
+  "domains": ["makler.md"],
+  "operations": ["search", "scrape", "paginate"],
+  "category": {
+    "id": "marketplaces",
+    "title": "Marketplaces",
+    "icon": "globe",
+    "order": 30
+  }
+}

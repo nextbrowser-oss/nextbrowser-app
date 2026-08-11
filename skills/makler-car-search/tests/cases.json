@@ -1,0 +1,14 @@
+[
+  {
+    "task": "Find every Daewoo Matiz car for sale on makler.md and include price, year, location, and URL.",
+    "expects": ["uses vehicle listings", "paginates to the end", "deduplicates canonical URLs", "excludes parts and wanted ads"]
+  },
+  {
+    "task": "Using a US proxy, find Mitsubishi Space Star cars from 2006 or earlier on makler.md.",
+    "expects": ["verifies the US proxy before interaction", "applies the year constraint", "reports pages inspected"]
+  },
+  {
+    "task": "Find BMW E60 cars below 5000 EUR on makler.md and recover if the saved result selector has changed.",
+    "expects": ["applies the price constraint", "resolves changed elements semantically", "returns unique relevant listings"]
+  }
+]
