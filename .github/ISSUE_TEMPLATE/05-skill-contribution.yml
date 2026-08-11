@@ -1,0 +1,54 @@
+name: Browser skill contribution
+description: Propose or claim a public browser skill to contribute through a pull request
+title: "[Skill]: "
+labels: ["skill"]
+body:
+  - type: input
+    id: website
+    attributes:
+      label: Website
+      description: The primary hostname this skill will support.
+      placeholder: example.com
+    validations:
+      required: true
+  - type: dropdown
+    id: operation
+    attributes:
+      label: Primary operation
+      options:
+        - Search and scraping
+        - Pagination
+        - Posting or commenting
+        - Messaging
+        - Form completion
+    validations:
+      required: true
+  - type: textarea
+    id: workflows
+    attributes:
+      label: Required workflows
+      description: List the concrete user tasks the skill must complete.
+      placeholder: |
+        - Search using the requested filters
+        - Traverse all result pages
+        - Return deduplicated canonical URLs
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance tasks
+      description: Provide at least three distinct tasks that will be tested from a fresh agent chat.
+    validations:
+      required: true
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution agreement
+      options:
+        - label: I will contribute this skill under `skills/<skill-id>/` through a focused pull request.
+          required: true
+        - label: I will include no credentials, cookies, or private user data.
+          required: true
+        - label: I will include evidence of successful runs for every acceptance task.
+          required: true

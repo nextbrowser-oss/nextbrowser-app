@@ -23,6 +23,7 @@ import {
   selectorFlags,
   selectorTargetHost,
 } from "./skillsCatalog";
+import { REPOSITORY_SKILL_CATEGORIES, mergeSkillCategories } from "./repositorySkills";
 import { activityFromText, extractToolEvents } from "./lib/activityParser";
 import { composePrompt } from "./lib/composePrompt";
 import { executionTargetForTurn, type ExecutionTarget } from "./lib/executionTarget";
@@ -901,7 +902,7 @@ export const useStore = create<State>((set, get) => {
   activeConvId: {},
   tab: "chat",
   skillState: {},
-  skillCategories: [],
+  skillCategories: REPOSITORY_SKILL_CATEGORIES,
   scheduledRuns: [],
   customScripts: [],
   localSkills: [],
@@ -1896,7 +1897,10 @@ export const useStore = create<State>((set, get) => {
   },
 
   loadSkillCatalog: async () => {
-    if (!get().nextctlSupportsSkill) return;
+    if (!get().nextctlSupportsSkill) {
+      set({ skillCategories: REPOSITORY_SKILL_CATEGORIES });
+      return;
+    }
     try {
       const catalog = await nextctlJson<{ categories: Array<{ id: string; title: string; icon: string; order: number; skills: SkillRef[] }> }>(["skill", "list"]);
       const backendScripts: SkillEntry[] = [];
@@ -1911,6 +1915,7 @@ export const useStore = create<State>((set, get) => {
               category: category.id, categoryTitle: category.title,
               categoryIcon: category.icon, categoryOrder: category.order,
               selector: { kind: ref.kind === "domain" && ref.selector!.endsWith(".script") ? "script" : ref.kind!, value: ref.selector! },
+              source: "backend",
             }))
             .filter((entry) => {
               if (category.id === "my-skills") {
@@ -1924,7 +1929,7 @@ export const useStore = create<State>((set, get) => {
         })).filter((category) => category.id !== "my-skills");
       const localApplied = get().appliedScripts.filter((entry) => !entry.id.startsWith("catalog:"));
       set({
-        skillCategories,
+        skillCategories: mergeSkillCategories(skillCategories),
         privateCloudSkills,
         appliedScripts: [...localApplied, ...backendScripts.map((entry) => ({ ...entry, id: `catalog:${entry.id}` }))],
       });
@@ -1933,7 +1938,7 @@ export const useStore = create<State>((set, get) => {
         skill_count: catalog.categories.reduce((total, category) => total + category.skills.length, 0),
       });
     } catch {
-      set({ skillCategories: [] });
+      set({ skillCategories: REPOSITORY_SKILL_CATEGORIES });
       trackEvent("skill_catalog_failed");
     }
   },
@@ -2833,6 +2838,25 @@ export const useStore = create<State>((set, get) => {
       category: entry.category,
       selector_kind: entry.selector.kind,
     });
+    if (entry.source === "repository" && entry.instructions) {
+      set((s) => ({
+        skillState: {
+          ...s.skillState,
+          [skillKey(s.agentId, entry.id)]: "installed",
+        },
+      }));
+      trackTiming("skill_apply_completed", startedAt, {
+        category: entry.category,
+        source: "repository",
+      });
+      return {
+        found: true,
+        slug: entry.id.replace(/^repository:/, ""),
+        title: entry.title,
+        kind: "domain",
+        selector: entry.selector.value,
+      };
+    }
     if (entry.selector.kind === "script") {
       const existing = get().appliedScripts.some((script) => script.id === entry.id);
       const appliedScripts = existing ? get().appliedScripts : [...get().appliedScripts, entry];
@@ -2964,7 +2988,9 @@ export const useStore = create<State>((set, get) => {
     const remoteOnly = get().conversations.find((conversation) => conversation.id === cid)?.executionTarget === "vps";
     if (remoteOnly) {
       const chip: UserCommandChip = { kind: "skill", title: entry.title, detail: target };
-      const prompt = `Use the "${entry.title}" skill for ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local NextBrowser session. Use only skill instructions and browser tooling that are already available on the VPS; if the skill is missing there, report that without installing it.${entry.description ? `\n\nSkill description: ${entry.description}` : ""}`;
+      const prompt = entry.instructions
+        ? `Use the "${entry.title}" repository skill for ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local NextBrowser session. Follow this SKILL.md exactly:\n\n${entry.instructions}`
+        : `Use the "${entry.title}" skill for ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local NextBrowser session. Use only skill instructions and browser tooling that are already available on the VPS; if the skill is missing there, report that without installing it.${entry.description ? `\n\nSkill description: ${entry.description}` : ""}`;
       get().enqueue(prompt, chip, cid);
       return;
     }
@@ -3007,7 +3033,7 @@ export const useStore = create<State>((set, get) => {
       return;
     }
 
-    const md = await installedSkillMarkdown(ref);
+    const md = entry.instructions ?? await installedSkillMarkdown(ref);
 
     const chip: UserCommandChip = { kind: "skill", title: entry.title, detail: target };
     const prompt = skillAgentPrompt(

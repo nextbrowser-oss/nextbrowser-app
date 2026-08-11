@@ -174,6 +174,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
             const st = applyState(e.id);
             const applyError = s.skillApplyError(e.id);
             const publishedScript = e.selector.kind === "script" && !e.js;
+            const repositorySkill = e.source === "repository";
             return (
               <div key={e.id} className="skill-card claw-card">
                 <div className="skill-card-head">
@@ -181,10 +182,11 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                   <div className="skill-title">{e.title}</div>
                   <span className={"mode-badge" + (e.js ? " instant" : " agent")}>
                     <Icon name={e.js ? "bolt.fill" : publishedScript ? "scroll.fill" : "sparkles"} size={10} />
-                    {e.js ? "Instant" : publishedScript ? "Script" : "Agent"}
+                    {e.js ? "Instant" : publishedScript ? "Script" : repositorySkill ? "Repository" : "Agent"}
                   </span>
                 </div>
                 <div className="muted small">{e.subtitle}</div>
+                {repositorySkill && e.author && <div className="small muted skill-author">by @{e.author}</div>}
                 <div className="target-line small muted">
                   <Icon
                     name={selectorTargetHost(e.selector) ? "arrow.right.circle" : "play.circle"}
@@ -202,7 +204,8 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                     Added to script menu
                   </div>
                 )}
-                {!publishedScript && (
+                {repositorySkill && <div className="small ok skill-status"><Icon name="checkmark.seal.fill" size={12} /> Included with NextBrowser</div>}
+                {!publishedScript && !repositorySkill && (
                   <>
                     {st === "idle" && <div className="small muted skill-status">Not installed</div>}
                     {st === "applying" && <div className="small muted skill-status">Pulling from API…</div>}
@@ -225,7 +228,11 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                   </>
                 )}
                 <div className="skill-actions">
-                  {e.js ? (
+                  {repositorySkill ? (
+                    <button className="btn-bordered-prominent full" disabled={!ready} title={`Run ${e.title} in chat`} onClick={() => void s.useSkillInChat(e)}>
+                      <Icon name="play.fill" size={13} /> Run
+                    </button>
+                  ) : e.js ? (
                     <button className="btn-bordered-prominent full" title={`Run ${e.title}`} onClick={() => s.runScript(e)}>
                       <Icon name="bolt.fill" size={14} />
                       Run

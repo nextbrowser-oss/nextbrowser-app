@@ -14,6 +14,9 @@ export interface SkillEntry {
   categoryIcon: string;
   categoryOrder: number;
   js?: string;
+  source?: "backend" | "repository";
+  instructions?: string;
+  author?: string;
 }
 
 export interface SkillCategory {
