@@ -48,19 +48,227 @@ The managed browser runtime is an external dependency. Do not copy its implement
 
 ## Contributing a browser skill
 
-Repository skills ship in the NextBrowser catalog and must be contributed through GitHub rather than created with the in-app **Save as skill** flow. Claim or open an issue for one website and one coherent workflow, then add a single directory under `skills/<kebab-case-id>/` containing:
+Repository skills are public, reviewed browser workflows that ship in the NextBrowser catalog. They are source-controlled so improvements remain attributable to their GitHub contributors. Do not use the in-app **Save as skill** flow for repository contributions; that flow is for a user's private or local workflows.
 
-- `SKILL.md` with matching YAML frontmatter and resilient browser instructions;
-- `manifest.json` with the author, domains, operations, and UI category;
-- `tests/cases.json` with at least three distinct acceptance tasks.
+### 1. Choose and claim a workflow
 
-Run the repository validator before opening a pull request:
+Open a **Browser skill contribution** issue before starting substantial work. Specify one primary website, the concrete workflows you intend to support, and at least three acceptance tasks. This prevents two contributors from unknowingly working on the same skill.
 
-```bash
-npm run validate:skills
+A skill should solve one coherent, repeatable job. Good scopes include:
+
+- searching and extracting vehicle listings from one marketplace;
+- publishing a draft listing on one classifieds site;
+- collecting product data across paginated search results;
+- posting or replying through a specific site's composer.
+
+Avoid vague scopes such as “use example.com,” and avoid combining unrelated operations merely because they share a domain. Multiple skills may support the same domain when they represent distinct jobs, for example:
+
+```text
+skills/
+├── example-product-search/
+├── example-product-posting/
+└── example-order-status/
 ```
 
-Test the skill from a fresh agent chat. The pull request must include the tested tasks, outcomes, and a terminal transcript, screenshot, or short recording. Instructions must verify requested proxy state before interaction, avoid relying on short-lived element IDs, cover pagination when relevant, deduplicate results, and state recovery behavior. Never include credentials, cookies, private user data, or generated results in a skill.
+Before implementing a second skill for a domain, confirm that extending an existing skill would not be clearer for users.
+
+### 2. Create the skill directory
+
+Create one lowercase kebab-case directory under `skills/`:
+
+```text
+skills/<skill-id>/
+├── SKILL.md
+├── manifest.json
+└── tests/
+    └── cases.json
+```
+
+The directory name, manifest `id`, and YAML frontmatter `name` must be identical. Do not add generated output, screenshots, recordings, credentials, cookies, or captured website data to this directory.
+
+Use [`skills/999-car-search/`](skills/999-car-search/) as a complete working example.
+
+### 3. Write `SKILL.md`
+
+`SKILL.md` is the instruction that the selected agent receives. Begin with YAML frontmatter:
+
+```markdown
+---
+name: example-product-search
+description: Search, filter, and extract product listings from example.com.
+---
+
+# Example product search
+```
+
+The instructions should tell the agent when to use the skill and how to complete the task efficiently. Include only behavior that is specific or especially useful for this workflow. Cover the following when relevant:
+
+1. Start or reattach one named browser profile instead of creating duplicate sessions.
+2. If the user requested a proxy country, verify that country successfully before interacting with the website.
+3. Navigate to the correct search, form, or content surface.
+4. Apply the requested filters and wait for navigation or page settlement when necessary.
+5. Extract the requested fields and canonical URLs.
+6. Traverse pagination or infinite scrolling to the required stopping condition.
+7. Deduplicate results and reject irrelevant matches.
+8. Recover from stale elements, navigation, detached tabs, or changed page structure.
+9. Return a concise result or request confirmation before a consequential publishing action.
+
+Prefer semantic targets such as roles, labels, text, and stable selectors. Treat browser `element_id` values as short-lived hints; never design a workflow that depends on an element ID captured in an earlier session. Reuse a proven fast path where it remains valid, but require the agent to inspect and adapt when the page changes.
+
+For posting, commenting, messaging, purchases, deletion, or other user-visible actions, distinguish preparation from final submission. Do not silently broaden the user's request or publish unintended content.
+
+Never include:
+
+- API keys, passwords, bearer tokens, cookies, or session data;
+- personal information or private URLs;
+- captured search results that will become stale;
+- instructions to bypass access controls or conceal consequential actions;
+- claims about a website that were not verified during testing.
+
+### 4. Add `manifest.json`
+
+The manifest supplies catalog metadata and determines where the skill appears in the UI:
+
+```json
+{
+  "id": "example-product-search",
+  "name": "Example Product Search",
+  "description": "Search, filter, paginate, and deduplicate products on example.com.",
+  "author": "your-github-username",
+  "domains": ["example.com"],
+  "operations": ["search", "scrape", "paginate"],
+  "category": {
+    "id": "marketplaces",
+    "title": "Marketplaces",
+    "icon": "globe",
+    "order": 30
+  }
+}
+```
+
+Fields:
+
+- `id` — the exact lowercase kebab-case directory name;
+- `name` — concise user-facing catalog name;
+- `description` — one sentence explaining the practical outcome;
+- `author` — the contributor's GitHub username or organization;
+- `domains` — one or more hostnames the workflow directly supports;
+- `operations` — one or more supported operation identifiers;
+- `category.id` — lowercase kebab-case category identifier;
+- `category.title` — user-facing category name;
+- `category.icon` — an icon name already supported by the app;
+- `category.order` — integer controlling category order in the catalog.
+
+Allowed operation identifiers are:
+
+```text
+search, scrape, paginate, post, comment, message, form
+```
+
+Reuse an existing category when it fits. Do not create nearly identical categories solely to give one skill a custom heading.
+
+### 5. Add acceptance cases
+
+`tests/cases.json` must contain at least three distinct, realistic tasks:
+
+```json
+[
+  {
+    "task": "Find every matching product and include its price and canonical URL.",
+    "expects": [
+      "applies the requested filters",
+      "paginates to the end",
+      "deduplicates canonical URLs"
+    ]
+  },
+  {
+    "task": "Run the same search through a US proxy.",
+    "expects": [
+      "verifies the US proxy before search",
+      "does not restart a verified profile"
+    ]
+  },
+  {
+    "task": "Recover when the saved selector no longer matches.",
+    "expects": [
+      "resolves the control semantically",
+      "completes without using a stale element id"
+    ]
+  }
+]
+```
+
+Cases are reviewable acceptance criteria, not a substitute for running the browser. Include meaningful variation: filters, pagination, proxy use, recovery, or confirmation behavior as applicable. Do not submit three cosmetic rewrites of the same task.
+
+### 6. Validate and test locally
+
+Install the locked dependencies and run all required checks from the repository root:
+
+```bash
+npm ci
+npm run validate:skills
+npm test
+npm run build
+```
+
+Then test every acceptance task from a fresh agent chat so the result does not depend on hidden conversation context. For each task, record:
+
+- operating system and NextBrowser version or commit;
+- agent used;
+- task text exactly as submitted;
+- requested browser profile and proxy country, if any;
+- pass or fail outcome;
+- relevant result count or final state;
+- unexpected retries, duplicate tabs, permission prompts, or recovery steps;
+- elapsed time when performance is part of the skill's value.
+
+Scraping skills should be checked for pagination, canonical URL deduplication, irrelevant-result rejection, and a clear stopping condition. Posting skills should be checked for correct field mapping, draft preservation, explicit final submission behavior, and recovery after navigation or validation errors.
+
+Attach a redacted terminal transcript, screenshot, or short recording to the pull request as evidence. Evidence belongs in the pull request, not in the skill directory.
+
+### 7. Open the pull request
+
+Fork the repository, branch from the latest `main`, commit the skill, and push your branch:
+
+```bash
+git switch main
+git pull --ff-only
+git switch -c skill/example-product-search
+git add skills/example-product-search
+git commit -m "Add example product search skill"
+git push -u origin skill/example-product-search
+```
+
+Open a focused pull request containing only one coherent skill or one clearly related improvement to an existing skill. Link the contribution issue and include:
+
+- the supported website and workflow;
+- why a separate skill is appropriate;
+- all acceptance tasks and their outcomes;
+- the exact validation, test, and build commands run;
+- redacted evidence of successful browser runs;
+- known limitations, regional behavior, or fragile website areas.
+
+CI validates the directory, manifest, frontmatter, acceptance-case structure, and build on macOS and Windows. A green CI run does not replace browser review.
+
+### 8. Review and release
+
+Reviewers may request changes when a skill is too broad, duplicates an existing skill, relies on transient selectors, omits pagination or recovery, exposes sensitive data, or has not been demonstrated from a fresh chat. Keep review fixes in the same pull request.
+
+After merge, the repository loader includes the skill in the NextBrowser catalog. Users can run it but cannot modify the public repository copy from the app. Subsequent improvements should be submitted as another focused pull request so history and authorship remain visible.
+
+#### Contributor completion checklist
+
+- [ ] The contribution issue identifies one website and coherent workflow.
+- [ ] Directory name, manifest `id`, and frontmatter `name` match.
+- [ ] Instructions verify a requested proxy before website interaction.
+- [ ] Instructions avoid persistent reliance on captured element IDs.
+- [ ] Pagination, deduplication, stopping conditions, and recovery are covered where relevant.
+- [ ] Consequential posting actions require the intended user confirmation behavior.
+- [ ] `tests/cases.json` contains at least three genuinely distinct tasks.
+- [ ] Every acceptance task was run from a fresh agent chat.
+- [ ] Evidence is redacted and attached to the pull request.
+- [ ] `npm run validate:skills`, `npm test`, and `npm run build` pass.
+- [ ] No secrets, private data, generated output, or unrelated changes are committed.
 
 ## Making changes
 
