@@ -1,0 +1,14 @@
+{
+  "id": "different-id",
+  "name": "Invalid Skill Fixture",
+  "description": "An intentionally invalid skill used to verify repository validation.",
+  "author": "nextbrowser-oss",
+  "domains": [],
+  "operations": ["teleport"],
+  "category": {
+    "id": "Invalid Category",
+    "title": "Validation fixtures",
+    "icon": "globe",
+    "order": 99
+  }
+}

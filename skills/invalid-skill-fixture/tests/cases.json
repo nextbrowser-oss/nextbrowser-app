@@ -1,0 +1,6 @@
+[
+  {
+    "task": "This single case should be rejected.",
+    "expects": ["validation fails"]
+  }
+]
