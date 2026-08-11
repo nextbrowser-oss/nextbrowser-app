@@ -1,0 +1,14 @@
+[
+  {
+    "task": "Find every matching product with its price and canonical URL.",
+    "expects": ["applies filters", "paginates to the end", "deduplicates canonical URLs"]
+  },
+  {
+    "task": "Run the product search through a verified US proxy.",
+    "expects": ["verifies the US proxy before interaction", "does not restart the verified profile"]
+  },
+  {
+    "task": "Recover when the previous result selector no longer matches.",
+    "expects": ["resolves controls semantically", "returns unique relevant products"]
+  }
+]

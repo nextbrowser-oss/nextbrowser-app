@@ -1,0 +1,14 @@
+{
+  "id": "example-product-search",
+  "name": "Example Product Search",
+  "description": "Search, filter, paginate, and deduplicate products on example.com.",
+  "author": "nextbrowser-oss",
+  "domains": ["example.com"],
+  "operations": ["search", "scrape", "paginate"],
+  "category": {
+    "id": "marketplaces",
+    "title": "Marketplaces",
+    "icon": "globe",
+    "order": 30
+  }
+}
