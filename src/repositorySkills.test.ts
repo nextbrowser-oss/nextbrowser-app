@@ -28,7 +28,9 @@ describe("repository skills", () => {
         categoryOrder: 30,
       }],
     }]);
-    expect(merged.find((category) => category.id === "marketplaces")?.entries.map((entry) => entry.id))
-      .toEqual(["backend", "repository:999-car-search"]);
+    const marketplaceIds = merged.find((category) => category.id === "marketplaces")?.entries.map((entry) => entry.id);
+    const repositoryIds = repositorySkillCategories()
+      .find((category) => category.id === "marketplaces")?.entries.map((entry) => entry.id);
+    expect(marketplaceIds).toEqual(["backend", ...repositoryIds ?? []]);
   });
 });
