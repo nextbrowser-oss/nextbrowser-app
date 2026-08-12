@@ -85,11 +85,13 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
   const agentName = agentById(s.agentId).name;
   const ready = s.agentReady();
-  const profiles = s.filteredProfiles();
+  const searchQuery = s.profileSearch.trim();
+  const normalizedSearch = searchQuery.toLowerCase();
+  const profiles = s.profiles;
   const projects = s.conversationsForAgent(s.agentId);
   const activeProject = s.activeConversation();
   const assignedProfileNames = new Set(projects.flatMap((project) => project.profileNames ?? []));
-  const projectGroups = projects.map((project) => {
+  const projectGroups = projects.flatMap((project) => {
     const profileByName = new Map(profiles.map((profile) => [profile.name, profile]));
     const owned = (project.profileNames ?? []).flatMap((name) => {
       const profile = profileByName.get(name);
@@ -98,7 +100,13 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     const unassigned = project.id === activeProject?.id
       ? profiles.filter((profile) => !assignedProfileNames.has(profile.name))
       : [];
-    return { project, profiles: [...owned, ...unassigned] };
+    const groupProfiles = [...owned, ...unassigned];
+    if (!normalizedSearch) return [{ project, profiles: groupProfiles }];
+    const projectMatches = project.title.toLowerCase().includes(normalizedSearch);
+    const matchingProfiles = groupProfiles.filter((profile) => profile.name.toLowerCase().includes(normalizedSearch));
+    const defaultMatches = project.id === activeProject?.id && "default".includes(normalizedSearch);
+    if (!projectMatches && matchingProfiles.length === 0 && !defaultMatches) return [];
+    return [{ project, profiles: projectMatches ? groupProfiles : matchingProfiles }];
   });
   const skillCount = withLocalScripts(s.skillCategories).reduce((total, category) => total + category.entries.length, 0);
   const defaultStatus = s.defaultSession?.status ?? "unknown";
@@ -468,14 +476,14 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             <Icon name="magnifyingglass" size={12} className="muted" />
             <input
               className="search-inline"
-              placeholder="Search profiles..."
+              placeholder="Search"
               value={s.profileSearch}
               onChange={(e) => s.setProfileSearch(e.target.value)}
             />
             {s.profileSearch && (
               <button
                 className="plain-icon-btn plain-icon-btn-compact"
-                title="Clear profile search"
+                title="Clear search"
                 onClick={() => s.setProfileSearch("")}
               >
                 <Icon name="xmark.circle.fill" size={14} className="muted" />
@@ -492,7 +500,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 </div>
               </div>
             )}
-            {s.profiles.length > 0 && profiles.length === 0 && (
+            {(projects.length > 0 || s.profiles.length > 0) && projectGroups.length === 0 && (
               <div className="muted small">No matches for "{s.profileSearch}".</div>
             )}
             {projectGroups.map(({ project, profiles: projectProfiles }) => (
@@ -522,15 +530,16 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   aria-expanded={!collapsedProjects.has(project.id)}
                 >
                   <Icon name={collapsedProjects.has(project.id) ? "chevron.right" : "chevron.down"} size={11} />
-                  <span>{project.title}</span>
+                  <span><HighlightedName text={project.title} query={searchQuery} /></span>
                   <span className="spacer" />
                   <span className="muted small">{projectProfiles.length + (showDefaultProfile && project.id === activeProject?.id ? 1 : 0)}</span>
                 </button>
-                {!collapsedProjects.has(project.id) && showDefaultProfile && project.id === activeProject?.id && (
+                {(!collapsedProjects.has(project.id) || !!normalizedSearch) && showDefaultProfile && project.id === activeProject?.id && (!normalizedSearch || project.title.toLowerCase().includes(normalizedSearch) || "default".includes(normalizedSearch)) && (
                   <ProfileRow
                     name="default" status={defaultStatus} running={defaultRunning} busy={defaultBusy}
                     selected={!s.selectedProfile} country={defaultIdentity?.country} city={defaultIdentity?.city} ip={defaultIdentity?.ip}
                     toolset="clawbrowser"
+                    searchQuery={searchQuery}
                     onSelect={() => s.selectProfile(undefined)}
                     onStart={() => runProfileAction("We couldn't start the default profile.", s.startDefaultSession)}
                     onStop={() => runProfileAction("We couldn't stop the default profile.", s.stopDefaultSession)}
@@ -538,7 +547,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                     onMenu={() => setMenuProfile("__default")}
                   />
                 )}
-                {!collapsedProjects.has(project.id) && projectProfiles.map((p) => {
+                {(!collapsedProjects.has(project.id) || !!normalizedSearch) && projectProfiles.map((p) => {
                   const status = s.statuses[p.name] ?? "unknown";
                   const running = status === "running";
                   const busy = s.nextctlUpdating || ["starting", "stopping", "rotating"].includes(status);
@@ -550,6 +559,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       key={p.name} name={p.name} status={status} running={running} busy={busy} selected={selected}
                       country={p.country ?? identity?.country} city={p.city ?? identity?.city} ip={identity?.ip}
                       toolset={project.profileToolsets?.[p.name] ?? "clawbrowser"}
+                      searchQuery={searchQuery}
                       draggable
                       dragOver={dragOverProfile === `${project.id}:${p.name}`}
                       onDragOverProfile={(event) => {
@@ -957,6 +967,20 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   );
 }
 
+function HighlightedName({ text, query }: { text: string; query?: string }) {
+  const normalizedQuery = query?.trim().toLowerCase();
+  if (!normalizedQuery) return <>{text}</>;
+  const index = text.toLowerCase().indexOf(normalizedQuery);
+  if (index < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, index)}
+      <mark className="search-match">{text.slice(index, index + normalizedQuery.length)}</mark>
+      {text.slice(index + normalizedQuery.length)}
+    </>
+  );
+}
+
 function ProfileRow({
   name,
   status,
@@ -969,6 +993,7 @@ function ProfileRow({
   manualScheme,
   manualTitle,
   toolset,
+  searchQuery,
   draggable,
   dragOver,
   projectId,
@@ -992,6 +1017,7 @@ function ProfileRow({
   manualScheme?: string | null;
   manualTitle?: string;
   toolset?: "clawbrowser" | "chromium";
+  searchQuery?: string;
   draggable?: boolean;
   dragOver?: boolean;
   projectId?: string;
@@ -1023,7 +1049,7 @@ function ProfileRow({
       <span className={"dot " + (running ? "green" : busy ? "orange" : "gray")} title={status} />
       <span className="profile-main">
         <span className="profile-title-line">
-          <span className="profile-name">{name}</span>
+          <span className="profile-name"><HighlightedName text={name} query={searchQuery} /></span>
           {country && (
             <span className="badge profile-country-badge" title={countryLabel(country, city)}>
               {countryFlag(country)} {country.toUpperCase()}

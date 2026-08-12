@@ -1454,6 +1454,12 @@ button, input, textarea, select { color: var(--text); }
   outline: none;
   min-width: 0;
 }
+.search-match {
+  padding: 0;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  color: inherit;
+}
 .agent-row {
   display: flex;
   align-items: center;
