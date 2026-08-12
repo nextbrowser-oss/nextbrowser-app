@@ -136,7 +136,7 @@ export interface Conversation {
   /** A conversation is the persistent agent context for one project. */
   chatMode?: "chat" | "terminal";
   profileNames?: string[];
-  profileToolsets?: Record<string, "clawbrowser" | "chromium">;
+  profileToolsets?: Record<string, "clawbrowser" | "dasbrowser">;
 }
 
 /** Sidebar preview line for a conversation — mirrors Swift `Conversation.preview`. */

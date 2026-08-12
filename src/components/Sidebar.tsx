@@ -46,7 +46,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [createProfileOpen, setCreateProfileOpen] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [profileCountry, setProfileCountry] = useState("US");
-  const [profileToolset, setProfileToolset] = useState<"clawbrowser" | "chromium">("clawbrowser");
+  const [profileToolset, setProfileToolset] = useState<"clawbrowser" | "dasbrowser">("clawbrowser");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileActionError, setProfileActionError] = useState<string | null>(null);
@@ -520,7 +520,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 onDrop={(event) => {
                   event.preventDefault();
                   const profileName = event.dataTransfer.getData("application/x-nextbrowser-profile");
-                  const toolset = (event.dataTransfer.getData("application/x-nextbrowser-toolset") || "clawbrowser") as "clawbrowser" | "chromium";
+                  const toolset = (event.dataTransfer.getData("application/x-nextbrowser-toolset") || "clawbrowser") as "clawbrowser" | "dasbrowser";
                   setDragOverProject(null);
                   if (profileName) s.assignProfileToProject(profileName, toolset, project.id);
                 }}
@@ -575,7 +575,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                         event.stopPropagation();
                         const movedName = event.dataTransfer.getData("application/x-nextbrowser-profile");
                         const sourceProject = event.dataTransfer.getData("application/x-nextbrowser-project");
-                        const toolset = (event.dataTransfer.getData("application/x-nextbrowser-toolset") || "clawbrowser") as "clawbrowser" | "chromium";
+                        const toolset = (event.dataTransfer.getData("application/x-nextbrowser-toolset") || "clawbrowser") as "clawbrowser" | "dasbrowser";
                         setDragOverProfile(null);
                         setDragOverProject(null);
                         if (!movedName) return;
@@ -721,12 +721,12 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               <label className={"project-mode-option" + (profileToolset === "clawbrowser" ? " is-selected" : "")}>
                 <input type="radio" name="profile-toolset" checked={profileToolset === "clawbrowser"} onChange={() => setProfileToolset("clawbrowser")} />
                 <Icon name="globe" size={16} />
-                <span><strong>Clawbrowser</strong><small>Managed identity and proxy</small></span>
+                <span><strong>ClawBrowser</strong><small>Managed identity and proxy</small></span>
               </label>
-              <label className={"project-mode-option" + (profileToolset === "chromium" ? " is-selected" : "")}>
-                <input type="radio" name="profile-toolset" checked={profileToolset === "chromium"} onChange={() => setProfileToolset("chromium")} />
+              <label className={"project-mode-option" + (profileToolset === "dasbrowser" ? " is-selected" : "")}>
+                <input type="radio" name="profile-toolset" checked={profileToolset === "dasbrowser"} onChange={() => setProfileToolset("dasbrowser")} />
                 <Icon name="safari" size={16} />
-                <span><strong>Chromium</strong><small>Local Chromium-compatible browser</small></span>
+                <span><strong>DasBrowser</strong><small>Private multi-account browser</small></span>
               </label>
             </fieldset>
             {profileError && <div className="error small profile-create-error">{profileError}</div>}
@@ -1017,7 +1017,7 @@ function ProfileRow({
   ip?: string | null;
   manualScheme?: string | null;
   manualTitle?: string;
-  toolset?: "clawbrowser" | "chromium";
+  toolset?: "clawbrowser" | "dasbrowser";
   searchQuery?: string;
   draggable?: boolean;
   dragOver?: boolean;
@@ -1063,8 +1063,8 @@ function ProfileRow({
       </span>
       <span className="profile-badges">
         {toolset && (
-          <span className="badge profile-toolset-badge" title={`Browser toolset: ${toolset === "clawbrowser" ? "Clawbrowser" : "Chromium"}`}>
-            {toolset === "clawbrowser" ? "Claw" : "Chromium"}
+          <span className="badge profile-toolset-badge" title={`Browser toolset: ${toolset === "clawbrowser" ? "Clawbrowser" : "DasBrowser"}`}>
+            {toolset === "clawbrowser" ? "Claw" : "Das"}
           </span>
         )}
         {manualScheme && (

@@ -30,13 +30,13 @@ describe("Swift-compatible persistence", () => {
       id: "legacy", title: "Chat 3", agent: "codex", createdAt: 1, updatedAt: 1, messages: [],
       profileNames: ["work", "work", ""],
       profileToolsets: { work: "chromium", missing: "clawbrowser" },
-    } as Conversation);
+    });
 
     expect(normalized).toMatchObject({
       title: "Project 3",
       chatMode: "chat",
       profileNames: ["work"],
-      profileToolsets: { work: "chromium" },
+      profileToolsets: { work: "dasbrowser" },
     });
   });
 

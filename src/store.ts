@@ -80,7 +80,7 @@ interface QueuedItem {
   executionTarget: ExecutionTarget;
 }
 
-type BrowserToolset = "clawbrowser" | "chromium";
+type BrowserToolset = "clawbrowser" | "dasbrowser";
 
 function runtimeForProfile(conversations: Conversation[], profileName: string): BrowserToolset {
   for (const conversation of conversations) {
@@ -442,7 +442,7 @@ interface State {
 
   newChat: () => string;
   createProject: (name: string, mode: "chat" | "terminal") => string;
-  assignProfileToProject: (profileName: string, toolset: "clawbrowser" | "chromium", projectId?: string) => void;
+  assignProfileToProject: (profileName: string, toolset: BrowserToolset, projectId?: string) => void;
   reorderProfileInProject: (projectId: string, profileName: string, beforeProfileName: string) => void;
   createNamedChat: (agentId: string, title: string) => string;
   selectConversation: (id: string) => void;

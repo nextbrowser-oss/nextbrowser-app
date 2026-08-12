@@ -36,7 +36,7 @@ export function isoSeconds(value: number): string {
   return new Date(value).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-export function normalizeConversation(raw: Conversation): Conversation {
+export function normalizeConversation(raw: Omit<Conversation, "profileToolsets"> & { profileToolsets?: Record<string, string> }): Conversation {
   const messages = (raw.messages ?? []).map((message) => ({
     ...message,
     status: (message.status as string) === "stopped" ? "cancelled" as const : message.status,
@@ -69,9 +69,11 @@ export function normalizeConversation(raw: Conversation): Conversation {
   const title = legacyNumberedChat ? `Project ${legacyNumberedChat[1]}` : raw.title;
   const chatMode = raw.chatMode === "terminal" ? "terminal" as const : "chat" as const;
   const profileNames = [...new Set((raw.profileNames ?? []).filter((name): name is string => typeof name === "string" && !!name.trim()))];
-  const profileToolsets = Object.fromEntries(Object.entries(raw.profileToolsets ?? {}).filter(
-    ([name, toolset]) => profileNames.includes(name) && (toolset === "clawbrowser" || toolset === "chromium"),
-  ));
+  const profileToolsets = Object.fromEntries(Object.entries(raw.profileToolsets ?? {}).flatMap(
+    ([name, toolset]) => profileNames.includes(name) && (toolset === "clawbrowser" || toolset === "dasbrowser" || toolset === "chromium")
+      ? [[name, toolset === "chromium" ? "dasbrowser" : toolset]]
+      : [],
+  )) as Conversation["profileToolsets"];
   return {
     ...raw,
     title,

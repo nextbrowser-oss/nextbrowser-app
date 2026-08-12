@@ -28,6 +28,12 @@ const { topUpProxyTraffic } = require("./proxy-traffic.cjs");
 const { deleteProject, listProjects, putProject } = require("./project-sync.cjs");
 const { defaultSSHConfigPath, discoverSSHHosts, isAllowedExplicitConfigPath } = require("./ssh-config.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
+const {
+  DASBROWSER_DOWNLOADS,
+  adaptDasbrowserArgs,
+  requestedBrowserRuntime,
+  resolveDasbrowserRuntime,
+} = require("./dasbrowser-runtime.cjs");
 
 const children = new Map();
 const terminals = new Map();
@@ -44,6 +50,7 @@ let appUpdateTimer = null;
 let nextctlInstallStatus = { status: "idle" };
 let nextctlInstallPromise = null;
 let browserInstallPromise = null;
+let dasbrowserInstallPromise = null;
 
 const CODEX_TERMINAL_PROFILE = "nextbrowser";
 const CODEX_TERMINAL_PROFILE_CONTENT = `[plugins."browser@openai-bundled"]
@@ -324,6 +331,81 @@ async function ensureClawbrowserRuntime(nextctlBin) {
   });
   return browserInstallPromise;
 }
+function dasbrowserRuntimeOptions() {
+  return {
+    platform: process.platform,
+    homeDir: home(),
+    env: process.env,
+    runtimeRoot: nextbrowserRuntimeRoot(),
+  };
+}
+async function officialDasbrowserDownloadUrl() {
+  const fallback = DASBROWSER_DOWNLOADS[process.platform];
+  if (!fallback) throw new Error(`DasBrowser is not available for ${process.platform}.`);
+  try {
+    const response = await fetch("https://www.dasbrowser.com/download");
+    if (!response.ok) return fallback;
+    const html = await response.text();
+    const pattern = process.platform === "darwin"
+      ? /https:\/\/cdn\.dasbrowser\.com\/[^"']+\.dmg/i
+      : /https:\/\/cdn\.dasbrowser\.com\/[^"']+\.exe/i;
+    return html.match(pattern)?.[0] ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+async function ensureDasbrowserRuntime() {
+  const options = dasbrowserRuntimeOptions();
+  const existing = resolveDasbrowserRuntime(options);
+  if (existing) return existing;
+  if (dasbrowserInstallPromise) return dasbrowserInstallPromise;
+
+  dasbrowserInstallPromise = (async () => {
+    if (process.platform === "darwin" && process.arch !== "arm64") {
+      throw new Error("The official DasBrowser download currently supports Apple Silicon Macs only.");
+    }
+    if (process.platform !== "darwin" && process.platform !== "win32") {
+      throw new Error("DasBrowser is currently available only for macOS and Windows.");
+    }
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-dasbrowser-"));
+    try {
+      const url = await officialDasbrowserDownloadUrl();
+      if (process.platform === "darwin") {
+        const image = path.join(tempDir, "dasbrowser.dmg");
+        const mount = path.join(tempDir, "mount");
+        await fs.mkdir(mount, { recursive: true });
+        await downloadFile(url, image);
+        const attached = await run("hdiutil", ["attach", "-readonly", "-nobrowse", "-mountpoint", mount, image], {}, { timeoutMs: 120_000 });
+        if (attached.code !== 0) throw new Error((attached.stderr || attached.stdout || "Could not mount DasBrowser installer.").trim());
+        try {
+          const source = path.join(mount, "Dasbrowser.app");
+          const target = path.join(nextbrowserRuntimeRoot(), "data", "Dasbrowser.app");
+          await fs.mkdir(path.dirname(target), { recursive: true });
+          await fs.rm(target, { recursive: true, force: true });
+          await fs.cp(source, target, { recursive: true, preserveTimestamps: true });
+        } finally {
+          await run("hdiutil", ["detach", mount, "-force"], {}, { timeoutMs: 30_000 }).catch(() => undefined);
+        }
+      } else {
+        const installer = path.join(tempDir, "DasbrowserSetup.exe");
+        await downloadFile(url, installer);
+        const installed = await run(installer, ["--silent", "--install"], {}, { timeoutMs: 10 * 60 * 1000 });
+        if (installed.code !== 0) throw new Error((installed.stderr || installed.stdout || "DasBrowser installation failed.").trim());
+        for (let attempt = 0; attempt < 30 && !resolveDasbrowserRuntime(options); attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1_000));
+        }
+      }
+      const executable = resolveDasbrowserRuntime(options);
+      if (!executable) throw new Error("DasBrowser installed, but its browser executable could not be found.");
+      return executable;
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+  })().finally(() => {
+    dasbrowserInstallPromise = null;
+  });
+  return dasbrowserInstallPromise;
+}
 function dataDir() { return path.join(app.getPath("userData")); }
 async function migrateLegacyData() {
   const legacy = path.join(app.getPath("appData"), "clawdesk-electron");
@@ -515,8 +597,15 @@ async function invokeCommand(command, args = {}) {
     case "nextctl_install_status": return nextctlInstallStatus;
     case "nextctl_run": {
       const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("nextctl not found. Install Clawbrowser CLI or set NEXTCTL_BIN.");
-      if (requiresBrowserRuntime(args.args)) await ensureClawbrowserRuntime(bin);
-      return run(bin, args.args || [], args.extraEnv || {}, {
+      let commandArgs = args.args || [];
+      const browserRuntime = requestedBrowserRuntime(commandArgs);
+      if (browserRuntime === "dasbrowser") {
+        const executable = await ensureDasbrowserRuntime();
+        commandArgs = adaptDasbrowserArgs(commandArgs, executable);
+      } else if (browserRuntime === "clawbrowser" && requiresBrowserRuntime(commandArgs)) {
+        await ensureClawbrowserRuntime(bin);
+      }
+      return run(bin, commandArgs, args.extraEnv || {}, {
         requestId: args.requestId,
         timeoutMs: args.timeoutMs,
       });
