@@ -2082,7 +2082,14 @@ export const useStore = create<State>((set, get) => {
     trackEvent("profile_stop_requested", { scope: "named" });
     set((s) => ({ statuses: { ...s.statuses, [n]: "stopping" } }));
     const runtime = runtimeForProfile(get().conversations, n);
-    await nextctlRunChecked(["stop", "--profile", n, "--runtime", runtime, "--format", "json"]);
+    try {
+      await nextctlRunChecked(["stop", "--profile", n, "--runtime", runtime, "--format", "json"]);
+    } catch (error) {
+      // A user may close the browser window directly. Refresh the authoritative
+      // session state and treat stopping an already-closed profile as success.
+      await get().loadProfiles().catch(() => undefined);
+      if (get().statuses[n] !== "stopped") throw error;
+    }
     await get().loadProfiles();
     trackTiming("profile_stop_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
   },
