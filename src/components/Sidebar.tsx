@@ -104,8 +104,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     if (!normalizedSearch) return [{ project, profiles: groupProfiles }];
     const projectMatches = project.title.toLowerCase().includes(normalizedSearch);
     const matchingProfiles = groupProfiles.filter((profile) => profile.name.toLowerCase().includes(normalizedSearch));
-    const defaultMatches = project.id === activeProject?.id && "default".includes(normalizedSearch);
-    if (!projectMatches && matchingProfiles.length === 0 && !defaultMatches) return [];
+    if (!projectMatches && matchingProfiles.length === 0) return [];
     return [{ project, profiles: projectMatches ? groupProfiles : matchingProfiles }];
   });
   useEffect(() => {
@@ -131,7 +130,6 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const defaultKnown = !!s.defaultSession?.session?.name || defaultStatus !== "unknown";
   const defaultRunning = defaultStatus === "running";
   const defaultBusy = s.nextctlUpdating || ["starting", "stopping", "rotating"].includes(defaultStatus);
-  const defaultIdentity = s.profileIdentities.__default;
   const defaultSessionDuplicate = defaultRunning && Object.values(s.profileSessions).some((session) =>
     session.status === "running" && (
       (!!session.pid && session.pid === s.defaultSession?.pid) ||
@@ -141,8 +139,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const showDefaultProfile = defaultKnown &&
     !defaultSessionDuplicate &&
     !s.profiles.some((p) => p.name === "default");
-  const visibleProfileCount = s.profiles.length + (showDefaultProfile ? 1 : 0);
-  const runningCount = s.profiles.filter((p) => s.statuses[p.name] === "running").length + (showDefaultProfile && defaultRunning ? 1 : 0);
+  const visibleProfileCount = s.profiles.length;
+  const runningCount = s.profiles.filter((p) => s.statuses[p.name] === "running").length;
   const proxyCountries = s.proxyCountries.length ? s.proxyCountries : ROTATION_COUNTRIES;
 
   useEffect(() => {
@@ -545,14 +543,18 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 }}
               >
                 <div className="project-profile-heading">
-                  <button
-                    className="project-expand-toggle"
-                    onClick={() => toggleProject(project.id)}
-                    aria-label={collapsedProjects.has(project.id) ? `Show profiles in ${project.title}` : `Hide profiles in ${project.title}`}
-                    aria-expanded={!collapsedProjects.has(project.id)}
-                  >
-                    <Icon name={collapsedProjects.has(project.id) ? "chevron.right" : "chevron.down"} size={11} />
-                  </button>
+                  {projectProfiles.length > 0 ? (
+                    <button
+                      className="project-expand-toggle"
+                      onClick={() => toggleProject(project.id)}
+                      aria-label={collapsedProjects.has(project.id) ? `Show profiles in ${project.title}` : `Hide profiles in ${project.title}`}
+                      aria-expanded={!collapsedProjects.has(project.id)}
+                    >
+                      <Icon name={collapsedProjects.has(project.id) ? "chevron.right" : "chevron.down"} size={11} />
+                    </button>
+                  ) : (
+                    <span className="project-expand-placeholder" aria-hidden="true" />
+                  )}
                   <button
                     className="project-chat-link"
                     onClick={() => {
@@ -568,22 +570,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       <span className="project-chat-preview">{conversationPreview(project)}</span>
                     </span>
                     {project.id === activeProject?.id && <span className="project-active-label">Active chat</span>}
-                    <span className="muted small project-profile-count">{projectProfiles.length + (showDefaultProfile && project.id === activeProject?.id ? 1 : 0)}</span>
+                    <span className="muted small project-profile-count">{projectProfiles.length}</span>
                   </button>
                 </div>
-                {(!collapsedProjects.has(project.id) || !!normalizedSearch) && showDefaultProfile && project.id === activeProject?.id && (!normalizedSearch || project.title.toLowerCase().includes(normalizedSearch) || "default".includes(normalizedSearch)) && (
-                  <ProfileRow
-                    name="default" status={defaultStatus} running={defaultRunning} busy={defaultBusy}
-                    selected={!s.selectedProfile} country={defaultIdentity?.country} city={defaultIdentity?.city} ip={defaultIdentity?.ip}
-                    toolset="clawbrowser"
-                    searchQuery={searchQuery}
-                    onSelect={() => s.selectProfile(undefined)}
-                    onStart={() => runProfileAction("We couldn't start the default profile.", s.startDefaultSession)}
-                    onStop={() => runProfileAction("We couldn't stop the default profile.", s.stopDefaultSession)}
-                    onLive={() => { s.selectProfile(undefined); s.setTab("live"); }}
-                    onMenu={() => setMenuProfile("__default")}
-                  />
-                )}
                 {(!collapsedProjects.has(project.id) || !!normalizedSearch) && projectProfiles.map((p) => {
                   const status = s.statuses[p.name] ?? "unknown";
                   const running = status === "running";
