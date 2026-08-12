@@ -2153,14 +2153,30 @@ button, input, textarea, select { color: var(--text); }
 [data-theme="light"] .agent-terminal-panel { background: #f7f7f8; }
 .msg { max-width: 80%; min-width: 0; overflow-wrap: anywhere; }
 .msg-system { text-align: center; color: var(--muted); font-size: 12px; }
-.msg-user-wrap { display: flex; justify-content: flex-end; }
-.msg-user-inner { max-width: 75%; min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.msg-user-wrap {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  min-width: 0;
+}
+.msg-user-inner {
+  width: fit-content;
+  max-width: 75%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
 .msg-user-bubble {
+  max-width: 100%;
+  min-width: 0;
   background: var(--accent);
   color: #fff;
   padding: 10px;
   border-radius: var(--radius-md);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 .user-command-chip {
