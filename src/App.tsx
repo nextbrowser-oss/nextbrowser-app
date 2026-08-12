@@ -533,7 +533,15 @@ export function App() {
   useButtonTooltips();
 
   useEffect(() => {
-    const showUnexpectedError = () => setUnexpectedError(true);
+    const showUnexpectedError = (event: ErrorEvent | PromiseRejectionEvent) => {
+      const detail = event instanceof PromiseRejectionEvent
+        ? event.reason instanceof Error ? event.reason.message : String(event.reason ?? "")
+        : event.message;
+      // Cloud project sync is best-effort. Authentication failures there are
+      // not fatal app errors and should not cover the active chat.
+      if (/project sync failed\s*\((401|403)\)|unauthorized.*project/i.test(detail)) return;
+      setUnexpectedError(true);
+    };
     window.addEventListener("error", showUnexpectedError);
     window.addEventListener("unhandledrejection", showUnexpectedError);
     return () => {

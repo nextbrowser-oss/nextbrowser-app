@@ -10,7 +10,6 @@ import { filePathForFile, invoke } from "../electronBridge";
 import { agentById, agentInvocation, type AgentSpec } from "../agents";
 import { trackEvent } from "../lib/analytics";
 import { needsSupportLink } from "../lib/userFacingError";
-import { VPSSetupModal } from "./VPSSetupModal";
 import { UserFacingError } from "./UserFacingError";
 import { AgentInstallLink } from "./AgentInstallLink";
 import { takeGuideDraft } from "../lib/guideDraft";
@@ -105,7 +104,6 @@ export function ChatView() {
   const [editingReply, setEditingReply] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [promptDetail, setPromptDetail] = useState<string | null>(null);
-  const [vpsSetupOpen, setVPSSetupOpen] = useState(false);
   const [projectCreatorOpen, setProjectCreatorOpen] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [projectMode, setProjectMode] = useState<"chat" | "terminal">("chat");
@@ -302,17 +300,26 @@ export function ChatView() {
               <span>VPS{conv?.vpsConnectionLabel ? ` · ${conv.vpsConnectionLabel}` : ""}</span>
             </span>
           )}
-          {messages.length > 0 && (
+          <div className="chat-mode-toggle" role="group" aria-label="Project chat mode">
             <button
-              className="mini chat-vps-button"
-              aria-label="Use Clawbrowser on a VPS over SSH"
-              title="Use Clawbrowser on a VPS over SSH"
-              onClick={() => setVPSSetupOpen(true)}
+              className={!s.terminalChat ? "active" : ""}
+              aria-pressed={!s.terminalChat}
+              title="Open regular chat"
+              onClick={() => s.setTerminalChat(false)}
             >
-              <Icon name="terminal" size={13} />
-              <span className="chat-vps-label">Use VPS</span>
+              <Icon name="bubble.left.and.bubble.right.fill" size={12} />
+              Chat
             </button>
-          )}
+            <button
+              className={s.terminalChat ? "active" : ""}
+              aria-pressed={s.terminalChat}
+              title="Open terminal chat"
+              onClick={() => s.setTerminalChat(true)}
+            >
+              <Icon name="terminal" size={12} />
+              Terminal
+            </button>
+          </div>
           {!remoteOnly && s.selectedProfile && (
             <span className="profile-pill">
               <Icon name="person.crop.circle" size={12} />
@@ -388,10 +395,6 @@ export function ChatView() {
                 <button className="btn-bordered" title="Open Skills" onClick={() => s.setTab("skills")}>
                   <Icon name="square.grid.2x2.fill" size={14} />
                   Open Skills
-                </button>
-                <button className="btn-bordered" title="Use Clawbrowser on a VPS over SSH" onClick={() => setVPSSetupOpen(true)}>
-                  <Icon name="terminal" size={14} />
-                  Use VPS
                 </button>
                 {s.proxy ? (
                   <button className="btn-bordered" title="Start the default browser session" onClick={() => s.startDefaultSession()}>
@@ -741,7 +744,6 @@ export function ChatView() {
         </div>
       )}
 
-      {vpsSetupOpen && <VPSSetupModal onClose={() => setVPSSetupOpen(false)} />}
     </div>
   );
 }

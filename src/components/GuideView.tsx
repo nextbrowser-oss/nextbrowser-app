@@ -17,7 +17,6 @@ import {
 } from "./GuideActionModal";
 import { GuideUsageSection } from "./GuideUsageDemos";
 import { Icon } from "./Icon";
-import { VPSSetupModal } from "./VPSSetupModal";
 
 export function GuideFeatureCard({
   feature,
@@ -84,7 +83,6 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
     source: string;
     confirmation: GuideActionConfirmation;
   }>();
-  const [vpsSetupOpen, setVPSSetupOpen] = useState(false);
   const agentName = agentById(agentId).name;
   const readiness = [
     authed,
@@ -129,10 +127,6 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
           ? "nextbrowser:open-profile-creator"
           : "nextbrowser:open-profile-actions",
       );
-      return;
-    }
-    if (action === "vps") {
-      setVPSSetupOpen(true);
       return;
     }
     setTab(action);
@@ -324,7 +318,6 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
           onConfirm={confirmAction}
         />
       )}
-      {vpsSetupOpen && <VPSSetupModal onClose={() => setVPSSetupOpen(false)} />}
     </div>
   );
 }

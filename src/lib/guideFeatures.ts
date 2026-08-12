@@ -6,7 +6,6 @@ export type GuideAction =
   | "profiles"
   | "start_session"
   | "identity"
-  | "vps"
   | Extract<AppTab, "chat" | "skills" | "live" | "usage" | "scheduled">;
 
 export interface GuideFeature {
@@ -113,15 +112,6 @@ export const GUIDE_FEATURE_GROUPS: GuideFeatureGroup[] = [
         tint: "#8e8cff",
         action: "scheduled",
         actionLabel: "Open schedules",
-      },
-      {
-        id: "vps",
-        icon: "terminal",
-        title: "VPS",
-        caption: "Run a chat on a remote server.",
-        tint: "#30b0c7",
-        action: "vps",
-        actionLabel: "Set up a VPS",
       },
     ],
   },

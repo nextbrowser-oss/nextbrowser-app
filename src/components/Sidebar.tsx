@@ -13,6 +13,7 @@ import { cancelNextctlRun } from "../nextctl";
 import { conversationPreview, type AppTab } from "../types";
 import { CountrySelect } from "./CountrySelect";
 import { UserFacingError } from "./UserFacingError";
+import { VPSSetupModal } from "./VPSSetupModal";
 
 type ManualProxyInputMode = "url" | "fields";
 const PROFILE_CREATE_TIMEOUT_MS = 30_000;
@@ -44,6 +45,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [manualError, setManualError] = useState<string | null>(null);
   const [manualSaving, setManualSaving] = useState(false);
   const [createProfileOpen, setCreateProfileOpen] = useState(false);
+  const [vpsSetupOpen, setVPSSetupOpen] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [profileCountry, setProfileCountry] = useState("US");
   const [profileToolset, setProfileToolset] = useState<"clawbrowser" | "dasbrowser">("clawbrowser");
@@ -754,6 +756,21 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 <span><strong>DasBrowser</strong><small>Private multi-account browser</small></span>
               </label>
             </fieldset>
+            <button
+              type="button"
+              className="profile-vps-option"
+              onClick={() => {
+                setCreateProfileOpen(false);
+                setVPSSetupOpen(true);
+              }}
+            >
+              <Icon name="terminal" size={15} />
+              <span>
+                <strong>Use VPS</strong>
+                <small>Set up this project on a remote server instead</small>
+              </span>
+              <Icon name="chevron.right" size={12} className="muted" />
+            </button>
             {profileError && <div className="error small profile-create-error">{profileError}</div>}
             <div className="modal-actions">
               <button type="button" className="secondary" onClick={closeProfileCreator}>
@@ -851,6 +868,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           </div>
         );
       })(), document.body)}
+
+      {vpsSetupOpen && <VPSSetupModal onClose={() => setVPSSetupOpen(false)} />}
 
       {manualProxyOpen && createPortal((
         <div className="modal-overlay" onMouseDown={() => !manualSaving && setManualProxyOpen(false)}>

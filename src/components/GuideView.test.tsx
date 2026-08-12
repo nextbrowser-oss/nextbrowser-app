@@ -9,7 +9,7 @@ describe("Guide feature navigation", () => {
   const features = GUIDE_FEATURE_GROUPS.flatMap((group) => group.features);
 
   it("gives every feature a unique, real navigation action", () => {
-    expect(features).toHaveLength(9);
+    expect(features).toHaveLength(8);
     expect(new Set(features.map((feature) => feature.id)).size).toBe(features.length);
     expect(new Set(features.map((feature) => feature.action)).size).toBe(features.length);
     expect(features.every((feature) => feature.action && feature.actionLabel)).toBe(true);
