@@ -36,7 +36,7 @@ describe("Swift-compatible persistence", () => {
       title: "Project 3",
       chatMode: "chat",
       profileNames: ["work"],
-      profileToolsets: { work: "dasbrowser" },
+      profileToolsets: { work: "clawbrowser" },
     });
   });
 

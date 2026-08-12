@@ -2734,6 +2734,10 @@ export const useStore = create<State>((set, get) => {
     const targetId = projectId ?? get().activeConversation()?.id;
     if (!targetId) return;
     set((state) => {
+      const existingToolset = state.conversations.find((conversation) =>
+        (conversation.profileNames ?? []).includes(profileName)
+      )?.profileToolsets?.[profileName];
+      const fixedToolset = existingToolset ?? toolset;
       const conversations = state.conversations.map((conversation) => {
         const withoutProfile = (conversation.profileNames ?? []).filter((name) => name !== profileName);
         const toolsets = { ...(conversation.profileToolsets ?? {}) };
@@ -2744,7 +2748,7 @@ export const useStore = create<State>((set, get) => {
         return {
           ...conversation,
           profileNames: [...withoutProfile, profileName],
-          profileToolsets: { ...toolsets, [profileName]: toolset },
+          profileToolsets: { ...toolsets, [profileName]: fixedToolset },
           updatedAt: now(),
         };
       });
