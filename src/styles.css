@@ -569,7 +569,8 @@ button, input, textarea, select { color: var(--text); }
 }
 .sidebar-scroll {
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
+  overflow: hidden;
   padding: 8px 10px 12px;
   display: flex;
   flex-direction: column;
@@ -1501,6 +1502,8 @@ button, input, textarea, select { color: var(--text); }
 
 /* Profiles */
 .profiles-card {
+  flex: 1;
+  min-height: 0;
   gap: 6px;
 }
 .profiles-panel-head {
@@ -1510,7 +1513,12 @@ button, input, textarea, select { color: var(--text); }
 .profiles-panel-toggle {
   min-height: 22px;
 }
-.profile-list { max-height: 340px; overflow-y: auto; margin-top: 2px; }
+.profile-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 2px;
+}
 .profile-row {
   display: flex;
   align-items: center;
