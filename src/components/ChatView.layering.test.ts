@@ -12,10 +12,14 @@ function zIndexFor(selector: string): number {
   return Number(value);
 }
 
-describe("chat context menu layering", () => {
-  it("keeps menu actions above the transparent dismiss layer", () => {
+describe("project workspace layout", () => {
+  it("keeps shared menu actions above the transparent dismiss layer", () => {
     expect(zIndexFor(".schedule-action-menu")).toBeGreaterThan(zIndexFor(".menu-dismiss-layer"));
-    expect(chatView).toContain('className="schedule-action-menu conv-context-menu"');
-    expect(chatView).not.toMatch(/conv-context-menu[\s\S]{0,180}zIndex/);
+  });
+
+  it("uses only the primary sidebar for projects", () => {
+    expect(chatView).not.toContain('className="conv-sidebar');
+    expect(chatView).not.toContain("conv-context-menu");
+    expect(chatView).toContain("nextbrowser:create-project");
   });
 });

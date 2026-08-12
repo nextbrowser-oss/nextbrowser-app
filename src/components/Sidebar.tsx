@@ -408,10 +408,20 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         <div className={"claw-card control-card profiles-card" + (profileGuideFocus ? " guide-focus" : "")}>
           <div className="row profiles-panel-head">
             <div className="scheduled-panel-toggle profiles-panel-toggle">
-              <Icon name="person.crop.circle" size={13} />
-              <span className="section">Profiles</span>
-              <span className="profiles-count" title="Total profiles">{visibleProfileCount}</span>
+              <span className="section">Projects</span>
+              <span className="profiles-count" title="Total projects">{projects.length}</span>
             </div>
+            <button
+              className="plain-icon-btn plain-icon-btn-compact"
+              title="Create project"
+              aria-label="Create project"
+              onClick={() => {
+                s.setTab("chat");
+                window.setTimeout(() => window.dispatchEvent(new CustomEvent("nextbrowser:create-project")), 0);
+              }}
+            >
+              <Icon name="plus" size={13} />
+            </button>
             <button
               className="plain-icon-btn plain-icon-btn-compact"
               title="Refresh profiles"

@@ -7,7 +7,6 @@ import { Icon, Spinner } from "./Icon";
 import { BrandLogo } from "./BrandLogo";
 import type { ChatAttachment, ChatMessage } from "../types";
 import { filePathForFile, invoke } from "../electronBridge";
-import { conversationPreview } from "../types";
 import { agentById, agentInvocation, type AgentSpec } from "../agents";
 import { trackEvent } from "../lib/analytics";
 import { needsSupportLink } from "../lib/userFacingError";
@@ -90,7 +89,6 @@ function errorSummary(text: string): string {
 export function ChatView() {
   const s = useStore();
   const agentId = s.agentId;
-  const convs = s.conversationsForAgent(agentId);
   const conv = s.activeConversation();
   const messages = conv?.messages ?? [];
   const remoteOnly = conv?.executionTarget === "vps";
@@ -100,17 +98,13 @@ export function ChatView() {
   const agentError = s.agentError();
   const running = s.hasRunning();
   const queued = s.queuedCount();
-  const collapsed = s.chatListCollapsed;
 
   const [draft, setDraft] = useState("");
   const [guideDraftLoaded, setGuideDraftLoaded] = useState(false);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [scriptOpen, setScriptOpen] = useState(false);
-  const [renameId, setRenameId] = useState<string | null>(null);
-  const [renameText, setRenameText] = useState("");
   const [editingReply, setEditingReply] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
-  const [convMenu, setConvMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [promptDetail, setPromptDetail] = useState<string | null>(null);
   const [vpsSetupOpen, setVPSSetupOpen] = useState(false);
   const [projectCreatorOpen, setProjectCreatorOpen] = useState(false);
@@ -122,6 +116,16 @@ export function ChatView() {
   const [terminalMounted, setTerminalMounted] = useState(s.terminalChat);
   const [terminalHandoff, setTerminalHandoff] = useState<{ id: string; text: string }>();
   const [terminalToChatRequest, setTerminalToChatRequest] = useState<string>();
+
+  useEffect(() => {
+    const openProjectCreator = () => {
+      setProjectName("");
+      setProjectMode("chat");
+      setProjectCreatorOpen(true);
+    };
+    window.addEventListener("nextbrowser:create-project", openProjectCreator);
+    return () => window.removeEventListener("nextbrowser:create-project", openProjectCreator);
+  }, []);
   const previousTerminalChat = useRef(s.terminalChat);
   const chatMessagesSharedWithTerminal = useRef(new Map<string, number>());
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -281,67 +285,8 @@ export function ChatView() {
 
   return (
     <div className="chat-layout">
-      {!collapsed && (
-        <aside className="conv-sidebar thin-material">
-          <div className="conv-sidebar-head">
-            <span className="conv-sidebar-label">{agentName} projects</span>
-            <span className="spacer" />
-            <button
-              className="plain-icon-btn plain-icon-btn-compact"
-              title="Create project"
-              onClick={() => {
-                setProjectName("");
-                setProjectMode("chat");
-                setProjectCreatorOpen(true);
-              }}
-            >
-              <Icon name="plus" size={14} />
-            </button>
-          </div>
-          <hr className="divider" />
-          <div className="conv-sidebar-list">
-            {convs.length === 0 ? (
-              <div className="conv-empty">
-                <Icon name="bubble.left.and.bubble.right.fill" size={28} className="muted" />
-                <p className="muted">No projects yet</p>
-                <button className="btn-bordered-prominent" onClick={() => setProjectCreatorOpen(true)}>
-                  New project
-                </button>
-              </div>
-            ) : (
-              convs.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  className={"conv-row" + (c.id === conv?.id ? " active" : "")}
-                  onClick={() => s.selectConversation(c.id)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setConvMenu({ id: c.id, x: e.clientX, y: e.clientY });
-                  }}
-                >
-                  <div className="conv-row-top">
-                    <span className="conv-row-title">{c.title}</span>
-                    <span className="muted small">{formatTime(c.updatedAt)}</span>
-                  </div>
-                  <div className="muted small conv-preview">{conversationPreview(c)}</div>
-                </button>
-              ))
-            )}
-          </div>
-        </aside>
-      )}
-      {collapsed ? null : <hr className="divider conv-divider" />}
-
       <div className="chat">
         <div className="chat-header">
-          <button
-            className="plain-icon-btn"
-            onClick={() => s.setChatListCollapsed(!collapsed)}
-            title={collapsed ? "Show chat list" : "Hide chat list"}
-          >
-            <Icon name={collapsed ? "sidebar.left" : "sidebar.leading"} size={16} />
-          </button>
           <div className="chat-title-stack">
             <strong className="chat-title">{conv?.title ?? agentName}</strong>
             <span className="muted small">Project · {agentName}</span>
@@ -729,82 +674,6 @@ export function ChatView() {
           </form>
         </div>
       ), document.body)}
-
-      {convMenu && (
-        <>
-          <button
-            className="menu-dismiss-layer"
-            aria-label="Close menu"
-            onClick={() => setConvMenu(null)}
-          />
-          <div
-            className="schedule-action-menu conv-context-menu"
-            style={{ position: "fixed", top: convMenu.y, left: convMenu.x, right: "auto" }}
-          >
-            <button
-              onClick={() => {
-                const c = convs.find((x) => x.id === convMenu.id);
-                setRenameText(c?.title ?? "");
-                setRenameId(convMenu.id);
-                setConvMenu(null);
-              }}
-            >
-              <Icon name="pencil" size={13} /> Rename
-            </button>
-            <button
-              onClick={() => {
-                s.selectConversation(convMenu.id);
-                s.forkConversation();
-                setConvMenu(null);
-              }}
-            >
-              <Icon name="arrow.triangle.branch" size={13} /> Fork chat
-            </button>
-            <hr className="divider" />
-            <button
-              className="danger-text"
-              onClick={() => {
-                s.deleteConversation(convMenu.id);
-                setConvMenu(null);
-              }}
-            >
-              <Icon name="trash" size={13} /> Delete
-            </button>
-          </div>
-        </>
-      )}
-
-      {renameId && (
-        <div className="modal-overlay">
-          <div className="modal-card">
-            <input
-              value={renameText}
-              autoFocus
-              onChange={(e) => setRenameText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  s.renameConversation(renameId, renameText);
-                  setRenameId(null);
-                }
-              }}
-            />
-            <div className="row" style={{ marginTop: 8, gap: 8 }}>
-              <button className="secondary" onClick={() => setRenameId(null)}>
-                Cancel
-              </button>
-              <button
-                className="primary"
-                onClick={() => {
-                  s.renameConversation(renameId, renameText);
-                  setRenameId(null);
-                }}
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {editingReply && (
         <div className="modal-overlay">
