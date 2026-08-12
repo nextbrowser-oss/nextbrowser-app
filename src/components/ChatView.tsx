@@ -1,4 +1,5 @@
 import { type ClipboardEvent, type DragEvent, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useStore } from "../store";
 import { SCRIPTS } from "../skillsCatalog";
 import { MarkdownText } from "./MarkdownText";
@@ -112,6 +113,9 @@ export function ChatView() {
   const [convMenu, setConvMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [promptDetail, setPromptDetail] = useState<string | null>(null);
   const [vpsSetupOpen, setVPSSetupOpen] = useState(false);
+  const [projectCreatorOpen, setProjectCreatorOpen] = useState(false);
+  const [projectName, setProjectName] = useState("");
+  const [projectMode, setProjectMode] = useState<"chat" | "terminal">("chat");
   const [workflowDraft, setWorkflowDraft] = useState<{ task: string; answer: ChatMessage; prepared: DistilledWorkflow } | null>(null);
   const [preparingWorkflowId, setPreparingWorkflowId] = useState<string | null>(null);
   const [workflowRejection, setWorkflowRejection] = useState<string | null>(null);
@@ -280,16 +284,28 @@ export function ChatView() {
       {!collapsed && (
         <aside className="conv-sidebar thin-material">
           <div className="conv-sidebar-head">
-            <span className="conv-sidebar-label">{agentName} chats</span>
+            <span className="conv-sidebar-label">{agentName} projects</span>
+            <span className="spacer" />
+            <button
+              className="plain-icon-btn plain-icon-btn-compact"
+              title="Create project"
+              onClick={() => {
+                setProjectName("");
+                setProjectMode("chat");
+                setProjectCreatorOpen(true);
+              }}
+            >
+              <Icon name="plus" size={14} />
+            </button>
           </div>
           <hr className="divider" />
           <div className="conv-sidebar-list">
             {convs.length === 0 ? (
               <div className="conv-empty">
                 <Icon name="bubble.left.and.bubble.right.fill" size={28} className="muted" />
-                <p className="muted">No chats yet</p>
-                <button className="btn-bordered-prominent" onClick={() => s.newChat()}>
-                  New chat
+                <p className="muted">No projects yet</p>
+                <button className="btn-bordered-prominent" onClick={() => setProjectCreatorOpen(true)}>
+                  New project
                 </button>
               </div>
             ) : (
@@ -326,12 +342,9 @@ export function ChatView() {
           >
             <Icon name={collapsed ? "sidebar.left" : "sidebar.leading"} size={16} />
           </button>
-          <button className="plain-icon-btn" onClick={() => s.newChat()} title="New chat">
-            <Icon name="square.and.pencil" size={16} />
-          </button>
           <div className="chat-title-stack">
             <strong className="chat-title">{conv?.title ?? agentName}</strong>
-            <span className="muted small">{agentName}</span>
+            <span className="muted small">Project · {agentName}</span>
           </div>
           <span className="spacer" />
           {remoteOnly && (
@@ -671,6 +684,51 @@ export function ChatView() {
           </>
         )}
       </div>
+      {projectCreatorOpen && createPortal((
+        <div className="modal-overlay" onMouseDown={() => setProjectCreatorOpen(false)}>
+          <form
+            className="modal-card project-create-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="project-create-title"
+            onMouseDown={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              s.createProject(projectName, projectMode);
+              setProjectCreatorOpen(false);
+            }}
+          >
+            <div className="profile-menu-head">
+              <span id="project-create-title" className="profile-menu-name">Create project</span>
+              <span className="spacer" />
+              <button type="button" className="plain-icon-btn" aria-label="Close" onClick={() => setProjectCreatorOpen(false)}>
+                <Icon name="xmark" size={17} />
+              </button>
+            </div>
+            <label className="modal-field">
+              <span>Project name</span>
+              <input autoFocus value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="Product research" />
+            </label>
+            <fieldset className="project-mode-field">
+              <legend>Agent workspace</legend>
+              <label className={"project-mode-option" + (projectMode === "chat" ? " is-selected" : "")}>
+                <input type="radio" name="project-mode" checked={projectMode === "chat"} onChange={() => setProjectMode("chat")} />
+                <Icon name="bubble.left.and.bubble.right.fill" size={16} />
+                <span><strong>Chat</strong><small>Structured messages and results</small></span>
+              </label>
+              <label className={"project-mode-option" + (projectMode === "terminal" ? " is-selected" : "")}>
+                <input type="radio" name="project-mode" checked={projectMode === "terminal"} onChange={() => setProjectMode("terminal")} />
+                <Icon name="terminal" size={16} />
+                <span><strong>Terminal</strong><small>Persistent native agent session</small></span>
+              </label>
+            </fieldset>
+            <div className="modal-actions">
+              <button type="button" className="secondary" onClick={() => setProjectCreatorOpen(false)}>Cancel</button>
+              <button type="submit" className="primary" disabled={!projectName.trim()}>Create project</button>
+            </div>
+          </form>
+        </div>
+      ), document.body)}
 
       {convMenu && (
         <>

@@ -4858,3 +4858,88 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   .quick-step::after { display: none; }
 }
 .btn-bordered.small { font-size: 12px; min-height: 30px; padding: 5px 10px; }
+
+/* Projects: one persistent agent context with a group of browser profiles. */
+.project-profile-group {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+}
+.project-profile-group + .project-profile-group { margin-top: 7px; }
+.project-profile-group.is-active { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.project-profile-group.is-drag-over {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-2));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.project-profile-heading {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 7px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font-size: 12px;
+  font-weight: 650;
+}
+.project-profile-heading:hover { background: var(--surface-2); border-radius: 7px; }
+.project-profile-group .profile-row { margin-top: 2px; }
+.profile-row.is-draggable { cursor: grab; }
+.profile-row.is-draggable:active { cursor: grabbing; }
+.profile-row.is-drag-over {
+  box-shadow: inset 0 2px 0 var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.profile-toolset-badge { font-size: 9px; opacity: .76; }
+
+.project-create-modal { width: min(440px, calc(100vw - 32px)); }
+.project-mode-field { border: 0; padding: 0; margin: 4px 0 0; min-width: 0; }
+.project-mode-field legend { font-size: 12px; font-weight: 650; margin-bottom: 7px; }
+.project-mode-option {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  cursor: pointer;
+}
+.project-mode-option + .project-mode-option { margin-top: 7px; }
+.project-mode-option.is-selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.project-mode-option span { display: flex; flex-direction: column; gap: 2px; }
+.project-mode-option small { color: var(--muted); }
+.profile-toolset-field { margin-top: 2px; }
+
+.agent-gate-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(14px);
+}
+.agent-gate-card {
+  width: min(480px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface-1);
+  box-shadow: 0 24px 70px rgba(0,0,0,.24);
+}
+.agent-gate-copy h2 { margin: 0 0 7px; }
+.agent-gate-copy p { margin: 0; line-height: 1.45; }
+.agent-gate-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.agent-gate-option { display: flex; align-items: center; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); color: var(--text); }
+.agent-gate-option.is-selected { border-color: var(--accent); }
+.agent-gate-option .ok { margin-left: auto; }
+.agent-gate-connect { justify-content: center; min-height: 42px; }

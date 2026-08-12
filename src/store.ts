@@ -360,6 +360,8 @@ interface State {
   appActive: boolean;
   connectAnnounced: Set<string>;
   workingDir: string;
+  projectRevisions: Record<string, number>;
+  projectsSyncing: boolean;
 
   bootstrap: () => Promise<void>;
   login: (key: string) => Promise<void>;
@@ -411,6 +413,7 @@ interface State {
   finishOnboarding: () => void;
   showOnboardingAgain: () => void;
   checkNextctlUpdate: () => Promise<boolean>;
+  syncProjects: () => Promise<void>;
 
   conversationsForAgent: (agentId: string) => Conversation[];
   activeConversation: () => Conversation | undefined;
@@ -427,6 +430,9 @@ interface State {
   skillApplyError: (entryId: string) => string | undefined;
 
   newChat: () => string;
+  createProject: (name: string, mode: "chat" | "terminal") => string;
+  assignProfileToProject: (profileName: string, toolset: "clawbrowser" | "chromium", projectId?: string) => void;
+  reorderProfileInProject: (projectId: string, profileName: string, beforeProfileName: string) => void;
   createNamedChat: (agentId: string, title: string) => string;
   selectConversation: (id: string) => void;
   renameConversation: (id: string, title: string) => void;
@@ -590,6 +596,17 @@ async function waitForLocalNextctlIdle(getState: () => State): Promise<void> {
 }
 
 let conversationWriteTail: Promise<void> = Promise.resolve();
+let projectSyncTimer: ReturnType<typeof setTimeout> | undefined;
+let applyingCloudProjects = false;
+
+function scheduleProjectSync() {
+  if (applyingCloudProjects || !useStore.getState().authed) return;
+  if (projectSyncTimer) clearTimeout(projectSyncTimer);
+  projectSyncTimer = setTimeout(() => {
+    projectSyncTimer = undefined;
+    void useStore.getState().syncProjects().catch(() => {});
+  }, 750);
+}
 
 function persistConvs(conversations: Conversation[]): Promise<void> {
   const snapshot = serializeConversations(conversations);
@@ -602,6 +619,7 @@ function persistConvs(conversations: Conversation[]): Promise<void> {
   // so those writes cannot create unhandled rejections; callers that need a
   // durability boundary can still await the original promise.
   void conversationWriteTail.catch(() => {});
+  scheduleProjectSync();
   return conversationWriteTail;
 }
 
@@ -927,6 +945,8 @@ export const useStore = create<State>((set, get) => {
   appActive: true,
   connectAnnounced: new Set(),
   workingDir: "",
+  projectRevisions: {},
+  projectsSyncing: false,
 
   conversationsForAgent: (agentId) =>
     get()
@@ -1134,7 +1154,10 @@ export const useStore = create<State>((set, get) => {
     void get().tickNextctlDailyUpdate();
 
     try {
-      if (authenticated && !pendingTarget(get(), "vps")) await get().refreshAll();
+      if (authenticated && !pendingTarget(get(), "vps")) {
+        await get().syncProjects().catch(() => {});
+        await get().refreshAll();
+      }
       await get().authorizeAgent({ deferMissingNextctlPrompt: true });
       if (!hasCompletedCurrentOnboarding(localStorage)) {
         set({ showOnboarding: true });
@@ -2470,7 +2493,14 @@ export const useStore = create<State>((set, get) => {
   },
   setTerminalChat: (v) => {
     localStorage.setItem("terminalChat", String(v));
-    set({ terminalChat: v });
+    set((state) => {
+      const activeId = state.activeConvId[state.agentId];
+      const conversations = state.conversations.map((conversation) =>
+        conversation.id === activeId ? { ...conversation, chatMode: v ? "terminal" as const : "chat" as const, updatedAt: now() } : conversation,
+      );
+      persistConvs(conversations);
+      return { terminalChat: v, conversations };
+    });
   },
   setDashboardKeyPromptOpen: (v) => {
     trackEvent(v ? "dashboard_key_prompt_opened" : "dashboard_key_prompt_closed");
@@ -2554,6 +2584,61 @@ export const useStore = create<State>((set, get) => {
     }
   },
 
+  syncProjects: async () => {
+    if (!get().authed || get().projectsSyncing) return;
+    set({ projectsSyncing: true });
+    try {
+      const response = await invoke<{ projects?: Array<{
+        id: string; title: string; agent: string; chat_mode: "chat" | "terminal";
+        document: Conversation; revision: number; updated_at: string;
+      }> }>("projects_list");
+      const remote = response.projects ?? [];
+      const remoteById = new Map(remote.map((project) => [project.id, project]));
+      const revisions = { ...get().projectRevisions };
+      let conversations = [...get().conversations];
+
+      for (const cloud of remote) {
+        revisions[cloud.id] = cloud.revision;
+        const index = conversations.findIndex((conversation) => conversation.id === cloud.id);
+        const normalized = normalizeConversation({
+          ...cloud.document,
+          id: cloud.id,
+          title: cloud.title,
+          agent: cloud.agent,
+          chatMode: cloud.chat_mode,
+        });
+        if (index < 0) conversations.push(normalized);
+        else if (Date.parse(cloud.updated_at) >= conversations[index].updatedAt) conversations[index] = normalized;
+      }
+
+      applyingCloudProjects = true;
+      set({ conversations, projectRevisions: revisions });
+      await persistConvs(conversations);
+      applyingCloudProjects = false;
+
+      for (const conversation of conversations) {
+        const cloud = remoteById.get(conversation.id);
+        if (cloud && conversation.updatedAt <= Date.parse(cloud.updated_at)) continue;
+        const saved = await invoke<{ revision: number }>("project_put", {
+          id: conversation.id,
+          project: {
+            title: conversation.title,
+            agent: conversation.agent,
+            chat_mode: conversation.chatMode === "terminal" ? "terminal" : "chat",
+            document: serializeConversations([conversation])[0],
+            base_revision: revisions[conversation.id] ?? 0,
+          },
+        });
+        revisions[conversation.id] = saved.revision;
+      }
+      set({ projectRevisions: revisions });
+      trackEvent("projects_synced", { project_count: conversations.length });
+    } finally {
+      applyingCloudProjects = false;
+      set({ projectsSyncing: false });
+    }
+  },
+
   newChat: () => {
     const agentId = get().agentId;
     const n = get().conversationsForAgent(agentId).length + 1;
@@ -2565,6 +2650,7 @@ export const useStore = create<State>((set, get) => {
       createdAt: now(),
       updatedAt: now(),
       executionTarget: "local",
+      chatMode: "chat",
     };
     const conversations = [...get().conversations, c];
     persistConvs(conversations);
@@ -2574,6 +2660,88 @@ export const useStore = create<State>((set, get) => {
     });
     trackEvent("chat_created", { agent: agentId, conversation_count: conversations.length });
     return c.id;
+  },
+
+  createProject: (name, mode) => {
+    const agentId = get().agentId;
+    const cleanName = name.trim();
+    const currentProjectId = get().activeConversation()?.id;
+    const alreadyAssigned = new Set(get().conversations.flatMap((conversation) => conversation.profileNames ?? []));
+    const unassignedProfiles = get().profiles.map((profile) => profile.name).filter((profile) => !alreadyAssigned.has(profile));
+    const existingConversations = get().conversations.map((conversation) =>
+      conversation.id === currentProjectId && unassignedProfiles.length
+        ? {
+            ...conversation,
+            profileNames: [...new Set([...(conversation.profileNames ?? []), ...unassignedProfiles])],
+            profileToolsets: {
+              ...(conversation.profileToolsets ?? {}),
+              ...Object.fromEntries(unassignedProfiles.map((profile) => [profile, "clawbrowser" as const])),
+            },
+          }
+        : conversation,
+    );
+    const c: Conversation = {
+      id: uid(),
+      title: cleanName || `Project ${get().conversationsForAgent(agentId).length + 1}`,
+      agent: agentId,
+      messages: [],
+      createdAt: now(),
+      updatedAt: now(),
+      executionTarget: "local",
+      chatMode: mode,
+      profileNames: [],
+      profileToolsets: {},
+    };
+    const conversations = [...existingConversations, c];
+    persistConvs(conversations);
+    localStorage.setItem("terminalChat", String(mode === "terminal"));
+    set({
+      conversations,
+      activeConvId: { ...get().activeConvId, [agentId]: c.id },
+      terminalChat: mode === "terminal",
+      tab: "chat",
+    });
+    trackEvent("project_created", { agent: agentId, mode });
+    return c.id;
+  },
+
+  assignProfileToProject: (profileName, toolset, projectId) => {
+    const targetId = projectId ?? get().activeConversation()?.id;
+    if (!targetId) return;
+    set((state) => {
+      const conversations = state.conversations.map((conversation) => {
+        const withoutProfile = (conversation.profileNames ?? []).filter((name) => name !== profileName);
+        const toolsets = { ...(conversation.profileToolsets ?? {}) };
+        delete toolsets[profileName];
+        if (conversation.id !== targetId) {
+          return { ...conversation, profileNames: withoutProfile, profileToolsets: toolsets };
+        }
+        return {
+          ...conversation,
+          profileNames: [...withoutProfile, profileName],
+          profileToolsets: { ...toolsets, [profileName]: toolset },
+          updatedAt: now(),
+        };
+      });
+      persistConvs(conversations);
+      return { conversations };
+    });
+  },
+
+  reorderProfileInProject: (projectId, profileName, beforeProfileName) => {
+    if (profileName === beforeProfileName) return;
+    set((state) => {
+      const conversations = state.conversations.map((conversation) => {
+        if (conversation.id !== projectId) return conversation;
+        const names = (conversation.profileNames ?? []).filter((name) => name !== profileName);
+        const targetIndex = names.indexOf(beforeProfileName);
+        if (targetIndex < 0) names.push(profileName);
+        else names.splice(targetIndex, 0, profileName);
+        return { ...conversation, profileNames: names, updatedAt: now() };
+      });
+      persistConvs(conversations);
+      return { conversations };
+    });
   },
 
   // Create a titled chat bound to a specific agent (used by scheduled runs to
@@ -2603,7 +2771,10 @@ export const useStore = create<State>((set, get) => {
   selectConversation: (id) => {
     const agentId = get().agentId;
     trackEvent("chat_selected", { agent: agentId });
-    set({ activeConvId: { ...get().activeConvId, [agentId]: id } });
+    const project = get().conversations.find((conversation) => conversation.id === id);
+    const terminalChat = project?.chatMode === "terminal";
+    localStorage.setItem("terminalChat", String(terminalChat));
+    set({ activeConvId: { ...get().activeConvId, [agentId]: id }, terminalChat });
   },
 
   renameConversation: (id, title) => {
@@ -2611,7 +2782,7 @@ export const useStore = create<State>((set, get) => {
     if (!t) return;
     set((s) => {
       const conversations = s.conversations.map((c) =>
-        c.id === id ? { ...c, title: t } : c,
+        c.id === id ? { ...c, title: t, updatedAt: now() } : c,
       );
       persistConvs(conversations);
       trackEvent("chat_renamed", { agent: get().agentId });
@@ -2628,8 +2799,11 @@ export const useStore = create<State>((set, get) => {
         .conversationsForAgent(agentId)
         .filter((c) => c.id !== id)[0]?.id;
     }
+    void invoke("project_delete", { id }).catch(() => {});
     persistConvs(conversations);
-    set({ conversations, activeConvId });
+    const projectRevisions = { ...get().projectRevisions };
+    delete projectRevisions[id];
+    set({ conversations, activeConvId, projectRevisions });
     trackEvent("chat_deleted", { agent: agentId, conversation_count: conversations.length });
   },
 

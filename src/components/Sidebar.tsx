@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type DragEvent, type FormEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore, type ManualProxyProfileInput } from "../store";
 import { agentById } from "../agents";
@@ -46,9 +46,19 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [createProfileOpen, setCreateProfileOpen] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [profileCountry, setProfileCountry] = useState("US");
+  const [profileToolset, setProfileToolset] = useState<"clawbrowser" | "chromium">("clawbrowser");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileActionError, setProfileActionError] = useState<string | null>(null);
+  const [dragOverProject, setDragOverProject] = useState<string | null>(null);
+  const [dragOverProfile, setDragOverProfile] = useState<string | null>(null);
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem("collapsedProjects") ?? "[]") as string[]);
+    } catch {
+      return new Set();
+    }
+  });
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
@@ -62,9 +72,34 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     });
   };
 
+  const toggleProject = (projectId: string) => {
+    s.selectConversation(projectId);
+    setCollapsedProjects((current) => {
+      const next = new Set(current);
+      if (next.has(projectId)) next.delete(projectId);
+      else next.add(projectId);
+      localStorage.setItem("collapsedProjects", JSON.stringify([...next]));
+      return next;
+    });
+  };
+
   const agentName = agentById(s.agentId).name;
   const ready = s.agentReady();
   const profiles = s.filteredProfiles();
+  const projects = s.conversationsForAgent(s.agentId);
+  const activeProject = s.activeConversation();
+  const assignedProfileNames = new Set(projects.flatMap((project) => project.profileNames ?? []));
+  const projectGroups = projects.map((project) => {
+    const profileByName = new Map(profiles.map((profile) => [profile.name, profile]));
+    const owned = (project.profileNames ?? []).flatMap((name) => {
+      const profile = profileByName.get(name);
+      return profile ? [profile] : [];
+    });
+    const unassigned = project.id === activeProject?.id
+      ? profiles.filter((profile) => !assignedProfileNames.has(profile.name))
+      : [];
+    return { project, profiles: [...owned, ...unassigned] };
+  });
   const skillCount = withLocalScripts(s.skillCategories).reduce((total, category) => total + category.entries.length, 0);
   const defaultStatus = s.defaultSession?.status ?? "unknown";
   const defaultKnown = !!s.defaultSession?.session?.name || defaultStatus !== "unknown";
@@ -246,6 +281,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     setManualError(null);
     try {
       await s.createManualProxyProfile(input);
+      s.assignProfileToProject(input.name, "clawbrowser");
       resetManualProxyForm();
       setManualProxyOpen(false);
     } catch {
@@ -267,14 +303,17 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     setProfileSaving(true);
     setProfileError(null);
     try {
-      await s.createManagedProfile(profileName, profileCountry, {
+      const createdName = profileName.trim();
+      await s.createManagedProfile(createdName, profileCountry, {
         requestId,
         timeoutMs: PROFILE_CREATE_TIMEOUT_MS,
       });
       if (profileCreateRequestRef.current !== requestId) return;
+      s.assignProfileToProject(createdName, profileToolset);
       setCreateProfileOpen(false);
       setProfileName("");
       setProfileCountry("US");
+      setProfileToolset("clawbrowser");
       s.resumeOnboardingAfterSetup();
     } catch (error) {
       if (profileCreateRequestRef.current !== requestId) return;
@@ -388,7 +427,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             <button
               className="btn-bordered full"
               title={s.authed ? "Create managed profile" : "Sign in to create a managed profile"}
-              disabled={s.isRefreshing}
+              disabled={s.isRefreshing || !activeProject}
               onClick={() => {
                 if (!s.authed) {
                   s.setDashboardKeyPromptOpen(true);
@@ -401,7 +440,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               }}
             >
               <Icon name={s.authed ? "plus" : "lock"} size={14} />
-              {s.authed ? "Create profile" : "Sign in"}
+              {s.authed ? activeProject ? "Create profile" : "Create a project first" : "Sign in"}
             </button>
             <button
               className="mini proxy-profile-btn"
@@ -443,62 +482,100 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 </div>
               </div>
             )}
-            {showDefaultProfile && (
-              <ProfileRow
-                name="default"
-                status={defaultStatus}
-                running={defaultRunning}
-                busy={defaultBusy}
-                selected={!s.selectedProfile}
-                country={defaultIdentity?.country}
-                city={defaultIdentity?.city}
-                ip={defaultIdentity?.ip}
-                onSelect={() => s.selectProfile(undefined)}
-                onStart={() => runProfileAction("We couldn't start the default profile.", s.startDefaultSession)}
-                onStop={() => runProfileAction("We couldn't stop the default profile.", s.stopDefaultSession)}
-                onLive={() => {
-                  s.selectProfile(undefined);
-                  s.setTab("live");
-                }}
-                onMenu={() => setMenuProfile("__default")}
-              />
-            )}
             {s.profiles.length > 0 && profiles.length === 0 && (
               <div className="muted small">No matches for "{s.profileSearch}".</div>
             )}
-            {profiles.map((p) => {
-              const status = s.statuses[p.name] ?? "unknown";
-              const running = status === "running";
-              const busy = s.nextctlUpdating || ["starting", "stopping", "rotating"].includes(status);
-              const selected = s.selectedProfile === p.name;
-              const manual = p.proxy_mode === "manual" && p.manual_proxy;
-              const identity = s.profileIdentities[p.name];
-              const profileCountry = p.country ?? identity?.country;
-              const profileCity = p.city ?? identity?.city;
-              return (
-                <ProfileRow
-                  key={p.name}
-                  name={p.name}
-                  status={status}
-                  running={running}
-                  busy={busy}
-                  selected={selected}
-                  country={profileCountry}
-                  city={profileCity}
-                  ip={identity?.ip}
-                  manualScheme={manual ? p.manual_proxy?.scheme : undefined}
-                  manualTitle={manual ? `${p.manual_proxy?.host ?? ""}:${p.manual_proxy?.port ?? ""}` : undefined}
-                  onSelect={() => s.selectProfile(selected ? undefined : p.name)}
-                  onStart={() => runProfileAction(`We couldn't start “${p.name}”.`, () => s.startProfile(p.name))}
-                  onStop={() => runProfileAction(`We couldn't stop “${p.name}”.`, () => s.stopProfile(p.name))}
-                  onLive={() => {
-                    s.selectProfile(p.name);
-                    s.setTab("live");
-                  }}
-                  onMenu={() => setMenuProfile(p.name)}
-                />
-              );
-            })}
+            {projectGroups.map(({ project, profiles: projectProfiles }) => (
+              <section
+                className={"project-profile-group" + (project.id === activeProject?.id ? " is-active" : "") + (dragOverProject === project.id ? " is-drag-over" : "")}
+                key={project.id}
+                onDragOver={(event) => {
+                  if (!event.dataTransfer.types.includes("application/x-nextbrowser-profile")) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDragOverProject(project.id);
+                }}
+                onDragLeave={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOverProject(null);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const profileName = event.dataTransfer.getData("application/x-nextbrowser-profile");
+                  const toolset = (event.dataTransfer.getData("application/x-nextbrowser-toolset") || "clawbrowser") as "clawbrowser" | "chromium";
+                  setDragOverProject(null);
+                  if (profileName) s.assignProfileToProject(profileName, toolset, project.id);
+                }}
+              >
+                <button
+                  className="project-profile-heading"
+                  onClick={() => toggleProject(project.id)}
+                  aria-expanded={!collapsedProjects.has(project.id)}
+                >
+                  <Icon name={collapsedProjects.has(project.id) ? "chevron.right" : "chevron.down"} size={11} />
+                  <Icon name="folder.fill" size={12} />
+                  <span>{project.title}</span>
+                  <span className="spacer" />
+                  <span className="muted small">{projectProfiles.length + (showDefaultProfile && project.id === activeProject?.id ? 1 : 0)}</span>
+                </button>
+                {!collapsedProjects.has(project.id) && showDefaultProfile && project.id === activeProject?.id && (
+                  <ProfileRow
+                    name="default" status={defaultStatus} running={defaultRunning} busy={defaultBusy}
+                    selected={!s.selectedProfile} country={defaultIdentity?.country} city={defaultIdentity?.city} ip={defaultIdentity?.ip}
+                    toolset="clawbrowser"
+                    onSelect={() => s.selectProfile(undefined)}
+                    onStart={() => runProfileAction("We couldn't start the default profile.", s.startDefaultSession)}
+                    onStop={() => runProfileAction("We couldn't stop the default profile.", s.stopDefaultSession)}
+                    onLive={() => { s.selectProfile(undefined); s.setTab("live"); }}
+                    onMenu={() => setMenuProfile("__default")}
+                  />
+                )}
+                {!collapsedProjects.has(project.id) && projectProfiles.map((p) => {
+                  const status = s.statuses[p.name] ?? "unknown";
+                  const running = status === "running";
+                  const busy = s.nextctlUpdating || ["starting", "stopping", "rotating"].includes(status);
+                  const selected = s.selectedProfile === p.name;
+                  const manual = p.proxy_mode === "manual" && p.manual_proxy;
+                  const identity = s.profileIdentities[p.name];
+                  return (
+                    <ProfileRow
+                      key={p.name} name={p.name} status={status} running={running} busy={busy} selected={selected}
+                      country={p.country ?? identity?.country} city={p.city ?? identity?.city} ip={identity?.ip}
+                      toolset={project.profileToolsets?.[p.name] ?? "clawbrowser"}
+                      draggable
+                      dragOver={dragOverProfile === `${project.id}:${p.name}`}
+                      onDragOverProfile={(event) => {
+                        if (!event.dataTransfer.types.includes("application/x-nextbrowser-profile")) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        event.dataTransfer.dropEffect = "move";
+                        setDragOverProfile(`${project.id}:${p.name}`);
+                      }}
+                      onDropProfile={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const movedName = event.dataTransfer.getData("application/x-nextbrowser-profile");
+                        const sourceProject = event.dataTransfer.getData("application/x-nextbrowser-project");
+                        const toolset = (event.dataTransfer.getData("application/x-nextbrowser-toolset") || "clawbrowser") as "clawbrowser" | "chromium";
+                        setDragOverProfile(null);
+                        setDragOverProject(null);
+                        if (!movedName) return;
+                        if (sourceProject !== project.id) s.assignProfileToProject(movedName, toolset, project.id);
+                        s.reorderProfileInProject(project.id, movedName, p.name);
+                      }}
+                      onDragLeaveProfile={() => setDragOverProfile(null)}
+                      projectId={project.id}
+                      manualScheme={manual ? p.manual_proxy?.scheme : undefined}
+                      manualTitle={manual ? `${p.manual_proxy?.host ?? ""}:${p.manual_proxy?.port ?? ""}` : undefined}
+                      onSelect={() => { s.selectConversation(project.id); s.selectProfile(selected ? undefined : p.name); }}
+                      onStart={() => runProfileAction(`We couldn't start “${p.name}”.`, () => s.startProfile(p.name))}
+                      onStop={() => runProfileAction(`We couldn't stop “${p.name}”.`, () => s.stopProfile(p.name))}
+                      onLive={() => { s.selectConversation(project.id); s.selectProfile(p.name); s.setTab("live"); }}
+                      onMenu={() => setMenuProfile(p.name)}
+                    />
+                  );
+                })}
+              </section>
+            ))}
             {profileActionError && (
               <div className="error small profile-action-error" role="alert">{profileActionError}</div>
             )}
@@ -619,6 +696,19 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 onChange={setProfileCountry}
               />
             </div>
+            <fieldset className="project-mode-field profile-toolset-field">
+              <legend>Browser toolset</legend>
+              <label className={"project-mode-option" + (profileToolset === "clawbrowser" ? " is-selected" : "")}>
+                <input type="radio" name="profile-toolset" checked={profileToolset === "clawbrowser"} onChange={() => setProfileToolset("clawbrowser")} />
+                <Icon name="globe" size={16} />
+                <span><strong>Clawbrowser</strong><small>Managed identity and proxy</small></span>
+              </label>
+              <label className={"project-mode-option" + (profileToolset === "chromium" ? " is-selected" : "")}>
+                <input type="radio" name="profile-toolset" checked={profileToolset === "chromium"} onChange={() => setProfileToolset("chromium")} />
+                <Icon name="safari" size={16} />
+                <span><strong>Chromium</strong><small>Local Chromium-compatible browser</small></span>
+              </label>
+            </fieldset>
             {profileError && <div className="error small profile-create-error">{profileError}</div>}
             <div className="modal-actions">
               <button type="button" className="secondary" onClick={closeProfileCreator}>
@@ -869,6 +959,13 @@ function ProfileRow({
   ip,
   manualScheme,
   manualTitle,
+  toolset,
+  draggable,
+  dragOver,
+  projectId,
+  onDragOverProfile,
+  onDropProfile,
+  onDragLeaveProfile,
   onSelect,
   onStart,
   onStop,
@@ -885,6 +982,13 @@ function ProfileRow({
   ip?: string | null;
   manualScheme?: string | null;
   manualTitle?: string;
+  toolset?: "clawbrowser" | "chromium";
+  draggable?: boolean;
+  dragOver?: boolean;
+  projectId?: string;
+  onDragOverProfile?: (event: DragEvent<HTMLDivElement>) => void;
+  onDropProfile?: (event: DragEvent<HTMLDivElement>) => void;
+  onDragLeaveProfile?: () => void;
   onSelect: () => void;
   onStart: () => void;
   onStop: () => void;
@@ -892,7 +996,21 @@ function ProfileRow({
   onMenu: () => void;
 }) {
   return (
-    <div className={"profile-row" + (selected ? " selected" : "")} onClick={onSelect}>
+    <div
+      className={"profile-row" + (selected ? " selected" : "") + (draggable ? " is-draggable" : "") + (dragOver ? " is-drag-over" : "")}
+      onClick={onSelect}
+      draggable={draggable}
+      onDragStart={(event) => {
+        if (!draggable) return;
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("application/x-nextbrowser-profile", name);
+        event.dataTransfer.setData("application/x-nextbrowser-toolset", toolset ?? "clawbrowser");
+        event.dataTransfer.setData("application/x-nextbrowser-project", projectId ?? "");
+      }}
+      onDragOver={onDragOverProfile}
+      onDragLeave={onDragLeaveProfile}
+      onDrop={onDropProfile}
+    >
       <span className={"dot " + (running ? "green" : busy ? "orange" : "gray")} title={status} />
       <span className="profile-main">
         <span className="profile-title-line">
@@ -908,6 +1026,11 @@ function ProfileRow({
         </span>
       </span>
       <span className="profile-badges">
+        {toolset && (
+          <span className="badge profile-toolset-badge" title={`Browser toolset: ${toolset === "clawbrowser" ? "Clawbrowser" : "Chromium"}`}>
+            {toolset === "clawbrowser" ? "Claw" : "Chromium"}
+          </span>
+        )}
         {manualScheme && (
           <span className="badge manual-proxy-badge" title={manualTitle}>
             {manualScheme.toUpperCase()}

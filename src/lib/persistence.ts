@@ -65,14 +65,25 @@ export function normalizeConversation(raw: Conversation): Conversation {
     : raw.executionTarget === "local"
       ? "local" as const
       : undefined;
+  const legacyNumberedChat = /^Chat\s+(\d+)$/i.exec(raw.title?.trim() ?? "");
+  const title = legacyNumberedChat ? `Project ${legacyNumberedChat[1]}` : raw.title;
+  const chatMode = raw.chatMode === "terminal" ? "terminal" as const : "chat" as const;
+  const profileNames = [...new Set((raw.profileNames ?? []).filter((name): name is string => typeof name === "string" && !!name.trim()))];
+  const profileToolsets = Object.fromEntries(Object.entries(raw.profileToolsets ?? {}).filter(
+    ([name, toolset]) => profileNames.includes(name) && (toolset === "clawbrowser" || toolset === "chromium"),
+  ));
   return {
     ...raw,
+    title,
     createdAt: parseMillis(raw.createdAt),
     updatedAt: parseMillis(raw.updatedAt),
     messages,
     executionTarget,
     vpsConnectionInstructions,
     vpsConnectionLabel,
+    chatMode,
+    profileNames,
+    profileToolsets,
   };
 }
 

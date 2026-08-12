@@ -25,6 +25,21 @@ describe("Swift-compatible persistence", () => {
     });
   });
 
+  it("migrates numbered chats into projects and validates profile ownership", () => {
+    const normalized = normalizeConversation({
+      id: "legacy", title: "Chat 3", agent: "codex", createdAt: 1, updatedAt: 1, messages: [],
+      profileNames: ["work", "work", ""],
+      profileToolsets: { work: "chromium", missing: "clawbrowser" },
+    } as Conversation);
+
+    expect(normalized).toMatchObject({
+      title: "Project 3",
+      chatMode: "chat",
+      profileNames: ["work"],
+      profileToolsets: { work: "chromium" },
+    });
+  });
+
   it("preserves clickable local file attachments", () => {
     const raw = {
       id: "c", title: "Files", agent: "codex", createdAt: 1, updatedAt: 1,

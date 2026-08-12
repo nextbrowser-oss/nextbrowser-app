@@ -30,10 +30,11 @@ import { invoke, listen } from "./electronBridge";
 import { agentById } from "./agents";
 import { releaseDownloadUrl } from "./lib/releaseDownload";
 import { UserFacingError } from "./components/UserFacingError";
+import { AgentConnectionGate } from "./components/AgentConnectionGate";
 import { AgentInstallLink } from "./components/AgentInstallLink";
 
-const TABS: { id: AppTab; label: string; icon: string }[] = [
-  { id: "chat", label: "Chat", icon: "bubble.left.and.bubble.right.fill" },
+const TABS: { id: AppTab; label: string; icon?: string }[] = [
+  { id: "chat", label: "Project" },
   { id: "live", label: "Live", icon: "video.fill" },
 ];
 
@@ -519,6 +520,7 @@ export function App() {
   const setTab = useStore((s) => s.setTab);
   const bootstrap = useStore((s) => s.bootstrap);
   const showOnboarding = useStore((s) => s.showOnboarding);
+  const agentReady = useStore((s) => s.agentReady());
   const sidebarWidth = useStore((s) => s.sidebarWidth);
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
   const setSidebarWidth = useStore((s) => s.setSidebarWidth);
@@ -867,7 +869,7 @@ export function App() {
                 aria-label={`Open ${t.label}`}
               >
                 <span className={"tab-pill" + (tab === t.id ? " tab-pill-active" : "")}>
-                  <Icon name={t.icon} size={16} strokeWidth={2.25} />
+                  {t.icon && <Icon name={t.icon} size={16} strokeWidth={2.25} />}
                   {t.label}
                 </span>
               </button>
@@ -922,7 +924,8 @@ export function App() {
         />
       )}
       <DashboardKeyModal />
-      {showOnboarding && <OnboardingView />}
+      {!checking && !agentReady && <AgentConnectionGate />}
+      {showOnboarding && agentReady && <OnboardingView />}
       {unexpectedError && <GlobalErrorNotice onClose={() => setUnexpectedError(false)} />}
     </div>
   );
