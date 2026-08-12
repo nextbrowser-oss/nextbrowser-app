@@ -10,7 +10,7 @@ import { guideProfileTarget } from "../lib/guideQuickStart";
 import { manualProxyDefaultName, parseManualProxyUrl, type ManualProxyScheme } from "../lib/manualProxy";
 import { internalError, needsSupportLink } from "../lib/userFacingError";
 import { cancelNextctlRun } from "../nextctl";
-import type { AppTab } from "../types";
+import { conversationPreview, type AppTab } from "../types";
 import { CountrySelect } from "./CountrySelect";
 import { UserFacingError } from "./UserFacingError";
 
@@ -63,6 +63,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [logoutPending, setLogoutPending] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const profileCreateRequestRef = useRef<string | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const runProfileAction = (label: string, action: () => Promise<void>) => {
     setProfileActionError(null);
@@ -73,7 +74,6 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   };
 
   const toggleProject = (projectId: string) => {
-    s.selectConversation(projectId);
     setCollapsedProjects((current) => {
       const next = new Set(current);
       if (next.has(projectId)) next.delete(projectId);
@@ -108,6 +108,24 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     if (!projectMatches && matchingProfiles.length === 0 && !defaultMatches) return [];
     return [{ project, profiles: projectMatches ? groupProfiles : matchingProfiles }];
   });
+  useEffect(() => {
+    const handleProjectShortcut = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+      if (event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+        return;
+      }
+      const index = Number.parseInt(event.key, 10) - 1;
+      if (index < 0 || index >= Math.min(projects.length, 9)) return;
+      event.preventDefault();
+      s.selectConversation(projects[index].id);
+      s.setTab("chat");
+    };
+    window.addEventListener("keydown", handleProjectShortcut);
+    return () => window.removeEventListener("keydown", handleProjectShortcut);
+  }, [projects, s]);
   const skillCount = withLocalScripts(s.skillCategories).reduce((total, category) => total + category.entries.length, 0);
   const defaultStatus = s.defaultSession?.status ?? "unknown";
   const defaultKnown = !!s.defaultSession?.session?.name || defaultStatus !== "unknown";
@@ -422,8 +440,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             </div>
             <button
               className="plain-icon-btn plain-icon-btn-compact"
-              title="Create project"
-              aria-label="Create project"
+              title="New project chat"
+              aria-label="New project chat"
               onClick={() => {
                 s.setTab("chat");
                 window.setTimeout(() => window.dispatchEvent(new CustomEvent("nextbrowser:create-project")), 0);
@@ -476,6 +494,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           <div className="search-box">
             <Icon name="magnifyingglass" size={12} className="muted" />
             <input
+              ref={searchInputRef}
               className="search-inline"
               placeholder="Search"
               value={s.profileSearch}
@@ -525,16 +544,34 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   if (profileName) s.assignProfileToProject(profileName, toolset, project.id);
                 }}
               >
-                <button
-                  className="project-profile-heading"
-                  onClick={() => toggleProject(project.id)}
-                  aria-expanded={!collapsedProjects.has(project.id)}
-                >
-                  <Icon name={collapsedProjects.has(project.id) ? "chevron.right" : "chevron.down"} size={11} />
-                  <span><HighlightedName text={project.title} query={searchQuery} /></span>
-                  <span className="spacer" />
-                  <span className="muted small">{projectProfiles.length + (showDefaultProfile && project.id === activeProject?.id ? 1 : 0)}</span>
-                </button>
+                <div className="project-profile-heading">
+                  <button
+                    className="project-expand-toggle"
+                    onClick={() => toggleProject(project.id)}
+                    aria-label={collapsedProjects.has(project.id) ? `Show profiles in ${project.title}` : `Hide profiles in ${project.title}`}
+                    aria-expanded={!collapsedProjects.has(project.id)}
+                  >
+                    <Icon name={collapsedProjects.has(project.id) ? "chevron.right" : "chevron.down"} size={11} />
+                  </button>
+                  <button
+                    className="project-chat-link"
+                    onClick={() => {
+                      s.selectConversation(project.id);
+                      s.setTab("chat");
+                    }}
+                    aria-current={project.id === activeProject?.id ? "page" : undefined}
+                    title={`Open ${project.title} chat`}
+                  >
+                    <Icon name={project.chatMode === "terminal" ? "terminal" : "bubble.left.and.bubble.right.fill"} size={13} />
+                    <span className="project-chat-copy">
+                      <span className="project-chat-title"><HighlightedName text={project.title} query={searchQuery} /></span>
+                      <span className="project-chat-preview">{conversationPreview(project)}</span>
+                    </span>
+                    <span className="spacer" />
+                    {project.id === activeProject?.id && <span className="project-active-label">Active chat</span>}
+                    <span className="muted small project-profile-count">{projectProfiles.length + (showDefaultProfile && project.id === activeProject?.id ? 1 : 0)}</span>
+                  </button>
+                </div>
                 {(!collapsedProjects.has(project.id) || !!normalizedSearch) && showDefaultProfile && project.id === activeProject?.id && (!normalizedSearch || project.title.toLowerCase().includes(normalizedSearch) || "default".includes(normalizedSearch)) && (
                   <ProfileRow
                     name="default" status={defaultStatus} running={defaultRunning} busy={defaultBusy}

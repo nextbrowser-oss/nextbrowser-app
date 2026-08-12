@@ -4890,13 +4890,26 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 
 /* Projects: one persistent agent context with a group of browser profiles. */
 .project-profile-group {
+  position: relative;
+  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 4px;
   background: color-mix(in srgb, var(--surface-2) 55%, transparent);
 }
 .project-profile-group + .project-profile-group { margin-top: 7px; }
-.project-profile-group.is-active { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.project-profile-group.is-active {
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--line));
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface-2));
+}
+.project-profile-group.is-active::before {
+  content: "";
+  position: absolute;
+  inset: 4px auto 4px 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
 .project-profile-group.is-drag-over {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, var(--surface-2));
@@ -4906,16 +4919,70 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   display: flex;
   width: 100%;
   align-items: center;
-  gap: 7px;
-  padding: 6px 7px;
+  gap: 3px;
+  padding: 2px;
+}
+.project-expand-toggle,
+.project-chat-link {
   border: 0;
   background: transparent;
   color: var(--text);
+}
+.project-expand-toggle {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  min-width: 24px;
+  min-height: 36px;
+  padding: 0;
+  border-radius: 6px;
+}
+.project-expand-toggle:hover { background: var(--surface-3); }
+.project-chat-link {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+  padding: 5px 5px;
+  border-radius: 7px;
   text-align: left;
+}
+.project-chat-link:hover { background: var(--surface-3); }
+.project-chat-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+.project-chat-title {
+  overflow: hidden;
+  color: var(--text);
   font-size: 12px;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-chat-preview {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 450;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-active-label {
+  flex: none;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent-text);
+  font-size: 9px;
   font-weight: 650;
 }
-.project-profile-heading:hover { background: var(--surface-2); border-radius: 7px; }
+.project-profile-count { flex: none; }
+.project-create-explainer { margin: 2px 0 10px; line-height: 1.4; }
 .project-profile-group .profile-row { margin-top: 2px; }
 .profile-row.is-draggable { cursor: grab; }
 .profile-row.is-draggable:active { cursor: grabbing; }

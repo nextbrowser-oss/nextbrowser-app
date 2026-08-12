@@ -288,7 +288,7 @@ export function ChatView() {
         <div className="chat-header">
           <div className="chat-title-stack">
             <strong className="chat-title">{conv?.title ?? agentName}</strong>
-            <span className="muted small">Project · {agentName}</span>
+            <span className="muted small">Separate chat context · {agentName}</span>
           </div>
           <span className="spacer" />
           {remoteOnly && (
@@ -638,12 +638,15 @@ export function ChatView() {
             }}
           >
             <div className="profile-menu-head">
-              <span id="project-create-title" className="profile-menu-name">Create project</span>
+              <span id="project-create-title" className="profile-menu-name">New project chat</span>
               <span className="spacer" />
               <button type="button" className="plain-icon-btn" aria-label="Close" onClick={() => setProjectCreatorOpen(false)}>
                 <Icon name="xmark" size={17} />
               </button>
             </div>
+            <p className="muted small project-create-explainer">
+              Each project has its own agent chat, context, and browser profiles.
+            </p>
             <label className="modal-field">
               <span>Project name</span>
               <input autoFocus value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="Product research" />
