@@ -567,7 +567,6 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       <span className="project-chat-title"><HighlightedName text={project.title} query={searchQuery} /></span>
                       <span className="project-chat-preview">{conversationPreview(project)}</span>
                     </span>
-                    <span className="spacer" />
                     {project.id === activeProject?.id && <span className="project-active-label">Active chat</span>}
                     <span className="muted small project-profile-count">{projectProfiles.length + (showDefaultProfile && project.id === activeProject?.id ? 1 : 0)}</span>
                   </button>
