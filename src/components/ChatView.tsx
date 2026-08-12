@@ -97,7 +97,6 @@ export function ChatView() {
   const agentNeedsLogin = agentDetected && s.agentLoggedIn() === false;
   const agentError = s.agentError();
   const running = s.hasRunning();
-  const queued = s.queuedCount();
 
   const [draft, setDraft] = useState("");
   const [guideDraftLoaded, setGuideDraftLoaded] = useState(false);
@@ -621,11 +620,6 @@ export function ChatView() {
             )}
           </div>
         </div>
-        {ready && (
-          <div className="queue-hint muted small">
-            Send freely — replies are processed in order. {queued} waiting.
-          </div>
-        )}
           </>
         )}
       </div>

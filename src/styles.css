@@ -4737,7 +4737,6 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   padding: 2px 6px;
   border-radius: 4px;
 }
-.queue-hint { padding: 4px 16px 8px; }
 .command-chip { display: flex; flex-direction: column; gap: 2px; }
 .chip-kind { font-size: 10px; text-transform: uppercase; opacity: 0.8; }
 .markdown { overflow-wrap: anywhere; word-break: break-word; white-space: normal; line-height: 1.5; }
