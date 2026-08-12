@@ -80,6 +80,17 @@ interface QueuedItem {
   executionTarget: ExecutionTarget;
 }
 
+type BrowserToolset = "clawbrowser" | "chromium";
+
+function runtimeForProfile(conversations: Conversation[], profileName: string): BrowserToolset {
+  for (const conversation of conversations) {
+    if ((conversation.profileNames ?? []).includes(profileName)) {
+      return conversation.profileToolsets?.[profileName] ?? "clawbrowser";
+    }
+  }
+  return "clawbrowser";
+}
+
 function privateSkillContext(skills: BrowserWorkflowSkill[], text: string): string {
   const lower = text.toLowerCase();
   const intent = /\b(post|publish|comment|reply|send)\b|опубли|отправ|коммент/i.test(text) ? "posting"
@@ -389,7 +400,7 @@ interface State {
   createManagedProfile: (
     name: string,
     country: string,
-    options?: NextctlRunOptions,
+    options?: NextctlRunOptions & { runtime?: BrowserToolset },
   ) => Promise<void>;
   createManualProxyProfile: (input: ManualProxyProfileInput) => Promise<void>;
   deleteProfile: (n: string) => Promise<void>;
@@ -2049,7 +2060,8 @@ export const useStore = create<State>((set, get) => {
     const previousStatus = get().statuses[n] ?? "stopped";
     set((s) => ({ statuses: { ...s.statuses, [n]: "starting" } }));
     try {
-      await nextctlRunChecked(["start", "--profile", n, "--format", "json"]);
+      const runtime = runtimeForProfile(get().conversations, n);
+      await nextctlRunChecked(["start", "--profile", n, "--runtime", runtime, "--format", "json"]);
       await get().loadProfiles();
       const identity = await verifyProxyIdentity(n);
       if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: identity } }));
@@ -2069,7 +2081,8 @@ export const useStore = create<State>((set, get) => {
     const startedAt = performance.now();
     trackEvent("profile_stop_requested", { scope: "named" });
     set((s) => ({ statuses: { ...s.statuses, [n]: "stopping" } }));
-    await nextctlRunChecked(["stop", "--profile", n, "--format", "json"]);
+    const runtime = runtimeForProfile(get().conversations, n);
+    await nextctlRunChecked(["stop", "--profile", n, "--runtime", runtime, "--format", "json"]);
     await get().loadProfiles();
     trackTiming("profile_stop_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
   },
@@ -2080,7 +2093,8 @@ export const useStore = create<State>((set, get) => {
     trackEvent("profile_rotate_requested", { scope: "named" });
     set((s) => ({ statuses: { ...s.statuses, [n]: "rotating" } }));
     try {
-      await nextctlRunChecked(["rotate", "--profile", n, "--format", "json"]);
+      const runtime = runtimeForProfile(get().conversations, n);
+      await nextctlRunChecked(["rotate", "--profile", n, "--runtime", runtime, "--format", "json"]);
       await get().loadProfiles();
       await get().loadProxy().catch(() => {});
       const after = await verifyProxyIdentity(n);
@@ -2099,10 +2113,13 @@ export const useStore = create<State>((set, get) => {
     trackEvent("profile_rotate_requested", { scope: "named", country });
     set((s) => ({ statuses: { ...s.statuses, [n]: "rotating" } }));
     try {
+      const runtime = runtimeForProfile(get().conversations, n);
       await nextctlRunChecked([
         "rotate",
         "--profile",
         n,
+        "--runtime",
+        runtime,
         "--country",
         country,
         "--verify",
@@ -2129,10 +2146,11 @@ export const useStore = create<State>((set, get) => {
     if (!/^[A-Z]{2}$/.test(country)) throw new Error("Choose a valid proxy country.");
     trackEvent("profile_create_requested", { kind: "managed", country });
     try {
+      const { runtime = "clawbrowser", ...runOptions } = options ?? {};
       await nextctlRunChecked(
-        ["profiles", "create", name, "--country", country, "--format", "json"],
+        ["profiles", "create", name, "--country", country, "--runtime", runtime, "--format", "json"],
         undefined,
-        options,
+        runOptions,
       );
       await get().loadProfiles();
       get().selectProfile(name);

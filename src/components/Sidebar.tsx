@@ -315,6 +315,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       await s.createManagedProfile(createdName, profileCountry, {
         requestId,
         timeoutMs: PROFILE_CREATE_TIMEOUT_MS,
+        runtime: profileToolset,
       });
       if (profileCreateRequestRef.current !== requestId) return;
       s.assignProfileToProject(createdName, profileToolset);
