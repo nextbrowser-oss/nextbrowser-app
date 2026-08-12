@@ -48,10 +48,19 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [profileCountry, setProfileCountry] = useState("US");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileActionError, setProfileActionError] = useState<string | null>(null);
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const profileCreateRequestRef = useRef<string | null>(null);
+
+  const runProfileAction = (label: string, action: () => Promise<void>) => {
+    setProfileActionError(null);
+    void action().catch((error: unknown) => {
+      const detail = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
+      setProfileActionError(detail ? `${label} ${detail}` : label);
+    });
+  };
 
   const agentName = agentById(s.agentId).name;
   const ready = s.agentReady();
@@ -60,7 +69,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const defaultStatus = s.defaultSession?.status ?? "unknown";
   const defaultKnown = !!s.defaultSession?.session?.name || defaultStatus !== "unknown";
   const defaultRunning = defaultStatus === "running";
-  const defaultBusy = ["starting", "stopping", "rotating"].includes(defaultStatus);
+  const defaultBusy = s.nextctlUpdating || ["starting", "stopping", "rotating"].includes(defaultStatus);
   const defaultIdentity = s.profileIdentities.__default;
   const defaultSessionDuplicate = defaultRunning && Object.values(s.profileSessions).some((session) =>
     session.status === "running" && (
@@ -114,13 +123,15 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       if (!profile) return;
       if (profile === "__default") {
         s.selectProfile(undefined);
-        if (!defaultRunning && !defaultBusy) void s.startDefaultSession();
+        if (!defaultRunning && !defaultBusy) {
+          runProfileAction("We couldn't start the default profile.", s.startDefaultSession);
+        }
         return;
       }
       s.selectProfile(profile);
       const status = s.statuses[profile] ?? s.profileSessions[profile]?.status ?? "unknown";
       if (status !== "running" && !["starting", "stopping", "rotating"].includes(status)) {
-        void s.startProfile(profile);
+        runProfileAction(`We couldn't start “${profile}”.`, () => s.startProfile(profile));
       }
     };
     window.addEventListener("nextbrowser:focus-profiles", focusProfiles);
@@ -443,8 +454,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 city={defaultIdentity?.city}
                 ip={defaultIdentity?.ip}
                 onSelect={() => s.selectProfile(undefined)}
-                onStart={() => s.startDefaultSession()}
-                onStop={() => s.stopDefaultSession()}
+                onStart={() => runProfileAction("We couldn't start the default profile.", s.startDefaultSession)}
+                onStop={() => runProfileAction("We couldn't stop the default profile.", s.stopDefaultSession)}
                 onLive={() => {
                   s.selectProfile(undefined);
                   s.setTab("live");
@@ -458,7 +469,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             {profiles.map((p) => {
               const status = s.statuses[p.name] ?? "unknown";
               const running = status === "running";
-              const busy = ["starting", "stopping", "rotating"].includes(status);
+              const busy = s.nextctlUpdating || ["starting", "stopping", "rotating"].includes(status);
               const selected = s.selectedProfile === p.name;
               const manual = p.proxy_mode === "manual" && p.manual_proxy;
               const identity = s.profileIdentities[p.name];
@@ -478,8 +489,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   manualScheme={manual ? p.manual_proxy?.scheme : undefined}
                   manualTitle={manual ? `${p.manual_proxy?.host ?? ""}:${p.manual_proxy?.port ?? ""}` : undefined}
                   onSelect={() => s.selectProfile(selected ? undefined : p.name)}
-                  onStart={() => s.startProfile(p.name)}
-                  onStop={() => s.stopProfile(p.name)}
+                  onStart={() => runProfileAction(`We couldn't start “${p.name}”.`, () => s.startProfile(p.name))}
+                  onStop={() => runProfileAction(`We couldn't stop “${p.name}”.`, () => s.stopProfile(p.name))}
                   onLive={() => {
                     s.selectProfile(p.name);
                     s.setTab("live");
@@ -488,6 +499,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 />
               );
             })}
+            {profileActionError && (
+              <div className="error small profile-action-error" role="alert">{profileActionError}</div>
+            )}
           </div>
         </div>
       </nav>

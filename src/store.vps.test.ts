@@ -399,3 +399,18 @@ describe("VPS execution target isolation", () => {
     expect(useStore.getState().activeConversation()?.vpsConnectionLabel).toBeUndefined();
   });
 });
+
+describe("local component and profile lifecycle", () => {
+  it("restores a profile status when launching it fails", async () => {
+    useStore.setState({ statuses: { work: "stopped" } });
+    bridge.invoke.mockResolvedValue({
+      code: 1,
+      stdout: "",
+      stderr: "browser runtime could not start",
+    });
+
+    await expect(useStore.getState().startProfile("work")).rejects.toThrow("browser runtime could not start");
+
+    expect(useStore.getState().statuses.work).toBe("stopped");
+  });
+});

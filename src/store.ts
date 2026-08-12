@@ -1179,9 +1179,25 @@ export const useStore = create<State>((set, get) => {
     if (!get().nextctlAvailable) return;
     if (get().nextctlUpdating) return;
     if (pendingTarget(get(), "vps")) return;
+    // `nextctl update` also refreshes the browser runtime and agent assets. Do
+    // not mutate either while a browser profile is running/transitioning or an
+    // agent turn is using them; the one-minute poll will retry once idle.
+    const browserSessionActive = [
+      get().defaultSession?.status,
+      ...Object.values(get().statuses),
+    ].some((status) => status != null && !["stopped", "unknown"].includes(status));
+    if (browserSessionActive || get().anyAgentRunning()) return;
     const state = await loadJson<NextctlUpdateState>(NEXTCTL_UPDATE_STATE_FILE, {});
     if (pendingTarget(get(), "vps")) return;
     const lastAutoCheckAt = Number(state.lastAutoCheckAt ?? 0);
+    // A fresh install has just resolved or downloaded nextctl during bootstrap.
+    // Treat that as the first successful check instead of immediately running
+    // `nextctl update`, which can race with the user's first profile launch and
+    // with Clawbrowser runtime installation (especially on Windows).
+    if (lastAutoCheckAt <= 0) {
+      await saveJson(NEXTCTL_UPDATE_STATE_FILE, { lastAutoCheckAt: now() });
+      return;
+    }
     if (lastAutoCheckAt > 0 && now() - lastAutoCheckAt < NEXTCTL_DAILY_UPDATE_MS) return;
     if (!await get().checkNextctlUpdate()) return;
     if (pendingTarget(get(), "vps")) return;
@@ -2007,6 +2023,7 @@ export const useStore = create<State>((set, get) => {
   startProfile: async (n) => {
     const startedAt = performance.now();
     trackEvent("profile_start_requested", { scope: "named" });
+    const previousStatus = get().statuses[n] ?? "stopped";
     set((s) => ({ statuses: { ...s.statuses, [n]: "starting" } }));
     try {
       await nextctlRunChecked(["start", "--profile", n, "--format", "json"]);
@@ -2015,6 +2032,11 @@ export const useStore = create<State>((set, get) => {
       if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: identity } }));
       trackTiming("profile_start_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
     } catch (error) {
+      // Never leave a failed launch looking active forever. Restore the last
+      // known state immediately; a later refresh can replace it with the
+      // authoritative nextctl status.
+      set((s) => ({ statuses: { ...s.statuses, [n]: previousStatus } }));
+      void get().loadProfiles();
       requestAccountSignIn(set, error);
       throw error;
     }
