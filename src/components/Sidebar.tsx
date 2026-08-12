@@ -33,6 +33,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const s = useStore();
   const [menuProfile, setMenuProfile] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [confirmDeleteChat, setConfirmDeleteChat] = useState<string | null>(null);
   const [manualProxyOpen, setManualProxyOpen] = useState(false);
   const [manualProxyMode, setManualProxyMode] = useState<ManualProxyInputMode>("url");
   const [manualProxyUrl, setManualProxyUrl] = useState("");
@@ -48,19 +49,18 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [vpsSetupOpen, setVPSSetupOpen] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [profileCountry, setProfileCountry] = useState("US");
+  const [profileConnection, setProfileConnection] = useState<"managed" | "direct">("managed");
   const [profileToolset, setProfileToolset] = useState<"clawbrowser" | "dasbrowser">("clawbrowser");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileActionError, setProfileActionError] = useState<string | null>(null);
-  const [dragOverProject, setDragOverProject] = useState<string | null>(null);
-  const [dragOverProfile, setDragOverProfile] = useState<string | null>(null);
-  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => {
-    try {
-      return new Set(JSON.parse(localStorage.getItem("collapsedProjects") ?? "[]") as string[]);
-    } catch {
-      return new Set();
-    }
-  });
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const [workspaceCreatorOpen, setWorkspaceCreatorOpen] = useState(false);
+  const [workspaceName, setWorkspaceName] = useState("");
+  const [workspaceSaving, setWorkspaceSaving] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [chatsOpen, setChatsOpen] = useState(true);
+  const [profilesOpen, setProfilesOpen] = useState(true);
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
@@ -75,16 +75,6 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     });
   };
 
-  const toggleProject = (projectId: string) => {
-    setCollapsedProjects((current) => {
-      const next = new Set(current);
-      if (next.has(projectId)) next.delete(projectId);
-      else next.add(projectId);
-      localStorage.setItem("collapsedProjects", JSON.stringify([...next]));
-      return next;
-    });
-  };
-
   const agentName = agentById(s.agentId).name;
   const ready = s.agentReady();
   const searchQuery = s.profileSearch.trim();
@@ -92,23 +82,23 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const profiles = s.profiles;
   const projects = s.conversationsForAgent(s.agentId);
   const activeProject = s.activeConversation();
-  const assignedProfileNames = new Set(projects.flatMap((project) => project.profileNames ?? []));
-  const projectGroups = projects.flatMap((project) => {
-    const profileByName = new Map(profiles.map((profile) => [profile.name, profile]));
-    const owned = (project.profileNames ?? []).flatMap((name) => {
-      const profile = profileByName.get(name);
-      return profile ? [profile] : [];
-    });
-    const unassigned = project.id === activeProject?.id
-      ? profiles.filter((profile) => !assignedProfileNames.has(profile.name))
-      : [];
-    const groupProfiles = [...owned, ...unassigned];
-    if (!normalizedSearch) return [{ project, profiles: groupProfiles }];
-    const projectMatches = project.title.toLowerCase().includes(normalizedSearch);
-    const matchingProfiles = groupProfiles.filter((profile) => profile.name.toLowerCase().includes(normalizedSearch));
-    if (!projectMatches && matchingProfiles.length === 0) return [];
-    return [{ project, profiles: projectMatches ? groupProfiles : matchingProfiles }];
+  const activeWorkspace = s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId);
+  const profileWorkspaceEntries = (activeWorkspace?.profileNames ?? []).flatMap((name) => {
+    const profile = profiles.find((item) => item.name === name);
+    if (!profile) return [];
+    const owner = s.conversations.find((project) => project.id === s.profileChatOwners[name]);
+    return {
+      profile,
+      owner,
+      toolset: activeWorkspace?.profileToolsets[name] ?? "clawbrowser" as const,
+    };
   });
+  const visibleChats = normalizedSearch
+    ? projects.filter((project) => project.title.toLowerCase().includes(normalizedSearch))
+    : projects;
+  const visibleWorkspaceProfiles = normalizedSearch
+    ? profileWorkspaceEntries.filter(({ profile }) => profile.name.toLowerCase().includes(normalizedSearch))
+    : profileWorkspaceEntries;
   useEffect(() => {
     const handleProjectShortcut = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
@@ -141,8 +131,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const showDefaultProfile = defaultKnown &&
     !defaultSessionDuplicate &&
     !s.profiles.some((p) => p.name === "default");
-  const visibleProfileCount = s.profiles.length;
-  const runningCount = s.profiles.filter((p) => s.statuses[p.name] === "running").length;
+  const visibleProfileCount = profileWorkspaceEntries.length;
+  const runningCount = profileWorkspaceEntries.filter(({ profile }) => s.statuses[profile.name] === "running").length;
   const proxyCountries = s.proxyCountries.length ? s.proxyCountries : ROTATION_COUNTRIES;
 
   useEffect(() => {
@@ -334,12 +324,14 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         requestId,
         timeoutMs: PROFILE_CREATE_TIMEOUT_MS,
         runtime: profileToolset,
+        direct: profileConnection === "direct",
       });
       if (profileCreateRequestRef.current !== requestId) return;
       s.assignProfileToProject(createdName, profileToolset);
       setCreateProfileOpen(false);
       setProfileName("");
       setProfileCountry("US");
+      setProfileConnection("managed");
       setProfileToolset("clawbrowser");
       s.resumeOnboardingAfterSetup();
     } catch (error) {
@@ -434,31 +426,48 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
         <div className={"claw-card control-card profiles-card" + (profileGuideFocus ? " guide-focus" : "")}>
           <div className="row profiles-panel-head">
-            <div className="scheduled-panel-toggle profiles-panel-toggle">
-              <span className="section">Projects</span>
-              <span className="profiles-count" title="Total projects">{projects.length}</span>
+            <div className="workspace-picker-wrap">
+              <button
+                className="workspace-picker"
+                title="Switch workspace"
+                aria-expanded={workspaceMenuOpen}
+                onClick={() => setWorkspaceMenuOpen((open) => !open)}
+              >
+                <Icon name="square.grid.2x2.fill" size={12} />
+                <span>
+                  <small>Workspace</small>
+                  <strong>{activeWorkspace?.name ?? "Create workspace"}</strong>
+                </span>
+                <Icon name="chevron.down" size={11} className={workspaceMenuOpen ? "workspace-chevron open" : "workspace-chevron"} />
+              </button>
             </div>
             <button
-              className="plain-icon-btn plain-icon-btn-compact"
-              title="New project chat"
-              aria-label="New project chat"
+              className="workspace-create-btn"
+              title="Create workspace"
+              aria-label="Create workspace"
               onClick={() => {
-                s.setTab("chat");
-                window.setTimeout(() => window.dispatchEvent(new CustomEvent("nextbrowser:create-project")), 0);
+                setWorkspaceName("");
+                setWorkspaceMenuOpen(false);
+                setWorkspaceCreatorOpen(true);
               }}
             >
               <Icon name="plus" size={13} />
             </button>
-            <button
-              className="plain-icon-btn plain-icon-btn-compact"
-              title="Refresh profiles"
-              disabled={s.isRefreshing}
-              onClick={() => s.refreshSessions()}
-            >
-              {s.isRefreshing ? <Spinner size={12} /> : <Icon name="arrow.clockwise" size={12} />}
-            </button>
-            <span className="spacer" />
           </div>
+          {workspaceMenuOpen && (
+            <div className="workspace-menu">
+              {s.workspaces.map((workspace) => (
+                <button
+                  key={workspace.id}
+                  className={workspace.id === s.activeWorkspaceId ? "active" : ""}
+                  onClick={() => { s.selectWorkspace(workspace.id); setWorkspaceMenuOpen(false); }}
+                >
+                  <Icon name={workspace.id === s.activeWorkspaceId ? "checkmark" : "square.grid.2x2"} size={11} />
+                  <span>{workspace.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="session-quick-actions">
             <button
@@ -511,123 +520,100 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             )}
           </div>
 
-          <div className="profile-list">
-            {visibleProfileCount === 0 && (
-              <div className="inline-empty">
-                <Icon name="person.crop.circle" size={18} className="muted" />
-                <div>
-                  <strong>No profiles yet</strong>
-                </div>
+          <div className="profile-list workspace-content">
+            <section className="workspace-section workspace-chats">
+              <div className="workspace-section-head">
+                <button className="workspace-section-toggle" onClick={() => setChatsOpen((open) => !open)} aria-expanded={chatsOpen}>
+                  <Icon name="chevron.right" size={10} className={chatsOpen ? "section-chevron open" : "section-chevron"} />
+                  <Icon name="bubble.left.and.bubble.right.fill" size={12} />
+                  <span>Chats</span>
+                  <span className="workspace-count">{projects.length}</span>
+                </button>
+                <span className="spacer" />
+                <button className="plain-icon-btn plain-icon-btn-compact" title="New chat" onClick={() => window.dispatchEvent(new CustomEvent("nextbrowser:create-project"))}>
+                  <Icon name="plus" size={12} />
+                </button>
               </div>
-            )}
-            {(projects.length > 0 || s.profiles.length > 0) && projectGroups.length === 0 && (
+              {chatsOpen && <div className="workspace-chat-list">
+                {visibleChats.map((chat) => (
+                  <button
+                    key={chat.id}
+                    className={"workspace-chat-row" + (chat.id === activeProject?.id ? " active" : "")}
+                    onClick={() => { s.selectConversation(chat.id); s.setTab("chat"); }}
+                  >
+                    <Icon name={chat.chatMode === "terminal" ? "terminal" : "bubble.left.and.bubble.right.fill"} size={12} />
+                    <span className="workspace-chat-copy">
+                      <strong><HighlightedName text={chat.title} query={searchQuery} /></strong>
+                      <small>{conversationPreview(chat)}</small>
+                    </span>
+                    {chat.id === activeProject?.id && <span className="workspace-active-dot" title="Active chat" />}
+                    <span
+                      className="workspace-chat-delete"
+                      role="button"
+                      tabIndex={0}
+                      title="Delete chat"
+                      aria-label={`Delete ${chat.title}`}
+                      onClick={(event) => { event.stopPropagation(); setConfirmDeleteChat(chat.id); }}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setConfirmDeleteChat(chat.id);
+                      }}
+                    >
+                      <Icon name="trash" size={12} />
+                    </span>
+                  </button>
+                ))}
+              </div>}
+            </section>
+
+            <section className="workspace-section workspace-profiles">
+              <div className="workspace-section-head">
+                <button className="workspace-section-toggle" onClick={() => setProfilesOpen((open) => !open)} aria-expanded={profilesOpen}>
+                  <Icon name="chevron.right" size={10} className={profilesOpen ? "section-chevron open" : "section-chevron"} />
+                  <Icon name="folder.fill" size={12} />
+                  <span>Profiles</span>
+                  <span className="workspace-count">{visibleProfileCount}</span>
+                </button>
+              </div>
+              {profilesOpen && <div className="workspace-profile-list">
+                {visibleWorkspaceProfiles.map(({ profile: p, owner, toolset }) => {
+                      const status = s.statuses[p.name] ?? "unknown";
+                      const running = status === "running";
+                      const busy = s.nextctlUpdating || ["starting", "stopping", "rotating"].includes(status);
+                      const selected = s.selectedProfile === p.name;
+                      const occupiedByOther = running && !!owner && owner.id !== activeProject?.id;
+                      const manual = p.proxy_mode === "manual" && p.manual_proxy;
+                      const identity = s.profileIdentities[p.name];
+                      return (
+                        <ProfileRow
+                          key={p.name} name={p.name} status={status} running={running} busy={busy || occupiedByOther} selected={selected}
+                          country={p.country ?? identity?.country} city={p.city ?? identity?.city} ip={identity?.ip}
+                          toolset={toolset} searchQuery={searchQuery}
+                          occupiedBy={running ? owner?.title ?? "Another chat" : undefined}
+                          manualScheme={manual ? p.manual_proxy?.scheme : undefined}
+                          manualTitle={manual ? `${p.manual_proxy?.host ?? ""}:${p.manual_proxy?.port ?? ""}` : undefined}
+                          onSelect={() => s.selectProfile(selected ? undefined : p.name)}
+                          onStart={() => {
+                            if (!activeProject || occupiedByOther) return;
+                            s.assignProfileToProject(p.name, toolset, s.activeWorkspaceId);
+                            s.selectProfile(p.name);
+                            s.setTab("chat");
+                            runProfileAction(`We couldn't start “${p.name}”.`, () => s.startProfile(p.name));
+                          }}
+                          onStop={() => runProfileAction(`We couldn't stop “${p.name}”.`, () => s.stopProfile(p.name))}
+                          onLive={() => { s.selectProfile(p.name); s.setTab("live"); }}
+                          onMenu={() => setMenuProfile(p.name)}
+                        />
+                      );
+                })}
+              </div>}
+              {profilesOpen && visibleProfileCount === 0 && <div className="muted small workspace-empty">No profiles yet</div>}
+            </section>
+            {normalizedSearch && visibleChats.length === 0 && visibleWorkspaceProfiles.length === 0 && (
               <div className="muted small">No matches for "{s.profileSearch}".</div>
             )}
-            {projectGroups.map(({ project, profiles: projectProfiles }) => (
-              <section
-                className={"project-profile-group" + (project.id === activeProject?.id ? " is-active" : "") + (dragOverProject === project.id ? " is-drag-over" : "")}
-                key={project.id}
-                onDragOver={(event) => {
-                  if (!event.dataTransfer.types.includes("application/x-nextbrowser-profile")) return;
-                  event.preventDefault();
-                  event.dataTransfer.dropEffect = "move";
-                  setDragOverProject(project.id);
-                }}
-                onDragLeave={(event) => {
-                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOverProject(null);
-                }}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  const profileName = event.dataTransfer.getData("application/x-nextbrowser-profile");
-                  const toolset = (event.dataTransfer.getData("application/x-nextbrowser-toolset") || "clawbrowser") as "clawbrowser" | "dasbrowser";
-                  setDragOverProject(null);
-                  if (profileName) s.assignProfileToProject(profileName, toolset, project.id);
-                }}
-              >
-                <div className="project-profile-heading">
-                  {projectProfiles.length > 0 ? (
-                    <button
-                      className="project-expand-toggle"
-                      onClick={() => toggleProject(project.id)}
-                      aria-label={collapsedProjects.has(project.id) ? `Show profiles in ${project.title}` : `Hide profiles in ${project.title}`}
-                      aria-expanded={!collapsedProjects.has(project.id)}
-                    >
-                      <Icon name={collapsedProjects.has(project.id) ? "chevron.right" : "chevron.down"} size={11} />
-                    </button>
-                  ) : (
-                    <span className="project-expand-placeholder" aria-hidden="true" />
-                  )}
-                  <button
-                    className="project-chat-link"
-                    onClick={() => {
-                      s.selectConversation(project.id);
-                      s.setTab("chat");
-                    }}
-                    aria-current={project.id === activeProject?.id ? "page" : undefined}
-                    title={`Open ${project.title} chat`}
-                  >
-                    <Icon name={project.chatMode === "terminal" ? "terminal" : "bubble.left.and.bubble.right.fill"} size={13} />
-                    <span className="project-chat-copy">
-                      <span className="project-chat-title"><HighlightedName text={project.title} query={searchQuery} /></span>
-                      <span className="project-chat-preview">{conversationPreview(project)}</span>
-                    </span>
-                    {project.id === activeProject?.id && <span className="project-active-label">Active chat</span>}
-                    <span className="muted small project-profile-count">{projectProfiles.length}</span>
-                  </button>
-                </div>
-                {(!collapsedProjects.has(project.id) || !!normalizedSearch) && projectProfiles.map((p) => {
-                  const status = s.statuses[p.name] ?? "unknown";
-                  const running = status === "running";
-                  const busy = s.nextctlUpdating || ["starting", "stopping", "rotating"].includes(status);
-                  const selected = s.selectedProfile === p.name;
-                  const manual = p.proxy_mode === "manual" && p.manual_proxy;
-                  const identity = s.profileIdentities[p.name];
-                  return (
-                    <ProfileRow
-                      key={p.name} name={p.name} status={status} running={running} busy={busy} selected={selected}
-                      country={p.country ?? identity?.country} city={p.city ?? identity?.city} ip={identity?.ip}
-                      toolset={project.profileToolsets?.[p.name] ?? "clawbrowser"}
-                      searchQuery={searchQuery}
-                      draggable
-                      dragOver={dragOverProfile === `${project.id}:${p.name}`}
-                      onDragOverProfile={(event) => {
-                        if (!event.dataTransfer.types.includes("application/x-nextbrowser-profile")) return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        event.dataTransfer.dropEffect = "move";
-                        setDragOverProfile(`${project.id}:${p.name}`);
-                      }}
-                      onDropProfile={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        const movedName = event.dataTransfer.getData("application/x-nextbrowser-profile");
-                        const sourceProject = event.dataTransfer.getData("application/x-nextbrowser-project");
-                        const toolset = (event.dataTransfer.getData("application/x-nextbrowser-toolset") || "clawbrowser") as "clawbrowser" | "dasbrowser";
-                        setDragOverProfile(null);
-                        setDragOverProject(null);
-                        if (!movedName) return;
-                        if (sourceProject !== project.id) s.assignProfileToProject(movedName, toolset, project.id);
-                        s.reorderProfileInProject(project.id, movedName, p.name);
-                      }}
-                      onDragLeaveProfile={() => setDragOverProfile(null)}
-                      projectId={project.id}
-                      manualScheme={manual ? p.manual_proxy?.scheme : undefined}
-                      manualTitle={manual ? `${p.manual_proxy?.host ?? ""}:${p.manual_proxy?.port ?? ""}` : undefined}
-                      onSelect={() => { s.selectConversation(project.id); s.selectProfile(selected ? undefined : p.name); }}
-                      onStart={() => {
-                        s.selectConversation(project.id);
-                        s.selectProfile(p.name);
-                        s.setTab("chat");
-                        runProfileAction(`We couldn't start “${p.name}”.`, () => s.startProfile(p.name));
-                      }}
-                      onStop={() => runProfileAction(`We couldn't stop “${p.name}”.`, () => s.stopProfile(p.name))}
-                      onLive={() => { s.selectConversation(project.id); s.selectProfile(p.name); s.setTab("live"); }}
-                      onMenu={() => setMenuProfile(p.name)}
-                    />
-                  );
-                })}
-              </section>
-            ))}
             {profileActionError && (
               <div className="error small profile-action-error" role="alert">{profileActionError}</div>
             )}
@@ -738,7 +724,20 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 autoFocus
               />
             </label>
-            <div className="modal-field">
+            <fieldset className="project-mode-field profile-connection-field">
+              <legend>Connection</legend>
+              <label className={"project-mode-option" + (profileConnection === "direct" ? " is-selected" : "")}>
+                <input type="radio" name="profile-connection" checked={profileConnection === "direct"} onChange={() => setProfileConnection("direct")} />
+                <Icon name="network" size={16} />
+                <span><strong>No proxy</strong><small>Use your direct internet connection</small></span>
+              </label>
+              <label className={"project-mode-option" + (profileConnection === "managed" ? " is-selected" : "")}>
+                <input type="radio" name="profile-connection" checked={profileConnection === "managed"} onChange={() => setProfileConnection("managed")} />
+                <Icon name="globe" size={16} />
+                <span><strong>Managed proxy</strong><small>Choose the proxy country</small></span>
+              </label>
+            </fieldset>
+            {profileConnection === "managed" && <div className="modal-field">
               <span>Proxy country</span>
               <CountrySelect
                 countries={proxyCountries}
@@ -747,7 +746,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 ariaLabel="Proxy country"
                 onChange={setProfileCountry}
               />
-            </div>
+            </div>}
             <fieldset className="project-mode-field profile-toolset-field">
               <legend>Browser toolset</legend>
               <label className={"project-mode-option" + (profileToolset === "clawbrowser" ? " is-selected" : "")}>
@@ -790,6 +789,47 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         </div>
       ), document.body)}
 
+      {workspaceCreatorOpen && createPortal((
+        <div className="modal-overlay" onMouseDown={() => setWorkspaceCreatorOpen(false)}>
+          <form
+            className="modal-card workspace-create-modal"
+            onMouseDown={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              const nextName = workspaceName.trim();
+              if (!nextName) return;
+              setWorkspaceSaving(true);
+              setWorkspaceError(null);
+              void s.createWorkspace(nextName)
+                .then(() => setWorkspaceCreatorOpen(false))
+                .catch((error: unknown) => setWorkspaceError(error instanceof Error ? error.message : "Couldn't create workspace."))
+                .finally(() => setWorkspaceSaving(false));
+            }}
+          >
+            <div className="profile-menu-head">
+              <Icon name="square.grid.2x2.fill" size={15} />
+              <span className="profile-menu-name">Create workspace</span>
+              <span className="spacer" />
+              <button type="button" className="plain-icon-btn" title="Close" onClick={() => setWorkspaceCreatorOpen(false)}>
+                <Icon name="xmark.circle.fill" size={18} />
+              </button>
+            </div>
+            <label className="modal-field">
+              <span>Workspace name</span>
+              <input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} placeholder="New workspace" autoFocus />
+            </label>
+            <p className="muted small workspace-create-note">Chats and profiles created here stay inside this workspace.</p>
+            {workspaceError && <div className="error small">{workspaceError}</div>}
+            <div className="modal-actions">
+              <button type="button" className="secondary" onClick={() => setWorkspaceCreatorOpen(false)}>Cancel</button>
+              <button type="submit" className="primary" disabled={workspaceSaving || !workspaceName.trim()}>
+                {workspaceSaving ? <Spinner size={13} /> : <Icon name="plus" size={13} />} Create workspace
+              </button>
+            </div>
+          </form>
+        </div>
+      ), document.body)}
+
       {menuProfile && createPortal((() => {
         const isDefaultProfile = menuProfile === "__default";
         const prof = s.profiles.find((p) => p.name === menuProfile);
@@ -797,6 +837,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         const activeCountry = (isDefaultProfile ? identity?.country : prof?.country ?? identity?.country)?.toLowerCase();
         const status = isDefaultProfile ? defaultStatus : s.statuses[menuProfile] ?? "unknown";
         const manual = prof?.proxy_mode === "manual" && prof.manual_proxy;
+        const direct = prof?.proxy_mode === "direct";
         return (
           <div className="modal-overlay" onClick={() => setMenuProfile(null)}>
             <div className="modal-card profile-menu" onClick={(e) => e.stopPropagation()}>
@@ -835,10 +876,10 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 }}
               >
                 <Icon name="arrow.triangle.2.circlepath" size={14} strokeWidth={2.25} />
-                {manual ? "Restart profile" : "Rotate IP"}
+                {manual || direct ? "Restart profile" : "Rotate IP"}
               </button>
 
-              {!manual && (
+              {!manual && !direct && (
                 <>
                   <div className="section profile-menu-label">Rotate country</div>
                   <CountrySelect
@@ -1013,6 +1054,36 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           </div>
         </div>
       ), document.body)}
+
+      {confirmDeleteChat && createPortal((() => {
+        const chat = projects.find((item) => item.id === confirmDeleteChat);
+        if (!chat) return null;
+        const runningProfiles = (chat.profileNames ?? []).filter((name) => s.statuses[name] === "running");
+        return (
+          <div className="modal-overlay" onMouseDown={() => setConfirmDeleteChat(null)}>
+            <div className="modal-card delete-chat-modal" onMouseDown={(event) => event.stopPropagation()}>
+              <h3>Delete “{chat.title}”?</h3>
+              <p>This removes the chat and its message history. Profiles stay in the workspace.</p>
+              {runningProfiles.length > 0 && (
+                <p className="delete-chat-warning">Stop {runningProfiles.length === 1 ? `“${runningProfiles[0]}”` : "the running profiles"} before deleting this chat.</p>
+              )}
+              <div className="modal-actions">
+                <button className="secondary" onClick={() => setConfirmDeleteChat(null)}>Cancel</button>
+                <button
+                  className="primary danger"
+                  disabled={runningProfiles.length > 0}
+                  onClick={() => {
+                    s.deleteConversation(chat.id);
+                    setConfirmDeleteChat(null);
+                  }}
+                >
+                  Delete chat
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })(), document.body)}
     </div>
   );
 }
@@ -1043,6 +1114,7 @@ function ProfileRow({
   manualScheme,
   manualTitle,
   toolset,
+  occupiedBy,
   searchQuery,
   draggable,
   dragOver,
@@ -1067,6 +1139,7 @@ function ProfileRow({
   manualScheme?: string | null;
   manualTitle?: string;
   toolset?: "clawbrowser" | "dasbrowser";
+  occupiedBy?: string;
   searchQuery?: string;
   draggable?: boolean;
   dragOver?: boolean;
@@ -1082,7 +1155,7 @@ function ProfileRow({
 }) {
   return (
     <div
-      className={"profile-row" + (selected ? " selected" : "") + (draggable ? " is-draggable" : "") + (dragOver ? " is-drag-over" : "")}
+      className={"profile-row" + (selected ? " selected" : "") + (occupiedBy ? " is-occupied" : "") + (draggable ? " is-draggable" : "") + (dragOver ? " is-drag-over" : "")}
       onClick={onSelect}
       draggable={draggable}
       onDragStart={(event) => {
@@ -1100,17 +1173,18 @@ function ProfileRow({
       <span className="profile-main">
         <span className="profile-title-line">
           <span className="profile-name"><HighlightedName text={name} query={searchQuery} /></span>
-          {country && (
-            <span className="badge profile-country-badge" title={countryLabel(country, city)}>
-              {countryFlag(country)} {country.toUpperCase()}
-            </span>
-          )}
         </span>
         <span className="profile-meta">
-          {ip ? `${status} · ${ip}` : status}
+          {occupiedBy ? `In use · ${occupiedBy}` : ip ? `${status} · ${ip}` : status}
         </span>
       </span>
       <span className="profile-badges">
+        {occupiedBy && <span className="profile-in-use-badge">In use</span>}
+        {country && (
+          <span className="badge profile-country-badge" title={countryLabel(country, city)}>
+            {countryFlag(country)} {country.toUpperCase()}
+          </span>
+        )}
         {toolset && (
           <span
             className="profile-toolset-logo"
@@ -1131,7 +1205,6 @@ function ProfileRow({
           </span>
         )}
       </span>
-      <span className="spacer" />
       <div className="profile-actions">
         {running ? (
           <>

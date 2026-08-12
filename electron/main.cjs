@@ -25,7 +25,7 @@ const {
   runCommand,
 } = require("./command-runner.cjs");
 const { topUpProxyTraffic } = require("./proxy-traffic.cjs");
-const { deleteProject, listProjects, putProject } = require("./project-sync.cjs");
+const { deleteProject, deleteWorkspace, listProjects, listWorkspaces, putProject, putWorkspace } = require("./project-sync.cjs");
 const { defaultSSHConfigPath, discoverSSHHosts, isAllowedExplicitConfigPath } = require("./ssh-config.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
 const {
@@ -620,6 +620,9 @@ async function invokeCommand(command, args = {}) {
     case "projects_list": return await listProjects({ env: childEnv() });
     case "project_put": return await putProject(String(args.id || ""), args.project, { env: childEnv() });
     case "project_delete": return await deleteProject(String(args.id || ""), { env: childEnv() });
+    case "workspaces_list": return await listWorkspaces({ env: childEnv() });
+    case "workspace_put": return await putWorkspace(String(args.id || ""), args.workspace, { env: childEnv() });
+    case "workspace_delete": return await deleteWorkspace(String(args.id || ""), { env: childEnv() });
     case "account_logout": {
       await shell.openExternal(authLogoutURL());
       await clearRuntimeCredential({ runtimeRoot: nextbrowserRuntimeRoot() });

@@ -38,4 +38,15 @@ function deleteProject(id, deps) {
   return projectRequest(`/v1/projects/${encodeURIComponent(id)}`, { method: "DELETE" }, deps);
 }
 
-module.exports = { deleteProject, listProjects, projectRequest, putProject };
+function listWorkspaces(deps) { return projectRequest("/v1/workspaces", {}, deps); }
+function putWorkspace(id, workspace, deps) {
+  return projectRequest(`/v1/workspaces/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(workspace),
+  }, deps);
+}
+function deleteWorkspace(id, deps) {
+  return projectRequest(`/v1/workspaces/${encodeURIComponent(id)}`, { method: "DELETE" }, deps);
+}
+
+module.exports = { deleteProject, deleteWorkspace, listProjects, listWorkspaces, projectRequest, putProject, putWorkspace };

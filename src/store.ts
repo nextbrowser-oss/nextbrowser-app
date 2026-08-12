@@ -69,6 +69,7 @@ import type {
   SkillRef,
   UserCommandChip,
   UsageSnapshot,
+  Workspace,
 } from "./types";
 import type { RotationCountry } from "./lib/countryFlag";
 import { customPrivateSlug, customPublishSelector } from "./types";
@@ -82,10 +83,10 @@ interface QueuedItem {
 
 type BrowserToolset = "clawbrowser" | "dasbrowser";
 
-function runtimeForProfile(conversations: Conversation[], profileName: string): BrowserToolset {
-  for (const conversation of conversations) {
-    if ((conversation.profileNames ?? []).includes(profileName)) {
-      return conversation.profileToolsets?.[profileName] ?? "clawbrowser";
+function runtimeForProfile(workspaces: Workspace[], profileName: string): BrowserToolset {
+  for (const workspace of workspaces) {
+    if (workspace.profileNames.includes(profileName)) {
+      return workspace.profileToolsets[profileName] ?? "clawbrowser";
     }
   }
   return "clawbrowser";
@@ -335,6 +336,7 @@ interface State {
   statuses: Record<string, string>;
   profileSessions: Record<string, SessionStatus>;
   profileIdentities: Record<string, ProxyIdentity>;
+  profileChatOwners: Record<string, string>;
   selectedProfile?: string;
   defaultSession?: SessionStatus;
   profileSearch: string;
@@ -342,6 +344,10 @@ interface State {
   agentId: string;
   runtime: Record<string, AgentRuntime>;
   conversations: Conversation[];
+  workspaces: Workspace[];
+  activeWorkspaceId?: string;
+  workspacesLoaded: boolean;
+  workspaceSetupRequired: boolean;
   activeConvId: Record<string, string>;
   tab: AppTab;
   skillState: Record<string, SkillApplyState | string>;
@@ -372,6 +378,7 @@ interface State {
   connectAnnounced: Set<string>;
   workingDir: string;
   projectRevisions: Record<string, number>;
+  workspaceRevisions: Record<string, number>;
   projectsSyncing: boolean;
 
   bootstrap: () => Promise<void>;
@@ -400,7 +407,7 @@ interface State {
   createManagedProfile: (
     name: string,
     country: string,
-    options?: NextctlRunOptions & { runtime?: BrowserToolset },
+    options?: NextctlRunOptions & { runtime?: BrowserToolset; direct?: boolean },
   ) => Promise<void>;
   createManualProxyProfile: (input: ManualProxyProfileInput) => Promise<void>;
   deleteProfile: (n: string) => Promise<void>;
@@ -425,6 +432,10 @@ interface State {
   showOnboardingAgain: () => void;
   checkNextctlUpdate: () => Promise<boolean>;
   syncProjects: () => Promise<void>;
+  createWorkspace: (name: string) => Promise<string>;
+  selectWorkspace: (id: string) => void;
+  deleteWorkspace: (id: string) => Promise<void>;
+  completeWorkspaceSetup: () => void;
 
   conversationsForAgent: (agentId: string) => Conversation[];
   activeConversation: () => Conversation | undefined;
@@ -923,11 +934,16 @@ export const useStore = create<State>((set, get) => {
   statuses: {},
   profileSessions: {},
   profileIdentities: {},
+  profileChatOwners: {},
   profileSearch: "",
   isRefreshing: false,
   agentId: localStorage.getItem("lastAgent") ?? "claude",
   runtime: initRuntimes(),
   conversations: [],
+  workspaces: [],
+  activeWorkspaceId: localStorage.getItem("activeWorkspaceId") ?? undefined,
+  workspacesLoaded: false,
+  workspaceSetupRequired: false,
   activeConvId: {},
   tab: "chat",
   skillState: {},
@@ -957,11 +973,17 @@ export const useStore = create<State>((set, get) => {
   connectAnnounced: new Set(),
   workingDir: "",
   projectRevisions: {},
+  workspaceRevisions: {},
   projectsSyncing: false,
 
   conversationsForAgent: (agentId) =>
-    get()
-      .conversations.filter((c) => c.agent === agentId)
+    get().conversations
+      .filter((c) => {
+        if (c.agent !== agentId) return false;
+        const activeWorkspaceId = get().activeWorkspaceId;
+        const hasActiveWorkspace = get().workspaces.some((workspace) => workspace.id === activeWorkspaceId);
+        return !hasActiveWorkspace || c.workspaceId === activeWorkspaceId;
+      })
       .sort((a, b) => b.updatedAt - a.updatedAt),
 
   activeConversation: () => {
@@ -1005,8 +1027,9 @@ export const useStore = create<State>((set, get) => {
     didBootstrap = true;
     const startedAt = performance.now();
     trackEvent("bootstrap_started");
-    const [rawConvs, rawSchedules, rawScripts, rawLocalSkills, rawAppliedScripts, rawHistory, wd] = await Promise.all([
+    const [rawConvs, rawWorkspaces, rawSchedules, rawScripts, rawLocalSkills, rawAppliedScripts, rawHistory, wd] = await Promise.all([
       loadJson<Conversation[]>("conversations.json", []),
+      loadJson<Workspace[]>("workspaces.json", []),
       loadJson<ScheduledRun[]>("scheduled-runs.json", []),
       loadJson<CustomScript[]>("custom-scripts.json", []),
       loadJson<BrowserWorkflowSkill[]>("local-skills.json", []),
@@ -1015,6 +1038,15 @@ export const useStore = create<State>((set, get) => {
       invoke<string>("working_directory").catch(() => ""),
     ]);
     const convs = rawConvs.map(normalizeConversation);
+    const workspaces = rawWorkspaces.filter((item) => item?.id && item?.name).map((item) => ({
+      ...item,
+      profileNames: Array.isArray(item.profileNames) ? item.profileNames : [],
+      profileToolsets: item.profileToolsets ?? {},
+      createdAt: Number(item.createdAt) || now(),
+      updatedAt: Number(item.updatedAt) || now(),
+    }));
+    let activeWorkspaceId = localStorage.getItem("activeWorkspaceId") ?? undefined;
+    if (!workspaces.some((item) => item.id === activeWorkspaceId)) activeWorkspaceId = workspaces[0]?.id;
     const schedules = rawSchedules.map(normalizeSchedule);
     const scripts = rawScripts.map(normalizeScript);
     const history = rawHistory.map(normalizeUsage);
@@ -1025,6 +1057,8 @@ export const useStore = create<State>((set, get) => {
     }
     set({
       conversations: convs,
+      workspaces,
+      activeWorkspaceId,
       activeConvId,
       scheduledRuns: schedules,
       customScripts: scripts,
@@ -2058,9 +2092,13 @@ export const useStore = create<State>((set, get) => {
     const startedAt = performance.now();
     trackEvent("profile_start_requested", { scope: "named" });
     const previousStatus = get().statuses[n] ?? "stopped";
-    set((s) => ({ statuses: { ...s.statuses, [n]: "starting" } }));
+    const ownerId = get().activeConversation()?.id;
+    set((s) => ({
+      statuses: { ...s.statuses, [n]: "starting" },
+      profileChatOwners: ownerId ? { ...s.profileChatOwners, [n]: ownerId } : s.profileChatOwners,
+    }));
     try {
-      const runtime = runtimeForProfile(get().conversations, n);
+      const runtime = runtimeForProfile(get().workspaces, n);
       await nextctlRunChecked(["start", "--profile", n, "--runtime", runtime, "--format", "json"]);
       await get().loadProfiles();
       const identity = await verifyProxyIdentity(n);
@@ -2070,7 +2108,11 @@ export const useStore = create<State>((set, get) => {
       // Never leave a failed launch looking active forever. Restore the last
       // known state immediately; a later refresh can replace it with the
       // authoritative nextctl status.
-      set((s) => ({ statuses: { ...s.statuses, [n]: previousStatus } }));
+      set((s) => {
+        const profileChatOwners = { ...s.profileChatOwners };
+        delete profileChatOwners[n];
+        return { statuses: { ...s.statuses, [n]: previousStatus }, profileChatOwners };
+      });
       void get().loadProfiles();
       requestAccountSignIn(set, error);
       throw error;
@@ -2081,7 +2123,7 @@ export const useStore = create<State>((set, get) => {
     const startedAt = performance.now();
     trackEvent("profile_stop_requested", { scope: "named" });
     set((s) => ({ statuses: { ...s.statuses, [n]: "stopping" } }));
-    const runtime = runtimeForProfile(get().conversations, n);
+    const runtime = runtimeForProfile(get().workspaces, n);
     try {
       await nextctlRunChecked(["stop", "--profile", n, "--runtime", runtime, "--format", "json"]);
     } catch (error) {
@@ -2091,6 +2133,11 @@ export const useStore = create<State>((set, get) => {
       if (get().statuses[n] !== "stopped") throw error;
     }
     await get().loadProfiles();
+    set((s) => {
+      const profileChatOwners = { ...s.profileChatOwners };
+      delete profileChatOwners[n];
+      return { profileChatOwners };
+    });
     trackTiming("profile_stop_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
   },
 
@@ -2100,7 +2147,7 @@ export const useStore = create<State>((set, get) => {
     trackEvent("profile_rotate_requested", { scope: "named" });
     set((s) => ({ statuses: { ...s.statuses, [n]: "rotating" } }));
     try {
-      const runtime = runtimeForProfile(get().conversations, n);
+      const runtime = runtimeForProfile(get().workspaces, n);
       await nextctlRunChecked(["rotate", "--profile", n, "--runtime", runtime, "--format", "json"]);
       await get().loadProfiles();
       await get().loadProxy().catch(() => {});
@@ -2120,7 +2167,7 @@ export const useStore = create<State>((set, get) => {
     trackEvent("profile_rotate_requested", { scope: "named", country });
     set((s) => ({ statuses: { ...s.statuses, [n]: "rotating" } }));
     try {
-      const runtime = runtimeForProfile(get().conversations, n);
+      const runtime = runtimeForProfile(get().workspaces, n);
       await nextctlRunChecked([
         "rotate",
         "--profile",
@@ -2150,18 +2197,19 @@ export const useStore = create<State>((set, get) => {
     const name = rawName.trim();
     const country = rawCountry.trim().toUpperCase();
     if (!name) throw new Error("Profile name is required.");
-    if (!/^[A-Z]{2}$/.test(country)) throw new Error("Choose a valid proxy country.");
-    trackEvent("profile_create_requested", { kind: "managed", country });
+    const direct = options?.direct === true;
+    if (!direct && !/^[A-Z]{2}$/.test(country)) throw new Error("Choose a valid proxy country.");
+    trackEvent("profile_create_requested", { kind: direct ? "direct" : "managed", country });
     try {
-      const { runtime = "clawbrowser", ...runOptions } = options ?? {};
+      const { runtime = "clawbrowser", direct: _direct, ...runOptions } = options ?? {};
       await nextctlRunChecked(
-        ["profiles", "create", name, "--country", country, "--runtime", runtime, "--format", "json"],
+        ["profiles", "create", name, ...(direct ? ["--no-proxy"] : ["--country", country]), "--runtime", runtime, "--format", "json"],
         undefined,
         runOptions,
       );
       await get().loadProfiles();
       get().selectProfile(name);
-      trackTiming("profile_create_completed", startedAt, { kind: "managed", country });
+      trackTiming("profile_create_completed", startedAt, { kind: direct ? "direct" : "managed", country });
     } catch (error) {
       requestAccountSignIn(set, error);
       throw error;
@@ -2212,7 +2260,13 @@ export const useStore = create<State>((set, get) => {
     set((s) => {
       const statuses = { ...s.statuses };
       delete statuses[n];
-      return { statuses };
+      const workspaces = s.workspaces.map((workspace) => {
+        const profileToolsets = { ...workspace.profileToolsets };
+        delete profileToolsets[n];
+        return { ...workspace, profileNames: workspace.profileNames.filter((name) => name !== n), profileToolsets, updatedAt: now() };
+      });
+      void saveJson("workspaces.json", workspaces).then(() => get().syncProjects()).catch(() => {});
+      return { statuses, workspaces };
     });
     await get().loadProfiles();
     trackTiming("profile_delete_completed", startedAt);
@@ -2613,9 +2667,49 @@ export const useStore = create<State>((set, get) => {
     if (!get().authed || get().projectsSyncing) return;
     set({ projectsSyncing: true });
     try {
+      const workspaceResponse = await invoke<{ workspaces?: Array<{
+        id: string; name: string; document: Partial<Workspace>; revision: number; updated_at: string; created_at: string;
+      }> }>("workspaces_list");
+      const remoteWorkspaces = workspaceResponse.workspaces ?? [];
+      const remoteWorkspaceById = new Map(remoteWorkspaces.map((workspace) => [workspace.id, workspace]));
+      const workspaceRevisions = { ...get().workspaceRevisions };
+      let workspaces = [...get().workspaces];
+      for (const cloud of remoteWorkspaces) {
+        workspaceRevisions[cloud.id] = cloud.revision;
+        const normalized: Workspace = {
+          id: cloud.id,
+          name: cloud.name,
+          profileNames: Array.isArray(cloud.document?.profileNames) ? cloud.document.profileNames : [],
+          profileToolsets: cloud.document?.profileToolsets ?? {},
+          createdAt: Date.parse(cloud.created_at),
+          updatedAt: Date.parse(cloud.updated_at),
+        };
+        const index = workspaces.findIndex((workspace) => workspace.id === cloud.id);
+        if (index < 0) workspaces.push(normalized);
+        else if (normalized.updatedAt >= workspaces[index].updatedAt) workspaces[index] = normalized;
+      }
+      for (const workspace of workspaces) {
+        const cloud = remoteWorkspaceById.get(workspace.id);
+        if (cloud && workspace.updatedAt <= Date.parse(cloud.updated_at)) continue;
+        const saved = await invoke<{ revision: number }>("workspace_put", {
+          id: workspace.id,
+          workspace: {
+            name: workspace.name,
+            document: { profileNames: workspace.profileNames, profileToolsets: workspace.profileToolsets },
+            base_revision: workspaceRevisions[workspace.id] ?? 0,
+          },
+        });
+        workspaceRevisions[workspace.id] = saved.revision;
+      }
+      let activeWorkspaceId = get().activeWorkspaceId;
+      if (!workspaces.some((workspace) => workspace.id === activeWorkspaceId)) activeWorkspaceId = workspaces[0]?.id;
+      if (activeWorkspaceId) localStorage.setItem("activeWorkspaceId", activeWorkspaceId);
+      else localStorage.removeItem("activeWorkspaceId");
+      await saveJson("workspaces.json", workspaces);
+
       const response = await invoke<{ projects?: Array<{
         id: string; title: string; agent: string; chat_mode: "chat" | "terminal";
-        document: Conversation; revision: number; updated_at: string;
+        workspace_id: string; document: Conversation; revision: number; updated_at: string;
       }> }>("projects_list");
       const remote = response.projects ?? [];
       const remoteById = new Map(remote.map((project) => [project.id, project]));
@@ -2631,17 +2725,27 @@ export const useStore = create<State>((set, get) => {
           title: cloud.title,
           agent: cloud.agent,
           chatMode: cloud.chat_mode,
+          workspaceId: cloud.workspace_id,
         });
         if (index < 0) conversations.push(normalized);
         else if (Date.parse(cloud.updated_at) >= conversations[index].updatedAt) conversations[index] = normalized;
       }
 
       applyingCloudProjects = true;
-      set({ conversations, projectRevisions: revisions });
+      set({
+        conversations,
+        workspaces,
+        activeWorkspaceId,
+        workspacesLoaded: true,
+        workspaceSetupRequired: localStorage.getItem("workspaceSetupComplete") !== "true" && workspaces.length === 0,
+        projectRevisions: revisions,
+        workspaceRevisions,
+      });
       await persistConvs(conversations);
       applyingCloudProjects = false;
 
       for (const conversation of conversations) {
+        if (!conversation.workspaceId) continue;
         const cloud = remoteById.get(conversation.id);
         if (cloud && conversation.updatedAt <= Date.parse(cloud.updated_at)) continue;
         const saved = await invoke<{ revision: number }>("project_put", {
@@ -2650,22 +2754,61 @@ export const useStore = create<State>((set, get) => {
             title: conversation.title,
             agent: conversation.agent,
             chat_mode: conversation.chatMode === "terminal" ? "terminal" : "chat",
+            workspace_id: conversation.workspaceId,
             document: serializeConversations([conversation])[0],
             base_revision: revisions[conversation.id] ?? 0,
           },
         });
         revisions[conversation.id] = saved.revision;
       }
-      set({ projectRevisions: revisions });
+      set({ projectRevisions: revisions, workspaceRevisions });
       trackEvent("projects_synced", { project_count: conversations.length });
     } finally {
       applyingCloudProjects = false;
-      set({ projectsSyncing: false });
+      set({ projectsSyncing: false, workspacesLoaded: true });
     }
+  },
+
+  createWorkspace: async (rawName) => {
+    const name = rawName.trim();
+    if (!name) throw new Error("Workspace name is required.");
+    const workspace: Workspace = { id: uid(), name, profileNames: [], profileToolsets: {}, createdAt: now(), updatedAt: now() };
+    const saved = await invoke<{ revision: number }>("workspace_put", {
+      id: workspace.id,
+      workspace: { name, document: { profileNames: [], profileToolsets: {} }, base_revision: 0 },
+    });
+    const workspaces = [...get().workspaces, workspace];
+    localStorage.setItem("activeWorkspaceId", workspace.id);
+    await saveJson("workspaces.json", workspaces);
+    set({ workspaces, activeWorkspaceId: workspace.id, workspaceRevisions: { ...get().workspaceRevisions, [workspace.id]: saved.revision } });
+    return workspace.id;
+  },
+
+  selectWorkspace: (id) => {
+    if (!get().workspaces.some((workspace) => workspace.id === id)) return;
+    localStorage.setItem("activeWorkspaceId", id);
+    const first = get().conversations.find((conversation) => conversation.workspaceId === id && conversation.agent === get().agentId);
+    set({ activeWorkspaceId: id, activeConvId: first ? { ...get().activeConvId, [get().agentId]: first.id } : get().activeConvId, selectedProfile: undefined });
+  },
+
+  deleteWorkspace: async (id) => {
+    await invoke("workspace_delete", { id });
+    const workspaces = get().workspaces.filter((workspace) => workspace.id !== id);
+    const conversations = get().conversations.filter((conversation) => conversation.workspaceId !== id);
+    const activeWorkspaceId = workspaces[0]?.id;
+    if (activeWorkspaceId) localStorage.setItem("activeWorkspaceId", activeWorkspaceId); else localStorage.removeItem("activeWorkspaceId");
+    await Promise.all([saveJson("workspaces.json", workspaces), persistConvs(conversations)]);
+    set({ workspaces, conversations, activeWorkspaceId });
+  },
+
+  completeWorkspaceSetup: () => {
+    localStorage.setItem("workspaceSetupComplete", "true");
+    set({ workspaceSetupRequired: false });
   },
 
   newChat: () => {
     const agentId = get().agentId;
+    const workspaceId = get().activeWorkspaceId;
     const n = get().conversationsForAgent(agentId).length + 1;
     const c: Conversation = {
       id: uid(),
@@ -2676,6 +2819,7 @@ export const useStore = create<State>((set, get) => {
       updatedAt: now(),
       executionTarget: "local",
       chatMode: "chat",
+      workspaceId,
     };
     const conversations = [...get().conversations, c];
     persistConvs(conversations);
@@ -2689,22 +2833,9 @@ export const useStore = create<State>((set, get) => {
 
   createProject: (name, mode) => {
     const agentId = get().agentId;
+    const workspaceId = get().activeWorkspaceId;
+    if (!workspaceId) return "";
     const cleanName = name.trim();
-    const currentProjectId = get().activeConversation()?.id;
-    const alreadyAssigned = new Set(get().conversations.flatMap((conversation) => conversation.profileNames ?? []));
-    const unassignedProfiles = get().profiles.map((profile) => profile.name).filter((profile) => !alreadyAssigned.has(profile));
-    const existingConversations = get().conversations.map((conversation) =>
-      conversation.id === currentProjectId && unassignedProfiles.length
-        ? {
-            ...conversation,
-            profileNames: [...new Set([...(conversation.profileNames ?? []), ...unassignedProfiles])],
-            profileToolsets: {
-              ...(conversation.profileToolsets ?? {}),
-              ...Object.fromEntries(unassignedProfiles.map((profile) => [profile, "clawbrowser" as const])),
-            },
-          }
-        : conversation,
-    );
     const c: Conversation = {
       id: uid(),
       title: cleanName || `Project ${get().conversationsForAgent(agentId).length + 1}`,
@@ -2716,8 +2847,9 @@ export const useStore = create<State>((set, get) => {
       chatMode: mode,
       profileNames: [],
       profileToolsets: {},
+      workspaceId,
     };
-    const conversations = [...existingConversations, c];
+    const conversations = [...get().conversations, c];
     persistConvs(conversations);
     localStorage.setItem("terminalChat", String(mode === "terminal"));
     set({
@@ -2731,45 +2863,45 @@ export const useStore = create<State>((set, get) => {
   },
 
   assignProfileToProject: (profileName, toolset, projectId) => {
-    const targetId = projectId ?? get().activeConversation()?.id;
+    const targetId = projectId ?? get().activeWorkspaceId;
     if (!targetId) return;
     set((state) => {
-      const existingToolset = state.conversations.find((conversation) =>
-        (conversation.profileNames ?? []).includes(profileName)
+      const existingToolset = state.workspaces.find((workspace) =>
+        workspace.profileNames.includes(profileName)
       )?.profileToolsets?.[profileName];
       const fixedToolset = existingToolset ?? toolset;
-      const conversations = state.conversations.map((conversation) => {
-        const withoutProfile = (conversation.profileNames ?? []).filter((name) => name !== profileName);
-        const toolsets = { ...(conversation.profileToolsets ?? {}) };
+      const workspaces = state.workspaces.map((workspace) => {
+        const withoutProfile = workspace.profileNames.filter((name) => name !== profileName);
+        const toolsets = { ...workspace.profileToolsets };
         delete toolsets[profileName];
-        if (conversation.id !== targetId) {
-          return { ...conversation, profileNames: withoutProfile, profileToolsets: toolsets };
+        if (workspace.id !== targetId) {
+          return { ...workspace, profileNames: withoutProfile, profileToolsets: toolsets };
         }
         return {
-          ...conversation,
+          ...workspace,
           profileNames: [...withoutProfile, profileName],
           profileToolsets: { ...toolsets, [profileName]: fixedToolset },
           updatedAt: now(),
         };
       });
-      persistConvs(conversations);
-      return { conversations };
+      void saveJson("workspaces.json", workspaces).then(() => get().syncProjects()).catch(() => {});
+      return { workspaces };
     });
   },
 
   reorderProfileInProject: (projectId, profileName, beforeProfileName) => {
     if (profileName === beforeProfileName) return;
     set((state) => {
-      const conversations = state.conversations.map((conversation) => {
-        if (conversation.id !== projectId) return conversation;
-        const names = (conversation.profileNames ?? []).filter((name) => name !== profileName);
+      const workspaces = state.workspaces.map((workspace) => {
+        if (workspace.id !== projectId) return workspace;
+        const names = workspace.profileNames.filter((name) => name !== profileName);
         const targetIndex = names.indexOf(beforeProfileName);
         if (targetIndex < 0) names.push(profileName);
         else names.splice(targetIndex, 0, profileName);
-        return { ...conversation, profileNames: names, updatedAt: now() };
+        return { ...workspace, profileNames: names, updatedAt: now() };
       });
-      persistConvs(conversations);
-      return { conversations };
+      void saveJson("workspaces.json", workspaces).then(() => get().syncProjects()).catch(() => {});
+      return { workspaces };
     });
   },
 
@@ -2777,6 +2909,7 @@ export const useStore = create<State>((set, get) => {
   // spin up a dedicated chat for a task right from the editor). Does not change
   // the active chat/agent selection.
   createNamedChat: (agentId, title) => {
+    const workspaceId = get().activeWorkspaceId;
     const clean = title.trim();
     const c: Conversation = {
       id: uid(),
@@ -2786,6 +2919,7 @@ export const useStore = create<State>((set, get) => {
       createdAt: now(),
       updatedAt: now(),
       executionTarget: "local",
+      workspaceId,
     };
     const conversations = [...get().conversations, c];
     persistConvs(conversations);
