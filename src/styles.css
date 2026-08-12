@@ -898,11 +898,12 @@ button, input, textarea, select { color: var(--text); }
   position: fixed;
   z-index: 3000;
   right: 18px;
-  bottom: 18px;
+  top: 64px;
   display: flex;
   align-items: center;
   gap: 8px;
-  max-width: min(620px, calc(100vw - 36px));
+  width: max-content;
+  max-width: min(460px, calc(100vw - 36px));
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--red) 35%, var(--line));
   border-radius: var(--radius-sm);

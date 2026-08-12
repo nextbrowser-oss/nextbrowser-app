@@ -542,6 +542,12 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!unexpectedError) return;
+    const timer = window.setTimeout(() => setUnexpectedError(false), 8_000);
+    return () => window.clearTimeout(timer);
+  }, [unexpectedError]);
+
   const checkAppUpdate = () => {
     void invoke<AppUpdateStatus>("app_check_for_update").then(setAppUpdate).catch(() => {
       setAppUpdate({ status: "error", message: internalError("We couldn't check for updates.") });
