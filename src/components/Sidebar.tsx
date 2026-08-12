@@ -512,7 +512,6 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   aria-expanded={!collapsedProjects.has(project.id)}
                 >
                   <Icon name={collapsedProjects.has(project.id) ? "chevron.right" : "chevron.down"} size={11} />
-                  <Icon name="folder.fill" size={12} />
                   <span>{project.title}</span>
                   <span className="spacer" />
                   <span className="muted small">{projectProfiles.length + (showDefaultProfile && project.id === activeProject?.id ? 1 : 0)}</span>
