@@ -614,7 +614,12 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       manualScheme={manual ? p.manual_proxy?.scheme : undefined}
                       manualTitle={manual ? `${p.manual_proxy?.host ?? ""}:${p.manual_proxy?.port ?? ""}` : undefined}
                       onSelect={() => { s.selectConversation(project.id); s.selectProfile(selected ? undefined : p.name); }}
-                      onStart={() => runProfileAction(`We couldn't start “${p.name}”.`, () => s.startProfile(p.name))}
+                      onStart={() => {
+                        s.selectConversation(project.id);
+                        s.selectProfile(p.name);
+                        s.setTab("chat");
+                        runProfileAction(`We couldn't start “${p.name}”.`, () => s.startProfile(p.name));
+                      }}
                       onStop={() => runProfileAction(`We couldn't stop “${p.name}”.`, () => s.stopProfile(p.name))}
                       onLive={() => { s.selectConversation(project.id); s.selectProfile(p.name); s.setTab("live"); }}
                       onMenu={() => setMenuProfile(p.name)}
