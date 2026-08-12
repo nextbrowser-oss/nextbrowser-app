@@ -1063,8 +1063,17 @@ function ProfileRow({
       </span>
       <span className="profile-badges">
         {toolset && (
-          <span className="badge profile-toolset-badge" title={`Browser toolset: ${toolset === "clawbrowser" ? "Clawbrowser" : "DasBrowser"}`}>
-            {toolset === "clawbrowser" ? "Claw" : "Das"}
+          <span
+            className="profile-toolset-logo"
+            title={toolset === "clawbrowser" ? "ClawBrowser" : "DasBrowser"}
+            role="img"
+            aria-label={toolset === "clawbrowser" ? "ClawBrowser" : "DasBrowser"}
+          >
+            <img
+              src={toolset === "clawbrowser" ? "./clawbrowser-icon.png" : "./dasbrowser-icon.png"}
+              alt=""
+              draggable={false}
+            />
           </span>
         )}
         {manualScheme && (

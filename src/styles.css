@@ -4915,7 +4915,23 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   box-shadow: inset 0 2px 0 var(--accent);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
-.profile-toolset-badge { font-size: 9px; opacity: .76; }
+.profile-toolset-logo {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--line-strong) 72%, transparent);
+  border-radius: 6px;
+  background: var(--surface-4);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--shadow) 40%, transparent);
+}
+.profile-toolset-logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 
 .project-create-modal { width: min(440px, calc(100vw - 32px)); }
 .project-mode-field { border: 0; padding: 0; margin: 4px 0 0; min-width: 0; }
