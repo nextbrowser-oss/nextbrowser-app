@@ -41,6 +41,7 @@ import type { RemoteStreamInfo } from "./remoteControl";
 import { loadJson, saveJson } from "./lib/storage";
 import { apiBaseUrl } from "./constants";
 import { accountLoginURL } from "./lib/accountAuth";
+import { requiresWorkspaceSetup } from "./lib/workspaceSetup";
 import {
   normalizeConversation,
   normalizeWorkflowSkill,
@@ -2736,13 +2737,16 @@ export const useStore = create<State>((set, get) => {
         conversations,
         workspaces,
         activeWorkspaceId,
-        workspacesLoaded: true,
-        workspaceSetupRequired: localStorage.getItem("workspaceSetupComplete") !== "true" && workspaces.length === 0,
         projectRevisions: revisions,
         workspaceRevisions,
       });
       await persistConvs(conversations);
       applyingCloudProjects = false;
+
+      set({
+        workspacesLoaded: true,
+        workspaceSetupRequired: requiresWorkspaceSetup(workspaces, conversations, activeWorkspaceId),
+      });
 
       for (const conversation of conversations) {
         if (!conversation.workspaceId) continue;
@@ -2765,7 +2769,16 @@ export const useStore = create<State>((set, get) => {
       trackEvent("projects_synced", { project_count: conversations.length });
     } finally {
       applyingCloudProjects = false;
-      set({ projectsSyncing: false, workspacesLoaded: true });
+      const state = get();
+      set({
+        projectsSyncing: false,
+        workspacesLoaded: true,
+        workspaceSetupRequired: requiresWorkspaceSetup(
+          state.workspaces,
+          state.conversations,
+          state.activeWorkspaceId,
+        ),
+      });
     }
   },
 
