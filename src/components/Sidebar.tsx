@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type DragEvent, type FormEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore, type ManualProxyProfileInput } from "../store";
 import { agentById } from "../agents";
@@ -10,9 +10,10 @@ import { guideProfileTarget } from "../lib/guideQuickStart";
 import { manualProxyDefaultName, parseManualProxyUrl, type ManualProxyScheme } from "../lib/manualProxy";
 import { internalError, needsSupportLink } from "../lib/userFacingError";
 import { cancelNextctlRun } from "../nextctl";
-import type { AppTab } from "../types";
+import { conversationPreview, type AppTab } from "../types";
 import { CountrySelect } from "./CountrySelect";
 import { UserFacingError } from "./UserFacingError";
+import { VPSSetupModal } from "./VPSSetupModal";
 
 type ManualProxyInputMode = "url" | "fields";
 const PROFILE_CREATE_TIMEOUT_MS = 30_000;
@@ -32,6 +33,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const s = useStore();
   const [menuProfile, setMenuProfile] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [confirmDeleteChat, setConfirmDeleteChat] = useState<string | null>(null);
   const [manualProxyOpen, setManualProxyOpen] = useState(false);
   const [manualProxyMode, setManualProxyMode] = useState<ManualProxyInputMode>("url");
   const [manualProxyUrl, setManualProxyUrl] = useState("");
@@ -44,15 +46,26 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [manualError, setManualError] = useState<string | null>(null);
   const [manualSaving, setManualSaving] = useState(false);
   const [createProfileOpen, setCreateProfileOpen] = useState(false);
+  const [vpsSetupOpen, setVPSSetupOpen] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [profileCountry, setProfileCountry] = useState("US");
+  const [profileConnection, setProfileConnection] = useState<"managed" | "direct">("managed");
+  const [profileToolset, setProfileToolset] = useState<"clawbrowser" | "dasbrowser">("clawbrowser");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileActionError, setProfileActionError] = useState<string | null>(null);
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const [workspaceCreatorOpen, setWorkspaceCreatorOpen] = useState(false);
+  const [workspaceName, setWorkspaceName] = useState("");
+  const [workspaceSaving, setWorkspaceSaving] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [chatsOpen, setChatsOpen] = useState(true);
+  const [profilesOpen, setProfilesOpen] = useState(true);
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const profileCreateRequestRef = useRef<string | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const runProfileAction = (label: string, action: () => Promise<void>) => {
     setProfileActionError(null);
@@ -64,13 +77,51 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
   const agentName = agentById(s.agentId).name;
   const ready = s.agentReady();
-  const profiles = s.filteredProfiles();
+  const searchQuery = s.profileSearch.trim();
+  const normalizedSearch = searchQuery.toLowerCase();
+  const profiles = s.profiles;
+  const projects = s.conversationsForAgent(s.agentId);
+  const activeProject = s.activeConversation();
+  const activeWorkspace = s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId);
+  const profileWorkspaceEntries = (activeWorkspace?.profileNames ?? []).flatMap((name) => {
+    const profile = profiles.find((item) => item.name === name);
+    if (!profile) return [];
+    const owner = s.conversations.find((project) => project.id === s.profileChatOwners[name]);
+    return {
+      profile,
+      owner,
+      toolset: activeWorkspace?.profileToolsets[name] ?? "clawbrowser" as const,
+    };
+  });
+  const visibleChats = normalizedSearch
+    ? projects.filter((project) => project.title.toLowerCase().includes(normalizedSearch))
+    : projects;
+  const visibleWorkspaceProfiles = normalizedSearch
+    ? profileWorkspaceEntries.filter(({ profile }) => profile.name.toLowerCase().includes(normalizedSearch))
+    : profileWorkspaceEntries;
+  useEffect(() => {
+    const handleProjectShortcut = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+      if (event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+        return;
+      }
+      const index = Number.parseInt(event.key, 10) - 1;
+      if (index < 0 || index >= Math.min(projects.length, 9)) return;
+      event.preventDefault();
+      s.selectConversation(projects[index].id);
+      s.setTab("chat");
+    };
+    window.addEventListener("keydown", handleProjectShortcut);
+    return () => window.removeEventListener("keydown", handleProjectShortcut);
+  }, [projects, s]);
   const skillCount = withLocalScripts(s.skillCategories).reduce((total, category) => total + category.entries.length, 0);
   const defaultStatus = s.defaultSession?.status ?? "unknown";
   const defaultKnown = !!s.defaultSession?.session?.name || defaultStatus !== "unknown";
   const defaultRunning = defaultStatus === "running";
   const defaultBusy = s.nextctlUpdating || ["starting", "stopping", "rotating"].includes(defaultStatus);
-  const defaultIdentity = s.profileIdentities.__default;
   const defaultSessionDuplicate = defaultRunning && Object.values(s.profileSessions).some((session) =>
     session.status === "running" && (
       (!!session.pid && session.pid === s.defaultSession?.pid) ||
@@ -80,8 +131,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const showDefaultProfile = defaultKnown &&
     !defaultSessionDuplicate &&
     !s.profiles.some((p) => p.name === "default");
-  const visibleProfileCount = s.profiles.length + (showDefaultProfile ? 1 : 0);
-  const runningCount = s.profiles.filter((p) => s.statuses[p.name] === "running").length + (showDefaultProfile && defaultRunning ? 1 : 0);
+  const visibleProfileCount = profileWorkspaceEntries.length;
+  const runningCount = profileWorkspaceEntries.filter(({ profile }) => s.statuses[profile.name] === "running").length;
   const proxyCountries = s.proxyCountries.length ? s.proxyCountries : ROTATION_COUNTRIES;
 
   useEffect(() => {
@@ -246,6 +297,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     setManualError(null);
     try {
       await s.createManualProxyProfile(input);
+      s.assignProfileToProject(input.name, "clawbrowser");
       resetManualProxyForm();
       setManualProxyOpen(false);
     } catch {
@@ -267,14 +319,20 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     setProfileSaving(true);
     setProfileError(null);
     try {
-      await s.createManagedProfile(profileName, profileCountry, {
+      const createdName = profileName.trim();
+      await s.createManagedProfile(createdName, profileCountry, {
         requestId,
         timeoutMs: PROFILE_CREATE_TIMEOUT_MS,
+        runtime: profileToolset,
+        direct: profileConnection === "direct",
       });
       if (profileCreateRequestRef.current !== requestId) return;
+      s.assignProfileToProject(createdName, profileToolset);
       setCreateProfileOpen(false);
       setProfileName("");
       setProfileCountry("US");
+      setProfileConnection("managed");
+      setProfileToolset("clawbrowser");
       s.resumeOnboardingAfterSetup();
     } catch (error) {
       if (profileCreateRequestRef.current !== requestId) return;
@@ -368,27 +426,54 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
         <div className={"claw-card control-card profiles-card" + (profileGuideFocus ? " guide-focus" : "")}>
           <div className="row profiles-panel-head">
-            <div className="scheduled-panel-toggle profiles-panel-toggle">
-              <Icon name="person.crop.circle" size={13} />
-              <span className="section">Profiles</span>
-              <span className="profiles-count" title="Total profiles">{visibleProfileCount}</span>
+            <div className="workspace-picker-wrap">
+              <button
+                className="workspace-picker"
+                title="Switch workspace"
+                aria-expanded={workspaceMenuOpen}
+                onClick={() => setWorkspaceMenuOpen((open) => !open)}
+              >
+                <Icon name="square.grid.2x2.fill" size={12} />
+                <span>
+                  <small>Workspace</small>
+                  <strong>{activeWorkspace?.name ?? "Create workspace"}</strong>
+                </span>
+                <Icon name="chevron.down" size={11} className={workspaceMenuOpen ? "workspace-chevron open" : "workspace-chevron"} />
+              </button>
             </div>
             <button
-              className="plain-icon-btn plain-icon-btn-compact"
-              title="Refresh profiles"
-              disabled={s.isRefreshing}
-              onClick={() => s.refreshSessions()}
+              className="workspace-create-btn"
+              title="Create workspace"
+              aria-label="Create workspace"
+              onClick={() => {
+                setWorkspaceName("");
+                setWorkspaceMenuOpen(false);
+                setWorkspaceCreatorOpen(true);
+              }}
             >
-              {s.isRefreshing ? <Spinner size={12} /> : <Icon name="arrow.clockwise" size={12} />}
+              <Icon name="plus" size={13} />
             </button>
-            <span className="spacer" />
           </div>
+          {workspaceMenuOpen && (
+            <div className="workspace-menu">
+              {s.workspaces.map((workspace) => (
+                <button
+                  key={workspace.id}
+                  className={workspace.id === s.activeWorkspaceId ? "active" : ""}
+                  onClick={() => { s.selectWorkspace(workspace.id); setWorkspaceMenuOpen(false); }}
+                >
+                  <Icon name={workspace.id === s.activeWorkspaceId ? "checkmark" : "square.grid.2x2"} size={11} />
+                  <span>{workspace.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="session-quick-actions">
             <button
               className="btn-bordered full"
               title={s.authed ? "Create managed profile" : "Sign in to create a managed profile"}
-              disabled={s.isRefreshing}
+              disabled={s.isRefreshing || !activeProject}
               onClick={() => {
                 if (!s.authed) {
                   s.setDashboardKeyPromptOpen(true);
@@ -401,7 +486,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               }}
             >
               <Icon name={s.authed ? "plus" : "lock"} size={14} />
-              {s.authed ? "Create profile" : "Sign in"}
+              {s.authed ? activeProject ? "Create profile" : "Create a project first" : "Sign in"}
             </button>
             <button
               className="mini proxy-profile-btn"
@@ -418,15 +503,16 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           <div className="search-box">
             <Icon name="magnifyingglass" size={12} className="muted" />
             <input
+              ref={searchInputRef}
               className="search-inline"
-              placeholder="Search profiles..."
+              placeholder="Search"
               value={s.profileSearch}
               onChange={(e) => s.setProfileSearch(e.target.value)}
             />
             {s.profileSearch && (
               <button
                 className="plain-icon-btn plain-icon-btn-compact"
-                title="Clear profile search"
+                title="Clear search"
                 onClick={() => s.setProfileSearch("")}
               >
                 <Icon name="xmark.circle.fill" size={14} className="muted" />
@@ -434,71 +520,100 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             )}
           </div>
 
-          <div className="profile-list">
-            {visibleProfileCount === 0 && (
-              <div className="inline-empty">
-                <Icon name="person.crop.circle" size={18} className="muted" />
-                <div>
-                  <strong>No profiles yet</strong>
-                </div>
+          <div className="profile-list workspace-content">
+            <section className="workspace-section workspace-chats">
+              <div className="workspace-section-head">
+                <button className="workspace-section-toggle" onClick={() => setChatsOpen((open) => !open)} aria-expanded={chatsOpen}>
+                  <Icon name="chevron.right" size={10} className={chatsOpen ? "section-chevron open" : "section-chevron"} />
+                  <Icon name="bubble.left.and.bubble.right.fill" size={12} />
+                  <span>Chats</span>
+                  <span className="workspace-count">{projects.length}</span>
+                </button>
+                <span className="spacer" />
+                <button className="plain-icon-btn plain-icon-btn-compact" title="New chat" onClick={() => window.dispatchEvent(new CustomEvent("nextbrowser:create-project"))}>
+                  <Icon name="plus" size={12} />
+                </button>
               </div>
-            )}
-            {showDefaultProfile && (
-              <ProfileRow
-                name="default"
-                status={defaultStatus}
-                running={defaultRunning}
-                busy={defaultBusy}
-                selected={!s.selectedProfile}
-                country={defaultIdentity?.country}
-                city={defaultIdentity?.city}
-                ip={defaultIdentity?.ip}
-                onSelect={() => s.selectProfile(undefined)}
-                onStart={() => runProfileAction("We couldn't start the default profile.", s.startDefaultSession)}
-                onStop={() => runProfileAction("We couldn't stop the default profile.", s.stopDefaultSession)}
-                onLive={() => {
-                  s.selectProfile(undefined);
-                  s.setTab("live");
-                }}
-                onMenu={() => setMenuProfile("__default")}
-              />
-            )}
-            {s.profiles.length > 0 && profiles.length === 0 && (
+              {chatsOpen && <div className="workspace-chat-list">
+                {visibleChats.map((chat) => (
+                  <button
+                    key={chat.id}
+                    className={"workspace-chat-row" + (chat.id === activeProject?.id ? " active" : "")}
+                    onClick={() => { s.selectConversation(chat.id); s.setTab("chat"); }}
+                  >
+                    <Icon name={chat.chatMode === "terminal" ? "terminal" : "bubble.left.and.bubble.right.fill"} size={12} />
+                    <span className="workspace-chat-copy">
+                      <strong><HighlightedName text={chat.title} query={searchQuery} /></strong>
+                      <small>{conversationPreview(chat)}</small>
+                    </span>
+                    {chat.id === activeProject?.id && <span className="workspace-active-dot" title="Active chat" />}
+                    <span
+                      className="workspace-chat-delete"
+                      role="button"
+                      tabIndex={0}
+                      title="Delete chat"
+                      aria-label={`Delete ${chat.title}`}
+                      onClick={(event) => { event.stopPropagation(); setConfirmDeleteChat(chat.id); }}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setConfirmDeleteChat(chat.id);
+                      }}
+                    >
+                      <Icon name="trash" size={12} />
+                    </span>
+                  </button>
+                ))}
+              </div>}
+            </section>
+
+            <section className="workspace-section workspace-profiles">
+              <div className="workspace-section-head">
+                <button className="workspace-section-toggle" onClick={() => setProfilesOpen((open) => !open)} aria-expanded={profilesOpen}>
+                  <Icon name="chevron.right" size={10} className={profilesOpen ? "section-chevron open" : "section-chevron"} />
+                  <Icon name="folder.fill" size={12} />
+                  <span>Profiles</span>
+                  <span className="workspace-count">{visibleProfileCount}</span>
+                </button>
+              </div>
+              {profilesOpen && <div className="workspace-profile-list">
+                {visibleWorkspaceProfiles.map(({ profile: p, owner, toolset }) => {
+                      const status = s.statuses[p.name] ?? "unknown";
+                      const running = status === "running";
+                      const busy = s.nextctlUpdating || ["starting", "stopping", "rotating"].includes(status);
+                      const selected = s.selectedProfile === p.name;
+                      const occupiedByOther = running && !!owner && owner.id !== activeProject?.id;
+                      const manual = p.proxy_mode === "manual" && p.manual_proxy;
+                      const identity = s.profileIdentities[p.name];
+                      return (
+                        <ProfileRow
+                          key={p.name} name={p.name} status={status} running={running} busy={busy || occupiedByOther} selected={selected}
+                          country={p.country ?? identity?.country} city={p.city ?? identity?.city} ip={identity?.ip}
+                          toolset={toolset} searchQuery={searchQuery}
+                          occupiedBy={running ? owner?.title ?? "Another chat" : undefined}
+                          manualScheme={manual ? p.manual_proxy?.scheme : undefined}
+                          manualTitle={manual ? `${p.manual_proxy?.host ?? ""}:${p.manual_proxy?.port ?? ""}` : undefined}
+                          onSelect={() => s.selectProfile(selected ? undefined : p.name)}
+                          onStart={() => {
+                            if (!activeProject || occupiedByOther) return;
+                            s.assignProfileToProject(p.name, toolset, s.activeWorkspaceId);
+                            s.selectProfile(p.name);
+                            s.setTab("chat");
+                            runProfileAction(`We couldn't start “${p.name}”.`, () => s.startProfile(p.name));
+                          }}
+                          onStop={() => runProfileAction(`We couldn't stop “${p.name}”.`, () => s.stopProfile(p.name))}
+                          onLive={() => { s.selectProfile(p.name); s.setTab("live"); }}
+                          onMenu={() => setMenuProfile(p.name)}
+                        />
+                      );
+                })}
+              </div>}
+              {profilesOpen && visibleProfileCount === 0 && <div className="muted small workspace-empty">No profiles yet</div>}
+            </section>
+            {normalizedSearch && visibleChats.length === 0 && visibleWorkspaceProfiles.length === 0 && (
               <div className="muted small">No matches for "{s.profileSearch}".</div>
             )}
-            {profiles.map((p) => {
-              const status = s.statuses[p.name] ?? "unknown";
-              const running = status === "running";
-              const busy = s.nextctlUpdating || ["starting", "stopping", "rotating"].includes(status);
-              const selected = s.selectedProfile === p.name;
-              const manual = p.proxy_mode === "manual" && p.manual_proxy;
-              const identity = s.profileIdentities[p.name];
-              const profileCountry = p.country ?? identity?.country;
-              const profileCity = p.city ?? identity?.city;
-              return (
-                <ProfileRow
-                  key={p.name}
-                  name={p.name}
-                  status={status}
-                  running={running}
-                  busy={busy}
-                  selected={selected}
-                  country={profileCountry}
-                  city={profileCity}
-                  ip={identity?.ip}
-                  manualScheme={manual ? p.manual_proxy?.scheme : undefined}
-                  manualTitle={manual ? `${p.manual_proxy?.host ?? ""}:${p.manual_proxy?.port ?? ""}` : undefined}
-                  onSelect={() => s.selectProfile(selected ? undefined : p.name)}
-                  onStart={() => runProfileAction(`We couldn't start “${p.name}”.`, () => s.startProfile(p.name))}
-                  onStop={() => runProfileAction(`We couldn't stop “${p.name}”.`, () => s.stopProfile(p.name))}
-                  onLive={() => {
-                    s.selectProfile(p.name);
-                    s.setTab("live");
-                  }}
-                  onMenu={() => setMenuProfile(p.name)}
-                />
-              );
-            })}
             {profileActionError && (
               <div className="error small profile-action-error" role="alert">{profileActionError}</div>
             )}
@@ -609,7 +724,20 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 autoFocus
               />
             </label>
-            <div className="modal-field">
+            <fieldset className="project-mode-field profile-connection-field">
+              <legend>Connection</legend>
+              <label className={"project-mode-option" + (profileConnection === "direct" ? " is-selected" : "")}>
+                <input type="radio" name="profile-connection" checked={profileConnection === "direct"} onChange={() => setProfileConnection("direct")} />
+                <Icon name="network" size={16} />
+                <span><strong>No proxy</strong><small>Use your direct internet connection</small></span>
+              </label>
+              <label className={"project-mode-option" + (profileConnection === "managed" ? " is-selected" : "")}>
+                <input type="radio" name="profile-connection" checked={profileConnection === "managed"} onChange={() => setProfileConnection("managed")} />
+                <Icon name="globe" size={16} />
+                <span><strong>Managed proxy</strong><small>Choose the proxy country</small></span>
+              </label>
+            </fieldset>
+            {profileConnection === "managed" && <div className="modal-field">
               <span>Proxy country</span>
               <CountrySelect
                 countries={proxyCountries}
@@ -618,7 +746,35 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 ariaLabel="Proxy country"
                 onChange={setProfileCountry}
               />
-            </div>
+            </div>}
+            <fieldset className="project-mode-field profile-toolset-field">
+              <legend>Browser toolset</legend>
+              <label className={"project-mode-option" + (profileToolset === "clawbrowser" ? " is-selected" : "")}>
+                <input type="radio" name="profile-toolset" checked={profileToolset === "clawbrowser"} onChange={() => setProfileToolset("clawbrowser")} />
+                <Icon name="globe" size={16} />
+                <span><strong>ClawBrowser</strong><small>Managed identity and proxy</small></span>
+              </label>
+              <label className={"project-mode-option" + (profileToolset === "dasbrowser" ? " is-selected" : "")}>
+                <input type="radio" name="profile-toolset" checked={profileToolset === "dasbrowser"} onChange={() => setProfileToolset("dasbrowser")} />
+                <Icon name="safari" size={16} />
+                <span><strong>DasBrowser</strong><small>Private multi-account browser</small></span>
+              </label>
+            </fieldset>
+            <button
+              type="button"
+              className="profile-vps-option"
+              onClick={() => {
+                setCreateProfileOpen(false);
+                setVPSSetupOpen(true);
+              }}
+            >
+              <Icon name="terminal" size={15} />
+              <span>
+                <strong>Use VPS</strong>
+                <small>Set up this project on a remote server instead</small>
+              </span>
+              <Icon name="chevron.right" size={12} className="muted" />
+            </button>
             {profileError && <div className="error small profile-create-error">{profileError}</div>}
             <div className="modal-actions">
               <button type="button" className="secondary" onClick={closeProfileCreator}>
@@ -633,6 +789,47 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         </div>
       ), document.body)}
 
+      {workspaceCreatorOpen && createPortal((
+        <div className="modal-overlay" onMouseDown={() => setWorkspaceCreatorOpen(false)}>
+          <form
+            className="modal-card workspace-create-modal"
+            onMouseDown={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              const nextName = workspaceName.trim();
+              if (!nextName) return;
+              setWorkspaceSaving(true);
+              setWorkspaceError(null);
+              void s.createWorkspace(nextName)
+                .then(() => setWorkspaceCreatorOpen(false))
+                .catch((error: unknown) => setWorkspaceError(error instanceof Error ? error.message : "Couldn't create workspace."))
+                .finally(() => setWorkspaceSaving(false));
+            }}
+          >
+            <div className="profile-menu-head">
+              <Icon name="square.grid.2x2.fill" size={15} />
+              <span className="profile-menu-name">Create workspace</span>
+              <span className="spacer" />
+              <button type="button" className="plain-icon-btn" title="Close" onClick={() => setWorkspaceCreatorOpen(false)}>
+                <Icon name="xmark.circle.fill" size={18} />
+              </button>
+            </div>
+            <label className="modal-field">
+              <span>Workspace name</span>
+              <input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} placeholder="New workspace" autoFocus />
+            </label>
+            <p className="muted small workspace-create-note">Chats and profiles created here stay inside this workspace.</p>
+            {workspaceError && <div className="error small">{workspaceError}</div>}
+            <div className="modal-actions">
+              <button type="button" className="secondary" onClick={() => setWorkspaceCreatorOpen(false)}>Cancel</button>
+              <button type="submit" className="primary" disabled={workspaceSaving || !workspaceName.trim()}>
+                {workspaceSaving ? <Spinner size={13} /> : <Icon name="plus" size={13} />} Create workspace
+              </button>
+            </div>
+          </form>
+        </div>
+      ), document.body)}
+
       {menuProfile && createPortal((() => {
         const isDefaultProfile = menuProfile === "__default";
         const prof = s.profiles.find((p) => p.name === menuProfile);
@@ -640,6 +837,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         const activeCountry = (isDefaultProfile ? identity?.country : prof?.country ?? identity?.country)?.toLowerCase();
         const status = isDefaultProfile ? defaultStatus : s.statuses[menuProfile] ?? "unknown";
         const manual = prof?.proxy_mode === "manual" && prof.manual_proxy;
+        const direct = prof?.proxy_mode === "direct";
         return (
           <div className="modal-overlay" onClick={() => setMenuProfile(null)}>
             <div className="modal-card profile-menu" onClick={(e) => e.stopPropagation()}>
@@ -678,10 +876,10 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 }}
               >
                 <Icon name="arrow.triangle.2.circlepath" size={14} strokeWidth={2.25} />
-                {manual ? "Restart profile" : "Rotate IP"}
+                {manual || direct ? "Restart profile" : "Rotate IP"}
               </button>
 
-              {!manual && (
+              {!manual && !direct && (
                 <>
                   <div className="section profile-menu-label">Rotate country</div>
                   <CountrySelect
@@ -716,6 +914,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           </div>
         );
       })(), document.body)}
+
+      {vpsSetupOpen && <VPSSetupModal onClose={() => setVPSSetupOpen(false)} />}
 
       {manualProxyOpen && createPortal((
         <div className="modal-overlay" onMouseDown={() => !manualSaving && setManualProxyOpen(false)}>
@@ -854,7 +1054,51 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           </div>
         </div>
       ), document.body)}
+
+      {confirmDeleteChat && createPortal((() => {
+        const chat = projects.find((item) => item.id === confirmDeleteChat);
+        if (!chat) return null;
+        const runningProfiles = (chat.profileNames ?? []).filter((name) => s.statuses[name] === "running");
+        return (
+          <div className="modal-overlay" onMouseDown={() => setConfirmDeleteChat(null)}>
+            <div className="modal-card delete-chat-modal" onMouseDown={(event) => event.stopPropagation()}>
+              <h3>Delete “{chat.title}”?</h3>
+              <p>This removes the chat and its message history. Profiles stay in the workspace.</p>
+              {runningProfiles.length > 0 && (
+                <p className="delete-chat-warning">Stop {runningProfiles.length === 1 ? `“${runningProfiles[0]}”` : "the running profiles"} before deleting this chat.</p>
+              )}
+              <div className="modal-actions">
+                <button className="secondary" onClick={() => setConfirmDeleteChat(null)}>Cancel</button>
+                <button
+                  className="primary danger"
+                  disabled={runningProfiles.length > 0}
+                  onClick={() => {
+                    s.deleteConversation(chat.id);
+                    setConfirmDeleteChat(null);
+                  }}
+                >
+                  Delete chat
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })(), document.body)}
     </div>
+  );
+}
+
+function HighlightedName({ text, query }: { text: string; query?: string }) {
+  const normalizedQuery = query?.trim().toLowerCase();
+  if (!normalizedQuery) return <>{text}</>;
+  const index = text.toLowerCase().indexOf(normalizedQuery);
+  if (index < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, index)}
+      <mark className="search-match">{text.slice(index, index + normalizedQuery.length)}</mark>
+      {text.slice(index + normalizedQuery.length)}
+    </>
   );
 }
 
@@ -869,6 +1113,15 @@ function ProfileRow({
   ip,
   manualScheme,
   manualTitle,
+  toolset,
+  occupiedBy,
+  searchQuery,
+  draggable,
+  dragOver,
+  projectId,
+  onDragOverProfile,
+  onDropProfile,
+  onDragLeaveProfile,
   onSelect,
   onStart,
   onStop,
@@ -885,6 +1138,15 @@ function ProfileRow({
   ip?: string | null;
   manualScheme?: string | null;
   manualTitle?: string;
+  toolset?: "clawbrowser" | "dasbrowser";
+  occupiedBy?: string;
+  searchQuery?: string;
+  draggable?: boolean;
+  dragOver?: boolean;
+  projectId?: string;
+  onDragOverProfile?: (event: DragEvent<HTMLDivElement>) => void;
+  onDropProfile?: (event: DragEvent<HTMLDivElement>) => void;
+  onDragLeaveProfile?: () => void;
   onSelect: () => void;
   onStart: () => void;
   onStop: () => void;
@@ -892,29 +1154,57 @@ function ProfileRow({
   onMenu: () => void;
 }) {
   return (
-    <div className={"profile-row" + (selected ? " selected" : "")} onClick={onSelect}>
+    <div
+      className={"profile-row" + (selected ? " selected" : "") + (occupiedBy ? " is-occupied" : "") + (draggable ? " is-draggable" : "") + (dragOver ? " is-drag-over" : "")}
+      onClick={onSelect}
+      draggable={draggable}
+      onDragStart={(event) => {
+        if (!draggable) return;
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("application/x-nextbrowser-profile", name);
+        event.dataTransfer.setData("application/x-nextbrowser-toolset", toolset ?? "clawbrowser");
+        event.dataTransfer.setData("application/x-nextbrowser-project", projectId ?? "");
+      }}
+      onDragOver={onDragOverProfile}
+      onDragLeave={onDragLeaveProfile}
+      onDrop={onDropProfile}
+    >
       <span className={"dot " + (running ? "green" : busy ? "orange" : "gray")} title={status} />
       <span className="profile-main">
         <span className="profile-title-line">
-          <span className="profile-name">{name}</span>
-          {country && (
-            <span className="badge profile-country-badge" title={countryLabel(country, city)}>
-              {countryFlag(country)} {country.toUpperCase()}
-            </span>
-          )}
+          <span className="profile-name"><HighlightedName text={name} query={searchQuery} /></span>
         </span>
         <span className="profile-meta">
-          {ip ? `${status} · ${ip}` : status}
+          {occupiedBy ? `In use · ${occupiedBy}` : ip ? `${status} · ${ip}` : status}
         </span>
       </span>
       <span className="profile-badges">
+        {occupiedBy && <span className="profile-in-use-badge">In use</span>}
+        {country && (
+          <span className="badge profile-country-badge" title={countryLabel(country, city)}>
+            {countryFlag(country)} {country.toUpperCase()}
+          </span>
+        )}
+        {toolset && (
+          <span
+            className="profile-toolset-logo"
+            title={toolset === "clawbrowser" ? "ClawBrowser" : "DasBrowser"}
+            role="img"
+            aria-label={toolset === "clawbrowser" ? "ClawBrowser" : "DasBrowser"}
+          >
+            <img
+              src={toolset === "clawbrowser" ? "./clawbrowser-icon.png" : "./dasbrowser-icon.png"}
+              alt=""
+              draggable={false}
+            />
+          </span>
+        )}
         {manualScheme && (
           <span className="badge manual-proxy-badge" title={manualTitle}>
             {manualScheme.toUpperCase()}
           </span>
         )}
       </span>
-      <span className="spacer" />
       <div className="profile-actions">
         {running ? (
           <>

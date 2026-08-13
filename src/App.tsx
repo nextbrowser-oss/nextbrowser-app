@@ -30,10 +30,12 @@ import { invoke, listen } from "./electronBridge";
 import { agentById } from "./agents";
 import { releaseDownloadUrl } from "./lib/releaseDownload";
 import { UserFacingError } from "./components/UserFacingError";
+import { AgentConnectionGate } from "./components/AgentConnectionGate";
+import { WorkspaceSetupGate } from "./components/WorkspaceSetupGate";
 import { AgentInstallLink } from "./components/AgentInstallLink";
 
-const TABS: { id: AppTab; label: string; icon: string }[] = [
-  { id: "chat", label: "Chat", icon: "bubble.left.and.bubble.right.fill" },
+const TABS: { id: AppTab; label: string; icon?: string }[] = [
+  { id: "chat", label: "Project" },
   { id: "live", label: "Live", icon: "video.fill" },
 ];
 
@@ -181,11 +183,23 @@ function SocialButtons() {
   );
 }
 
-function GlobalErrorNotice({ onClose }: { onClose: () => void }) {
+function errorReference(detail: string): string {
+  let hash = 2166136261;
+  for (const char of detail || "unknown") {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `NB-${(hash >>> 0).toString(16).toUpperCase().padStart(8, "0")}`;
+}
+
+function GlobalErrorNotice({ error, onClose }: { error: { reference: string; detail: string }; onClose: () => void }) {
   return (
     <div className="global-error-notice" role="alert">
       <Icon name="exclamationmark.triangle.fill" size={15} />
-      <UserFacingError message={internalError()} surface="unexpected_app_error" />
+      <span className="global-error-copy">
+        <UserFacingError message={internalError()} surface="unexpected_app_error" />
+        <span className="global-error-reference" title={error.detail}>Error ID: {error.reference}</span>
+      </span>
       <button className="plain-icon-btn plain-icon-btn-compact" onClick={onClose} aria-label="Dismiss error">
         <Icon name="xmark" size={12} />
       </button>
@@ -512,13 +526,17 @@ export function App() {
   const [settingsFocus, setSettingsFocus] = useState<"agent" | null>(null);
   const [appUpdate, setAppUpdate] = useState<AppUpdateStatus>({ status: "idle" });
   const [updatePromptDismissed, setUpdatePromptDismissed] = useState(false);
-  const [unexpectedError, setUnexpectedError] = useState(false);
+  const [unexpectedError, setUnexpectedError] = useState<{ reference: string; detail: string }>();
   const preview = getPreviewMode();
   const checking = useStore((s) => s.checking);
   const tab = useStore((s) => s.tab);
   const setTab = useStore((s) => s.setTab);
   const bootstrap = useStore((s) => s.bootstrap);
   const showOnboarding = useStore((s) => s.showOnboarding);
+  const agentReady = useStore((s) => s.agentReady());
+  const workspaceSetupRequired = useStore((s) => {
+    return s.authed && s.workspacesLoaded && s.workspaceSetupRequired;
+  });
   const sidebarWidth = useStore((s) => s.sidebarWidth);
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
   const setSidebarWidth = useStore((s) => s.setSidebarWidth);
@@ -531,7 +549,21 @@ export function App() {
   useButtonTooltips();
 
   useEffect(() => {
-    const showUnexpectedError = () => setUnexpectedError(true);
+    const showUnexpectedError = (event: ErrorEvent | PromiseRejectionEvent) => {
+      const detail = event instanceof PromiseRejectionEvent
+        ? event.reason instanceof Error ? event.reason.message : String(event.reason ?? "")
+        : event.message;
+      // Cloud project sync is best-effort. Authentication failures there are
+      // not fatal app errors and should not cover the active chat.
+      if (/project sync failed\s*\(\d+\)|unauthorized.*project/i.test(detail)) {
+        console.warn("Background workspace sync failed:", detail);
+        return;
+      }
+      const normalized = detail.trim() || "Unknown renderer error";
+      const reference = errorReference(normalized);
+      console.error(`[${reference}] Unexpected renderer error:`, normalized);
+      setUnexpectedError({ reference, detail: normalized });
+    };
     window.addEventListener("error", showUnexpectedError);
     window.addEventListener("unhandledrejection", showUnexpectedError);
     return () => {
@@ -539,6 +571,12 @@ export function App() {
       window.removeEventListener("unhandledrejection", showUnexpectedError);
     };
   }, []);
+
+  useEffect(() => {
+    if (!unexpectedError) return;
+    const timer = window.setTimeout(() => setUnexpectedError(undefined), 8_000);
+    return () => window.clearTimeout(timer);
+  }, [unexpectedError]);
 
   const checkAppUpdate = () => {
     void invoke<AppUpdateStatus>("app_check_for_update").then(setAppUpdate).catch(() => {
@@ -830,7 +868,7 @@ export function App() {
           <Spinner size={18} />
           <div className="muted small">Checking saved credentials…</div>
         </div>
-        {unexpectedError && <GlobalErrorNotice onClose={() => setUnexpectedError(false)} />}
+        {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
       </>
     );
   }
@@ -867,7 +905,7 @@ export function App() {
                 aria-label={`Open ${t.label}`}
               >
                 <span className={"tab-pill" + (tab === t.id ? " tab-pill-active" : "")}>
-                  <Icon name={t.icon} size={16} strokeWidth={2.25} />
+                  {t.icon && <Icon name={t.icon} size={16} strokeWidth={2.25} />}
                   {t.label}
                 </span>
               </button>
@@ -922,8 +960,10 @@ export function App() {
         />
       )}
       <DashboardKeyModal />
-      {showOnboarding && <OnboardingView />}
-      {unexpectedError && <GlobalErrorNotice onClose={() => setUnexpectedError(false)} />}
+      {!checking && !agentReady && <AgentConnectionGate />}
+      {showOnboarding && agentReady && !workspaceSetupRequired && <OnboardingView />}
+      {!checking && agentReady && workspaceSetupRequired && <WorkspaceSetupGate />}
+      {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
     </div>
   );
 }

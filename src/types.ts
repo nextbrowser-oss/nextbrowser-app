@@ -133,6 +133,20 @@ export interface Conversation {
   executionTarget?: "local" | "vps";
   vpsConnectionInstructions?: string;
   vpsConnectionLabel?: string;
+  /** A conversation is the persistent agent context for one project. */
+  chatMode?: "chat" | "terminal";
+  workspaceId?: string;
+  profileNames?: string[];
+  profileToolsets?: Record<string, "clawbrowser" | "dasbrowser">;
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  profileNames: string[];
+  profileToolsets: Record<string, "clawbrowser" | "dasbrowser">;
+  createdAt: number;
+  updatedAt: number;
 }
 
 /** Sidebar preview line for a conversation — mirrors Swift `Conversation.preview`. */
