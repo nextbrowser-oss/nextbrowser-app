@@ -1,10 +1,26 @@
 const { loadBackendConfig } = require("./proxy-traffic.cjs");
 
 const REQUEST_TIMEOUT_MS = 30_000;
+// Workspaces and projects live in the same service as the cloud skill registry.
+// Keep the same override and default used by nextctl's skill commands.
+const DEFAULT_SKILL_SERVICE_URL = "https://51-15-201-29.sslip.io";
+
+function entityBackendURL(env = process.env) {
+  const raw = String(env.CLAWCTL_SKILL_SERVICE || DEFAULT_SKILL_SERVICE_URL).trim();
+  const parsed = new URL(raw);
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
+    throw new Error("Unsupported skill service URL.");
+  }
+  parsed.search = "";
+  parsed.hash = "";
+  parsed.pathname = parsed.pathname.replace(/\/$/, "");
+  return parsed.toString().replace(/\/$/, "");
+}
 
 async function projectRequest(route, options = {}, deps = {}) {
   const fetchImpl = deps.fetchImpl || fetch;
-  const { apiKey, baseURL } = await loadBackendConfig(deps);
+  const { apiKey } = await loadBackendConfig(deps);
+  const baseURL = entityBackendURL(deps.env);
   const response = await fetchImpl(`${baseURL}${route}`, {
     ...options,
     headers: {
@@ -49,4 +65,4 @@ function deleteWorkspace(id, deps) {
   return projectRequest(`/v1/workspaces/${encodeURIComponent(id)}`, { method: "DELETE" }, deps);
 }
 
-module.exports = { deleteProject, deleteWorkspace, listProjects, listWorkspaces, projectRequest, putProject, putWorkspace };
+module.exports = { deleteProject, deleteWorkspace, entityBackendURL, listProjects, listWorkspaces, projectRequest, putProject, putWorkspace };
