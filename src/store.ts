@@ -2785,15 +2785,45 @@ export const useStore = create<State>((set, get) => {
   createWorkspace: async (rawName) => {
     const name = rawName.trim();
     if (!name) throw new Error("Workspace name is required.");
-    const workspace: Workspace = { id: uid(), name, profileNames: [], profileToolsets: {}, createdAt: now(), updatedAt: now() };
+    const state = get();
+    const migrateLegacyData = state.workspaces.length === 0;
+    const workspaceId = uid();
+    const profileNames = migrateLegacyData ? state.profiles.map((profile) => profile.name) : [];
+    const profileToolsets = Object.fromEntries(profileNames.map((profileName) => {
+      const savedToolset = state.conversations.find((conversation) =>
+        conversation.profileToolsets?.[profileName]
+      )?.profileToolsets?.[profileName];
+      return [profileName, savedToolset === "dasbrowser" ? "dasbrowser" : "clawbrowser"];
+    })) as Record<string, BrowserToolset>;
+    const workspace: Workspace = {
+      id: workspaceId,
+      name,
+      profileNames,
+      profileToolsets,
+      createdAt: now(),
+      updatedAt: now(),
+    };
     const saved = await invoke<{ revision: number }>("workspace_put", {
       id: workspace.id,
-      workspace: { name, document: { profileNames: [], profileToolsets: {} }, base_revision: 0 },
+      workspace: { name, document: { profileNames, profileToolsets }, base_revision: 0 },
     });
-    const workspaces = [...get().workspaces, workspace];
+    const conversations = migrateLegacyData
+      ? state.conversations.map((conversation) => conversation.workspaceId ? conversation : {
+        ...conversation,
+        workspaceId: workspace.id,
+        updatedAt: now(),
+      })
+      : state.conversations;
+    const workspaces = [...state.workspaces, workspace];
     localStorage.setItem("activeWorkspaceId", workspace.id);
-    await saveJson("workspaces.json", workspaces);
-    set({ workspaces, activeWorkspaceId: workspace.id, workspaceRevisions: { ...get().workspaceRevisions, [workspace.id]: saved.revision } });
+    await Promise.all([saveJson("workspaces.json", workspaces), persistConvs(conversations)]);
+    set({
+      workspaces,
+      conversations,
+      activeWorkspaceId: workspace.id,
+      workspaceRevisions: { ...state.workspaceRevisions, [workspace.id]: saved.revision },
+      workspaceSetupRequired: requiresWorkspaceSetup(workspaces, conversations, workspace.id),
+    });
     return workspace.id;
   },
 

@@ -34,4 +34,15 @@ describe("workspace setup gate", () => {
     } satisfies Workspace;
     expect(requiresWorkspaceSetup([workspace], [], workspace.id)).toBe(true);
   });
+
+  it("requires the profile step when a chat exists but the workspace is empty", () => {
+    const workspace = {
+      id: "workspace-1", name: "Research", profileNames: [], profileToolsets: {}, createdAt: 1, updatedAt: 1,
+    } satisfies Workspace;
+    const conversation = {
+      id: "chat-1", title: "Research", agent: "codex", messages: [], createdAt: 1, updatedAt: 1,
+      workspaceId: workspace.id,
+    } satisfies Conversation;
+    expect(requiresWorkspaceSetup([workspace], [conversation], workspace.id)).toBe(true);
+  });
 });
