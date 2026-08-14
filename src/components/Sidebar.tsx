@@ -54,6 +54,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileActionError, setProfileActionError] = useState<string | null>(null);
+  const [profileMoveError, setProfileMoveError] = useState<string | null>(null);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [workspaceCreatorOpen, setWorkspaceCreatorOpen] = useState(false);
   const [workspaceName, setWorkspaceName] = useState("");
@@ -61,17 +62,19 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [chatsOpen, setChatsOpen] = useState(true);
   const [profilesOpen, setProfilesOpen] = useState(true);
+  const [dragOverProfileName, setDragOverProfileName] = useState<string | null>(null);
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const profileCreateRequestRef = useRef<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
-  const runProfileAction = (label: string, action: () => Promise<void>) => {
+  const runProfileAction = (label: string, code: string, action: () => Promise<void>) => {
     setProfileActionError(null);
     void action().catch((error: unknown) => {
       const detail = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
-      setProfileActionError(detail ? `${label} ${detail}` : label);
+      console.error(`[${code}] ${label}`, detail);
+      setProfileActionError(internalError(label, code));
     });
   };
 
@@ -109,7 +112,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         return;
       }
       const index = Number.parseInt(event.key, 10) - 1;
-      if (index < 0 || index >= Math.min(projects.length, 9)) return;
+      if (!Number.isInteger(index) || index < 0 || index >= Math.min(projects.length, 9)) return;
       event.preventDefault();
       s.selectConversation(projects[index].id);
       s.setTab("chat");
@@ -136,6 +139,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const proxyCountries = s.proxyCountries.length ? s.proxyCountries : ROTATION_COUNTRIES;
 
   useEffect(() => {
+    setProfileMoveError(null);
     if (menuProfile) void s.loadProxyCountries().catch(() => {});
   }, [menuProfile]);
 
@@ -175,14 +179,14 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       if (profile === "__default") {
         s.selectProfile(undefined);
         if (!defaultRunning && !defaultBusy) {
-          runProfileAction("We couldn't start the default profile.", s.startDefaultSession);
+          runProfileAction("We couldn't start the default profile.", "PROFILE_START_FAILED", s.startDefaultSession);
         }
         return;
       }
       s.selectProfile(profile);
       const status = s.statuses[profile] ?? s.profileSessions[profile]?.status ?? "unknown";
       if (status !== "running" && !["starting", "stopping", "rotating"].includes(status)) {
-        runProfileAction(`We couldn't start “${profile}”.`, () => s.startProfile(profile));
+        runProfileAction(`We couldn't start “${profile}”.`, "PROFILE_START_FAILED", () => s.startProfile(profile));
       }
     };
     window.addEventListener("nextbrowser:focus-profiles", focusProfiles);
@@ -247,7 +251,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     try {
       await s.logout();
     } catch {
-      setLogoutError(internalError("We couldn't sign you out. Please try again."));
+      setLogoutError(internalError("We couldn't sign you out.", "ACCOUNT_SIGN_OUT_FAILED"));
     } finally {
       setLogoutPending(false);
     }
@@ -301,7 +305,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       resetManualProxyForm();
       setManualProxyOpen(false);
     } catch {
-      setManualError(internalError("We couldn't create the proxy profile."));
+      setManualError(internalError("We couldn't create the proxy profile.", "PROXY_PROFILE_CREATE_FAILED"));
     } finally {
       setManualSaving(false);
     }
@@ -523,7 +527,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           <div className="profile-list workspace-content">
             <section className="workspace-section workspace-chats">
               <div className="workspace-section-head">
-                <button className="workspace-section-toggle" onClick={() => setChatsOpen((open) => !open)} aria-expanded={chatsOpen}>
+                <button className="workspace-section-toggle" onClick={() => setChatsOpen((open) => !open)} aria-expanded={chatsOpen} aria-label={chatsOpen ? "Collapse chats" : "Expand chats"}>
                   <Icon name="chevron.right" size={10} className={chatsOpen ? "section-chevron open" : "section-chevron"} />
                   <Icon name="bubble.left.and.bubble.right.fill" size={12} />
                   <span>Chats</span>
@@ -539,6 +543,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   <button
                     key={chat.id}
                     className={"workspace-chat-row" + (chat.id === activeProject?.id ? " active" : "")}
+                    title={`Open ${chat.title}`}
                     onClick={() => { s.selectConversation(chat.id); s.setTab("chat"); }}
                   >
                     <Icon name={chat.chatMode === "terminal" ? "terminal" : "bubble.left.and.bubble.right.fill"} size={12} />
@@ -570,7 +575,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
             <section className="workspace-section workspace-profiles">
               <div className="workspace-section-head">
-                <button className="workspace-section-toggle" onClick={() => setProfilesOpen((open) => !open)} aria-expanded={profilesOpen}>
+                <button className="workspace-section-toggle" onClick={() => setProfilesOpen((open) => !open)} aria-expanded={profilesOpen} aria-label={profilesOpen ? "Collapse profiles" : "Expand profiles"}>
                   <Icon name="chevron.right" size={10} className={profilesOpen ? "section-chevron open" : "section-chevron"} />
                   <Icon name="folder.fill" size={12} />
                   <span>Profiles</span>
@@ -591,18 +596,37 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                           key={p.name} name={p.name} status={status} running={running} busy={busy || occupiedByOther} selected={selected}
                           country={p.country ?? identity?.country} city={p.city ?? identity?.city} ip={identity?.ip}
                           toolset={toolset} searchQuery={searchQuery}
-                          occupiedBy={running ? owner?.title ?? "Another chat" : undefined}
+                          occupiedBy={occupiedByOther ? owner?.title ?? "Another chat" : undefined}
                           manualScheme={manual ? p.manual_proxy?.scheme : undefined}
                           manualTitle={manual ? `${p.manual_proxy?.host ?? ""}:${p.manual_proxy?.port ?? ""}` : undefined}
+                          draggable={!normalizedSearch}
+                          dragOver={dragOverProfileName === p.name}
+                          projectId={activeWorkspace?.id}
+                          onDragOverProfile={(event) => {
+                            const sourceWorkspace = event.dataTransfer.getData("application/x-nextbrowser-project");
+                            if (!activeWorkspace || (sourceWorkspace && sourceWorkspace !== activeWorkspace.id)) return;
+                            event.preventDefault();
+                            event.dataTransfer.dropEffect = "move";
+                            setDragOverProfileName(p.name);
+                          }}
+                          onDragLeaveProfile={() => setDragOverProfileName((current) => current === p.name ? null : current)}
+                          onDropProfile={(event) => {
+                            event.preventDefault();
+                            setDragOverProfileName(null);
+                            const sourceProfile = event.dataTransfer.getData("application/x-nextbrowser-profile");
+                            const sourceWorkspace = event.dataTransfer.getData("application/x-nextbrowser-project");
+                            if (!activeWorkspace || !sourceProfile || sourceWorkspace !== activeWorkspace.id) return;
+                            s.reorderProfileInProject(activeWorkspace.id, sourceProfile, p.name);
+                          }}
                           onSelect={() => s.selectProfile(selected ? undefined : p.name)}
                           onStart={() => {
                             if (!activeProject || occupiedByOther) return;
                             s.assignProfileToProject(p.name, toolset, s.activeWorkspaceId);
                             s.selectProfile(p.name);
                             s.setTab("chat");
-                            runProfileAction(`We couldn't start “${p.name}”.`, () => s.startProfile(p.name));
+                            runProfileAction(`We couldn't start “${p.name}”.`, "PROFILE_START_FAILED", () => s.startProfile(p.name));
                           }}
-                          onStop={() => runProfileAction(`We couldn't stop “${p.name}”.`, () => s.stopProfile(p.name))}
+                          onStop={() => runProfileAction(`We couldn't stop “${p.name}”.`, "PROFILE_STOP_FAILED", () => s.stopProfile(p.name))}
                           onLive={() => { s.selectProfile(p.name); s.setTab("live"); }}
                           onMenu={() => setMenuProfile(p.name)}
                         />
@@ -802,7 +826,10 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               setWorkspaceError(null);
               void s.createWorkspace(nextName)
                 .then(() => setWorkspaceCreatorOpen(false))
-                .catch((error: unknown) => setWorkspaceError(error instanceof Error ? error.message : "Couldn't create workspace."))
+                .catch((error: unknown) => {
+                  console.error("[WORKSPACE_CREATE_FAILED]", error);
+                  setWorkspaceError(internalError("We couldn't create the workspace.", "WORKSPACE_CREATE_FAILED"));
+                })
                 .finally(() => setWorkspaceSaving(false));
             }}
           >
@@ -838,6 +865,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         const status = isDefaultProfile ? defaultStatus : s.statuses[menuProfile] ?? "unknown";
         const manual = prof?.proxy_mode === "manual" && prof.manual_proxy;
         const direct = prof?.proxy_mode === "direct";
+        const profileWorkspace = s.workspaces.find((workspace) => workspace.profileNames.includes(menuProfile));
+        const profileBusy = ["running", "starting", "stopping", "rotating"].includes(status);
         return (
           <div className="modal-overlay" onClick={() => setMenuProfile(null)}>
             <div className="modal-card profile-menu" onClick={(e) => e.stopPropagation()}>
@@ -892,6 +921,35 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       setMenuProfile(null);
                     }}
                   />
+                </>
+              )}
+
+              {!isDefaultProfile && profileWorkspace && (
+                <>
+                  <div className="section profile-menu-label">Workspace</div>
+                  <select
+                    className="profile-workspace-select"
+                    value={profileWorkspace.id}
+                    disabled={profileBusy || s.projectsSyncing || s.workspaces.length < 2}
+                    onChange={(event) => {
+                      const targetId = event.target.value;
+                      setProfileMoveError(null);
+                      void s.moveProfileToWorkspace(menuProfile, targetId)
+                        .then(() => setMenuProfile(null))
+                        .catch((error: unknown) => {
+                          const message = error instanceof Error && error.message.startsWith("Stop the profile")
+                            ? error.message
+                            : internalError("We couldn't move the profile.", "PROFILE_WORKSPACE_MOVE_FAILED");
+                          console.error("[PROFILE_WORKSPACE_MOVE_FAILED]", error);
+                          setProfileMoveError(message);
+                        });
+                    }}
+                  >
+                    {s.workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
+                  </select>
+                  {profileBusy && <div className="muted small profile-workspace-note">Stop the profile to move it.</div>}
+                  {!profileBusy && s.projectsSyncing && <div className="muted small profile-workspace-note">Syncing workspaces…</div>}
+                  {profileMoveError && <div className="error small profile-workspace-note">{profileMoveError}</div>}
                 </>
               )}
 

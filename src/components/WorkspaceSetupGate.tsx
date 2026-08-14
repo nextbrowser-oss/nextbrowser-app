@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { ROTATION_COUNTRIES } from "../lib/countryFlag";
+import { internalError } from "../lib/userFacingError";
 import { useStore } from "../store";
 import { CountrySelect } from "./CountrySelect";
 import { Icon, Spinner } from "./Icon";
@@ -34,7 +35,8 @@ export function WorkspaceSetupGate() {
         s.completeWorkspaceSetup();
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Setup couldn't be completed.");
+      console.error("[WORKSPACE_SETUP_FAILED]", cause);
+      setError(internalError("We couldn't complete workspace setup.", "WORKSPACE_SETUP_FAILED"));
     } finally {
       setSaving(false);
     }

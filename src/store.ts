@@ -42,6 +42,7 @@ import { loadJson, saveJson } from "./lib/storage";
 import { apiBaseUrl } from "./constants";
 import { accountLoginURL } from "./lib/accountAuth";
 import { requiresWorkspaceSetup } from "./lib/workspaceSetup";
+import { moveProfileToWorkspace as moveProfileBetweenWorkspaces } from "./lib/workspaceProfiles";
 import {
   normalizeConversation,
   normalizeWorkflowSkill,
@@ -73,6 +74,7 @@ import type {
   Workspace,
 } from "./types";
 import type { RotationCountry } from "./lib/countryFlag";
+import { browserProfileContext } from "./lib/browserProfileContext";
 import { customPrivateSlug, customPublishSelector } from "./types";
 
 interface QueuedItem {
@@ -321,7 +323,7 @@ async function pullCatalogInstructions(entry: SkillEntry, preferredAgentId: stri
       /* Try the next supported agent adapter. */
     }
   }
-  throw new Error(internalError(`We couldn't prepare "${entry.title}".`));
+  throw new Error(internalError(`We couldn't prepare "${entry.title}".`, "SKILL_PREPARE_FAILED"));
 }
 
 interface State {
@@ -455,6 +457,8 @@ interface State {
   newChat: () => string;
   createProject: (name: string, mode: "chat" | "terminal") => string;
   assignProfileToProject: (profileName: string, toolset: BrowserToolset, projectId?: string) => void;
+  setProfileChatOwner: (profileName: string, conversationId?: string) => void;
+  moveProfileToWorkspace: (profileName: string, workspaceId: string) => Promise<void>;
   reorderProfileInProject: (projectId: string, profileName: string, beforeProfileName: string) => void;
   createNamedChat: (agentId: string, title: string) => string;
   selectConversation: (id: string) => void;
@@ -1152,7 +1156,7 @@ export const useStore = create<State>((set, get) => {
               text = text ? `${text}\n[stopped]` : "[stopped]";
             } else if (code !== 0 && m.status === "streaming") {
               status = "failed";
-              const message = internalError(`${agentById(agentId).name} stopped unexpectedly.`);
+              const message = internalError(`${agentById(agentId).name} stopped unexpectedly.`, "AGENT_STOPPED_UNEXPECTEDLY");
               text = text ? `${text}\n${message}` : message;
             } else if (m.status === "streaming") {
               status = "done";
@@ -1200,11 +1204,13 @@ export const useStore = create<State>((set, get) => {
     void get().tickNextctlDailyUpdate();
 
     try {
-      if (authenticated && !pendingTarget(get(), "vps")) {
-        await get().syncProjects().catch(() => {});
-        await get().refreshAll();
-      }
-      await get().authorizeAgent({ deferMissingNextctlPrompt: true });
+      const refreshWorkspace = authenticated && !pendingTarget(get(), "vps")
+        ? get().syncProjects().catch(() => {}).then(() => get().refreshAll())
+        : Promise.resolve();
+      await Promise.all([
+        refreshWorkspace,
+        get().authorizeAgent({ deferMissingNextctlPrompt: true }),
+      ]);
       if (!hasCompletedCurrentOnboarding(localStorage)) {
         set({ showOnboarding: true });
       }
@@ -1386,7 +1392,7 @@ export const useStore = create<State>((set, get) => {
             return {
               ...m,
               status: "failed" as const,
-              text: internalError("We couldn't restore this queued message."),
+              text: internalError("We couldn't restore this queued message.", "QUEUED_MESSAGE_RESTORE_FAILED"),
             };
           }
           return m;
@@ -1504,11 +1510,14 @@ export const useStore = create<State>((set, get) => {
     });
     if (item.executionTarget === "local") get().startSessionPoll();
 
+    const conversationWorkspaceId = get().conversations.find((conversation) => conversation.id === item.conversationId)?.workspaceId;
     const prompt = composePrompt(
       get().conversations,
       item.conversationId,
       item.replyId,
-      item.rawText + privateSkillContext(get().localSkills, item.rawText),
+      item.rawText
+        + privateSkillContext(get().localSkills, item.rawText)
+        + browserProfileContext(get().workspaces, conversationWorkspaceId, get().selectedProfile),
       get().selectedProfile,
       { nextctlAvailable: get().nextctlAvailable, executionTarget: item.executionTarget },
     );
@@ -1557,7 +1566,7 @@ export const useStore = create<State>((set, get) => {
       get().appendToMessage(
         item.conversationId,
         item.replyId,
-        `\n${internalError("We couldn't start the agent.")}`,
+        `\n${internalError("We couldn't start the agent.", "AGENT_START_FAILED")}`,
       );
       get().setMessageStatus(item.conversationId, item.replyId, "failed");
       trackEvent("agent_turn_spawn_failed", { agent: agentId });
@@ -1733,7 +1742,7 @@ export const useStore = create<State>((set, get) => {
       trackEvent("login", { method: "dashboard_key" });
       trackTiming("dashboard_key_save_succeeded", startedAt);
     } catch {
-      set({ loginError: internalError("We couldn't connect your account.") });
+      set({ loginError: internalError("We couldn't connect your account.", "ACCOUNT_CONNECT_FAILED") });
       trackTiming("dashboard_key_save_failed", startedAt);
     } finally {
       set({ isLoggingIn: false });
@@ -1763,7 +1772,7 @@ export const useStore = create<State>((set, get) => {
       await invoke<null>("open_external", { url: verificationUrl });
       trackTiming("account_pairing_opened", startedAt);
     } catch {
-      set({ loginError: internalError("We couldn't start browser sign-in.") });
+      set({ loginError: internalError("We couldn't start browser sign-in.", "ACCOUNT_SIGN_IN_START_FAILED") });
       trackTiming("account_pairing_failed", startedAt);
     } finally {
       set({ isLoggingIn: false });
@@ -1803,7 +1812,7 @@ export const useStore = create<State>((set, get) => {
         set({ loginError: result.status === "expired" ? "The sign-in request expired. Start again." : "The sign-in request was rejected." });
       }
     } catch {
-      set({ loginError: internalError("We couldn't finish browser sign-in.") });
+      set({ loginError: internalError("We couldn't finish browser sign-in.", "ACCOUNT_SIGN_IN_FINISH_FAILED") });
     } finally {
       set({ isLoggingIn: false });
     }
@@ -2313,15 +2322,17 @@ export const useStore = create<State>((set, get) => {
     const a = agentById(agentId);
     trackEvent("agent_connect_started", { agent: agentId });
     try {
-      const version = await invoke<string>("agent_authorize", {
-        binary: a.binary,
-        envVar: a.envVar,
-      });
-      const loggedIn = (await invoke<boolean | null>("agent_check_login", {
-        binary: a.binary,
-        envVar: a.envVar,
-        statusArgs: a.statusArgs ?? [],
-      })) as boolean | null;
+      const [version, loggedIn] = await Promise.all([
+        invoke<string>("agent_authorize", {
+          binary: a.binary,
+          envVar: a.envVar,
+        }),
+        invoke<boolean | null>("agent_check_login", {
+          binary: a.binary,
+          envVar: a.envVar,
+          statusArgs: a.statusArgs ?? [],
+        }),
+      ]);
       set((s) => ({
         runtime: {
           ...s.runtime,
@@ -2379,7 +2390,7 @@ export const useStore = create<State>((set, get) => {
             ...s.runtime[agentId],
             ready: false,
             authorizing: false,
-            error: missingInstall ?? internalError(`We couldn't connect ${a.name}.`),
+            error: missingInstall ?? internalError(`We couldn't connect ${a.name}.`, "AGENT_CONNECT_FAILED"),
           },
         },
       }));
@@ -2468,7 +2479,7 @@ export const useStore = create<State>((set, get) => {
       set((s) => ({
         runtime: {
           ...s.runtime,
-          [agentId]: { ...s.runtime[agentId], error: internalError(`We couldn't open ${a.name} sign-in.`) },
+          [agentId]: { ...s.runtime[agentId], error: internalError(`We couldn't open ${a.name} sign-in.`, "AGENT_SIGN_IN_OPEN_FAILED") },
         },
       }));
     }
@@ -2527,7 +2538,7 @@ export const useStore = create<State>((set, get) => {
       set((s) => ({
         runtime: {
           ...s.runtime,
-          [agentId]: { ...s.runtime[agentId], error: internalError(`We couldn't open ${a.name} sign-out.`) },
+          [agentId]: { ...s.runtime[agentId], error: internalError(`We couldn't open ${a.name} sign-out.`, "AGENT_SIGN_OUT_OPEN_FAILED") },
         },
       }));
     }
@@ -2638,7 +2649,7 @@ export const useStore = create<State>((set, get) => {
         set({ nextctlUpdateStatus: undefined });
         trackEvent("nextctl_update_not_available");
       } else {
-        set({ nextctlUpdateStatus: internalError("We couldn't update the NextBrowser component.") });
+        set({ nextctlUpdateStatus: internalError("We couldn't update the NextBrowser component.", "NEXTCTL_UPDATE_FAILED") });
         trackEvent("nextctl_update_failed", { exit_code: res.code });
       }
       if (pendingTarget(get(), "vps")) return true;
@@ -2651,7 +2662,7 @@ export const useStore = create<State>((set, get) => {
       return true;
     } catch {
       set({
-        nextctlUpdateStatus: internalError("We couldn't update the NextBrowser component."),
+        nextctlUpdateStatus: internalError("We couldn't update the NextBrowser component.", "NEXTCTL_UPDATE_FAILED"),
         nextctlAvailable: false,
       });
       trackTiming("nextctl_update_failed", startedAt);
@@ -2914,6 +2925,11 @@ export const useStore = create<State>((set, get) => {
       )?.profileToolsets?.[profileName];
       const fixedToolset = existingToolset ?? toolset;
       const workspaces = state.workspaces.map((workspace) => {
+        if (workspace.id === targetId && workspace.profileNames.includes(profileName)) {
+          return workspace.profileToolsets[profileName]
+            ? workspace
+            : { ...workspace, profileToolsets: { ...workspace.profileToolsets, [profileName]: fixedToolset }, updatedAt: now() };
+        }
         const withoutProfile = workspace.profileNames.filter((name) => name !== profileName);
         const toolsets = { ...workspace.profileToolsets };
         delete toolsets[profileName];
@@ -2930,6 +2946,35 @@ export const useStore = create<State>((set, get) => {
       void saveJson("workspaces.json", workspaces).then(() => get().syncProjects()).catch(() => {});
       return { workspaces };
     });
+  },
+
+  setProfileChatOwner: (profileName, conversationId) => set((state) => {
+    const profileChatOwners = { ...state.profileChatOwners };
+    if (conversationId) profileChatOwners[profileName] = conversationId;
+    else delete profileChatOwners[profileName];
+    return { profileChatOwners };
+  }),
+
+  moveProfileToWorkspace: async (profileName, workspaceId) => {
+    const state = get();
+    if (state.projectsSyncing) throw new Error("Workspace sync is still in progress.");
+    const status = state.statuses[profileName] ?? state.profileSessions[profileName]?.status ?? "stopped";
+    if (["running", "starting", "stopping", "rotating"].includes(status)) {
+      throw new Error("Stop the profile before moving it to another workspace.");
+    }
+    const previous = state.workspaces;
+    const workspaces = moveProfileBetweenWorkspaces(previous, profileName, workspaceId, now());
+    if (workspaces === previous) return;
+    await saveJson("workspaces.json", workspaces);
+    set({ workspaces });
+    try {
+      await get().syncProjects();
+      trackEvent("profile_workspace_changed", { profile: profileName, workspace_id: workspaceId });
+    } catch (error) {
+      await saveJson("workspaces.json", previous);
+      set({ workspaces: previous });
+      throw error;
+    }
   },
 
   reorderProfileInProject: (projectId, profileName, beforeProfileName) => {
@@ -3305,7 +3350,7 @@ export const useStore = create<State>((set, get) => {
       set((s) => ({
         skillState: {
           ...s.skillState,
-          [skillKey(get().agentId, `${entry.id}:error`)]: internalError("We couldn't prepare skills."),
+          [skillKey(get().agentId, `${entry.id}:error`)]: internalError("We couldn't prepare skills.", "SKILLS_PREPARE_FAILED"),
         },
       }));
       return undefined;
@@ -3340,7 +3385,7 @@ export const useStore = create<State>((set, get) => {
       }
     }
     if (!activeRef && !anyRef && failures > 0) {
-      const message = internalError("We couldn't install this skill.");
+      const message = internalError("We couldn't install this skill.", "SKILL_INSTALL_FAILED");
       set((s) => ({
         skillState: {
           ...s.skillState,
@@ -3405,7 +3450,7 @@ export const useStore = create<State>((set, get) => {
       const errMsg: ChatMessage = {
         id: uid(),
         role: "system",
-        text: internalError(`We couldn't apply "${entry.title}".`),
+        text: internalError(`We couldn't apply "${entry.title}".`, "SKILL_APPLY_FAILED"),
         status: "done",
         createdAt: now(),
       };
@@ -3526,7 +3571,7 @@ export const useStore = create<State>((set, get) => {
           result = `✓ Ran "${entry.title}" on ${on}.`;
           trackEvent("script_run_completed", { script_type: "local_eval", has_host: !!onHost });
         } else {
-          result = internalError(`We couldn't run "${entry.title}".`);
+          result = internalError(`We couldn't run "${entry.title}".`, "SCRIPT_RUN_FAILED");
           trackEvent("script_run_failed", { script_type: "local_eval", exit_code: res.code });
         }
         const resultMsg: ChatMessage = {
@@ -3548,7 +3593,7 @@ export const useStore = create<State>((set, get) => {
         const errMsg: ChatMessage = {
           id: uid(),
           role: "system",
-          text: internalError(`We couldn't run "${entry.title}".`),
+          text: internalError(`We couldn't run "${entry.title}".`, "SCRIPT_RUN_FAILED"),
           status: "done",
           createdAt: now(),
         };
@@ -3576,7 +3621,7 @@ export const useStore = create<State>((set, get) => {
       const errMsg: ChatMessage = {
         id: uid(),
         role: "system",
-        text: internalError(`We couldn't prepare "${entry.title}".`),
+        text: internalError(`We couldn't prepare "${entry.title}".`, "SKILL_PREPARE_FAILED"),
         status: "done",
         createdAt: now(),
       };

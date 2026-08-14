@@ -30,6 +30,7 @@ import {
   type DistilledWorkflow,
 } from "../lib/workflowDistillation";
 import { chatToTerminalHandoff, terminalToChatHandoff } from "../lib/contextHandoff";
+import { browserProfileContext } from "../lib/browserProfileContext";
 
 async function authorWorkflowWithAgent(agent: AgentSpec, workingDir: string, fallback: DistilledWorkflow): Promise<DistilledWorkflow | undefined> {
   const prompt = workflowDistillationPrompt(fallback);
@@ -346,6 +347,21 @@ export function ChatView() {
               agentName={agentName}
               conversationId={conv?.id}
               workingDir={s.workingDir}
+              browserContext={browserProfileContext(s.workspaces, conv?.workspaceId, s.selectedProfile)}
+              browserProfiles={(s.workspaces.find((workspace) => workspace.id === conv?.workspaceId)?.profileNames ?? []).map((name) => ({
+                name,
+                runtime: s.workspaces.find((workspace) => workspace.id === conv?.workspaceId)?.profileToolsets[name] ?? "clawbrowser",
+                running: s.statuses[name] === "running",
+                ownerConversationId: s.profileChatOwners[name],
+              }))}
+              onProfileStarted={(profile) => {
+                if (conv?.id) s.setProfileChatOwner(profile, conv.id);
+                void s.loadProfiles();
+              }}
+              onProfileStopped={(profile) => {
+                s.setProfileChatOwner(profile, undefined);
+                void s.loadProfiles();
+              }}
               savingWorkflow={preparingWorkflowId === "terminal"}
               pendingHandoff={terminalHandoff}
               handoffToChatRequest={terminalToChatRequest}

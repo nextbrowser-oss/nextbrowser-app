@@ -209,7 +209,7 @@ export function UsageView() {
     } catch {
       setTopUpNotice({
         tone: "error",
-        message: internalError("We couldn't add proxy traffic."),
+        message: internalError("We couldn't add proxy traffic.", "PROXY_TRAFFIC_TOP_UP_FAILED"),
       });
       trackEvent("proxy_top_up_failed", analyticsParams);
     } finally {

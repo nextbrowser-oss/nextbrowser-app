@@ -7,7 +7,7 @@ import { UserFacingError } from "./UserFacingError";
 describe("UserFacingError", () => {
   it("renders internal support as a clickable Discord link", () => {
     const html = renderToStaticMarkup(
-      <UserFacingError message={internalError("We couldn't finish the action.")} surface="test" />,
+      <UserFacingError message={internalError("We couldn't finish the action.", "ACTION_FAILED")} surface="test" />,
     );
 
     expect(html).toContain(`href="${discordUrl}"`);

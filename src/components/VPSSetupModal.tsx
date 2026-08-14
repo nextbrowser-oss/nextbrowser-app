@@ -57,7 +57,7 @@ function submitErrorMessage(error: unknown): string {
     || message === "The agent is still connecting. Wait a moment and try again."
     || needsSupportLink(message)
   ) return message;
-  return internalError("We couldn't start the VPS task.");
+  return internalError("We couldn't start the VPS task.", "VPS_TASK_START_FAILED");
 }
 
 function connectionLabel(connection: VPSConnection): string {
@@ -187,7 +187,7 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
         await loadHosts(paths);
       } catch {
         if (cancelled) return;
-        setError(internalError("We couldn't load your SSH connections."));
+        setError(internalError("We couldn't load your SSH connections.", "SSH_CONNECTIONS_LOAD_FAILED"));
         setLoading(false);
       }
     };
@@ -308,7 +308,7 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
       await loadHosts(paths);
       setMode("hosts");
     } catch {
-      setError(internalError("We couldn't add the SSH configuration."));
+      setError(internalError("We couldn't add the SSH configuration.", "SSH_CONFIG_ADD_FAILED"));
     } finally {
       configMutationRef.current = false;
       setConfigMutation(null);
@@ -326,7 +326,7 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
       updateCustomPaths(paths);
       await loadHosts(paths);
     } catch {
-      setError(internalError("We couldn't remove the SSH configuration."));
+      setError(internalError("We couldn't remove the SSH configuration.", "SSH_CONFIG_REMOVE_FAILED"));
     } finally {
       configMutationRef.current = false;
       setConfigMutation(null);

@@ -10,6 +10,8 @@ interface AgentTerminalProps {
   agentName: string;
   conversationId?: string;
   workingDir?: string;
+  browserContext?: string;
+  browserProfiles?: Array<{ name: string; runtime: "clawbrowser" | "dasbrowser"; running: boolean; ownerConversationId?: string }>;
   savingWorkflow?: boolean;
   pendingHandoff?: { id: string; text: string };
   handoffToChatRequest?: string;
@@ -17,6 +19,8 @@ interface AgentTerminalProps {
   onContinueInChat: (transcript: string) => void;
   onHandoffConsumed: (id: string) => void;
   onChatHandoffConsumed: (id: string) => void;
+  onProfileStarted?: (profile: string) => void;
+  onProfileStopped?: (profile: string) => void;
 }
 
 const DARK_TERMINAL_THEME = {
@@ -81,7 +85,7 @@ function handoffFingerprint(value: string): string {
     .trim();
 }
 
-export function AgentTerminal({ agentId, agentName, conversationId, workingDir, savingWorkflow, pendingHandoff, handoffToChatRequest, onSaveWorkflow, onContinueInChat, onHandoffConsumed, onChatHandoffConsumed }: AgentTerminalProps) {
+export function AgentTerminal({ agentId, agentName, conversationId, workingDir, browserContext, browserProfiles, savingWorkflow, pendingHandoff, handoffToChatRequest, onSaveWorkflow, onContinueInChat, onHandoffConsumed, onChatHandoffConsumed, onProfileStarted, onProfileStopped }: AgentTerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalIdRef = useRef<string>();
   const terminalRef = useRef<Terminal>();
@@ -91,10 +95,14 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
   const onContinueInChatRef = useRef(onContinueInChat);
   const onHandoffConsumedRef = useRef(onHandoffConsumed);
   const onChatHandoffConsumedRef = useRef(onChatHandoffConsumed);
+  const onProfileStartedRef = useRef(onProfileStarted);
+  const onProfileStoppedRef = useRef(onProfileStopped);
   const lastTerminalHandoffRef = useRef("");
   onContinueInChatRef.current = onContinueInChat;
   onHandoffConsumedRef.current = onHandoffConsumed;
   onChatHandoffConsumedRef.current = onChatHandoffConsumed;
+  onProfileStartedRef.current = onProfileStarted;
+  onProfileStoppedRef.current = onProfileStopped;
 
   const transcript = () => {
     const terminal = terminalRef.current;
@@ -121,6 +129,8 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
     let disposed = false;
     let removeData: (() => void) | undefined;
     let removeExit: (() => void) | undefined;
+    let removeProfileStarted: (() => void) | undefined;
+    let removeProfileStopped: (() => void) | undefined;
     let lastEscapeAt = 0;
 
     const terminal = new Terminal({
@@ -139,6 +149,11 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
     terminal.loadAddon(fit);
     terminal.open(host);
     terminalRef.current = terminal;
+    const showContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+      void invoke("terminal_context_menu", { text: terminal.getSelection() });
+    };
+    host.addEventListener("contextmenu", showContextMenu);
     terminal.attachCustomKeyEventHandler((event) => {
       if (event.key === "Enter" && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
         event.preventDefault();
@@ -205,9 +220,18 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
         terminal.write(`\r\n\x1b[90mProcess exited (${exitCode}).\x1b[0m\r\n`);
         setStatus("exited");
       });
+      removeProfileStarted = await listen<[string, string]>("profile:host-started", ({ payload: [profile, ownerId] }) => {
+        if (ownerId === conversationId) onProfileStartedRef.current?.(profile);
+      });
+      removeProfileStopped = await listen<[string, string]>("profile:host-stopped", ({ payload: [profile, ownerId] }) => {
+        if (ownerId === conversationId) onProfileStoppedRef.current?.(profile);
+      });
       const id = await invoke<string>("terminal_start", {
         agentId,
+        conversationId: conversationId || "",
         workingDir: workingDir || null,
+        browserContext: browserContext || "",
+        browserProfiles: browserProfiles || [],
         cols: terminal.cols,
         rows: terminal.rows,
       });
@@ -233,10 +257,13 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
     return () => {
       disposed = true;
       observer.disconnect();
+      host.removeEventListener("contextmenu", showContextMenu);
       themeObserver.disconnect();
       input.dispose();
       removeData?.();
       removeExit?.();
+      removeProfileStarted?.();
+      removeProfileStopped?.();
       const id = terminalIdRef.current;
       terminalIdRef.current = undefined;
       terminalRef.current = undefined;

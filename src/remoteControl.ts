@@ -275,9 +275,9 @@ export class RemoteControlClient {
       else await this.pc.addIceCandidate(candidate);
       return;
     }
-    if (message.type === "error") this.cb.onError?.(internalError("We couldn't connect Live View."));
+    if (message.type === "error") this.cb.onError?.(internalError("We couldn't connect Live View.", "LIVE_VIEW_CONNECT_FAILED"));
     if (message.type === "closed") {
-      this.cb.onError?.(internalError("The Live View session closed unexpectedly."));
+      this.cb.onError?.(internalError("The Live View session closed unexpectedly.", "LIVE_VIEW_SESSION_CLOSED"));
     }
   }
 
@@ -305,7 +305,7 @@ export class RemoteControlClient {
       return;
     }
     if (message.type === "tab_error") {
-      this.cb.onError?.(internalError("We couldn't switch browser tabs."));
+      this.cb.onError?.(internalError("We couldn't switch browser tabs.", "LIVE_VIEW_TAB_SWITCH_FAILED"));
       return;
     }
     if (message.type === "media_stats") this.cb.onMediaStats?.(message.payload || {});
