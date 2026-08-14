@@ -35,7 +35,7 @@ import { WorkspaceSetupGate } from "./components/WorkspaceSetupGate";
 import { AgentInstallLink } from "./components/AgentInstallLink";
 
 const TABS: { id: AppTab; label: string; icon?: string }[] = [
-  { id: "chat", label: "Project" },
+  { id: "chat", label: "Project", icon: "bubble.left.and.bubble.right.fill" },
   { id: "live", label: "Live", icon: "video.fill" },
 ];
 
