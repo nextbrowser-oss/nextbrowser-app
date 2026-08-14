@@ -54,6 +54,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileActionError, setProfileActionError] = useState<string | null>(null);
+  const [profileMoveError, setProfileMoveError] = useState<string | null>(null);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [workspaceCreatorOpen, setWorkspaceCreatorOpen] = useState(false);
   const [workspaceName, setWorkspaceName] = useState("");
@@ -137,6 +138,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const proxyCountries = s.proxyCountries.length ? s.proxyCountries : ROTATION_COUNTRIES;
 
   useEffect(() => {
+    setProfileMoveError(null);
     if (menuProfile) void s.loadProxyCountries().catch(() => {});
   }, [menuProfile]);
 
@@ -842,6 +844,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         const status = isDefaultProfile ? defaultStatus : s.statuses[menuProfile] ?? "unknown";
         const manual = prof?.proxy_mode === "manual" && prof.manual_proxy;
         const direct = prof?.proxy_mode === "direct";
+        const profileWorkspace = s.workspaces.find((workspace) => workspace.profileNames.includes(menuProfile));
+        const profileBusy = ["running", "starting", "stopping", "rotating"].includes(status);
         return (
           <div className="modal-overlay" onClick={() => setMenuProfile(null)}>
             <div className="modal-card profile-menu" onClick={(e) => e.stopPropagation()}>
@@ -896,6 +900,35 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       setMenuProfile(null);
                     }}
                   />
+                </>
+              )}
+
+              {!isDefaultProfile && profileWorkspace && (
+                <>
+                  <div className="section profile-menu-label">Workspace</div>
+                  <select
+                    className="profile-workspace-select"
+                    value={profileWorkspace.id}
+                    disabled={profileBusy || s.projectsSyncing || s.workspaces.length < 2}
+                    onChange={(event) => {
+                      const targetId = event.target.value;
+                      setProfileMoveError(null);
+                      void s.moveProfileToWorkspace(menuProfile, targetId)
+                        .then(() => setMenuProfile(null))
+                        .catch((error: unknown) => {
+                          const message = error instanceof Error && error.message.startsWith("Stop the profile")
+                            ? error.message
+                            : internalError("We couldn't move the profile.", "PROFILE_WORKSPACE_MOVE_FAILED");
+                          console.error("[PROFILE_WORKSPACE_MOVE_FAILED]", error);
+                          setProfileMoveError(message);
+                        });
+                    }}
+                  >
+                    {s.workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
+                  </select>
+                  {profileBusy && <div className="muted small profile-workspace-note">Stop the profile to move it.</div>}
+                  {!profileBusy && s.projectsSyncing && <div className="muted small profile-workspace-note">Syncing workspaces…</div>}
+                  {profileMoveError && <div className="error small profile-workspace-note">{profileMoveError}</div>}
                 </>
               )}
 

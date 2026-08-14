@@ -42,6 +42,7 @@ import { loadJson, saveJson } from "./lib/storage";
 import { apiBaseUrl } from "./constants";
 import { accountLoginURL } from "./lib/accountAuth";
 import { requiresWorkspaceSetup } from "./lib/workspaceSetup";
+import { moveProfileToWorkspace as moveProfileBetweenWorkspaces } from "./lib/workspaceProfiles";
 import {
   normalizeConversation,
   normalizeWorkflowSkill,
@@ -455,6 +456,7 @@ interface State {
   newChat: () => string;
   createProject: (name: string, mode: "chat" | "terminal") => string;
   assignProfileToProject: (profileName: string, toolset: BrowserToolset, projectId?: string) => void;
+  moveProfileToWorkspace: (profileName: string, workspaceId: string) => Promise<void>;
   reorderProfileInProject: (projectId: string, profileName: string, beforeProfileName: string) => void;
   createNamedChat: (agentId: string, title: string) => string;
   selectConversation: (id: string) => void;
@@ -2930,6 +2932,28 @@ export const useStore = create<State>((set, get) => {
       void saveJson("workspaces.json", workspaces).then(() => get().syncProjects()).catch(() => {});
       return { workspaces };
     });
+  },
+
+  moveProfileToWorkspace: async (profileName, workspaceId) => {
+    const state = get();
+    if (state.projectsSyncing) throw new Error("Workspace sync is still in progress.");
+    const status = state.statuses[profileName] ?? state.profileSessions[profileName]?.status ?? "stopped";
+    if (["running", "starting", "stopping", "rotating"].includes(status)) {
+      throw new Error("Stop the profile before moving it to another workspace.");
+    }
+    const previous = state.workspaces;
+    const workspaces = moveProfileBetweenWorkspaces(previous, profileName, workspaceId, now());
+    if (workspaces === previous) return;
+    await saveJson("workspaces.json", workspaces);
+    set({ workspaces });
+    try {
+      await get().syncProjects();
+      trackEvent("profile_workspace_changed", { profile: profileName, workspace_id: workspaceId });
+    } catch (error) {
+      await saveJson("workspaces.json", previous);
+      set({ workspaces: previous });
+      throw error;
+    }
   },
 
   reorderProfileInProject: (projectId, profileName, beforeProfileName) => {
