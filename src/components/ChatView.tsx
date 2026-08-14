@@ -347,7 +347,7 @@ export function ChatView() {
               agentName={agentName}
               conversationId={conv?.id}
               workingDir={s.workingDir}
-              browserContext={browserProfileContext(s.workspaces, s.activeWorkspaceId, s.selectedProfile)}
+              browserContext={browserProfileContext(s.workspaces, conv?.workspaceId, s.selectedProfile)}
               savingWorkflow={preparingWorkflowId === "terminal"}
               pendingHandoff={terminalHandoff}
               handoffToChatRequest={terminalToChatRequest}

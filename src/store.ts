@@ -1507,13 +1507,14 @@ export const useStore = create<State>((set, get) => {
     });
     if (item.executionTarget === "local") get().startSessionPoll();
 
+    const conversationWorkspaceId = get().conversations.find((conversation) => conversation.id === item.conversationId)?.workspaceId;
     const prompt = composePrompt(
       get().conversations,
       item.conversationId,
       item.replyId,
       item.rawText
         + privateSkillContext(get().localSkills, item.rawText)
-        + browserProfileContext(get().workspaces, get().activeWorkspaceId, get().selectedProfile),
+        + browserProfileContext(get().workspaces, conversationWorkspaceId, get().selectedProfile),
       get().selectedProfile,
       { nextctlAvailable: get().nextctlAvailable, executionTarget: item.executionTarget },
     );
