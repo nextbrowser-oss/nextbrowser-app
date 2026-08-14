@@ -156,6 +156,7 @@ function nextbrowserRuntimeRoot() {
 }
 function childEnv(extra = {}) {
   const runtimeRoot = nextbrowserRuntimeRoot();
+  const commandPaths = [managedNextctlRoot(), ...searchDirs()];
   const dasbrowserBin = resolveDasbrowserRuntime({
     platform: process.platform,
     homeDir: home(),
@@ -164,7 +165,9 @@ function childEnv(extra = {}) {
   });
   return {
     ...process.env,
-    PATH: searchDirs().join(path.delimiter),
+    // The managed CLI is intentionally outside the user's global PATH. Agent
+    // terminals still need to resolve `nextctl` exactly like app-owned calls.
+    PATH: [...new Set(commandPaths)].join(path.delimiter),
     NEXTBROWSER_CONFIG_DIR: path.join(runtimeRoot, "config"),
     CLAWBROWSER_CACHE_DIR: path.join(runtimeRoot, "cache"),
     CLAWBROWSER_DATA_DIR: path.join(runtimeRoot, "data"),

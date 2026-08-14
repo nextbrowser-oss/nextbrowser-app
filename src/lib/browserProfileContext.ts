@@ -18,5 +18,5 @@ export function browserProfileContext(
   });
   if (!profiles.length) return "";
 
-  return `\n\nNextBrowser profile runtime context for this chat's workspace (authoritative; do not infer runtime from MCP or nextctl profile metadata):\n${profiles.join("\n")}\nOnly use profiles listed above. Profiles from other workspaces are outside this chat's scope. Use Clawbrowser MCP only for ClawBrowser profiles. A DasBrowser profile is not a Clawbrowser profile. For DasBrowser, start it through nextctl as Chromium with the executable from DASBROWSER_BIN; do not call clawbrowser.start for it.`;
+  return `\n\nNextBrowser profile runtime context for this chat's workspace (authoritative; do not infer runtime from MCP or nextctl profile metadata):\n${profiles.join("\n")}\nOnly use profiles listed above. Profiles from other workspaces are outside this chat's scope. Use Clawbrowser MCP only for ClawBrowser profiles. A DasBrowser profile is not a Clawbrowser profile. For DasBrowser, never call clawbrowser.start and never run a bare nextctl start. Its start command must include --runtime chromium and --runtime-bin set to the executable path in DASBROWSER_BIN.`;
 }
