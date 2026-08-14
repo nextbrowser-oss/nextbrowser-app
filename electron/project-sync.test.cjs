@@ -28,5 +28,5 @@ test("syncs projects with the private backend key", async (t) => {
 });
 
 test("uses the same default backend as cloud skills", () => {
-  assert.equal(entityBackendURL({}), "https://51-15-201-29.sslip.io");
+  assert.equal(entityBackendURL({}), "https://core.nextbrowser.com");
 });

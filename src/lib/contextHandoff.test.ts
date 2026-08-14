@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { chatToTerminalHandoff, terminalToChatHandoff } from "./contextHandoff";
+import {
+  chatPromptWithDeferredContext,
+  chatToTerminalHandoff,
+  terminalInputWithDeferredContext,
+  terminalToChatHandoff,
+} from "./contextHandoff";
 
 describe("chat context handoff", () => {
   it("keeps recent terminal context and active profile", () => {
@@ -48,5 +53,29 @@ describe("chat context handoff", () => {
     expect(result).toContain("Find Matiz under 3000 EUR");
     expect(result).not.toContain("Technical fast path");
     expect(result).not.toContain("Use my local browser skill");
+  });
+
+  it("attaches terminal context only when a new chat message is sent", () => {
+    expect(chatPromptWithDeferredContext(undefined, "Continue")).toBeUndefined();
+    expect(chatPromptWithDeferredContext("Recent terminal context", "Continue")).toBe(
+      "Recent terminal context\n\nNew user message:\nContinue",
+    );
+  });
+
+  it("does not inject chat context on terminal navigation keys", () => {
+    expect(terminalInputWithDeferredContext("Recent chat context", "\u001b[A")).toEqual({
+      data: "\u001b[A",
+      consumed: false,
+      userInput: false,
+    });
+  });
+
+  it("prepends chat context to the first terminal message without submitting it", () => {
+    const result = terminalInputWithDeferredContext("Recent chat context", "H");
+    expect(result).toMatchObject({ consumed: true, userInput: true });
+    expect(result.data).toContain("Recent chat context");
+    expect(result.data).toContain("New user message:\n");
+    expect(result.data.endsWith("H")).toBe(true);
+    expect(result.data.endsWith("\r")).toBe(false);
   });
 });

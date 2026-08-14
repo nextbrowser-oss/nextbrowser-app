@@ -3,7 +3,7 @@ const { loadBackendConfig } = require("./proxy-traffic.cjs");
 const REQUEST_TIMEOUT_MS = 30_000;
 // Workspaces and projects live in the same service as the cloud skill registry.
 // Keep the same override and default used by nextctl's skill commands.
-const DEFAULT_SKILL_SERVICE_URL = "https://51-15-201-29.sslip.io";
+const DEFAULT_SKILL_SERVICE_URL = "https://core.nextbrowser.com";
 
 function entityBackendURL(env = process.env) {
   const raw = String(env.CLAWCTL_SKILL_SERVICE || DEFAULT_SKILL_SERVICE_URL).trim();

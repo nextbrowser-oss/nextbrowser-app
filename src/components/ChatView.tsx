@@ -29,7 +29,7 @@ import {
   workflowDistillationPrompt,
   type DistilledWorkflow,
 } from "../lib/workflowDistillation";
-import { chatToTerminalHandoff, terminalToChatHandoff } from "../lib/contextHandoff";
+import { chatPromptWithDeferredContext, chatToTerminalHandoff, terminalToChatHandoff } from "../lib/contextHandoff";
 import { browserProfileContext } from "../lib/browserProfileContext";
 
 async function authorWorkflowWithAgent(agent: AgentSpec, workingDir: string, fallback: DistilledWorkflow): Promise<DistilledWorkflow | undefined> {
@@ -114,6 +114,7 @@ export function ChatView() {
   const [terminalMounted, setTerminalMounted] = useState(s.terminalChat);
   const [terminalHandoff, setTerminalHandoff] = useState<{ id: string; text: string }>();
   const [terminalToChatRequest, setTerminalToChatRequest] = useState<string>();
+  const [pendingTerminalContext, setPendingTerminalContext] = useState<{ conversationId: string; text: string }>();
 
   useEffect(() => {
     const openProjectCreator = () => {
@@ -128,19 +129,24 @@ export function ChatView() {
   const chatMessagesSharedWithTerminal = useRef(new Map<string, number>());
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const conversationKey = `${agentId}:${conv?.id ?? "new"}`;
+
+  useEffect(() => {
+    setTerminalHandoff(undefined);
+    setTerminalToChatRequest(undefined);
+    setPendingTerminalContext(undefined);
+  }, [conv?.id]);
 
   useEffect(() => {
     const wasTerminalChat = previousTerminalChat.current;
     previousTerminalChat.current = s.terminalChat;
     if (s.terminalChat) {
       setTerminalMounted(true);
-      const conversationKey = `${agentId}:${conv?.id ?? "new"}`;
       const sharedCount = chatMessagesSharedWithTerminal.current.get(conversationKey) ?? 0;
       if (!wasTerminalChat && messages.length > sharedCount) {
         // Only send messages created since the previous handoff. Replaying the
         // whole conversation can make an agent execute an already-finished task.
         setTerminalHandoff({ id: uid(), text: chatToTerminalHandoff(messages.slice(sharedCount), s.selectedProfile) });
-        chatMessagesSharedWithTerminal.current.set(conversationKey, messages.length);
       }
       return;
     }
@@ -172,9 +178,15 @@ export function ChatView() {
   const send = () => {
     const t = draft.trim();
     if (!t && attachments.length === 0) return;
+    const visiblePrompt = t || "Please inspect the attached file(s).";
+    const deferredContext = pendingTerminalContext && pendingTerminalContext.conversationId === conv?.id
+      ? pendingTerminalContext.text
+      : undefined;
+    const agentPrompt = chatPromptWithDeferredContext(deferredContext, visiblePrompt);
     setDraft("");
     setGuideDraftLoaded(false);
-    s.enqueue(t || "Please inspect the attached file(s).", undefined, undefined, attachments);
+    setPendingTerminalContext(undefined);
+    s.enqueue(visiblePrompt, undefined, undefined, attachments, agentPrompt);
     setAttachments([]);
   };
 
@@ -303,15 +315,6 @@ export function ChatView() {
           )}
           <div className="chat-mode-toggle" role="group" aria-label="Project chat mode">
             <button
-              className={!s.terminalChat ? "active" : ""}
-              aria-pressed={!s.terminalChat}
-              title="Open regular chat"
-              onClick={() => s.setTerminalChat(false)}
-            >
-              <Icon name="bubble.left.and.bubble.right.fill" size={12} />
-              Chat
-            </button>
-            <button
               className={s.terminalChat ? "active" : ""}
               aria-pressed={s.terminalChat}
               title="Open terminal chat"
@@ -319,6 +322,15 @@ export function ChatView() {
             >
               <Icon name="terminal" size={12} />
               Terminal
+            </button>
+            <button
+              className={!s.terminalChat ? "active" : ""}
+              aria-pressed={!s.terminalChat}
+              title="Open regular chat"
+              onClick={() => s.setTerminalChat(false)}
+            >
+              <Icon name="bubble.left.and.bubble.right.fill" size={12} />
+              Chat
             </button>
           </div>
           {!remoteOnly && s.selectedProfile && (
@@ -365,13 +377,14 @@ export function ChatView() {
               savingWorkflow={preparingWorkflowId === "terminal"}
               pendingHandoff={terminalHandoff}
               handoffToChatRequest={terminalToChatRequest}
-              onHandoffConsumed={(id) => setTerminalHandoff((current) => current?.id === id ? undefined : current)}
+              onHandoffConsumed={(id) => {
+                setTerminalHandoff((current) => current?.id === id ? undefined : current);
+                chatMessagesSharedWithTerminal.current.set(conversationKey, messages.length);
+              }}
               onChatHandoffConsumed={(id) => setTerminalToChatRequest((current) => current === id ? undefined : current)}
               onContinueInChat={(transcript) => {
                 const handoff = terminalToChatHandoff(transcript, s.selectedProfile);
-                setDraft("");
-                setGuideDraftLoaded(false);
-                s.enqueue(handoff);
+                if (conv?.id) setPendingTerminalContext({ conversationId: conv.id, text: handoff });
               }}
               onSaveWorkflow={(transcript) => {
                 const answer = {

@@ -1809,8 +1809,8 @@ button, input, textarea, select { color: var(--text); }
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
-  min-width: 68px;
+  gap: 5px;
+  min-width: 0;
   flex: 0 0 auto;
 }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
@@ -1818,17 +1818,20 @@ button, input, textarea, select { color: var(--text); }
 .dot.orange { background: var(--warn); }
 .dot.gray { background: var(--surface-8); }
 .profile-actions {
-  width: 72px;
-  flex: 0 0 72px;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
+  gap: 5px;
+  margin-left: 3px;
+  padding-left: 7px;
+  border-left: 1px solid var(--line);
 }
 .profile-actions .plain-icon-btn {
-  min-width: 24px;
+  width: 28px;
+  min-width: 28px;
   min-height: 28px;
-  padding: 4px;
+  padding: 3px;
 }
 .profile-actions .plain-icon-btn[data-tooltip] {
   position: relative;
@@ -2958,6 +2961,75 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   border-color: rgba(255, 255, 255, 0.10);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.52), 0 1px 0 rgba(255, 255, 255, 0.04) inset;
 }
+.browser-install-overlay {
+  position: fixed;
+  top: 74px;
+  right: 18px;
+  z-index: 1000;
+  width: min(380px, calc(100vw - 36px));
+  pointer-events: none;
+  animation: browser-install-enter 180ms ease-out both;
+}
+.browser-install-modal {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px 14px;
+  width: 100%;
+  min-width: 0;
+  padding: 14px;
+  overflow: hidden;
+  box-shadow: 0 14px 42px color-mix(in srgb, var(--shadow) 65%, transparent);
+}
+.browser-install-mark {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.browser-install-copy { min-width: 0; }
+.browser-install-copy strong { font-size: 16px; }
+.browser-install-copy p { margin: 4px 0 0; line-height: 1.4; }
+.browser-install-progress {
+  grid-column: 1 / -1;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-4);
+}
+.browser-install-progress span {
+  display: block;
+  width: 42%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  animation: browser-install-progress 1.25s ease-in-out infinite;
+}
+.browser-install-note {
+  grid-column: 1 / -1;
+  margin: -2px 0 0;
+  font-size: 11px;
+  text-align: center;
+}
+@keyframes browser-install-progress {
+  from { transform: translateX(-120%); }
+  to { transform: translateX(340%); }
+}
+@keyframes browser-install-enter {
+  from { opacity: 0; transform: translateX(14px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@media (max-width: 560px) {
+  .browser-install-overlay {
+    top: auto;
+    right: 12px;
+    bottom: 12px;
+    width: calc(100vw - 24px);
+  }
+}
 .settings-modal {
   width: min(420px, calc(100vw - 32px));
 }
@@ -3320,6 +3392,40 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .profile-vps-option:hover { border-color: var(--line-strong); background: var(--surface-3); }
 .profile-vps-option span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .profile-vps-option small { color: var(--muted); font-size: 10px; font-weight: 450; }
+.profile-remote-section {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-2) 58%, transparent);
+}
+.profile-remote-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+.profile-remote-heading small {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--surface-4);
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 600;
+}
+.profile-vps-icon {
+  display: inline-grid !important;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--surface-4);
+}
 .vps-target-pill {
   display: inline-flex;
   align-items: center;
@@ -5270,6 +5376,39 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .project-mode-option span { display: flex; flex-direction: column; gap: 2px; }
 .project-mode-option small { color: var(--muted); }
 .profile-toolset-field { margin-top: 2px; }
+
+/* Keep profile creation choices visually grouped instead of presenting one
+   uninterrupted stack of controls. */
+.create-profile-modal {
+  width: min(380px, 100%);
+}
+.create-profile-modal > .profile-menu-head {
+  margin-bottom: 4px;
+}
+.create-profile-modal > .modal-field {
+  margin-top: 8px;
+}
+.create-profile-modal .profile-connection-field {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.create-profile-modal .profile-connection-field + .modal-field {
+  margin-top: 10px;
+}
+.create-profile-modal .profile-toolset-field {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.create-profile-modal .profile-remote-section + .profile-create-error,
+.create-profile-modal .profile-remote-section + .modal-actions {
+  margin-top: 14px;
+}
+.create-profile-modal .modal-actions {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
 
 .agent-gate-overlay {
   position: fixed;

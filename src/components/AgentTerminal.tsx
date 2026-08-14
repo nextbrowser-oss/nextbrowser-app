@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { invoke, listen } from "../electronBridge";
 import { Icon, Spinner } from "./Icon";
+import { terminalInputWithDeferredContext } from "../lib/contextHandoff";
 
 interface AgentTerminalProps {
   agentId: string;
@@ -98,11 +99,14 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
   const onProfileStartedRef = useRef(onProfileStarted);
   const onProfileStoppedRef = useRef(onProfileStopped);
   const lastTerminalHandoffRef = useRef("");
+  const pendingHandoffRef = useRef(pendingHandoff);
+  const userInputSinceChatHandoffRef = useRef(false);
   onContinueInChatRef.current = onContinueInChat;
   onHandoffConsumedRef.current = onHandoffConsumed;
   onChatHandoffConsumedRef.current = onChatHandoffConsumed;
   onProfileStartedRef.current = onProfileStarted;
   onProfileStoppedRef.current = onProfileStopped;
+  pendingHandoffRef.current = pendingHandoff;
 
   const transcript = () => {
     const terminal = terminalRef.current;
@@ -126,6 +130,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
     setStatus("starting");
     setError(undefined);
     lastTerminalHandoffRef.current = "";
+    userInputSinceChatHandoffRef.current = false;
     let disposed = false;
     let removeData: (() => void) | undefined;
     let removeExit: (() => void) | undefined;
@@ -208,7 +213,18 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
     });
     const input = terminal.onData((data) => {
       const id = terminalIdRef.current;
-      if (id) void invoke("terminal_input", { id, data });
+      if (!id) return;
+      const pending = pendingHandoffRef.current;
+      const deferred = terminalInputWithDeferredContext(pending?.text, data);
+      if (pending && deferred.consumed) {
+        pendingHandoffRef.current = undefined;
+        userInputSinceChatHandoffRef.current = true;
+        onHandoffConsumedRef.current(pending.id);
+        void invoke("terminal_input", { id, data: deferred.data });
+        return;
+      }
+      if (deferred.userInput) userInputSinceChatHandoffRef.current = true;
+      void invoke("terminal_input", { id, data });
     });
 
     void (async () => {
@@ -276,23 +292,18 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
   }, [agentId, conversationId, workingDir, restartNonce]);
 
   useEffect(() => {
-    const id = terminalIdRef.current;
-    if (!pendingHandoff || !id || status !== "running") return;
-    // Paste the complete multiline handoff, then submit it once so switching
-    // the Settings toggle continues the task without another user action.
-    void invoke("terminal_input", { id, data: `\x1b[200~${pendingHandoff.text}\x1b[201~\r` });
-    terminalRef.current?.focus();
-    onHandoffConsumedRef.current(pendingHandoff.id);
-  }, [pendingHandoff?.id, status]);
-
-  useEffect(() => {
     if (!handoffToChatRequest || status !== "running") return;
+    if (!userInputSinceChatHandoffRef.current) {
+      onChatHandoffConsumedRef.current(handoffToChatRequest);
+      return;
+    }
     const value = transcript();
     const fingerprint = handoffFingerprint(value);
     if (value && fingerprint !== lastTerminalHandoffRef.current) {
       lastTerminalHandoffRef.current = fingerprint;
       onContinueInChatRef.current(value);
     }
+    userInputSinceChatHandoffRef.current = false;
     onChatHandoffConsumedRef.current(handoffToChatRequest);
   }, [handoffToChatRequest, status]);
 

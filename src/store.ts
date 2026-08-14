@@ -188,7 +188,10 @@ const PROXY_REFRESH_MS = 120_000;
 const SCHEDULE_TICK_MS = 30_000;
 const NEXTCTL_DAILY_UPDATE_MS = 20 * 60 * 1000;
 const NEXTCTL_DAILY_UPDATE_POLL_MS = 60 * 1000;
+const NEXTCTL_UPDATE_RETRY_MS = 5 * 60 * 1000;
+const NEXTCTL_UPDATE_MAX_RETRIES = 2;
 const NEXTCTL_UPDATE_STATE_FILE = "nextctl-update.json";
+const NEXTCTL_UPDATE_ERROR = "We couldn't update NextBrowser. Please retry again.";
 
 function nextBrowserInstallPrompt(agentAdapter: string): string {
   return `NextBrowser needs to finish installing its local browser components before browser work can start.
@@ -433,7 +436,7 @@ interface State {
   resumeOnboardingAfterSetup: () => void;
   finishOnboarding: () => void;
   showOnboardingAgain: () => void;
-  checkNextctlUpdate: () => Promise<boolean>;
+  checkNextctlUpdate: (retryAttempt?: number) => Promise<boolean>;
   syncProjects: () => Promise<void>;
   createWorkspace: (name: string) => Promise<string>;
   selectWorkspace: (id: string) => void;
@@ -466,7 +469,7 @@ interface State {
   deleteConversation: (id: string) => void;
   forkConversation: (atMessageId?: string) => void;
   clearChat: () => void;
-  enqueue: (text: string, chip?: UserCommandChip, into?: string, attachments?: ChatAttachment[]) => void;
+  enqueue: (text: string, chip?: UserCommandChip, into?: string, attachments?: ChatAttachment[], agentPrompt?: string) => void;
   stopRunning: () => void;
   cancelQueuedReply: (replyId: string) => boolean;
   editQueuedReply: (replyId: string, newText: string) => boolean;
@@ -516,6 +519,7 @@ let scheduleTimer: ReturnType<typeof setInterval> | null = null;
 let sessionPollTimer: ReturnType<typeof setInterval> | null = null;
 let sessionPollInFlight = false;
 let nextctlDailyUpdateTimer: ReturnType<typeof setInterval> | null = null;
+let nextctlUpdateRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let vpsSetupReservations = 0;
 let localNextctlOperations = 0;
 // Guard bootstrap against re-entry. React StrictMode invokes effects twice in
@@ -857,9 +861,12 @@ export const useStore = create<State>((set, get) => {
     into?: string,
     attachments: ChatAttachment[] = [],
     privilegedTarget?: ExecutionTarget,
+    agentPrompt?: string,
   ) => {
     const prompt = text.trim();
     if (!prompt) return;
+    const rawPrompt = (agentPrompt ?? text).trim();
+    if (!rawPrompt) return;
     if (prompt === "/login" || prompt.startsWith("/login ")) {
       void get().loginAgent();
       return;
@@ -916,7 +923,7 @@ export const useStore = create<State>((set, get) => {
             ...state.runtime[agentId].queue,
             {
               conversationId: cid,
-              rawText: promptWithAttachments(prompt, attachments),
+              rawText: promptWithAttachments(rawPrompt, attachments),
               replyId,
               executionTarget,
             },
@@ -1211,6 +1218,10 @@ export const useStore = create<State>((set, get) => {
         refreshWorkspace,
         get().authorizeAgent({ deferMissingNextctlPrompt: true }),
       ]);
+      // Cloud project state may contain a reply that was streaming when the
+      // previous app process exited. Reconcile once more after cloud sync so
+      // that stale remote state cannot resurrect an hours-old running badge.
+      get().reconcileQueues();
       if (!hasCompletedCurrentOnboarding(localStorage)) {
         set({ showOnboarding: true });
       }
@@ -1367,13 +1378,17 @@ export const useStore = create<State>((set, get) => {
       const restored: QueuedItem[] = [];
       conversations = conversations.map((conv) => {
         if (conv.agent !== agent.id) return conv;
+        let conversationChanged = false;
         const msgs = conv.messages.map((m, i, arr) => {
           if (m.role !== "assistant") return m;
           if (m.status === "streaming" && r.runningReplyId !== m.id) {
+            conversationChanged = true;
+            const partial = m.text.trim();
             return {
               ...m,
-              status: "failed" as const,
-              text: m.text.trim() || "Interrupted before the reply finished.",
+              status: "cancelled" as const,
+              text: partial ? `${partial}\n[stopped]` : "[stopped]",
+              stalled: false,
             };
           }
           if (m.status === "queued") {
@@ -1389,6 +1404,7 @@ export const useStore = create<State>((set, get) => {
               });
               return m;
             }
+            conversationChanged = true;
             return {
               ...m,
               status: "failed" as const,
@@ -1397,7 +1413,7 @@ export const useStore = create<State>((set, get) => {
           }
           return m;
         });
-        return { ...conv, messages: msgs };
+        return conversationChanged ? { ...conv, messages: msgs, updatedAt: now() } : { ...conv, messages: msgs };
       });
       for (const item of restored) {
         if (!r.queue.some((q) => q.replyId === item.replyId)) r.queue.push(item);
@@ -1830,6 +1846,8 @@ export const useStore = create<State>((set, get) => {
     if (proxyTimer) clearInterval(proxyTimer);
     if (scheduleTimer) clearInterval(scheduleTimer);
     if (sessionPollTimer) clearInterval(sessionPollTimer);
+    if (nextctlUpdateRetryTimer) clearTimeout(nextctlUpdateRetryTimer);
+    nextctlUpdateRetryTimer = null;
     proxyTimer = scheduleTimer = sessionPollTimer = null;
     set({
       authed: false,
@@ -2623,8 +2641,23 @@ export const useStore = create<State>((set, get) => {
     onboardingReturnPending: false,
   }),
 
-  checkNextctlUpdate: async () => {
-    if (pendingTarget(get(), "vps")) return false;
+  checkNextctlUpdate: async (retryAttempt = 0) => {
+    const scheduleRetry = (attempt: number) => {
+      if (attempt > NEXTCTL_UPDATE_MAX_RETRIES) return;
+      if (nextctlUpdateRetryTimer) clearTimeout(nextctlUpdateRetryTimer);
+      nextctlUpdateRetryTimer = setTimeout(() => {
+        nextctlUpdateRetryTimer = null;
+        void get().checkNextctlUpdate(attempt);
+      }, NEXTCTL_UPDATE_RETRY_MS);
+    };
+    if (retryAttempt === 0 && nextctlUpdateRetryTimer) {
+      clearTimeout(nextctlUpdateRetryTimer);
+      nextctlUpdateRetryTimer = null;
+    }
+    if (pendingTarget(get(), "vps") || get().nextctlUpdating) {
+      if (retryAttempt > 0) scheduleRetry(retryAttempt);
+      return false;
+    }
     const startedAt = performance.now();
     trackEvent("nextctl_update_started");
     set({ nextctlUpdating: true, nextctlUpdateStatus: undefined });
@@ -2649,8 +2682,10 @@ export const useStore = create<State>((set, get) => {
         set({ nextctlUpdateStatus: undefined });
         trackEvent("nextctl_update_not_available");
       } else {
-        set({ nextctlUpdateStatus: internalError("We couldn't update the NextBrowser component.", "NEXTCTL_UPDATE_FAILED") });
+        set({ nextctlUpdateStatus: NEXTCTL_UPDATE_ERROR });
         trackEvent("nextctl_update_failed", { exit_code: res.code });
+        scheduleRetry(retryAttempt + 1);
+        return false;
       }
       if (pendingTarget(get(), "vps")) return true;
       const ver = await invoke<string>("nextctl_version");
@@ -2660,13 +2695,15 @@ export const useStore = create<State>((set, get) => {
       set({ nextctlVersion: normalizeNextctlVersion(ver), nextctlSupportsSkill: supportsSkill, nextctlAvailable: true });
       trackTiming("nextctl_update_completed", startedAt, { supports_skill: supportsSkill });
       return true;
-    } catch {
+    } catch (error) {
+      console.error("[NEXTCTL_UPDATE_FAILED] nextctl update failed:", error);
       set({
-        nextctlUpdateStatus: internalError("We couldn't update the NextBrowser component.", "NEXTCTL_UPDATE_FAILED"),
+        nextctlUpdateStatus: NEXTCTL_UPDATE_ERROR,
         nextctlAvailable: false,
       });
       trackTiming("nextctl_update_failed", startedAt);
-      return true;
+      scheduleRetry(retryAttempt + 1);
+      return false;
     } finally {
       set({ nextctlUpdating: false });
       for (const [agentId, runtime] of Object.entries(get().runtime)) {
@@ -3104,9 +3141,9 @@ export const useStore = create<State>((set, get) => {
     });
   },
 
-  enqueue: (text, chip, into, attachments = []) => {
+  enqueue: (text, chip, into, attachments = [], agentPrompt) => {
     if (hasVPSPromptMarker(text)) return;
-    enqueueWithTarget(text, chip, into, attachments);
+    enqueueWithTarget(text, chip, into, attachments, undefined, agentPrompt);
   },
 
   stopRunning: () => {
