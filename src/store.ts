@@ -2251,7 +2251,7 @@ export const useStore = create<State>((set, get) => {
         "--format",
         "json",
       ],
-      input.password ? { NEXTCTL_PROXY_PASSWORD: input.password } : undefined,
+      input.password ? { NBC_PROXY_PASSWORD: input.password } : undefined,
     );
     await get().loadProfiles();
     trackTiming("profile_manual_proxy_create_completed", startedAt, {
