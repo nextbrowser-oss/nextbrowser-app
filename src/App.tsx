@@ -821,7 +821,8 @@ export function App() {
     const onDown = (e: MouseEvent) => {
       dragging = true;
       startX = e.clientX;
-      startW = sidebarWidth;
+      startW = useStore.getState().sidebarWidth;
+      e.preventDefault();
     };
     handle?.addEventListener("mousedown", onDown);
     window.addEventListener("mousemove", onMove);
@@ -831,7 +832,7 @@ export function App() {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [sidebarCollapsed, sidebarWidth, setSidebarWidth]);
+  }, [sidebarCollapsed, setSidebarWidth]);
 
     if (checking && preview !== "login" && preview !== "main" && preview !== "onboarding") {
     return (
