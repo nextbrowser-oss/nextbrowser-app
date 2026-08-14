@@ -1204,11 +1204,13 @@ export const useStore = create<State>((set, get) => {
     void get().tickNextctlDailyUpdate();
 
     try {
-      if (authenticated && !pendingTarget(get(), "vps")) {
-        await get().syncProjects().catch(() => {});
-        await get().refreshAll();
-      }
-      await get().authorizeAgent({ deferMissingNextctlPrompt: true });
+      const refreshWorkspace = authenticated && !pendingTarget(get(), "vps")
+        ? get().syncProjects().catch(() => {}).then(() => get().refreshAll())
+        : Promise.resolve();
+      await Promise.all([
+        refreshWorkspace,
+        get().authorizeAgent({ deferMissingNextctlPrompt: true }),
+      ]);
       if (!hasCompletedCurrentOnboarding(localStorage)) {
         set({ showOnboarding: true });
       }
@@ -2921,6 +2923,11 @@ export const useStore = create<State>((set, get) => {
       )?.profileToolsets?.[profileName];
       const fixedToolset = existingToolset ?? toolset;
       const workspaces = state.workspaces.map((workspace) => {
+        if (workspace.id === targetId && workspace.profileNames.includes(profileName)) {
+          return workspace.profileToolsets[profileName]
+            ? workspace
+            : { ...workspace, profileToolsets: { ...workspace.profileToolsets, [profileName]: fixedToolset }, updatedAt: now() };
+        }
         const withoutProfile = workspace.profileNames.filter((name) => name !== profileName);
         const toolsets = { ...workspace.profileToolsets };
         delete toolsets[profileName];

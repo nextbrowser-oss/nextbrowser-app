@@ -62,6 +62,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [chatsOpen, setChatsOpen] = useState(true);
   const [profilesOpen, setProfilesOpen] = useState(true);
+  const [dragOverProfileName, setDragOverProfileName] = useState<string | null>(null);
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
@@ -526,7 +527,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           <div className="profile-list workspace-content">
             <section className="workspace-section workspace-chats">
               <div className="workspace-section-head">
-                <button className="workspace-section-toggle" onClick={() => setChatsOpen((open) => !open)} aria-expanded={chatsOpen}>
+                <button className="workspace-section-toggle" onClick={() => setChatsOpen((open) => !open)} aria-expanded={chatsOpen} aria-label={chatsOpen ? "Collapse chats" : "Expand chats"}>
                   <Icon name="chevron.right" size={10} className={chatsOpen ? "section-chevron open" : "section-chevron"} />
                   <Icon name="bubble.left.and.bubble.right.fill" size={12} />
                   <span>Chats</span>
@@ -542,6 +543,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   <button
                     key={chat.id}
                     className={"workspace-chat-row" + (chat.id === activeProject?.id ? " active" : "")}
+                    title={`Open ${chat.title}`}
                     onClick={() => { s.selectConversation(chat.id); s.setTab("chat"); }}
                   >
                     <Icon name={chat.chatMode === "terminal" ? "terminal" : "bubble.left.and.bubble.right.fill"} size={12} />
@@ -573,7 +575,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
             <section className="workspace-section workspace-profiles">
               <div className="workspace-section-head">
-                <button className="workspace-section-toggle" onClick={() => setProfilesOpen((open) => !open)} aria-expanded={profilesOpen}>
+                <button className="workspace-section-toggle" onClick={() => setProfilesOpen((open) => !open)} aria-expanded={profilesOpen} aria-label={profilesOpen ? "Collapse profiles" : "Expand profiles"}>
                   <Icon name="chevron.right" size={10} className={profilesOpen ? "section-chevron open" : "section-chevron"} />
                   <Icon name="folder.fill" size={12} />
                   <span>Profiles</span>
@@ -597,6 +599,25 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                           occupiedBy={occupiedByOther ? owner?.title ?? "Another chat" : undefined}
                           manualScheme={manual ? p.manual_proxy?.scheme : undefined}
                           manualTitle={manual ? `${p.manual_proxy?.host ?? ""}:${p.manual_proxy?.port ?? ""}` : undefined}
+                          draggable={!normalizedSearch}
+                          dragOver={dragOverProfileName === p.name}
+                          projectId={activeWorkspace?.id}
+                          onDragOverProfile={(event) => {
+                            const sourceWorkspace = event.dataTransfer.getData("application/x-nextbrowser-project");
+                            if (!activeWorkspace || (sourceWorkspace && sourceWorkspace !== activeWorkspace.id)) return;
+                            event.preventDefault();
+                            event.dataTransfer.dropEffect = "move";
+                            setDragOverProfileName(p.name);
+                          }}
+                          onDragLeaveProfile={() => setDragOverProfileName((current) => current === p.name ? null : current)}
+                          onDropProfile={(event) => {
+                            event.preventDefault();
+                            setDragOverProfileName(null);
+                            const sourceProfile = event.dataTransfer.getData("application/x-nextbrowser-profile");
+                            const sourceWorkspace = event.dataTransfer.getData("application/x-nextbrowser-project");
+                            if (!activeWorkspace || !sourceProfile || sourceWorkspace !== activeWorkspace.id) return;
+                            s.reorderProfileInProject(activeWorkspace.id, sourceProfile, p.name);
+                          }}
                           onSelect={() => s.selectProfile(selected ? undefined : p.name)}
                           onStart={() => {
                             if (!activeProject || occupiedByOther) return;
