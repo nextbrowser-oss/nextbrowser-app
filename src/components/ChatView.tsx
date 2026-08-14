@@ -351,7 +351,17 @@ export function ChatView() {
               browserProfiles={(s.workspaces.find((workspace) => workspace.id === conv?.workspaceId)?.profileNames ?? []).map((name) => ({
                 name,
                 runtime: s.workspaces.find((workspace) => workspace.id === conv?.workspaceId)?.profileToolsets[name] ?? "clawbrowser",
+                running: s.statuses[name] === "running",
+                ownerConversationId: s.profileChatOwners[name],
               }))}
+              onProfileStarted={(profile) => {
+                if (conv?.id) s.setProfileChatOwner(profile, conv.id);
+                void s.loadProfiles();
+              }}
+              onProfileStopped={(profile) => {
+                s.setProfileChatOwner(profile, undefined);
+                void s.loadProfiles();
+              }}
               savingWorkflow={preparingWorkflowId === "terminal"}
               pendingHandoff={terminalHandoff}
               handoffToChatRequest={terminalToChatRequest}

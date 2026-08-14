@@ -457,6 +457,7 @@ interface State {
   newChat: () => string;
   createProject: (name: string, mode: "chat" | "terminal") => string;
   assignProfileToProject: (profileName: string, toolset: BrowserToolset, projectId?: string) => void;
+  setProfileChatOwner: (profileName: string, conversationId?: string) => void;
   moveProfileToWorkspace: (profileName: string, workspaceId: string) => Promise<void>;
   reorderProfileInProject: (projectId: string, profileName: string, beforeProfileName: string) => void;
   createNamedChat: (agentId: string, title: string) => string;
@@ -2937,6 +2938,13 @@ export const useStore = create<State>((set, get) => {
       return { workspaces };
     });
   },
+
+  setProfileChatOwner: (profileName, conversationId) => set((state) => {
+    const profileChatOwners = { ...state.profileChatOwners };
+    if (conversationId) profileChatOwners[profileName] = conversationId;
+    else delete profileChatOwners[profileName];
+    return { profileChatOwners };
+  }),
 
   moveProfileToWorkspace: async (profileName, workspaceId) => {
     const state = get();

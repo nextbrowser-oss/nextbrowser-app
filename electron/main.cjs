@@ -55,6 +55,7 @@ let dasbrowserInstallPromise = null;
 let agentControlServer = null;
 let agentControlURL = "";
 const agentControlScopes = new Map();
+const agentControlProfileOwners = new Map();
 
 const CODEX_TERMINAL_PROFILE = "nextbrowser";
 const CODEX_TERMINAL_PROFILE_CONTENT = `[plugins."browser@openai-bundled"]
@@ -347,7 +348,8 @@ async function ensureAgentControlServer() {
   if (agentControlServer) return agentControlURL;
   agentControlServer = http.createServer((request, response) => {
     void (async () => {
-      if (request.method !== "POST" || request.url !== "/profile/start") {
+      const action = request.url === "/profile/start" ? "start" : request.url === "/profile/stop" ? "stop" : "";
+      if (request.method !== "POST" || !action) {
         sendControlResponse(response, 404, { ok: false, error: "not_found" });
         return;
       }
@@ -363,18 +365,30 @@ async function ensureAgentControlServer() {
         if (raw.length > 8192) throw new Error("request_too_large");
       }
       const profile = String(JSON.parse(raw || "{}").profile || "");
-      const runtime = scope.get(profile);
-      if (!runtime) {
+      const profileAccess = scope.get(profile);
+      if (!profileAccess) {
         sendControlResponse(response, 403, { ok: false, error: "profile_outside_workspace" });
         return;
       }
+      const ownerId = agentControlProfileOwners.get(profile) || profileAccess.ownerConversationId;
+      if (ownerId && ownerId !== profileAccess.conversationId) {
+        sendControlResponse(response, 409, { ok: false, error: "profile_in_use_by_another_chat" });
+        return;
+      }
       const result = await executeNextctl([
-        "start", "--profile", profile, "--runtime", runtime, "--format", "json",
+        action, "--profile", profile, "--runtime", profileAccess.runtime, "--format", "json",
       ], { timeoutMs: 120_000 });
+      if (result.code === 0) {
+        if (action === "start") agentControlProfileOwners.set(profile, profileAccess.conversationId);
+        else agentControlProfileOwners.delete(profile);
+        emit(action === "start" ? "profile:host-started" : "profile:host-stopped", [profile, profileAccess.conversationId]);
+      }
+      let output;
+      try { output = JSON.parse(result.stdout); } catch { output = undefined; }
       sendControlResponse(response, result.code === 0 ? 200 : 500, {
         ok: result.code === 0,
         code: result.code,
-        stdout: result.stdout,
+        ...(output ? { data: output.data } : { stdout: result.stdout }),
         stderr: result.stderr,
       });
     })().catch((error) => sendControlResponse(response, 500, { ok: false, error: error?.message || "start_failed" }));
@@ -929,8 +943,15 @@ async function invokeCommand(command, args = {}, sender) {
       const profileScope = new Map(
         (Array.isArray(args.browserProfiles) ? args.browserProfiles : [])
           .filter((item) => item && typeof item.name === "string" && ["clawbrowser", "dasbrowser"].includes(item.runtime))
-          .map((item) => [item.name, item.runtime]),
+          .map((item) => [item.name, {
+            runtime: item.runtime,
+            conversationId: String(args.conversationId || ""),
+            ownerConversationId: typeof item.ownerConversationId === "string" ? item.ownerConversationId : "",
+          }]),
       );
+      for (const [profile, access] of profileScope) {
+        if (access.ownerConversationId) agentControlProfileOwners.set(profile, access.ownerConversationId);
+      }
       agentControlScopes.set(controlToken, profileScope);
       if (args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
       const writableDirs = args.agentId === "codex" ? clawbrowserWritableDirs() : [];
@@ -1140,6 +1161,7 @@ app.on("before-quit", () => {
   for (const terminal of terminals.values()) terminal.process.kill();
   terminals.clear();
   agentControlScopes.clear();
+  agentControlProfileOwners.clear();
   agentControlServer?.close();
   agentControlServer = null;
   cancelAllCommands();

@@ -594,7 +594,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                           key={p.name} name={p.name} status={status} running={running} busy={busy || occupiedByOther} selected={selected}
                           country={p.country ?? identity?.country} city={p.city ?? identity?.city} ip={identity?.ip}
                           toolset={toolset} searchQuery={searchQuery}
-                          occupiedBy={running ? owner?.title ?? "Another chat" : undefined}
+                          occupiedBy={occupiedByOther ? owner?.title ?? "Another chat" : undefined}
                           manualScheme={manual ? p.manual_proxy?.scheme : undefined}
                           manualTitle={manual ? `${p.manual_proxy?.host ?? ""}:${p.manual_proxy?.port ?? ""}` : undefined}
                           onSelect={() => s.selectProfile(selected ? undefined : p.name)}
