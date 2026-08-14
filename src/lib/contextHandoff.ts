@@ -61,3 +61,22 @@ ${profile ? `Active browser profile: ${profile}.\n` : ""}Use the existing browse
 Recent chat context:
 ${conversation}`.slice(0, MAX_HANDOFF_CHARS);
 }
+
+export function chatPromptWithDeferredContext(context: string | undefined, message: string): string | undefined {
+  if (!context) return undefined;
+  return `${context}\n\nNew user message:\n${message}`;
+}
+
+export function terminalInputWithDeferredContext(
+  context: string | undefined,
+  data: string,
+): { data: string; consumed: boolean; userInput: boolean } {
+  const textInput = data.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+  const userInput = /[^\x00-\x1f\x7f]/.test(textInput);
+  if (!context || !userInput) return { data, consumed: false, userInput };
+  return {
+    data: `\x1b[200~${context}\n\nNew user message:\n\x1b[201~${data}`,
+    consumed: true,
+    userInput: true,
+  };
+}

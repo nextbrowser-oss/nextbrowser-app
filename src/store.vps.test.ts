@@ -455,3 +455,23 @@ describe("local component and profile lifecycle", () => {
     expect(useStore.getState().statuses.work).toBe("stopped");
   });
 });
+
+describe("deferred chat context", () => {
+  it("shows only the new message while sending the expanded prompt to the agent", () => {
+    const local = conversation("local", "local");
+    useStore.setState({ conversations: [local], activeConvId: { codex: local.id } });
+
+    useStore.getState().enqueue(
+      "Did pagination finish?",
+      undefined,
+      undefined,
+      [],
+      "Recent terminal context\n\nNew user message:\nDid pagination finish?",
+    );
+
+    const state = useStore.getState();
+    expect(state.conversations[0].messages[0].text).toBe("Did pagination finish?");
+    expect(state.runtime.codex.queue[0].rawText).toContain("Recent terminal context");
+    expect(state.runtime.codex.queue[0].rawText).toContain("Did pagination finish?");
+  });
+});
