@@ -11,6 +11,7 @@ interface AgentTerminalProps {
   conversationId?: string;
   workingDir?: string;
   browserContext?: string;
+  browserProfiles?: Array<{ name: string; runtime: "clawbrowser" | "dasbrowser" }>;
   savingWorkflow?: boolean;
   pendingHandoff?: { id: string; text: string };
   handoffToChatRequest?: string;
@@ -82,7 +83,7 @@ function handoffFingerprint(value: string): string {
     .trim();
 }
 
-export function AgentTerminal({ agentId, agentName, conversationId, workingDir, browserContext, savingWorkflow, pendingHandoff, handoffToChatRequest, onSaveWorkflow, onContinueInChat, onHandoffConsumed, onChatHandoffConsumed }: AgentTerminalProps) {
+export function AgentTerminal({ agentId, agentName, conversationId, workingDir, browserContext, browserProfiles, savingWorkflow, pendingHandoff, handoffToChatRequest, onSaveWorkflow, onContinueInChat, onHandoffConsumed, onChatHandoffConsumed }: AgentTerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalIdRef = useRef<string>();
   const terminalRef = useRef<Terminal>();
@@ -215,6 +216,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
         agentId,
         workingDir: workingDir || null,
         browserContext: browserContext || "",
+        browserProfiles: browserProfiles || [],
         cols: terminal.cols,
         rows: terminal.rows,
       });

@@ -6,6 +6,7 @@ const fsSync = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
+const http = require("node:http");
 const { agentWorkspaceDir } = require("./agent-workspace.cjs");
 const {
   executableNames,
@@ -51,6 +52,9 @@ let nextctlInstallStatus = { status: "idle" };
 let nextctlInstallPromise = null;
 let browserInstallPromise = null;
 let dasbrowserInstallPromise = null;
+let agentControlServer = null;
+let agentControlURL = "";
+const agentControlScopes = new Map();
 
 const CODEX_TERMINAL_PROFILE = "nextbrowser";
 const CODEX_TERMINAL_PROFILE_CONTENT = `[plugins."browser@openai-bundled"]
@@ -185,9 +189,9 @@ function childEnv(extra = {}) {
     ...extra,
   };
 }
-function terminalEnv() {
+function terminalEnv(extra = {}) {
   return Object.fromEntries(
-    Object.entries(childEnv({ TERM: "xterm-256color", COLORTERM: "truecolor" }))
+    Object.entries(childEnv({ TERM: "xterm-256color", COLORTERM: "truecolor", ...extra }))
       .filter(([, value]) => typeof value === "string"),
   );
 }
@@ -318,6 +322,70 @@ async function resolveOrInstallNextctl() {
     return existing;
   }
   return installManagedNextctl();
+}
+
+async function executeNextctl(commandArgs, options = {}) {
+  const bin = await resolveOrInstallNextctl();
+  if (!bin) throw new Error("nextctl not found. Install Clawbrowser CLI or set NEXTCTL_BIN.");
+  let adaptedArgs = commandArgs;
+  const browserRuntime = requestedBrowserRuntime(adaptedArgs);
+  if (browserRuntime === "dasbrowser") {
+    const executable = await ensureDasbrowserRuntime();
+    adaptedArgs = adaptDasbrowserArgs(adaptedArgs, executable);
+  } else if (browserRuntime === "clawbrowser" && requiresBrowserRuntime(adaptedArgs)) {
+    await ensureClawbrowserRuntime(bin);
+  }
+  return run(bin, adaptedArgs, options.extraEnv || {}, options);
+}
+
+function sendControlResponse(response, status, body) {
+  response.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+  response.end(JSON.stringify(body));
+}
+
+async function ensureAgentControlServer() {
+  if (agentControlServer) return agentControlURL;
+  agentControlServer = http.createServer((request, response) => {
+    void (async () => {
+      if (request.method !== "POST" || request.url !== "/profile/start") {
+        sendControlResponse(response, 404, { ok: false, error: "not_found" });
+        return;
+      }
+      const token = String(request.headers.authorization || "").replace(/^Bearer\s+/i, "");
+      const scope = agentControlScopes.get(token);
+      if (!scope) {
+        sendControlResponse(response, 401, { ok: false, error: "unauthorized" });
+        return;
+      }
+      let raw = "";
+      for await (const chunk of request) {
+        raw += chunk;
+        if (raw.length > 8192) throw new Error("request_too_large");
+      }
+      const profile = String(JSON.parse(raw || "{}").profile || "");
+      const runtime = scope.get(profile);
+      if (!runtime) {
+        sendControlResponse(response, 403, { ok: false, error: "profile_outside_workspace" });
+        return;
+      }
+      const result = await executeNextctl([
+        "start", "--profile", profile, "--runtime", runtime, "--format", "json",
+      ], { timeoutMs: 120_000 });
+      sendControlResponse(response, result.code === 0 ? 200 : 500, {
+        ok: result.code === 0,
+        code: result.code,
+        stdout: result.stdout,
+        stderr: result.stderr,
+      });
+    })().catch((error) => sendControlResponse(response, 500, { ok: false, error: error?.message || "start_failed" }));
+  });
+  await new Promise((resolve, reject) => {
+    agentControlServer.once("error", reject);
+    agentControlServer.listen(0, "127.0.0.1", resolve);
+  });
+  const address = agentControlServer.address();
+  agentControlURL = `http://127.0.0.1:${address.port}`;
+  return agentControlURL;
 }
 async function ensureClawbrowserRuntime(nextctlBin) {
   const options = {
@@ -612,16 +680,8 @@ async function invokeCommand(command, args = {}, sender) {
     case "nextctl_resolve": return await resolveOrInstallNextctl();
     case "nextctl_install_status": return nextctlInstallStatus;
     case "nextctl_run": {
-      const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("nextctl not found. Install Clawbrowser CLI or set NEXTCTL_BIN.");
-      let commandArgs = args.args || [];
-      const browserRuntime = requestedBrowserRuntime(commandArgs);
-      if (browserRuntime === "dasbrowser") {
-        const executable = await ensureDasbrowserRuntime();
-        commandArgs = adaptDasbrowserArgs(commandArgs, executable);
-      } else if (browserRuntime === "clawbrowser" && requiresBrowserRuntime(commandArgs)) {
-        await ensureClawbrowserRuntime(bin);
-      }
-      return run(bin, commandArgs, args.extraEnv || {}, {
+      return executeNextctl(args.args || [], {
+        extraEnv: args.extraEnv || {},
         requestId: args.requestId,
         timeoutMs: args.timeoutMs,
       });
@@ -864,6 +924,14 @@ async function invokeCommand(command, args = {}, sender) {
       const bin = resolveBinary(agent.binary, agent.envVar);
       if (!bin) throw new Error(`${agent.binary} CLI not found.`);
       const id = randomUUID();
+      const controlToken = randomUUID();
+      const controlURL = await ensureAgentControlServer();
+      const profileScope = new Map(
+        (Array.isArray(args.browserProfiles) ? args.browserProfiles : [])
+          .filter((item) => item && typeof item.name === "string" && ["clawbrowser", "dasbrowser"].includes(item.runtime))
+          .map((item) => [item.name, item.runtime]),
+      );
+      agentControlScopes.set(controlToken, profileScope);
       if (args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
       const writableDirs = args.agentId === "codex" ? clawbrowserWritableDirs() : [];
       let agentArgs = agent.args || [];
@@ -884,9 +952,12 @@ async function invokeCommand(command, args = {}, sender) {
         cols: Math.max(2, Math.min(500, Number(args.cols) || 80)),
         rows: Math.max(2, Math.min(300, Number(args.rows) || 24)),
         cwd: args.workingDir || home(),
-        env: terminalEnv(),
+        env: terminalEnv({
+          NEXTBROWSER_CONTROL_URL: controlURL,
+          NEXTBROWSER_CONTROL_TOKEN: controlToken,
+        }),
       });
-      const record = { process: terminal, ready: false, buffer: [], exit: null };
+      const record = { process: terminal, ready: false, buffer: [], exit: null, controlToken };
       terminals.set(id, record);
       terminal.onData((data) => {
         if (record.ready) emit("terminal:data", [id, data]);
@@ -896,6 +967,7 @@ async function invokeCommand(command, args = {}, sender) {
         record.exit = [exitCode, signal];
         if (record.ready) {
           terminals.delete(id);
+          agentControlScopes.delete(record.controlToken);
           emit("terminal:exit", [id, exitCode, signal]);
         }
       });
@@ -922,6 +994,7 @@ async function invokeCommand(command, args = {}, sender) {
       record.buffer = [];
       if (record.exit) {
         terminals.delete(id);
+        agentControlScopes.delete(record.controlToken);
         emit("terminal:exit", [id, record.exit[0], record.exit[1]]);
       }
       return null;
@@ -943,6 +1016,7 @@ async function invokeCommand(command, args = {}, sender) {
       const id = String(args.id || "");
       const record = terminals.get(id);
       if (record) record.process.kill();
+      if (record) agentControlScopes.delete(record.controlToken);
       terminals.delete(id);
       return null;
     }
@@ -1065,5 +1139,8 @@ app.on("before-quit", () => {
   for (const child of children.values()) child.kill();
   for (const terminal of terminals.values()) terminal.process.kill();
   terminals.clear();
+  agentControlScopes.clear();
+  agentControlServer?.close();
+  agentControlServer = null;
   cancelAllCommands();
 });

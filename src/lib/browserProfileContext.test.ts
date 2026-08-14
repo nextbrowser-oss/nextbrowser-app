@@ -15,9 +15,9 @@ describe("browserProfileContext", () => {
     const result = browserProfileContext([workspace], "one", "HEY!");
     expect(result).toContain("HEY!: DasBrowser (workspace: Work, selected)");
     expect(result).toContain("baka: ClawBrowser (workspace: Work");
-    expect(result).toContain("never call clawbrowser.start");
-    expect(result).toContain("--runtime chromium");
-    expect(result).toContain("DASBROWSER_BIN");
+    expect(result).toContain("do not spawn it through nextctl or clawbrowser.start");
+    expect(result).toContain("NEXTBROWSER_CONTROL_URL");
+    expect(result).toContain("rejects profiles outside");
   });
 
   it("keeps profiles from other workspaces outside the chat scope", () => {

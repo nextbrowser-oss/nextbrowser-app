@@ -348,6 +348,10 @@ export function ChatView() {
               conversationId={conv?.id}
               workingDir={s.workingDir}
               browserContext={browserProfileContext(s.workspaces, conv?.workspaceId, s.selectedProfile)}
+              browserProfiles={(s.workspaces.find((workspace) => workspace.id === conv?.workspaceId)?.profileNames ?? []).map((name) => ({
+                name,
+                runtime: s.workspaces.find((workspace) => workspace.id === conv?.workspaceId)?.profileToolsets[name] ?? "clawbrowser",
+              }))}
               savingWorkflow={preparingWorkflowId === "terminal"}
               pendingHandoff={terminalHandoff}
               handoffToChatRequest={terminalToChatRequest}
