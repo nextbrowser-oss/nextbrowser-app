@@ -303,15 +303,6 @@ export function ChatView() {
           )}
           <div className="chat-mode-toggle" role="group" aria-label="Project chat mode">
             <button
-              className={!s.terminalChat ? "active" : ""}
-              aria-pressed={!s.terminalChat}
-              title="Open regular chat"
-              onClick={() => s.setTerminalChat(false)}
-            >
-              <Icon name="bubble.left.and.bubble.right.fill" size={12} />
-              Chat
-            </button>
-            <button
               className={s.terminalChat ? "active" : ""}
               aria-pressed={s.terminalChat}
               title="Open terminal chat"
@@ -319,6 +310,15 @@ export function ChatView() {
             >
               <Icon name="terminal" size={12} />
               Terminal
+            </button>
+            <button
+              className={!s.terminalChat ? "active" : ""}
+              aria-pressed={!s.terminalChat}
+              title="Open regular chat"
+              onClick={() => s.setTerminalChat(false)}
+            >
+              <Icon name="bubble.left.and.bubble.right.fill" size={12} />
+              Chat
             </button>
           </div>
           {!remoteOnly && s.selectedProfile && (
