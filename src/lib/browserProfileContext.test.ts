@@ -13,16 +13,18 @@ describe("browserProfileContext", () => {
       profileToolsets: { "HEY!": "dasbrowser", baka: "clawbrowser" },
     } as Workspace;
     const result = browserProfileContext([workspace], "one", "HEY!");
-    expect(result).toContain("HEY!: DasBrowser (selected)");
-    expect(result).toContain("baka: ClawBrowser");
+    expect(result).toContain("HEY!: DasBrowser (workspace: Work, selected, active workspace)");
+    expect(result).toContain("baka: ClawBrowser (workspace: Work");
     expect(result).toContain("do not call clawbrowser.start");
   });
 
-  it("does not leak profiles from another workspace", () => {
+  it("includes profiles from other workspaces so agents can resolve them by name", () => {
     const workspaces = [
       { id: "one", name: "One", createdAt: 1, updatedAt: 1, profileNames: ["visible"], profileToolsets: {} },
       { id: "two", name: "Two", createdAt: 1, updatedAt: 1, profileNames: ["hidden"], profileToolsets: {} },
     ] as Workspace[];
-    expect(browserProfileContext(workspaces, "one")).not.toContain("hidden");
+    const result = browserProfileContext(workspaces, "one");
+    expect(result).toContain("visible: ClawBrowser (workspace: One, active workspace)");
+    expect(result).toContain("hidden: ClawBrowser (workspace: Two)");
   });
 });

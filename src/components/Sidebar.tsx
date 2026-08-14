@@ -111,7 +111,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         return;
       }
       const index = Number.parseInt(event.key, 10) - 1;
-      if (index < 0 || index >= Math.min(projects.length, 9)) return;
+      if (!Number.isInteger(index) || index < 0 || index >= Math.min(projects.length, 9)) return;
       event.preventDefault();
       s.selectConversation(projects[index].id);
       s.setTab("chat");
