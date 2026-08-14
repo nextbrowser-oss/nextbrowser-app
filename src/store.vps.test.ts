@@ -400,6 +400,47 @@ describe("VPS execution target isolation", () => {
   });
 });
 
+describe("browser profile creation", () => {
+  it("creates a direct profile without assigning a proxy country", async () => {
+    bridge.invoke.mockResolvedValue({
+      stdout: JSON.stringify({ ok: true, data: { profiles: [] } }),
+      stderr: "",
+      code: 0,
+    });
+
+    await useStore.getState().createManagedProfile("direct-test", "", { direct: true });
+
+    expect(bridge.invoke).toHaveBeenCalledWith("nextctl_run", expect.objectContaining({
+      args: ["profiles", "create", "direct-test", "--no-proxy", "--runtime", "clawbrowser", "--format", "json"],
+    }));
+  });
+
+  it("passes authenticated custom-proxy passwords through nextctl's private environment variable", async () => {
+    bridge.invoke.mockResolvedValue({
+      stdout: JSON.stringify({ ok: true, data: { profiles: [] } }),
+      stderr: "",
+      code: 0,
+    });
+
+    await useStore.getState().createManualProxyProfile({
+      name: "custom-test",
+      scheme: "http",
+      host: "127.0.0.1",
+      port: 3128,
+      username: "tester",
+      password: "secret-pass",
+    });
+
+    expect(bridge.invoke).toHaveBeenCalledWith("nextctl_run", expect.objectContaining({
+      args: [
+        "profiles", "create", "custom-test", "--manual-proxy", "--proxy-scheme", "http",
+        "--proxy-host", "127.0.0.1", "--proxy-port", "3128", "--proxy-username", "tester", "--format", "json",
+      ],
+      extraEnv: { NBC_PROXY_PASSWORD: "secret-pass" },
+    }));
+  });
+});
+
 describe("local component and profile lifecycle", () => {
   it("restores a profile status when launching it fails", async () => {
     useStore.setState({ statuses: { work: "stopped" } });
