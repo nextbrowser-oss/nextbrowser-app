@@ -466,7 +466,7 @@ interface State {
   deleteConversation: (id: string) => void;
   forkConversation: (atMessageId?: string) => void;
   clearChat: () => void;
-  enqueue: (text: string, chip?: UserCommandChip, into?: string, attachments?: ChatAttachment[]) => void;
+  enqueue: (text: string, chip?: UserCommandChip, into?: string, attachments?: ChatAttachment[], agentPrompt?: string) => void;
   stopRunning: () => void;
   cancelQueuedReply: (replyId: string) => boolean;
   editQueuedReply: (replyId: string, newText: string) => boolean;
@@ -857,9 +857,12 @@ export const useStore = create<State>((set, get) => {
     into?: string,
     attachments: ChatAttachment[] = [],
     privilegedTarget?: ExecutionTarget,
+    agentPrompt?: string,
   ) => {
     const prompt = text.trim();
     if (!prompt) return;
+    const rawPrompt = (agentPrompt ?? text).trim();
+    if (!rawPrompt) return;
     if (prompt === "/login" || prompt.startsWith("/login ")) {
       void get().loginAgent();
       return;
@@ -916,7 +919,7 @@ export const useStore = create<State>((set, get) => {
             ...state.runtime[agentId].queue,
             {
               conversationId: cid,
-              rawText: promptWithAttachments(prompt, attachments),
+              rawText: promptWithAttachments(rawPrompt, attachments),
               replyId,
               executionTarget,
             },
@@ -3104,9 +3107,9 @@ export const useStore = create<State>((set, get) => {
     });
   },
 
-  enqueue: (text, chip, into, attachments = []) => {
+  enqueue: (text, chip, into, attachments = [], agentPrompt) => {
     if (hasVPSPromptMarker(text)) return;
-    enqueueWithTarget(text, chip, into, attachments);
+    enqueueWithTarget(text, chip, into, attachments, undefined, agentPrompt);
   },
 
   stopRunning: () => {
