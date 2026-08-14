@@ -2322,15 +2322,17 @@ export const useStore = create<State>((set, get) => {
     const a = agentById(agentId);
     trackEvent("agent_connect_started", { agent: agentId });
     try {
-      const version = await invoke<string>("agent_authorize", {
-        binary: a.binary,
-        envVar: a.envVar,
-      });
-      const loggedIn = (await invoke<boolean | null>("agent_check_login", {
-        binary: a.binary,
-        envVar: a.envVar,
-        statusArgs: a.statusArgs ?? [],
-      })) as boolean | null;
+      const [version, loggedIn] = await Promise.all([
+        invoke<string>("agent_authorize", {
+          binary: a.binary,
+          envVar: a.envVar,
+        }),
+        invoke<boolean | null>("agent_check_login", {
+          binary: a.binary,
+          envVar: a.envVar,
+          statusArgs: a.statusArgs ?? [],
+        }),
+      ]);
       set((s) => ({
         runtime: {
           ...s.runtime,

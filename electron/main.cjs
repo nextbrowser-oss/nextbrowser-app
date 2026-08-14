@@ -38,6 +38,15 @@ const {
 
 const children = new Map();
 const terminals = new Map();
+
+function killTerminalsForWebContents(webContentsId) {
+  for (const [id, record] of terminals) {
+    if (record.webContentsId !== webContentsId) continue;
+    try { record.process.kill(); } catch { /* process may already have exited */ }
+    agentControlScopes.delete(record.controlToken);
+    terminals.delete(id);
+  }
+}
 const remoteSignalSockets = new Map();
 const APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const NEXTCTL_RELEASE_BASE = "https://github.com/nextbrowser-oss/nbc_releases/releases/latest/download";
@@ -978,7 +987,14 @@ async function invokeCommand(command, args = {}, sender) {
           NEXTBROWSER_CONTROL_TOKEN: controlToken,
         }),
       });
-      const record = { process: terminal, ready: false, buffer: [], exit: null, controlToken };
+      const record = {
+        process: terminal,
+        ready: false,
+        buffer: [],
+        exit: null,
+        controlToken,
+        webContentsId: sender?.id,
+      };
       terminals.set(id, record);
       terminal.onData((data) => {
         if (record.ready) emit("terminal:data", [id, data]);
@@ -1117,6 +1133,12 @@ function createWindow() {
   window.webContents.on("did-attach-webview", (_event, webContents) => {
     webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   });
+  const windowWebContentsId = window.webContents.id;
+  window.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
+    if (isMainFrame && !isInPlace) killTerminalsForWebContents(windowWebContentsId);
+  });
+  window.webContents.on("render-process-gone", () => killTerminalsForWebContents(windowWebContentsId));
+  window.on("closed", () => killTerminalsForWebContents(windowWebContentsId));
   if (process.env.VITE_DEV_SERVER_URL) window.loadURL(process.env.VITE_DEV_SERVER_URL);
   else window.loadFile(path.join(__dirname, "..", "dist", "index.html"));
 }
