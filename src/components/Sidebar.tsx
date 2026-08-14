@@ -60,8 +60,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceSaving, setWorkspaceSaving] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
-  const [chatsOpen, setChatsOpen] = useState(true);
-  const [profilesOpen, setProfilesOpen] = useState(true);
+  const [openWorkspaceSection, setOpenWorkspaceSection] = useState<"projects" | "profiles">("projects");
+  const chatsOpen = openWorkspaceSection === "projects";
+  const profilesOpen = openWorkspaceSection === "profiles";
   const [dragOverProfileName, setDragOverProfileName] = useState<string | null>(null);
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
@@ -527,10 +528,10 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           <div className="profile-list workspace-content">
             <section className="workspace-section workspace-chats">
               <div className="workspace-section-head">
-                <button className="workspace-section-toggle" onClick={() => setChatsOpen((open) => !open)} aria-expanded={chatsOpen} aria-label={chatsOpen ? "Collapse chats" : "Expand chats"}>
+                <button className="workspace-section-toggle" onClick={() => setOpenWorkspaceSection(chatsOpen ? "profiles" : "projects")} aria-expanded={chatsOpen} aria-label={chatsOpen ? "Collapse projects" : "Expand projects"}>
                   <Icon name="chevron.right" size={10} className={chatsOpen ? "section-chevron open" : "section-chevron"} />
                   <Icon name="bubble.left.and.bubble.right.fill" size={12} />
-                  <span>Chats</span>
+                  <span>Projects</span>
                   <span className="workspace-count">{projects.length}</span>
                 </button>
                 <span className="spacer" />
@@ -575,7 +576,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
             <section className="workspace-section workspace-profiles">
               <div className="workspace-section-head">
-                <button className="workspace-section-toggle" onClick={() => setProfilesOpen((open) => !open)} aria-expanded={profilesOpen} aria-label={profilesOpen ? "Collapse profiles" : "Expand profiles"}>
+                <button className="workspace-section-toggle" onClick={() => setOpenWorkspaceSection(profilesOpen ? "projects" : "profiles")} aria-expanded={profilesOpen} aria-label={profilesOpen ? "Collapse profiles" : "Expand profiles"}>
                   <Icon name="chevron.right" size={10} className={profilesOpen ? "section-chevron open" : "section-chevron"} />
                   <Icon name="folder.fill" size={12} />
                   <span>Profiles</span>
@@ -784,21 +785,27 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 <span><strong>DasBrowser</strong><small>Private multi-account browser</small></span>
               </label>
             </fieldset>
-            <button
-              type="button"
-              className="profile-vps-option"
-              onClick={() => {
-                setCreateProfileOpen(false);
-                setVPSSetupOpen(true);
-              }}
-            >
-              <Icon name="terminal" size={15} />
-              <span>
-                <strong>Use VPS</strong>
-                <small>Set up this project on a remote server instead</small>
-              </span>
-              <Icon name="chevron.right" size={12} className="muted" />
-            </button>
+            <section className="profile-remote-section" aria-label="Remote execution">
+              <div className="profile-remote-heading">
+                <span>Remote execution</span>
+                <small>Optional</small>
+              </div>
+              <button
+                type="button"
+                className="profile-vps-option"
+                onClick={() => {
+                  setCreateProfileOpen(false);
+                  setVPSSetupOpen(true);
+                }}
+              >
+                <span className="profile-vps-icon"><Icon name="terminal" size={15} /></span>
+                <span>
+                  <strong>Use VPS</strong>
+                  <small>Set up this project on a remote server</small>
+                </span>
+                <Icon name="chevron.right" size={12} className="muted" />
+              </button>
+            </section>
             {profileError && <div className="error small profile-create-error">{profileError}</div>}
             <div className="modal-actions">
               <button type="button" className="secondary" onClick={closeProfileCreator}>

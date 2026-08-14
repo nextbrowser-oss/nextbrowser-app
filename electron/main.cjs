@@ -32,6 +32,7 @@ const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = re
 const {
   DASBROWSER_DOWNLOADS,
   adaptDasbrowserArgs,
+  dasbrowserAppCopyOptions,
   requestedBrowserRuntime,
   resolveDasbrowserRuntime,
 } = require("./dasbrowser-runtime.cjs");
@@ -58,6 +59,7 @@ const DEEP_LINK_PROTOCOL = "nextbrowser";
 let appUpdateStatus = { status: "idle" };
 let appUpdateTimer = null;
 let nextctlInstallStatus = { status: "idle" };
+let browserRuntimeInstallStatus = { status: "idle" };
 let nextctlInstallPromise = null;
 let browserInstallPromise = null;
 let dasbrowserInstallPromise = null;
@@ -227,6 +229,10 @@ async function nextctlHasSkill(binary) {
 function setNextctlInstallStatus(status, patch = {}) {
   nextctlInstallStatus = { status, ...patch, updatedAt: Date.now() };
   emit("nextctl:install", nextctlInstallStatus);
+}
+function setBrowserRuntimeInstallStatus(runtime, status, patch = {}) {
+  browserRuntimeInstallStatus = { runtime, status, ...patch, updatedAt: Date.now() };
+  emit("browser-runtime:install", browserRuntimeInstallStatus);
 }
 function legacyManagedNextctlRoot() { return path.join(app.getPath("userData"), "managed-nextctl"); }
 function managedNextctlRoot() {
@@ -422,6 +428,7 @@ async function ensureClawbrowserRuntime(nextctlBin) {
   if (browserInstallPromise) return browserInstallPromise;
 
   browserInstallPromise = (async () => {
+    setBrowserRuntimeInstallStatus("clawbrowser", "downloading");
     const runtimeRoot = nextbrowserRuntimeRoot();
     await Promise.all([
       "data", "cache", "installer-bin", "agent-plugins",
@@ -432,8 +439,12 @@ async function ensureClawbrowserRuntime(nextctlBin) {
       const detail = (result.stderr || result.stdout || "Clawbrowser installation failed").trim();
       throw new Error(detail);
     }
+    setBrowserRuntimeInstallStatus("clawbrowser", "ready");
     return installed;
-  })().finally(() => {
+  })().catch((error) => {
+    setBrowserRuntimeInstallStatus("clawbrowser", "failed");
+    throw error;
+  }).finally(() => {
     browserInstallPromise = null;
   });
   return browserInstallPromise;
@@ -477,11 +488,13 @@ async function ensureDasbrowserRuntime() {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-dasbrowser-"));
     try {
       const url = await officialDasbrowserDownloadUrl();
+      setBrowserRuntimeInstallStatus("dasbrowser", "downloading");
       if (process.platform === "darwin") {
         const image = path.join(tempDir, "dasbrowser.dmg");
         const mount = path.join(tempDir, "mount");
         await fs.mkdir(mount, { recursive: true });
         await downloadFile(url, image);
+        setBrowserRuntimeInstallStatus("dasbrowser", "installing");
         const attached = await run("hdiutil", ["attach", "-readonly", "-nobrowse", "-mountpoint", mount, image], {}, { timeoutMs: 120_000 });
         if (attached.code !== 0) throw new Error((attached.stderr || attached.stdout || "Could not mount DasBrowser installer.").trim());
         try {
@@ -489,13 +502,19 @@ async function ensureDasbrowserRuntime() {
           const target = path.join(nextbrowserRuntimeRoot(), "data", "Dasbrowser.app");
           await fs.mkdir(path.dirname(target), { recursive: true });
           await fs.rm(target, { recursive: true, force: true });
-          await fs.cp(source, target, { recursive: true, preserveTimestamps: true });
+          await fs.cp(source, target, dasbrowserAppCopyOptions());
+          const signature = await run("codesign", ["--verify", "--deep", "--strict", target], {}, { timeoutMs: 120_000 });
+          if (signature.code !== 0) {
+            await fs.rm(target, { recursive: true, force: true });
+            throw new Error("The downloaded DasBrowser app failed macOS signature verification.");
+          }
         } finally {
           await run("hdiutil", ["detach", mount, "-force"], {}, { timeoutMs: 30_000 }).catch(() => undefined);
         }
       } else {
         const installer = path.join(tempDir, "DasbrowserSetup.exe");
         await downloadFile(url, installer);
+        setBrowserRuntimeInstallStatus("dasbrowser", "installing");
         const installed = await run(installer, ["--silent", "--install"], {}, { timeoutMs: 10 * 60 * 1000 });
         if (installed.code !== 0) throw new Error((installed.stderr || installed.stdout || "DasBrowser installation failed.").trim());
         for (let attempt = 0; attempt < 30 && !resolveDasbrowserRuntime(options); attempt += 1) {
@@ -504,11 +523,15 @@ async function ensureDasbrowserRuntime() {
       }
       const executable = resolveDasbrowserRuntime(options);
       if (!executable) throw new Error("DasBrowser installed, but its browser executable could not be found.");
+      setBrowserRuntimeInstallStatus("dasbrowser", "ready");
       return executable;
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
     }
-  })().finally(() => {
+  })().catch((error) => {
+    setBrowserRuntimeInstallStatus("dasbrowser", "failed");
+    throw error;
+  }).finally(() => {
     dasbrowserInstallPromise = null;
   });
   return dasbrowserInstallPromise;
@@ -702,6 +725,7 @@ async function invokeCommand(command, args = {}, sender) {
     }
     case "nextctl_resolve": return await resolveOrInstallNextctl();
     case "nextctl_install_status": return nextctlInstallStatus;
+    case "browser_runtime_install_status": return browserRuntimeInstallStatus;
     case "nextctl_run": {
       return executeNextctl(args.args || [], {
         extraEnv: args.extraEnv || {},

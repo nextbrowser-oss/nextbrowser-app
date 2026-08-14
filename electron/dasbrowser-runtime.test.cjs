@@ -5,6 +5,7 @@ const path = require("node:path");
 const test = require("node:test");
 const {
   adaptDasbrowserArgs,
+  dasbrowserAppCopyOptions,
   requestedBrowserRuntime,
   resolveDasbrowserRuntime,
 } = require("./dasbrowser-runtime.cjs");
@@ -25,4 +26,20 @@ test("adapts the app toolset to nextctl's chromium CDP runtime", () => {
   assert.deepEqual(adaptDasbrowserArgs(args, "/browser"), [
     "start", "--profile", "work", "--runtime", "chromium", "--format", "json", "--runtime-bin", "/browser",
   ]);
+});
+
+test("copies macOS app bundles without resolving their relative framework symlinks", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nextbrowser-dasbrowser-copy-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const source = path.join(root, "source", "Dasbrowser.app", "Contents", "Frameworks", "Browser.framework");
+  const target = path.join(root, "target", "Dasbrowser.app");
+  fs.mkdirSync(path.join(source, "Versions", "1"), { recursive: true });
+  fs.symlinkSync("1", path.join(source, "Versions", "Current"));
+
+  await fs.promises.cp(path.join(root, "source", "Dasbrowser.app"), target, dasbrowserAppCopyOptions());
+
+  assert.equal(
+    fs.readlinkSync(path.join(target, "Contents", "Frameworks", "Browser.framework", "Versions", "Current")),
+    "1",
+  );
 });

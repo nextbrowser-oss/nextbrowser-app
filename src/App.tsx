@@ -25,7 +25,7 @@ import {
   previousAppTab,
   recordPreviousAppTab,
 } from "./lib/appNavigation";
-import { errorReference, internalError } from "./lib/userFacingError";
+import { errorReference } from "./lib/userFacingError";
 import { invoke, listen } from "./electronBridge";
 import { agentById } from "./agents";
 import { releaseDownloadUrl } from "./lib/releaseDownload";
@@ -48,6 +48,35 @@ interface AppUpdateStatus {
   message?: string;
 }
 
+interface BrowserRuntimeInstallStatus {
+  runtime?: "clawbrowser" | "dasbrowser";
+  status?: "idle" | "downloading" | "installing" | "ready" | "failed";
+}
+
+const APP_UPDATE_ERROR = "We couldn't update NextBrowser. Please retry again.";
+
+function BrowserRuntimeInstallModal({ status }: { status: BrowserRuntimeInstallStatus }) {
+  const name = status.runtime === "dasbrowser" ? "DasBrowser" : "ClawBrowser";
+  const installing = status.status === "installing";
+  return (
+    <div className="browser-install-overlay" role="status" aria-live="polite">
+      <div className="modal-card browser-install-modal" aria-labelledby="browser-install-title">
+        <div className="browser-install-mark"><Spinner size={22} /></div>
+        <div className="browser-install-copy">
+          <strong id="browser-install-title">{installing ? `Installing ${name}` : `Downloading ${name}`}</strong>
+          <p className="muted small">
+            {installing
+              ? "Finishing the browser setup. This may take a moment."
+              : `Preparing ${name} for its first profile. The download time depends on your connection.`}
+          </p>
+        </div>
+        <div className="browser-install-progress" aria-hidden="true"><span /></div>
+        <p className="muted browser-install-note">Keep NextBrowser open until setup is complete.</p>
+      </div>
+    </div>
+  );
+}
+
 // macOS in-place auto-update needs a signed + notarized build (Squirrel.Mac
 // rejects unsigned updates). Until signing lands we still detect and surface
 // the new version, but send users to the release page to update manually.
@@ -66,7 +95,7 @@ function updateLabel(status?: AppUpdateStatus | null): string {
   if (status.status === "not-available") return "Up to date";
   if (status.status === "checking") return "Checking...";
   if (status.status === "disabled") return "Updates unavailable in this build";
-  if (status.status === "error") return internalError("We couldn't update NextBrowser.", "APP_UPDATE_FAILED");
+  if (status.status === "error") return APP_UPDATE_ERROR;
   return "Check for updates";
 }
 
@@ -230,8 +259,6 @@ function SettingsModal({
   const authorizeAgent = useStore((s) => s.authorizeAgent);
   const loginAgent = useStore((s) => s.loginAgent);
   const logoutAgent = useStore((s) => s.logoutAgent);
-  const terminalChat = useStore((s) => s.terminalChat);
-  const setTerminalChat = useStore((s) => s.setTerminalChat);
   const profiles = useStore((s) => {
     const defaultKnown = !!s.defaultSession?.session?.name || (s.defaultSession?.status ?? "unknown") !== "unknown";
     const hasListedDefault = s.profiles.some((profile) => profile.name === "default");
@@ -387,25 +414,6 @@ function SettingsModal({
               </div>
             )}
           </div>
-          <div className="settings-experiment-row">
-            <span className="settings-feature-icon">
-              <Icon name="terminal" size={17} />
-            </span>
-            <span className="settings-feature-copy">
-              <strong>Terminal chat <span className="experimental-pill">Experimental</span></strong>
-              <span className="muted small">Switch between the regular UI and a persistent agent terminal, automatically continuing with recent context.</span>
-            </span>
-            <button
-              type="button"
-              className={"settings-switch" + (terminalChat ? " is-on" : "")}
-              role="switch"
-              aria-checked={terminalChat}
-              aria-label="Terminal chat"
-              onClick={() => setTerminalChat(!terminalChat)}
-            >
-              <span />
-            </button>
-          </div>
           <button
             className="settings-feature-link"
             onClick={() => {
@@ -519,6 +527,7 @@ export function App() {
   const [appUpdate, setAppUpdate] = useState<AppUpdateStatus>({ status: "idle" });
   const [updatePromptDismissed, setUpdatePromptDismissed] = useState(false);
   const [unexpectedError, setUnexpectedError] = useState<{ reference: string; detail: string }>();
+  const [browserRuntimeInstall, setBrowserRuntimeInstall] = useState<BrowserRuntimeInstallStatus>();
   const preview = getPreviewMode();
   const checking = useStore((s) => s.checking);
   const tab = useStore((s) => s.tab);
@@ -565,6 +574,22 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    const applyStatus = (status: BrowserRuntimeInstallStatus) => {
+      if (status.status === "downloading" || status.status === "installing") {
+        setBrowserRuntimeInstall(status);
+      } else {
+        setBrowserRuntimeInstall((current) => current?.runtime === status.runtime ? undefined : current);
+      }
+    };
+    void invoke<BrowserRuntimeInstallStatus>("browser_runtime_install_status").then(applyStatus).catch(() => undefined);
+    let cleanup: (() => void) | undefined;
+    void listen<BrowserRuntimeInstallStatus>("browser-runtime:install", (event) => applyStatus(event.payload))
+      .then((off) => { cleanup = off; })
+      .catch(() => undefined);
+    return () => cleanup?.();
+  }, []);
+
+  useEffect(() => {
     if (!unexpectedError) return;
     const timer = window.setTimeout(() => setUnexpectedError(undefined), 8_000);
     return () => window.clearTimeout(timer);
@@ -572,17 +597,17 @@ export function App() {
 
   const checkAppUpdate = () => {
     void invoke<AppUpdateStatus>("app_check_for_update").then(setAppUpdate).catch(() => {
-      setAppUpdate({ status: "error", message: internalError("We couldn't check for updates.", "APP_UPDATE_CHECK_FAILED") });
+      setAppUpdate({ status: "error", message: APP_UPDATE_ERROR });
     });
   };
   const downloadAppUpdate = () => {
     void invoke<AppUpdateStatus>("app_download_update").then(setAppUpdate).catch(() => {
-      setAppUpdate({ status: "error", message: internalError("We couldn't download the update.", "APP_UPDATE_DOWNLOAD_FAILED") });
+      setAppUpdate({ status: "error", message: APP_UPDATE_ERROR });
     });
   };
   const installAppUpdate = () => {
     void invoke<boolean>("app_install_update").catch(() => {
-      setAppUpdate({ status: "error", message: internalError("We couldn't install the update.", "APP_UPDATE_INSTALL_FAILED") });
+      setAppUpdate({ status: "error", message: APP_UPDATE_ERROR });
     });
   };
   const openLatestRelease = async () => {
@@ -956,6 +981,7 @@ export function App() {
       {!checking && !agentReady && <AgentConnectionGate />}
       {showOnboarding && agentReady && !workspaceSetupRequired && <OnboardingView />}
       {!checking && agentReady && workspaceSetupRequired && <WorkspaceSetupGate />}
+      {browserRuntimeInstall && <BrowserRuntimeInstallModal status={browserRuntimeInstall} />}
       {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
     </div>
   );

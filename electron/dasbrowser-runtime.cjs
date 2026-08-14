@@ -57,9 +57,22 @@ function adaptDasbrowserArgs(args, executable) {
   return adapted;
 }
 
+function dasbrowserAppCopyOptions() {
+  return {
+    recursive: true,
+    preserveTimestamps: true,
+    // Chromium app bundles use relative framework symlinks. Node resolves
+    // symlink targets by default while copying, which would permanently point
+    // the installed app at the temporary mounted DMG and break its signature
+    // as soon as the image is detached.
+    verbatimSymlinks: true,
+  };
+}
+
 module.exports = {
   DASBROWSER_DOWNLOADS,
   adaptDasbrowserArgs,
+  dasbrowserAppCopyOptions,
   dasbrowserRuntimeCandidates,
   requestedBrowserRuntime,
   resolveDasbrowserRuntime,

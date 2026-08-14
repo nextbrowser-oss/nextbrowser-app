@@ -442,6 +442,45 @@ describe("browser profile creation", () => {
 });
 
 describe("local component and profile lifecycle", () => {
+  it("stops a persisted streaming reply when no agent process owns it", () => {
+    const stale = conversation("stale", "local", [
+      message("user", "user", "Hello"),
+      { ...message("reply", "assistant", ""), status: "streaming", runStartedAt: Date.now() - 60 * 60 * 1000 },
+    ]);
+    const previousUpdatedAt = stale.updatedAt;
+    useStore.setState({ conversations: [stale], activeConvId: { codex: stale.id } });
+
+    useStore.getState().reconcileQueues();
+
+    const restored = useStore.getState().conversations[0];
+    expect(restored.messages[1]).toMatchObject({ status: "cancelled", text: "[stopped]", stalled: false });
+    expect(restored.updatedAt).toBeGreaterThan(previousUpdatedAt);
+  });
+
+  it("retries a failed nextctl update twice at five-minute intervals", async () => {
+    vi.useFakeTimers();
+    try {
+      useStore.setState({ nextctlAvailable: true });
+      bridge.invoke.mockImplementation((command) => {
+        if (command === "nextctl_run") return Promise.resolve({ code: 1, stdout: "", stderr: "offline" });
+        return Promise.resolve(null);
+      });
+
+      await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(false);
+      expect(localNextctlCalls()).toHaveLength(1);
+      expect(useStore.getState().nextctlUpdateStatus).toBe("We couldn't update NextBrowser. Please retry again.");
+
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      expect(localNextctlCalls()).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      expect(localNextctlCalls()).toHaveLength(3);
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      expect(localNextctlCalls()).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("restores a profile status when launching it fails", async () => {
     useStore.setState({ statuses: { work: "stopped" } });
     bridge.invoke.mockResolvedValue({
