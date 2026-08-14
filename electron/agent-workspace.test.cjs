@@ -37,6 +37,8 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   assert.match(main, /\.cache", "clawbrowser"/);
   assert.match(main, /\.local", "share", "clawbrowser"/);
   assert.match(main, /\.local", "state", "clawbrowser"/);
+  assert.match(main, /"Application Support", "Dasbrowser"/);
+  assert.doesNotMatch(main, /path\.join\(home\(\), "Library", "Application Support"\),/);
   assert.match(main, /path\.join\(home\(\), "\.nextbrowser", "runtime"\)/);
   assert.match(main, /managedNextctlRoot\(\), \.\.\.searchDirs\(\)/);
   assert.doesNotMatch(main, /dangerously-bypass-approvals-and-sandbox/);

@@ -100,10 +100,16 @@ async function ensureCodexTerminalProfile() {
 function clawbrowserWritableDirs() {
   if (process.platform === "win32") {
     const localAppData = String(process.env.LOCALAPPDATA || path.join(home(), "AppData", "Local"));
-    return [path.join(localAppData, "Clawbrowser")];
+    return [
+      path.join(localAppData, "Clawbrowser"),
+      path.join(localAppData, "Dasbrowser"),
+    ];
   }
   return [
     nextbrowserRuntimeRoot(),
+    // DasBrowser's Chromium process keeps its runtime state here. Grant only
+    // this product directory, never the surrounding Application Support tree.
+    path.join(home(), "Library", "Application Support", "Dasbrowser"),
     path.join(home(), ".cache", "clawbrowser"),
     path.join(home(), ".config", "clawbrowser"),
     path.join(home(), ".local", "share", "clawbrowser"),
