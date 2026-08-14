@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, nativeImage, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, nativeImage, dialog, Menu, clipboard } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs/promises");
@@ -156,6 +156,12 @@ function nextbrowserRuntimeRoot() {
 }
 function childEnv(extra = {}) {
   const runtimeRoot = nextbrowserRuntimeRoot();
+  const dasbrowserBin = resolveDasbrowserRuntime({
+    platform: process.platform,
+    homeDir: home(),
+    env: process.env,
+    runtimeRoot,
+  });
   return {
     ...process.env,
     PATH: searchDirs().join(path.delimiter),
@@ -166,6 +172,7 @@ function childEnv(extra = {}) {
     CLAWBROWSER_SESSION_ROOT: path.join(runtimeRoot, "sessions"),
     NBC_PROFILE_ROOT: path.join(runtimeRoot, "profiles"),
     CLAWBROWSER_API_BASE_URL: apiBaseURL(),
+    ...(dasbrowserBin ? { DASBROWSER_BIN: dasbrowserBin } : {}),
     ...extra,
   };
 }
@@ -552,7 +559,7 @@ async function apiFetchJSON(baseURL, route, options = {}) {
   return body;
 }
 
-async function invokeCommand(command, args = {}) {
+async function invokeCommand(command, args = {}, sender) {
   switch (command) {
     case "github_stars": {
       try {
@@ -848,6 +855,7 @@ async function invokeCommand(command, args = {}) {
       const bin = resolveBinary(agent.binary, agent.envVar);
       if (!bin) throw new Error(`${agent.binary} CLI not found.`);
       const id = randomUUID();
+      if (args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
       const writableDirs = args.agentId === "codex" ? clawbrowserWritableDirs() : [];
       let agentArgs = agent.args || [];
       if (args.agentId === "codex") {
@@ -883,6 +891,18 @@ async function invokeCommand(command, args = {}) {
         }
       });
       return id;
+    }
+    case "terminal_context_menu": {
+      const text = typeof args.text === "string" ? args.text.slice(0, 1024 * 1024) : "";
+      const window = sender ? BrowserWindow.fromWebContents(sender) : undefined;
+      const menu = Menu.buildFromTemplate([{
+        label: "Copy",
+        enabled: text.length > 0,
+        accelerator: "CmdOrCtrl+C",
+        click: () => clipboard.writeText(text),
+      }]);
+      menu.popup(window ? { window } : {});
+      return null;
     }
     case "terminal_ready": {
       const id = String(args.id || "");
@@ -1017,7 +1037,7 @@ if (!gotLock) {
     } else {
       app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
     }
-    ipcMain.handle("nextbrowser:invoke", (_event, command, args) => invokeCommand(command, args));
+    ipcMain.handle("nextbrowser:invoke", (event, command, args) => invokeCommand(command, args, event.sender));
     createWindow();
     for (const arg of process.argv) handleDeepLink(arg);
     startAutoUpdater();

@@ -74,6 +74,7 @@ import type {
   Workspace,
 } from "./types";
 import type { RotationCountry } from "./lib/countryFlag";
+import { browserProfileContext } from "./lib/browserProfileContext";
 import { customPrivateSlug, customPublishSelector } from "./types";
 
 interface QueuedItem {
@@ -1510,7 +1511,9 @@ export const useStore = create<State>((set, get) => {
       get().conversations,
       item.conversationId,
       item.replyId,
-      item.rawText + privateSkillContext(get().localSkills, item.rawText),
+      item.rawText
+        + privateSkillContext(get().localSkills, item.rawText)
+        + browserProfileContext(get().workspaces, get().activeWorkspaceId, get().selectedProfile),
       get().selectedProfile,
       { nextctlAvailable: get().nextctlAvailable, executionTarget: item.executionTarget },
     );

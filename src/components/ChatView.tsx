@@ -30,6 +30,7 @@ import {
   type DistilledWorkflow,
 } from "../lib/workflowDistillation";
 import { chatToTerminalHandoff, terminalToChatHandoff } from "../lib/contextHandoff";
+import { browserProfileContext } from "../lib/browserProfileContext";
 
 async function authorWorkflowWithAgent(agent: AgentSpec, workingDir: string, fallback: DistilledWorkflow): Promise<DistilledWorkflow | undefined> {
   const prompt = workflowDistillationPrompt(fallback);
@@ -346,6 +347,7 @@ export function ChatView() {
               agentName={agentName}
               conversationId={conv?.id}
               workingDir={s.workingDir}
+              browserContext={browserProfileContext(s.workspaces, s.activeWorkspaceId, s.selectedProfile)}
               savingWorkflow={preparingWorkflowId === "terminal"}
               pendingHandoff={terminalHandoff}
               handoffToChatRequest={terminalToChatRequest}

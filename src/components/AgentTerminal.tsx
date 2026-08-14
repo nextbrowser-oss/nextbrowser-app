@@ -10,6 +10,7 @@ interface AgentTerminalProps {
   agentName: string;
   conversationId?: string;
   workingDir?: string;
+  browserContext?: string;
   savingWorkflow?: boolean;
   pendingHandoff?: { id: string; text: string };
   handoffToChatRequest?: string;
@@ -81,7 +82,7 @@ function handoffFingerprint(value: string): string {
     .trim();
 }
 
-export function AgentTerminal({ agentId, agentName, conversationId, workingDir, savingWorkflow, pendingHandoff, handoffToChatRequest, onSaveWorkflow, onContinueInChat, onHandoffConsumed, onChatHandoffConsumed }: AgentTerminalProps) {
+export function AgentTerminal({ agentId, agentName, conversationId, workingDir, browserContext, savingWorkflow, pendingHandoff, handoffToChatRequest, onSaveWorkflow, onContinueInChat, onHandoffConsumed, onChatHandoffConsumed }: AgentTerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalIdRef = useRef<string>();
   const terminalRef = useRef<Terminal>();
@@ -139,6 +140,11 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
     terminal.loadAddon(fit);
     terminal.open(host);
     terminalRef.current = terminal;
+    const showContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+      void invoke("terminal_context_menu", { text: terminal.getSelection() });
+    };
+    host.addEventListener("contextmenu", showContextMenu);
     terminal.attachCustomKeyEventHandler((event) => {
       if (event.key === "Enter" && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
         event.preventDefault();
@@ -208,6 +214,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
       const id = await invoke<string>("terminal_start", {
         agentId,
         workingDir: workingDir || null,
+        browserContext: browserContext || "",
         cols: terminal.cols,
         rows: terminal.rows,
       });
@@ -233,6 +240,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
     return () => {
       disposed = true;
       observer.disconnect();
+      host.removeEventListener("contextmenu", showContextMenu);
       themeObserver.disconnect();
       input.dispose();
       removeData?.();

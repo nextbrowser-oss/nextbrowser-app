@@ -3,12 +3,13 @@ const path = require("node:path");
 
 const START = "<!-- NEXTBROWSER MANAGED INSTRUCTIONS START -->";
 const END = "<!-- NEXTBROWSER MANAGED INSTRUCTIONS END -->";
-const MANAGED_INSTRUCTIONS = `${START}
+function managedInstructions(browserContext = "") {
+  return `${START}
 # NextBrowser browser workspace
 
 - For browser tasks, use the connected Clawbrowser MCP tools immediately when they are available. They keep one CDP connection warm. Use the CLI only when MCP is unavailable; then prefer \`nbc\` and fall back to \`nextctl\`.
 - Do not probe for the CLI, run a duplicate CLI \`start\`, or switch between CLI and MCP after a successful MCP call.
-- Clawbrowser is the only browser integration enabled in Terminal Chat. Read only its browser skill; do not search for or read instructions for another browser integration.
+- Use the authoritative NextBrowser profile runtime context below when present. Never infer a profile's browser from generic MCP or nextctl profile metadata.
 - Start or reuse the requested profile exactly once. Pass the target URL to \`start\`; do not separately open the same URL unless navigation actually failed.
 - Include \`wait_for: {"settle": true}\` and \`return_state: true\` in the same MCP \`start\` call when the next step needs page controls; do not issue separate \`wait\` and \`state\` calls.
 - For catalogs, listings, and search results, use one \`paginate_extract\` call after the page is ready. Do not manually repeat \`scroll\` → \`wait\` → \`state\`; \`paginate_extract\` scrolls, waits, extracts, deduplicates, filters, and sorts in one operation.
@@ -20,20 +21,25 @@ const MANAGED_INSTRUCTIONS = `${START}
 - Authentication is managed by the NextBrowser app. Never search for, read, print, copy, or ask the user to paste API keys, tokens, environment variables, or Clawbrowser configuration files.
 - If a Clawbrowser command reports an authentication error, retry that command once. If it still fails, ask the user to reconnect their account in NextBrowser; do not troubleshoot by inspecting secrets.
 - Keep filesystem work inside this workspace unless the user explicitly supplies another exact path.
+${browserContext.trim() ? `\n${browserContext.trim()}\n` : ""}
 ${END}`;
+}
 
-function mergeManagedInstructions(existing = "") {
+const MANAGED_INSTRUCTIONS = managedInstructions();
+
+function mergeManagedInstructions(existing = "", browserContext = "") {
+  const instructions = managedInstructions(browserContext);
   const start = existing.indexOf(START);
   const end = existing.indexOf(END);
   if (start >= 0 && end >= start) {
-    return `${existing.slice(0, start)}${MANAGED_INSTRUCTIONS}${existing.slice(end + END.length)}`;
+    return `${existing.slice(0, start)}${instructions}${existing.slice(end + END.length)}`;
   }
   return existing.trim()
-    ? `${MANAGED_INSTRUCTIONS}\n\n${existing}`
-    : `${MANAGED_INSTRUCTIONS}\n`;
+    ? `${instructions}\n\n${existing}`
+    : `${instructions}\n`;
 }
 
-async function ensureWorkspaceInstructions(workspaceDir) {
+async function ensureWorkspaceInstructions(workspaceDir, browserContext = "") {
   for (const name of ["AGENTS.md", "CLAUDE.md"]) {
     const file = path.join(workspaceDir, name);
     let existing = "";
@@ -42,7 +48,7 @@ async function ensureWorkspaceInstructions(workspaceDir) {
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
-    const next = mergeManagedInstructions(existing);
+    const next = mergeManagedInstructions(existing, browserContext);
     if (next !== existing) await fs.writeFile(file, next, "utf8");
   }
 }
