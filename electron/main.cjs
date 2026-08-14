@@ -26,6 +26,7 @@ const {
   runCommand,
 } = require("./command-runner.cjs");
 const { topUpProxyTraffic } = require("./proxy-traffic.cjs");
+const { terminateProcessTree } = require("./process-tree.cjs");
 const { deleteProject, deleteWorkspace, listProjects, listWorkspaces, putProject, putWorkspace } = require("./project-sync.cjs");
 const { defaultSSHConfigPath, discoverSSHHosts, isAllowedExplicitConfigPath } = require("./ssh-config.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
@@ -964,7 +965,14 @@ async function invokeCommand(command, args = {}, sender) {
         if (args.stdinText != null) child.stdin.end(args.stdinText);
       });
     }
-    case "agent_terminate": { const child = children.get(args.replyId); if (child) { child.kill(); children.delete(args.replyId); } return null; }
+    case "agent_terminate": {
+      const child = children.get(args.replyId);
+      if (child) {
+        await terminateProcessTree(child.pid, { includeRoot: true });
+        children.delete(args.replyId);
+      }
+      return null;
+    }
     case "terminal_start": {
       const agent = TERMINAL_AGENTS[String(args.agentId || "")];
       if (!agent) throw new Error("This agent is not available in the experimental terminal.");
@@ -1063,6 +1071,13 @@ async function invokeCommand(command, args = {}, sender) {
     case "terminal_input": {
       const record = terminals.get(String(args.id || ""));
       if (record) record.process.write(String(args.data || "").slice(0, 1024 * 1024));
+      return null;
+    }
+    case "terminal_interrupt": {
+      const record = terminals.get(String(args.id || ""));
+      if (record?.process?.pid) {
+        await terminateProcessTree(record.process.pid, { includeRoot: false, nextctlOnly: true });
+      }
       return null;
     }
     case "terminal_resize": {
