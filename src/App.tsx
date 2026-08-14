@@ -25,7 +25,7 @@ import {
   previousAppTab,
   recordPreviousAppTab,
 } from "./lib/appNavigation";
-import { internalError } from "./lib/userFacingError";
+import { errorReference, internalError } from "./lib/userFacingError";
 import { invoke, listen } from "./electronBridge";
 import { agentById } from "./agents";
 import { releaseDownloadUrl } from "./lib/releaseDownload";
@@ -66,7 +66,7 @@ function updateLabel(status?: AppUpdateStatus | null): string {
   if (status.status === "not-available") return "Up to date";
   if (status.status === "checking") return "Checking...";
   if (status.status === "disabled") return "Updates unavailable in this build";
-  if (status.status === "error") return internalError("We couldn't update NextBrowser.");
+  if (status.status === "error") return internalError("We couldn't update NextBrowser.", "APP_UPDATE_FAILED");
   return "Check for updates";
 }
 
@@ -183,22 +183,14 @@ function SocialButtons() {
   );
 }
 
-function errorReference(detail: string): string {
-  let hash = 2166136261;
-  for (const char of detail || "unknown") {
-    hash ^= char.charCodeAt(0);
-    hash = Math.imul(hash, 16777619);
-  }
-  return `NB-${(hash >>> 0).toString(16).toUpperCase().padStart(8, "0")}`;
-}
-
 function GlobalErrorNotice({ error, onClose }: { error: { reference: string; detail: string }; onClose: () => void }) {
   return (
     <div className="global-error-notice" role="alert">
       <Icon name="exclamationmark.triangle.fill" size={15} />
       <span className="global-error-copy">
-        <UserFacingError message={internalError()} surface="unexpected_app_error" />
-        <span className="global-error-reference" title={error.detail}>Error ID: {error.reference}</span>
+        <span title={error.detail}>
+          <UserFacingError message={`Unexpected app error. Ref: ${error.reference}`} surface="unexpected_app_error" />
+        </span>
       </span>
       <button className="plain-icon-btn plain-icon-btn-compact" onClick={onClose} aria-label="Dismiss error">
         <Icon name="xmark" size={12} />
@@ -580,17 +572,17 @@ export function App() {
 
   const checkAppUpdate = () => {
     void invoke<AppUpdateStatus>("app_check_for_update").then(setAppUpdate).catch(() => {
-      setAppUpdate({ status: "error", message: internalError("We couldn't check for updates.") });
+      setAppUpdate({ status: "error", message: internalError("We couldn't check for updates.", "APP_UPDATE_CHECK_FAILED") });
     });
   };
   const downloadAppUpdate = () => {
     void invoke<AppUpdateStatus>("app_download_update").then(setAppUpdate).catch(() => {
-      setAppUpdate({ status: "error", message: internalError("We couldn't download the update.") });
+      setAppUpdate({ status: "error", message: internalError("We couldn't download the update.", "APP_UPDATE_DOWNLOAD_FAILED") });
     });
   };
   const installAppUpdate = () => {
     void invoke<boolean>("app_install_update").catch(() => {
-      setAppUpdate({ status: "error", message: internalError("We couldn't install the update.") });
+      setAppUpdate({ status: "error", message: internalError("We couldn't install the update.", "APP_UPDATE_INSTALL_FAILED") });
     });
   };
   const openLatestRelease = async () => {

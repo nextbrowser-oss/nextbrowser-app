@@ -90,12 +90,12 @@ export function LiveView({ active }: { active: boolean }) {
       onState: (next) => {
         if (next === "connected") setState("live");
         if (next === "error") {
-          setError(internalError("We couldn't connect Live View."));
+          setError(internalError("We couldn't connect Live View.", "LIVE_VIEW_CONNECT_FAILED"));
           setState("error");
         }
       },
       onError: () => {
-        setError(internalError("We couldn't connect Live View."));
+        setError(internalError("We couldn't connect Live View.", "LIVE_VIEW_CONNECT_FAILED"));
         setState("error");
       },
       onStream: (stream) => {
@@ -138,7 +138,7 @@ export function LiveView({ active }: { active: boolean }) {
       await connectRemoteViewer(info);
     } catch {
       setState("error");
-      setError(internalError("We couldn't start Live View."));
+      setError(internalError("We couldn't start Live View.", "LIVE_VIEW_START_FAILED"));
     }
   };
 
@@ -160,7 +160,7 @@ export function LiveView({ active }: { active: boolean }) {
       }
     } catch {
       setState("error");
-      setError(internalError("We couldn't launch the remote session."));
+      setError(internalError("We couldn't launch the remote session.", "REMOTE_SESSION_LAUNCH_FAILED"));
     }
   };
 
@@ -431,7 +431,7 @@ export function LiveView({ active }: { active: boolean }) {
             <Icon name="exclamationmark.triangle.fill" size={32} className="warn" />
             <p>
               <UserFacingError
-                message={error || internalError("We couldn't connect Live View.")}
+                message={error || internalError("We couldn't connect Live View.", "LIVE_VIEW_CONNECT_FAILED")}
                 surface="live_view"
               />
             </p>

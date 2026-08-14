@@ -67,11 +67,12 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const profileCreateRequestRef = useRef<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
-  const runProfileAction = (label: string, action: () => Promise<void>) => {
+  const runProfileAction = (label: string, code: string, action: () => Promise<void>) => {
     setProfileActionError(null);
     void action().catch((error: unknown) => {
       const detail = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
-      setProfileActionError(detail ? `${label} ${detail}` : label);
+      console.error(`[${code}] ${label}`, detail);
+      setProfileActionError(internalError(label, code));
     });
   };
 
@@ -175,14 +176,14 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       if (profile === "__default") {
         s.selectProfile(undefined);
         if (!defaultRunning && !defaultBusy) {
-          runProfileAction("We couldn't start the default profile.", s.startDefaultSession);
+          runProfileAction("We couldn't start the default profile.", "PROFILE_START_FAILED", s.startDefaultSession);
         }
         return;
       }
       s.selectProfile(profile);
       const status = s.statuses[profile] ?? s.profileSessions[profile]?.status ?? "unknown";
       if (status !== "running" && !["starting", "stopping", "rotating"].includes(status)) {
-        runProfileAction(`We couldn't start “${profile}”.`, () => s.startProfile(profile));
+        runProfileAction(`We couldn't start “${profile}”.`, "PROFILE_START_FAILED", () => s.startProfile(profile));
       }
     };
     window.addEventListener("nextbrowser:focus-profiles", focusProfiles);
@@ -247,7 +248,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     try {
       await s.logout();
     } catch {
-      setLogoutError(internalError("We couldn't sign you out. Please try again."));
+      setLogoutError(internalError("We couldn't sign you out.", "ACCOUNT_SIGN_OUT_FAILED"));
     } finally {
       setLogoutPending(false);
     }
@@ -301,7 +302,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       resetManualProxyForm();
       setManualProxyOpen(false);
     } catch {
-      setManualError(internalError("We couldn't create the proxy profile."));
+      setManualError(internalError("We couldn't create the proxy profile.", "PROXY_PROFILE_CREATE_FAILED"));
     } finally {
       setManualSaving(false);
     }
@@ -600,9 +601,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                             s.assignProfileToProject(p.name, toolset, s.activeWorkspaceId);
                             s.selectProfile(p.name);
                             s.setTab("chat");
-                            runProfileAction(`We couldn't start “${p.name}”.`, () => s.startProfile(p.name));
+                            runProfileAction(`We couldn't start “${p.name}”.`, "PROFILE_START_FAILED", () => s.startProfile(p.name));
                           }}
-                          onStop={() => runProfileAction(`We couldn't stop “${p.name}”.`, () => s.stopProfile(p.name))}
+                          onStop={() => runProfileAction(`We couldn't stop “${p.name}”.`, "PROFILE_STOP_FAILED", () => s.stopProfile(p.name))}
                           onLive={() => { s.selectProfile(p.name); s.setTab("live"); }}
                           onMenu={() => setMenuProfile(p.name)}
                         />
@@ -802,7 +803,10 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               setWorkspaceError(null);
               void s.createWorkspace(nextName)
                 .then(() => setWorkspaceCreatorOpen(false))
-                .catch((error: unknown) => setWorkspaceError(error instanceof Error ? error.message : "Couldn't create workspace."))
+                .catch((error: unknown) => {
+                  console.error("[WORKSPACE_CREATE_FAILED]", error);
+                  setWorkspaceError(internalError("We couldn't create the workspace.", "WORKSPACE_CREATE_FAILED"));
+                })
                 .finally(() => setWorkspaceSaving(false));
             }}
           >

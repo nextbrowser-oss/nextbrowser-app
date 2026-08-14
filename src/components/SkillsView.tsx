@@ -61,7 +61,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
             : "no skill published yet",
       }));
     } catch {
-      setStatus((p) => ({ ...p, [e.id]: internalError("We couldn't apply this skill.") }));
+      setStatus((p) => ({ ...p, [e.id]: internalError("We couldn't apply this skill.", "SKILL_APPLY_FAILED") }));
     }
   };
 

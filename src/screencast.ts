@@ -81,7 +81,7 @@ export class Screencast {
       await this.connect(wsUrl);
     } catch {
       this.cb.onState("error");
-      this.cb.onError(internalError("We couldn't start the browser preview."));
+      this.cb.onError(internalError("We couldn't start the browser preview.", "BROWSER_PREVIEW_START_FAILED"));
     }
   }
 
@@ -110,7 +110,7 @@ export class Screencast {
       ws.onerror = () => {
         if (this.running) {
           this.cb.onState("error");
-          this.cb.onError(internalError("We couldn't connect the browser preview."));
+          this.cb.onError(internalError("We couldn't connect the browser preview.", "BROWSER_PREVIEW_CONNECT_FAILED"));
         }
         reject(new Error("WebSocket error"));
       };
