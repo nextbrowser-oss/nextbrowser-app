@@ -87,7 +87,9 @@ test("stores only an encrypted Multilogin token and can clear it", async (t) => 
   const raw = await fs.readFile(filePath, "utf8");
   assert.equal(raw.includes("secret-automation-token"), false);
   assert.equal(await store.load(), "secret-automation-token");
-  assert.equal((await fs.stat(filePath)).mode & 0o777, 0o600);
+  if (process.platform !== "win32") {
+    assert.equal((await fs.stat(filePath)).mode & 0o777, 0o600);
+  }
 
   await store.clear();
   assert.equal(await store.load(), "");
