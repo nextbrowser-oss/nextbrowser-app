@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, nativeImage, dialog, Menu, clipboard, safeStorage } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs/promises");
@@ -897,6 +897,14 @@ async function invokeCommand(command, args = {}, sender) {
       return null;
     }
     case "app_platform": return { platform: process.platform, arch: process.arch };
+    case "app_set_theme": {
+      const theme = args.theme === "light" ? "light" : "dark";
+      nativeTheme.themeSource = theme;
+      for (const window of BrowserWindow.getAllWindows()) {
+        window.setBackgroundColor(theme === "light" ? "#f5f5f7" : "#15141c");
+      }
+      return null;
+    }
     case "agent_authorize": {
       const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} executable not found.`);
       const r = await run(bin, ["--version"]); if (r.code !== 0) throw new Error(`${args.binary} is not ready: ${(r.stdout + r.stderr).trim()}`);

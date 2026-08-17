@@ -18,6 +18,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
   const [status, setStatus] = useState<Record<string, string>>({});
   const [scriptEditor, setScriptEditor] = useState<CustomScript | "new" | null>(null);
   const [skillRun, setSkillRun] = useState<BrowserWorkflowSkill | null>(null);
+  const [skillDetails, setSkillDetails] = useState<BrowserWorkflowSkill | null>(null);
 
   const cat = categories.find((c) => c.id === category);
   const isSkillsOverview = category === "__skills__";
@@ -281,6 +282,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                   ready={ready}
                   sync={s.localSkillSync[skill.id] ?? (skill.submittedAt ? "synced" : "idle")}
                   onRun={() => setSkillRun(skill)}
+                  onDetails={() => setSkillDetails(skill)}
                   onSync={() => void s.saveLocalSkill(skill)}
                   onDelete={() => s.deleteLocalSkill(skill.id)}
                 />
@@ -396,6 +398,9 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
           }}
         />
       )}
+      {skillDetails && (
+        <LocalSkillDetails skill={skillDetails} onClose={() => setSkillDetails(null)} />
+      )}
     </div>
   );
 }
@@ -427,11 +432,12 @@ function RunLocalSkillSheet({ skill, sessionName, onClose, onRun }: {
   );
 }
 
-function LocalSkillCard({ skill, ready, sync, onRun, onSync, onDelete }: {
+function LocalSkillCard({ skill, ready, sync, onRun, onDetails, onSync, onDelete }: {
   skill: BrowserWorkflowSkill;
   ready: boolean;
   sync: string;
   onRun: () => void;
+  onDetails: () => void;
   onSync: () => void;
   onDelete: () => void;
 }) {
@@ -445,15 +451,42 @@ function LocalSkillCard({ skill, ready, sync, onRun, onSync, onDelete }: {
       <div className="muted small">{skill.domain || "Any website"}</div>
       <p className="small instructions-preview">{skill.instructions.slice(0, 150)}{skill.instructions.length > 150 ? "…" : ""}</p>
       <div className="small muted">{skill.actions.length} recorded browser action{skill.actions.length === 1 ? "" : "s"}</div>
-      {sync === "idle" && <button className="link small sync-link" onClick={onSync}>Back up privately</button>}
+      {sync === "idle" && <button className="link small sync-link" onClick={onSync}>Back up to private cloud</button>}
       {sync === "syncing" && <span className="muted small">Backing up…</span>}
       {sync === "synced" && <span className="ok small"><Icon name="lock.fill" size={11} /> Private cloud backup</span>}
       {sync === "failed" && <button className="link small" onClick={onSync}>Saved locally · Retry backup</button>}
       <div className="skill-actions">
         <button className="btn-bordered-prominent full" disabled={!ready} onClick={onRun}>Run</button>
-        <button className="plain-icon-btn" title="Delete local skill" onClick={onDelete}>
-          <Icon name="trash" size={14} className="error" />
-        </button>
+        <button className="btn-bordered full" onClick={onDetails}>View details</button>
+        <button className="mini danger-text" onClick={onDelete}>Delete</button>
+      </div>
+    </div>
+  );
+}
+
+function LocalSkillDetails({ skill, onClose }: { skill: BrowserWorkflowSkill; onClose: () => void }) {
+  return (
+    <div className="modal-overlay" onMouseDown={onClose}>
+      <div className="modal-card local-skill-details" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-title-row">
+          <Icon name="sparkles" size={17} className="accent-icon" />
+          <div>
+            <strong>{skill.title}</strong>
+            <div className="muted small">{skill.domain || "Any website"}</div>
+          </div>
+          <span className="spacer" />
+          <button className="plain-icon-btn" onClick={onClose} aria-label="Close skill details"><Icon name="xmark" size={15} /></button>
+        </div>
+        <section>
+          <span className="field-label">Original task</span>
+          <p className="skill-details-copy">{skill.task || "No original task recorded."}</p>
+        </section>
+        <section>
+          <span className="field-label">Reusable instructions</span>
+          <pre className="skill-details-instructions">{skill.instructions}</pre>
+        </section>
+        <div className="muted small">{skill.actions.length} recorded browser action{skill.actions.length === 1 ? "" : "s"}</div>
+        <div className="modal-actions"><button className="secondary" onClick={onClose}>Close</button></div>
       </div>
     </div>
   );
