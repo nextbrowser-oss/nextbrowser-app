@@ -77,7 +77,8 @@ import type {
 import type { RotationCountry } from "./lib/countryFlag";
 import { browserProfileContext } from "./lib/browserProfileContext";
 import { clearMultiloginSelection, multiloginSelectionForWorkspace } from "./lib/multiloginSelection";
-import { isMultiloginMobileStartRequest, multiloginMobileStartReply } from "./lib/multiloginChatCommand";
+import { isMultiloginStartRequest, multiloginStartReply } from "./lib/multiloginChatCommand";
+import { multiloginSessionName, nextctlRemoteArgs, type LiveStreamTarget } from "./lib/liveStreamTarget";
 import { customPrivateSlug, customPublishSelector } from "./types";
 
 interface QueuedItem {
@@ -484,7 +485,7 @@ interface State {
   applySkill: (entry: SkillEntry) => Promise<SkillRef | undefined>;
   useSkillInChat: (entry: SkillEntry) => Promise<void>;
   runScript: (entry: SkillEntry, host?: string) => Promise<void>;
-  startRemoteStream: (profile?: string) => Promise<RemoteStreamInfo>;
+  startRemoteStream: (target?: LiveStreamTarget) => Promise<RemoteStreamInfo>;
 
   addScheduledRun: (run: Omit<ScheduledRun, "id" | "agent" | "enabled">) => void;
   updateScheduledRun: (id: string, patch: Partial<ScheduledRun>) => void;
@@ -1541,12 +1542,12 @@ export const useStore = create<State>((set, get) => {
     });
     const conversationWorkspaceId = get().conversations.find((conversation) => conversation.id === item.conversationId)?.workspaceId;
     const multiloginSelection = multiloginSelectionForWorkspace(conversationWorkspaceId);
-    const directMobileStart = item.executionTarget === "local"
-      && multiloginSelection?.kind === "mobile"
-      && isMultiloginMobileStartRequest(item.rawText);
-    if (item.executionTarget === "local" && !directMobileStart) get().startSessionPoll();
+    const directMultiloginStart = item.executionTarget === "local"
+      && !!multiloginSelection
+      && isMultiloginStartRequest(item.rawText);
+    if (item.executionTarget === "local" && !directMultiloginStart) get().startSessionPoll();
 
-    if (directMobileStart) {
+    if (directMultiloginStart && multiloginSelection) {
       const finish = (status: ChatMessage["status"], text: string) => {
         replyExecutionTargets.delete(item.replyId);
         set((state) => {
@@ -1573,17 +1574,26 @@ export const useStore = create<State>((set, get) => {
         });
       };
       try {
-        const command = ["--runtime", "multilogin", "mobile", "start", multiloginSelection.id, "--no-wait"];
+        const command = multiloginSelection.kind === "mobile"
+          ? ["--runtime", "multilogin", "mobile", "start", multiloginSelection.id, "--no-wait"]
+          : [
+            "--runtime", "multilogin",
+            "--profile", multiloginSessionName(multiloginSelection),
+            "--multilogin-profile-id", multiloginSelection.id,
+            "start",
+          ];
         if (multiloginSelection.folderId) {
           command.push("--multilogin-folder-id", multiloginSelection.folderId);
         }
         const status = await nextctlJson<{ status_name?: string }>(command);
-        finish("done", multiloginMobileStartReply(
+        finish("done", multiloginStartReply(
           multiloginSelection.name,
+          multiloginSelection.kind,
           status.status_name ?? "starting",
           /[А-Яа-яЁё]/.test(item.rawText),
         ));
-        trackEvent("multilogin_mobile_start_completed", { direct: true });
+        set({ tab: "live" });
+        trackEvent("multilogin_profile_start_completed", { direct: true, kind: multiloginSelection.kind });
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         const reconnect = /MULTILOGIN_TOKEN|automation token|unauthorized|forbidden|\b40[13]\b/i.test(detail);
@@ -1595,7 +1605,7 @@ export const useStore = create<State>((set, get) => {
             ? "Could not start the cloud phone. Reconnect Multilogin in Connectors and try again."
             : `Could not start the cloud phone: ${detail}`;
         finish("failed", message);
-        trackEvent("multilogin_mobile_start_failed", { direct: true });
+        trackEvent("multilogin_profile_start_failed", { direct: true, kind: multiloginSelection.kind });
       }
       return;
     }
@@ -4041,11 +4051,15 @@ export const useStore = create<State>((set, get) => {
     trackEvent("local_skill_run_queued", { has_domain: !!skill.domain, customized_task: task !== skill.task.trim() });
   },
 
-  startRemoteStream: async (profile) => {
-    const args = ["remote", ...(profile ? ["--profile", profile] : [])];
-    let res = await nextctlRun([...args, "--include-viewer-url", "--format", "json"]);
+  startRemoteStream: async (target = { runtime: "clawbrowser" }) => {
+    const args = nextctlRemoteArgs(target);
+    const timeoutMs = target.runtime === "multilogin" && target.selection.kind === "mobile"
+      ? 3 * 60_000
+      : 60_000;
+    let res = await nextctlRun(args, undefined, { timeoutMs });
     if (res.code !== 0 && nextctlErrorMessage(res).includes("unknown flag")) {
-      res = await nextctlRun([...args, "--format", "json"]);
+      const fallbackArgs = args.filter((arg) => arg !== "--include-viewer-url");
+      res = await nextctlRun(fallbackArgs, undefined, { timeoutMs });
     }
     if (res.code !== 0) throw new Error(nextctlErrorMessage(res));
     let result: RemoteStreamInfo & { data?: RemoteStreamInfo };
@@ -4054,7 +4068,13 @@ export const useStore = create<State>((set, get) => {
     } catch {
       throw new Error(nextctlErrorMessage(res));
     }
-    if (result.data?.dashboard_url) result = result.data;
+    const envelope = result as RemoteStreamInfo & {
+      data?: RemoteStreamInfo & { remote?: RemoteStreamInfo };
+      remote?: RemoteStreamInfo;
+    };
+    if (envelope.data?.remote?.dashboard_url) result = envelope.data.remote;
+    else if (envelope.data?.dashboard_url) result = envelope.data;
+    else if (envelope.remote?.dashboard_url) result = envelope.remote;
     const url = result.viewer_url || result.dashboard_url;
     if (!url) throw new Error("nextctl remote did not return a viewer URL.");
     return result;

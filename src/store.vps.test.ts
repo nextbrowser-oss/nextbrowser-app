@@ -225,6 +225,56 @@ describe("VPS execution target isolation", () => {
       text: "Запуск cloud phone «Test phone» отправлен.",
     });
     expect(useStore.getState().conversations[0].updatedAt).toBeGreaterThan(1);
+    expect(useStore.getState().tab).toBe("live");
+  });
+
+  it("starts a selected Multilogin browser directly and opens Live View", async () => {
+    const local = {
+      ...conversation("local", "local", [
+        message("user", "user", "запусти выбранный профиль мультилогина"),
+        { ...message("reply", "assistant", ""), status: "queued" as const },
+      ]),
+      workspaceId: "work",
+    };
+    setMultiloginSelection("work", {
+      kind: "browser",
+      id: "browser-1",
+      name: "Work browser",
+      folderId: "folder-1",
+    });
+    useStore.setState({ conversations: [local], activeConvId: { codex: local.id } });
+    bridge.invoke.mockImplementation((command) => {
+      if (command === "nextctl_run") {
+        return Promise.resolve({
+          code: 0,
+          stdout: JSON.stringify({ ok: true, data: { session: { name: "mlx-browser-browser-1" } } }),
+          stderr: "",
+        });
+      }
+      return Promise.resolve(null);
+    });
+
+    await useStore.getState().processItem("codex", {
+      conversationId: local.id,
+      rawText: "запусти выбранный профиль мультилогина",
+      replyId: "reply",
+      executionTarget: "local",
+    });
+
+    expect(bridge.invoke.mock.calls.some(([command]) => command === "agent_run")).toBe(false);
+    expect(bridge.invoke).toHaveBeenCalledWith("nextctl_run", expect.objectContaining({
+      args: [
+        "--runtime", "multilogin",
+        "--profile", "mlx-browser-browser-1",
+        "--multilogin-profile-id", "browser-1",
+        "start", "--multilogin-folder-id", "folder-1", "--format", "json",
+      ],
+    }));
+    expect(useStore.getState().conversations[0].messages[1]).toMatchObject({
+      status: "done",
+      text: "Браузерный профиль Multilogin «Work browser» запущен. Открываю Live View.",
+    });
+    expect(useStore.getState().tab).toBe("live");
   });
 
   it("creates a distinct named VPS chat when local history already exists", async () => {
@@ -510,6 +560,48 @@ describe("browser profile creation", () => {
       ],
       extraEnv: { NBC_PROXY_PASSWORD: "secret-pass" },
     }));
+  });
+});
+
+describe("Live View runtime selection", () => {
+  it("keeps the existing Clawbrowser remote timeout", async () => {
+    bridge.invoke.mockResolvedValue({
+      stdout: JSON.stringify({ viewer_url: "https://example.test/clawbrowser" }),
+      stderr: "",
+      code: 0,
+    });
+
+    await useStore.getState().startRemoteStream({ runtime: "clawbrowser", profile: "work" });
+
+    expect(bridge.invoke).toHaveBeenCalledWith("nextctl_run", {
+      args: ["remote", "--profile", "work", "--include-viewer-url", "--format", "json"],
+      extraEnv: null,
+      requestId: undefined,
+      timeoutMs: 60_000,
+    });
+  });
+
+  it("allows a Multilogin cloud phone enough time to start and connect ADB", async () => {
+    bridge.invoke.mockResolvedValue({
+      stdout: JSON.stringify({ viewer_url: "https://example.test/mobile" }),
+      stderr: "",
+      code: 0,
+    });
+
+    await useStore.getState().startRemoteStream({
+      runtime: "multilogin",
+      selection: { kind: "mobile", id: "phone-1", name: "Phone", folderId: "folder-1" },
+    });
+
+    expect(bridge.invoke).toHaveBeenCalledWith("nextctl_run", {
+      args: [
+        "--runtime", "multilogin", "--multilogin-folder-id", "folder-1",
+        "mobile", "remote", "phone-1", "--include-viewer-url", "--format", "json",
+      ],
+      extraEnv: null,
+      requestId: undefined,
+      timeoutMs: 3 * 60_000,
+    });
   });
 });
 

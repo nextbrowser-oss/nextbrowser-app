@@ -361,6 +361,7 @@ async function executeNextctl(commandArgs, options = {}) {
   if (!bin) throw new Error("nextctl not found. Install Clawbrowser CLI or set NEXTCTL_BIN.");
   let adaptedArgs = commandArgs;
   const browserRuntime = requestedBrowserRuntime(adaptedArgs);
+  if (browserRuntime === "multilogin") await initializeMultiloginCredential();
   if (browserRuntime === "dasbrowser") {
     const executable = await ensureDasbrowserRuntime();
     adaptedArgs = adaptDasbrowserArgs(adaptedArgs, executable);

@@ -2,6 +2,12 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, 
 import { RemoteControlClient, type RemoteLiveTab, type RemoteMediaStats, type RemoteStreamInfo } from "../remoteControl";
 import { useStore } from "../store";
 import { internalError } from "../lib/userFacingError";
+import {
+  MULTILOGIN_SELECTION_EVENT,
+  multiloginSelectionForWorkspace,
+  type MultiloginProfileSelection,
+} from "../lib/multiloginSelection";
+import type { LiveStreamTarget } from "../lib/liveStreamTarget";
 import { Icon, Spinner } from "./Icon";
 import { UserFacingError } from "./UserFacingError";
 
@@ -32,6 +38,14 @@ function mergeTabs(current: RemoteLiveTab[], incoming: RemoteLiveTab[]) {
   return [...next.values()];
 }
 
+function clawbrowserTargetKey(profile?: string) {
+  return `clawbrowser:${profile || "__default"}`;
+}
+
+function multiloginTargetKey(selection: MultiloginProfileSelection) {
+  return `multilogin:${selection.kind}:${selection.id}`;
+}
+
 export function LiveView({ active }: { active: boolean }) {
   const s = useStore();
   const [sessionKey, setSessionKey] = useState<string>("");
@@ -43,6 +57,10 @@ export function LiveView({ active }: { active: boolean }) {
   const [pendingRemoteTab, setPendingRemoteTab] = useState("");
   const [mediaStats, setMediaStats] = useState<RemoteMediaStats>({});
   const [remoteMediaStream, setRemoteMediaStream] = useState<MediaStream | null>(null);
+  const activeWorkspaceID = s.activeConversation()?.workspaceId;
+  const [multiloginSelection, setMultiloginSelection] = useState<MultiloginProfileSelection | undefined>(
+    () => multiloginSelectionForWorkspace(activeWorkspaceID),
+  );
   const remoteClientRef = useRef<RemoteControlClient | null>(null);
   const remoteEmbedRef = useRef<HTMLDivElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -52,14 +70,30 @@ export function LiveView({ active }: { active: boolean }) {
   const runningProfiles = s.profiles.filter((profile) => s.statuses[profile.name] === "running");
   const defaultRunning = s.defaultSession?.status === "running";
   const profileOptions = [
-    ...(defaultRunning ? [{ name: "__default", label: "default", running: true }] : []),
+    ...(multiloginSelection ? [{
+      key: multiloginTargetKey(multiloginSelection),
+      label: `${multiloginSelection.name} · Multilogin ${multiloginSelection.kind === "mobile" ? "phone" : "browser"}`,
+      running: undefined,
+      target: { runtime: "multilogin", selection: multiloginSelection } as LiveStreamTarget,
+    }] : []),
+    ...(defaultRunning ? [{
+      key: clawbrowserTargetKey(),
+      label: "default",
+      running: true,
+      target: { runtime: "clawbrowser" } as LiveStreamTarget,
+    }] : []),
     ...s.profiles.map((profile) => ({
-      name: profile.name,
+      key: clawbrowserTargetKey(profile.name),
       label: profile.name,
       running: s.statuses[profile.name] === "running",
+      target: { runtime: "clawbrowser", profile: profile.name } as LiveStreamTarget,
     })),
   ];
-  const launchTarget = sessionKey || (defaultRunning ? "__default" : "") || s.selectedProfile || s.profiles[0]?.name || "";
+  const launchTarget = sessionKey
+    || (multiloginSelection ? multiloginTargetKey(multiloginSelection) : "")
+    || (defaultRunning ? clawbrowserTargetKey() : "")
+    || (s.selectedProfile ? clawbrowserTargetKey(s.selectedProfile) : "")
+    || (s.profiles[0]?.name ? clawbrowserTargetKey(s.profiles[0].name) : "");
   const streamUrl = streamInfo?.viewer_url || streamInfo?.dashboard_url || "";
   const nativeViewer = !!streamInfo?.viewer_ws_url;
 
@@ -133,7 +167,9 @@ export function LiveView({ active }: { active: boolean }) {
     setPendingRemoteTab("");
     setState("connecting");
     try {
-      const info = await s.startRemoteStream(requestedKey === "__default" ? undefined : requestedKey || undefined);
+      const target = profileOptions.find((option) => option.key === requestedKey)?.target
+        || ({ runtime: "clawbrowser" } as LiveStreamTarget);
+      const info = await s.startRemoteStream(target);
       setStreamInfo(info);
       await connectRemoteViewer(info);
     } catch {
@@ -147,16 +183,21 @@ export function LiveView({ active }: { active: boolean }) {
     setError("");
     setState("connecting");
     try {
-      if (launchTarget) {
+      const option = profileOptions.find((candidate) => candidate.key === launchTarget);
+      if (option?.target.runtime === "multilogin") {
         setSessionKey(launchTarget);
-        if (launchTarget !== "__default" && s.statuses[launchTarget] !== "running") await s.startProfile(launchTarget);
-        if (launchTarget === "__default" && !defaultRunning) await s.startDefaultSession();
+        await start(launchTarget);
+      } else if (option?.target.runtime === "clawbrowser") {
+        setSessionKey(launchTarget);
+        const profile = option.target.profile;
+        if (profile && s.statuses[profile] !== "running") await s.startProfile(profile);
+        if (!profile && !defaultRunning) await s.startDefaultSession();
         await s.refreshSessions();
         await start(launchTarget);
       } else {
         await s.startDefaultSession();
         await s.refreshSessions();
-        await start(undefined);
+        await start(clawbrowserTargetKey());
       }
     } catch {
       setState("error");
@@ -191,25 +232,38 @@ export function LiveView({ active }: { active: boolean }) {
   };
 
   useEffect(() => {
+    const refreshSelection = () => setMultiloginSelection(multiloginSelectionForWorkspace(activeWorkspaceID));
+    refreshSelection();
+    window.addEventListener(MULTILOGIN_SELECTION_EVENT, refreshSelection);
+    return () => window.removeEventListener(MULTILOGIN_SELECTION_EVENT, refreshSelection);
+  }, [activeWorkspaceID]);
+
+  useEffect(() => {
     if (!active) return;
+    const runningProfile = s.profiles.find((profile) => s.statuses[profile.name] === "running")?.name;
     const current =
-      s.selectedProfile ||
-      (s.defaultSession?.status === "running" ? "__default" : "") ||
-      s.profiles.find((profile) => s.statuses[profile.name] === "running")?.name ||
+      (multiloginSelection ? multiloginTargetKey(multiloginSelection) : "") ||
+      (s.selectedProfile ? clawbrowserTargetKey(s.selectedProfile) : "") ||
+      (s.defaultSession?.status === "running" ? clawbrowserTargetKey() : "") ||
+      (runningProfile ? clawbrowserTargetKey(runningProfile) : "") ||
       "";
+    const targetChanged = !!current && current !== sessionKey;
+    if (targetChanged && (remoteClientRef.current || streamInfo)) stop();
     setSessionKey(current);
     if (
       !remoteClientRef.current &&
       state !== "connecting" &&
-      !streamInfo &&
+      (!streamInfo || targetChanged) &&
       current &&
-      (current === "__default" || s.statuses[current] === "running")
+      (current.startsWith("multilogin:")
+        || current === clawbrowserTargetKey()
+        || s.statuses[current.replace(/^clawbrowser:/, "")] === "running")
     ) {
       void start(current);
     }
     // The component stays mounted while another app tab is active.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
+  }, [active, multiloginSelection]);
 
   useEffect(() => {
     if (active) {
@@ -368,8 +422,8 @@ export function LiveView({ active }: { active: boolean }) {
         >
           <option value="">Select profile</option>
           {profileOptions.map((p) => (
-            <option key={p.name} value={p.name}>
-              {p.running ? p.label : `${p.label} (stopped)`}
+            <option key={p.key} value={p.key}>
+              {p.running === false ? `${p.label} (stopped)` : p.label}
             </option>
           ))}
         </select>
@@ -444,19 +498,19 @@ export function LiveView({ active }: { active: boolean }) {
         {state === "idle" && !streamInfo && (
           <div className="live-empty-panel">
             <Icon name="video.fill" size={34} className="muted" />
-            <strong>{runningProfiles.length || defaultRunning ? "Stream is off" : "No active profiles"}</strong>
+            <strong>{runningProfiles.length || defaultRunning || multiloginSelection ? "Stream is off" : "No active profiles"}</strong>
             <p className="muted">
-              {runningProfiles.length || defaultRunning
+              {runningProfiles.length || defaultRunning || multiloginSelection
                 ? "Start Remote Control for the selected running profile."
                 : "Launch a profile and open Remote Control."}
             </p>
             <button
               className="btn-bordered-prominent live-stream-btn"
               onClick={() => launchAndStream()}
-              title={runningProfiles.length || defaultRunning ? "Start live view" : "Launch selected profile and open live view"}
+              title={runningProfiles.length || defaultRunning || multiloginSelection ? "Start live view" : "Launch selected profile and open live view"}
             >
               <Icon name="play.fill" size={12} />
-              {runningProfiles.length || defaultRunning ? "Stream" : "Launch to stream"}
+              {runningProfiles.length || defaultRunning || multiloginSelection ? "Stream" : "Launch to stream"}
             </button>
           </div>
         )}

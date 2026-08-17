@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isMultiloginMobileStartRequest, multiloginMobileStartReply } from "./multiloginChatCommand";
+import { isMultiloginMobileStartRequest, multiloginMobileStartReply, multiloginStartReply } from "./multiloginChatCommand";
 
 describe("Multilogin chat command", () => {
   it.each([
@@ -22,5 +22,9 @@ describe("Multilogin chat command", () => {
   it("formats immediate start replies", () => {
     expect(multiloginMobileStartReply("Phone", "starting", true)).toBe("Запуск cloud phone «Phone» отправлен.");
     expect(multiloginMobileStartReply("Phone", "started", false)).toBe("Cloud phone “Phone” is already running.");
+  });
+
+  it("formats a browser start reply that points to Live View", () => {
+    expect(multiloginStartReply("Work", "browser", "started", true)).toContain("Открываю Live View");
   });
 });
