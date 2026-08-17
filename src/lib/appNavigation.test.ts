@@ -41,6 +41,7 @@ describe("app navigation", () => {
   it("provides labels for every back destination", () => {
     expect(appTabLabel("chat")).toBe("Chat");
     expect(appTabLabel("skills")).toBe("Skills");
+    expect(appTabLabel("connectors")).toBe("Connectors");
     expect(appTabLabel("live")).toBe("Live");
     expect(appTabLabel("usage")).toBe("Usage");
     expect(appTabLabel("guide")).toBe("Guide");

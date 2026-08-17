@@ -57,7 +57,7 @@ jobs:
           if [ -n "${CSC_LINK:-}" ]; then
             npm run dist:mac -- -c.mac.identity="$MAC_IDENTITY"
           else
-            npm run dist:mac
+            npm run dist:mac -- -c.mac.identity="-"
           fi
       - name: Verify application signature
         run: |

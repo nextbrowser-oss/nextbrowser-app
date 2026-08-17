@@ -33,13 +33,14 @@ import { UserFacingError } from "./components/UserFacingError";
 import { AgentConnectionGate } from "./components/AgentConnectionGate";
 import { WorkspaceSetupGate } from "./components/WorkspaceSetupGate";
 import { AgentInstallLink } from "./components/AgentInstallLink";
+import { ConnectorsView } from "./components/ConnectorsView";
 
 const TABS: { id: AppTab; label: string; icon?: string }[] = [
   { id: "chat", label: "Project", icon: "bubble.left.and.bubble.right.fill" },
   { id: "live", label: "Live", icon: "video.fill" },
 ];
 
-const PREVIEW_TABS = new Set<string>(["chat", "skills", "live", "usage", "guide", "scheduled"]);
+const PREVIEW_TABS = new Set<string>(["chat", "skills", "connectors", "live", "usage", "guide", "scheduled"]);
 
 interface AppUpdateStatus {
   status?: string;
@@ -771,6 +772,7 @@ export function App() {
           id: "preview-conv-1",
           agent: "claude",
           title: "Amazon deals",
+          workspaceId: "preview-workspace",
           createdAt: Date.now() - 3600000,
           updatedAt: Date.now() - 600000,
           messages: [],
@@ -779,6 +781,7 @@ export function App() {
           id: "preview-conv-2",
           agent: "claude",
           title: "Proxy verification",
+          workspaceId: "preview-workspace",
           createdAt: Date.now() - 86400000,
           updatedAt: Date.now() - 7200000,
           messages: [],
@@ -806,6 +809,15 @@ export function App() {
         nextctlSupportsSkill: true,
         agentId: "claude",
         conversations: previewConvs,
+        workspaces: [{
+          id: "preview-workspace",
+          name: "Amazon research",
+          profileNames: [],
+          profileToolsets: {},
+          createdAt: Date.now() - 86_400_000,
+          updatedAt: Date.now(),
+        }],
+        activeWorkspaceId: "preview-workspace",
         usageHistory: previewUsage,
         activeConvId: { claude: "preview-conv-1", codex: "" },
         proxy: {
@@ -942,6 +954,7 @@ export function App() {
             <ChatView />
           </div>
           {tab === "skills" && <SkillsView onOpenAgentSettings={() => openSettings("agent")} />}
+          {tab === "connectors" && <ConnectorsView />}
           <div className={"persistent-tab-panel" + (tab === "live" ? "" : " is-hidden")}>
             <LiveView active={tab === "live"} />
           </div>
@@ -978,7 +991,7 @@ export function App() {
         />
       )}
       <DashboardKeyModal />
-      {!checking && !agentReady && <AgentConnectionGate />}
+      {!checking && !agentReady && preview !== "main" && <AgentConnectionGate />}
       {showOnboarding && agentReady && !workspaceSetupRequired && <OnboardingView />}
       {!checking && agentReady && workspaceSetupRequired && <WorkspaceSetupGate />}
       {browserRuntimeInstall && <BrowserRuntimeInstallModal status={browserRuntimeInstall} />}

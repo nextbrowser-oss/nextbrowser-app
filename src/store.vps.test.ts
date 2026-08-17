@@ -2,6 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage, Conversation, CustomScript } from "./types";
 import type { SkillEntry } from "./skillsCatalog";
 import { VPS_PROMPT_MARKER } from "./lib/vpsPrompt";
+import { setMultiloginSelection } from "./lib/multiloginSelection";
 
 const bridge = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -96,6 +97,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  localStorage.clear();
   bridge.invoke.mockReset();
   bridge.listen.mockReset();
   preflight.prepareSession.mockReset();
@@ -153,6 +155,76 @@ describe("VPS execution target isolation", () => {
     const agentRun = bridge.invoke.mock.calls.find(([command]) => command === "agent_run");
     expect(agentRun?.[1]?.stdinText).toContain("Strict VPS remote-only mode");
     expect(bridge.invoke.mock.calls.some(([command]) => String(command).startsWith("nextctl_"))).toBe(false);
+  });
+
+  it("finishes a reply from the agent process result when the done event is missed", async () => {
+    const remote = conversation("remote", "vps", [
+      message("user", "user", "Start the selected cloud phone"),
+      { ...message("reply", "assistant", ""), status: "queued" },
+    ]);
+    useStore.setState({ conversations: [remote], activeConvId: { codex: remote.id } });
+    bridge.invoke.mockImplementation((command) => command === "agent_run"
+      ? Promise.resolve({ code: 0, stdout: "Cloud phone start requested.", stderr: "" })
+      : Promise.resolve(null));
+
+    await useStore.getState().processItem("codex", {
+      conversationId: remote.id,
+      rawText: "Start the selected cloud phone",
+      replyId: "reply",
+      executionTarget: "vps",
+    });
+
+    const reply = useStore.getState().conversations[0].messages[1];
+    expect(reply).toMatchObject({ status: "done", text: "Cloud phone start requested.", stalled: false });
+    expect(useStore.getState().conversations[0].updatedAt).toBeGreaterThan(1);
+    expect(useStore.getState().runtime.codex.runningReplyId).toBeUndefined();
+  });
+
+  it("starts a selected Multilogin cloud phone directly without waiting for Codex", async () => {
+    const local = {
+      ...conversation("local", "local", [
+        message("user", "user", "запусти профиль мультилогина выбранный"),
+        { ...message("reply", "assistant", ""), status: "queued" as const },
+      ]),
+      workspaceId: "work",
+    };
+    setMultiloginSelection("work", {
+      kind: "mobile",
+      id: "phone-1",
+      name: "Test phone",
+      folderId: "folder-1",
+    });
+    useStore.setState({ conversations: [local], activeConvId: { codex: local.id } });
+    bridge.invoke.mockImplementation((command) => {
+      if (command === "nextctl_run") {
+        return Promise.resolve({
+          code: 0,
+          stdout: JSON.stringify({ ok: true, data: { status_name: "starting" } }),
+          stderr: "",
+        });
+      }
+      return Promise.resolve(null);
+    });
+
+    await useStore.getState().processItem("codex", {
+      conversationId: local.id,
+      rawText: "запусти профиль мультилогина выбранный",
+      replyId: "reply",
+      executionTarget: "local",
+    });
+
+    expect(bridge.invoke.mock.calls.some(([command]) => command === "agent_run")).toBe(false);
+    expect(bridge.invoke).toHaveBeenCalledWith("nextctl_run", expect.objectContaining({
+      args: [
+        "--runtime", "multilogin", "mobile", "start", "phone-1", "--no-wait",
+        "--multilogin-folder-id", "folder-1", "--format", "json",
+      ],
+    }));
+    expect(useStore.getState().conversations[0].messages[1]).toMatchObject({
+      status: "done",
+      text: "Запуск cloud phone «Test phone» отправлен.",
+    });
+    expect(useStore.getState().conversations[0].updatedAt).toBeGreaterThan(1);
   });
 
   it("creates a distinct named VPS chat when local history already exists", async () => {

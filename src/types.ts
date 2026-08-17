@@ -270,7 +270,7 @@ export interface TabsList {
   }[];
 }
 
-export type AppTab = "chat" | "skills" | "live" | "usage" | "guide" | "scheduled";
+export type AppTab = "chat" | "skills" | "connectors" | "live" | "usage" | "guide" | "scheduled";
 
 export function proxyFraction(p?: ProxyTraffic | null): number {
   if (!p) return 0;

@@ -29,4 +29,31 @@ describe("browserProfileContext", () => {
     expect(result).toContain("visible: ClawBrowser (workspace: One)");
     expect(result).not.toContain("hidden");
   });
+
+  it("adds the selected Multilogin browser profile to agent context", () => {
+    const result = browserProfileContext([], "one", undefined, {
+      kind: "browser",
+      id: "browser-1",
+      name: "Amazon US",
+      folderId: "folder-1",
+    });
+    expect(result).toContain("Selected Multilogin Mimic browser profile");
+    expect(result).toContain("profile_id: browser-1");
+    expect(result).toContain("folder_id: folder-1");
+    expect(result).toContain("runtime multilogin");
+  });
+
+  it("keeps cloud phones on the mobile tool path", () => {
+    const result = browserProfileContext([], "one", undefined, {
+      kind: "mobile",
+      id: "17",
+      name: "Android US",
+    });
+    expect(result).toContain("Android cloud phone");
+    expect(result).toContain("mcp__clawbrowser__mobile_start exactly once");
+    expect(result).toContain("Use id, never profile_id or name");
+    expect(result).toContain("do not search for tools or read additional references");
+    expect(result).toContain("Do not retry an authentication error");
+    expect(result).toContain("Do not treat it as a CDP browser profile");
+  });
 });

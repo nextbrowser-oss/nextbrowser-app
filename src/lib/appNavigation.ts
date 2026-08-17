@@ -7,6 +7,7 @@ const APP_TAB_HISTORY_LIMIT = 50;
 const APP_TAB_LABELS: Record<AppTab, string> = {
   chat: "Chat",
   skills: "Skills",
+  connectors: "Connectors",
   live: "Live",
   usage: "Usage",
   guide: "Guide",

@@ -31,6 +31,8 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   assert.match(main, /mcp_servers\.clawbrowser\.command=/);
   assert.match(main, /mcp_servers\.clawbrowser\.args=/);
   assert.match(main, /mcp_servers\.clawbrowser\.env=/);
+  assert.match(main, /mcp_servers\.clawbrowser\.env_vars=.*MULTILOGIN_TOKEN/);
+  assert.doesNotMatch(main, /mcpEnvKeys\.push\("MULTILOGIN_TOKEN"\)/);
   assert.match(main, /plugins\."clawbrowser@clawctl-local"\.mcp_servers\.clawbrowser\.enabled=false/);
   assert.match(main, /mcp_servers\.clawbrowser\.default_tools_approval_mode=approve/);
   assert.match(main, /"--add-dir", dir/);
@@ -42,6 +44,13 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   assert.match(main, /path\.join\(home\(\), "\.nextbrowser", "runtime"\)/);
   assert.match(main, /managedNextctlRoot\(\), \.\.\.searchDirs\(\)/);
   assert.doesNotMatch(main, /dangerously-bypass-approvals-and-sandbox/);
+});
+
+test("Codex chat uses the managed Clawbrowser MCP configuration", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  assert.match(main, /case "agent_run":[\s\S]*args\.agentId === "codex"/);
+  assert.match(main, /case "agent_run":[\s\S]*resolveOrInstallNextctl\(\)/);
+  assert.match(main, /case "agent_run":[\s\S]*codexClawbrowserMCPArgs\(nextctlBin\)/);
 });
 
 test("terminal chat is isolated by conversation", () => {

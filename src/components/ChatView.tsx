@@ -31,6 +31,12 @@ import {
 } from "../lib/workflowDistillation";
 import { chatPromptWithDeferredContext, chatToTerminalHandoff, terminalToChatHandoff } from "../lib/contextHandoff";
 import { browserProfileContext } from "../lib/browserProfileContext";
+import {
+  MULTILOGIN_SELECTION_EVENT,
+  multiloginSelectionForWorkspace,
+  type MultiloginProfileSelection,
+} from "../lib/multiloginSelection";
+import { MultiloginChatProfilePicker } from "./MultiloginChatProfilePicker";
 
 async function authorWorkflowWithAgent(agent: AgentSpec, workingDir: string, fallback: DistilledWorkflow): Promise<DistilledWorkflow | undefined> {
   const prompt = workflowDistillationPrompt(fallback);
@@ -115,6 +121,14 @@ export function ChatView() {
   const [terminalHandoff, setTerminalHandoff] = useState<{ id: string; text: string }>();
   const [terminalToChatRequest, setTerminalToChatRequest] = useState<string>();
   const [pendingTerminalContext, setPendingTerminalContext] = useState<{ conversationId: string; text: string }>();
+  const [multiloginSelection, setMultiloginSelection] = useState<MultiloginProfileSelection>();
+
+  useEffect(() => {
+    const refreshSelection = () => setMultiloginSelection(multiloginSelectionForWorkspace(conv?.workspaceId));
+    refreshSelection();
+    window.addEventListener(MULTILOGIN_SELECTION_EVENT, refreshSelection);
+    return () => window.removeEventListener(MULTILOGIN_SELECTION_EVENT, refreshSelection);
+  }, [conv?.workspaceId]);
 
   useEffect(() => {
     const openProjectCreator = () => {
@@ -291,7 +305,7 @@ export function ChatView() {
     setPreparingWorkflowId(null);
   };
   const showDefaultSession =
-    !s.selectedProfile && s.defaultSession?.status === "running";
+    !s.selectedProfile && !multiloginSelection && s.defaultSession?.status === "running";
 
   return (
     <div className="chat-layout">
@@ -339,6 +353,14 @@ export function ChatView() {
               {s.selectedProfile}
             </span>
           )}
+          {!remoteOnly && (
+            <MultiloginChatProfilePicker
+              workspaceId={conv?.workspaceId}
+              selection={multiloginSelection}
+              onSelectAsAgentDefault={() => s.selectProfile(undefined)}
+              onManage={() => s.setTab("connectors")}
+            />
+          )}
           {!remoteOnly && showDefaultSession && (
             <span
               className="default-session-pill"
@@ -359,7 +381,12 @@ export function ChatView() {
               agentName={agentName}
               conversationId={conv?.id}
               workingDir={s.workingDir}
-              browserContext={browserProfileContext(s.workspaces, conv?.workspaceId, s.selectedProfile)}
+              browserContext={browserProfileContext(
+                s.workspaces,
+                conv?.workspaceId,
+                s.selectedProfile,
+                multiloginSelection,
+              )}
               browserProfiles={(s.workspaces.find((workspace) => workspace.id === conv?.workspaceId)?.profileNames ?? []).map((name) => ({
                 name,
                 runtime: s.workspaces.find((workspace) => workspace.id === conv?.workspaceId)?.profileToolsets[name] ?? "clawbrowser",

@@ -63,15 +63,9 @@ jobs:
           MAC_IDENTITY: ${{ secrets.MAC_IDENTITY }}
         run: |
           if [ -n "${CSC_LINK:-}" ]; then
-            # Signed release: override the package.json ad-hoc identity ("-")
-            # with the real Developer ID so the cert is actually used.
             npm run dist:mac -- -c.mac.identity="$MAC_IDENTITY"
           else
-            # Unsigned release: package.json identity "-" makes electron-builder
-            # re-sign the bundle ad-hoc, which yields a valid signature (the
-            # normal "unidentified developer" gate) instead of a broken one that
-            # macOS reports as "damaged".
-            npm run dist:mac
+            npm run dist:mac -- -c.mac.identity="-"
           fi
       - name: Verify macOS package
         if: github.ref_type == 'tag'

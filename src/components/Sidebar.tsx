@@ -25,6 +25,7 @@ interface SidebarProps {
 
 const NAV_ITEMS: Array<{ id: AppTab; label: string; icon: string }> = [
   { id: "skills", label: "Skills", icon: "square.grid.2x2.fill" },
+  { id: "connectors", label: "Connectors", icon: "network" },
   { id: "scheduled", label: "Scheduled", icon: "clock.arrow.circlepath" },
   { id: "guide", label: "Guide", icon: "book.fill" },
 ];

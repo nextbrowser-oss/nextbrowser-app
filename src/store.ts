@@ -27,6 +27,7 @@ import { REPOSITORY_SKILL_CATEGORIES, mergeSkillCategories } from "./repositoryS
 import { activityFromText, extractToolEvents } from "./lib/activityParser";
 import { composePrompt } from "./lib/composePrompt";
 import { executionTargetForTurn, type ExecutionTarget } from "./lib/executionTarget";
+import { shouldApplyRemoteConversation } from "./lib/conversationSync";
 import { hasVPSPromptMarker, vpsConnectionInstructions } from "./lib/vpsPrompt";
 import { promptWithAttachments } from "./lib/chatAttachments";
 import { normalizeNextctlVersion } from "./lib/version";
@@ -75,6 +76,8 @@ import type {
 } from "./types";
 import type { RotationCountry } from "./lib/countryFlag";
 import { browserProfileContext } from "./lib/browserProfileContext";
+import { clearMultiloginSelection, multiloginSelectionForWorkspace } from "./lib/multiloginSelection";
+import { isMultiloginMobileStartRequest, multiloginMobileStartReply } from "./lib/multiloginChatCommand";
 import { customPrivateSlug, customPublishSelector } from "./types";
 
 interface QueuedItem {
@@ -527,7 +530,7 @@ let localNextctlOperations = 0;
 // single agent reply would be appended once per registration (duplicate output).
 // Mirrors AppState.didBootstrap in the Swift app.
 let didBootstrap = false;
-type AgentDone = { code: number; stderr: string };
+type AgentDone = { code: number; stderr: string; stdout: string };
 interface NextctlUpdateState { lastAutoCheckAt?: number }
 interface APIKeyIdentity {
   valid: boolean;
@@ -536,7 +539,6 @@ interface APIKeyIdentity {
   email?: string;
 }
 
-const completionResolvers = new Map<string, (result: AgentDone) => void>();
 const replyExecutionTargets = new Map<string, ExecutionTarget>();
 
 function runningTarget(state: State, target: ExecutionTarget): boolean {
@@ -629,14 +631,23 @@ async function waitForLocalNextctlIdle(getState: () => State): Promise<void> {
 let conversationWriteTail: Promise<void> = Promise.resolve();
 let projectSyncTimer: ReturnType<typeof setTimeout> | undefined;
 let applyingCloudProjects = false;
+const PROJECT_SYNC_DELAY_MS = 750;
+
+function runScheduledProjectSync() {
+  projectSyncTimer = undefined;
+  const state = useStore.getState();
+  if (applyingCloudProjects || !state.authed) return;
+  if (state.projectsSyncing) {
+    projectSyncTimer = setTimeout(runScheduledProjectSync, PROJECT_SYNC_DELAY_MS);
+    return;
+  }
+  void state.syncProjects().catch(() => {});
+}
 
 function scheduleProjectSync() {
   if (applyingCloudProjects || !useStore.getState().authed) return;
   if (projectSyncTimer) clearTimeout(projectSyncTimer);
-  projectSyncTimer = setTimeout(() => {
-    projectSyncTimer = undefined;
-    void useStore.getState().syncProjects().catch(() => {});
-  }, 750);
+  projectSyncTimer = setTimeout(runScheduledProjectSync, PROJECT_SYNC_DELAY_MS);
 }
 
 function persistConvs(conversations: Conversation[]): Promise<void> {
@@ -936,6 +947,71 @@ export const useStore = create<State>((set, get) => {
     get().startConsumer(agentId);
   };
 
+  const finishAgentRun = async (replyId: string, result: AgentDone) => {
+    const owningConversation = get().conversations.find((conversation) =>
+      conversation.messages.some((message) => message.id === replyId),
+    );
+    const activeMessage = owningConversation?.messages.find((message) => message.id === replyId);
+    if (!owningConversation || !activeMessage || activeMessage.status !== "streaming") return;
+    const owningConversationId = owningConversation.id;
+    const agentId =
+      Object.entries(get().runtime).find(([, runtime]) => runtime.runningReplyId === replyId)?.[0] ??
+      owningConversation?.agent ??
+      get().agentId;
+    const executionTarget = replyExecutionTargets.get(replyId) ??
+      executionTargetForTurn(owningConversation);
+    const stopped = get().runtime[agentId]?.pendingStop;
+    set((s) => {
+      const runtime = { ...s.runtime };
+      if (runtime[agentId]) {
+        runtime[agentId] = {
+          ...runtime[agentId],
+          runningReplyId: undefined,
+          pendingStop: false,
+        };
+      }
+      const completedAt = now();
+      const conversations = s.conversations.map((conversation) => ({
+        ...conversation,
+        messages: conversation.messages.map((message) => {
+          if (message.id !== replyId || message.status !== "streaming") return message;
+          let status: ChatMessage["status"] = "done";
+          let text = message.text.trim() || capStreamText(result.stdout).trim();
+          if (stopped) {
+            status = "cancelled";
+            text = text ? `${text}\n[stopped]` : "[stopped]";
+          } else if (result.code !== 0) {
+            status = "failed";
+            const error = internalError(`${agentById(agentId).name} stopped unexpectedly.`, "AGENT_STOPPED_UNEXPECTEDLY");
+            text = text ? `${text}\n${error}` : error;
+          } else if (!text) {
+            text = "(no output)";
+          }
+          return { ...message, status, text, stalled: false };
+        }),
+        ...(conversation.id === owningConversationId ? { updatedAt: completedAt } : {}),
+      }));
+      persistConvs(conversations);
+      return { conversations, runtime };
+    });
+    trackEvent(stopped ? "agent_turn_cancelled" : result.code === 0 ? "agent_turn_completed" : "agent_turn_failed", {
+      agent: agentId,
+      exit_code: result.code,
+      execution_target: executionTarget,
+    });
+    try {
+      if (executionTarget === "local" && !pendingTarget(get(), "vps")) await get().refreshAll();
+    } finally {
+      replyExecutionTargets.delete(replyId);
+      if (executionTarget === "vps" && !pendingTarget(get(), "vps")) {
+        void refreshLocalNextctlMetadata();
+      }
+      for (const [queuedAgentId, runtime] of Object.entries(get().runtime)) {
+        if (runtime.ready && runtime.queue.length) get().startConsumer(queuedAgentId);
+      }
+    }
+  };
+
   return {
   authed: false,
   accountEmail: undefined,
@@ -1102,7 +1178,7 @@ export const useStore = create<State>((set, get) => {
             };
           }),
         }));
-        // Persist on completion (agent:done), not on every chunk — writing the
+        // Persist on completion, not on every chunk — writing the
         // whole conversation store to disk per 4 KB chunk is an IO storm the
         // Swift app avoids. An interrupted reply is reconciled on next launch.
         return { conversations };
@@ -1125,75 +1201,14 @@ export const useStore = create<State>((set, get) => {
             };
           }),
         }));
-        // Persisted on completion (agent:done), not per chunk — see agent:chunk.
+        // Persisted on completion, not per chunk — see agent:chunk.
         return { conversations };
       });
     });
 
-    await listen<[string, number, string]>("agent:done", async (e) => {
-      const [replyId, code, stderr] = e.payload;
-      const owningConversation = get().conversations.find((conversation) =>
-        conversation.messages.some((message) => message.id === replyId),
-      );
-      const agentId =
-        Object.entries(get().runtime).find(([, runtime]) => runtime.runningReplyId === replyId)?.[0] ??
-        owningConversation?.agent ??
-        get().agentId;
-      const executionTarget = replyExecutionTargets.get(replyId) ??
-        executionTargetForTurn(owningConversation);
-      const rt = get().runtime[agentId];
-      const stopped = rt?.pendingStop;
-      set((s) => {
-        const runtime = { ...s.runtime };
-        if (runtime[agentId]) {
-          runtime[agentId] = {
-            ...runtime[agentId],
-            runningReplyId: undefined,
-            pendingStop: false,
-          };
-        }
-        const conversations = s.conversations.map((c) => ({
-          ...c,
-          messages: c.messages.map((m) => {
-            if (m.id !== replyId) return m;
-            let status = m.status;
-            let text = m.text.trim();
-            if (stopped) {
-              status = "cancelled";
-              text = text ? `${text}\n[stopped]` : "[stopped]";
-            } else if (code !== 0 && m.status === "streaming") {
-              status = "failed";
-              const message = internalError(`${agentById(agentId).name} stopped unexpectedly.`, "AGENT_STOPPED_UNEXPECTEDLY");
-              text = text ? `${text}\n${message}` : message;
-            } else if (m.status === "streaming") {
-              status = "done";
-              if (!text) text = "(no output)";
-            }
-            return { ...m, status, text, stalled: false };
-          }),
-        }));
-        persistConvs(conversations);
-        return { conversations, runtime };
-      });
-      trackEvent(stopped ? "agent_turn_cancelled" : code === 0 ? "agent_turn_completed" : "agent_turn_failed", {
-        agent: agentId,
-        exit_code: code,
-        execution_target: executionTarget,
-      });
-      try {
-        if (executionTarget === "local" && !pendingTarget(get(), "vps")) await get().refreshAll();
-      } finally {
-        replyExecutionTargets.delete(replyId);
-        const resolve = completionResolvers.get(replyId);
-        completionResolvers.delete(replyId);
-        resolve?.({ code, stderr });
-        if (executionTarget === "vps" && !pendingTarget(get(), "vps")) {
-          void refreshLocalNextctlMetadata();
-        }
-        for (const [queuedAgentId, runtime] of Object.entries(get().runtime)) {
-          if (runtime.ready && runtime.queue.length) get().startConsumer(queuedAgentId);
-        }
-      }
+    await listen<[string, number, string, string]>("agent:done", (e) => {
+      const [replyId, code, stderr, stdout] = e.payload;
+      void finishAgentRun(replyId, { code, stderr, stdout });
     });
     await listen<AuthDeepLinkPayload>("auth:deeplink", (event) => {
       const pairing = get().accountPairing;
@@ -1524,16 +1539,79 @@ export const useStore = create<State>((set, get) => {
       queue_depth: get().runtime[agentId]?.queue.length ?? 0,
       execution_target: item.executionTarget,
     });
-    if (item.executionTarget === "local") get().startSessionPoll();
-
     const conversationWorkspaceId = get().conversations.find((conversation) => conversation.id === item.conversationId)?.workspaceId;
+    const multiloginSelection = multiloginSelectionForWorkspace(conversationWorkspaceId);
+    const directMobileStart = item.executionTarget === "local"
+      && multiloginSelection?.kind === "mobile"
+      && isMultiloginMobileStartRequest(item.rawText);
+    if (item.executionTarget === "local" && !directMobileStart) get().startSessionPoll();
+
+    if (directMobileStart) {
+      const finish = (status: ChatMessage["status"], text: string) => {
+        replyExecutionTargets.delete(item.replyId);
+        set((state) => {
+          const runtime = {
+            ...state.runtime,
+            [agentId]: {
+              ...state.runtime[agentId],
+              runningReplyId: undefined,
+              pendingStop: false,
+            },
+          };
+          const completedAt = now();
+          const conversations = state.conversations.map((conversation) => ({
+            ...conversation,
+            messages: conversation.messages.map((message) =>
+              message.id === item.replyId
+                ? { ...message, status, text, stalled: false }
+                : message,
+            ),
+            ...(conversation.id === item.conversationId ? { updatedAt: completedAt } : {}),
+          }));
+          persistConvs(conversations);
+          return { conversations, runtime };
+        });
+      };
+      try {
+        const command = ["--runtime", "multilogin", "mobile", "start", multiloginSelection.id, "--no-wait"];
+        if (multiloginSelection.folderId) {
+          command.push("--multilogin-folder-id", multiloginSelection.folderId);
+        }
+        const status = await nextctlJson<{ status_name?: string }>(command);
+        finish("done", multiloginMobileStartReply(
+          multiloginSelection.name,
+          status.status_name ?? "starting",
+          /[А-Яа-яЁё]/.test(item.rawText),
+        ));
+        trackEvent("multilogin_mobile_start_completed", { direct: true });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        const reconnect = /MULTILOGIN_TOKEN|automation token|unauthorized|forbidden|\b40[13]\b/i.test(detail);
+        const message = /[А-Яа-яЁё]/.test(item.rawText)
+          ? reconnect
+            ? "Не удалось запустить cloud phone. Переподключите Multilogin в Connectors и повторите."
+            : `Не удалось запустить cloud phone: ${detail}`
+          : reconnect
+            ? "Could not start the cloud phone. Reconnect Multilogin in Connectors and try again."
+            : `Could not start the cloud phone: ${detail}`;
+        finish("failed", message);
+        trackEvent("multilogin_mobile_start_failed", { direct: true });
+      }
+      return;
+    }
+
     const prompt = composePrompt(
       get().conversations,
       item.conversationId,
       item.replyId,
       item.rawText
         + privateSkillContext(get().localSkills, item.rawText)
-        + browserProfileContext(get().workspaces, conversationWorkspaceId, get().selectedProfile),
+        + browserProfileContext(
+          get().workspaces,
+          conversationWorkspaceId,
+          get().selectedProfile,
+          multiloginSelection,
+        ),
       get().selectedProfile,
       { nextctlAvailable: get().nextctlAvailable, executionTarget: item.executionTarget },
     );
@@ -1561,23 +1639,18 @@ export const useStore = create<State>((set, get) => {
       }
     }, WATCHDOG_MS);
 
-    const completion = new Promise<AgentDone>((resolve) => {
-      completionResolvers.set(item.replyId, resolve);
-    });
     try {
-      await invoke("agent_run", {
+      const result = await invoke<AgentDone>("agent_run", {
         replyId: item.replyId,
+        agentId,
         binary: a.binary,
         envVar: a.envVar,
         args,
         stdinText: stdin ?? null,
         workingDir: get().workingDir || null,
       });
-      // The Rust command returns after spawning. Await the matching done event so
-      // this agent's queue remains strictly serial, like Swift AgentRunner.
-      await completion;
+      await finishAgentRun(item.replyId, result);
     } catch {
-      completionResolvers.delete(item.replyId);
       replyExecutionTargets.delete(item.replyId);
       get().appendToMessage(
         item.conversationId,
@@ -2302,6 +2375,7 @@ export const useStore = create<State>((set, get) => {
 
   selectProfile: (n) => {
     trackEvent("profile_selected", { selected: !!n });
+    if (n) clearMultiloginSelection(get().activeWorkspaceId);
     set({ selectedProfile: n });
   },
 
@@ -2777,7 +2851,11 @@ export const useStore = create<State>((set, get) => {
           workspaceId: cloud.workspace_id,
         });
         if (index < 0) conversations.push(normalized);
-        else if (Date.parse(cloud.updated_at) >= conversations[index].updatedAt) conversations[index] = normalized;
+        else if (shouldApplyRemoteConversation(
+          conversations[index],
+          normalized,
+          Date.parse(cloud.updated_at),
+        )) conversations[index] = normalized;
       }
 
       applyingCloudProjects = true;

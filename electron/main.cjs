@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, nativeImage, dialog, Menu, clipboard } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, nativeImage, dialog, Menu, clipboard, safeStorage } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs/promises");
@@ -30,6 +30,9 @@ const { terminateProcessTree } = require("./process-tree.cjs");
 const { deleteProject, deleteWorkspace, listProjects, listWorkspaces, putProject, putWorkspace } = require("./project-sync.cjs");
 const { defaultSSHConfigPath, discoverSSHHosts, isAllowedExplicitConfigPath } = require("./ssh-config.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
+const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
+const { parseMultiloginProfiles } = require("./multilogin-profiles.cjs");
+const { runAgentProcess } = require("./agent-process.cjs");
 const {
   DASBROWSER_DOWNLOADS,
   adaptDasbrowserArgs,
@@ -68,6 +71,10 @@ let agentControlServer = null;
 let agentControlURL = "";
 const agentControlScopes = new Map();
 const agentControlProfileOwners = new Map();
+let multiloginCredentialStore = null;
+let multiloginAutomationToken = "";
+let multiloginCredentialLoadError = "";
+let multiloginCredentialLoadPromise = null;
 
 const CODEX_TERMINAL_PROFILE = "nextbrowser";
 const CODEX_TERMINAL_PROFILE_CONTENT = `[plugins."browser@openai-bundled"]
@@ -78,7 +85,7 @@ enabled = false
 default_tools_approval_mode = "approve"
 `;
 
-function codexClawbrowserArgs(nextctlBin) {
+function codexClawbrowserMCPArgs(nextctlBin) {
   const runtimeEnv = childEnv();
   const mcpEnvKeys = [
     "NEXTBROWSER_CONFIG_DIR",
@@ -92,15 +99,22 @@ function codexClawbrowserArgs(nextctlBin) {
   const mcpEnv = `{${mcpEnvKeys.map((key) => `${key}=${JSON.stringify(runtimeEnv[key])}`).join(",")}}`;
   return [
     "--profile", CODEX_TERMINAL_PROFILE,
-    "--ask-for-approval", "never",
-    "--sandbox", "workspace-write",
-    "-c", "sandbox_workspace_write.network_access=true",
     "-c", 'plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser.enabled=false',
     "-c", `mcp_servers.clawbrowser.command=${JSON.stringify(nextctlBin)}`,
     "-c", `mcp_servers.clawbrowser.args=${JSON.stringify(["mcp"])}`,
     "-c", `mcp_servers.clawbrowser.env=${mcpEnv}`,
+    "-c", `mcp_servers.clawbrowser.env_vars=${JSON.stringify(["MULTILOGIN_TOKEN"])}`,
     "-c", "mcp_servers.clawbrowser.startup_timeout_sec=30",
     "-c", "mcp_servers.clawbrowser.default_tools_approval_mode=approve",
+  ];
+}
+
+function codexClawbrowserArgs(nextctlBin) {
+  return [
+    ...codexClawbrowserMCPArgs(nextctlBin),
+    "--ask-for-approval", "never",
+    "--sandbox", "workspace-write",
+    "-c", "sandbox_workspace_write.network_access=true",
   ];
 }
 
@@ -199,6 +213,7 @@ function childEnv(extra = {}) {
     NBC_PROFILE_ROOT: path.join(runtimeRoot, "profiles"),
     CLAWBROWSER_API_BASE_URL: apiBaseURL(),
     ...(dasbrowserBin ? { DASBROWSER_BIN: dasbrowserBin } : {}),
+    ...(multiloginAutomationToken ? { MULTILOGIN_TOKEN: multiloginAutomationToken } : {}),
     ...extra,
   };
 }
@@ -538,6 +553,109 @@ async function ensureDasbrowserRuntime() {
   return dasbrowserInstallPromise;
 }
 function dataDir() { return path.join(app.getPath("userData")); }
+function multiloginCredentialPath() { return path.join(dataDir(), "credentials", "multilogin.json"); }
+function initializeMultiloginCredential() {
+  if (multiloginCredentialLoadPromise) return multiloginCredentialLoadPromise;
+  multiloginCredentialStore = createMultiloginCredentialStore({
+    safeStorage,
+    filePath: multiloginCredentialPath(),
+  });
+  multiloginCredentialLoadPromise = (async () => {
+    try {
+      multiloginAutomationToken = await multiloginCredentialStore.load();
+      multiloginCredentialLoadError = "";
+    } catch (error) {
+      multiloginAutomationToken = "";
+      multiloginCredentialLoadError = error?.message || String(error);
+    }
+  })();
+  return multiloginCredentialLoadPromise;
+}
+function multiloginCommandError(result) {
+  try {
+    const payload = JSON.parse(result.stdout || "{}");
+    const message = String(payload?.error?.message || "").trim();
+    if (message) return new Error(message);
+  } catch {
+    // Fall through to the bounded command output below.
+  }
+  const output = String(result.stderr || result.stdout || "").trim().slice(0, 800);
+  return new Error(output || "Multilogin connection check failed.");
+}
+async function listMultiloginProfiles(token, args) {
+  const bin = await resolveOrInstallNextctl();
+  if (!bin) throw new Error("nextctl is required to connect Multilogin.");
+  const result = await run(
+    bin,
+    ["--runtime", "multilogin", ...args, "--json"],
+    { MULTILOGIN_TOKEN: token },
+    { timeoutMs: 60_000 },
+  );
+  if (result.code !== 0) throw multiloginCommandError(result);
+  return parseMultiloginProfiles(result.stdout);
+}
+async function loadMultiloginProfiles(token) {
+  const [browserResult, mobileResult] = await Promise.allSettled([
+    listMultiloginProfiles(token, ["profiles", "list"]),
+    listMultiloginProfiles(token, ["mobile", "profiles", "list"]),
+  ]);
+  if (browserResult.status === "rejected" && mobileResult.status === "rejected") {
+    throw browserResult.reason;
+  }
+  return {
+    browserProfiles: browserResult.status === "fulfilled" ? browserResult.value : [],
+    cloudPhones: mobileResult.status === "fulfilled" ? mobileResult.value : [],
+    browserProfilesError: browserResult.status === "rejected"
+      ? browserResult.reason?.message || String(browserResult.reason)
+      : undefined,
+    cloudPhonesError: mobileResult.status === "rejected"
+      ? mobileResult.reason?.message || String(mobileResult.reason)
+      : undefined,
+  };
+}
+async function multiloginLocalStatus() {
+  return {
+    connected: Boolean(multiloginAutomationToken),
+    valid: false,
+    secureStorageAvailable: Boolean(await multiloginCredentialStore?.available()),
+    error: multiloginCredentialLoadError || undefined,
+  };
+}
+async function multiloginStatus() {
+  await initializeMultiloginCredential();
+  const status = await multiloginLocalStatus();
+  if (!status.connected || status.error) return status;
+  try {
+    const profiles = await loadMultiloginProfiles(multiloginAutomationToken);
+    return { ...status, ...profiles, valid: true, error: undefined };
+  } catch (error) {
+    return { ...status, error: error?.message || String(error) };
+  }
+}
+async function connectMultilogin(bearerToken) {
+  await initializeMultiloginCredential();
+  if (!await multiloginCredentialStore?.available()) {
+    throw new Error("Secure credential storage is unavailable on this device.");
+  }
+  const automationToken = await exchangeAutomationToken({ bearerToken });
+  const profiles = await loadMultiloginProfiles(automationToken);
+  await multiloginCredentialStore.save(automationToken);
+  multiloginAutomationToken = automationToken;
+  multiloginCredentialLoadError = "";
+  return {
+    connected: true,
+    valid: true,
+    secureStorageAvailable: true,
+    ...profiles,
+  };
+}
+async function disconnectMultilogin() {
+  await initializeMultiloginCredential();
+  await multiloginCredentialStore?.clear();
+  multiloginAutomationToken = "";
+  multiloginCredentialLoadError = "";
+  return await multiloginLocalStatus();
+}
 async function migrateLegacyData() {
   const legacy = path.join(app.getPath("appData"), "clawdesk-electron");
   const current = dataDir();
@@ -724,6 +842,9 @@ async function invokeCommand(command, args = {}, sender) {
         return false;
       }
     }
+    case "multilogin_status": return await multiloginStatus();
+    case "multilogin_connect": return await connectMultilogin(args.bearerToken);
+    case "multilogin_disconnect": return await disconnectMultilogin();
     case "nextctl_resolve": return await resolveOrInstallNextctl();
     case "nextctl_install_status": return nextctlInstallStatus;
     case "browser_runtime_install_status": return browserRuntimeInstallStatus;
@@ -935,13 +1056,29 @@ async function invokeCommand(command, args = {}, sender) {
     }
     case "agent_run": {
       const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} executable not found.`);
-      const spec = commandSpec(bin, args.args || []); const child = spawn(spec.file, spec.args, { cwd: args.workingDir || undefined, env: childEnv(), windowsHide: true, stdio: [args.stdinText != null ? "pipe" : "ignore", "pipe", "pipe"] });
-      children.set(args.replyId, child); let stderr = "";
-      child.stdout.on("data", (chunk) => emit("agent:chunk", [args.replyId, chunk.toString()]));
-      child.stderr.on("data", (chunk) => { const text = chunk.toString(); stderr += text; emit("agent:activity", [args.replyId, text]); });
-      child.on("error", (error) => { children.delete(args.replyId); emit("agent:done", [args.replyId, -1, error.message]); });
-      child.on("close", (code) => { children.delete(args.replyId); emit("agent:done", [args.replyId, code ?? -1, stderr]); });
-      if (args.stdinText != null) child.stdin.end(args.stdinText); return null;
+      let agentArgs = args.args || [];
+      if (args.agentId === "codex") {
+        await ensureCodexTerminalProfile();
+        const nextctlBin = await resolveOrInstallNextctl();
+        if (!nextctlBin) throw new Error("nextctl is required for Clawbrowser MCP.");
+        agentArgs = [...codexClawbrowserMCPArgs(nextctlBin), ...agentArgs];
+      }
+      const spec = commandSpec(bin, agentArgs);
+      return runAgentProcess({
+        spawnProcess: spawn,
+        file: spec.file,
+        args: spec.args,
+        cwd: args.workingDir,
+        env: childEnv(),
+        stdinText: args.stdinText,
+        onSpawn: (child) => children.set(args.replyId, child),
+        onStdout: (chunk) => emit("agent:chunk", [args.replyId, chunk.toString()]),
+        onStderr: (chunk) => emit("agent:activity", [args.replyId, chunk.toString()]),
+        onDone: (result) => {
+          children.delete(args.replyId);
+          emit("agent:done", [args.replyId, result.code, result.stderr, result.stdout]);
+        },
+      });
     }
     case "workflow_author_run": {
       const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} executable not found.`);
@@ -1195,6 +1332,7 @@ if (!gotLock) {
   }).then(() => {
     return migrateLegacyRuntimeConfig();
   }).then(() => {
+    void initializeMultiloginCredential();
     applyAppIcon();
     if (process.defaultApp) {
       const script = process.argv[1];
