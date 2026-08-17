@@ -182,6 +182,11 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
           return false;
         }
         lastEscapeAt = now;
+        const id = terminalIdRef.current;
+        // Esc still reaches the interactive agent, while the host also stops
+        // any active nextctl/nbc subtree so a cancelled turn cannot keep
+        // reopening a browser behind the terminal.
+        if (id) void invoke("terminal_interrupt", { id });
       }
 
       return true;
