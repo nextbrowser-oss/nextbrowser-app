@@ -768,20 +768,30 @@ button, input, textarea, select { color: var(--text); }
 .switch-account-link:hover { text-decoration: underline; }
 
 .resize-handle {
-  width: 5px;
+  width: 7px;
   flex: none;
   cursor: col-resize;
   background: transparent;
   position: relative;
+  touch-action: none;
 }
 .resize-handle::after {
   content: "";
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 2px;
+  left: 3px;
   width: 1px;
   background: var(--line-strong);
+}
+.resize-handle:hover::after,
+body.is-resizing-sidebar .resize-handle::after {
+  width: 2px;
+  background: color-mix(in srgb, var(--accent) 60%, var(--line-strong));
+}
+body.is-resizing-sidebar {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .brand { display: flex; align-items: center; gap: 10px; }
@@ -2517,6 +2527,11 @@ button, input, textarea, select { color: var(--text); }
   gap: 14px;
   min-height: 0;
   overflow-x: hidden;
+  scroll-padding-bottom: 18px;
+}
+.messages > * {
+  width: min(100%, 960px);
+  margin-inline: auto;
 }
 .agent-terminal-panel {
   flex: 1;
@@ -2576,7 +2591,7 @@ button, input, textarea, select { color: var(--text); }
 }
 .msg-user-inner {
   width: fit-content;
-  max-width: 75%;
+  max-width: min(76%, 760px);
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -2640,7 +2655,8 @@ button, input, textarea, select { color: var(--text); }
 .workflow-author-status { display: flex; align-items: center; gap: 7px; min-height: 20px; margin: 8px 0 2px; }
 .msg-assistant-wrap { display: flex; flex-direction: column; align-items: flex-start; }
 .assistant-bubble {
-  max-width: 85%;
+  width: fit-content;
+  max-width: min(76%, 760px);
   min-width: 0;
   overflow-wrap: anywhere;
   padding: 10px;
@@ -5085,17 +5101,77 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   border-top: 1px solid var(--line);
 }
 .scheduled-page-card {
-  padding: 16px;
-}
-.scheduled-page-card .scheduled-panel-head {
-  border-top: 1px solid var(--line);
-  padding-top: 10px;
+  width: min(860px, 100%);
+  min-height: 360px;
+  margin: 0 auto;
+  padding: 24px;
 }
 .scheduled-page-card .schedule-row {
   min-height: 54px;
 }
 .scheduled-page-head {
-  margin-bottom: 8px;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.scheduled-empty-state {
+  min-height: 230px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 28px;
+  text-align: center;
+}
+.scheduled-empty-state .muted { max-width: 360px; }
+.scheduled-empty-icon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 3px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-3));
+  color: var(--accent-text);
+}
+.profile-workspace-context {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 11px;
+}
+.profile-workspace-context strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.local-skill-details { width: min(620px, calc(100vw - 48px)); }
+.local-skill-details section { display: grid; gap: 6px; }
+.skill-details-copy { margin: 0; line-height: 1.45; }
+.skill-details-instructions {
+  max-height: min(340px, 42vh);
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 /* Sidebar skills */

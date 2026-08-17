@@ -45,9 +45,12 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
             <h2>Scheduled runs</h2>
             <p className="muted">Automate recurring tasks while NextBrowser is open.</p>
           </div>
+          <button className="btn-bordered-prominent" onClick={() => { setExpanded(true); setEditor("new"); }}>
+            <Icon name="plus" size={14} /> New schedule
+          </button>
         </div>
       )}
-      <div className="row scheduled-panel-head">
+      {!asPage && <div className="row scheduled-panel-head">
         <button
           className="scheduled-panel-toggle"
           title={expanded ? "Hide scheduled runs" : "Show scheduled runs"}
@@ -61,9 +64,13 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
         <button className="plain-icon-btn" title="New schedule" onClick={() => { setExpanded(true); setEditor("new"); }}>
           <Icon name="plus.circle" size={18} />
         </button>
-      </div>
+      </div>}
       {expanded && (runs.length === 0 ? (
-          <div className="muted small scheduled-empty">No schedules yet. Automate daily parses or checks.</div>
+          <div className="scheduled-empty-state">
+            <span className="scheduled-empty-icon"><Icon name="clock.arrow.circlepath" size={22} /></span>
+            <strong>No scheduled runs yet</strong>
+            <span className="muted small">Create a recurring browser task. It will run while NextBrowser is open.</span>
+          </div>
         ) : (
           runs.map((run) => (
           <div key={run.id} className="schedule-row">
@@ -176,10 +183,8 @@ function ScheduleEditor({
   onSave: (data: Omit<ScheduledRun, "id" | "agent" | "enabled">) => void;
   onClose: () => void;
 }) {
-  const [title, setTitle] = useState(run?.title ?? "Daily parse");
-  const [prompt, setPrompt] = useState(
-    run?.prompt ?? "Parse latest Cian listings in the active profile.",
-  );
+  const [title, setTitle] = useState(run?.title ?? "");
+  const [prompt, setPrompt] = useState(run?.prompt ?? "");
   const [hour, setHour] = useState(run?.hour ?? 9);
   const [minute, setMinute] = useState(run?.minute ?? 0);
   const [weekdays, setWeekdays] = useState<number[]>(run?.weekdays ?? [2, 3, 4, 5, 6]);
@@ -196,11 +201,11 @@ function ScheduleEditor({
       <div className="modal-card schedule-editor">
         <h3>{run ? "Edit scheduled run" : "New scheduled run"}</h3>
         <p className="muted small">Runs while NextBrowser is open, for {agentName}.</p>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" />
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Daily listing check" autoFocus />
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Prompt"
+          placeholder="Describe what the agent should do each time"
           rows={3}
         />
         <div className="schedule-time-row">
@@ -275,9 +280,9 @@ function ScheduleEditor({
           </button>
           <button
             className="primary"
-            disabled={!weekdays.length || !prompt.trim()}
+            disabled={!weekdays.length || !title.trim() || !prompt.trim()}
             onClick={() =>
-              onSave({ title, prompt, hour, minute, weekdays, conversationId })
+              onSave({ title: title.trim(), prompt: prompt.trim(), hour, minute, weekdays, conversationId })
             }
           >
             {run ? "Save" : "Add"}

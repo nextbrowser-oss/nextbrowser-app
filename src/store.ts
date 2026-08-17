@@ -2489,7 +2489,7 @@ export const useStore = create<State>((set, get) => {
     }
   },
 
-  announceConnect: (agentId: string, version: string, loggedIn: boolean | null) => {
+  announceConnect: (agentId: string, _version: string, loggedIn: boolean | null) => {
     const announced = get().connectAnnounced;
     if (announced.has(agentId)) return;
     const a = agentById(agentId);
@@ -2507,7 +2507,7 @@ export const useStore = create<State>((set, get) => {
     const msg: ChatMessage = {
       id: uid(),
       role: "system",
-      text: `${prefix} — ${version}.${note}`,
+      text: `${prefix}.${note}`,
       status: "done",
       createdAt: now(),
     };

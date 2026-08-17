@@ -737,6 +737,11 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 <Icon name="xmark.circle.fill" size={18} />
               </button>
             </div>
+            <div className="profile-workspace-context">
+              <Icon name="square.grid.2x2.fill" size={13} />
+              <span>Workspace</span>
+              <strong>{activeWorkspace?.name ?? "Current workspace"}</strong>
+            </div>
             <label className="modal-field">
               <span>Profile name</span>
               <input

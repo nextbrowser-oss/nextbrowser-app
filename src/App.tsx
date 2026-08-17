@@ -297,13 +297,6 @@ function SettingsModal({
             <Icon name="xmark" size={17} className="error" />
           </button>
         </div>
-        <div className="settings-health">
-          <div>
-            <span className="muted small">Desktop app</span>
-            <strong>Operational</strong>
-          </div>
-          <span className="status-pill">v{__APP_VERSION__}</span>
-        </div>
         <div className="settings-section">
           <div className="settings-row">
             <span className="muted small">NextBrowser</span>
@@ -740,6 +733,7 @@ export function App() {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
     localStorage.setItem("nextbrowser.theme", theme);
+    void invoke("app_set_theme", { theme }).catch(() => undefined);
     if (!didTrackThemeChange.current) {
       didTrackThemeChange.current = true;
       return;
@@ -846,30 +840,36 @@ export function App() {
     let dragging = false;
     let startX = 0;
     let startW = sidebarWidth;
-    const onMove = (e: MouseEvent) => {
+    const onMove = (e: PointerEvent) => {
       if (!dragging) return;
       if (sidebarCollapsed) return;
       setSidebarWidth(Math.min(480, Math.max(240, startW + (e.clientX - startX))));
     };
     const onUp = () => {
       dragging = false;
+      document.body.classList.remove("is-resizing-sidebar");
     };
     const handle = document.getElementById("sidebar-resize");
-    const onDown = (e: MouseEvent) => {
+    const onDown = (e: PointerEvent) => {
       dragging = true;
       startX = e.clientX;
       startW = useStore.getState().sidebarWidth;
+      document.body.classList.add("is-resizing-sidebar");
+      handle?.setPointerCapture(e.pointerId);
       e.preventDefault();
     };
-    handle?.addEventListener("mousedown", onDown);
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    handle?.addEventListener("pointerdown", onDown);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
     return () => {
-      handle?.removeEventListener("mousedown", onDown);
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+      document.body.classList.remove("is-resizing-sidebar");
+      handle?.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
     };
-  }, [sidebarCollapsed, setSidebarWidth]);
+  }, [checking, sidebarCollapsed, setSidebarWidth]);
 
     if (checking && preview !== "login" && preview !== "main" && preview !== "onboarding") {
     return (
@@ -911,7 +911,7 @@ export function App() {
       >
         <Sidebar onOpenAgentSettings={() => openSettings("agent")} onHome={() => setTab("chat")} />
       </aside>
-      {!sidebarCollapsed && <div id="sidebar-resize" className="resize-handle" />}
+      {!sidebarCollapsed && <div id="sidebar-resize" className="resize-handle" title="Resize sidebar" aria-label="Resize sidebar" />}
       <main className="content">
         <nav className="tabbar">
           {!isPrimaryAppTab(tab) && backTarget && (

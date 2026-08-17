@@ -103,6 +103,9 @@ export function ChatView() {
   const agentNeedsLogin = agentDetected && s.agentLoggedIn() === false;
   const agentError = s.agentError();
   const running = s.hasRunning();
+  const latestCompletedAssistantId = [...messages].reverse().find((message) =>
+    message.role === "assistant" && message.status === "done" && message.text.trim(),
+  )?.id;
 
   const [draft, setDraft] = useState("");
   const [guideDraftLoaded, setGuideDraftLoaded] = useState(false);
@@ -527,6 +530,7 @@ export function ChatView() {
                 void prepareWorkflow(user?.text ?? "", m, m.id);
               }}
               savingWorkflow={preparingWorkflowId === m.id}
+              showSaveWorkflow={m.id === latestCompletedAssistantId}
             />
           ))}
           <div ref={bottomRef} />
@@ -814,6 +818,7 @@ function MessageBubble({
   onShowPrompt,
   onSaveWorkflow,
   savingWorkflow,
+  showSaveWorkflow,
 }: {
   message: ChatMessage;
   canQueue: boolean;
@@ -825,6 +830,7 @@ function MessageBubble({
   onShowPrompt: () => void;
   onSaveWorkflow: () => void;
   savingWorkflow: boolean;
+  showSaveWorkflow: boolean;
 }) {
   const [clock, setClock] = useState(Date.now());
   const [showErrorDetails, setShowErrorDetails] = useState(false);
@@ -843,10 +849,13 @@ function MessageBubble({
   };
 
   if (m.role === "system") {
+    const visibleText = /^.+ connected — .+/.test(m.text)
+      ? m.text.replace(/ — .+?(?=\. You're|\.$)/, "")
+      : m.text;
     return (
       <div className="msg msg-system">
         <div className="msg-body">
-          <UserFacingError message={m.text} surface="chat_system" />
+          <UserFacingError message={visibleText} surface="chat_system" />
         </div>
       </div>
     );
@@ -979,7 +988,7 @@ function MessageBubble({
           >
             <Icon name="doc.on.doc" size={12} />
           </button>
-          {m.status === "done" && (
+          {m.status === "done" && showSaveWorkflow && (
             <button className="save-workflow-btn" disabled={savingWorkflow} title="Save this browser workflow as a local skill" onClick={onSaveWorkflow}>
               {savingWorkflow && <Spinner size={11} />} {savingWorkflow ? "Preparing…" : "Save as skill"}
             </button>
