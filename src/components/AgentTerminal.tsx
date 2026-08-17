@@ -12,7 +12,7 @@ interface AgentTerminalProps {
   conversationId?: string;
   workingDir?: string;
   browserContext?: string;
-  browserProfiles?: Array<{ name: string; runtime: "clawbrowser" | "dasbrowser"; running: boolean; ownerConversationId?: string }>;
+  browserProfiles?: Array<{ name: string; runtime: "clawbrowser" | "dasbrowser" | "camoufox"; running: boolean; ownerConversationId?: string }>;
   savingWorkflow?: boolean;
   pendingHandoff?: { id: string; text: string };
   handoffToChatRequest?: string;

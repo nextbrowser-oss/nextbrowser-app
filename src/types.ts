@@ -137,14 +137,16 @@ export interface Conversation {
   chatMode?: "chat" | "terminal";
   workspaceId?: string;
   profileNames?: string[];
-  profileToolsets?: Record<string, "clawbrowser" | "dasbrowser">;
+  profileToolsets?: Record<string, BrowserToolset>;
 }
+
+export type BrowserToolset = "clawbrowser" | "dasbrowser" | "camoufox";
 
 export interface Workspace {
   id: string;
   name: string;
   profileNames: string[];
-  profileToolsets: Record<string, "clawbrowser" | "dasbrowser">;
+  profileToolsets: Record<string, BrowserToolset>;
   createdAt: number;
   updatedAt: number;
 }

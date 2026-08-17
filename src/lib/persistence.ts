@@ -70,7 +70,7 @@ export function normalizeConversation(raw: Omit<Conversation, "profileToolsets">
   const chatMode = raw.chatMode === "terminal" ? "terminal" as const : "chat" as const;
   const profileNames = [...new Set((raw.profileNames ?? []).filter((name): name is string => typeof name === "string" && !!name.trim()))];
   const profileToolsets = Object.fromEntries(Object.entries(raw.profileToolsets ?? {}).flatMap(
-    ([name, toolset]) => profileNames.includes(name) && (toolset === "clawbrowser" || toolset === "dasbrowser" || toolset === "chromium")
+    ([name, toolset]) => profileNames.includes(name) && (toolset === "clawbrowser" || toolset === "dasbrowser" || toolset === "camoufox" || toolset === "chromium")
       ? [[name, toolset === "chromium" ? "clawbrowser" : toolset]]
       : [],
   )) as Conversation["profileToolsets"];

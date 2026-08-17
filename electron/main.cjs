@@ -367,6 +367,20 @@ async function executeNextctl(commandArgs, options = {}) {
     adaptedArgs = adaptDasbrowserArgs(adaptedArgs, executable);
   } else if (browserRuntime === "clawbrowser" && requiresBrowserRuntime(adaptedArgs)) {
     await ensureClawbrowserRuntime(bin);
+  } else if (browserRuntime === "camoufox" && requiresBrowserRuntime(adaptedArgs)) {
+    setBrowserRuntimeInstallStatus("camoufox", "installing", { message: "Preparing the Camoufox browser runtime…" });
+    try {
+      const result = await run(bin, adaptedArgs, options.extraEnv || {}, options);
+      if (result.code === 0) {
+        setBrowserRuntimeInstallStatus("camoufox", "ready");
+      } else {
+        setBrowserRuntimeInstallStatus("camoufox", "failed", { message: "We couldn't prepare Camoufox. Please retry." });
+      }
+      return result;
+    } catch (error) {
+      setBrowserRuntimeInstallStatus("camoufox", "failed", { message: String(error?.message || error) });
+      throw error;
+    }
   }
   return run(bin, adaptedArgs, options.extraEnv || {}, options);
 }
@@ -1129,7 +1143,7 @@ async function invokeCommand(command, args = {}, sender) {
       const controlURL = await ensureAgentControlServer();
       const profileScope = new Map(
         (Array.isArray(args.browserProfiles) ? args.browserProfiles : [])
-          .filter((item) => item && typeof item.name === "string" && ["clawbrowser", "dasbrowser"].includes(item.runtime))
+          .filter((item) => item && typeof item.name === "string" && ["clawbrowser", "dasbrowser", "camoufox"].includes(item.runtime))
           .map((item) => [item.name, {
             runtime: item.runtime,
             conversationId: String(args.conversationId || ""),
@@ -1171,6 +1185,7 @@ async function invokeCommand(command, args = {}, sender) {
         buffer: [],
         exit: null,
         controlToken,
+        profileScope,
         webContentsId: sender?.id,
       };
       terminals.set(id, record);
@@ -1223,6 +1238,18 @@ async function invokeCommand(command, args = {}, sender) {
       const record = terminals.get(String(args.id || ""));
       if (record?.process?.pid) {
         await terminateProcessTree(record.process.pid, { includeRoot: false, nextctlOnly: true });
+      }
+      if (record?.profileScope) {
+        const nextctlBin = await resolveOrInstallNextctl().catch(() => null);
+        if (nextctlBin) {
+          await Promise.all([...record.profileScope.entries()].map(async ([profile, access]) => {
+            const owner = agentControlProfileOwners.get(profile) || access.ownerConversationId;
+            if (!owner || owner !== access.conversationId) return;
+            await executeNextctl(["stop", "--profile", profile, "--runtime", access.runtime, "--format", "json"]).catch(() => undefined);
+            agentControlProfileOwners.delete(profile);
+            emit("profile:host-stopped", [profile, access.conversationId]);
+          }));
+        }
       }
       return null;
     }

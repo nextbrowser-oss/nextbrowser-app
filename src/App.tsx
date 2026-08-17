@@ -50,14 +50,14 @@ interface AppUpdateStatus {
 }
 
 interface BrowserRuntimeInstallStatus {
-  runtime?: "clawbrowser" | "dasbrowser";
+  runtime?: "clawbrowser" | "dasbrowser" | "camoufox";
   status?: "idle" | "downloading" | "installing" | "ready" | "failed";
 }
 
 const APP_UPDATE_ERROR = "We couldn't update NextBrowser. Please retry again.";
 
 function BrowserRuntimeInstallModal({ status }: { status: BrowserRuntimeInstallStatus }) {
-  const name = status.runtime === "dasbrowser" ? "DasBrowser" : "ClawBrowser";
+  const name = status.runtime === "dasbrowser" ? "DasBrowser" : status.runtime === "camoufox" ? "Camoufox" : "ClawBrowser";
   const installing = status.status === "installing";
   return (
     <div className="browser-install-overlay" role="status" aria-live="polite">

@@ -88,7 +88,7 @@ interface QueuedItem {
   executionTarget: ExecutionTarget;
 }
 
-type BrowserToolset = "clawbrowser" | "dasbrowser";
+type BrowserToolset = "clawbrowser" | "dasbrowser" | "camoufox";
 
 function runtimeForProfile(workspaces: Workspace[], profileName: string): BrowserToolset {
   for (const workspace of workspaces) {
@@ -2048,11 +2048,12 @@ export const useStore = create<State>((set, get) => {
       });
       for (const p of list.profiles) {
         try {
-          const st = await nextctlJson<SessionStatus>(["status", "--profile", p.name]);
+          const runtime = runtimeForProfile(get().workspaces, p.name);
+          const st = await nextctlJson<SessionStatus>(["status", "--profile", p.name, "--runtime", runtime]);
           statuses[p.name] = st.status;
           profileSessions[p.name] = st;
           if (st.status === "running") {
-            const identity = await verifyProxyIdentity(p.name);
+            const identity = runtime === "camoufox" ? (p.country ? { country: p.country } : undefined) : await verifyProxyIdentity(p.name);
             if (identity) profileIdentities[p.name] = identity;
           } else if (get().profileIdentities[p.name]) {
             profileIdentities[p.name] = get().profileIdentities[p.name];
@@ -2210,9 +2211,19 @@ export const useStore = create<State>((set, get) => {
     }));
     try {
       const runtime = runtimeForProfile(get().workspaces, n);
-      await nextctlRunChecked(["start", "--profile", n, "--runtime", runtime, "--format", "json"]);
+      const profile = get().profiles.find((item) => item.name === n);
+      await nextctlRunChecked([
+        "start",
+        "--profile",
+        n,
+        "--runtime",
+        runtime,
+        ...(runtime === "camoufox" && profile?.country ? ["--verify"] : []),
+        "--format",
+        "json",
+      ]);
       await get().loadProfiles();
-      const identity = await verifyProxyIdentity(n);
+      const identity = runtime === "camoufox" ? (profile?.country ? { country: profile.country } : undefined) : await verifyProxyIdentity(n);
       if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: identity } }));
       trackTiming("profile_start_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
     } catch (error) {
@@ -2259,10 +2270,20 @@ export const useStore = create<State>((set, get) => {
     set((s) => ({ statuses: { ...s.statuses, [n]: "rotating" } }));
     try {
       const runtime = runtimeForProfile(get().workspaces, n);
-      await nextctlRunChecked(["rotate", "--profile", n, "--runtime", runtime, "--format", "json"]);
+      const profile = get().profiles.find((item) => item.name === n);
+      await nextctlRunChecked([
+        "rotate",
+        "--profile",
+        n,
+        "--runtime",
+        runtime,
+        ...(runtime === "camoufox" && profile?.country ? ["--verify"] : []),
+        "--format",
+        "json",
+      ]);
       await get().loadProfiles();
       await get().loadProxy().catch(() => {});
-      const after = await verifyProxyIdentity(n);
+      const after = runtime === "camoufox" ? (profile?.country ? { country: profile.country } : undefined) : await verifyProxyIdentity(n);
       if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
       trackTiming("proxy_ip_change_completed", startedAt, { scope: "named_profile", status: get().statuses[n] ?? "unknown" });
       trackTiming("profile_rotate_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
@@ -2293,7 +2314,7 @@ export const useStore = create<State>((set, get) => {
       ]);
       await get().loadProfiles();
       await get().loadProxy().catch(() => {});
-      const after = await verifyProxyIdentity(n);
+      const after = runtime === "camoufox" ? { country } : await verifyProxyIdentity(n);
       if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
       trackTiming("proxy_country_change_completed", startedAt, { scope: "named_profile", country, status: get().statuses[n] ?? "unknown" });
       trackTiming("profile_rotate_completed", startedAt, { scope: "named", country, status: get().statuses[n] ?? "unknown" });
@@ -2929,7 +2950,7 @@ export const useStore = create<State>((set, get) => {
       const savedToolset = state.conversations.find((conversation) =>
         conversation.profileToolsets?.[profileName]
       )?.profileToolsets?.[profileName];
-      return [profileName, savedToolset === "dasbrowser" ? "dasbrowser" : "clawbrowser"];
+      return [profileName, savedToolset === "dasbrowser" || savedToolset === "camoufox" ? savedToolset : "clawbrowser"];
     })) as Record<string, BrowserToolset>;
     const workspace: Workspace = {
       id: workspaceId,
@@ -3245,7 +3266,15 @@ export const useStore = create<State>((set, get) => {
         [agentId]: { ...s.runtime[agentId], pendingStop: true },
       },
     }));
-    void invoke("agent_terminate", { replyId });
+    const conversationId = get().activeConversation()?.id;
+    const ownedProfiles = conversationId
+      ? Object.entries(get().profileChatOwners)
+        .filter(([, owner]) => owner === conversationId)
+        .map(([profile]) => profile)
+      : [];
+    void invoke("agent_terminate", { replyId }).finally(() => {
+      void Promise.all(ownedProfiles.map((profile) => get().stopProfile(profile).catch(() => undefined)));
+    });
   },
 
   canManageQueuedReply: (replyId) => {

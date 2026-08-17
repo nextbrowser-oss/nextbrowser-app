@@ -1,11 +1,9 @@
 ---
 name: 999-car-search
-description: Search and extract relevant vehicle listings from 999.md with pagination and deduplication.
+description: Search, filter, paginate, and extract relevant vehicle listings from 999.md. Use when a user asks to find or compare cars on 999.md.
 ---
 
 # 999.md car search
-
-Use this skill when a user asks to find cars or compare vehicle listings on `999.md`.
 
 ## Workflow
 

@@ -51,7 +51,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [profileName, setProfileName] = useState("");
   const [profileCountry, setProfileCountry] = useState("US");
   const [profileConnection, setProfileConnection] = useState<"managed" | "direct">("managed");
-  const [profileToolset, setProfileToolset] = useState<"clawbrowser" | "dasbrowser">("clawbrowser");
+  const [profileToolset, setProfileToolset] = useState<"clawbrowser" | "dasbrowser" | "camoufox">("clawbrowser");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileActionError, setProfileActionError] = useState<string | null>(null);
@@ -790,6 +790,11 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 <Icon name="safari" size={16} />
                 <span><strong>DasBrowser</strong><small>Private multi-account browser</small></span>
               </label>
+              <label className={"project-mode-option" + (profileToolset === "camoufox" ? " is-selected" : "")}>
+                <input type="radio" name="profile-toolset" checked={profileToolset === "camoufox"} onChange={() => setProfileToolset("camoufox")} />
+                <Icon name="shield" size={16} />
+                <span><strong>Camoufox</strong><small>Firefox anti-detect browser</small></span>
+              </label>
             </fieldset>
             <section className="profile-remote-section" aria-label="Remote execution">
               <div className="profile-remote-heading">
@@ -1209,7 +1214,7 @@ function ProfileRow({
   ip?: string | null;
   manualScheme?: string | null;
   manualTitle?: string;
-  toolset?: "clawbrowser" | "dasbrowser";
+  toolset?: "clawbrowser" | "dasbrowser" | "camoufox";
   occupiedBy?: string;
   searchQuery?: string;
   draggable?: boolean;
@@ -1259,12 +1264,12 @@ function ProfileRow({
         {toolset && (
           <span
             className="profile-toolset-logo"
-            title={toolset === "clawbrowser" ? "ClawBrowser" : "DasBrowser"}
+            title={toolset === "clawbrowser" ? "ClawBrowser" : toolset === "dasbrowser" ? "DasBrowser" : "Camoufox"}
             role="img"
-            aria-label={toolset === "clawbrowser" ? "ClawBrowser" : "DasBrowser"}
+            aria-label={toolset === "clawbrowser" ? "ClawBrowser" : toolset === "dasbrowser" ? "DasBrowser" : "Camoufox"}
           >
             <img
-              src={toolset === "clawbrowser" ? "./clawbrowser-icon.png" : "./dasbrowser-icon.png"}
+              src={toolset === "clawbrowser" ? "./clawbrowser-icon.png" : toolset === "dasbrowser" ? "./dasbrowser-icon.png" : "./camoufox-icon.svg"}
               alt=""
               draggable={false}
             />
