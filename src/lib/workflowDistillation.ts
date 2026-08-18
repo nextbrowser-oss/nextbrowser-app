@@ -62,8 +62,8 @@ export function parseDistilledWorkflow(raw: string, fallback: DistilledWorkflow)
   if (reusable === false) return { ...fallback, reusable: false, reason: reason || "The browser workflow was not completed successfully." };
   if (reusable !== true || !title || domain !== fallback.domain || instructions.length < 80 || instructions.length > 16_000) return undefined;
   if (/(?:dashboard_url\s*[:=]|rs_[a-z0-9]+|127\.0\.0\.1:\d+|localhost:\d+|api[_-]?key\s*[:=]|bearer\s+[a-z0-9._-]+)/i.test(instructions)) return undefined;
-  const allowedTools = new Set([...fallback.instructions.matchAll(/clawbrowser\.([a-z_]+)/g)].map((match) => match[1]));
-  const producedTools = [...instructions.matchAll(/clawbrowser\.([a-z_]+)/g)].map((match) => match[1]);
+  const allowedTools = new Set([...fallback.instructions.matchAll(/(?:clawbrowser|nextbrowser)\.([a-z_]+)/g)].map((match) => match[1]));
+  const producedTools = [...instructions.matchAll(/(?:clawbrowser|nextbrowser)\.([a-z_]+)/g)].map((match) => match[1]);
   if (producedTools.some((tool) => !allowedTools.has(tool))) return undefined;
   const allowedCapabilities = new Set(["scrape", "search", "posting", "form", "navigation", "other"]);
   const capability = typeof record.capability === "string" && allowedCapabilities.has(record.capability) ? record.capability as DistilledWorkflow["capability"] : fallback.capability;

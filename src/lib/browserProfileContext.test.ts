@@ -12,10 +12,11 @@ describe("browserProfileContext", () => {
       profileNames: ["HEY!", "baka"],
       profileToolsets: { "HEY!": "dasbrowser", baka: "clawbrowser" },
     } as Workspace;
-    const result = browserProfileContext([workspace], "one", "HEY!");
-    expect(result).toContain("HEY!: DasBrowser (workspace: Work, selected)");
+    const result = browserProfileContext([workspace], "one", "HEY!", undefined, { "HEY!": "running" });
+    expect(result).toContain("HEY!: DasBrowser (workspace: Work, selected, running; reuse without starting)");
+    expect(result).toContain("running; reuse without starting");
     expect(result).toContain("baka: ClawBrowser (workspace: Work");
-    expect(result).toContain("do not spawn it through nextctl or clawbrowser.start");
+    expect(result).toContain("do not spawn it through nextctl or nextbrowser.start");
     expect(result).toContain("NEXTBROWSER_CONTROL_URL");
     expect(result).toContain("rejects profiles outside");
   });
@@ -26,8 +27,17 @@ describe("browserProfileContext", () => {
       { id: "two", name: "Two", createdAt: 1, updatedAt: 1, profileNames: ["hidden"], profileToolsets: {} },
     ] as Workspace[];
     const result = browserProfileContext(workspaces, "one");
-    expect(result).toContain("visible: ClawBrowser (workspace: One)");
+    expect(result).toContain("visible: ClawBrowser (workspace: One");
     expect(result).not.toContain("hidden");
+  });
+
+  it("uses the only workspace profile by default without changing its runtime", () => {
+    const workspaces = [
+      { id: "one", name: "One", createdAt: 1, updatedAt: 1, profileNames: ["foxy"], profileToolsets: { foxy: "camoufox" } },
+    ] as Workspace[];
+    const result = browserProfileContext(workspaces, "one");
+    expect(result).toContain("foxy: Camoufox (workspace: One, sole profile; use by default)");
+    expect(result).toContain("Never substitute ClawBrowser for a listed Camoufox");
   });
 
   it("adds the selected Multilogin browser profile to agent context", () => {
@@ -50,7 +60,7 @@ describe("browserProfileContext", () => {
       name: "Android US",
     });
     expect(result).toContain("Android cloud phone");
-    expect(result).toContain("mcp__clawbrowser__mobile_start exactly once");
+    expect(result).toContain("mcp__nextbrowser__mobile_start exactly once");
     expect(result).toContain("Use id, never profile_id or name");
     expect(result).toContain("do not search for tools or read additional references");
     expect(result).toContain("Do not retry an authentication error");

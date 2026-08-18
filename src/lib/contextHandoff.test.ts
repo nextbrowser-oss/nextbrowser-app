@@ -3,6 +3,8 @@ import {
   chatPromptWithDeferredContext,
   chatToTerminalHandoff,
   terminalInputWithDeferredContext,
+  terminalBrowserScopeContext,
+  terminalLineBufferAfter,
   terminalToChatHandoff,
 } from "./contextHandoff";
 
@@ -70,12 +72,45 @@ describe("chat context handoff", () => {
     });
   });
 
-  it("prepends chat context to the first terminal message without submitting it", () => {
+  it("keeps the terminal input clean until the message is submitted", () => {
     const result = terminalInputWithDeferredContext("Recent chat context", "H");
+    expect(result).toEqual({ data: "H", consumed: false, userInput: true });
+  });
+
+  it("prepends deferred context at Enter for an already typed line", () => {
+    const result = terminalInputWithDeferredContext("Recent chat context", "\r", "Hello Berlin");
     expect(result).toMatchObject({ consumed: true, userInput: true });
+    expect(result.data.startsWith("\x15")).toBe(true);
     expect(result.data).toContain("Recent chat context");
-    expect(result.data).toContain("New user message:\n");
-    expect(result.data.endsWith("H")).toBe(true);
-    expect(result.data.endsWith("\r")).toBe(false);
+    expect(result.data).toContain("New user message:\nHello Berlin");
+    expect(result.data.endsWith("\r")).toBe(true);
+  });
+
+  it("does not consume deferred context on Shift+Enter newline", () => {
+    expect(terminalInputWithDeferredContext("Current profiles", "\n", "line one")).toEqual({
+      data: "\n",
+      consumed: false,
+      userInput: false,
+    });
+  });
+
+  it("builds a concise authoritative terminal profile scope", () => {
+    const result = terminalBrowserScopeContext([
+      { name: "Fox profile", runtime: "camoufox", selected: true },
+      { name: "Wiki research", runtime: "clawbrowser" },
+    ]);
+    expect(result).toContain("Fox profile: Camoufox (selected)");
+    expect(result).toContain("Wiki research: ClawBrowser");
+    expect(result).toContain("Existing profiles always take priority");
+    expect(result).toContain("Never invent, clone, substitute, create, or start an unlisted profile");
+    expect(result).not.toContain("Reddit scraper");
+  });
+
+  it("tracks the editable terminal line without losing unicode input", () => {
+    expect(terminalLineBufferAfter("", "Berlin")).toBe("Berlin");
+    expect(terminalLineBufferAfter("Berlin", "\x7f!")).toBe("Berli!");
+    expect(terminalLineBufferAfter("Матиз", "\x7f")).toBe("Мати");
+    expect(terminalLineBufferAfter("old", "\x15new")).toBe("new");
+    expect(terminalLineBufferAfter("done", "\r")).toBe("");
   });
 });

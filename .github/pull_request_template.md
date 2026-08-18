@@ -16,6 +16,7 @@ Closes #
 - [ ] Feature or enhancement
 - [ ] Documentation or translation
 - [ ] Demo or example
+- [ ] Browser skill
 - [ ] Maintenance or tooling
 
 ## Validation
@@ -34,6 +35,8 @@ Commands and results:
 ## Screenshots or recordings
 
 <!-- Add before/after evidence for visible changes. Write "Not applicable" otherwise. -->
+
+For a browser skill, include the contribution issue, all acceptance tasks and outcomes, the agent/profile/proxy used, and redacted evidence from fresh chats.
 
 ## Documentation and translations
 

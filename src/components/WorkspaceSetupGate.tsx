@@ -15,7 +15,7 @@ export function WorkspaceSetupGate() {
   const [profileName, setProfileName] = useState("");
   const [country, setCountry] = useState("US");
   const [direct, setDirect] = useState(false);
-  const [toolset, setToolset] = useState<"clawbrowser" | "dasbrowser">("clawbrowser");
+  const [toolset, setToolset] = useState<"clawbrowser" | "dasbrowser" | "camoufox">("clawbrowser");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -79,6 +79,7 @@ export function WorkspaceSetupGate() {
           <fieldset className="project-mode-field"><legend>Browser</legend>
             <label className={"project-mode-option" + (toolset === "clawbrowser" ? " is-selected" : "")}><input type="radio" checked={toolset === "clawbrowser"} onChange={() => setToolset("clawbrowser")} /><Icon name="globe" size={16} /><span><strong>ClawBrowser</strong><small>Managed browser runtime</small></span></label>
             <label className={"project-mode-option" + (toolset === "dasbrowser" ? " is-selected" : "")}><input type="radio" checked={toolset === "dasbrowser"} onChange={() => setToolset("dasbrowser")} /><Icon name="safari" size={16} /><span><strong>DasBrowser</strong><small>Multi-account browser</small></span></label>
+            <label className={"project-mode-option" + (toolset === "camoufox" ? " is-selected" : "")}><input type="radio" checked={toolset === "camoufox"} onChange={() => setToolset("camoufox")} /><Icon name="shield" size={16} /><span><strong>Camoufox</strong><small>Firefox anti-detect browser</small></span></label>
           </fieldset>
         </>}
         {error && <div className="error small">{error}</div>}

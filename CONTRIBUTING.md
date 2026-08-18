@@ -13,13 +13,15 @@ Please keep contributions focused, factual, and easy to review. By participating
 
 ## Development setup
 
-You need Git, a current Node.js LTS release, and npm. Platform packaging may also require the native tools expected by Electron Builder.
+You need Git, Node.js 22, and npm. Testing a browser skill in the desktop app requires macOS or Windows, a NextBrowser account, a connected agent, and a working browser profile. Platform packaging may also require the native tools expected by Electron Builder.
 
 Fork the repository, clone your fork, and install the exact locked dependencies:
 
 ```bash
 git clone https://github.com/YOUR-USERNAME/nextbrowser-app.git
 cd nextbrowser-app
+git remote add upstream https://github.com/nextbrowser-oss/nextbrowser-app.git
+git fetch upstream
 npm ci
 ```
 
@@ -49,6 +51,14 @@ The managed browser runtime is an external dependency. Do not copy its implement
 ## Contributing a browser skill
 
 Repository skills are public, reviewed browser workflows that ship in the NextBrowser catalog. They are source-controlled so improvements remain attributable to their GitHub contributors. Do not use the in-app **Save as skill** flow for repository contributions; that flow is for a user's private or local workflows.
+
+#### Freelancer quick start
+
+1. Open a **Browser skill contribution** issue with one website, one coherent workflow, and at least three acceptance tasks. Wait for a maintainer to confirm the scope before substantial work.
+2. Create `skills/<skill-id>/` from the latest `upstream/main` and use [`skills/999-car-search/`](skills/999-car-search/) as the model.
+3. Write `SKILL.md`, `manifest.json`, and `tests/cases.json` as described below.
+4. Run `npm run dev`. If the skill directory was added while the app was already running, restart the dev process. Connect an agent, open **Skills**, find the card marked **Repository**, and press **Run**.
+5. Run every acceptance task in a fresh chat with the required profile and proxy, then run the automated checks and attach redacted evidence to the pull request.
 
 ### 1. Choose and claim a workflow
 
@@ -90,18 +100,81 @@ Use [`skills/999-car-search/`](skills/999-car-search/) as a complete working exa
 
 ### 3. Write `SKILL.md`
 
-`SKILL.md` is the instruction that the selected agent receives. Begin with YAML frontmatter:
+`SKILL.md` has two distinct parts:
+
+1. **YAML frontmatter** is always visible to the agent and determines when the skill is selected. Its `description` must say both what the skill does and which user requests should trigger it.
+2. **Markdown body** is loaded only after the skill is selected. It tells a fresh agent how to execute the workflow without relying on the contributor's chat history, memory, or a previously captured page state.
+
+Begin with YAML frontmatter:
 
 ```markdown
 ---
 name: example-product-search
-description: Search, filter, and extract product listings from example.com.
+description: Search, filter, paginate, and extract product listings from example.com. Use when a user asks to find or compare products on example.com.
 ---
 
 # Example product search
 ```
 
-The instructions should tell the agent when to use the skill and how to complete the task efficiently. Include only behavior that is specific or especially useful for this workflow. Cover the following when relevant:
+The `name` must match the directory and manifest `id`. Keep all trigger guidance in `description`; a body section named “When to use this skill” is too late to help selection. The validator currently requires the complete `SKILL.md` to contain at least 400 characters. That is only a sanity check, not a target: write enough to make the workflow reliable, but do not pad the file with generic browser advice.
+
+#### What belongs in the Markdown body
+
+Write for an agent that knows how to operate a browser but knows nothing about this particular website or workflow. The body should answer these questions where they apply:
+
+- What outcome must the agent produce?
+- Which user inputs matter, such as query, filters, proxy country, profile, or content to publish?
+- Which site surface should it open, and what is the shortest reliable happy path?
+- Which fields must it collect or fill, and what is the stopping condition?
+- How should it verify completeness, relevance, and successful submission?
+- Which site-specific failures are common, and how should it recover without restarting working sessions or repeating consequential actions?
+- What should the final answer contain?
+
+Use this recommended skeleton as a starting point. The headings are not validator requirements; omit irrelevant sections and add site-specific guidance when it improves reliability.
+
+```markdown
+---
+name: example-product-search
+description: Search, filter, paginate, and extract product listings from example.com. Use when a user asks to find or compare products on example.com.
+---
+
+# Example product search
+
+## Goal
+
+Find every relevant listing that matches the user's criteria and return verified,
+deduplicated results with canonical URLs.
+
+## Inputs
+
+- Search query and requested filters
+- Browser profile and proxy country, when specified
+- Result limit or the instruction to collect all results
+
+## Workflow
+
+1. Start or reattach one named profile and verify the requested proxy country.
+2. Open the product search surface and apply the user's filters.
+3. Confirm the visible filter state before collecting results.
+4. Extract title, canonical URL, price, and the requested details.
+5. Paginate or scroll until the requested limit or a confirmed end.
+6. Deduplicate canonical URLs and reject irrelevant matches.
+
+## Recovery
+
+- Resolve changed controls by role, label, text, or a stable selector.
+- If navigation detaches the page, reattach to the matching tab instead of
+  starting another browser session.
+- Do not repeat a final publish, purchase, message, or deletion after an
+  uncertain response; inspect the resulting state first.
+
+## Completion
+
+Return the matching results and state the stopping condition, pages inspected,
+and any filters or fields that could not be verified.
+```
+
+Make instructions concrete enough to change the agent's behavior. “Search the website and return results” is not useful; naming the exact fields, relevance rules, pagination end condition, and recovery behavior is. Include only behavior that is specific or especially useful for this workflow. Cover the following when relevant:
 
 1. Start or reattach one named browser profile instead of creating duplicate sessions.
 2. If the user requested a proxy country, verify that country successfully before interacting with the website.
@@ -165,7 +238,7 @@ Allowed operation identifiers are:
 search, scrape, paginate, post, comment, message, form
 ```
 
-Reuse an existing category when it fits. Do not create nearly identical categories solely to give one skill a custom heading.
+Reuse an existing category when it fits, copying its `id`, `title`, `icon`, and `order` from an existing manifest. Ask for maintainer approval before introducing a new category or icon. Do not create nearly identical categories solely to give one skill a custom heading.
 
 ### 5. Add acceptance cases
 
@@ -228,12 +301,11 @@ Attach a redacted terminal transcript, screenshot, or short recording to the pul
 
 ### 7. Open the pull request
 
-Fork the repository, branch from the latest `main`, commit the skill, and push your branch:
+Fork the repository, branch from the latest upstream `main`, commit the skill, and push your branch:
 
 ```bash
-git switch main
-git pull --ff-only
-git switch -c skill/example-product-search
+git fetch upstream
+git switch -c skill/example-product-search upstream/main
 git add skills/example-product-search
 git commit -m "Add example product search skill"
 git push -u origin skill/example-product-search

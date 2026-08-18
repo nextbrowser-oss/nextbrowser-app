@@ -4,7 +4,9 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { invoke, listen } from "../electronBridge";
 import { Icon, Spinner } from "./Icon";
-import { terminalInputWithDeferredContext } from "../lib/contextHandoff";
+import { terminalBrowserScopeContext, terminalInputWithDeferredContext, terminalLineBufferAfter } from "../lib/contextHandoff";
+import { terminalActivityPreview, terminalAgentReady, terminalInputShouldQueueBeforeReady } from "../lib/terminalReadiness";
+import { terminalBrowserSession } from "../lib/terminalBrowserSession";
 
 interface AgentTerminalProps {
   agentId: string;
@@ -12,7 +14,7 @@ interface AgentTerminalProps {
   conversationId?: string;
   workingDir?: string;
   browserContext?: string;
-  browserProfiles?: Array<{ name: string; runtime: "clawbrowser" | "dasbrowser"; running: boolean; ownerConversationId?: string }>;
+  browserProfiles?: Array<{ name: string; runtime: "clawbrowser" | "dasbrowser" | "camoufox"; running: boolean; selected?: boolean; ownerConversationId?: string }>;
   savingWorkflow?: boolean;
   pendingHandoff?: { id: string; text: string };
   handoffToChatRequest?: string;
@@ -22,6 +24,8 @@ interface AgentTerminalProps {
   onChatHandoffConsumed: (id: string) => void;
   onProfileStarted?: (profile: string) => void;
   onProfileStopped?: (profile: string) => void;
+  onProfilesRefresh?: () => void;
+  onPreviewChange?: (preview?: string) => void;
 }
 
 const DARK_TERMINAL_THEME = {
@@ -86,7 +90,7 @@ function handoffFingerprint(value: string): string {
     .trim();
 }
 
-export function AgentTerminal({ agentId, agentName, conversationId, workingDir, browserContext, browserProfiles, savingWorkflow, pendingHandoff, handoffToChatRequest, onSaveWorkflow, onContinueInChat, onHandoffConsumed, onChatHandoffConsumed, onProfileStarted, onProfileStopped }: AgentTerminalProps) {
+export function AgentTerminal({ agentId, agentName, conversationId, workingDir, browserContext, browserProfiles, savingWorkflow, pendingHandoff, handoffToChatRequest, onSaveWorkflow, onContinueInChat, onHandoffConsumed, onChatHandoffConsumed, onProfileStarted, onProfileStopped, onProfilesRefresh, onPreviewChange }: AgentTerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalIdRef = useRef<string>();
   const terminalRef = useRef<Terminal>();
@@ -98,15 +102,26 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
   const onChatHandoffConsumedRef = useRef(onChatHandoffConsumed);
   const onProfileStartedRef = useRef(onProfileStarted);
   const onProfileStoppedRef = useRef(onProfileStopped);
+  const onProfilesRefreshRef = useRef(onProfilesRefresh);
   const lastTerminalHandoffRef = useRef("");
   const pendingHandoffRef = useRef(pendingHandoff);
+  const browserProfilesRef = useRef(browserProfiles);
   const userInputSinceChatHandoffRef = useRef(false);
+  const terminalReadyRef = useRef(false);
+  const queuedInputRef = useRef("");
+  const inputWriteQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const currentLineInputRef = useRef("");
+  const lastBrowserContextRef = useRef(browserContext || "");
+  const onPreviewChangeRef = useRef(onPreviewChange);
   onContinueInChatRef.current = onContinueInChat;
   onHandoffConsumedRef.current = onHandoffConsumed;
   onChatHandoffConsumedRef.current = onChatHandoffConsumed;
   onProfileStartedRef.current = onProfileStarted;
   onProfileStoppedRef.current = onProfileStopped;
+  onProfilesRefreshRef.current = onProfilesRefresh;
+  onPreviewChangeRef.current = onPreviewChange;
   pendingHandoffRef.current = pendingHandoff;
+  browserProfilesRef.current = browserProfiles;
 
   const transcript = () => {
     const terminal = terminalRef.current;
@@ -131,12 +146,21 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
     setError(undefined);
     lastTerminalHandoffRef.current = "";
     userInputSinceChatHandoffRef.current = false;
+    terminalReadyRef.current = false;
+    queuedInputRef.current = "";
+    inputWriteQueueRef.current = Promise.resolve();
+    currentLineInputRef.current = "";
+    lastBrowserContextRef.current = browserContext || "";
     let disposed = false;
     let removeData: (() => void) | undefined;
     let removeExit: (() => void) | undefined;
     let removeProfileStarted: (() => void) | undefined;
     let removeProfileStopped: (() => void) | undefined;
+    let lastObservedBrowserSession = "";
     let lastEscapeAt = 0;
+    let startupOutput = "";
+    let readinessTimer: ReturnType<typeof setTimeout> | undefined;
+    let previewTimer: ReturnType<typeof setTimeout> | undefined;
 
     const terminal = new Terminal({
       cursorBlink: true,
@@ -216,28 +240,78 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
       attributes: true,
       attributeFilter: ["data-theme"],
     });
-    const input = terminal.onData((data) => {
+    const writeInput = (id: string, data: string) => {
+      inputWriteQueueRef.current = inputWriteQueueRef.current
+        .catch(() => undefined)
+        .then(() => invoke("terminal_input", { id, data }));
+    };
+    const forwardInput = (data: string) => {
       const id = terminalIdRef.current;
       if (!id) return;
       const pending = pendingHandoffRef.current;
-      const deferred = terminalInputWithDeferredContext(pending?.text, data);
+      const bufferedMessage = currentLineInputRef.current.trimStart();
+      const scopeContext = bufferedMessage.startsWith("/")
+        ? undefined
+        : terminalBrowserScopeContext(browserProfilesRef.current ?? []);
+      const combinedContext = [scopeContext, pending?.text].filter(Boolean).join("\n\n") || undefined;
+      const deferred = terminalInputWithDeferredContext(combinedContext, data, currentLineInputRef.current);
       if (pending && deferred.consumed) {
         pendingHandoffRef.current = undefined;
         userInputSinceChatHandoffRef.current = true;
         onHandoffConsumedRef.current(pending.id);
-        void invoke("terminal_input", { id, data: deferred.data });
-        return;
       }
       if (deferred.userInput) userInputSinceChatHandoffRef.current = true;
-      void invoke("terminal_input", { id, data });
+      currentLineInputRef.current = deferred.consumed ? "" : terminalLineBufferAfter(currentLineInputRef.current, data);
+      writeInput(id, deferred.data);
+    };
+    const markReady = () => {
+      if (disposed || terminalReadyRef.current) return;
+      terminalReadyRef.current = true;
+      setStatus("running");
+      const queued = queuedInputRef.current;
+      queuedInputRef.current = "";
+      if (queued) forwardInput(queued);
+      requestAnimationFrame(() => {
+        resize();
+        terminal.focus();
+      });
+    };
+    const input = terminal.onData((data) => {
+      if (!terminalReadyRef.current) {
+        if (!terminalInputShouldQueueBeforeReady(data)) return;
+        queuedInputRef.current = (queuedInputRef.current + data).slice(-64_000);
+        return;
+      }
+      forwardInput(data);
     });
 
     void (async () => {
       removeData = await listen<[string, string]>("terminal:data", ({ payload: [id, data] }) => {
-        if (id === terminalIdRef.current) terminal.write(data);
+        if (id !== terminalIdRef.current) return;
+        terminal.write(data);
+        startupOutput = (startupOutput + data).slice(-64_000);
+        // MCP browser starts happen inside the terminal process, outside the
+        // Electron command bridge that normally emits profile lifecycle events.
+        // Observe the successful session payload and reconcile the sidebar with
+        // authoritative nextctl status instead of leaving it visually stopped.
+        const observed = terminalBrowserSession(
+          startupOutput.slice(-8_000),
+          browserProfiles?.map((profile) => profile.name) ?? [],
+        );
+        if (observed && observed.signal !== lastObservedBrowserSession) {
+          lastObservedBrowserSession = observed.signal;
+          onProfileStartedRef.current?.(observed.name);
+          onProfilesRefreshRef.current?.();
+        }
+        if (!terminalReadyRef.current && terminalAgentReady(agentId, startupOutput)) markReady();
+        if (previewTimer) clearTimeout(previewTimer);
+        previewTimer = setTimeout(() => onPreviewChangeRef.current?.(terminalActivityPreview(startupOutput)), 750);
       });
       removeExit = await listen<[string, number, number]>("terminal:exit", ({ payload: [id, exitCode] }) => {
         if (id !== terminalIdRef.current) return;
+        if (readinessTimer) clearTimeout(readinessTimer);
+        terminalReadyRef.current = true;
+        queuedInputRef.current = "";
         terminal.write(`\r\n\x1b[90mProcess exited (${exitCode}).\x1b[0m\r\n`);
         setStatus("exited");
       });
@@ -262,11 +336,9 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
       }
       terminalIdRef.current = id;
       await invoke("terminal_ready", { id });
-      setStatus("running");
-      requestAnimationFrame(() => {
-        resize();
-        terminal.focus();
-      });
+      // Agent CLIs may still be initializing MCP after the PTY transport is
+      // ready. Input is queued until their first real prompt appears.
+      readinessTimer = setTimeout(markReady, 35_000);
     })().catch((reason) => {
       if (disposed) return;
       const message = reason instanceof Error ? reason.message : String(reason);
@@ -278,6 +350,8 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
     return () => {
       disposed = true;
       observer.disconnect();
+      if (readinessTimer) clearTimeout(readinessTimer);
+      if (previewTimer) clearTimeout(previewTimer);
       host.removeEventListener("contextmenu", showContextMenu);
       themeObserver.disconnect();
       input.dispose();
@@ -295,6 +369,21 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
   // process. Restart it when the selected conversation changes so pending
   // input, scrollback, or an unfinished prompt cannot leak into another chat.
   }, [agentId, conversationId, workingDir, restartNonce]);
+
+  const browserProfilesFingerprint = JSON.stringify(browserProfiles ?? []);
+  useEffect(() => {
+    const id = terminalIdRef.current;
+    const nextContext = browserContext || "";
+    if (!id || nextContext === lastBrowserContextRef.current) return;
+    lastBrowserContextRef.current = nextContext;
+    void invoke("terminal_update_context", {
+      id,
+      workingDir: workingDir || null,
+      browserContext: nextContext,
+      browserProfiles: browserProfiles || [],
+      conversationId: conversationId || "",
+    });
+  }, [browserContext, browserProfilesFingerprint, conversationId, status, workingDir]);
 
   useEffect(() => {
     if (!handoffToChatRequest || status !== "running") return;

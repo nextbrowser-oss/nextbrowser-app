@@ -40,6 +40,15 @@ describe("Swift-compatible persistence", () => {
     });
   });
 
+  it("keeps a safe terminal project preview", () => {
+    const normalized = normalizeConversation({
+      id: "terminal", title: "Research", agent: "codex", createdAt: 1, updatedAt: 1,
+      messages: [], chatMode: "terminal", terminalPreview: "  Found\u0000   five listings  ",
+    });
+    expect(normalized.terminalPreview).toBe("Found five listings");
+    expect(serializeConversations([normalized])[0].terminalPreview).toBe("Found five listings");
+  });
+
   it("preserves clickable local file attachments", () => {
     const raw = {
       id: "c", title: "Files", agent: "codex", createdAt: 1, updatedAt: 1,

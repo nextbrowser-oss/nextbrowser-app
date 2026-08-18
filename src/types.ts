@@ -135,16 +135,20 @@ export interface Conversation {
   vpsConnectionLabel?: string;
   /** A conversation is the persistent agent context for one project. */
   chatMode?: "chat" | "terminal";
+  /** Short persisted activity summary for terminal projects. */
+  terminalPreview?: string;
   workspaceId?: string;
   profileNames?: string[];
-  profileToolsets?: Record<string, "clawbrowser" | "dasbrowser">;
+  profileToolsets?: Record<string, BrowserToolset>;
 }
+
+export type BrowserToolset = "clawbrowser" | "dasbrowser" | "camoufox";
 
 export interface Workspace {
   id: string;
   name: string;
   profileNames: string[];
-  profileToolsets: Record<string, "clawbrowser" | "dasbrowser">;
+  profileToolsets: Record<string, BrowserToolset>;
   createdAt: number;
   updatedAt: number;
 }
@@ -158,6 +162,7 @@ export function conversationPreview(conv: Conversation): string {
     if (last.text) return last.text.slice(0, 60);
     break;
   }
+  if (conv.chatMode === "terminal" && conv.terminalPreview) return conv.terminalPreview;
   return "Empty chat";
 }
 

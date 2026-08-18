@@ -16,7 +16,7 @@ import { UserFacingError } from "./UserFacingError";
 import { VPSSetupModal } from "./VPSSetupModal";
 
 type ManualProxyInputMode = "url" | "fields";
-const PROFILE_CREATE_TIMEOUT_MS = 30_000;
+const PROFILE_CREATE_TIMEOUT_MS = 120_000;
 
 interface SidebarProps {
   onOpenAgentSettings: () => void;
@@ -34,6 +34,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const s = useStore();
   const [menuProfile, setMenuProfile] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [profileDeleting, setProfileDeleting] = useState(false);
+  const [profileDeleteError, setProfileDeleteError] = useState<string | null>(null);
   const [confirmDeleteChat, setConfirmDeleteChat] = useState<string | null>(null);
   const [manualProxyOpen, setManualProxyOpen] = useState(false);
   const [manualProxyMode, setManualProxyMode] = useState<ManualProxyInputMode>("url");
@@ -51,8 +53,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [profileName, setProfileName] = useState("");
   const [profileCountry, setProfileCountry] = useState("US");
   const [profileConnection, setProfileConnection] = useState<"managed" | "direct">("managed");
-  const [profileToolset, setProfileToolset] = useState<"clawbrowser" | "dasbrowser">("clawbrowser");
+  const [profileToolset, setProfileToolset] = useState<"clawbrowser" | "dasbrowser" | "camoufox">("clawbrowser");
   const [profileSaving, setProfileSaving] = useState(false);
+  const [profileCreationStage, setProfileCreationStage] = useState<string>();
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileActionError, setProfileActionError] = useState<string | null>(null);
   const [profileMoveError, setProfileMoveError] = useState<string | null>(null);
@@ -160,6 +163,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       }
       setProfileName("");
       setProfileCountry("US");
+      setProfileConnection("managed");
+      setProfileToolset("clawbrowser");
       setProfileError(null);
       setCreateProfileOpen(true);
       void s.loadProxyCountries().catch(() => {});
@@ -264,6 +269,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     profileCreateRequestRef.current = null;
     if (requestId) void cancelNextctlRun(requestId);
     setProfileSaving(false);
+    setProfileCreationStage(undefined);
     setCreateProfileOpen(false);
     s.resumeOnboardingAfterSetup();
   };
@@ -323,7 +329,12 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     const requestId = `profile-create-${crypto.randomUUID()}`;
     profileCreateRequestRef.current = requestId;
     setProfileSaving(true);
+    setProfileCreationStage("Saving profile");
     setProfileError(null);
+    const runtimeStageTimer = window.setTimeout(() => setProfileCreationStage("Preparing browser runtime"), 600);
+    const identityStageTimer = window.setTimeout(() => setProfileCreationStage(
+      profileConnection === "managed" ? "Preparing identity and proxy" : "Finalizing profile",
+    ), 4_000);
     try {
       const createdName = profileName.trim();
       await s.createManagedProfile(createdName, profileCountry, {
@@ -333,7 +344,11 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         direct: profileConnection === "direct",
       });
       if (profileCreateRequestRef.current !== requestId) return;
-      s.assignProfileToProject(createdName, profileToolset);
+      s.assignProfileToProject(createdName, profileToolset, undefined, true);
+      s.selectProfile(createdName);
+      setProfileCreationStage("Ready");
+      await new Promise((resolve) => window.setTimeout(resolve, 450));
+      if (profileCreateRequestRef.current !== requestId) return;
       setCreateProfileOpen(false);
       setProfileName("");
       setProfileCountry("US");
@@ -349,9 +364,12 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           : message,
       );
     } finally {
+      window.clearTimeout(runtimeStageTimer);
+      window.clearTimeout(identityStageTimer);
       if (profileCreateRequestRef.current === requestId) {
         profileCreateRequestRef.current = null;
         setProfileSaving(false);
+        setProfileCreationStage(undefined);
       }
     }
   };
@@ -487,6 +505,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 }
                 setProfileName("");
                 setProfileCountry("US");
+                setProfileConnection("managed");
+                setProfileToolset("clawbrowser");
                 setProfileError(null);
                 setCreateProfileOpen(true);
               }}
@@ -790,6 +810,11 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 <Icon name="safari" size={16} />
                 <span><strong>DasBrowser</strong><small>Private multi-account browser</small></span>
               </label>
+              <label className={"project-mode-option" + (profileToolset === "camoufox" ? " is-selected" : "")}>
+                <input type="radio" name="profile-toolset" checked={profileToolset === "camoufox"} onChange={() => setProfileToolset("camoufox")} />
+                <Icon name="shield" size={16} />
+                <span><strong>Camoufox</strong><small>Firefox anti-detect browser</small></span>
+              </label>
             </fieldset>
             <section className="profile-remote-section" aria-label="Remote execution">
               <div className="profile-remote-heading">
@@ -813,13 +838,19 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               </button>
             </section>
             {profileError && <div className="error small profile-create-error">{profileError}</div>}
+            {profileSaving && profileCreationStage && (
+              <div className="profile-create-progress" role="status" aria-live="polite">
+                {profileCreationStage === "Ready" ? <Icon name="checkmark" size={13} /> : <Spinner size={13} />}
+                <span>{profileCreationStage}</span>
+              </div>
+            )}
             <div className="modal-actions">
               <button type="button" className="secondary" onClick={closeProfileCreator}>
                 {profileSaving ? "Cancel creation" : "Cancel"}
               </button>
               <button type="submit" className="primary" disabled={profileSaving || !profileName.trim()}>
                 {profileSaving ? <Spinner size={13} /> : <Icon name="plus" size={13} />}
-                {profileSaving ? "Creating…" : "Create profile"}
+                {profileSaving ? profileCreationStage ?? "Creating…" : "Create profile"}
               </button>
             </div>
           </form>
@@ -972,6 +1003,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   <button
                     className="profile-delete-btn"
                     onClick={() => {
+                      setProfileDeleteError(null);
                       setConfirmDelete(menuProfile);
                       setMenuProfile(null);
                     }}
@@ -1105,21 +1137,36 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       ), document.body)}
 
       {confirmDelete && createPortal((
-        <div className="modal-overlay">
-          <div className="modal-card">
+        <div className="modal-overlay" onMouseDown={() => !profileDeleting && setConfirmDelete(null)}>
+          <div className="modal-card" onMouseDown={(event) => event.stopPropagation()}>
             <p>Delete profile "{confirmDelete}"?</p>
+            {profileDeleteError && (
+              <div className="error small" role="alert" style={{ marginTop: 10 }}>
+                <UserFacingError message={profileDeleteError} surface="profile_delete" />
+              </div>
+            )}
             <div className="row" style={{ marginTop: 12, gap: 8 }}>
-              <button className="secondary" onClick={() => setConfirmDelete(null)}>
+              <button className="secondary" disabled={profileDeleting} onClick={() => setConfirmDelete(null)}>
                 Cancel
               </button>
               <button
                 className="primary danger"
+                disabled={profileDeleting}
                 onClick={() => {
-                  s.deleteProfile(confirmDelete);
-                  setConfirmDelete(null);
+                  const profileName = confirmDelete;
+                  setProfileDeleting(true);
+                  setProfileDeleteError(null);
+                  void s.deleteProfile(profileName)
+                    .then(() => setConfirmDelete(null))
+                    .catch((error: unknown) => {
+                      const detail = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
+                      console.error("[PROFILE_DELETE_FAILED]", detail);
+                      setProfileDeleteError(internalError("We couldn't delete this profile.", "PROFILE_DELETE_FAILED"));
+                    })
+                    .finally(() => setProfileDeleting(false));
                 }}
               >
-                Delete
+                {profileDeleting ? <><Spinner size={13} /> Deleting…</> : "Delete"}
               </button>
             </div>
           </div>
@@ -1209,7 +1256,7 @@ function ProfileRow({
   ip?: string | null;
   manualScheme?: string | null;
   manualTitle?: string;
-  toolset?: "clawbrowser" | "dasbrowser";
+  toolset?: "clawbrowser" | "dasbrowser" | "camoufox";
   occupiedBy?: string;
   searchQuery?: string;
   draggable?: boolean;
@@ -1259,12 +1306,12 @@ function ProfileRow({
         {toolset && (
           <span
             className="profile-toolset-logo"
-            title={toolset === "clawbrowser" ? "ClawBrowser" : "DasBrowser"}
+            title={toolset === "clawbrowser" ? "ClawBrowser" : toolset === "dasbrowser" ? "DasBrowser" : "Camoufox"}
             role="img"
-            aria-label={toolset === "clawbrowser" ? "ClawBrowser" : "DasBrowser"}
+            aria-label={toolset === "clawbrowser" ? "ClawBrowser" : toolset === "dasbrowser" ? "DasBrowser" : "Camoufox"}
           >
             <img
-              src={toolset === "clawbrowser" ? "./clawbrowser-icon.png" : "./dasbrowser-icon.png"}
+              src={toolset === "clawbrowser" ? "./clawbrowser-icon.png" : toolset === "dasbrowser" ? "./dasbrowser-icon.png" : "./camoufox-icon.svg"}
               alt=""
               draggable={false}
             />

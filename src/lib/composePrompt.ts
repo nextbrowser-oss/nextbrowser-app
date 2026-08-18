@@ -8,8 +8,10 @@ const LOCAL_NEXTCTL_PROMPT =
   "`command -v nbc || command -v nextctl`. Use that CLI to open pages, act on them, " +
   "and manage sessions/proxies. Run its `--help` if unsure of a subcommand. " +
   "Inside NextBrowser, generic requests such as `open the browser`, `use the browser`, " +
-  "`открой браузер`, or `используй браузер` mean Clawbrowser; use another browser only " +
-  "when the user explicitly names it. " +
+  "`открой браузер`, or `используй браузер` use the active profile from the authoritative " +
+  "workspace profile context below. If no profile is selected and exactly one profile is " +
+  "listed, use that sole profile and its saved runtime. Fall back to ClawBrowser only when " +
+  "the workspace has no profile context. " +
   "In browser requests, a dotted hostname such as `999.md` is a website, not a local file; " +
   "open a bare hostname as `https://<host>` unless the user explicitly asks for a file or path. " +
   "Authentication is managed by NextBrowser: never search for, read, print, copy, " +

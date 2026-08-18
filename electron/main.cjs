@@ -49,6 +49,7 @@ function killTerminalsForWebContents(webContentsId) {
     if (record.webContentsId !== webContentsId) continue;
     try { record.process.kill(); } catch { /* process may already have exited */ }
     agentControlScopes.delete(record.controlToken);
+    if (record.profileScopeFile) void fs.unlink(record.profileScopeFile).catch(() => undefined);
     terminals.delete(id);
   }
 }
@@ -80,6 +81,9 @@ const CODEX_TERMINAL_PROFILE = "nextbrowser";
 const CODEX_TERMINAL_PROFILE_CONTENT = `[plugins."browser@openai-bundled"]
 enabled = false
 
+[plugins."clawbrowser@clawctl-local"]
+enabled = false
+
 [plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser]
 enabled = false
 default_tools_approval_mode = "approve"
@@ -99,13 +103,14 @@ function codexClawbrowserMCPArgs(nextctlBin) {
   const mcpEnv = `{${mcpEnvKeys.map((key) => `${key}=${JSON.stringify(runtimeEnv[key])}`).join(",")}}`;
   return [
     "--profile", CODEX_TERMINAL_PROFILE,
+    "-c", 'plugins."clawbrowser@clawctl-local".enabled=false',
     "-c", 'plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser.enabled=false',
-    "-c", `mcp_servers.clawbrowser.command=${JSON.stringify(nextctlBin)}`,
-    "-c", `mcp_servers.clawbrowser.args=${JSON.stringify(["mcp"])}`,
-    "-c", `mcp_servers.clawbrowser.env=${mcpEnv}`,
-    "-c", `mcp_servers.clawbrowser.env_vars=${JSON.stringify(["MULTILOGIN_TOKEN"])}`,
-    "-c", "mcp_servers.clawbrowser.startup_timeout_sec=30",
-    "-c", "mcp_servers.clawbrowser.default_tools_approval_mode=approve",
+    "-c", `mcp_servers.nextbrowser.command=${JSON.stringify(nextctlBin)}`,
+    "-c", `mcp_servers.nextbrowser.args=${JSON.stringify(["mcp"])}`,
+    "-c", `mcp_servers.nextbrowser.env=${mcpEnv}`,
+    "-c", `mcp_servers.nextbrowser.env_vars=${JSON.stringify(["MULTILOGIN_TOKEN"])}`,
+    "-c", "mcp_servers.nextbrowser.startup_timeout_sec=30",
+    "-c", "mcp_servers.nextbrowser.default_tools_approval_mode=approve",
   ];
 }
 
@@ -367,6 +372,20 @@ async function executeNextctl(commandArgs, options = {}) {
     adaptedArgs = adaptDasbrowserArgs(adaptedArgs, executable);
   } else if (browserRuntime === "clawbrowser" && requiresBrowserRuntime(adaptedArgs)) {
     await ensureClawbrowserRuntime(bin);
+  } else if (browserRuntime === "camoufox" && requiresBrowserRuntime(adaptedArgs)) {
+    setBrowserRuntimeInstallStatus("camoufox", "installing", { message: "Preparing the Camoufox browser runtime…" });
+    try {
+      const result = await run(bin, adaptedArgs, options.extraEnv || {}, options);
+      if (result.code === 0) {
+        setBrowserRuntimeInstallStatus("camoufox", "ready");
+      } else {
+        setBrowserRuntimeInstallStatus("camoufox", "failed", { message: "We couldn't prepare Camoufox. Please retry." });
+      }
+      return result;
+    } catch (error) {
+      setBrowserRuntimeInstallStatus("camoufox", "failed", { message: String(error?.message || error) });
+      throw error;
+    }
   }
   return run(bin, adaptedArgs, options.extraEnv || {}, options);
 }
@@ -409,7 +428,7 @@ async function ensureAgentControlServer() {
       }
       const result = await executeNextctl([
         action, "--profile", profile, "--runtime", profileAccess.runtime, "--format", "json",
-      ], { timeoutMs: 120_000 });
+      ], { timeoutMs: 240_000 });
       if (result.code === 0) {
         if (action === "start") agentControlProfileOwners.set(profile, profileAccess.conversationId);
         else agentControlProfileOwners.delete(profile);
@@ -1129,17 +1148,24 @@ async function invokeCommand(command, args = {}, sender) {
       const controlURL = await ensureAgentControlServer();
       const profileScope = new Map(
         (Array.isArray(args.browserProfiles) ? args.browserProfiles : [])
-          .filter((item) => item && typeof item.name === "string" && ["clawbrowser", "dasbrowser"].includes(item.runtime))
+          .filter((item) => item && typeof item.name === "string" && ["clawbrowser", "dasbrowser", "camoufox"].includes(item.runtime))
           .map((item) => [item.name, {
             runtime: item.runtime,
             conversationId: String(args.conversationId || ""),
             ownerConversationId: typeof item.ownerConversationId === "string" ? item.ownerConversationId : "",
+            wasRunning: item.running === true,
           }]),
       );
       for (const [profile, access] of profileScope) {
         if (access.ownerConversationId) agentControlProfileOwners.set(profile, access.ownerConversationId);
       }
       agentControlScopes.set(controlToken, profileScope);
+      const profileScopeDir = path.join(nextbrowserRuntimeRoot(), "terminal-scopes");
+      const profileScopeFile = path.join(profileScopeDir, `${id}.json`);
+      await fs.mkdir(profileScopeDir, { recursive: true });
+      await fs.writeFile(profileScopeFile, JSON.stringify(Object.fromEntries(
+        [...profileScope.entries()].map(([name, access]) => [name, access.runtime]),
+      )), "utf8");
       if (args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
       const writableDirs = args.agentId === "codex" ? clawbrowserWritableDirs() : [];
       let agentArgs = agent.args || [];
@@ -1163,6 +1189,10 @@ async function invokeCommand(command, args = {}, sender) {
         env: terminalEnv({
           NEXTBROWSER_CONTROL_URL: controlURL,
           NEXTBROWSER_CONTROL_TOKEN: controlToken,
+          NEXTBROWSER_ALLOWED_PROFILES_JSON: JSON.stringify(Object.fromEntries(
+            [...profileScope.entries()].map(([name, access]) => [name, access.runtime]),
+          )),
+          NEXTBROWSER_PROFILE_SCOPE_FILE: profileScopeFile,
         }),
       });
       const record = {
@@ -1171,6 +1201,8 @@ async function invokeCommand(command, args = {}, sender) {
         buffer: [],
         exit: null,
         controlToken,
+        profileScope,
+        profileScopeFile,
         webContentsId: sender?.id,
       };
       terminals.set(id, record);
@@ -1183,6 +1215,7 @@ async function invokeCommand(command, args = {}, sender) {
         if (record.ready) {
           terminals.delete(id);
           agentControlScopes.delete(record.controlToken);
+          void fs.unlink(record.profileScopeFile).catch(() => undefined);
           emit("terminal:exit", [id, exitCode, signal]);
         }
       });
@@ -1214,6 +1247,31 @@ async function invokeCommand(command, args = {}, sender) {
       }
       return null;
     }
+    case "terminal_update_context": {
+      const record = terminals.get(String(args.id || ""));
+      if (!record) return null;
+      const conversationId = String(args.conversationId || "");
+      const nextScope = new Map(
+        (Array.isArray(args.browserProfiles) ? args.browserProfiles : [])
+          .filter((item) => item && typeof item.name === "string" && ["clawbrowser", "dasbrowser", "camoufox"].includes(item.runtime))
+          .map((item) => {
+            const previous = record.profileScope.get(item.name);
+            return [item.name, {
+              runtime: item.runtime,
+              conversationId,
+              ownerConversationId: typeof item.ownerConversationId === "string" ? item.ownerConversationId : "",
+              wasRunning: previous?.wasRunning ?? item.running === true,
+            }];
+          }),
+      );
+      record.profileScope = nextScope;
+      agentControlScopes.set(record.controlToken, nextScope);
+      await fs.writeFile(record.profileScopeFile, JSON.stringify(Object.fromEntries(
+        [...nextScope.entries()].map(([name, access]) => [name, access.runtime]),
+      )), "utf8");
+      if (args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
+      return null;
+    }
     case "terminal_input": {
       const record = terminals.get(String(args.id || ""));
       if (record) record.process.write(String(args.data || "").slice(0, 1024 * 1024));
@@ -1222,7 +1280,28 @@ async function invokeCommand(command, args = {}, sender) {
     case "terminal_interrupt": {
       const record = terminals.get(String(args.id || ""));
       if (record?.process?.pid) {
+        // Deliver the interactive cancel even when the renderer's key event is
+        // still in flight, then terminate any separate one-shot CLI subtree.
+        record.process.write("\x1b");
         await terminateProcessTree(record.process.pid, { includeRoot: false, nextctlOnly: true });
+      }
+      if (record?.profileScope) {
+        const nextctlBin = await resolveOrInstallNextctl().catch(() => null);
+        if (nextctlBin) {
+          for (const delayMs of [300, 900, 1_800]) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+            await Promise.all([...record.profileScope.entries()].map(async ([profile, access]) => {
+              const owner = agentControlProfileOwners.get(profile) || access.ownerConversationId;
+              if (owner && owner !== access.conversationId) return;
+              if (!owner && access.wasRunning) return;
+              const status = await executeNextctl(["status", "--profile", profile, "--runtime", access.runtime, "--format", "json"], { timeoutMs: 15_000 }).catch(() => null);
+              if (!status || status.code !== 0 || !/"status"\s*:\s*"running"/i.test(status.stdout)) return;
+              await executeNextctl(["stop", "--profile", profile, "--runtime", access.runtime, "--format", "json"]).catch(() => undefined);
+              agentControlProfileOwners.delete(profile);
+              emit("profile:host-stopped", [profile, access.conversationId]);
+            }));
+          }
+        }
       }
       return null;
     }
@@ -1239,6 +1318,7 @@ async function invokeCommand(command, args = {}, sender) {
       const record = terminals.get(id);
       if (record) record.process.kill();
       if (record) agentControlScopes.delete(record.controlToken);
+      if (record?.profileScopeFile) await fs.unlink(record.profileScopeFile).catch(() => undefined);
       terminals.delete(id);
       return null;
     }

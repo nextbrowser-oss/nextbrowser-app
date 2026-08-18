@@ -124,4 +124,43 @@ describe("conversation persistence", () => {
     expect(first[0]?.title).toBe("queued snapshot");
     expect(second[0]?.title).toBe("streaming snapshot");
   });
+
+  it("restores the last selected project for each workspace", async () => {
+    const { useStore } = await import("./store");
+    const first = { ...conversation("first", "codex", 1), workspaceId: "workspace-a" };
+    const second = { ...conversation("second", "codex", 2), workspaceId: "workspace-a" };
+    const other = { ...conversation("other", "codex", 3), workspaceId: "workspace-b" };
+    useStore.setState({
+      agentId: "codex",
+      activeWorkspaceId: "workspace-a",
+      workspaces: [
+        { id: "workspace-a", name: "A", profileNames: [], profileToolsets: {}, createdAt: 1, updatedAt: 1 },
+        { id: "workspace-b", name: "B", profileNames: [], profileToolsets: {}, createdAt: 1, updatedAt: 1 },
+      ],
+      conversations: [first, second, other],
+      activeConvId: { codex: first.id },
+    });
+
+    useStore.getState().selectConversation(second.id);
+    expect(localStorage.getItem("activeConversationId:codex:workspace-a")).toBe(second.id);
+    useStore.getState().selectWorkspace("workspace-b");
+    expect(useStore.getState().activeConversation()?.id).toBe(other.id);
+    useStore.getState().selectWorkspace("workspace-a");
+    expect(useStore.getState().activeConversation()?.id).toBe(second.id);
+  });
+
+  it("persists a concise terminal activity preview", async () => {
+    const { useStore } = await import("./store");
+    const terminal = { ...conversation("terminal", "codex", 1), chatMode: "terminal" as const };
+    useStore.setState({ conversations: [terminal], activeConvId: { codex: terminal.id } });
+
+    useStore.getState().updateTerminalPreview(terminal.id, "  Found\u0000   five cars  ");
+
+    expect(useStore.getState().conversations[0].terminalPreview).toBe("Found five cars");
+    await vi.waitFor(() => {
+      const writes = bridge.invoke.mock.calls.filter(([command]) => command === "app_data_write");
+      const persisted = JSON.parse(String(writes.at(-1)?.[1]?.content)) as Conversation[];
+      expect(persisted[0]?.terminalPreview).toBe("Found five cars");
+    });
+  });
 });
