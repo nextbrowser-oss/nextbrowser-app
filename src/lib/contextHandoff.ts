@@ -70,13 +70,51 @@ export function chatPromptWithDeferredContext(context: string | undefined, messa
 export function terminalInputWithDeferredContext(
   context: string | undefined,
   data: string,
+  bufferedInput = "",
 ): { data: string; consumed: boolean; userInput: boolean } {
   const textInput = data.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
   const userInput = /[^\x00-\x1f\x7f]/.test(textInput);
-  if (!context || !userInput) return { data, consumed: false, userInput };
+  // xterm sends CR for submit. LF is deliberately used by our Shift+Enter
+  // handler to add a newline inside the editor and must not consume context.
+  const submitting = data.includes("\r");
+  const inlineInput = textInput.split(/[\r\n]/, 1)[0].replace(/[\x00-\x1f\x7f]/g, "");
+  const message = bufferedInput || inlineInput;
+  if (!context || !submitting || !message) {
+    return { data, consumed: false, userInput };
+  }
+  const prompt = `${context}\n\nNew user message:\n${message}`;
   return {
-    data: `\x1b[200~${context}\n\nNew user message:\n\x1b[201~${data}`,
+    // Replace the already-rendered editor line atomically. Inserting context
+    // at column zero leaves the TUI's current line-editing state out of sync
+    // and can corrupt alternating characters in the user's message.
+    data: `${bufferedInput ? "\x15" : ""}\x1b[200~${prompt}\x1b[201~\r`,
     consumed: true,
     userInput: true,
   };
+}
+
+export function terminalBrowserScopeContext(
+  profiles: Array<{ name: string; runtime: "clawbrowser" | "dasbrowser" | "camoufox"; selected?: boolean }>,
+): string | undefined {
+  if (!profiles.length) return undefined;
+  const runtimeLabel = (runtime: string) => runtime === "camoufox"
+    ? "Camoufox"
+    : runtime === "dasbrowser"
+      ? "DasBrowser"
+      : "ClawBrowser";
+  const rows = profiles.map((profile) =>
+    `- ${profile.name}: ${runtimeLabel(profile.runtime)}${profile.selected ? " (selected)" : ""}`,
+  );
+  return `Current authoritative NextBrowser profiles for this workspace:\n${rows.join("\n")}\nExisting profiles always take priority. Match an explicit name exactly; otherwise use the selected profile, or the sole profile when only one exists. If multiple profiles are plausible, ask which existing profile to use. Ignore names from older turns. Never invent, clone, substitute, create, or start an unlisted profile from a site name or task. Do not use a separate Chrome/browser-control skill.`;
+}
+
+export function terminalLineBufferAfter(current: string, data: string): string {
+  let value = current;
+  for (const char of data.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")) {
+    if (char === "\r" || char === "\n") value = "";
+    else if (char === "\x7f" || char === "\b") value = [...value].slice(0, -1).join("");
+    else if (char === "\x15") value = "";
+    else if (char >= " ") value += char;
+  }
+  return value.slice(-64_000);
 }

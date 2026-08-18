@@ -43,3 +43,16 @@ test("cancels a running command by request id", async () => {
   assert.match(result.stderr, /command cancelled/i);
   assert.equal(cancelCommand("profile-create-test"), false);
 });
+
+test("finishes after exit when a detached descendant keeps stdout open", async () => {
+  const startedAt = Date.now();
+  const result = await runCommand(
+    process.execPath,
+    ["-e", "const {spawn}=require('child_process'); spawn(process.execPath,['-e','setTimeout(()=>{},1500)'],{detached:true,stdio:['ignore',1,2]}).unref(); process.stdout.write('ready');"],
+    { timeoutMs: 2_000 },
+  );
+
+  assert.equal(result.code, 0);
+  assert.equal(result.stdout, "ready");
+  assert.ok(Date.now() - startedAt < 1_000, "runner waited for the detached descendant");
+});

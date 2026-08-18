@@ -389,11 +389,13 @@ export function ChatView() {
                 conv?.workspaceId,
                 s.selectedProfile,
                 multiloginSelection,
+                s.statuses,
               )}
               browserProfiles={(s.workspaces.find((workspace) => workspace.id === conv?.workspaceId)?.profileNames ?? []).map((name) => ({
                 name,
                 runtime: s.workspaces.find((workspace) => workspace.id === conv?.workspaceId)?.profileToolsets[name] ?? "clawbrowser",
                 running: s.statuses[name] === "running",
+                selected: s.selectedProfile === name,
                 ownerConversationId: s.profileChatOwners[name],
               }))}
               onProfileStarted={(profile) => {
@@ -403,6 +405,10 @@ export function ChatView() {
               onProfileStopped={(profile) => {
                 s.setProfileChatOwner(profile, undefined);
                 void s.loadProfiles();
+              }}
+              onProfilesRefresh={() => void s.loadProfiles()}
+              onPreviewChange={(preview) => {
+                if (conv?.id) s.updateTerminalPreview(conv.id, preview);
               }}
               savingWorkflow={preparingWorkflowId === "terminal"}
               pendingHandoff={terminalHandoff}

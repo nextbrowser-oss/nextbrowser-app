@@ -463,13 +463,14 @@ interface State {
 
   newChat: () => string;
   createProject: (name: string, mode: "chat" | "terminal") => string;
-  assignProfileToProject: (profileName: string, toolset: BrowserToolset, projectId?: string) => void;
+  assignProfileToProject: (profileName: string, toolset: BrowserToolset, projectId?: string, replaceToolset?: boolean) => void;
   setProfileChatOwner: (profileName: string, conversationId?: string) => void;
   moveProfileToWorkspace: (profileName: string, workspaceId: string) => Promise<void>;
   reorderProfileInProject: (projectId: string, profileName: string, beforeProfileName: string) => void;
   createNamedChat: (agentId: string, title: string) => string;
   selectConversation: (id: string) => void;
   renameConversation: (id: string, title: string) => void;
+  updateTerminalPreview: (id: string, preview?: string) => void;
   deleteConversation: (id: string) => void;
   forkConversation: (atMessageId?: string) => void;
   clearChat: () => void;
@@ -541,6 +542,19 @@ interface APIKeyIdentity {
 }
 
 const replyExecutionTargets = new Map<string, ExecutionTarget>();
+const replyProfileBaselines = new Map<string, Set<string>>();
+const profileOperationEpoch = new Map<string, number>();
+const BOOTSTRAP_FOREGROUND_WAIT_MS = 12_000;
+
+function activeConversationStorageKey(agentId: string, workspaceId?: string): string {
+  return `activeConversationId:${agentId}:${workspaceId || "none"}`;
+}
+
+function nextProfileOperation(profile: string): number {
+  const next = (profileOperationEpoch.get(profile) ?? 0) + 1;
+  profileOperationEpoch.set(profile, next);
+  return next;
+}
 
 function runningTarget(state: State, target: ExecutionTarget): boolean {
   return Object.values(state.runtime).some((runtime) => {
@@ -961,6 +975,7 @@ export const useStore = create<State>((set, get) => {
       get().agentId;
     const executionTarget = replyExecutionTargets.get(replyId) ??
       executionTargetForTurn(owningConversation);
+    replyProfileBaselines.delete(replyId);
     const stopped = get().runtime[agentId]?.pendingStop;
     set((s) => {
       const runtime = { ...s.runtime };
@@ -1078,7 +1093,12 @@ export const useStore = create<State>((set, get) => {
   activeConversation: () => {
     const s = get();
     const id = s.activeConvId[s.agentId];
-    if (id) return s.conversations.find((c) => c.id === id);
+    if (id) {
+      const selected = s.conversations.find((conversation) =>
+        conversation.id === id && (!s.activeWorkspaceId || conversation.workspaceId === s.activeWorkspaceId),
+      );
+      if (selected) return selected;
+    }
     return get().conversationsForAgent(s.agentId)[0];
   },
 
@@ -1141,8 +1161,12 @@ export const useStore = create<State>((set, get) => {
     const history = rawHistory.map(normalizeUsage);
     const activeConvId: Record<string, string> = {};
     for (const a of AGENTS) {
-      const first = convs.find((c) => c.agent === a.id);
-      if (first) activeConvId[a.id] = first.id;
+      const stored = localStorage.getItem(activeConversationStorageKey(a.id, activeWorkspaceId));
+      const candidates = convs
+        .filter((conversation) => conversation.agent === a.id && (!activeWorkspaceId || conversation.workspaceId === activeWorkspaceId))
+        .sort((left, right) => right.updatedAt - left.updatedAt);
+      const selected = candidates.find((conversation) => conversation.id === stored) ?? candidates[0];
+      if (selected) activeConvId[a.id] = selected.id;
     }
     set({
       conversations: convs,
@@ -1230,10 +1254,30 @@ export const useStore = create<State>((set, get) => {
       const refreshWorkspace = authenticated && !pendingTarget(get(), "vps")
         ? get().syncProjects().catch(() => {}).then(() => get().refreshAll())
         : Promise.resolve();
-      await Promise.all([
+      const bootstrapWork = Promise.all([
         refreshWorkspace,
         get().authorizeAgent({ deferMissingNextctlPrompt: true }),
       ]);
+      let bootstrapTimedOut = false;
+      let bootstrapTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          bootstrapWork,
+          new Promise<void>((resolve) => {
+            bootstrapTimer = setTimeout(() => {
+              bootstrapTimedOut = true;
+              resolve();
+            }, BOOTSTRAP_FOREGROUND_WAIT_MS);
+          }),
+        ]);
+      } finally {
+        if (bootstrapTimer) clearTimeout(bootstrapTimer);
+      }
+      if (bootstrapTimedOut) {
+        trackEvent("bootstrap_background_continuation", {
+          nextctl_available: get().nextctlAvailable,
+        });
+      }
       // Cloud project state may contain a reply that was streaming when the
       // previous app process exited. Reconcile once more after cloud sync so
       // that stale remote state cannot resurrect an hours-old running badge.
@@ -1512,6 +1556,11 @@ export const useStore = create<State>((set, get) => {
       },
     }));
     replyExecutionTargets.set(item.replyId, item.executionTarget);
+    const itemConversation = get().conversations.find((conversation) => conversation.id === item.conversationId);
+    const itemWorkspace = get().workspaces.find((workspace) => workspace.id === itemConversation?.workspaceId);
+    replyProfileBaselines.set(item.replyId, new Set(
+      (itemWorkspace?.profileNames ?? []).filter((profile) => get().statuses[profile] === "running"),
+    ));
     get().setMessageStatus(item.conversationId, item.replyId, "streaming");
     try {
       // Persist the dispatched state before spawning the agent. Otherwise an
@@ -1520,6 +1569,7 @@ export const useStore = create<State>((set, get) => {
       await flushConversations();
     } catch {
       replyExecutionTargets.delete(item.replyId);
+      replyProfileBaselines.delete(item.replyId);
       get().setMessageStatus(
         item.conversationId,
         item.replyId,
@@ -1540,7 +1590,7 @@ export const useStore = create<State>((set, get) => {
       queue_depth: get().runtime[agentId]?.queue.length ?? 0,
       execution_target: item.executionTarget,
     });
-    const conversationWorkspaceId = get().conversations.find((conversation) => conversation.id === item.conversationId)?.workspaceId;
+    const conversationWorkspaceId = itemConversation?.workspaceId;
     const multiloginSelection = multiloginSelectionForWorkspace(conversationWorkspaceId);
     const directMultiloginStart = item.executionTarget === "local"
       && !!multiloginSelection
@@ -1550,6 +1600,7 @@ export const useStore = create<State>((set, get) => {
     if (directMultiloginStart && multiloginSelection) {
       const finish = (status: ChatMessage["status"], text: string) => {
         replyExecutionTargets.delete(item.replyId);
+        replyProfileBaselines.delete(item.replyId);
         set((state) => {
           const runtime = {
             ...state.runtime,
@@ -1621,6 +1672,7 @@ export const useStore = create<State>((set, get) => {
           conversationWorkspaceId,
           get().selectedProfile,
           multiloginSelection,
+          get().statuses,
         ),
       get().selectedProfile,
       { nextctlAvailable: get().nextctlAvailable, executionTarget: item.executionTarget },
@@ -2053,7 +2105,14 @@ export const useStore = create<State>((set, get) => {
           statuses[p.name] = st.status;
           profileSessions[p.name] = st;
           if (st.status === "running") {
-            const identity = runtime === "camoufox" ? (p.country ? { country: p.country } : undefined) : await verifyProxyIdentity(p.name);
+            // Status refresh must never navigate the user's active browser.
+            // The old implementation called `verify` for every running
+            // ClawBrowser profile, which could replace a page the agent was
+            // actively scraping with clawbrowser://verify. Reuse the identity
+            // captured at an explicit lifecycle action and fall back to the
+            // saved country label without touching the page.
+            const identity = get().profileIdentities[p.name]
+              ?? (p.country ? { country: p.country } : undefined);
             if (identity) profileIdentities[p.name] = identity;
           } else if (get().profileIdentities[p.name]) {
             profileIdentities[p.name] = get().profileIdentities[p.name];
@@ -2082,10 +2141,9 @@ export const useStore = create<State>((set, get) => {
     try {
       const st = await nextctlJson<SessionStatus>(["status"]);
       set({ defaultSession: st });
-      if (st.status === "running") {
-        const identity = await verifyProxyIdentity();
-        if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
-      }
+      // A passive refresh must not navigate the default browser to its
+      // verification page. Keep any identity captured by an explicit launch
+      // or rotate action and otherwise leave it unknown.
       trackEvent("default_profile_loaded", { status: st.status, backend: st.backend ?? "unknown" });
     } catch {
       trackEvent("default_profile_unavailable");
@@ -2204,6 +2262,8 @@ export const useStore = create<State>((set, get) => {
     const startedAt = performance.now();
     trackEvent("profile_start_requested", { scope: "named" });
     const previousStatus = get().statuses[n] ?? "stopped";
+    const operation = nextProfileOperation(n);
+    const requestId = `profile-start:${n}`;
     const ownerId = get().activeConversation()?.id;
     set((s) => ({
       statuses: { ...s.statuses, [n]: "starting" },
@@ -2212,6 +2272,30 @@ export const useStore = create<State>((set, get) => {
     try {
       const runtime = runtimeForProfile(get().workspaces, n);
       const profile = get().profiles.find((item) => item.name === n);
+      let launchSettled = false;
+      // A successful browser may outlive the short nextctl launcher and its
+      // detached streaming child can keep inherited pipes open on some hosts.
+      // Reconcile the authoritative status while launch is pending so the UI
+      // never remains on Starting after the browser is already usable.
+      const reconcileRunningProfile = async () => {
+        for (let attempt = 0; attempt < 20 && !launchSettled; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          if (profileOperationEpoch.get(n) !== operation) return;
+          try {
+            const session = await nextctlJson<SessionStatus>(["status", "--profile", n, "--runtime", runtime]);
+            if (session.status !== "running") continue;
+            set((s) => ({
+              statuses: { ...s.statuses, [n]: "running" },
+              profileSessions: { ...s.profileSessions, [n]: session },
+            }));
+            return;
+          } catch {
+            // The launcher may still be writing its state file. Retry within
+            // the bounded launch window and let the main error path decide.
+          }
+        }
+      };
+      const statusReconciliation = reconcileRunningProfile();
       await nextctlRunChecked([
         "start",
         "--profile",
@@ -2221,12 +2305,27 @@ export const useStore = create<State>((set, get) => {
         ...(runtime === "camoufox" && profile?.country ? ["--verify"] : []),
         "--format",
         "json",
-      ]);
+      ], undefined, { requestId, timeoutMs: 240_000 }).finally(() => { launchSettled = true; });
+      await statusReconciliation;
+      if (profileOperationEpoch.get(n) !== operation) return;
       await get().loadProfiles();
-      const identity = runtime === "camoufox" ? (profile?.country ? { country: profile.country } : undefined) : await verifyProxyIdentity(n);
+      if (profileOperationEpoch.get(n) !== operation) return;
+      // Starting a profile should hand it to the user/agent immediately after
+      // nextctl reports it ready. A second `verify` navigation here used to
+      // race the first browser task, especially for manual proxy profiles.
+      // Managed ClawBrowser and Camoufox already verify during their launch;
+      // the saved country is sufficient for the sidebar until an explicit
+      // rotate/verify action refreshes the detailed IP identity.
+      const identity = profile?.country ? { country: profile.country } : undefined;
       if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: identity } }));
       trackTiming("profile_start_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
     } catch (error) {
+      if (profileOperationEpoch.get(n) !== operation) return;
+      await get().loadProfiles().catch(() => undefined);
+      if (get().statuses[n] === "running") {
+        if (ownerId) get().setProfileChatOwner(n, ownerId);
+        return;
+      }
       // Never leave a failed launch looking active forever. Restore the last
       // known state immediately; a later refresh can replace it with the
       // authoritative nextctl status.
@@ -2235,7 +2334,6 @@ export const useStore = create<State>((set, get) => {
         delete profileChatOwners[n];
         return { statuses: { ...s.statuses, [n]: previousStatus }, profileChatOwners };
       });
-      void get().loadProfiles();
       requestAccountSignIn(set, error);
       throw error;
     }
@@ -2244,6 +2342,8 @@ export const useStore = create<State>((set, get) => {
   stopProfile: async (n) => {
     const startedAt = performance.now();
     trackEvent("profile_stop_requested", { scope: "named" });
+    const operation = nextProfileOperation(n);
+    void invoke("nextctl_cancel", { requestId: `profile-start:${n}` }).catch(() => undefined);
     set((s) => ({ statuses: { ...s.statuses, [n]: "stopping" } }));
     const runtime = runtimeForProfile(get().workspaces, n);
     try {
@@ -2255,6 +2355,7 @@ export const useStore = create<State>((set, get) => {
       if (get().statuses[n] !== "stopped") throw error;
     }
     await get().loadProfiles();
+    if (profileOperationEpoch.get(n) !== operation) return;
     set((s) => {
       const profileChatOwners = { ...s.profileChatOwners };
       delete profileChatOwners[n];
@@ -2283,7 +2384,9 @@ export const useStore = create<State>((set, get) => {
       ]);
       await get().loadProfiles();
       await get().loadProxy().catch(() => {});
-      const after = runtime === "camoufox" ? (profile?.country ? { country: profile.country } : undefined) : await verifyProxyIdentity(n);
+      const after = runtime === "clawbrowser"
+        ? await verifyProxyIdentity(n)
+        : (profile?.country ? { country: profile.country } : undefined);
       if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
       trackTiming("proxy_ip_change_completed", startedAt, { scope: "named_profile", status: get().statuses[n] ?? "unknown" });
       trackTiming("profile_rotate_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
@@ -2308,13 +2411,13 @@ export const useStore = create<State>((set, get) => {
         runtime,
         "--country",
         country,
-        "--verify",
+        ...(runtime === "dasbrowser" ? [] : ["--verify"]),
         "--format",
         "json",
       ]);
       await get().loadProfiles();
       await get().loadProxy().catch(() => {});
-      const after = runtime === "camoufox" ? { country } : await verifyProxyIdentity(n);
+      const after = runtime === "clawbrowser" ? await verifyProxyIdentity(n) : { country };
       if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
       trackTiming("proxy_country_change_completed", startedAt, { scope: "named_profile", country, status: get().statuses[n] ?? "unknown" });
       trackTiming("profile_rotate_completed", startedAt, { scope: "named", country, status: get().statuses[n] ?? "unknown" });
@@ -2383,11 +2486,41 @@ export const useStore = create<State>((set, get) => {
 
   deleteProfile: async (n) => {
     const startedAt = performance.now();
-    trackEvent("profile_delete_requested", { was_running: get().statuses[n] === "running" });
-    if (get().statuses[n] === "running") {
-      await nextctlRunChecked(["stop", "--profile", n, "--format", "json"]);
+    const runtime = runtimeForProfile(get().workspaces, n);
+    const previousStatus = get().statuses[n] ?? "unknown";
+    trackEvent("profile_delete_requested", { was_running: previousStatus === "running", runtime });
+
+    // Deleting can race an in-flight launch. Invalidate that operation and ask
+    // the host to cancel it before touching the profile store.
+    nextProfileOperation(n);
+    await invoke<boolean>("nextctl_cancel", { requestId: `profile-start:${n}` }).catch(() => false);
+
+    const stopForDelete = async () => {
+      set((s) => ({ statuses: { ...s.statuses, [n]: "stopping" } }));
+      try {
+        await nextctlRunChecked(["stop", "--profile", n, "--runtime", runtime, "--format", "json"]);
+      } catch (error) {
+        // Closing the browser window can leave the renderer one refresh behind.
+        // Only suppress the stop error when nextctl confirms the session is gone.
+        await get().loadProfiles().catch(() => undefined);
+        if (get().statuses[n] !== "stopped") throw error;
+      }
+    };
+
+    if (previousStatus !== "stopped") {
+      await stopForDelete();
     }
-    await nextctlRunChecked(["profiles", "rm", n, "--format", "json"]);
+
+    try {
+      await nextctlRunChecked(["profiles", "rm", n, "--format", "json"]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // The UI status may have been stale while an external browser session was
+      // still alive. Stop it with the saved runtime, then retry removal once.
+      if (!/SESSION_ACTIVE|active browser session/i.test(message)) throw error;
+      await stopForDelete();
+      await nextctlRunChecked(["profiles", "rm", n, "--format", "json"]);
+    }
     if (get().selectedProfile === n) set({ selectedProfile: undefined });
     set((s) => {
       const statuses = { ...s.statuses };
@@ -2424,9 +2557,11 @@ export const useStore = create<State>((set, get) => {
     const convs = get().conversationsForAgent(agentId);
     if (!convs.length) {
       get().newChat();
-    } else if (!get().activeConvId[agentId]) {
+    } else if (!convs.some((conversation) => conversation.id === get().activeConvId[agentId])) {
+      const stored = localStorage.getItem(activeConversationStorageKey(agentId, get().activeWorkspaceId));
+      const selected = convs.find((conversation) => conversation.id === stored) ?? convs[0];
       set((s) => ({
-        activeConvId: { ...s.activeConvId, [agentId]: convs[0].id },
+        activeConvId: { ...s.activeConvId, [agentId]: selected.id },
       }));
     }
   },
@@ -2987,8 +3122,16 @@ export const useStore = create<State>((set, get) => {
   selectWorkspace: (id) => {
     if (!get().workspaces.some((workspace) => workspace.id === id)) return;
     localStorage.setItem("activeWorkspaceId", id);
-    const first = get().conversations.find((conversation) => conversation.workspaceId === id && conversation.agent === get().agentId);
-    set({ activeWorkspaceId: id, activeConvId: first ? { ...get().activeConvId, [get().agentId]: first.id } : get().activeConvId, selectedProfile: undefined });
+    const agentId = get().agentId;
+    const stored = localStorage.getItem(activeConversationStorageKey(agentId, id));
+    const candidates = get().conversations
+      .filter((conversation) => conversation.workspaceId === id && conversation.agent === agentId)
+      .sort((left, right) => right.updatedAt - left.updatedAt);
+    const selected = candidates.find((conversation) => conversation.id === stored) ?? candidates[0];
+    const activeConvId = { ...get().activeConvId };
+    if (selected) activeConvId[agentId] = selected.id;
+    else delete activeConvId[agentId];
+    set({ activeWorkspaceId: id, activeConvId, selectedProfile: undefined });
   },
 
   deleteWorkspace: async (id) => {
@@ -3023,6 +3166,7 @@ export const useStore = create<State>((set, get) => {
     };
     const conversations = [...get().conversations, c];
     persistConvs(conversations);
+    localStorage.setItem(activeConversationStorageKey(agentId, workspaceId), c.id);
     set({
       conversations,
       activeConvId: { ...get().activeConvId, [agentId]: c.id },
@@ -3051,6 +3195,7 @@ export const useStore = create<State>((set, get) => {
     };
     const conversations = [...get().conversations, c];
     persistConvs(conversations);
+    localStorage.setItem(activeConversationStorageKey(agentId, workspaceId), c.id);
     localStorage.setItem("terminalChat", String(mode === "terminal"));
     set({
       conversations,
@@ -3062,14 +3207,17 @@ export const useStore = create<State>((set, get) => {
     return c.id;
   },
 
-  assignProfileToProject: (profileName, toolset, projectId) => {
+  assignProfileToProject: (profileName, toolset, projectId, replaceToolset = false) => {
     const targetId = projectId ?? get().activeWorkspaceId;
     if (!targetId) return;
     set((state) => {
       const existingToolset = state.workspaces.find((workspace) =>
         workspace.profileNames.includes(profileName)
       )?.profileToolsets?.[profileName];
-      const fixedToolset = existingToolset ?? toolset;
+      // A profile's runtime stays fixed while the profile exists, but a newly
+      // created profile may reuse a deleted profile's name. Creation must
+      // therefore replace stale workspace/cloud runtime metadata explicitly.
+      const fixedToolset = replaceToolset ? toolset : existingToolset ?? toolset;
       const workspaces = state.workspaces.map((workspace) => {
         if (workspace.id === targetId && workspace.profileNames.includes(profileName)) {
           return workspace.profileToolsets[profileName]
@@ -3170,6 +3318,7 @@ export const useStore = create<State>((set, get) => {
     trackEvent("chat_selected", { agent: agentId });
     const project = get().conversations.find((conversation) => conversation.id === id);
     const terminalChat = project?.chatMode === "terminal";
+    if (project) localStorage.setItem(activeConversationStorageKey(agentId, project.workspaceId), id);
     localStorage.setItem("terminalChat", String(terminalChat));
     set({ activeConvId: { ...get().activeConvId, [agentId]: id }, terminalChat });
   },
@@ -3187,6 +3336,19 @@ export const useStore = create<State>((set, get) => {
     });
   },
 
+  updateTerminalPreview: (id, preview) => {
+    const clean = preview?.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 120) || undefined;
+    const current = get().conversations.find((conversation) => conversation.id === id);
+    if (!current || current.terminalPreview === clean) return;
+    set((state) => {
+      const conversations = state.conversations.map((conversation) =>
+        conversation.id === id ? { ...conversation, terminalPreview: clean, updatedAt: now() } : conversation,
+      );
+      persistConvs(conversations);
+      return { conversations };
+    });
+  },
+
   deleteConversation: (id) => {
     const agentId = get().agentId;
     const conversations = get().conversations.filter((c) => c.id !== id);
@@ -3195,6 +3357,9 @@ export const useStore = create<State>((set, get) => {
       activeConvId[agentId] = get()
         .conversationsForAgent(agentId)
         .filter((c) => c.id !== id)[0]?.id;
+      const replacement = activeConvId[agentId];
+      if (replacement) localStorage.setItem(activeConversationStorageKey(agentId, get().activeWorkspaceId), replacement);
+      else localStorage.removeItem(activeConversationStorageKey(agentId, get().activeWorkspaceId));
     }
     void invoke("project_delete", { id }).catch(() => {});
     persistConvs(conversations);
@@ -3266,14 +3431,23 @@ export const useStore = create<State>((set, get) => {
         [agentId]: { ...s.runtime[agentId], pendingStop: true },
       },
     }));
-    const conversationId = get().activeConversation()?.id;
+    const conversation = get().conversations.find((candidate) =>
+      candidate.messages.some((message) => message.id === replyId),
+    );
+    const conversationId = conversation?.id;
     const ownedProfiles = conversationId
       ? Object.entries(get().profileChatOwners)
         .filter(([, owner]) => owner === conversationId)
         .map(([profile]) => profile)
       : [];
+    const baseline = replyProfileBaselines.get(replyId) ?? new Set<string>();
+    const workspaceProfiles = get().workspaces.find((workspace) => workspace.id === conversation?.workspaceId)?.profileNames ?? [];
     void invoke("agent_terminate", { replyId }).finally(() => {
-      void Promise.all(ownedProfiles.map((profile) => get().stopProfile(profile).catch(() => undefined)));
+      void get().loadProfiles().catch(() => undefined).finally(() => {
+        const newlyStarted = workspaceProfiles.filter((profile) => get().statuses[profile] === "running" && !baseline.has(profile));
+        const targets = [...new Set([...ownedProfiles, ...newlyStarted])];
+        void Promise.all(targets.map((profile) => get().stopProfile(profile).catch(() => undefined)));
+      });
     });
   },
 

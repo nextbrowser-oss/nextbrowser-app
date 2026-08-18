@@ -135,6 +135,8 @@ export interface Conversation {
   vpsConnectionLabel?: string;
   /** A conversation is the persistent agent context for one project. */
   chatMode?: "chat" | "terminal";
+  /** Short persisted activity summary for terminal projects. */
+  terminalPreview?: string;
   workspaceId?: string;
   profileNames?: string[];
   profileToolsets?: Record<string, BrowserToolset>;
@@ -160,6 +162,7 @@ export function conversationPreview(conv: Conversation): string {
     if (last.text) return last.text.slice(0, 60);
     break;
   }
+  if (conv.chatMode === "terminal" && conv.terminalPreview) return conv.terminalPreview;
   return "Empty chat";
 }
 

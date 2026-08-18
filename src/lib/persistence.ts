@@ -68,6 +68,9 @@ export function normalizeConversation(raw: Omit<Conversation, "profileToolsets">
   const legacyNumberedChat = /^Chat\s+(\d+)$/i.exec(raw.title?.trim() ?? "");
   const title = legacyNumberedChat ? `Project ${legacyNumberedChat[1]}` : raw.title;
   const chatMode = raw.chatMode === "terminal" ? "terminal" as const : "chat" as const;
+  const terminalPreview = typeof raw.terminalPreview === "string"
+    ? raw.terminalPreview.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 120) || undefined
+    : undefined;
   const profileNames = [...new Set((raw.profileNames ?? []).filter((name): name is string => typeof name === "string" && !!name.trim()))];
   const profileToolsets = Object.fromEntries(Object.entries(raw.profileToolsets ?? {}).flatMap(
     ([name, toolset]) => profileNames.includes(name) && (toolset === "clawbrowser" || toolset === "dasbrowser" || toolset === "camoufox" || toolset === "chromium")
@@ -84,6 +87,7 @@ export function normalizeConversation(raw: Omit<Conversation, "profileToolsets">
     vpsConnectionInstructions,
     vpsConnectionLabel,
     chatMode,
+    terminalPreview,
     profileNames,
     profileToolsets,
   };
@@ -148,8 +152,8 @@ export function normalizeWorkflowSkill(skill: BrowserWorkflowSkill): BrowserWork
       return [{ tool: action.tool, arguments: args }];
     }
     if (typeof action !== "string") return [];
-    const match = action.match(/(?:clawbrowser\.)?([a-z_]+)\((\{.*\})\)/s);
-    try { return match ? [{ tool: match[1], arguments: JSON.parse(match[2]) as Record<string, unknown> }] : [{ tool: action.replace(/^clawbrowser\./, ""), arguments: {} }]; } catch { return []; }
+    const match = action.match(/(?:(?:clawbrowser|nextbrowser)\.)?([a-z_]+)\((\{.*\})\)/s);
+    try { return match ? [{ tool: match[1], arguments: JSON.parse(match[2]) as Record<string, unknown> }] : [{ tool: action.replace(/^(?:clawbrowser|nextbrowser)\./, ""), arguments: {} }]; } catch { return []; }
   });
   const capability = skill.capability ?? "other";
   return {

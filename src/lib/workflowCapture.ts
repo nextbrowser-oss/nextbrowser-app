@@ -1,5 +1,5 @@
 const PROMPT_MARKER = /^\s*›\s*(.+)$/gm;
-const CLAWBROWSER_CALL = /clawbrowser\.([a-z_]+)/g;
+const CLAWBROWSER_CALL = /(?:clawbrowser|nextbrowser)\.([a-z_]+)/g;
 
 export interface CapturedCall {
   name: string;
@@ -173,6 +173,7 @@ export function workflowQuality(task: string, transcript: string, domain = captu
 export function terminalBrowserTask(transcript: string): string {
   const lastTool = Math.max(
     transcript.lastIndexOf("clawbrowser."),
+    transcript.lastIndexOf("nextbrowser."),
     transcript.lastIndexOf("nbc "),
     transcript.lastIndexOf("nextctl "),
   );

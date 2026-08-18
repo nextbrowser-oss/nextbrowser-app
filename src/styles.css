@@ -6085,6 +6085,18 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   padding-top: 14px;
   border-top: 1px solid var(--line);
 }
+.profile-create-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  margin-top: 12px;
+  padding: 7px 10px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
 
 .agent-gate-overlay {
   position: fixed;
