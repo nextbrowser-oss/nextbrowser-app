@@ -551,7 +551,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               <div className="workspace-section-head">
                 <button className="workspace-section-toggle" onClick={() => setOpenWorkspaceSection(chatsOpen ? "profiles" : "projects")} aria-expanded={chatsOpen} aria-label={chatsOpen ? "Collapse projects" : "Expand projects"}>
                   <Icon name="chevron.right" size={10} className={chatsOpen ? "section-chevron open" : "section-chevron"} />
-                  <Icon name="bubble.left.and.bubble.right.fill" size={12} />
+                  <Icon name="folder" size={12} />
                   <span>Projects</span>
                   <span className="workspace-count">{projects.length}</span>
                 </button>
@@ -599,7 +599,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               <div className="workspace-section-head">
                 <button className="workspace-section-toggle" onClick={() => setOpenWorkspaceSection(profilesOpen ? "projects" : "profiles")} aria-expanded={profilesOpen} aria-label={profilesOpen ? "Collapse profiles" : "Expand profiles"}>
                   <Icon name="chevron.right" size={10} className={profilesOpen ? "section-chevron open" : "section-chevron"} />
-                  <Icon name="folder.fill" size={12} />
+                  <Icon name="person.2.fill" size={12} />
                   <span>Profiles</span>
                   <span className="workspace-count">{visibleProfileCount}</span>
                 </button>

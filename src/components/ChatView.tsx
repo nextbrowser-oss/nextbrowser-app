@@ -4,7 +4,6 @@ import { useStore } from "../store";
 import { SCRIPTS } from "../skillsCatalog";
 import { MarkdownText } from "./MarkdownText";
 import { Icon, Spinner } from "./Icon";
-import { BrandLogo } from "./BrandLogo";
 import type { ChatAttachment, ChatMessage } from "../types";
 import { filePathForFile, invoke } from "../electronBridge";
 import { agentById, agentInvocation, type AgentSpec } from "../agents";
@@ -438,7 +437,7 @@ export function ChatView() {
           {messages.length === 0 && (
             <div className="empty-state chat-empty-state">
               <div className="empty-state-mark">
-                <BrandLogo size={38} />
+                <Icon name="cursorarrow" size={24} />
               </div>
               <div>
                 <strong>{agentNeedsLogin ? `Sign in to ${agentName}` : ready ? "Ready for browser work" : "Connect an agent"}</strong>
