@@ -1389,7 +1389,7 @@ function createWindow() {
   const icon = loadAppIcon();
   const window = new BrowserWindow({
     title: "NextBrowser", width: 1180, height: 760, minWidth: 960, minHeight: 640,
-    backgroundColor: "#15141c", show: false,
+    backgroundColor: "#0e0e0e", show: false,
     ...(icon ? { icon } : {}),
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: true },
   });
