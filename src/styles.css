@@ -70,30 +70,31 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --font-display: "Space Grotesk", "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Hanken Grotesk", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --brand-ink: #1a1c1c;
-  --brand-paper: #f9f9f9;
-  --brand-line: rgba(116, 120, 122, 0.18);
-  --brand-blue: #5865f2;
-  --bg: #f9f9f9;
+  --brand-paper: #f9f9f8;
+  --brand-line: rgba(127, 118, 99, 0.20);
+  --brand-blue: #4d6074;
+  --bg: #f9f9f8;
   --bg-elevated: #ffffff;
-  --panel: rgba(249, 249, 249, 0.82);
-  --card: rgba(255, 255, 255, 0.78);
-  --line: rgba(116, 120, 122, 0.14);
-  --line-strong: rgba(116, 120, 122, 0.26);
+  --panel: #f2f2f0;
+  --card: #ffffff;
+  --line: #e5e5e2;
+  --line-strong: #d0c5af;
   --text: #1a1c1c;
-  --text-secondary: #5e6366;
-  --accent: #576065;
-  --accent-soft: #f0f9ff;
-  --accent-text: #3f484d;
-  --nav-active-bg: #f0f9ff;
-  --nav-active-border: #bfc8ce;
-  --nav-active-indicator: #576065;
-  --primary-action: #576065;
-  --primary-action-hover: #3f484d;
+  --text-secondary: #6b6b6b;
+  --accent: #735c00;
+  --accent-soft: rgba(212, 175, 55, 0.14);
+  --accent-text: #735c00;
+  --nav-active-bg: #f2eedf;
+  --nav-active-border: #c9b46f;
+  --nav-active-indicator: #b8962e;
+  --primary-action: #735c00;
+  --primary-action-hover: #574500;
   --on-primary-action: #ffffff;
-  --info: #006b94;
-  --info-soft: rgba(0, 107, 148, 0.10);
+  --info: #4d6074;
+  --info-soft: rgba(77, 96, 116, 0.10);
   --green: #18863a;
   --success: #18863a;
   --green-soft: rgba(24, 134, 58, 0.12);
@@ -101,33 +102,34 @@
   --red-soft: rgba(201, 52, 44, 0.11);
   --warn: #a85d00;
   --warn-soft: rgba(168, 93, 0, 0.12);
-  --surface-1: rgba(67, 71, 74, 0.025);
-  --surface-2: rgba(67, 71, 74, 0.045);
-  --surface-3: rgba(67, 71, 74, 0.065);
-  --surface-4: rgba(67, 71, 74, 0.085);
-  --surface-5: rgba(67, 71, 74, 0.11);
-  --surface-6: rgba(67, 71, 74, 0.14);
-  --surface-7: rgba(67, 71, 74, 0.18);
-  --surface-8: rgba(67, 71, 74, 0.23);
-  --surface-9: rgba(67, 71, 74, 0.31);
-  --input-border: rgba(116, 120, 122, 0.32);
-  --overlay: rgba(47, 49, 49, 0.28);
-  --shadow: rgba(81, 96, 114, 0.14);
-  --shadow-sm: 0 1px 2px rgba(81, 96, 114, 0.10);
+  --surface-1: rgba(77, 70, 53, 0.025);
+  --surface-2: rgba(77, 70, 53, 0.045);
+  --surface-3: rgba(77, 70, 53, 0.065);
+  --surface-4: rgba(77, 70, 53, 0.085);
+  --surface-5: rgba(77, 70, 53, 0.11);
+  --surface-6: rgba(77, 70, 53, 0.14);
+  --surface-7: rgba(77, 70, 53, 0.18);
+  --surface-8: rgba(77, 70, 53, 0.23);
+  --surface-9: rgba(77, 70, 53, 0.31);
+  --input-border: rgba(208, 197, 175, 0.82);
+  --overlay: rgba(47, 49, 48, 0.30);
+  --shadow: rgba(115, 92, 0, 0.13);
+  --shadow-sm: 0 1px 2px rgba(115, 92, 0, 0.10);
   --on-accent: #fff;
-  --scroll-track: #f3f3f4;
-  --scroll-thumb: #c4c7ca;
-  --scroll-thumb-hover: #9ca1a4;
-  --onboarding-bg: linear-gradient(145deg, #f0f9ff, #ffffff);
-  --demo-bg: linear-gradient(145deg, #f3f8ff, #ffffff);
-  --button-shadow: 0 8px 28px rgba(81, 96, 114, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  --button-shadow-hover: 0 12px 34px rgba(81, 96, 114, 0.12), inset 0 1px 0 rgba(255, 255, 255, 1);
-  --shadow-strong: rgba(47, 49, 49, 0.26);
-  --radius-sm: 10px;
-  --radius-md: 14px;
-  --radius-lg: 22px;
-  --button-radius: 12px;
-  --button-radius-compact: 10px;
+  --scroll-track: #f3f4f3;
+  --scroll-thumb: #d0c5af;
+  --scroll-thumb-hover: #a99d84;
+  --onboarding-bg: linear-gradient(145deg, #f2f2f0, #ffffff);
+  --demo-bg: linear-gradient(145deg, #f3f4f3, #ffffff);
+  --button-shadow: 0 5px 18px rgba(115, 92, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --button-shadow-hover: 0 9px 24px rgba(115, 92, 0, 0.10), inset 0 1px 0 rgba(255, 255, 255, 1);
+  --shadow-strong: rgba(47, 49, 48, 0.24);
+  --brand-gradient: linear-gradient(135deg, #d4af37, #735c00);
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --button-radius: 8px;
+  --button-radius-compact: 6px;
 }
 
 * { box-sizing: border-box; }
@@ -6141,11 +6143,11 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .agent-gate-connect { justify-content: center; min-height: 42px; }
 
 /* --------------------------------------------------------------------------
-   Theme direction: Obsidian Noir (dark) and Arctic Frost (light)
+   Theme direction: Obsidian Noir (dark) and Sandy / Obsidian Light (light)
 
    The product structure deliberately stays unchanged. These rules provide a
    shared visual hierarchy for every existing control while each theme keeps
-   its own character: compact/warm in dark mode and airy/cool in light mode.
+   its own character: compact/warm in dark mode and precise/ivory in light mode.
    -------------------------------------------------------------------------- */
 
 h1, h2, h3,
@@ -6596,52 +6598,67 @@ pre,
   background: #1c1b1b;
 }
 
-/* Light — Arctic Frost: cool whites, fine glass edges and editorial type. */
+/* Light — Sandy / Obsidian Light: warm ivory, precise borders and gold. */
 :root[data-theme="light"] .app {
-  background:
-    radial-gradient(circle at 78% 0%, rgba(210, 225, 247, 0.42), transparent 34%),
-    #f9f9f9;
+  background: #f9f9f8;
 }
 
 :root[data-theme="light"] .content {
-  background: rgba(249, 249, 249, 0.82);
+  background: #ffffff;
 }
 
 :root[data-theme="light"] .sidebar {
-  border-right-color: rgba(196, 199, 202, 0.62);
-  background: rgba(243, 243, 244, 0.76);
-  backdrop-filter: blur(30px) saturate(125%);
-  -webkit-backdrop-filter: blur(30px) saturate(125%);
+  border-right-color: #d0c5af;
+  background: #f2f2f0;
 }
 
-:root[data-theme="light"] .sidebar-brand,
 :root[data-theme="light"] .tabbar,
 :root[data-theme="light"] .chat-header,
 :root[data-theme="light"] .composer {
-  border-color: rgba(196, 199, 202, 0.46);
-  background: rgba(249, 249, 249, 0.68);
+  border-color: rgba(208, 197, 175, 0.68);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+:root[data-theme="light"] .sidebar-brand {
+  border-color: rgba(208, 197, 175, 0.68);
+  background: #f2f2f0;
 }
 
 :root[data-theme="light"] .claw-card,
 :root[data-theme="light"] .workspace-profile-list .profile-row,
 :root[data-theme="light"] .modal-card {
-  border-color: rgba(255, 255, 255, 0.92);
-  background: rgba(255, 255, 255, 0.68);
-  box-shadow: 0 12px 38px rgba(81, 96, 114, 0.07), inset 0 0 0 1px rgba(196, 199, 202, 0.28);
-  backdrop-filter: blur(26px) saturate(120%);
-  -webkit-backdrop-filter: blur(26px) saturate(120%);
+  border-color: rgba(208, 197, 175, 0.64);
+  background: #ffffff;
+  box-shadow: none;
 }
 
 :root[data-theme="light"] .profiles-card {
-  border-color: rgba(255, 255, 255, 0.96);
-  background: rgba(240, 249, 255, 0.52);
-  box-shadow: 0 18px 44px rgba(81, 96, 114, 0.08), inset 0 0 0 1px rgba(196, 199, 202, 0.32);
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
 :root[data-theme="light"] .profiles-panel-head {
-  border-color: rgba(255, 255, 255, 0.96);
-  background: rgba(255, 255, 255, 0.58);
-  box-shadow: inset 0 0 0 1px rgba(196, 199, 202, 0.22);
+  border-color: rgba(208, 197, 175, 0.88);
+  background: #e8e8e7;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+:root[data-theme="light"] .sidebar-link-card {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="light"] .sidebar-link-card:hover {
+  border-color: rgba(208, 197, 175, 0.52);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+:root[data-theme="light"] .sidebar-page-link.active {
+  border-color: rgba(208, 197, 175, 0.58);
+  background: rgba(238, 238, 237, 0.82);
+  box-shadow: inset 3px 0 0 #b8962e;
 }
 
 :root[data-theme="light"] .workspace-picker strong,
@@ -6654,52 +6671,94 @@ pre,
 :root[data-theme="light"] .workspace-section-head,
 :root[data-theme="light"] .section,
 :root[data-theme="light"] .conv-sidebar-label {
-  color: #74787a;
-  letter-spacing: .1em;
+  color: #4d4635;
+  letter-spacing: .08em;
 }
 
 :root[data-theme="light"] .workspace-chat-row.active,
 :root[data-theme="light"] .workspace-profile-list .profile-row.selected,
 :root[data-theme="light"] .sidebar-profile-row.selected,
 :root[data-theme="light"] .conv-row.active {
-  border-color: #bfc8ce;
-  background: rgba(240, 249, 255, 0.92);
-  box-shadow: 0 9px 26px rgba(81, 96, 114, 0.07);
+  border-color: rgba(115, 92, 0, 0.36);
+  background: #f2eedf;
+  box-shadow: inset 3px 0 0 #b8962e;
+}
+
+:root[data-theme="light"] .workspace-profile-list .profile-row {
+  border-color: transparent;
+  background: transparent;
+}
+
+:root[data-theme="light"] .workspace-profile-list .profile-row:hover {
+  border-color: rgba(208, 197, 175, 0.52);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+:root[data-theme="light"] .workspace-active-dot {
+  background: #b8962e;
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.13);
 }
 
 :root[data-theme="light"] .assistant-bubble {
-  border-color: rgba(255, 255, 255, 0.96);
-  background: rgba(255, 255, 255, 0.76);
-  box-shadow: 0 12px 36px rgba(81, 96, 114, 0.08), inset 0 0 0 1px rgba(196, 199, 202, 0.22);
+  border-color: rgba(208, 197, 175, 0.62);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 12px 34px rgba(115, 92, 0, 0.055);
+}
+
+:root[data-theme="light"] .messages {
+  background: #ffffff;
 }
 
 :root[data-theme="light"] .msg-user-bubble {
-  border-color: #576065;
-  background: #576065;
+  border-color: #735c00;
+  background: linear-gradient(135deg, #806800, #735c00);
   color: #ffffff;
+  box-shadow: 0 12px 34px rgba(115, 92, 0, 0.14);
 }
 
 :root[data-theme="light"] .composer textarea {
-  border-color: rgba(196, 199, 202, 0.72);
-  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(208, 197, 175, 0.82);
+  background: #ffffff;
 }
 
 :root[data-theme="light"] .agent-terminal-panel {
-  border-color: rgba(196, 199, 202, 0.6);
-  background: #f9f9f9;
-  box-shadow: 0 20px 52px rgba(81, 96, 114, 0.10);
+  border-color: rgba(208, 197, 175, 0.72);
+  background: #f9f9f8;
+  box-shadow: 0 18px 46px rgba(115, 92, 0, 0.08);
 }
 
 :root[data-theme="light"] .agent-terminal-header {
-  border-bottom-color: rgba(196, 199, 202, 0.52);
-  background: rgba(240, 249, 255, 0.68);
+  border-bottom-color: rgba(208, 197, 175, 0.62);
+  background: #eeeeed;
 }
 
 :root[data-theme="light"] .btn-bordered,
 :root[data-theme="light"] .secondary,
 :root[data-theme="light"] .mini {
-  border-color: rgba(196, 199, 202, 0.58);
-  background: linear-gradient(145deg, rgba(255, 255, 255, .9), rgba(243, 243, 244, .72));
+  border-color: rgba(208, 197, 175, 0.72);
+  background: linear-gradient(180deg, #eeeeed, #e8e8e7);
+}
+
+:root[data-theme="light"] .tabbar-group,
+:root[data-theme="light"] .chat-mode-toggle {
+  border-color: rgba(208, 197, 175, 0.58);
+  background: #f3f4f3;
+}
+
+:root[data-theme="light"] .tab-hit-active .tab-pill,
+:root[data-theme="light"] .tab-pill-active,
+:root[data-theme="light"] .chat-mode-toggle button.active {
+  background: #e8e8e7;
+  color: #735c00;
+  box-shadow: inset 0 0 0 1px rgba(208, 197, 175, 0.52);
+}
+
+:root[data-theme="light"] .modal-card {
+  border-color: rgba(208, 197, 175, 0.78);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 28px 80px rgba(115, 92, 0, 0.09), inset 0 1px 0 #ffffff;
+  backdrop-filter: blur(32px) saturate(110%);
+  -webkit-backdrop-filter: blur(32px) saturate(110%);
 }
 
 @media (max-width: 1100px) {
