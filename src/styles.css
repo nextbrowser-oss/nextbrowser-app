@@ -646,7 +646,7 @@ button, input, textarea, select { color: var(--text); }
 }
 .sidebar-shell .section,
 .scheduled-panel-head .section {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 650;
   text-transform: none;
 }
@@ -1619,7 +1619,7 @@ body.is-resizing-sidebar {
 .workspace-picker:hover { background: color-mix(in srgb, var(--accent) 8%, var(--surface-3)); }
 .workspace-picker > span { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 1px; }
 .workspace-picker small { color: var(--muted); font-size: 8px; font-weight: 550; text-transform: uppercase; letter-spacing: .05em; }
-.workspace-picker strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-picker strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-create-modal { width: min(400px, calc(100vw - 32px)); }
 .workspace-create-note { margin: 0; line-height: 1.4; }
 .workspace-setup-overlay { z-index: 120; }
@@ -1751,7 +1751,7 @@ body.is-resizing-sidebar {
 .workspace-chat-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 1px; }
 .workspace-chat-copy strong,
 .workspace-chat-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-chat-copy strong { font-size: 11px; }
+.workspace-chat-copy strong { font-size: 12px; }
 .workspace-chat-copy small { color: var(--muted); font-size: 9px; }
 .workspace-active-dot { width: 7px; height: 7px; flex: none; border-radius: 999px; background: var(--accent); }
 .workspace-chat-delete {
@@ -6465,7 +6465,7 @@ pre,
 .workspace-section-head {
   min-height: 28px;
   padding-inline: 5px;
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .workspace-count,
