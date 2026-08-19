@@ -837,23 +837,52 @@ export function App() {
   }, [setAppActive]);
 
   useEffect(() => {
+    const minSidebarWidth = 320;
+    const maxSidebarWidth = 520;
     let dragging = false;
     let startX = 0;
     let startW = sidebarWidth;
+    let settleAnimation: Animation | undefined;
+    const rubberband = (overshoot: number, dimension: number, constant = 0.42) =>
+      (overshoot * dimension * constant) / (dimension + constant * Math.abs(overshoot));
+    const projectedWidth = (rawWidth: number) => {
+      if (rawWidth < minSidebarWidth) return minSidebarWidth + rubberband(rawWidth - minSidebarWidth, minSidebarWidth);
+      if (rawWidth > maxSidebarWidth) return maxSidebarWidth + rubberband(rawWidth - maxSidebarWidth, maxSidebarWidth);
+      return rawWidth;
+    };
     const onMove = (e: PointerEvent) => {
       if (!dragging) return;
       if (sidebarCollapsed) return;
-      setSidebarWidth(Math.min(480, Math.max(240, startW + (e.clientX - startX))));
+      setSidebarWidth(projectedWidth(startW + (e.clientX - startX)));
     };
     const onUp = () => {
+      if (!dragging) return;
       dragging = false;
       document.body.classList.remove("is-resizing-sidebar");
+      const currentWidth = useStore.getState().sidebarWidth;
+      const targetWidth = Math.min(maxSidebarWidth, Math.max(minSidebarWidth, currentWidth));
+      if (Math.abs(targetWidth - currentWidth) < 0.5) return;
+      const sidebar = document.querySelector<HTMLElement>(".sidebar");
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      settleAnimation?.cancel();
+      if (sidebar && !reduceMotion) {
+        settleAnimation = sidebar.animate(
+          [{ width: `${currentWidth}px` }, { width: `${targetWidth}px` }],
+          { duration: 240, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+        );
+      }
+      setSidebarWidth(targetWidth);
     };
     const handle = document.getElementById("sidebar-resize");
     const onDown = (e: PointerEvent) => {
+      const sidebar = document.querySelector<HTMLElement>(".sidebar");
+      const liveWidth = sidebar?.getBoundingClientRect().width ?? useStore.getState().sidebarWidth;
+      settleAnimation?.cancel();
+      settleAnimation = undefined;
       dragging = true;
       startX = e.clientX;
-      startW = useStore.getState().sidebarWidth;
+      startW = liveWidth;
+      setSidebarWidth(liveWidth);
       document.body.classList.add("is-resizing-sidebar");
       handle?.setPointerCapture(e.pointerId);
       e.preventDefault();
@@ -863,6 +892,7 @@ export function App() {
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
     return () => {
+      settleAnimation?.cancel();
       document.body.classList.remove("is-resizing-sidebar");
       handle?.removeEventListener("pointerdown", onDown);
       window.removeEventListener("pointermove", onMove);

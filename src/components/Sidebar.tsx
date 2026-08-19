@@ -633,7 +633,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   <span>Create</span>
                 </button>
               </div>
-              {projectsOpen && <div ref={projectListRef} className="workspace-chat-list">
+              <div className={"workspace-section-reveal" + (projectsOpen ? " is-open" : "")} aria-hidden={!projectsOpen}>
+                <div ref={projectListRef} className="workspace-chat-list">
                 {visibleChats.map((chat) => (
                   <button
                     key={chat.id}
@@ -665,7 +666,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                     </span>
                   </button>
                 ))}
-              </div>}
+                </div>
+              </div>
             </section>
 
             <section className={"workspace-section workspace-profiles" + (profilesOpen ? " is-open" : "")}>
@@ -688,7 +690,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   <span>Create</span>
                 </button>
               </div>
-              {profilesOpen && <div ref={profileListRef} className="workspace-profile-list">
+              <div className={"workspace-section-reveal" + (profilesOpen ? " is-open" : "")} aria-hidden={!profilesOpen}>
+                <div ref={profileListRef} className="workspace-profile-list">
                 {visibleWorkspaceProfiles.map(({ profile: p, owner, toolset }) => {
                       const status = s.statuses[p.name] ?? "unknown";
                       const running = status === "running";
@@ -738,7 +741,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                         />
                       );
                 })}
-              </div>}
+                </div>
+              </div>
               {profilesOpen && visibleProfileCount === 0 && <div className="muted small workspace-empty">No profiles yet</div>}
             </section>
             {normalizedSearch && visibleChats.length === 0 && visibleWorkspaceProfiles.length === 0 && (
