@@ -13,7 +13,7 @@
   --card: rgba(28, 27, 27, 0.82);
   --line: var(--surface-2);
   --line-strong: var(--surface-3);
-  --text: #e6e1e1;
+  --text: #f1eeee;
   --text-secondary: #aaa6a4;
   --muted: var(--text-secondary);
   --accent: #7d6dec;
@@ -621,6 +621,20 @@ button, input, textarea, select { color: var(--text); }
   border-color: var(--line-strong);
   background: var(--surface-2);
   color: var(--text);
+}
+.sidebar-nav-list > .sidebar-page-link:first-child {
+  position: relative;
+  margin-top: 5px;
+}
+.sidebar-nav-list > .sidebar-page-link:first-child::before {
+  content: "";
+  position: absolute;
+  right: 2px;
+  bottom: calc(100% + 6px);
+  left: 2px;
+  height: 1px;
+  background: color-mix(in srgb, var(--line-strong) 72%, transparent);
+  pointer-events: none;
 }
 :root:not([data-theme="light"]) .sidebar-link-card {
   border-color: transparent;
