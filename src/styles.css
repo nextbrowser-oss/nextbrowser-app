@@ -3450,12 +3450,14 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   width: 100%;
   max-width: 960px;
   margin: 0 auto;
+  container-name: connectors-page;
+  container-type: inline-size;
 }
 .connectors-page-head h2 { margin-bottom: 4px; }
 .connectors-page-head p { margin: 0; }
 .connectors-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
   gap: 12px;
 }
 .connector-card {
@@ -3827,12 +3829,14 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   padding: 0;
   border: 0;
 }
-@media (max-width: 620px) {
+@container connectors-page (max-width: 620px) {
   .connectors-grid { grid-template-columns: 1fr; }
   .connector-card { grid-template-columns: 44px minmax(0, 1fr) auto; }
   .connector-logo { width: 44px; height: 44px; }
   .connector-status { grid-column: 2; grid-row: 2; }
   .connector-action { grid-column: 3; grid-row: 1 / span 2; }
+}
+@media (max-width: 620px) {
   .connector-modal-actions > .muted { width: 100%; }
   .connector-profile-picker-head > .muted { display: none; }
   .connector-connected-actions { flex-wrap: wrap; }
