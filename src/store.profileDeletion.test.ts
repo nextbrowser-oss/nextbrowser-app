@@ -74,6 +74,7 @@ describe("profile deletion", () => {
         name: "Workspace",
         profileNames: ["Berlin demo"],
         profileToolsets: { "Berlin demo": "camoufox" },
+        profileProxyIds: { "Berlin demo": "proxy-id" },
         createdAt: 1,
         updatedAt: 1,
       }],
@@ -90,6 +91,7 @@ describe("profile deletion", () => {
     expect(runs).toContainEqual(["profiles", "rm", "Berlin demo", "--format", "json"]);
     expect(useStore.getState().selectedProfile).toBeUndefined();
     expect(useStore.getState().workspaces[0].profileNames).toEqual([]);
+    expect(useStore.getState().workspaces[0].profileProxyIds).toEqual({});
   });
 
   it("recovers from a stale stopped status when nextctl reports an active session", async () => {

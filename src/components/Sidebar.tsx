@@ -169,8 +169,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   };
 
   useEffect(() => {
-    void s.loadPersonalProxies().catch(() => undefined);
-  }, []);
+    if (s.authed) void s.loadPersonalProxies().catch(() => undefined);
+  }, [s.authed]);
 
   useEffect(() => {
     if (profilePersonalProxyId || s.personalProxies.length === 0) return;
@@ -416,7 +416,13 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         });
       }
       if (profileCreateRequestRef.current !== requestId) return;
-      s.assignProfileToProject(createdName, profileToolset, undefined, true);
+      s.assignProfileToProject(
+        createdName,
+        profileToolset,
+        undefined,
+        true,
+        profileConnection === "personal" ? profilePersonalProxyId : undefined,
+      );
       s.selectProfile(createdName);
       window.dispatchEvent(new CustomEvent("nextbrowser:profile-created", { detail: { name: createdName } }));
       setProfileCreationStage("Ready");
@@ -569,6 +575,10 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             className="proxy-manager-entry"
             title="Create or manage personal proxies"
             onClick={() => {
+              if (!s.authed) {
+                s.setDashboardKeyPromptOpen(true);
+                return;
+              }
               resetManualProxyForm();
               setManualProxyEditing(false);
               setManualProxyDeleting(null);
@@ -1275,7 +1285,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               </form>
             ) : (
               <>
-                <p className="muted personal-proxy-note">Credentials are encrypted on this device. Choose a saved proxy in Create profile.</p>
+                <p className="muted personal-proxy-note">Encrypted in your NextBrowser account and available on every signed-in device.</p>
                 {s.personalProxies.length ? (
                   <div className="personal-proxy-list">
                     {s.personalProxies.map((proxy) => (

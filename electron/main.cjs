@@ -27,11 +27,21 @@ const {
 } = require("./command-runner.cjs");
 const { topUpProxyTraffic } = require("./proxy-traffic.cjs");
 const { terminateProcessTree } = require("./process-tree.cjs");
-const { deleteProject, deleteWorkspace, listProjects, listWorkspaces, putProject, putWorkspace } = require("./project-sync.cjs");
+const {
+  createPersonalProxy,
+  deletePersonalProxy,
+  deleteProject,
+  deleteWorkspace,
+  listPersonalProxies,
+  listProjects,
+  listWorkspaces,
+  putProject,
+  putWorkspace,
+  resolvePersonalProxy,
+} = require("./project-sync.cjs");
 const { defaultSSHConfigPath, discoverSSHHosts, isAllowedExplicitConfigPath } = require("./ssh-config.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
-const { createManualProxyStore } = require("./manual-proxy-store.cjs");
 const { parseMultiloginProfiles } = require("./multilogin-profiles.cjs");
 const { runAgentProcess } = require("./agent-process.cjs");
 const {
@@ -77,7 +87,6 @@ let multiloginCredentialStore = null;
 let multiloginAutomationToken = "";
 let multiloginCredentialLoadError = "";
 let multiloginCredentialLoadPromise = null;
-let manualProxyStore = null;
 
 const CODEX_TERMINAL_PROFILE = "nextbrowser";
 const CODEX_TERMINAL_PROFILE_CONTENT = `[plugins."browser@openai-bundled"]
@@ -576,16 +585,6 @@ async function ensureDasbrowserRuntime() {
 }
 function dataDir() { return path.join(app.getPath("userData")); }
 function multiloginCredentialPath() { return path.join(dataDir(), "credentials", "multilogin.json"); }
-function manualProxyStorePath() { return path.join(dataDir(), "credentials", "manual-proxies.json"); }
-function personalProxyStore() {
-  if (!manualProxyStore) {
-    manualProxyStore = createManualProxyStore({
-      safeStorage,
-      filePath: manualProxyStorePath(),
-    });
-  }
-  return manualProxyStore;
-}
 function initializeMultiloginCredential() {
   if (multiloginCredentialLoadPromise) return multiloginCredentialLoadPromise;
   multiloginCredentialStore = createMultiloginCredentialStore({
@@ -877,16 +876,16 @@ async function invokeCommand(command, args = {}, sender) {
     case "multilogin_status": return await multiloginStatus();
     case "multilogin_connect": return await connectMultilogin(args.bearerToken);
     case "multilogin_disconnect": return await disconnectMultilogin();
-    case "manual_proxies_list": return await personalProxyStore().list();
-    case "manual_proxy_save": return await personalProxyStore().save(args.proxy);
-    case "manual_proxy_delete": return await personalProxyStore().remove(args.id);
+    case "manual_proxies_list": return await listPersonalProxies();
+    case "manual_proxy_save": return await createPersonalProxy(args.proxy);
+    case "manual_proxy_delete": return await deletePersonalProxy(args.id);
     case "manual_proxy_profile_create": {
       const profileName = String(args.profileName || "").trim();
       if (!profileName) throw new Error("Profile name is required.");
       const runtime = ["clawbrowser", "dasbrowser", "camoufox"].includes(args.runtime)
         ? args.runtime
         : "clawbrowser";
-      const proxy = await personalProxyStore().resolve(args.proxyId);
+      const proxy = await resolvePersonalProxy(args.proxyId);
       return await executeNextctl([
         "profiles", "create", profileName,
         "--manual-proxy",

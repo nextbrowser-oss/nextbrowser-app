@@ -65,4 +65,50 @@ function deleteWorkspace(id, deps) {
   return projectRequest(`/v1/workspaces/${encodeURIComponent(id)}`, { method: "DELETE" }, deps);
 }
 
-module.exports = { deleteProject, deleteWorkspace, entityBackendURL, listProjects, listWorkspaces, projectRequest, putProject, putWorkspace };
+function normalizePersonalProxy(proxy) {
+  return {
+    id: String(proxy?.id || ""),
+    name: String(proxy?.name || ""),
+    scheme: String(proxy?.scheme || ""),
+    host: String(proxy?.host || ""),
+    port: Number(proxy?.port || 0),
+    ...(proxy?.username ? { username: String(proxy.username) } : {}),
+    hasPassword: proxy?.has_password === true,
+  };
+}
+
+async function listPersonalProxies(deps) {
+  const response = await projectRequest("/v1/personal-proxies", {}, deps);
+  return Array.isArray(response?.proxies) ? response.proxies.map(normalizePersonalProxy) : [];
+}
+
+async function createPersonalProxy(proxy, deps) {
+  const response = await projectRequest("/v1/personal-proxies", {
+    method: "POST",
+    body: JSON.stringify(proxy),
+  }, deps);
+  return normalizePersonalProxy(response);
+}
+
+function deletePersonalProxy(id, deps) {
+  return projectRequest(`/v1/personal-proxies/${encodeURIComponent(id)}`, { method: "DELETE" }, deps);
+}
+
+function resolvePersonalProxy(id, deps) {
+  return projectRequest(`/v1/personal-proxies/${encodeURIComponent(id)}/credentials`, {}, deps);
+}
+
+module.exports = {
+  createPersonalProxy,
+  deletePersonalProxy,
+  deleteProject,
+  deleteWorkspace,
+  entityBackendURL,
+  listPersonalProxies,
+  listProjects,
+  listWorkspaces,
+  projectRequest,
+  putProject,
+  putWorkspace,
+  resolvePersonalProxy,
+};

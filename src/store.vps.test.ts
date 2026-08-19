@@ -582,6 +582,29 @@ describe("browser profile creation", () => {
     });
     expect(JSON.stringify(bridge.invoke.mock.calls)).not.toContain("NBC_PROXY_PASSWORD");
   });
+
+  it("persists the personal proxy association in the workspace document", () => {
+    useStore.setState({
+      activeWorkspaceId: "workspace",
+      workspaces: [{
+        id: "workspace",
+        name: "Workspace",
+        profileNames: [],
+        profileToolsets: {},
+        profileProxyIds: {},
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+    });
+
+    useStore.getState().assignProfileToProject("saved-proxy-test", "camoufox", undefined, true, "proxy-id");
+
+    expect(useStore.getState().workspaces[0]).toMatchObject({
+      profileNames: ["saved-proxy-test"],
+      profileToolsets: { "saved-proxy-test": "camoufox" },
+      profileProxyIds: { "saved-proxy-test": "proxy-id" },
+    });
+  });
 });
 
 describe("Live View runtime selection", () => {

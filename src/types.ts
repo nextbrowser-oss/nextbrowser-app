@@ -159,6 +159,8 @@ export interface Workspace {
   name: string;
   profileNames: string[];
   profileToolsets: Record<string, BrowserToolset>;
+  /** Personal proxy associations are synced inside the private workspace document. */
+  profileProxyIds?: Record<string, string>;
   createdAt: number;
   updatedAt: number;
 }
