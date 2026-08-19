@@ -16,14 +16,14 @@
   --text: #e6e1e1;
   --text-secondary: #aaa6a4;
   --muted: var(--text-secondary);
-  --accent: #8b7cf6;
-  --accent-soft: rgba(139, 124, 246, 0.16);
-  --accent-text: #cbc5ff;
-  --nav-active-bg: rgba(139, 124, 246, 0.13);
-  --nav-active-border: rgba(139, 124, 246, 0.46);
-  --nav-active-indicator: #8b7cf6;
-  --primary-action: #8b7cf6;
-  --primary-action-hover: #a89cff;
+  --accent: #7d6dec;
+  --accent-soft: rgba(125, 109, 236, 0.16);
+  --accent-text: #c7c1ff;
+  --nav-active-bg: rgba(125, 109, 236, 0.13);
+  --nav-active-border: rgba(125, 109, 236, 0.46);
+  --nav-active-indicator: #7d6dec;
+  --primary-action: #7d6dec;
+  --primary-action-hover: #9689f4;
   --on-primary-action: #ffffff;
   --info: #64d2ff;
   --info-soft: rgba(100, 210, 255, 0.14);
@@ -84,14 +84,14 @@
   --line-strong: #c9c5dc;
   --text: #1a1c1c;
   --text-secondary: #6b6b6b;
-  --accent: #6554d9;
-  --accent-soft: rgba(101, 84, 217, 0.13);
-  --accent-text: #5847c2;
+  --accent: #5d49cd;
+  --accent-soft: rgba(93, 73, 205, 0.13);
+  --accent-text: #513db7;
   --nav-active-bg: #eeebff;
-  --nav-active-border: #a69af0;
-  --nav-active-indicator: #7161e8;
-  --primary-action: #6554d9;
-  --primary-action-hover: #5040bf;
+  --nav-active-border: #9a8ce7;
+  --nav-active-indicator: #6754da;
+  --primary-action: #5d49cd;
+  --primary-action-hover: #4936ad;
   --on-primary-action: #ffffff;
   --info: #4d6074;
   --info-soft: rgba(77, 96, 116, 0.10);
@@ -124,7 +124,7 @@
   --button-shadow: 0 5px 18px rgba(76, 59, 160, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
   --button-shadow-hover: 0 9px 24px rgba(76, 59, 160, 0.10), inset 0 1px 0 rgba(255, 255, 255, 1);
   --shadow-strong: rgba(47, 49, 48, 0.24);
-  --brand-gradient: linear-gradient(135deg, #8b7cf6, #5847c2);
+  --brand-gradient: linear-gradient(135deg, #7d6dec, #513db7);
   --radius-sm: 8px;
   --radius-md: 10px;
   --radius-lg: 14px;
@@ -6599,13 +6599,13 @@ pre,
 :root:not([data-theme="light"]) .workspace-profile-list .profile-row.selected,
 :root:not([data-theme="light"]) .sidebar-profile-row.selected,
 :root:not([data-theme="light"]) .conv-row.active {
-  border-color: rgba(139, 124, 246, 0.38);
-  background: rgba(139, 124, 246, 0.12);
+  border-color: rgba(125, 109, 236, 0.38);
+  background: rgba(125, 109, 236, 0.12);
 }
 
 :root:not([data-theme="light"]) .workspace-active-dot {
-  background: #8b7cf6;
-  box-shadow: 0 0 0 3px rgba(139, 124, 246, 0.12);
+  background: #7d6dec;
+  box-shadow: 0 0 0 3px rgba(125, 109, 236, 0.12);
 }
 
 :root:not([data-theme="light"]) .assistant-bubble {
@@ -6693,7 +6693,7 @@ pre,
 :root[data-theme="light"] .sidebar-page-link.active {
   border-color: rgba(169, 164, 198, 0.58);
   background: rgba(238, 238, 237, 0.82);
-  box-shadow: inset 3px 0 0 #7161e8;
+  box-shadow: inset 3px 0 0 #6754da;
 }
 
 :root[data-theme="light"] .workspace-section-head,
@@ -6706,9 +6706,9 @@ pre,
 :root[data-theme="light"] .workspace-profile-list .profile-row.selected,
 :root[data-theme="light"] .sidebar-profile-row.selected,
 :root[data-theme="light"] .conv-row.active {
-  border-color: rgba(101, 84, 217, 0.36);
+  border-color: rgba(93, 73, 205, 0.36);
   background: #eeebff;
-  box-shadow: inset 3px 0 0 #7161e8;
+  box-shadow: inset 3px 0 0 #6754da;
 }
 
 :root[data-theme="light"] .workspace-profile-list .profile-row {
@@ -6722,8 +6722,8 @@ pre,
 }
 
 :root[data-theme="light"] .workspace-active-dot {
-  background: #7161e8;
-  box-shadow: 0 0 0 3px rgba(101, 84, 217, 0.13);
+  background: #6754da;
+  box-shadow: 0 0 0 3px rgba(93, 73, 205, 0.13);
 }
 
 :root[data-theme="light"] .assistant-bubble {
@@ -6737,8 +6737,8 @@ pre,
 }
 
 :root[data-theme="light"] .msg-user-bubble {
-  border-color: #6554d9;
-  background: linear-gradient(135deg, #7563e8, #6554d9);
+  border-color: #5d49cd;
+  background: linear-gradient(135deg, #6d5bdf, #5d49cd);
   color: #ffffff;
   box-shadow: 0 12px 34px rgba(76, 59, 160, 0.14);
 }
@@ -6776,7 +6776,7 @@ pre,
 :root[data-theme="light"] .tab-pill-active,
 :root[data-theme="light"] .chat-mode-toggle button.active {
   background: #e8e8e7;
-  color: #5847c2;
+  color: #513db7;
   box-shadow: inset 0 0 0 1px rgba(169, 164, 198, 0.52);
 }
 
