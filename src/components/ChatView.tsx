@@ -701,12 +701,13 @@ export function ChatView() {
             onMouseDown={(event) => event.stopPropagation()}
             onSubmit={(event) => {
               event.preventDefault();
-              s.createProject(projectName, projectMode);
+              const projectId = s.createProject(projectName, projectMode);
+              if (projectId) window.dispatchEvent(new CustomEvent("nextbrowser:project-created", { detail: { id: projectId } }));
               setProjectCreatorOpen(false);
             }}
           >
             <div className="profile-menu-head">
-              <span id="project-create-title" className="profile-menu-name">New project chat</span>
+              <span id="project-create-title" className="profile-menu-name">New project</span>
               <span className="spacer" />
               <button type="button" className="plain-icon-btn" aria-label="Close" onClick={() => setProjectCreatorOpen(false)}>
                 <Icon name="xmark" size={17} />

@@ -72,6 +72,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const profileCreateRequestRef = useRef<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const projectListRef = useRef<HTMLDivElement | null>(null);
+  const profileListRef = useRef<HTMLDivElement | null>(null);
 
   const runProfileAction = (label: string, code: string, action: () => Promise<void>) => {
     setProfileActionError(null);
@@ -146,6 +148,28 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     setProfileMoveError(null);
     if (menuProfile) void s.loadProxyCountries().catch(() => {});
   }, [menuProfile]);
+
+  useEffect(() => {
+    const revealProject = () => {
+      setProjectsOpen(true);
+      window.requestAnimationFrame(() => projectListRef.current?.scrollTo({ top: 0, behavior: "smooth" }));
+    };
+    const revealProfile = () => setProfilesOpen(true);
+    window.addEventListener("nextbrowser:project-created", revealProject);
+    window.addEventListener("nextbrowser:profile-created", revealProfile);
+    return () => {
+      window.removeEventListener("nextbrowser:project-created", revealProject);
+      window.removeEventListener("nextbrowser:profile-created", revealProfile);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!profilesOpen || !s.selectedProfile) return;
+    const frame = window.requestAnimationFrame(() => {
+      profileListRef.current?.querySelector<HTMLElement>(".profile-row.selected")?.scrollIntoView({ block: "nearest" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [profilesOpen, s.selectedProfile, visibleWorkspaceProfiles.length]);
 
   useEffect(() => {
     let focusTimer = 0;
@@ -309,6 +333,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     try {
       await s.createManualProxyProfile(input);
       s.assignProfileToProject(input.name, "clawbrowser");
+      s.selectProfile(input.name);
+      window.dispatchEvent(new CustomEvent("nextbrowser:profile-created", { detail: { name: input.name } }));
       resetManualProxyForm();
       setManualProxyOpen(false);
     } catch {
@@ -345,6 +371,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       if (profileCreateRequestRef.current !== requestId) return;
       s.assignProfileToProject(createdName, profileToolset, undefined, true);
       s.selectProfile(createdName);
+      window.dispatchEvent(new CustomEvent("nextbrowser:profile-created", { detail: { name: createdName } }));
       setProfileCreationStage("Ready");
       await new Promise((resolve) => window.setTimeout(resolve, 450));
       if (profileCreateRequestRef.current !== requestId) return;
@@ -532,7 +559,14 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               className="search-inline"
               placeholder="Search"
               value={s.profileSearch}
-              onChange={(e) => s.setProfileSearch(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value.trim()) {
+                  setProjectsOpen(true);
+                  setProfilesOpen(true);
+                }
+                s.setProfileSearch(value);
+              }}
             />
             {s.profileSearch && (
               <button
@@ -555,11 +589,11 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   <span className="workspace-count">{projects.length}</span>
                 </button>
                 <span className="spacer" />
-                <button className="plain-icon-btn plain-icon-btn-compact" title="New chat" onClick={() => window.dispatchEvent(new CustomEvent("nextbrowser:create-project"))}>
+                <button className="plain-icon-btn plain-icon-btn-compact" title="New project" onClick={() => window.dispatchEvent(new CustomEvent("nextbrowser:create-project"))}>
                   <Icon name="plus" size={12} />
                 </button>
               </div>
-              {projectsOpen && <div className="workspace-chat-list">
+              {projectsOpen && <div ref={projectListRef} className="workspace-chat-list">
                 {visibleChats.map((chat) => (
                   <button
                     key={chat.id}
@@ -603,7 +637,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   <span className="workspace-count">{visibleProfileCount}</span>
                 </button>
               </div>
-              {profilesOpen && <div className="workspace-profile-list">
+              {profilesOpen && <div ref={profileListRef} className="workspace-profile-list">
                 {visibleWorkspaceProfiles.map(({ profile: p, owner, toolset }) => {
                       const status = s.statuses[p.name] ?? "unknown";
                       const running = status === "running";
