@@ -16,15 +16,15 @@
   --text: #e6e1e1;
   --text-secondary: #aaa6a4;
   --muted: var(--text-secondary);
-  --accent: #d4af37;
-  --accent-soft: rgba(212, 175, 55, 0.14);
-  --accent-text: #f2e1a3;
-  --nav-active-bg: rgba(212, 175, 55, 0.12);
-  --nav-active-border: rgba(212, 175, 55, 0.42);
-  --nav-active-indicator: #d4af37;
-  --primary-action: #d4af37;
-  --primary-action-hover: #e2c15a;
-  --on-primary-action: #17140b;
+  --accent: #8b7cf6;
+  --accent-soft: rgba(139, 124, 246, 0.16);
+  --accent-text: #cbc5ff;
+  --nav-active-bg: rgba(139, 124, 246, 0.13);
+  --nav-active-border: rgba(139, 124, 246, 0.46);
+  --nav-active-indicator: #8b7cf6;
+  --primary-action: #8b7cf6;
+  --primary-action-hover: #a89cff;
+  --on-primary-action: #ffffff;
   --info: #64d2ff;
   --info-soft: rgba(100, 210, 255, 0.14);
   --green: #34c759;
@@ -74,24 +74,24 @@
   --font-display: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --brand-ink: #1a1c1c;
   --brand-paper: #f9f9f8;
-  --brand-line: rgba(127, 118, 99, 0.20);
+  --brand-line: rgba(111, 99, 168, 0.20);
   --brand-blue: #4d6074;
   --bg: #f9f9f8;
   --bg-elevated: #ffffff;
-  --panel: #f2f2f0;
+  --panel: #f3f2f7;
   --card: #ffffff;
-  --line: #e5e5e2;
-  --line-strong: #d0c5af;
+  --line: #e6e4ec;
+  --line-strong: #c9c5dc;
   --text: #1a1c1c;
   --text-secondary: #6b6b6b;
-  --accent: #735c00;
-  --accent-soft: rgba(212, 175, 55, 0.14);
-  --accent-text: #735c00;
-  --nav-active-bg: #f2eedf;
-  --nav-active-border: #c9b46f;
-  --nav-active-indicator: #b8962e;
-  --primary-action: #735c00;
-  --primary-action-hover: #574500;
+  --accent: #6554d9;
+  --accent-soft: rgba(101, 84, 217, 0.13);
+  --accent-text: #5847c2;
+  --nav-active-bg: #eeebff;
+  --nav-active-border: #a69af0;
+  --nav-active-indicator: #7161e8;
+  --primary-action: #6554d9;
+  --primary-action-hover: #5040bf;
   --on-primary-action: #ffffff;
   --info: #4d6074;
   --info-soft: rgba(77, 96, 116, 0.10);
@@ -102,29 +102,29 @@
   --red-soft: rgba(201, 52, 44, 0.11);
   --warn: #a85d00;
   --warn-soft: rgba(168, 93, 0, 0.12);
-  --surface-1: rgba(77, 70, 53, 0.025);
-  --surface-2: rgba(77, 70, 53, 0.045);
-  --surface-3: rgba(77, 70, 53, 0.065);
-  --surface-4: rgba(77, 70, 53, 0.085);
-  --surface-5: rgba(77, 70, 53, 0.11);
-  --surface-6: rgba(77, 70, 53, 0.14);
-  --surface-7: rgba(77, 70, 53, 0.18);
-  --surface-8: rgba(77, 70, 53, 0.23);
-  --surface-9: rgba(77, 70, 53, 0.31);
-  --input-border: rgba(208, 197, 175, 0.82);
+  --surface-1: rgba(72, 64, 110, 0.025);
+  --surface-2: rgba(72, 64, 110, 0.045);
+  --surface-3: rgba(72, 64, 110, 0.065);
+  --surface-4: rgba(72, 64, 110, 0.085);
+  --surface-5: rgba(72, 64, 110, 0.11);
+  --surface-6: rgba(72, 64, 110, 0.14);
+  --surface-7: rgba(72, 64, 110, 0.18);
+  --surface-8: rgba(72, 64, 110, 0.23);
+  --surface-9: rgba(72, 64, 110, 0.31);
+  --input-border: rgba(169, 164, 198, 0.82);
   --overlay: rgba(47, 49, 48, 0.30);
-  --shadow: rgba(115, 92, 0, 0.13);
-  --shadow-sm: 0 1px 2px rgba(115, 92, 0, 0.10);
+  --shadow: rgba(76, 59, 160, 0.13);
+  --shadow-sm: 0 1px 2px rgba(76, 59, 160, 0.10);
   --on-accent: #fff;
   --scroll-track: #f3f4f3;
-  --scroll-thumb: #d0c5af;
-  --scroll-thumb-hover: #a99d84;
-  --onboarding-bg: linear-gradient(145deg, #f2f2f0, #ffffff);
+  --scroll-thumb: #c9c5dc;
+  --scroll-thumb-hover: #9d95c4;
+  --onboarding-bg: linear-gradient(145deg, #f3f2f7, #ffffff);
   --demo-bg: linear-gradient(145deg, #f3f4f3, #ffffff);
-  --button-shadow: 0 5px 18px rgba(115, 92, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  --button-shadow-hover: 0 9px 24px rgba(115, 92, 0, 0.10), inset 0 1px 0 rgba(255, 255, 255, 1);
+  --button-shadow: 0 5px 18px rgba(76, 59, 160, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --button-shadow-hover: 0 9px 24px rgba(76, 59, 160, 0.10), inset 0 1px 0 rgba(255, 255, 255, 1);
   --shadow-strong: rgba(47, 49, 48, 0.24);
-  --brand-gradient: linear-gradient(135deg, #d4af37, #735c00);
+  --brand-gradient: linear-gradient(135deg, #8b7cf6, #5847c2);
   --radius-sm: 8px;
   --radius-md: 10px;
   --radius-lg: 14px;
@@ -6147,7 +6147,7 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .agent-gate-connect { justify-content: center; min-height: 42px; }
 
 /* --------------------------------------------------------------------------
-   Theme direction: Obsidian Noir (dark) and Sandy / Obsidian Light (light)
+   Theme direction: Obsidian Violet across dark and light modes
 
    The product structure deliberately stays unchanged. These rules provide a
    shared visual hierarchy for every existing control while each theme keeps
@@ -6568,13 +6568,13 @@ pre,
 :root:not([data-theme="light"]) .workspace-profile-list .profile-row.selected,
 :root:not([data-theme="light"]) .sidebar-profile-row.selected,
 :root:not([data-theme="light"]) .conv-row.active {
-  border-color: rgba(212, 175, 55, 0.36);
-  background: rgba(212, 175, 55, 0.11);
+  border-color: rgba(139, 124, 246, 0.38);
+  background: rgba(139, 124, 246, 0.12);
 }
 
 :root:not([data-theme="light"]) .workspace-active-dot {
-  background: #d4af37;
-  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.11);
+  background: #8b7cf6;
+  box-shadow: 0 0 0 3px rgba(139, 124, 246, 0.12);
 }
 
 :root:not([data-theme="light"]) .assistant-bubble {
@@ -6602,7 +6602,7 @@ pre,
   background: #1c1b1b;
 }
 
-/* Light — Sandy / Obsidian Light: warm ivory, precise borders and gold. */
+/* Light — Obsidian Light: clean neutrals, precise borders and violet accents. */
 :root[data-theme="light"] .app {
   background: #f9f9f8;
 }
@@ -6612,26 +6612,26 @@ pre,
 }
 
 :root[data-theme="light"] .sidebar {
-  border-right-color: #d0c5af;
-  background: #f2f2f0;
+  border-right-color: #c9c5dc;
+  background: #f3f2f7;
 }
 
 :root[data-theme="light"] .tabbar,
 :root[data-theme="light"] .chat-header,
 :root[data-theme="light"] .composer {
-  border-color: rgba(208, 197, 175, 0.68);
+  border-color: rgba(169, 164, 198, 0.68);
   background: rgba(255, 255, 255, 0.92);
 }
 
 :root[data-theme="light"] .sidebar-brand {
-  border-color: rgba(208, 197, 175, 0.68);
-  background: #f2f2f0;
+  border-color: rgba(169, 164, 198, 0.68);
+  background: #f3f2f7;
 }
 
 :root[data-theme="light"] .claw-card,
 :root[data-theme="light"] .workspace-profile-list .profile-row,
 :root[data-theme="light"] .modal-card {
-  border-color: rgba(208, 197, 175, 0.64);
+  border-color: rgba(169, 164, 198, 0.64);
   background: #ffffff;
   box-shadow: none;
 }
@@ -6643,7 +6643,7 @@ pre,
 }
 
 :root[data-theme="light"] .profiles-panel-head {
-  border-color: rgba(208, 197, 175, 0.88);
+  border-color: rgba(169, 164, 198, 0.88);
   background: #e8e8e7;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
@@ -6655,29 +6655,29 @@ pre,
 }
 
 :root[data-theme="light"] .sidebar-link-card:hover {
-  border-color: rgba(208, 197, 175, 0.52);
+  border-color: rgba(169, 164, 198, 0.52);
   background: rgba(255, 255, 255, 0.62);
 }
 
 :root[data-theme="light"] .sidebar-page-link.active {
-  border-color: rgba(208, 197, 175, 0.58);
+  border-color: rgba(169, 164, 198, 0.58);
   background: rgba(238, 238, 237, 0.82);
-  box-shadow: inset 3px 0 0 #b8962e;
+  box-shadow: inset 3px 0 0 #7161e8;
 }
 
 :root[data-theme="light"] .workspace-section-head,
 :root[data-theme="light"] .section,
 :root[data-theme="light"] .conv-sidebar-label {
-  color: #4d4635;
+  color: #4d475f;
 }
 
 :root[data-theme="light"] .workspace-chat-row.active,
 :root[data-theme="light"] .workspace-profile-list .profile-row.selected,
 :root[data-theme="light"] .sidebar-profile-row.selected,
 :root[data-theme="light"] .conv-row.active {
-  border-color: rgba(115, 92, 0, 0.36);
-  background: #f2eedf;
-  box-shadow: inset 3px 0 0 #b8962e;
+  border-color: rgba(101, 84, 217, 0.36);
+  background: #eeebff;
+  box-shadow: inset 3px 0 0 #7161e8;
 }
 
 :root[data-theme="light"] .workspace-profile-list .profile-row {
@@ -6686,19 +6686,19 @@ pre,
 }
 
 :root[data-theme="light"] .workspace-profile-list .profile-row:hover {
-  border-color: rgba(208, 197, 175, 0.52);
+  border-color: rgba(169, 164, 198, 0.52);
   background: rgba(255, 255, 255, 0.7);
 }
 
 :root[data-theme="light"] .workspace-active-dot {
-  background: #b8962e;
-  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.13);
+  background: #7161e8;
+  box-shadow: 0 0 0 3px rgba(101, 84, 217, 0.13);
 }
 
 :root[data-theme="light"] .assistant-bubble {
-  border-color: rgba(208, 197, 175, 0.62);
+  border-color: rgba(169, 164, 198, 0.62);
   background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 12px 34px rgba(115, 92, 0, 0.055);
+  box-shadow: 0 12px 34px rgba(76, 59, 160, 0.055);
 }
 
 :root[data-theme="light"] .messages {
@@ -6706,38 +6706,38 @@ pre,
 }
 
 :root[data-theme="light"] .msg-user-bubble {
-  border-color: #735c00;
-  background: linear-gradient(135deg, #806800, #735c00);
+  border-color: #6554d9;
+  background: linear-gradient(135deg, #7563e8, #6554d9);
   color: #ffffff;
-  box-shadow: 0 12px 34px rgba(115, 92, 0, 0.14);
+  box-shadow: 0 12px 34px rgba(76, 59, 160, 0.14);
 }
 
 :root[data-theme="light"] .composer textarea {
-  border-color: rgba(208, 197, 175, 0.82);
+  border-color: rgba(169, 164, 198, 0.82);
   background: #ffffff;
 }
 
 :root[data-theme="light"] .agent-terminal-panel {
-  border-color: rgba(208, 197, 175, 0.72);
+  border-color: rgba(169, 164, 198, 0.72);
   background: #f9f9f8;
-  box-shadow: 0 18px 46px rgba(115, 92, 0, 0.08);
+  box-shadow: 0 18px 46px rgba(76, 59, 160, 0.08);
 }
 
 :root[data-theme="light"] .agent-terminal-header {
-  border-bottom-color: rgba(208, 197, 175, 0.62);
+  border-bottom-color: rgba(169, 164, 198, 0.62);
   background: #eeeeed;
 }
 
 :root[data-theme="light"] .btn-bordered,
 :root[data-theme="light"] .secondary,
 :root[data-theme="light"] .mini {
-  border-color: rgba(208, 197, 175, 0.72);
+  border-color: rgba(169, 164, 198, 0.72);
   background: linear-gradient(180deg, #eeeeed, #e8e8e7);
 }
 
 :root[data-theme="light"] .tabbar-group,
 :root[data-theme="light"] .chat-mode-toggle {
-  border-color: rgba(208, 197, 175, 0.58);
+  border-color: rgba(169, 164, 198, 0.58);
   background: #f3f4f3;
 }
 
@@ -6745,14 +6745,14 @@ pre,
 :root[data-theme="light"] .tab-pill-active,
 :root[data-theme="light"] .chat-mode-toggle button.active {
   background: #e8e8e7;
-  color: #735c00;
-  box-shadow: inset 0 0 0 1px rgba(208, 197, 175, 0.52);
+  color: #5847c2;
+  box-shadow: inset 0 0 0 1px rgba(169, 164, 198, 0.52);
 }
 
 :root[data-theme="light"] .modal-card {
-  border-color: rgba(208, 197, 175, 0.78);
+  border-color: rgba(169, 164, 198, 0.78);
   background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 28px 80px rgba(115, 92, 0, 0.09), inset 0 1px 0 #ffffff;
+  box-shadow: 0 28px 80px rgba(76, 59, 160, 0.09), inset 0 1px 0 #ffffff;
   backdrop-filter: blur(32px) saturate(110%);
   -webkit-backdrop-filter: blur(32px) saturate(110%);
 }
