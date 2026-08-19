@@ -561,6 +561,50 @@ describe("browser profile creation", () => {
       extraEnv: { NBC_PROXY_PASSWORD: "secret-pass" },
     }));
   });
+
+  it("creates a profile from a saved proxy without exposing credentials to the renderer", async () => {
+    bridge.invoke.mockImplementation((command) => Promise.resolve(command === "manual_proxy_profile_create"
+      ? { stdout: JSON.stringify({ ok: true, data: {} }), stderr: "", code: 0 }
+      : { stdout: JSON.stringify({ ok: true, data: { profiles: [] } }), stderr: "", code: 0 }));
+
+    await useStore.getState().createPersonalProxyProfile("saved-proxy-test", "proxy-id", {
+      runtime: "camoufox",
+      requestId: "create-request",
+      timeoutMs: 90_000,
+    });
+
+    expect(bridge.invoke).toHaveBeenCalledWith("manual_proxy_profile_create", {
+      profileName: "saved-proxy-test",
+      proxyId: "proxy-id",
+      runtime: "camoufox",
+      requestId: "create-request",
+      timeoutMs: 90_000,
+    });
+    expect(JSON.stringify(bridge.invoke.mock.calls)).not.toContain("NBC_PROXY_PASSWORD");
+  });
+
+  it("persists the personal proxy association in the workspace document", () => {
+    useStore.setState({
+      activeWorkspaceId: "workspace",
+      workspaces: [{
+        id: "workspace",
+        name: "Workspace",
+        profileNames: [],
+        profileToolsets: {},
+        profileProxyIds: {},
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+    });
+
+    useStore.getState().assignProfileToProject("saved-proxy-test", "camoufox", undefined, true, "proxy-id");
+
+    expect(useStore.getState().workspaces[0]).toMatchObject({
+      profileNames: ["saved-proxy-test"],
+      profileToolsets: { "saved-proxy-test": "camoufox" },
+      profileProxyIds: { "saved-proxy-test": "proxy-id" },
+    });
+  });
 });
 
 describe("Live View runtime selection", () => {

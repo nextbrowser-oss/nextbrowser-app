@@ -12,16 +12,20 @@ export function moveProfileToWorkspace(
   if (!target) throw new Error("Workspace not found.");
   if (source.id === target.id) return workspaces;
   const toolset = source.profileToolsets[profileName] ?? "clawbrowser";
+  const proxyId = source.profileProxyIds?.[profileName];
 
   return workspaces.map((workspace) => {
     if (workspace.id !== source.id && workspace.id !== target.id) return workspace;
     const profileNames = workspace.profileNames.filter((name) => name !== profileName);
     const profileToolsets = { ...workspace.profileToolsets };
+    const profileProxyIds = { ...(workspace.profileProxyIds ?? {}) };
     delete profileToolsets[profileName];
+    delete profileProxyIds[profileName];
     if (workspace.id === target.id) {
       profileNames.push(profileName);
       profileToolsets[profileName] = toolset;
+      if (proxyId) profileProxyIds[profileName] = proxyId;
     }
-    return { ...workspace, profileNames, profileToolsets, updatedAt };
+    return { ...workspace, profileNames, profileToolsets, profileProxyIds, updatedAt };
   });
 }

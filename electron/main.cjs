@@ -27,7 +27,18 @@ const {
 } = require("./command-runner.cjs");
 const { topUpProxyTraffic } = require("./proxy-traffic.cjs");
 const { terminateProcessTree } = require("./process-tree.cjs");
-const { deleteProject, deleteWorkspace, listProjects, listWorkspaces, putProject, putWorkspace } = require("./project-sync.cjs");
+const {
+  createPersonalProxy,
+  deletePersonalProxy,
+  deleteProject,
+  deleteWorkspace,
+  listPersonalProxies,
+  listProjects,
+  listWorkspaces,
+  putProject,
+  putWorkspace,
+  resolvePersonalProxy,
+} = require("./project-sync.cjs");
 const { defaultSSHConfigPath, discoverSSHHosts, isAllowedExplicitConfigPath } = require("./ssh-config.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
@@ -865,6 +876,31 @@ async function invokeCommand(command, args = {}, sender) {
     case "multilogin_status": return await multiloginStatus();
     case "multilogin_connect": return await connectMultilogin(args.bearerToken);
     case "multilogin_disconnect": return await disconnectMultilogin();
+    case "manual_proxies_list": return await listPersonalProxies();
+    case "manual_proxy_save": return await createPersonalProxy(args.proxy);
+    case "manual_proxy_delete": return await deletePersonalProxy(args.id);
+    case "manual_proxy_profile_create": {
+      const profileName = String(args.profileName || "").trim();
+      if (!profileName) throw new Error("Profile name is required.");
+      const runtime = ["clawbrowser", "dasbrowser", "camoufox"].includes(args.runtime)
+        ? args.runtime
+        : "clawbrowser";
+      const proxy = await resolvePersonalProxy(args.proxyId);
+      return await executeNextctl([
+        "profiles", "create", profileName,
+        "--manual-proxy",
+        "--proxy-scheme", proxy.scheme,
+        "--proxy-host", proxy.host,
+        "--proxy-port", String(proxy.port),
+        ...(proxy.username ? ["--proxy-username", proxy.username] : []),
+        "--runtime", runtime,
+        "--format", "json",
+      ], {
+        extraEnv: proxy.password ? { NBC_PROXY_PASSWORD: proxy.password } : {},
+        requestId: args.requestId,
+        timeoutMs: args.timeoutMs,
+      });
+    }
     case "nextctl_resolve": return await resolveOrInstallNextctl();
     case "nextctl_install_status": return nextctlInstallStatus;
     case "browser_runtime_install_status": return browserRuntimeInstallStatus;
@@ -1389,7 +1425,7 @@ function createWindow() {
   const icon = loadAppIcon();
   const window = new BrowserWindow({
     title: "NextBrowser", width: 1180, height: 760, minWidth: 960, minHeight: 640,
-    backgroundColor: "#15141c", show: false,
+    backgroundColor: "#0e0e0e", show: false,
     ...(icon ? { icon } : {}),
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: true },
   });

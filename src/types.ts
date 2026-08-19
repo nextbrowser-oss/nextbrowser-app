@@ -47,6 +47,16 @@ export interface ManualProxy {
   username?: string | null;
 }
 
+export interface PersonalProxy {
+  id: string;
+  name: string;
+  scheme: "http" | "socks5";
+  host: string;
+  port: number;
+  username?: string;
+  hasPassword: boolean;
+}
+
 export interface Profile {
   name: string;
   country?: string | null;
@@ -149,6 +159,8 @@ export interface Workspace {
   name: string;
   profileNames: string[];
   profileToolsets: Record<string, BrowserToolset>;
+  /** Personal proxy associations are synced inside the private workspace document. */
+  profileProxyIds?: Record<string, string>;
   createdAt: number;
   updatedAt: number;
 }

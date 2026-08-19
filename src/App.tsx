@@ -36,7 +36,7 @@ import { AgentInstallLink } from "./components/AgentInstallLink";
 import { ConnectorsView } from "./components/ConnectorsView";
 
 const TABS: { id: AppTab; label: string; icon?: string }[] = [
-  { id: "chat", label: "Project", icon: "bubble.left.and.bubble.right.fill" },
+  { id: "chat", label: "Project", icon: "folder" },
   { id: "live", label: "Live", icon: "video.fill" },
 ];
 

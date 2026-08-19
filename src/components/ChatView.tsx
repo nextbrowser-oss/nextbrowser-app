@@ -4,7 +4,6 @@ import { useStore } from "../store";
 import { SCRIPTS } from "../skillsCatalog";
 import { MarkdownText } from "./MarkdownText";
 import { Icon, Spinner } from "./Icon";
-import { BrandLogo } from "./BrandLogo";
 import type { ChatAttachment, ChatMessage } from "../types";
 import { filePathForFile, invoke } from "../electronBridge";
 import { agentById, agentInvocation, type AgentSpec } from "../agents";
@@ -438,7 +437,7 @@ export function ChatView() {
           {messages.length === 0 && (
             <div className="empty-state chat-empty-state">
               <div className="empty-state-mark">
-                <BrandLogo size={38} />
+                <Icon name="cursorarrow" size={24} />
               </div>
               <div>
                 <strong>{agentNeedsLogin ? `Sign in to ${agentName}` : ready ? "Ready for browser work" : "Connect an agent"}</strong>
@@ -702,12 +701,13 @@ export function ChatView() {
             onMouseDown={(event) => event.stopPropagation()}
             onSubmit={(event) => {
               event.preventDefault();
-              s.createProject(projectName, projectMode);
+              const projectId = s.createProject(projectName, projectMode);
+              if (projectId) window.dispatchEvent(new CustomEvent("nextbrowser:project-created", { detail: { id: projectId } }));
               setProjectCreatorOpen(false);
             }}
           >
             <div className="profile-menu-head">
-              <span id="project-create-title" className="profile-menu-name">New project chat</span>
+              <span id="project-create-title" className="profile-menu-name">New project</span>
               <span className="spacer" />
               <button type="button" className="plain-icon-btn" aria-label="Close" onClick={() => setProjectCreatorOpen(false)}>
                 <Icon name="xmark" size={17} />

@@ -27,11 +27,14 @@ export function WorkspaceSetupGate() {
       if (!workspace) {
         await s.createWorkspace(workspaceName);
       } else if (chats.length === 0) {
-        s.createProject(chatName, chatMode);
+        const projectId = s.createProject(chatName, chatMode);
+        if (projectId) window.dispatchEvent(new CustomEvent("nextbrowser:project-created", { detail: { id: projectId } }));
       } else {
         const name = profileName.trim();
         await s.createManagedProfile(name, country, { runtime: toolset, direct });
         s.assignProfileToProject(name, toolset, workspace.id);
+        s.selectProfile(name);
+        window.dispatchEvent(new CustomEvent("nextbrowser:profile-created", { detail: { name } }));
         s.completeWorkspaceSetup();
       }
     } catch (cause) {
@@ -53,17 +56,17 @@ export function WorkspaceSetupGate() {
           <Icon name={step === 1 ? "square.grid.2x2.fill" : step === 2 ? "bubble.left.and.bubble.right.fill" : "globe"} size={20} />
           <div>
             <small>Step {step} of 3</small>
-            <h2>{step === 1 ? "Create your workspace" : step === 2 ? "Create the first chat" : "Create the first browser profile"}</h2>
+            <h2>{step === 1 ? "Create your workspace" : step === 2 ? "Create the first project" : "Create the first browser profile"}</h2>
           </div>
         </div>
         <p className="muted workspace-setup-copy">
           {step === 1 && "A workspace keeps related chats and browser profiles together."}
-          {step === 2 && "Each chat has its own agent context inside this workspace."}
+          {step === 2 && "Each project has its own agent context inside this workspace."}
           {step === 3 && "Profiles belong to the workspace and can be used by one running chat at a time."}
         </p>
         {step === 1 && <label className="modal-field"><span>Workspace name</span><input autoFocus value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} placeholder="My workspace" /></label>}
         {step === 2 && <>
-          <label className="modal-field"><span>Chat name</span><input autoFocus value={chatName} onChange={(event) => setChatName(event.target.value)} placeholder="First chat" /></label>
+          <label className="modal-field"><span>Project name</span><input autoFocus value={chatName} onChange={(event) => setChatName(event.target.value)} placeholder="First project" /></label>
           <fieldset className="project-mode-field"><legend>Interface</legend>
             <label className={"project-mode-option" + (chatMode === "chat" ? " is-selected" : "")}><input type="radio" checked={chatMode === "chat"} onChange={() => setChatMode("chat")} /><Icon name="bubble.left.and.bubble.right.fill" size={16} /><span><strong>Chat</strong><small>Regular conversation UI</small></span></label>
             <label className={"project-mode-option" + (chatMode === "terminal" ? " is-selected" : "")}><input type="radio" checked={chatMode === "terminal"} onChange={() => setChatMode("terminal")} /><Icon name="terminal" size={16} /><span><strong>Terminal</strong><small>Persistent agent terminal</small></span></label>

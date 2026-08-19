@@ -31,6 +31,7 @@ import {
   LockOpen,
   LogOut,
   MessagesSquare,
+  MousePointer2,
   Network,
   Pencil,
   Clapperboard,
@@ -153,6 +154,7 @@ const SF_MAP: Record<string, LucideIcon> = {
   paperclip: Paperclip,
   doc: File,
   folder: FolderOpen,
+  cursorarrow: MousePointer2,
 };
 
 export type SFSymbol = keyof typeof SF_MAP | string;

@@ -14,6 +14,7 @@ import { conversationPreview, type AppTab } from "../types";
 import { CountrySelect } from "./CountrySelect";
 import { UserFacingError } from "./UserFacingError";
 import { VPSSetupModal } from "./VPSSetupModal";
+import { CONNECTORS } from "../connectorsCatalog";
 
 type ManualProxyInputMode = "url" | "fields";
 const PROFILE_CREATE_TIMEOUT_MS = 120_000;
@@ -48,11 +49,15 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [manualPassword, setManualPassword] = useState("");
   const [manualError, setManualError] = useState<string | null>(null);
   const [manualSaving, setManualSaving] = useState(false);
+  const [manualProxyEditing, setManualProxyEditing] = useState(false);
+  const [manualProxyDeleting, setManualProxyDeleting] = useState<string | null>(null);
+  const [manualProxyDeletePending, setManualProxyDeletePending] = useState(false);
   const [createProfileOpen, setCreateProfileOpen] = useState(false);
   const [vpsSetupOpen, setVPSSetupOpen] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [profileCountry, setProfileCountry] = useState("US");
-  const [profileConnection, setProfileConnection] = useState<"managed" | "direct">("managed");
+  const [profileConnection, setProfileConnection] = useState<"managed" | "direct" | "personal">("managed");
+  const [profilePersonalProxyId, setProfilePersonalProxyId] = useState("");
   const [profileToolset, setProfileToolset] = useState<"clawbrowser" | "dasbrowser" | "camoufox">("clawbrowser");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileCreationStage, setProfileCreationStage] = useState<string>();
@@ -64,15 +69,17 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceSaving, setWorkspaceSaving] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
-  const [openWorkspaceSection, setOpenWorkspaceSection] = useState<"projects" | "profiles">("projects");
-  const chatsOpen = openWorkspaceSection === "projects";
-  const profilesOpen = openWorkspaceSection === "profiles";
+  const [projectsOpen, setProjectsOpen] = useState(true);
+  const [profilesOpen, setProfilesOpen] = useState(false);
   const [dragOverProfileName, setDragOverProfileName] = useState<string | null>(null);
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const profileCreateRequestRef = useRef<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const projectListRef = useRef<HTMLDivElement | null>(null);
+  const profileListRef = useRef<HTMLDivElement | null>(null);
+  const workspacePickerRef = useRef<HTMLDivElement | null>(null);
 
   const runProfileAction = (label: string, code: string, action: () => Promise<void>) => {
     setProfileActionError(null);
@@ -143,10 +150,69 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const runningCount = profileWorkspaceEntries.filter(({ profile }) => s.statuses[profile.name] === "running").length;
   const proxyCountries = s.proxyCountries.length ? s.proxyCountries : ROTATION_COUNTRIES;
 
+  const openProfileCreator = () => {
+    if (!s.authed) {
+      s.setDashboardKeyPromptOpen(true);
+      return;
+    }
+    setProfileName("");
+    setProfileCountry("US");
+    setProfileConnection("managed");
+    setProfilePersonalProxyId(s.personalProxies[0]?.id ?? "");
+    setProfileToolset("clawbrowser");
+    setProfileError(null);
+    setCreateProfileOpen(true);
+    void Promise.all([
+      s.loadProxyCountries().catch(() => undefined),
+      s.loadPersonalProxies().catch(() => undefined),
+    ]);
+  };
+
+  useEffect(() => {
+    if (s.authed) void s.loadPersonalProxies().catch(() => undefined);
+  }, [s.authed]);
+
+  useEffect(() => {
+    if (profilePersonalProxyId || s.personalProxies.length === 0) return;
+    setProfilePersonalProxyId(s.personalProxies[0].id);
+  }, [profilePersonalProxyId, s.personalProxies]);
+
+  useEffect(() => {
+    if (!workspaceMenuOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (workspacePickerRef.current?.contains(event.target as Node)) return;
+      setWorkspaceMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [workspaceMenuOpen]);
+
   useEffect(() => {
     setProfileMoveError(null);
     if (menuProfile) void s.loadProxyCountries().catch(() => {});
   }, [menuProfile]);
+
+  useEffect(() => {
+    const revealProject = () => {
+      setProjectsOpen(true);
+      window.requestAnimationFrame(() => projectListRef.current?.scrollTo({ top: 0, behavior: "smooth" }));
+    };
+    const revealProfile = () => setProfilesOpen(true);
+    window.addEventListener("nextbrowser:project-created", revealProject);
+    window.addEventListener("nextbrowser:profile-created", revealProfile);
+    return () => {
+      window.removeEventListener("nextbrowser:project-created", revealProject);
+      window.removeEventListener("nextbrowser:profile-created", revealProfile);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!profilesOpen || !s.selectedProfile) return;
+    const frame = window.requestAnimationFrame(() => {
+      profileListRef.current?.querySelector<HTMLElement>(".profile-row.selected")?.scrollIntoView({ block: "nearest" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [profilesOpen, s.selectedProfile, visibleWorkspaceProfiles.length]);
 
   useEffect(() => {
     let focusTimer = 0;
@@ -161,13 +227,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         s.setDashboardKeyPromptOpen(true);
         return;
       }
-      setProfileName("");
-      setProfileCountry("US");
-      setProfileConnection("managed");
-      setProfileToolset("clawbrowser");
-      setProfileError(null);
-      setCreateProfileOpen(true);
-      void s.loadProxyCountries().catch(() => {});
+      openProfileCreator();
     };
     const openActions = () => {
       focusProfiles();
@@ -224,7 +284,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
   const badgeFor = (id: AppTab) => {
     if (id === "skills") return skillCount ? String(skillCount) : undefined;
-    if (id === "scheduled") return s.scheduledRuns.length ? String(s.scheduledRuns.length) : undefined;
+    if (id === "connectors") return String(CONNECTORS.length);
+    if (id === "scheduled") return String(s.scheduledRuns.length);
     return undefined;
   };
 
@@ -308,12 +369,12 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     setManualSaving(true);
     setManualError(null);
     try {
-      await s.createManualProxyProfile(input);
-      s.assignProfileToProject(input.name, "clawbrowser");
+      const saved = await s.savePersonalProxy(input);
+      setProfilePersonalProxyId(saved.id);
       resetManualProxyForm();
-      setManualProxyOpen(false);
+      setManualProxyEditing(false);
     } catch {
-      setManualError(internalError("We couldn't create the proxy profile.", "PROXY_PROFILE_CREATE_FAILED"));
+      setManualError(internalError("We couldn't save the proxy.", "PERSONAL_PROXY_SAVE_FAILED"));
     } finally {
       setManualSaving(false);
     }
@@ -333,19 +394,37 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     setProfileError(null);
     const runtimeStageTimer = window.setTimeout(() => setProfileCreationStage("Preparing browser runtime"), 600);
     const identityStageTimer = window.setTimeout(() => setProfileCreationStage(
-      profileConnection === "managed" ? "Preparing identity and proxy" : "Finalizing profile",
+      profileConnection === "managed"
+        ? "Preparing identity and proxy"
+        : profileConnection === "personal" ? "Applying personal proxy" : "Finalizing profile",
     ), 4_000);
     try {
       const createdName = profileName.trim();
-      await s.createManagedProfile(createdName, profileCountry, {
-        requestId,
-        timeoutMs: PROFILE_CREATE_TIMEOUT_MS,
-        runtime: profileToolset,
-        direct: profileConnection === "direct",
-      });
+      if (profileConnection === "personal") {
+        if (!profilePersonalProxyId) throw new Error("Choose a personal proxy.");
+        await s.createPersonalProxyProfile(createdName, profilePersonalProxyId, {
+          requestId,
+          timeoutMs: PROFILE_CREATE_TIMEOUT_MS,
+          runtime: profileToolset,
+        });
+      } else {
+        await s.createManagedProfile(createdName, profileCountry, {
+          requestId,
+          timeoutMs: PROFILE_CREATE_TIMEOUT_MS,
+          runtime: profileToolset,
+          direct: profileConnection === "direct",
+        });
+      }
       if (profileCreateRequestRef.current !== requestId) return;
-      s.assignProfileToProject(createdName, profileToolset, undefined, true);
+      s.assignProfileToProject(
+        createdName,
+        profileToolset,
+        undefined,
+        true,
+        profileConnection === "personal" ? profilePersonalProxyId : undefined,
+      );
       s.selectProfile(createdName);
+      window.dispatchEvent(new CustomEvent("nextbrowser:profile-created", { detail: { name: createdName } }));
       setProfileCreationStage("Ready");
       await new Promise((resolve) => window.setTimeout(resolve, 450));
       if (profileCreateRequestRef.current !== requestId) return;
@@ -450,7 +529,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
         <div className={"claw-card control-card profiles-card" + (profileGuideFocus ? " guide-focus" : "")}>
           <div className="row profiles-panel-head">
-            <div className="workspace-picker-wrap">
+            <div className="workspace-picker-wrap" ref={workspacePickerRef}>
               <button
                 className="workspace-picker"
                 title="Switch workspace"
@@ -464,6 +543,20 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 </span>
                 <Icon name="chevron.down" size={11} className={workspaceMenuOpen ? "workspace-chevron open" : "workspace-chevron"} />
               </button>
+              {workspaceMenuOpen && (
+                <div className="workspace-menu">
+                  {s.workspaces.map((workspace) => (
+                    <button
+                      key={workspace.id}
+                      className={workspace.id === s.activeWorkspaceId ? "active" : ""}
+                      onClick={() => { s.selectWorkspace(workspace.id); setWorkspaceMenuOpen(false); }}
+                    >
+                      <Icon name={workspace.id === s.activeWorkspaceId ? "checkmark" : "square.grid.2x2"} size={11} />
+                      <span>{workspace.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <button
               className="workspace-create-btn"
@@ -478,53 +571,25 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               <Icon name="plus" size={13} />
             </button>
           </div>
-          {workspaceMenuOpen && (
-            <div className="workspace-menu">
-              {s.workspaces.map((workspace) => (
-                <button
-                  key={workspace.id}
-                  className={workspace.id === s.activeWorkspaceId ? "active" : ""}
-                  onClick={() => { s.selectWorkspace(workspace.id); setWorkspaceMenuOpen(false); }}
-                >
-                  <Icon name={workspace.id === s.activeWorkspaceId ? "checkmark" : "square.grid.2x2"} size={11} />
-                  <span>{workspace.name}</span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="session-quick-actions">
-            <button
-              className="btn-bordered full"
-              title={s.authed ? "Create managed profile" : "Sign in to create a managed profile"}
-              disabled={s.isRefreshing || !activeProject}
-              onClick={() => {
-                if (!s.authed) {
-                  s.setDashboardKeyPromptOpen(true);
-                  return;
-                }
-                setProfileName("");
-                setProfileCountry("US");
-                setProfileConnection("managed");
-                setProfileToolset("clawbrowser");
-                setProfileError(null);
-                setCreateProfileOpen(true);
-              }}
-            >
-              <Icon name={s.authed ? "plus" : "lock"} size={14} />
-              {s.authed ? activeProject ? "Create profile" : "Create a project first" : "Sign in"}
-            </button>
-            <button
-              className="mini proxy-profile-btn"
-              title="Create a profile with a manual proxy"
-              onClick={() => {
-                resetManualProxyForm();
-                setManualProxyOpen(true);
-              }}
-            >
-              Proxy
-            </button>
-          </div>
+          <button
+            className="proxy-manager-entry"
+            title="Create or manage personal proxies"
+            onClick={() => {
+              if (!s.authed) {
+                s.setDashboardKeyPromptOpen(true);
+                return;
+              }
+              resetManualProxyForm();
+              setManualProxyEditing(false);
+              setManualProxyDeleting(null);
+              setManualProxyOpen(true);
+              void s.loadPersonalProxies().catch(() => undefined);
+            }}
+          >
+            <Icon name="network" size={13} />
+            <span>Create proxy</span>
+            {s.personalProxies.length > 0 && <span className="workspace-count">{s.personalProxies.length}</span>}
+          </button>
 
           <div className="search-box">
             <Icon name="magnifyingglass" size={12} className="muted" />
@@ -533,7 +598,14 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               className="search-inline"
               placeholder="Search"
               value={s.profileSearch}
-              onChange={(e) => s.setProfileSearch(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value.trim()) {
+                  setProjectsOpen(true);
+                  setProfilesOpen(true);
+                }
+                s.setProfileSearch(value);
+              }}
             />
             {s.profileSearch && (
               <button
@@ -547,20 +619,21 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           </div>
 
           <div className="profile-list workspace-content">
-            <section className="workspace-section workspace-chats">
+            <section className={"workspace-section workspace-chats" + (projectsOpen ? " is-open" : "")}>
               <div className="workspace-section-head">
-                <button className="workspace-section-toggle" onClick={() => setOpenWorkspaceSection(chatsOpen ? "profiles" : "projects")} aria-expanded={chatsOpen} aria-label={chatsOpen ? "Collapse projects" : "Expand projects"}>
-                  <Icon name="chevron.right" size={10} className={chatsOpen ? "section-chevron open" : "section-chevron"} />
-                  <Icon name="bubble.left.and.bubble.right.fill" size={12} />
+                <button className="workspace-section-toggle" onClick={() => setProjectsOpen((open) => !open)} aria-expanded={projectsOpen} aria-label={projectsOpen ? "Collapse projects" : "Expand projects"}>
+                  <Icon name="chevron.right" size={10} className={projectsOpen ? "section-chevron open" : "section-chevron"} />
+                  <Icon name="folder" size={12} />
                   <span>Projects</span>
                   <span className="workspace-count">{projects.length}</span>
                 </button>
                 <span className="spacer" />
-                <button className="plain-icon-btn plain-icon-btn-compact" title="New chat" onClick={() => window.dispatchEvent(new CustomEvent("nextbrowser:create-project"))}>
+                <button className="workspace-create-action" title="Create project" aria-label="Create project" onClick={() => window.dispatchEvent(new CustomEvent("nextbrowser:create-project"))}>
                   <Icon name="plus" size={12} />
+                  <span>Create</span>
                 </button>
               </div>
-              {chatsOpen && <div className="workspace-chat-list">
+              {projectsOpen && <div ref={projectListRef} className="workspace-chat-list">
                 {visibleChats.map((chat) => (
                   <button
                     key={chat.id}
@@ -595,16 +668,27 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               </div>}
             </section>
 
-            <section className="workspace-section workspace-profiles">
+            <section className={"workspace-section workspace-profiles" + (profilesOpen ? " is-open" : "")}>
               <div className="workspace-section-head">
-                <button className="workspace-section-toggle" onClick={() => setOpenWorkspaceSection(profilesOpen ? "projects" : "profiles")} aria-expanded={profilesOpen} aria-label={profilesOpen ? "Collapse profiles" : "Expand profiles"}>
+                <button className="workspace-section-toggle" onClick={() => setProfilesOpen((open) => !open)} aria-expanded={profilesOpen} aria-label={profilesOpen ? "Collapse profiles" : "Expand profiles"}>
                   <Icon name="chevron.right" size={10} className={profilesOpen ? "section-chevron open" : "section-chevron"} />
-                  <Icon name="folder.fill" size={12} />
+                  <Icon name="person.2.fill" size={12} />
                   <span>Profiles</span>
                   <span className="workspace-count">{visibleProfileCount}</span>
                 </button>
+                <span className="spacer" />
+                <button
+                  className="workspace-create-action"
+                  title={activeProject ? "Create profile" : "Create a project first"}
+                  aria-label="Create profile"
+                  disabled={s.isRefreshing || !activeProject}
+                  onClick={openProfileCreator}
+                >
+                  <Icon name={s.authed ? "plus" : "lock"} size={12} />
+                  <span>Create</span>
+                </button>
               </div>
-              {profilesOpen && <div className="workspace-profile-list">
+              {profilesOpen && <div ref={profileListRef} className="workspace-profile-list">
                 {visibleWorkspaceProfiles.map(({ profile: p, owner, toolset }) => {
                       const status = s.statuses[p.name] ?? "unknown";
                       const running = status === "running";
@@ -787,8 +871,22 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 <Icon name="globe" size={16} />
                 <span><strong>Managed proxy</strong><small>Choose the proxy country</small></span>
               </label>
+              <label className={"project-mode-option" + (profileConnection === "personal" ? " is-selected" : "")}>
+                <input
+                  type="radio"
+                  name="profile-connection"
+                  checked={profileConnection === "personal"}
+                  onChange={() => {
+                    setProfileConnection("personal");
+                    setProfilePersonalProxyId((current) => current || s.personalProxies[0]?.id || "");
+                    void s.loadPersonalProxies().catch(() => undefined);
+                  }}
+                />
+                <Icon name="network" size={16} />
+                <span><strong>Personal proxy</strong><small>Use one of your saved proxies</small></span>
+              </label>
             </fieldset>
-            {profileConnection === "managed" && <div className="modal-field">
+            {profileConnection === "managed" && <div className="modal-field profile-proxy-country-field">
               <span>Proxy country</span>
               <CountrySelect
                 countries={proxyCountries}
@@ -798,6 +896,52 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 onChange={setProfileCountry}
               />
             </div>}
+            {profileConnection === "personal" && (
+              <div className="modal-field profile-personal-proxy-field">
+                <span className="profile-field-heading">
+                  <span>Personal proxy</span>
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={() => {
+                      resetManualProxyForm();
+                      setManualProxyEditing(s.personalProxies.length === 0);
+                      setManualProxyDeleting(null);
+                      setManualProxyOpen(true);
+                    }}
+                  >
+                    {s.personalProxies.length ? "Manage" : "Create proxy"}
+                  </button>
+                </span>
+                {s.personalProxies.length ? (
+                  <select
+                    value={profilePersonalProxyId}
+                    disabled={profileSaving}
+                    onChange={(event) => setProfilePersonalProxyId(event.target.value)}
+                    aria-label="Personal proxy"
+                  >
+                    <option value="" disabled>Choose a proxy</option>
+                    {s.personalProxies.map((proxy) => (
+                      <option key={proxy.id} value={proxy.id}>
+                        {proxy.name} · {proxy.scheme.toUpperCase()} · {proxy.host}:{proxy.port}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <button
+                    type="button"
+                    className="personal-proxy-empty-action"
+                    onClick={() => {
+                      resetManualProxyForm();
+                      setManualProxyEditing(true);
+                      setManualProxyOpen(true);
+                    }}
+                  >
+                    <Icon name="plus" size={13} /> Create your first proxy
+                  </button>
+                )}
+              </div>
+            )}
             <fieldset className="project-mode-field profile-toolset-field">
               <legend>Browser toolset</legend>
               <label className={"project-mode-option" + (profileToolset === "clawbrowser" ? " is-selected" : "")}>
@@ -848,7 +992,11 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               <button type="button" className="secondary" onClick={closeProfileCreator}>
                 {profileSaving ? "Cancel creation" : "Cancel"}
               </button>
-              <button type="submit" className="primary" disabled={profileSaving || !profileName.trim()}>
+              <button
+                type="submit"
+                className="primary"
+                disabled={profileSaving || !profileName.trim() || (profileConnection === "personal" && !profilePersonalProxyId)}
+              >
                 {profileSaving ? <Spinner size={13} /> : <Icon name="plus" size={13} />}
                 {profileSaving ? profileCreationStage ?? "Creating…" : "Create profile"}
               </button>
@@ -1021,118 +1169,197 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       {vpsSetupOpen && <VPSSetupModal onClose={() => setVPSSetupOpen(false)} />}
 
       {manualProxyOpen && createPortal((
-        <div className="modal-overlay" onMouseDown={() => !manualSaving && setManualProxyOpen(false)}>
-          <form className="modal-card manual-proxy-modal" onSubmit={submitManualProxy} onMouseDown={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onMouseDown={() => !manualSaving && !manualProxyDeletePending && setManualProxyOpen(false)}>
+          <div className="modal-card manual-proxy-modal" onMouseDown={(e) => e.stopPropagation()}>
             <div className="profile-menu-head">
               <Icon name="network" size={16} className="accent-icon" />
-              <span className="profile-menu-name">Manual proxy</span>
+              <span className="profile-menu-name">{manualProxyEditing ? "Create proxy" : "Personal proxies"}</span>
               <span className="spacer" />
               <button
                 type="button"
                 className="plain-icon-btn"
                 title="Close"
-                disabled={manualSaving}
+                disabled={manualSaving || manualProxyDeletePending}
                 onClick={() => setManualProxyOpen(false)}
               >
                 <Icon name="xmark.circle.fill" size={18} />
               </button>
             </div>
-
-            <div className="manual-proxy-mode" role="tablist" aria-label="Manual proxy input mode">
-              <button
-                type="button"
-                className={manualProxyMode === "url" ? "active" : ""}
-                aria-selected={manualProxyMode === "url"}
-                onClick={() => {
-                  setManualProxyMode("url");
-                  setManualError(null);
-                }}
-              >
-                <Icon name="network" size={13} />
-                URL
-              </button>
-              <button
-                type="button"
-                className={manualProxyMode === "fields" ? "active" : ""}
-                aria-selected={manualProxyMode === "fields"}
-                onClick={() => {
-                  setManualProxyMode("fields");
-                  setManualError(null);
-                }}
-              >
-                <Icon name="wrench" size={13} />
-                Fields
-              </button>
-            </div>
-
-            {manualProxyMode === "url" ? (
-              <>
-                <label className="modal-field">
-                  <span>Proxy URL</span>
-                  <input
-                    value={manualProxyUrl}
-                    onChange={(e) => setManualProxyUrl(e.target.value)}
-                    placeholder="http://user:pass@host:8080"
-                    autoFocus
-                  />
-                </label>
-                <label className="modal-field">
-                  <span>Name (optional)</span>
-                  <input
-                    value={manualName}
-                    onChange={(e) => setManualName(e.target.value)}
-                    placeholder="generated from proxy URL"
-                  />
-                </label>
-              </>
+            {manualProxyEditing ? (
+              <form className="personal-proxy-editor" onSubmit={submitManualProxy}>
+                <p className="muted personal-proxy-note">Save once, then select this proxy when you create a browser profile.</p>
+                <div className="manual-proxy-mode" role="tablist" aria-label="Manual proxy input mode">
+                  <button
+                    type="button"
+                    className={manualProxyMode === "url" ? "active" : ""}
+                    aria-selected={manualProxyMode === "url"}
+                    onClick={() => {
+                      setManualProxyMode("url");
+                      setManualError(null);
+                    }}
+                  >
+                    <Icon name="network" size={13} /> URL
+                  </button>
+                  <button
+                    type="button"
+                    className={manualProxyMode === "fields" ? "active" : ""}
+                    aria-selected={manualProxyMode === "fields"}
+                    onClick={() => {
+                      setManualProxyMode("fields");
+                      setManualError(null);
+                    }}
+                  >
+                    <Icon name="wrench" size={13} /> Fields
+                  </button>
+                </div>
+                {manualProxyMode === "url" ? (
+                  <>
+                    <label className="modal-field">
+                      <span>Proxy URL</span>
+                      <input
+                        value={manualProxyUrl}
+                        onChange={(e) => setManualProxyUrl(e.target.value)}
+                        placeholder="http://user:pass@host:8080"
+                        autoFocus
+                      />
+                    </label>
+                    <label className="modal-field">
+                      <span>Name (optional)</span>
+                      <input
+                        value={manualName}
+                        onChange={(e) => setManualName(e.target.value)}
+                        placeholder="generated from proxy URL"
+                      />
+                    </label>
+                  </>
+                ) : (
+                  <>
+                    <label className="modal-field">
+                      <span>Name</span>
+                      <input value={manualName} onChange={(e) => setManualName(e.target.value)} autoFocus />
+                    </label>
+                    <div className="manual-proxy-grid">
+                      <label className="modal-field">
+                        <span>Scheme</span>
+                        <select value={manualScheme} onChange={(e) => setManualScheme(e.target.value as ManualProxyScheme)}>
+                          <option value="http">HTTP</option>
+                          <option value="socks5">SOCKS5</option>
+                        </select>
+                      </label>
+                      <label className="modal-field">
+                        <span>Port</span>
+                        <input value={manualPort} inputMode="numeric" onChange={(e) => setManualPort(e.target.value)} />
+                      </label>
+                    </div>
+                    <label className="modal-field">
+                      <span>Host</span>
+                      <input value={manualHost} onChange={(e) => setManualHost(e.target.value)} />
+                    </label>
+                    <label className="modal-field">
+                      <span>Username</span>
+                      <input value={manualUsername} onChange={(e) => setManualUsername(e.target.value)} />
+                    </label>
+                    <label className="modal-field">
+                      <span>Password</span>
+                      <input type="password" value={manualPassword} onChange={(e) => setManualPassword(e.target.value)} />
+                    </label>
+                  </>
+                )}
+                {manualError && (
+                  <div className="error manual-proxy-error">
+                    <UserFacingError message={manualError} surface="manual_proxy" />
+                  </div>
+                )}
+                <div className="modal-actions">
+                  <button type="button" className="secondary" disabled={manualSaving} onClick={() => {
+                    resetManualProxyForm();
+                    setManualProxyEditing(false);
+                  }}>
+                    Back
+                  </button>
+                  <button type="submit" className="primary" disabled={manualSaving}>
+                    {manualSaving ? <Spinner size={13} /> : <Icon name="plus" size={13} />}
+                    {manualSaving ? "Saving…" : "Create proxy"}
+                  </button>
+                </div>
+              </form>
             ) : (
               <>
-                <label className="modal-field">
-                  <span>Name</span>
-                  <input value={manualName} onChange={(e) => setManualName(e.target.value)} autoFocus />
-                </label>
-                <div className="manual-proxy-grid">
-                  <label className="modal-field">
-                    <span>Scheme</span>
-                    <select value={manualScheme} onChange={(e) => setManualScheme(e.target.value as ManualProxyScheme)}>
-                      <option value="http">HTTP</option>
-                      <option value="socks5">SOCKS5</option>
-                    </select>
-                  </label>
-                  <label className="modal-field">
-                    <span>Port</span>
-                    <input value={manualPort} inputMode="numeric" onChange={(e) => setManualPort(e.target.value)} />
-                  </label>
+                <p className="muted personal-proxy-note">Encrypted in your NextBrowser account and available on every signed-in device.</p>
+                {s.personalProxies.length ? (
+                  <div className="personal-proxy-list">
+                    {s.personalProxies.map((proxy) => (
+                      <div className="personal-proxy-row" key={proxy.id}>
+                        <span className="personal-proxy-icon"><Icon name="network" size={13} /></span>
+                        <span className="personal-proxy-copy">
+                          <strong>{proxy.name}</strong>
+                          <small>{proxy.scheme.toUpperCase()} · {proxy.host}:{proxy.port}</small>
+                        </span>
+                        <button
+                          type="button"
+                          className="plain-icon-btn plain-icon-btn-compact"
+                          title={`Delete ${proxy.name}`}
+                          aria-label={`Delete ${proxy.name}`}
+                          onClick={() => setManualProxyDeleting(proxy.id)}
+                        >
+                          <Icon name="trash" size={13} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="personal-proxy-empty">
+                    <Icon name="network" size={20} />
+                    <strong>No personal proxies yet</strong>
+                    <span>Create one and reuse it across browser profiles.</span>
+                  </div>
+                )}
+                {manualProxyDeleting && (() => {
+                  const proxy = s.personalProxies.find((item) => item.id === manualProxyDeleting);
+                  if (!proxy) return null;
+                  return (
+                    <div className="personal-proxy-delete-confirm" role="alert">
+                      <span>Delete “{proxy.name}” from this device?</span>
+                      <div className="row">
+                        <button type="button" className="secondary" disabled={manualProxyDeletePending} onClick={() => setManualProxyDeleting(null)}>Cancel</button>
+                        <button
+                          type="button"
+                          className="primary danger"
+                          disabled={manualProxyDeletePending}
+                          onClick={() => {
+                            setManualProxyDeletePending(true);
+                            void s.deletePersonalProxy(proxy.id)
+                              .then(() => {
+                                if (profilePersonalProxyId === proxy.id) setProfilePersonalProxyId("");
+                                setManualProxyDeleting(null);
+                              })
+                              .catch(() => setManualError(internalError("We couldn't delete the proxy.", "PERSONAL_PROXY_DELETE_FAILED")))
+                              .finally(() => setManualProxyDeletePending(false));
+                          }}
+                        >
+                          {manualProxyDeletePending ? <Spinner size={13} /> : "Delete"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+                {manualError && (
+                  <div className="error manual-proxy-error">
+                    <UserFacingError message={manualError} surface="manual_proxy" />
+                  </div>
+                )}
+                <div className="modal-actions">
+                  <button type="button" className="secondary" onClick={() => setManualProxyOpen(false)}>Close</button>
+                  <button type="button" className="primary" onClick={() => {
+                    resetManualProxyForm();
+                    setManualProxyEditing(true);
+                  }}>
+                    <Icon name="plus" size={13} /> Create proxy
+                  </button>
                 </div>
-                <label className="modal-field">
-                  <span>Host</span>
-                  <input value={manualHost} onChange={(e) => setManualHost(e.target.value)} />
-                </label>
-                <label className="modal-field">
-                  <span>Username</span>
-                  <input value={manualUsername} onChange={(e) => setManualUsername(e.target.value)} />
-                </label>
-                <label className="modal-field">
-                  <span>Password</span>
-                  <input type="password" value={manualPassword} onChange={(e) => setManualPassword(e.target.value)} />
-                </label>
               </>
             )}
-            {manualError && (
-              <div className="error manual-proxy-error">
-                <UserFacingError message={manualError} surface="manual_proxy" />
-              </div>
-            )}
-            <div className="modal-actions">
-              <button type="button" className="secondary" disabled={manualSaving} onClick={() => setManualProxyOpen(false)}>
-                Cancel
-              </button>
-              <button type="submit" className="primary" disabled={manualSaving}>
-                {manualSaving ? <Spinner size={13} /> : <Icon name="plus" size={13} />}
-                Create
-              </button>
-            </div>
-          </form>
+          </div>
         </div>
       ), document.body)}
 

@@ -64,6 +64,7 @@ import type {
   Conversation,
   CustomScript,
   Profile,
+  PersonalProxy,
   ProxyTraffic,
   ScheduledRun,
   ScriptSyncState,
@@ -342,6 +343,7 @@ interface State {
   proxy?: ProxyTraffic;
   proxyWarning?: string;
   profiles: Profile[];
+  personalProxies: PersonalProxy[];
   proxyCountries: RotationCountry[];
   statuses: Record<string, string>;
   profileSessions: Record<string, SessionStatus>;
@@ -420,6 +422,14 @@ interface State {
     options?: NextctlRunOptions & { runtime?: BrowserToolset; direct?: boolean },
   ) => Promise<void>;
   createManualProxyProfile: (input: ManualProxyProfileInput) => Promise<void>;
+  loadPersonalProxies: () => Promise<void>;
+  savePersonalProxy: (input: ManualProxyProfileInput) => Promise<PersonalProxy>;
+  deletePersonalProxy: (id: string) => Promise<void>;
+  createPersonalProxyProfile: (
+    name: string,
+    proxyId: string,
+    options?: NextctlRunOptions & { runtime?: BrowserToolset },
+  ) => Promise<void>;
   deleteProfile: (n: string) => Promise<void>;
   selectProfile: (n?: string) => void;
   switchAgent: (id: string) => void;
@@ -463,7 +473,7 @@ interface State {
 
   newChat: () => string;
   createProject: (name: string, mode: "chat" | "terminal") => string;
-  assignProfileToProject: (profileName: string, toolset: BrowserToolset, projectId?: string, replaceToolset?: boolean) => void;
+  assignProfileToProject: (profileName: string, toolset: BrowserToolset, projectId?: string, replaceToolset?: boolean, proxyId?: string) => void;
   setProfileChatOwner: (profileName: string, conversationId?: string) => void;
   moveProfileToWorkspace: (profileName: string, workspaceId: string) => Promise<void>;
   reorderProfileInProject: (projectId: string, profileName: string, beforeProfileName: string) => void;
@@ -1034,6 +1044,7 @@ export const useStore = create<State>((set, get) => {
   checking: true,
   isLoggingIn: false,
   profiles: [],
+  personalProxies: [],
   proxyCountries: [],
   statuses: {},
   profileSessions: {},
@@ -1151,6 +1162,7 @@ export const useStore = create<State>((set, get) => {
       ...item,
       profileNames: Array.isArray(item.profileNames) ? item.profileNames : [],
       profileToolsets: item.profileToolsets ?? {},
+      profileProxyIds: item.profileProxyIds ?? {},
       createdAt: Number(item.createdAt) || now(),
       updatedAt: Number(item.updatedAt) || now(),
     }));
@@ -1997,6 +2009,7 @@ export const useStore = create<State>((set, get) => {
       statuses: {},
       profileSessions: {},
       profileIdentities: {},
+      personalProxies: [],
       selectedProfile: undefined,
       defaultSession: undefined,
       skillState: {},
@@ -2015,6 +2028,7 @@ export const useStore = create<State>((set, get) => {
         get().loadProfiles(),
         get().loadDefaultSession(),
         get().loadSkillCatalog(),
+        get().loadPersonalProxies().catch(() => {}),
       ]);
     } finally {
       set({ isRefreshing: false });
@@ -2484,6 +2498,64 @@ export const useStore = create<State>((set, get) => {
     });
   },
 
+  loadPersonalProxies: async () => {
+    const personalProxies = await invoke<PersonalProxy[]>("manual_proxies_list");
+    set({ personalProxies });
+  },
+
+  savePersonalProxy: async (input) => {
+    const saved = await invoke<PersonalProxy>("manual_proxy_save", { proxy: input });
+    await get().loadPersonalProxies();
+    return saved;
+  },
+
+  deletePersonalProxy: async (id) => {
+    await invoke<void>("manual_proxy_delete", { id });
+    const previousWorkspaces = get().workspaces;
+    const workspaces = previousWorkspaces.map((workspace) => {
+      const current = workspace.profileProxyIds ?? {};
+      const profileProxyIds = Object.fromEntries(
+        Object.entries(current).filter(([, proxyId]) => proxyId !== id),
+      );
+      return Object.keys(profileProxyIds).length === Object.keys(current).length
+        ? workspace
+        : { ...workspace, profileProxyIds, updatedAt: now() };
+    });
+    if (workspaces.some((workspace, index) => workspace !== previousWorkspaces[index])) {
+      await saveJson("workspaces.json", workspaces);
+      set({ workspaces });
+      await get().syncProjects().catch(() => {});
+    }
+    await get().loadPersonalProxies();
+  },
+
+  createPersonalProxyProfile: async (rawName, proxyId, options) => {
+    const startedAt = performance.now();
+    const name = rawName.trim();
+    if (!name) throw new Error("Profile name is required.");
+    if (!proxyId.trim()) throw new Error("Choose a personal proxy.");
+    const { runtime = "clawbrowser", ...runOptions } = options ?? {};
+    trackEvent("profile_create_requested", { kind: "personal_proxy", runtime });
+    const result = await invoke<RunResult>("manual_proxy_profile_create", {
+      profileName: name,
+      proxyId,
+      runtime,
+      requestId: runOptions.requestId,
+      timeoutMs: runOptions.timeoutMs ?? 60_000,
+    });
+    let envelopeFailed = false;
+    try {
+      const envelope = JSON.parse(result.stdout) as { ok?: boolean; error?: unknown };
+      envelopeFailed = envelope.ok === false || envelope.error != null;
+    } catch {
+      /* plain output is valid for older nextctl builds */
+    }
+    if (result.code !== 0 || envelopeFailed) throw new Error(nextctlErrorMessage(result));
+    await get().loadProfiles();
+    get().selectProfile(name);
+    trackTiming("profile_create_completed", startedAt, { kind: "personal_proxy", runtime });
+  },
+
   deleteProfile: async (n) => {
     const startedAt = performance.now();
     const runtime = runtimeForProfile(get().workspaces, n);
@@ -2527,8 +2599,10 @@ export const useStore = create<State>((set, get) => {
       delete statuses[n];
       const workspaces = s.workspaces.map((workspace) => {
         const profileToolsets = { ...workspace.profileToolsets };
+        const profileProxyIds = { ...(workspace.profileProxyIds ?? {}) };
         delete profileToolsets[n];
-        return { ...workspace, profileNames: workspace.profileNames.filter((name) => name !== n), profileToolsets, updatedAt: now() };
+        delete profileProxyIds[n];
+        return { ...workspace, profileNames: workspace.profileNames.filter((name) => name !== n), profileToolsets, profileProxyIds, updatedAt: now() };
       });
       void saveJson("workspaces.json", workspaces).then(() => get().syncProjects()).catch(() => {});
       return { statuses, workspaces };
@@ -2970,6 +3044,7 @@ export const useStore = create<State>((set, get) => {
           name: cloud.name,
           profileNames: Array.isArray(cloud.document?.profileNames) ? cloud.document.profileNames : [],
           profileToolsets: cloud.document?.profileToolsets ?? {},
+          profileProxyIds: cloud.document?.profileProxyIds ?? {},
           createdAt: Date.parse(cloud.created_at),
           updatedAt: Date.parse(cloud.updated_at),
         };
@@ -2984,7 +3059,11 @@ export const useStore = create<State>((set, get) => {
           id: workspace.id,
           workspace: {
             name: workspace.name,
-            document: { profileNames: workspace.profileNames, profileToolsets: workspace.profileToolsets },
+            document: {
+              profileNames: workspace.profileNames,
+              profileToolsets: workspace.profileToolsets,
+              profileProxyIds: workspace.profileProxyIds ?? {},
+            },
             base_revision: workspaceRevisions[workspace.id] ?? 0,
           },
         });
@@ -3092,12 +3171,13 @@ export const useStore = create<State>((set, get) => {
       name,
       profileNames,
       profileToolsets,
+      profileProxyIds: {},
       createdAt: now(),
       updatedAt: now(),
     };
     const saved = await invoke<{ revision: number }>("workspace_put", {
       id: workspace.id,
-      workspace: { name, document: { profileNames, profileToolsets }, base_revision: 0 },
+      workspace: { name, document: { profileNames, profileToolsets, profileProxyIds: {} }, base_revision: 0 },
     });
     const conversations = migrateLegacyData
       ? state.conversations.map((conversation) => conversation.workspaceId ? conversation : {
@@ -3207,7 +3287,7 @@ export const useStore = create<State>((set, get) => {
     return c.id;
   },
 
-  assignProfileToProject: (profileName, toolset, projectId, replaceToolset = false) => {
+  assignProfileToProject: (profileName, toolset, projectId, replaceToolset = false, proxyId) => {
     const targetId = projectId ?? get().activeWorkspaceId;
     if (!targetId) return;
     set((state) => {
@@ -3218,22 +3298,36 @@ export const useStore = create<State>((set, get) => {
       // created profile may reuse a deleted profile's name. Creation must
       // therefore replace stale workspace/cloud runtime metadata explicitly.
       const fixedToolset = replaceToolset ? toolset : existingToolset ?? toolset;
+      const existingProxyId = state.workspaces.find((workspace) =>
+        workspace.profileNames.includes(profileName)
+      )?.profileProxyIds?.[profileName];
+      const fixedProxyId = replaceToolset ? proxyId : existingProxyId ?? proxyId;
       const workspaces = state.workspaces.map((workspace) => {
         if (workspace.id === targetId && workspace.profileNames.includes(profileName)) {
-          return workspace.profileToolsets[profileName]
-            ? workspace
-            : { ...workspace, profileToolsets: { ...workspace.profileToolsets, [profileName]: fixedToolset }, updatedAt: now() };
+          const profileProxyIds = { ...(workspace.profileProxyIds ?? {}) };
+          if (fixedProxyId) profileProxyIds[profileName] = fixedProxyId;
+          else delete profileProxyIds[profileName];
+          return {
+            ...workspace,
+            profileToolsets: { ...workspace.profileToolsets, [profileName]: fixedToolset },
+            profileProxyIds,
+            updatedAt: now(),
+          };
         }
         const withoutProfile = workspace.profileNames.filter((name) => name !== profileName);
         const toolsets = { ...workspace.profileToolsets };
+        const profileProxyIds = { ...(workspace.profileProxyIds ?? {}) };
         delete toolsets[profileName];
+        delete profileProxyIds[profileName];
         if (workspace.id !== targetId) {
-          return { ...workspace, profileNames: withoutProfile, profileToolsets: toolsets };
+          return { ...workspace, profileNames: withoutProfile, profileToolsets: toolsets, profileProxyIds };
         }
+        if (fixedProxyId) profileProxyIds[profileName] = fixedProxyId;
         return {
           ...workspace,
           profileNames: [...withoutProfile, profileName],
           profileToolsets: { ...toolsets, [profileName]: fixedToolset },
+          profileProxyIds,
           updatedAt: now(),
         };
       });
