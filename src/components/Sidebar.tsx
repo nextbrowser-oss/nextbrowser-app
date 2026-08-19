@@ -14,6 +14,7 @@ import { conversationPreview, type AppTab } from "../types";
 import { CountrySelect } from "./CountrySelect";
 import { UserFacingError } from "./UserFacingError";
 import { VPSSetupModal } from "./VPSSetupModal";
+import { CONNECTORS } from "../connectorsCatalog";
 
 type ManualProxyInputMode = "url" | "fields";
 const PROFILE_CREATE_TIMEOUT_MS = 120_000;
@@ -247,7 +248,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
   const badgeFor = (id: AppTab) => {
     if (id === "skills") return skillCount ? String(skillCount) : undefined;
-    if (id === "scheduled") return s.scheduledRuns.length ? String(s.scheduledRuns.length) : undefined;
+    if (id === "connectors") return String(CONNECTORS.length);
+    if (id === "scheduled") return String(s.scheduledRuns.length);
     return undefined;
   };
 
