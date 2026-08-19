@@ -24,8 +24,14 @@ function buttonName(button: number) {
   return "left";
 }
 
+const NAVIGATION_KEYS = new Set([
+  "Enter", "Tab", "Escape", " ", "Backspace", "Delete",
+  "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+  "Home", "End", "PageUp", "PageDown",
+]);
+
 function shouldSendKeyEvent(event: KeyboardEvent) {
-  return new Set(["Enter", "Tab", "Escape", " ", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]).has(event.key) ||
+  return NAVIGATION_KEYS.has(event.key) ||
     event.ctrlKey ||
     event.metaKey ||
     event.altKey;
