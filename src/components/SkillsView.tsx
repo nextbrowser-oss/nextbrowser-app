@@ -181,10 +181,12 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                 <div className="skill-card-head">
                   <Icon name={selectorIcon(e.selector)} size={16} className="accent-icon" />
                   <div className="skill-title">{e.title}</div>
-                  <span className={"mode-badge" + (e.js ? " instant" : " agent")}>
-                    <Icon name={e.js ? "bolt.fill" : publishedScript ? "scroll.fill" : "sparkles"} size={10} />
-                    {e.js ? "Instant" : publishedScript ? "Script" : repositorySkill ? "Repository" : "Agent"}
-                  </span>
+                  {!repositorySkill && (
+                    <span className={"mode-badge" + (e.js ? " instant" : " agent")}>
+                      <Icon name={e.js ? "bolt.fill" : publishedScript ? "scroll.fill" : "sparkles"} size={10} />
+                      {e.js ? "Instant" : publishedScript ? "Script" : "Agent"}
+                    </span>
+                  )}
                 </div>
                 <div className="muted small">{e.subtitle}</div>
                 {repositorySkill && e.author && <div className="small muted skill-author">by @{e.author}</div>}
