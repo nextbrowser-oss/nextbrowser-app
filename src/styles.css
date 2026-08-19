@@ -1707,7 +1707,7 @@ body.is-resizing-sidebar {
   border-radius: 6px;
   background: transparent;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 650;
   letter-spacing: 0;
   text-transform: none;
