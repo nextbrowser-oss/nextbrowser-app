@@ -407,8 +407,8 @@ button, input, textarea, select { color: var(--text); }
 
 .sidebar {
   flex: none;
-  min-width: 240px;
-  max-width: 480px;
+  min-width: 320px;
+  max-width: 520px;
   border-right: none;
   padding: 0;
   overflow: hidden;
@@ -6922,6 +6922,187 @@ pre,
   box-shadow: 0 28px 80px rgba(76, 59, 160, 0.09), inset 0 1px 0 #ffffff;
   backdrop-filter: blur(32px) saturate(110%);
   -webkit-backdrop-filter: blur(32px) saturate(110%);
+}
+
+/* Apple-inspired interaction system: immediate feedback, spatial continuity,
+   and a small, predictable material hierarchy. */
+:root {
+  --motion-response: 240ms;
+  --motion-feedback: 90ms;
+  --motion-settle: cubic-bezier(0.22, 1, 0.36, 1);
+  --material-structural: color-mix(in srgb, var(--panel) 96%, transparent);
+  --material-floating: color-mix(in srgb, var(--panel) 86%, transparent);
+  --material-popover: color-mix(in srgb, var(--bg-elevated) 94%, transparent);
+  --material-modal: color-mix(in srgb, var(--bg-elevated) 96%, transparent);
+  font-optical-sizing: auto;
+}
+
+.sidebar {
+  background: var(--material-structural);
+  backdrop-filter: blur(24px) saturate(125%);
+  -webkit-backdrop-filter: blur(24px) saturate(125%);
+}
+
+.tabbar,
+.chat-header,
+.composer {
+  background: var(--material-floating);
+  backdrop-filter: blur(24px) saturate(135%);
+  -webkit-backdrop-filter: blur(24px) saturate(135%);
+}
+
+.workspace-menu,
+.script-menu,
+.agent-picker-menu,
+.multilogin-chat-menu {
+  transform-origin: top left;
+  background: var(--material-popover);
+  backdrop-filter: blur(24px) saturate(135%);
+  -webkit-backdrop-filter: blur(24px) saturate(135%);
+  animation: material-arrive 160ms var(--motion-settle) both;
+}
+
+.modal-card {
+  transform-origin: center;
+  background: var(--material-modal);
+  backdrop-filter: blur(32px) saturate(120%);
+  -webkit-backdrop-filter: blur(32px) saturate(120%);
+  animation: modal-materialize 220ms var(--motion-settle) both;
+}
+
+@keyframes material-arrive {
+  from { opacity: 0; transform: translateY(-4px) scale(0.985); filter: blur(2px); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+@keyframes modal-materialize {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); filter: blur(3px); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+.workspace-section-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  min-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px) scale(0.995);
+  transform-origin: top;
+  transition:
+    grid-template-rows var(--motion-response) var(--motion-settle),
+    opacity 140ms ease-out,
+    transform var(--motion-response) var(--motion-settle),
+    visibility 0s linear var(--motion-response);
+}
+
+.workspace-section-reveal > * {
+  min-height: 0;
+}
+
+.workspace-section-reveal.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+  transition-delay: 0s;
+}
+
+.sidebar-page-link,
+.workspace-section-toggle,
+.workspace-create-action,
+.workspace-chat-row,
+.workspace-profile-list .profile-row,
+.tab-hit,
+.chat-mode-toggle button,
+.plain-icon-btn {
+  transform-origin: center;
+  will-change: transform;
+}
+
+.sidebar-page-link:not(:disabled):active,
+.workspace-section-toggle:not(:disabled):active,
+.workspace-create-action:not(:disabled):active,
+.workspace-chat-row:not(:disabled):active,
+.workspace-profile-list .profile-row:active,
+.tab-hit:not(:disabled):active,
+.chat-mode-toggle button:not(:disabled):active,
+.plain-icon-btn:not(:disabled):active {
+  transform: scale(0.98);
+  transition: transform var(--motion-feedback) ease-out;
+}
+
+.workspace-section-head,
+.section,
+.workspace-picker small {
+  letter-spacing: 0.055em;
+  line-height: 1.2;
+}
+
+.workspace-chat-copy strong,
+.profile-name,
+.chat-title,
+.brand-title {
+  letter-spacing: -0.012em;
+  line-height: 1.22;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .sidebar,
+  .tabbar,
+  .chat-header,
+  .composer,
+  .workspace-menu,
+  .script-menu,
+  .agent-picker-menu,
+  .multilogin-chat-menu,
+  .modal-card,
+  .modal-overlay {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .sidebar,
+  .tabbar,
+  .chat-header,
+  .composer { background: var(--panel); }
+  .workspace-menu,
+  .script-menu,
+  .agent-picker-menu,
+  .multilogin-chat-menu,
+  .modal-card { background: var(--bg-elevated); }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --line: color-mix(in srgb, var(--text) 24%, transparent);
+    --line-strong: color-mix(in srgb, var(--text) 42%, transparent);
+    --muted: color-mix(in srgb, var(--text) 78%, transparent);
+  }
+
+  .sidebar,
+  .tabbar,
+  .chat-header,
+  .composer,
+  .workspace-menu,
+  .modal-card {
+    background: var(--bg-elevated);
+    border-color: var(--line-strong);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-section-reveal {
+    transform: none;
+    transition: opacity 120ms ease-out, visibility 0s linear 120ms;
+  }
+
+  .workspace-section-reveal.is-open { transition-delay: 0s; }
+  .workspace-menu,
+  .script-menu,
+  .agent-picker-menu,
+  .multilogin-chat-menu,
+  .modal-card { animation: none; }
 }
 
 @media (max-width: 1100px) {
