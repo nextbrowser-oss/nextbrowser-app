@@ -64,9 +64,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceSaving, setWorkspaceSaving] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
-  const [openWorkspaceSection, setOpenWorkspaceSection] = useState<"projects" | "profiles">("projects");
-  const chatsOpen = openWorkspaceSection === "projects";
-  const profilesOpen = openWorkspaceSection === "profiles";
+  const [projectsOpen, setProjectsOpen] = useState(true);
+  const [profilesOpen, setProfilesOpen] = useState(false);
   const [dragOverProfileName, setDragOverProfileName] = useState<string | null>(null);
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
@@ -549,8 +548,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           <div className="profile-list workspace-content">
             <section className="workspace-section workspace-chats">
               <div className="workspace-section-head">
-                <button className="workspace-section-toggle" onClick={() => setOpenWorkspaceSection(chatsOpen ? "profiles" : "projects")} aria-expanded={chatsOpen} aria-label={chatsOpen ? "Collapse projects" : "Expand projects"}>
-                  <Icon name="chevron.right" size={10} className={chatsOpen ? "section-chevron open" : "section-chevron"} />
+                <button className="workspace-section-toggle" onClick={() => setProjectsOpen((open) => !open)} aria-expanded={projectsOpen} aria-label={projectsOpen ? "Collapse projects" : "Expand projects"}>
+                  <Icon name="chevron.right" size={10} className={projectsOpen ? "section-chevron open" : "section-chevron"} />
                   <Icon name="folder" size={12} />
                   <span>Projects</span>
                   <span className="workspace-count">{projects.length}</span>
@@ -560,7 +559,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   <Icon name="plus" size={12} />
                 </button>
               </div>
-              {chatsOpen && <div className="workspace-chat-list">
+              {projectsOpen && <div className="workspace-chat-list">
                 {visibleChats.map((chat) => (
                   <button
                     key={chat.id}
@@ -597,7 +596,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
             <section className="workspace-section workspace-profiles">
               <div className="workspace-section-head">
-                <button className="workspace-section-toggle" onClick={() => setOpenWorkspaceSection(profilesOpen ? "projects" : "profiles")} aria-expanded={profilesOpen} aria-label={profilesOpen ? "Collapse profiles" : "Expand profiles"}>
+                <button className="workspace-section-toggle" onClick={() => setProfilesOpen((open) => !open)} aria-expanded={profilesOpen} aria-label={profilesOpen ? "Collapse profiles" : "Expand profiles"}>
                   <Icon name="chevron.right" size={10} className={profilesOpen ? "section-chevron open" : "section-chevron"} />
                   <Icon name="person.2.fill" size={12} />
                   <span>Profiles</span>
