@@ -1643,9 +1643,11 @@ body.is-resizing-sidebar {
   overflow: hidden;
 }
 .workspace-section.is-open {
-  flex: 1 1 0;
-  min-height: 0;
+  flex: 0 1 auto;
+  min-height: 28px;
 }
+.workspace-section.is-open:has(.workspace-chat-row) { min-height: 73px; }
+.workspace-section.is-open:has(.profile-row) { min-height: 75px; }
 .workspace-section-head {
   position: sticky;
   top: 0;
