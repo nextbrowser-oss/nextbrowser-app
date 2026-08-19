@@ -64,6 +64,7 @@ import type {
   Conversation,
   CustomScript,
   Profile,
+  PersonalProxy,
   ProxyTraffic,
   ScheduledRun,
   ScriptSyncState,
@@ -342,6 +343,7 @@ interface State {
   proxy?: ProxyTraffic;
   proxyWarning?: string;
   profiles: Profile[];
+  personalProxies: PersonalProxy[];
   proxyCountries: RotationCountry[];
   statuses: Record<string, string>;
   profileSessions: Record<string, SessionStatus>;
@@ -420,6 +422,14 @@ interface State {
     options?: NextctlRunOptions & { runtime?: BrowserToolset; direct?: boolean },
   ) => Promise<void>;
   createManualProxyProfile: (input: ManualProxyProfileInput) => Promise<void>;
+  loadPersonalProxies: () => Promise<void>;
+  savePersonalProxy: (input: ManualProxyProfileInput) => Promise<PersonalProxy>;
+  deletePersonalProxy: (id: string) => Promise<void>;
+  createPersonalProxyProfile: (
+    name: string,
+    proxyId: string,
+    options?: NextctlRunOptions & { runtime?: BrowserToolset },
+  ) => Promise<void>;
   deleteProfile: (n: string) => Promise<void>;
   selectProfile: (n?: string) => void;
   switchAgent: (id: string) => void;
@@ -1034,6 +1044,7 @@ export const useStore = create<State>((set, get) => {
   checking: true,
   isLoggingIn: false,
   profiles: [],
+  personalProxies: [],
   proxyCountries: [],
   statuses: {},
   profileSessions: {},
@@ -2482,6 +2493,49 @@ export const useStore = create<State>((set, get) => {
     trackTiming("profile_manual_proxy_create_completed", startedAt, {
       profile_count: get().profiles.length,
     });
+  },
+
+  loadPersonalProxies: async () => {
+    const personalProxies = await invoke<PersonalProxy[]>("manual_proxies_list");
+    set({ personalProxies });
+  },
+
+  savePersonalProxy: async (input) => {
+    const saved = await invoke<PersonalProxy>("manual_proxy_save", { proxy: input });
+    await get().loadPersonalProxies();
+    return saved;
+  },
+
+  deletePersonalProxy: async (id) => {
+    await invoke<boolean>("manual_proxy_delete", { id });
+    await get().loadPersonalProxies();
+  },
+
+  createPersonalProxyProfile: async (rawName, proxyId, options) => {
+    const startedAt = performance.now();
+    const name = rawName.trim();
+    if (!name) throw new Error("Profile name is required.");
+    if (!proxyId.trim()) throw new Error("Choose a personal proxy.");
+    const { runtime = "clawbrowser", ...runOptions } = options ?? {};
+    trackEvent("profile_create_requested", { kind: "personal_proxy", runtime });
+    const result = await invoke<RunResult>("manual_proxy_profile_create", {
+      profileName: name,
+      proxyId,
+      runtime,
+      requestId: runOptions.requestId,
+      timeoutMs: runOptions.timeoutMs ?? 60_000,
+    });
+    let envelopeFailed = false;
+    try {
+      const envelope = JSON.parse(result.stdout) as { ok?: boolean; error?: unknown };
+      envelopeFailed = envelope.ok === false || envelope.error != null;
+    } catch {
+      /* plain output is valid for older nextctl builds */
+    }
+    if (result.code !== 0 || envelopeFailed) throw new Error(nextctlErrorMessage(result));
+    await get().loadProfiles();
+    get().selectProfile(name);
+    trackTiming("profile_create_completed", startedAt, { kind: "personal_proxy", runtime });
   },
 
   deleteProfile: async (n) => {
