@@ -29,6 +29,7 @@ export function AutomationStudio() {
   const [artifacts, setArtifacts] = useState<AutomationArtifact[]>([]);
   const [artifactBusy, setArtifactBusy] = useState(false);
   const [artifactError, setArtifactError] = useState<string>();
+  const [notice, setNotice] = useState<string>();
   const workspaceId = s.activeWorkspaceId || "";
   const runs = useMemo(() => capturedRuns(s.conversations).slice(0, 12), [s.conversations]);
   const recordedRun = recordingSince > 0 ? runs.find((run) => run.answer.createdAt >= recordingSince) : undefined;
@@ -68,11 +69,17 @@ export function AutomationStudio() {
 
   useEffect(() => {
     const id = localStorage.getItem("automationRecordingId");
-    if (!id || !recordedRun || recordings.some((item) => item.id === id && item.status === "completed")) return;
+    const recordingWorkspaceId = localStorage.getItem("automationRecordingWorkspaceId");
+    if (!id || recordingWorkspaceId !== workspaceId || !recordedRun || recordings.some((item) => item.id === id && item.status === "completed")) return;
     void invoke("automation_recording_put", { recording: { id, workspace_id: workspaceId, status: "completed", document: { run: recordedRun }, base_revision: 1 } })
       .then(loadRecordings)
       .catch((error) => setStudioError(error instanceof Error ? error.message : String(error)));
   }, [recordedRun, recordings, workspaceId]);
+
+  useEffect(() => {
+    const recordingWorkspaceId = localStorage.getItem("automationRecordingWorkspaceId");
+    setRecordingSince(recordingWorkspaceId === workspaceId ? Number(localStorage.getItem("automationRecordingSince") || 0) : 0);
+  }, [workspaceId]);
 
   const loadArtifacts = async () => {
     setArtifactBusy(true);
@@ -86,28 +93,41 @@ export function AutomationStudio() {
     }
   };
 
-  useEffect(() => { if (section === "artifacts") void loadArtifacts(); }, [section, workspaceId]);
+  useEffect(() => { if (workspaceId) void loadArtifacts(); else setArtifacts([]); }, [workspaceId]);
+
+  const reportError = (error: unknown) => {
+    setStudioError(error instanceof Error ? error.message : String(error));
+    setNotice(undefined);
+  };
 
   const startRecording = async () => {
     if (!workspaceId) return setStudioError("Create or select a workspace before recording.");
-    const startedAt = Date.now();
-    const id = uid();
-    localStorage.setItem("automationRecordingSince", String(startedAt));
-    localStorage.setItem("automationRecordingId", id);
-    setRecordingSince(startedAt);
-    const recording = await invoke<BackendRecording>("automation_recording_put", { recording: { id, workspace_id: workspaceId, status: "recording", document: { started_at: new Date(startedAt).toISOString() }, base_revision: 0 } });
-    setRecordings((current) => [recording, ...current]);
-    s.setTab("chat");
+    try {
+      const startedAt = Date.now();
+      const id = uid();
+      localStorage.setItem("automationRecordingSince", String(startedAt));
+      localStorage.setItem("automationRecordingId", id);
+      localStorage.setItem("automationRecordingWorkspaceId", workspaceId);
+      setRecordingSince(startedAt);
+      const recording = await invoke<BackendRecording>("automation_recording_put", { recording: { id, workspace_id: workspaceId, status: "recording", document: { started_at: new Date(startedAt).toISOString() }, base_revision: 0 } });
+      setRecordings((current) => [recording, ...current]);
+      setStudioError(undefined);
+      s.setTab("chat");
+    } catch (error) { reportError(error); }
   };
 
   const saveCapture = async (run: CapturedRun) => {
-    const saved = await invoke<BrowserWorkflowSkill>("automation_workflow_put", { workspaceId, workflow: skillFromRun(run) });
-    localStorage.removeItem("automationRecordingSince");
-    localStorage.removeItem("automationRecordingId");
-    setRecordingSince(0);
-    await loadWorkflows();
-    setSelectedWorkflowId(saved.id);
-    setSection("workflows");
+    try {
+      const saved = await invoke<BrowserWorkflowSkill>("automation_workflow_put", { workspaceId, workflow: skillFromRun(run) });
+      localStorage.removeItem("automationRecordingSince");
+      localStorage.removeItem("automationRecordingId");
+      localStorage.removeItem("automationRecordingWorkspaceId");
+      setRecordingSince(0);
+      await loadWorkflows();
+      setSelectedWorkflowId(saved.id);
+      setSection("workflows");
+      setNotice("Recording saved as a reusable workflow.");
+    } catch (error) { reportError(error); }
   };
 
   const updateAction = (index: number, field: "tool" | "arguments", value: string) => {
@@ -156,7 +176,9 @@ export function AutomationStudio() {
       const saved = await invoke<BrowserWorkflowSkill>("automation_workflow_put", { workspaceId, workflow: { ...draft, recipe: { ...draft.recipe, actions: draft.actions } } });
       setWorkflows((current) => current.some((item) => item.id === saved.id) ? current.map((item) => item.id === saved.id ? saved : item) : [saved, ...current]);
       setDraft(saved);
-    }
+      setStudioError(undefined);
+      setNotice("Workflow saved.");
+    } catch (error) { reportError(error); }
     finally { setSaving(false); }
   };
 
@@ -171,16 +193,33 @@ export function AutomationStudio() {
       outputSchema: { type: "object", properties: { success: { type: "boolean" }, results: { type: "array" } } },
       recipe: { version: 1, capability: "other", actions: [action] }, createdAt, updatedAt: createdAt,
     };
-    const saved = await invoke<BrowserWorkflowSkill>("automation_workflow_put", { workspaceId, workflow });
-    setWorkflows((current) => [saved, ...current]);
-    setSelectedWorkflowId(saved.id);
+    try {
+      const saved = await invoke<BrowserWorkflowSkill>("automation_workflow_put", { workspaceId, workflow });
+      setWorkflows((current) => [saved, ...current]);
+      setSelectedWorkflowId(saved.id);
+      setNotice("Workflow created. Edit its task and steps, then save it.");
+    } catch (error) { reportError(error); }
+  };
+
+  const deleteWorkflow = async (workflow: BrowserWorkflowSkill) => {
+    if (!window.confirm(`Delete “${workflow.title}”?`)) return;
+    try {
+      await invoke("automation_workflow_delete", { id: workflow.id });
+      setWorkflows((current) => current.filter((item) => item.id !== workflow.id));
+      setSelectedWorkflowId(undefined);
+      setNotice("Workflow deleted.");
+    } catch (error) { reportError(error); }
   };
 
   const runWorkflow = async (workflow: BrowserWorkflowSkill) => {
     const runId = uid();
-    await invoke("automation_run_create", { run: { id: runId, workspace_id: workspaceId, workflow_id: workflow.id, input: { task: workflow.task } } });
-    await invoke("automation_run_update", { id: runId, update: { status: "running", output: {} } });
-    s.runLocalSkill(workflow);
+    try {
+      await invoke("automation_run_create", { run: { id: runId, workspace_id: workspaceId, workflow_id: workflow.id, input: { task: workflow.task } } });
+      await invoke("automation_run_update", { id: runId, update: { status: "running", output: {} } });
+      setNotice("Workflow started in Project. Follow its progress in the conversation.");
+      setStudioError(undefined);
+      s.runLocalSkill(workflow);
+    } catch (error) { reportError(error); }
   };
 
   const importArtifacts = async () => {
@@ -189,6 +228,17 @@ export function AutomationStudio() {
     try { setArtifacts(await invoke<AutomationArtifact[]>("artifact_import", { workspaceId })); }
     catch (error) { setArtifactError(error instanceof Error ? error.message : String(error)); }
     finally { setArtifactBusy(false); }
+  };
+
+  const openArtifact = async (artifact: AutomationArtifact) => {
+    try { await invoke("artifact_open", { id: artifact.id, name: artifact.name }); }
+    catch (error) { setArtifactError(error instanceof Error ? error.message : String(error)); }
+  };
+
+  const deleteArtifact = async (artifact: AutomationArtifact) => {
+    if (!window.confirm(`Delete ${artifact.name} from this workspace?`)) return;
+    try { await invoke("artifact_delete", { id: artifact.id }); await loadArtifacts(); }
+    catch (error) { setArtifactError(error instanceof Error ? error.message : String(error)); }
   };
 
   return (
@@ -205,6 +255,11 @@ export function AutomationStudio() {
           </button>
         ))}
       </div>
+      <div className="automation-how-it-works" aria-label="Automation workflow">
+        <span><b>1</b> Record a successful browser task</span><i>→</i><span><b>2</b> Review and save its steps</span><i>→</i><span><b>3</b> Run it and collect files</span>
+      </div>
+      {studioError && <div className="error automation-global-message" role="alert"><strong>Automation couldn’t complete the action.</strong><span>{studioError}</span><button onClick={() => setStudioError(undefined)}>Dismiss</button></div>}
+      {notice && <div className="automation-global-message success" role="status"><span>{notice}</span><button onClick={() => setNotice(undefined)}>Dismiss</button></div>}
 
       {section === "recorder" && <section className="automation-panel">
         <div className="automation-panel-head"><div><h2>Browser Automation Recorder</h2><p>Capture semantic browser tool calls from the next agent run.</p></div>
@@ -228,7 +283,7 @@ export function AutomationStudio() {
       {section === "workflows" && <section className="automation-panel workflow-builder">
         <aside className="workflow-list"><div className="workflow-list-title"><span>Workflows</span><button className="mini" title="Create workflow" aria-label="Create workflow" onClick={() => void createWorkflow()}><Icon name="plus" size={12} /></button></div>{workflows.map((skill) => <button key={skill.id} className={skill.id === selectedWorkflowId ? "active" : ""} onClick={() => setSelectedWorkflowId(skill.id)}><Icon name="arrow.triangle.branch" size={14} /><span><strong>{skill.title}</strong><small>{skill.actions.length} steps · {skill.domain || "Any site"}</small></span></button>)}{!workflows.length && <p className="muted small">Record a run or create a workflow from a task.</p>}</aside>
         <div className="workflow-canvas">{draft ? <>
-          <div className="workflow-editor-head"><div><input className="workflow-title-input" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /><input className="workflow-domain-input" value={draft.domain} placeholder="example.com" onChange={(event) => setDraft({ ...draft, domain: event.target.value })} /></div><div className="row"><button className="secondary" onClick={() => void runWorkflow(draft)}>Run</button><button className="primary" disabled={saving || !!Object.keys(actionErrors).length} onClick={() => void saveDraft()}>{saving && <Spinner size={12} />} Save</button></div></div>
+          <div className="workflow-editor-head"><div><input className="workflow-title-input" aria-label="Workflow name" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /><input className="workflow-domain-input" aria-label="Website domain" value={draft.domain} placeholder="example.com" onChange={(event) => setDraft({ ...draft, domain: event.target.value })} /></div><div className="row"><button className="mini danger-text" onClick={() => void deleteWorkflow(draft)}>Delete</button><button className="secondary" onClick={() => void runWorkflow(draft)}>Run</button><button className="primary" disabled={saving || !!Object.keys(actionErrors).length} onClick={() => void saveDraft()}>{saving && <Spinner size={12} />} Save</button></div></div>
           <label className="field-label">Task template<textarea value={draft.task} onChange={(event) => setDraft({ ...draft, task: event.target.value })} /></label>
           <div className="workflow-steps">{draft.actions.map((action, index) => <div className="workflow-step" key={`${index}-${action.tool}`}><div className="workflow-step-number">{index + 1}</div><div className="workflow-step-body"><input value={action.tool} aria-label={`Step ${index + 1} tool`} onChange={(event) => updateAction(index, "tool", event.target.value)} /><textarea defaultValue={JSON.stringify(action.arguments, null, 2)} aria-label={`Step ${index + 1} arguments`} onBlur={(event) => updateAction(index, "arguments", event.target.value)} />{actionErrors[index] && <small className="error">{actionErrors[index]}</small>}</div><div className="workflow-step-actions"><button className="mini" disabled={index === 0} onClick={() => moveAction(index, -1)}>↑</button><button className="mini" disabled={index === draft.actions.length - 1} onClick={() => moveAction(index, 1)}>↓</button><button className="mini danger-text" onClick={() => removeAction(index)}>×</button></div></div>)}</div>
           <button className="secondary workflow-add-step" onClick={addAction}><Icon name="plus" size={13} /> Add browser step</button>
@@ -238,8 +293,8 @@ export function AutomationStudio() {
 
       {section === "artifacts" && <section className="automation-panel">
         <div className="automation-panel-head"><div><h2>Artifact Center</h2><p>Files are copied into this workspace and remain available across chats.</p></div><button className="primary" disabled={artifactBusy} onClick={() => void importArtifacts()}>{artifactBusy ? <Spinner size={13} /> : <Icon name="plus" size={13} />} Add files</button></div>
-        {(artifactError || studioError) && <div className="error automation-inline-error">{artifactError || studioError}</div>}
-        <div className="artifact-grid">{artifacts.map((artifact) => <article className="artifact-card" key={artifact.id}><div className="artifact-icon"><Icon name="doc" size={22} /></div><div className="artifact-copy"><strong title={artifact.name}>{artifact.name}</strong><span>{artifact.extension.toUpperCase() || "FILE"} · {humanBytes(artifact.size)}</span><small>{new Date(artifact.createdAt).toLocaleString()}</small></div><div className="artifact-actions"><button className="secondary" onClick={() => void invoke("artifact_open", { id: artifact.id, name: artifact.name })}>Open</button><button className="mini danger-text" onClick={() => { if (window.confirm(`Delete ${artifact.name} from this workspace?`)) void invoke("artifact_delete", { id: artifact.id }).then(loadArtifacts); }}>Delete</button></div></article>)}{!artifactBusy && !artifacts.length && <div className="automation-empty"><Icon name="tray.full.fill" size={28} /><strong>No artifacts in this workspace</strong><span>Add reports, downloads, screenshots, spreadsheets, or other run outputs.</span></div>}</div>
+        {artifactError && <div className="error automation-inline-error">{artifactError}</div>}
+        <div className="artifact-grid">{artifacts.map((artifact) => <article className="artifact-card" key={artifact.id}><div className="artifact-icon"><Icon name="doc" size={22} /></div><div className="artifact-copy"><strong title={artifact.name}>{artifact.name}</strong><span>{artifact.extension.toUpperCase() || "FILE"} · {humanBytes(artifact.size)}</span><small>{new Date(artifact.createdAt).toLocaleString()}</small></div><div className="artifact-actions"><button className="secondary" onClick={() => void openArtifact(artifact)}>Open</button><button className="mini danger-text" onClick={() => void deleteArtifact(artifact)}>Delete</button></div></article>)}{!artifactBusy && !artifacts.length && <div className="automation-empty"><Icon name="tray.full.fill" size={28} /><strong>No artifacts in this workspace</strong><span>Add reports, downloads, screenshots, spreadsheets, or other run outputs.</span></div>}</div>
       </section>}
     </div>
   );

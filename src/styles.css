@@ -7133,6 +7133,15 @@ pre,
 .automation-sections { display: inline-flex; gap: 4px; padding: 4px; margin-bottom: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
 .automation-sections button { display: flex; align-items: center; gap: 7px; padding: 8px 12px; border-radius: 8px; color: var(--muted); }
 .automation-sections button.active { color: var(--text); background: var(--surface-4); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.automation-how-it-works { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); color: var(--muted); font-size: 12px; }
+.automation-how-it-works span { display: flex; align-items: center; gap: 7px; }
+.automation-how-it-works b { width: 20px; height: 20px; display: inline-grid; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-size: 10px; }
+.automation-how-it-works i { color: var(--muted); font-style: normal; }
+.automation-global-message { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--red) 35%, var(--border)); border-radius: 10px; background: color-mix(in srgb, var(--red) 8%, var(--panel)); font-size: 12px; }
+.automation-global-message strong { flex: none; }
+.automation-global-message span { flex: 1; }
+.automation-global-message button { color: inherit; text-decoration: underline; }
+.automation-global-message.success { border-color: color-mix(in srgb, var(--green) 35%, var(--border)); background: color-mix(in srgb, var(--green) 8%, var(--panel)); color: var(--text); }
 .automation-panel { border: 1px solid var(--border); border-radius: 16px; background: var(--panel); overflow: hidden; }
 .automation-panel-head { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 18px 20px; border-bottom: 1px solid var(--border); }
 .automation-panel-head h2 { margin: 0 0 4px; font-size: 17px; }
@@ -7179,4 +7188,4 @@ pre,
 .artifact-copy span, .artifact-copy small { color: var(--muted); font-size: 11px; }
 .artifact-actions { grid-column: 1 / -1; display: flex; gap: 6px; justify-content: flex-end; }
 .automation-inline-error { padding: 10px 20px; border-bottom: 1px solid var(--border); }
-@media (max-width: 900px) { .automation-studio { padding-inline: 16px; } .workflow-builder { grid-template-columns: 1fr; } .workflow-list { border-right: 0; border-bottom: 1px solid var(--border); } .automation-summary { display: none; } }
+@media (max-width: 900px) { .automation-studio { padding-inline: 16px; } .workflow-builder { grid-template-columns: 1fr; } .workflow-list { border-right: 0; border-bottom: 1px solid var(--border); } .automation-summary { display: none; } .automation-how-it-works i { display: none; } .automation-how-it-works { align-items: flex-start; flex-direction: column; } }
