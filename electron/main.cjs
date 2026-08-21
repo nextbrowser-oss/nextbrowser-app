@@ -55,6 +55,7 @@ const {
   updateAutomationRunStep,
 } = require("./automation-sync.cjs");
 const { cancelAllAutomationRecipes, cancelAutomationRecipe, executeAutomationRecipe } = require("./automation-runner.cjs");
+const { cancelAllAutomationElementPicks, cancelAutomationElementPick, pickAutomationElement } = require("./automation-element-picker.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
 const { parseMultiloginProfiles } = require("./multilogin-profiles.cjs");
@@ -1162,6 +1163,33 @@ async function invokeCommand(command, args = {}, sender) {
       });
     }
     case "automation_recipe_cancel": return cancelAutomationRecipe(String(args.executionId || ""));
+    case "automation_element_pick": {
+      const binary = await resolveOrInstallNextctl();
+      if (!binary) throw new Error("NextBrowser browser runtime is unavailable.");
+      const requestedRuntime = ["clawbrowser", "dasbrowser", "camoufox", "multilogin"].includes(args.runtime) ? args.runtime : "clawbrowser";
+      if (requestedRuntime === "multilogin") await initializeMultiloginCredential();
+      const runtimeBin = requestedRuntime === "dasbrowser" ? await ensureDasbrowserRuntime() : undefined;
+      const owner = sender && !sender.isDestroyed() ? BrowserWindow.fromWebContents(sender) : undefined;
+      try {
+        return await pickAutomationElement({
+          pickId: args.pickId,
+          mode: args.mode,
+          container: args.container,
+          fieldName: args.fieldName,
+          openUrl: args.openUrl,
+          profile: args.profile,
+          runtime: requestedRuntime === "dasbrowser" ? "chromium" : requestedRuntime,
+          runtimeBin,
+        }, {
+          binary,
+          env: childEnv(),
+          onReady: () => { if (owner && !owner.isDestroyed()) owner.minimize(); },
+        });
+      } finally {
+        if (owner && !owner.isDestroyed()) { owner.restore(); owner.show(); owner.focus(); }
+      }
+    }
+    case "automation_element_pick_cancel": return cancelAutomationElementPick(String(args.pickId || ""));
     case "select_terminal_files": {
       const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
       const result = await dialog.showOpenDialog(owner, {
@@ -1630,4 +1658,5 @@ app.on("before-quit", () => {
   agentControlServer = null;
   cancelAllCommands();
   cancelAllAutomationRecipes();
+  cancelAllAutomationElementPicks();
 });

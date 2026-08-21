@@ -17,6 +17,9 @@ import { activeAutomationExecution, automationExecutionView, AUTOMATION_EXECUTIO
 type StudioSection = "recorder" | "workflows" | "artifacts";
 type BackendRecording = { id: string; status: string; revision: number; document: { run?: CapturedRun }; updated_at: string };
 type BackendRun = { id: string; workflow_id: string; workflow_version: number; status: "queued" | "running" | "completed" | "failed" | "cancelled"; error?: string; created_at: string; completed_at?: string };
+type ElementPickMode = "target" | "container" | "field" | "next";
+type ElementPickState = { pickId: string; actionIndex: number; mode: ElementPickMode; fieldName?: string };
+type ElementPickResult = { cancelled?: boolean; selector?: string; locator?: { role?: string; name?: string; text?: string }; label?: string; tag?: string; attribute?: string; pageUrl?: string };
 
 const ACTION_OPTIONS = [
   ["navigate", "Open a web page"], ["open", "Open a URL"], ["input", "Enter text"], ["click", "Click something"],
@@ -121,6 +124,7 @@ export function AutomationStudio() {
   const [playback, setPlayback] = useState<AutomationExecution | undefined>(activeAutomationExecution);
   const [playbackClock, setPlaybackClock] = useState(Date.now());
   const [recordingStopping, setRecordingStopping] = useState(false);
+  const [elementPick, setElementPick] = useState<ElementPickState>();
   const workspaceId = s.activeWorkspaceId || "";
   const recordingAgentId = activeAutomationRecording()?.agentId;
   const runs = useMemo(() => recordingSince > 0 ? capturedRunsForRecording(s.conversations, {
@@ -136,6 +140,10 @@ export function AutomationStudio() {
     return automationExecutionView(playback, s.conversations, playbackClock);
   }, [playback, playbackClock, s.conversations, workspaceId]);
   const executionBusy = !!playback && !!playbackView && !["completed", "failed", "cancelled"].includes(playbackView.phase);
+
+  useEffect(() => () => {
+    if (elementPick) void invoke("automation_element_pick_cancel", { pickId: elementPick.pickId }).catch(() => undefined);
+  }, [elementPick?.pickId]);
 
   useEffect(() => {
     const sync = () => setPlayback(activeAutomationExecution());
@@ -331,20 +339,6 @@ export function AutomationStudio() {
     return String(value.name || value.text || (value.css ? `css=${value.css}` : ""));
   };
 
-  const updateActionTarget = (index: number, value: string) => {
-    if (!draft) return;
-    const actions = [...draft.actions];
-    const arguments_ = { ...actions[index].arguments };
-    delete arguments_.selector;
-    delete arguments_.locator;
-    const target = value.trim();
-    if (target.startsWith("css=")) arguments_.selector = target.slice(4).trim();
-    else if (target) arguments_.locator = { name: target };
-    actions[index] = { ...actions[index], arguments: arguments_ };
-    setActionErrors((current) => { const next = { ...current }; delete next[index]; return next; });
-    setDraft({ ...draft, actions, recipe: { ...draft.recipe, actions } });
-  };
-
   const updateExtractionFields = (index: number, names: string[]) => {
     if (!draft) return;
     const current = draft.actions[index].arguments.fields;
@@ -352,11 +346,90 @@ export function AutomationStudio() {
     updateActionArgument(index, "fields", Object.fromEntries(names.map((name) => [name, specs[name] && typeof specs[name] === "object" ? specs[name] : { selector: "" }])));
   };
 
-  const updateExtractionFieldSelector = (index: number, name: string, selector: string) => {
-    if (!draft) return;
-    const current = draft.actions[index].arguments.fields;
-    const specs = current && typeof current === "object" && !Array.isArray(current) ? current as Record<string, Record<string, unknown>> : {};
-    updateActionArgument(index, "fields", { ...specs, [name]: { ...(specs[name] || {}), selector } });
+  const previewUrl = () => {
+    const step = draft?.actions.find((action) => ["navigate", "open"].includes(action.tool));
+    const url = typeof step?.arguments.url === "string" ? step.arguments.url.trim() : "";
+    try { return ["http:", "https:"].includes(new URL(url).protocol) ? url : undefined; }
+    catch { return undefined; }
+  };
+
+  const selectedBrowserRuntime = () => {
+    if (!s.selectedProfile) return "clawbrowser";
+    for (const workspace of s.workspaces) {
+      if (workspace.profileNames.includes(s.selectedProfile)) return workspace.profileToolsets[s.selectedProfile] || "clawbrowser";
+    }
+    return "clawbrowser";
+  };
+
+  const pickElement = async (actionIndex: number, mode: ElementPickMode, fieldName?: string) => {
+    if (!draft || elementPick) return;
+    const pickId = uid();
+    const state = { pickId, actionIndex, mode, fieldName };
+    setElementPick(state);
+    setStudioError(undefined);
+    setNotice("The workflow page is opening. Click the highlighted element in the browser, or press Esc to cancel.");
+    try {
+      if (s.selectedProfile) {
+        const status = s.statuses[s.selectedProfile] ?? s.profileSessions[s.selectedProfile]?.status;
+        if (status !== "running") await s.startProfile(s.selectedProfile);
+      } else if (s.defaultSession?.status !== "running") {
+        await s.startDefaultSession();
+      }
+      const action = draft.actions[actionIndex];
+      const result = await invoke<ElementPickResult>("automation_element_pick", {
+        pickId,
+        mode,
+        fieldName,
+        container: mode === "field" ? action.arguments.container : undefined,
+        openUrl: previewUrl(),
+        profile: s.selectedProfile,
+        runtime: selectedBrowserRuntime(),
+      });
+      if (result.cancelled) return setNotice("Element selection cancelled. No workflow step was changed.");
+      if (!result.selector) throw new Error("The selected element did not produce a reusable locator.");
+      if (mode === "target") {
+        const actions = [...draft.actions];
+        const arguments_ = { ...actions[actionIndex].arguments };
+        delete arguments_.selector;
+        delete arguments_.locator;
+        if (["wait", "act"].includes(actions[actionIndex].tool)) arguments_.selector = result.selector;
+        else if (result.locator?.name || result.locator?.text) arguments_.locator = result.locator;
+        else arguments_.selector = result.selector;
+        actions[actionIndex] = { ...actions[actionIndex], arguments: arguments_ };
+        setDraft({ ...draft, actions, recipe: { ...draft.recipe, actions } });
+      } else if (mode === "container") {
+        updateActionArgument(actionIndex, "container", result.selector);
+      } else if (mode === "next") {
+        updateActionArgument(actionIndex, "next_selector", result.selector);
+      } else if (fieldName) {
+        const current = action.arguments.fields;
+        const fields = current && typeof current === "object" && !Array.isArray(current) ? current as Record<string, Record<string, unknown>> : {};
+        updateActionArgument(actionIndex, "fields", {
+          ...fields,
+          [fieldName]: { ...(fields[fieldName] || {}), selector: result.selector, ...(result.attribute ? { attribute: result.attribute } : {}) },
+        });
+      }
+      setNotice(`Selected “${result.label || result.tag || "page element"}”. The locator was saved automatically.`);
+    } catch (error) {
+      reportError(error);
+    } finally {
+      setElementPick(undefined);
+    }
+  };
+
+  const cancelElementPick = async () => {
+    if (!elementPick) return;
+    await invoke("automation_element_pick_cancel", { pickId: elementPick.pickId }).catch(() => undefined);
+  };
+
+  const targetSummary = (action: BrowserWorkflowAction) => {
+    const locator = action.arguments.locator;
+    if (locator && typeof locator === "object" && !Array.isArray(locator)) {
+      const value = locator as Record<string, unknown>;
+      const name = String(value.name || value.text || "").trim();
+      if (name) return `${value.role ? `${value.role}: ` : ""}${name}`;
+    }
+    return action.arguments.selector ? "Selected page element" : "No element selected";
   };
 
   const moveAction = (index: number, direction: -1 | 1) => {
@@ -608,18 +681,19 @@ export function AutomationStudio() {
         <aside className="workflow-list"><div className="workflow-list-title"><span>Workflows</span><button className="mini" title="Create workflow" aria-label="Create workflow" onClick={() => void createWorkflow()}><Icon name="plus" size={12} /></button></div>{workflows.map((skill) => <button key={skill.id} className={skill.id === selectedWorkflowId ? "active" : ""} onClick={() => selectWorkflow(skill.id)}><Icon name="arrow.triangle.branch" size={14} /><span><strong>{skill.title}</strong><small>{skill.actions.length} steps · {skill.domain || "Any site"}</small></span></button>)}{!workflows.length && <p className="muted small">Record a run or create a workflow from a task.</p>}</aside>
         <div className="workflow-canvas">{draft ? <>
           <div className="workflow-editor-head"><div><input className="workflow-title-input" aria-label="Workflow name" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /><input className="workflow-domain-input" aria-label="Website domain" value={draft.domain} placeholder="example.com" onChange={(event) => setDraft({ ...draft, domain: event.target.value })} />{draftDirty && <small className="workflow-unsaved">Unsaved changes</small>}</div><div className="row"><button className="mini danger-text" onClick={() => void deleteWorkflow(draft)}>Delete</button><button className="secondary" onClick={() => void duplicateWorkflow(draft)}>Duplicate</button><button className="secondary" disabled={draftDirty || executionBusy || !!draftValidationError} title={draftDirty ? "Save changes before running" : draftValidationError || (executionBusy ? "Stop the running automation first" : "Run workflow")} onClick={() => void runWorkflow(draft)}>Run</button><button className="primary" disabled={saving || !draftDirty || !!draftValidationError || !!Object.keys(actionErrors).length} onClick={() => void saveDraft()}>{saving && <Spinner size={12} />} Save</button></div></div>
-          <div className="workflow-builder-help"><strong>Runs directly in the browser—no AI required.</strong><span>Recorded locators and extraction rules execute in order. If a website changes, use AI repair only for the failed step.</span></div>
+          <div className="workflow-builder-help"><strong>Build by clicking the real page—no HTML or CSS knowledge required.</strong><span>Set the page URL, then use Select on page. NextBrowser opens the selected browser and creates the locator automatically. Technical locators remain under Advanced JSON.</span></div>
+          {elementPick && <div className="workflow-picker-banner" role="status"><Spinner size={13} /><span><strong>Selecting an element for step {elementPick.actionIndex + 1}</strong><small>Click the highlighted element in the browser. Press Esc there to cancel.</small></span><button className="secondary" onClick={() => void cancelElementPick()}>Cancel</button></div>}
           {draftValidationError && <div className="error automation-inline-error" role="alert">{draftValidationError}</div>}
           <label className="field-label">What should this workflow accomplish?<textarea value={draft.task} onChange={(event) => setDraft({ ...draft, task: event.target.value })} /></label>
           <div className="workflow-steps">{draft.actions.map((action, index) => <div className="workflow-step" key={`${index}-${action.tool}`}><div className="workflow-step-number">{index + 1}</div><div className="workflow-step-body"><select value={ACTION_OPTIONS.some(([value]) => value === action.tool) ? action.tool : "advanced"} aria-label={`Step ${index + 1} action`} onChange={(event) => { if (event.target.value !== "advanced") updateAction(index, "tool", event.target.value); }}><option value="advanced">{actionLabel(action.tool)}</option>{ACTION_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
             {["navigate", "open"].includes(action.tool) && <label>Page URL<input value={String(action.arguments.url || "")} placeholder="https://example.com/products" onChange={(event) => updateActionArgument(index, "url", event.target.value)} /></label>}
-            {["input", "click"].includes(action.tool) && <label>Target on the page<input value={actionTarget(action)} placeholder="Visible name, or css=.result-button" onChange={(event) => updateActionTarget(index, event.target.value)} /></label>}
+            {["input", "click"].includes(action.tool) && <label>Target on the page<div className="workflow-visual-target"><span className={actionTarget(action) ? "selected" : ""}>{targetSummary(action)}</span><button type="button" className="secondary" disabled={!!elementPick} onClick={() => void pickElement(index, "target")}><Icon name="cursorarrow" size={12} /> {actionTarget(action) ? "Select again" : "Select on page"}</button></div></label>}
             {action.tool === "input" && <label>Text to enter<input value={String(action.arguments.text || "")} placeholder="Search phrase or {{input}}" onChange={(event) => updateActionArgument(index, "text", event.target.value)} /></label>}
             {action.tool === "press" && <label>Key<input value={String(action.arguments.key || "Enter")} placeholder="Enter" onChange={(event) => updateActionArgument(index, "key", event.target.value)} /></label>}
-            {action.tool === "select" && <><label>Target on the page<input value={actionTarget(action)} placeholder="Visible name, or css=select[name=sort]" onChange={(event) => updateActionTarget(index, event.target.value)} /></label><label>Option value<input value={String(action.arguments.value || "")} onChange={(event) => updateActionArgument(index, "value", event.target.value)} /></label></>}
-            {action.tool === "wait" && <label>Wait for text or selector<input value={String(action.arguments.selector || action.arguments.text || "")} placeholder="Results loaded or .result-card" onChange={(event) => updateActionArgument(index, "selector", event.target.value)} /></label>}
-            {action.tool === "act" && <><label>Interaction<input value={String(action.arguments.action || "click")} placeholder="click, type, or press" onChange={(event) => updateActionArgument(index, "action", event.target.value)} /></label><label>Target on the page <small>Optional</small><input value={String(action.arguments.selector || "")} placeholder="Visible label, text, or CSS selector" onChange={(event) => updateActionArgument(index, "selector", event.target.value)} /></label>{action.arguments.action === "type" && <label>Text to enter<input value={String(action.arguments.text || "")} onChange={(event) => updateActionArgument(index, "text", event.target.value)} /></label>}</>}
-            {["extract", "paginate_extract"].includes(action.tool) && <><label>Repeated result row<input value={String(action.arguments.container || "")} placeholder="css=.product-card" onChange={(event) => updateActionArgument(index, "container", event.target.value.replace(/^css=/, ""))} /></label><label>Data fields<input value={Object.keys(extractionFields(action)).join(", ")} placeholder="title, price, url" onChange={(event) => updateExtractionFields(index, event.target.value.split(",").map((item) => item.trim()).filter(Boolean))} /></label>{Object.entries(extractionFields(action)).map(([name, spec]) => <label key={name}>{name} target <small>Relative to each result row</small><input value={String(spec.selector || "")} placeholder={name === "url" ? "a[href]" : `.${name}`} onChange={(event) => updateExtractionFieldSelector(index, name, event.target.value)} /></label>)}{action.tool === "paginate_extract" && <><label>Next page button<input value={String(action.arguments.next_selector || "")} placeholder="css=li.next a" onChange={(event) => updateActionArgument(index, "next_selector", event.target.value.replace(/^css=/, ""))} /></label><label className="workflow-checkbox"><input type="checkbox" checked={action.arguments.scroll === true} onChange={(event) => updateActionArgument(index, "scroll", event.target.checked || undefined)} /> Use infinite scrolling instead</label></>}</>}
+            {action.tool === "select" && <><label>Target on the page<div className="workflow-visual-target"><span className={actionTarget(action) ? "selected" : ""}>{targetSummary(action)}</span><button type="button" className="secondary" disabled={!!elementPick} onClick={() => void pickElement(index, "target")}><Icon name="cursorarrow" size={12} /> {actionTarget(action) ? "Select again" : "Select on page"}</button></div></label><label>Option value<input value={String(action.arguments.value || "")} onChange={(event) => updateActionArgument(index, "value", event.target.value)} /></label></>}
+            {action.tool === "wait" && <label>Content that means the page is ready<div className="workflow-visual-target"><span className={action.arguments.selector ? "selected" : ""}>{action.arguments.selector ? "Selected page content" : "No content selected"}</span><button type="button" className="secondary" disabled={!!elementPick} onClick={() => void pickElement(index, "target")}><Icon name="cursorarrow" size={12} /> {action.arguments.selector ? "Select again" : "Select on page"}</button></div></label>}
+            {action.tool === "act" && <><label>Interaction<input value={String(action.arguments.action || "click")} placeholder="click, type, or press" onChange={(event) => updateActionArgument(index, "action", event.target.value)} /></label><label>Target on the page <small>Optional</small><div className="workflow-visual-target"><span className={action.arguments.selector ? "selected" : ""}>{action.arguments.selector ? "Selected page element" : "No element selected"}</span><button type="button" className="secondary" disabled={!!elementPick} onClick={() => void pickElement(index, "target")}><Icon name="cursorarrow" size={12} /> {action.arguments.selector ? "Select again" : "Select on page"}</button></div></label>{action.arguments.action === "type" && <label>Text to enter<input value={String(action.arguments.text || "")} onChange={(event) => updateActionArgument(index, "text", event.target.value)} /></label>}</>}
+            {["extract", "paginate_extract"].includes(action.tool) && <><label>One repeated result row<div className="workflow-visual-target"><span className={action.arguments.container ? "selected" : ""}>{action.arguments.container ? "Result row selected" : "Select one card, row, or search result"}</span><button type="button" className="secondary" disabled={!!elementPick} onClick={() => void pickElement(index, "container")}><Icon name="cursorarrow" size={12} /> {action.arguments.container ? "Select again" : "Select row on page"}</button></div></label><label>Data fields <small>Name what you want to collect</small><input value={Object.keys(extractionFields(action)).join(", ")} placeholder="title, price, url" onChange={(event) => updateExtractionFields(index, event.target.value.split(",").map((item) => item.trim()).filter(Boolean))} /></label>{Object.entries(extractionFields(action)).map(([name, spec]) => <label key={name}>{name}<div className="workflow-visual-target"><span className={spec.selector ? "selected" : ""}>{spec.selector ? `${name} selected${spec.attribute ? ` · ${String(spec.attribute)}` : ""}` : `Select ${name} inside the result row`}</span><button type="button" className="secondary" disabled={!!elementPick || !action.arguments.container} title={!action.arguments.container ? "Select the repeated result row first" : `Select ${name} on page`} onClick={() => void pickElement(index, "field", name)}><Icon name="cursorarrow" size={12} /> {spec.selector ? "Select again" : "Select on page"}</button></div></label>)}{action.tool === "paginate_extract" && <><label>Next page button<div className="workflow-visual-target"><span className={action.arguments.next_selector ? "selected" : ""}>{action.arguments.next_selector ? "Next button selected" : "No Next button selected"}</span><button type="button" className="secondary" disabled={!!elementPick} onClick={() => void pickElement(index, "next")}><Icon name="cursorarrow" size={12} /> {action.arguments.next_selector ? "Select again" : "Select on page"}</button></div></label><label className="workflow-checkbox"><input type="checkbox" checked={action.arguments.scroll === true} onChange={(event) => updateActionArgument(index, "scroll", event.target.checked || undefined)} /> Use infinite scrolling instead</label></>}</>}
             <details><summary>Advanced JSON</summary><textarea key={JSON.stringify(action.arguments)} defaultValue={JSON.stringify(action.arguments, null, 2)} aria-label={`Step ${index + 1} arguments`} onBlur={(event) => updateAction(index, "arguments", event.target.value)} /></details>{actionErrors[index] && <small className="error">{actionErrors[index]}</small>}</div><div className="workflow-step-actions"><button className="mini" disabled={index === 0} onClick={() => moveAction(index, -1)}>↑</button><button className="mini" disabled={index === draft.actions.length - 1} onClick={() => moveAction(index, 1)}>↓</button><button className="mini danger-text" onClick={() => removeAction(index)}>×</button></div></div>)}</div>
           <button className="secondary workflow-add-step" onClick={addAction}><Icon name="plus" size={13} /> Add browser step</button>
           <label className="field-label">AI repair instructions <small>Used only when you explicitly choose Repair &amp; run with AI.</small><textarea rows={6} value={draft.instructions} onChange={(event) => setDraft({ ...draft, instructions: event.target.value })} /></label>

@@ -7230,6 +7230,9 @@ pre,
 .workflow-canvas { padding: 20px; overflow: auto; }
 .workflow-builder-help { display: grid; gap: 3px; margin: 14px 0; padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line)); border-radius: 10px; background: color-mix(in srgb, var(--accent) 7%, var(--surface-2)); font-size: 12px; }
 .workflow-builder-help span { color: var(--muted); line-height: 1.45; }
+.workflow-picker-banner { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 11px 12px; border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--line)); border-radius: 10px; background: color-mix(in srgb, var(--accent) 10%, var(--surface-2)); color: var(--accent-text); }
+.workflow-picker-banner > span { display: grid; flex: 1; gap: 2px; }
+.workflow-picker-banner small { color: var(--muted); }
 .workflow-editor-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 .workflow-editor-head > div:first-child { display: grid; gap: 6px; flex: 1; }
 .workflow-title-input { font-size: 20px; font-weight: 700; border: 0 !important; background: transparent !important; padding: 0 !important; }
@@ -7249,6 +7252,10 @@ pre,
 .workflow-step-body summary { cursor: pointer; color: var(--muted); font-size: 11px; }
 .workflow-step-body input { font-family: var(--font-mono); font-weight: 600; }
 .workflow-step-body textarea { min-height: 88px; font-family: var(--font-mono); font-size: 11px; }
+.workflow-visual-target { min-height: 38px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 6px 5px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-1); }
+.workflow-visual-target > span { min-width: 0; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font: 600 11px/1.35 var(--font-ui); }
+.workflow-visual-target > span.selected { color: var(--text); }
+.workflow-visual-target > button { flex: none; min-height: 28px; padding: 5px 8px; font-size: 10px; }
 .workflow-step-actions { display: flex; gap: 3px; }
 .workflow-add-step { margin-left: 42px; }
 .artifact-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; padding: 16px; }

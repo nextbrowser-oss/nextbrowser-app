@@ -123,3 +123,14 @@ test("recordings and workflows replay deterministically with explicit AI repair"
   assert.match(studio, /Repair & run with AI/);
   assert.match(studio, /runLocalSkill\(repairWorkflow, repairTask\)/);
 });
+
+test("workflow builder selects page elements visually without exposing CSS inputs", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  const studio = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AutomationStudio.tsx"), "utf8");
+  assert.match(main, /case "automation_element_pick"/);
+  assert.match(main, /case "automation_element_pick_cancel"/);
+  assert.match(studio, /Select on page/);
+  assert.match(studio, /Select row on page/);
+  assert.match(studio, /no HTML or CSS knowledge required/i);
+  assert.doesNotMatch(studio, /placeholder="css=/);
+});

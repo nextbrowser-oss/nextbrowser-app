@@ -13,6 +13,7 @@ The recorder supports:
 - ordered navigation, interaction, wait, form, upload, and extraction actions;
 - direct execution on the selected runtime, step-level backend status, structured output, progress, and cancellation;
 - CSS locators, stable runtime element IDs, and accessible role/name locators resolved through semantic browser state;
+- a visual element picker for interaction targets, ready-state content, repeated result rows, relative extraction fields, and pagination controls; users do not inspect HTML or write CSS;
 - replay, conversion to a workflow, deletion, workspace/agent isolation, and explicit Start/Stop.
 
 It does not currently support:
@@ -23,7 +24,7 @@ It does not currently support:
 - reliably reconstructing an arbitrary natural-language Codex browser run when it exposes neither tool events nor an embedded workflow recipe;
 - secret replay: credentials and payment data are redacted and the resulting recording cannot become a workflow.
 
-## Ten end-to-end scenarios
+## End-to-end scenarios
 
 | # | Scenario | Verification | Result |
 |---|---|---|---|
@@ -37,6 +38,7 @@ It does not currently support:
 | 8 | Security | Password, bearer token, API key, card/security-code contexts | Pass; values redacted client-side and raw secrets rejected by workflow API |
 | 9 | Builder lifecycle | Duplicate, invalidate domain, block Save/Run, save revision, delete | Pass; inline validation and optimistic revisions work |
 | 10 | Persistence lifecycle | PostgreSQL CRUD for recordings/workflows/runs; local CRUD for artifacts | Pass; terminal run states cannot revert, steps close with the run, and artifacts remain in per-workspace app storage until the user deletes them |
+| 11 | Visual workflow authoring | Select a Books result row, title, price, and URL, then run the generated recipe | Pass; 20 rows collected with generated relative selectors and automatic `href` extraction |
 
 ## Defects found and corrected
 
@@ -58,6 +60,7 @@ It does not currently support:
 - Background timer throttling made duration and progress appear frozen. The Electron window keeps automation timers active.
 - Workflow progress counted setup/inspection calls as completed actions. Only replayable recipe actions count; long-running work shows the agent's live activity label.
 - Backend runs existed but were invisible in the builder. The selected workflow now shows its five most recent backend runs.
+- Workflow authoring required users to inspect page markup and enter CSS selectors. The visual picker now builds semantic or scoped selectors from clicks on the live page.
 
 ## Design conclusions
 
