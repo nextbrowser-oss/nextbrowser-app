@@ -287,7 +287,16 @@ export interface TabsList {
   }[];
 }
 
-export type AppTab = "chat" | "skills" | "connectors" | "live" | "usage" | "guide" | "scheduled";
+export type AppTab = "chat" | "automation" | "skills" | "connectors" | "live" | "usage" | "guide" | "scheduled";
+
+export interface AutomationArtifact {
+  id: string;
+  name: string;
+  path: string;
+  size: number;
+  createdAt: number;
+  extension: string;
+}
 
 export function proxyFraction(p?: ProxyTraffic | null): number {
   if (!p) return 0;
