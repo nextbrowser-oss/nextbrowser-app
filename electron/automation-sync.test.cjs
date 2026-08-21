@@ -56,8 +56,8 @@ test("rejects files above 1 GiB before fetching", async (t) => {
   assert.equal(f.calls.length, 0);
 });
 
-test("round-trips downloaded bytes and normalizes artifact metadata", async (t) => {
-  const f = await fixture(t, (url) => url.endsWith("/content") ? { ok: true, arrayBuffer: async () => Uint8Array.from([0, 1, 2, 255]).buffer } : jsonResponse({ artifacts: [{ id: "a", name: "data.bin", size: 4, content_type: "application/octet-stream", sha256: "hash", created_at: "2026-01-01T00:00:00Z" }] }));
+test("streams downloaded bytes and normalizes artifact metadata", async (t) => {
+  const f = await fixture(t, (url) => url.endsWith("/content") ? { ok: true, body: new ReadableStream({ start(controller) { controller.enqueue(Uint8Array.from([0, 1, 2, 255])); controller.close(); } }) } : jsonResponse({ artifacts: [{ id: "a", name: "data.bin", size: 4, content_type: "application/octet-stream", sha256: "hash", created_at: "2026-01-01T00:00:00Z" }] }));
   assert.equal((await listAutomationArtifacts("space", f.deps))[0].extension, "bin");
   const target = path.join(f.root, "download.bin");
   await downloadAutomationArtifact("a", target, f.deps);

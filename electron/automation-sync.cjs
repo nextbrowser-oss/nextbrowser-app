@@ -1,8 +1,9 @@
 const fs = require("node:fs/promises");
-const { createReadStream } = require("node:fs");
+const { createReadStream, createWriteStream } = require("node:fs");
 const path = require("node:path");
 const { randomBytes, randomUUID } = require("node:crypto");
 const { Readable } = require("node:stream");
+const { pipeline } = require("node:stream/promises");
 const { projectRequest } = require("./project-sync.cjs");
 
 const query = (workspaceId) => `?workspace_id=${encodeURIComponent(workspaceId)}`;
@@ -80,7 +81,7 @@ async function uploadAutomationArtifact(workspaceId, filePath, deps) {
   const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
   const body = Readable.from((async function* () { yield head; for await (const chunk of createReadStream(filePath)) yield chunk; yield tail; })());
   const response = await projectRequest("/v1/automation/artifacts", {
-    method: "POST", body, duplex: "half", jsonBody: false,
+    method: "POST", body, duplex: "half", jsonBody: false, timeoutMs: 30 * 60_000,
     headers: { "content-type": `multipart/form-data; boundary=${boundary}`, "content-length": String(head.length + stat.size + tail.length) },
   }, deps);
   return normalizeArtifact(response);
@@ -156,8 +157,9 @@ async function seedAutomationExamplesOnce(workspaceId, deps) {
 }
 
 async function downloadAutomationArtifact(id, targetPath, deps) {
-  const body = await projectRequest(`/v1/automation/artifacts/${encodeURIComponent(id)}/content`, { responseType: "buffer" }, deps);
-  await fs.writeFile(targetPath, body, { mode: 0o600 });
+  const body = await projectRequest(`/v1/automation/artifacts/${encodeURIComponent(id)}/content`, { responseType: "stream", timeoutMs: 30 * 60_000 }, deps);
+  if (!body) throw new Error("Artifact download returned an empty response.");
+  await pipeline(Readable.fromWeb(body), createWriteStream(targetPath, { mode: 0o600 }));
 }
 
 const deleteAutomationArtifact = (id, deps) => projectRequest(`/v1/automation/artifacts/${encodeURIComponent(id)}`, { method: "DELETE" }, deps);

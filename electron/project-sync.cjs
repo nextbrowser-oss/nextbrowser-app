@@ -21,7 +21,7 @@ async function projectRequest(route, options = {}, deps = {}) {
   const fetchImpl = deps.fetchImpl || fetch;
   const { apiKey } = await loadBackendConfig(deps);
   const baseURL = entityBackendURL(deps.env);
-  const { responseType = "json", jsonBody = true, ...fetchOptions } = options;
+  const { responseType = "json", jsonBody = true, timeoutMs = REQUEST_TIMEOUT_MS, ...fetchOptions } = options;
   const response = await fetchImpl(`${baseURL}${route}`, {
     ...fetchOptions,
     headers: {
@@ -30,8 +30,9 @@ async function projectRequest(route, options = {}, deps = {}) {
       ...(fetchOptions.body && jsonBody ? { "content-type": "application/json" } : {}),
       ...(fetchOptions.headers || {}),
     },
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
+  if (response.ok && responseType === "stream") return response.body;
   if (response.ok && responseType === "buffer") return Buffer.from(await response.arrayBuffer());
   const text = await response.text();
   let body = null;
