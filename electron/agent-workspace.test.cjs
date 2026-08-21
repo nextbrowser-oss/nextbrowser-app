@@ -103,4 +103,7 @@ test("unfinished recordings are deleted instead of retained as cancelled attempt
   assert.match(studio, /existing\.id[\s\S]{0,80}automation_recording_delete|automation_recording_delete[\s\S]{0,80}existing\.id/);
   assert.match(sidebar, /automation_recording_delete[\s\S]{0,80}activeRecording\.id/);
   assert.doesNotMatch(sidebar, /status: "cancelled"[\s\S]{0,120}activeRecording\.startedAt/);
+  assert.match(studio, /Start recording/);
+  assert.match(studio, /Stop recording/);
+  assert.doesNotMatch(studio, />Pause recording</);
 });

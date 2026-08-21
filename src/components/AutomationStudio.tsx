@@ -57,6 +57,7 @@ export function AutomationStudio() {
   const [playback, setPlayback] = useState<RecordingPlayback | undefined>(savedPlayback);
   const [playbackClock, setPlaybackClock] = useState(Date.now());
   const [recordingFilter, setRecordingFilter] = useState<RecordingFilter>("all");
+  const [recordingStopping, setRecordingStopping] = useState(false);
   const workspaceId = s.activeWorkspaceId || "";
   const runs = useMemo(() => capturedRuns(s.conversations).slice(0, 12), [s.conversations]);
   const recordedRun = recordingSince > 0 ? runs.find((run) => run.answer.createdAt >= recordingSince) : undefined;
@@ -196,6 +197,28 @@ export function AutomationStudio() {
       setStudioError(undefined);
       s.setTab("chat");
     } catch (error) { reportError(error); }
+  };
+
+  const stopRecording = async () => {
+    const active = activeAutomationRecording();
+    if (!active || active.phase !== "recording" || active.workspaceId !== workspaceId || recordingStopping) return;
+    setRecordingStopping(true);
+    try {
+      const captured = runs.find((run) => run.answer.createdAt >= active.startedAt);
+      if (captured) {
+        await invoke("automation_recording_put", { recording: { id: active.id, workspace_id: workspaceId, status: "completed", document: { run: captured }, base_revision: 1 } });
+        setActiveAutomationRecording({ ...active, phase: "captured" });
+        setNotice("Recording stopped and saved. Review it below or turn it into a workflow.");
+      } else {
+        await invoke("automation_recording_delete", { id: active.id });
+        clearActiveAutomationRecording();
+        setRecordingSince(0);
+        setRecordings((current) => current.filter((item) => item.id !== active.id));
+        setNotice("Recording stopped. The incomplete attempt was discarded.");
+      }
+      await loadRecordings();
+    } catch (error) { reportError(error); }
+    finally { setRecordingStopping(false); }
   };
 
   const saveCapture = async (run: CapturedRun) => {
@@ -416,10 +439,10 @@ export function AutomationStudio() {
 
       {section === "recorder" && <section className="automation-panel">
         <div className="automation-panel-head"><div><h2>Recordings</h2><p>A recording is a completed browser task. Run it again as-is, or turn it into an editable workflow.</p></div>
-          <div className="row">{stoppedRecordingCount > 0 && <button className="secondary" onClick={() => void clearStoppedRecordings()}>Clear stopped ({stoppedRecordingCount})</button>}<button className="primary" onClick={() => void startRecording()}><Icon name="circle.fill" size={12} /> {recordedRun ? "Record another task" : recordingSince ? "Restart recording" : "Record a new task"}</button></div>
+          <div className="row">{stoppedRecordingCount > 0 && <button className="secondary" onClick={() => void clearStoppedRecordings()}>Clear stopped ({stoppedRecordingCount})</button>}{recordingSince > 0 && !recordedRun ? <button className="secondary danger-text" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={12} /> : <Icon name="stop.fill" size={12} />} Stop recording</button> : <button className="primary" onClick={() => void startRecording()}><Icon name="circle.fill" size={12} /> Start recording</button>}</div>
         </div>
         <div className="recording-filters" aria-label="Filter recordings">{(["all", "ready", "recording", "stopped", "demos"] as RecordingFilter[]).map((filter) => <button key={filter} className={recordingFilter === filter ? "active" : ""} onClick={() => setRecordingFilter(filter)}>{filter === "all" ? `All ${recordings.length}` : filter === "ready" ? `Ready ${recordings.filter((item) => item.document.run && !item.document.demo).length}` : filter === "recording" ? `Recording ${recordings.filter((item) => !item.document.run && item.status === "recording").length}` : filter === "stopped" ? `Stopped ${stoppedRecordingCount}` : `Demos ${recordings.filter((item) => item.document.demo).length}`}</button>)}</div>
-        <div className="automation-management-note"><Icon name="info.circle" size={13} /><span>Your recordings and stopped attempts can be deleted. Built-in demos stay available as examples.</span></div>
+        <div className="automation-management-note"><Icon name="info.circle" size={13} /><span>Use Start and Stop—there is no pause. Incomplete recordings are discarded when stopped; built-in demos stay available as examples.</span></div>
         {recordingSince > 0 && <div className="recording-banner"><span className="recording-dot" />{recordedRun ? "Run captured — review and save it below." : "Recording is armed. Complete a browser task in Project, then return here."}</div>}
         <div className="capture-list">
           {visibleRecordings.filter((item) => item.document.run).map((recording) => {

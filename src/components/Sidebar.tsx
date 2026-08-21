@@ -573,7 +573,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
       {activeRecording && <section className={"sidebar-recording-control " + activeRecording.phase} aria-label={activeRecording.phase === "captured" ? "Recording captured" : "Recording in progress"}>
         <div className="sidebar-recording-status"><span className="sidebar-recording-dot" /><div><strong>{activeRecording.phase === "captured" ? "Recording captured" : "Recording in progress"}</strong><small>{recordingWorkspace?.name || "Current workspace"}{activeRecording.phase === "recording" ? ` · ${recordingDuration(activeRecording.startedAt, recordingClock)}` : " · Ready to review"}</small></div></div>
-        <div className="sidebar-recording-actions"><button onClick={openRecorder}>{activeRecording.phase === "captured" ? "Review" : "Open recorder"}</button>{activeRecording.phase === "recording" ? <button className="stop" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={11} /> : <Icon name="stop.fill" size={11} />} Stop</button> : <button onClick={clearActiveAutomationRecording}>Dismiss</button>}</div>
+        <div className="sidebar-recording-actions"><button onClick={openRecorder}>{activeRecording.phase === "captured" ? "Review" : "Open recorder"}</button>{activeRecording.phase === "recording" ? <button className="stop" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={11} /> : <Icon name="stop.fill" size={11} />} Stop recording</button> : <button onClick={clearActiveAutomationRecording}>Dismiss</button>}</div>
         {recordingError && <small className="sidebar-recording-error" role="alert">{recordingError}</small>}
       </section>}
 
