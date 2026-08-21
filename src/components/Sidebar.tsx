@@ -191,7 +191,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         await invoke("automation_recording_put", { recording: { id: activeRecording.id, workspace_id: activeRecording.workspaceId, status: "completed", document: { run: captured }, base_revision: 1 } });
         setActiveAutomationRecording({ ...activeRecording, phase: "captured" });
       } else {
-        await invoke("automation_recording_put", { recording: { id: activeRecording.id, workspace_id: activeRecording.workspaceId, status: "cancelled", document: { started_at: new Date(activeRecording.startedAt).toISOString() }, base_revision: 1 } });
+        await invoke("automation_recording_delete", { id: activeRecording.id });
         clearActiveAutomationRecording();
       }
     } catch (error) {

@@ -96,3 +96,11 @@ test("automation recordings support backend deletion", () => {
   assert.match(main, /case "automation_recording_delete"/);
   assert.match(main, /deleteAutomationRecording/);
 });
+
+test("unfinished recordings are deleted instead of retained as cancelled attempts", () => {
+  const studio = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AutomationStudio.tsx"), "utf8");
+  const sidebar = fs.readFileSync(path.join(__dirname, "..", "src", "components", "Sidebar.tsx"), "utf8");
+  assert.match(studio, /existing\.id[\s\S]{0,80}automation_recording_delete|automation_recording_delete[\s\S]{0,80}existing\.id/);
+  assert.match(sidebar, /automation_recording_delete[\s\S]{0,80}activeRecording\.id/);
+  assert.doesNotMatch(sidebar, /status: "cancelled"[\s\S]{0,120}activeRecording\.startedAt/);
+});

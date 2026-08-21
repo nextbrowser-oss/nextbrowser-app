@@ -180,7 +180,12 @@ export function AutomationStudio() {
     try {
       const existing = activeAutomationRecording();
       if (existing?.phase === "recording") {
-        await invoke("automation_recording_put", { recording: { id: existing.id, workspace_id: existing.workspaceId, status: "cancelled", document: { started_at: new Date(existing.startedAt).toISOString() }, base_revision: 1 } });
+        if (recordedRun && existing.workspaceId === workspaceId) {
+          await invoke("automation_recording_put", { recording: { id: existing.id, workspace_id: existing.workspaceId, status: "completed", document: { run: recordedRun }, base_revision: 1 } });
+        } else {
+          await invoke("automation_recording_delete", { id: existing.id });
+          setRecordings((current) => current.filter((item) => item.id !== existing.id));
+        }
       }
       const startedAt = Date.now();
       const id = uid();
