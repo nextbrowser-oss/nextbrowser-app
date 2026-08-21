@@ -7261,15 +7261,14 @@ pre,
 .workflow-step-actions { display: flex; gap: 3px; }
 .workflow-add-step { margin-left: 42px; }
 .artifact-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; padding: 16px; }
-.artifact-retention-note { display: flex; align-items: center; gap: 8px; padding: 10px 20px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--orange, #d98522) 8%, transparent); color: var(--muted); font-size: 12px; }
-.artifact-retention-note strong { color: var(--text); }
+.artifact-local-note { display: flex; align-items: center; gap: 8px; padding: 10px 20px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--accent) 6%, transparent); color: var(--muted); font-size: 12px; }
+.artifact-local-note strong { color: var(--accent-text); }
 .artifact-card { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
 .artifact-demo-label { width: fit-content; padding: 3px 6px; border-radius: 5px; background: color-mix(in srgb, var(--accent) 13%, transparent); color: var(--accent) !important; font-size: 9px !important; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
 .artifact-icon { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 10px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .artifact-copy { min-width: 0; display: grid; gap: 3px; }
 .artifact-copy strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .artifact-copy span, .artifact-copy small { color: var(--muted); font-size: 11px; }
-.artifact-copy .artifact-expiry { color: var(--orange, #d98522); }
 .artifact-actions { grid-column: 1 / -1; display: flex; gap: 6px; justify-content: flex-end; }
 .automation-inline-error { padding: 10px 20px; border-bottom: 1px solid var(--line); }
 .workflow-run-history { margin-top: 18px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }

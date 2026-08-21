@@ -40,13 +40,11 @@ const {
   resolvePersonalProxy,
 } = require("./project-sync.cjs");
 const { defaultSSHConfigPath, discoverSSHHosts, isAllowedExplicitConfigPath } = require("./ssh-config.cjs");
+const { createLocalArtifactStore } = require("./local-artifacts.cjs");
 const {
   createAutomationRun,
-  deleteAutomationArtifact,
   deleteAutomationRecording,
   deleteAutomationWorkflow,
-  downloadAutomationArtifact,
-  listAutomationArtifacts,
   listAutomationRecordings,
   listAutomationRuns,
   listAutomationWorkflows,
@@ -54,7 +52,6 @@ const {
   putAutomationWorkflow,
   seedAutomationExamples,
   updateAutomationRun,
-  uploadAutomationArtifact,
 } = require("./automation-sync.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
@@ -100,6 +97,7 @@ let agentControlURL = "";
 const agentControlScopes = new Map();
 const agentControlProfileOwners = new Map();
 let multiloginCredentialStore = null;
+let automationArtifactStore = null;
 let multiloginAutomationToken = "";
 let multiloginCredentialLoadError = "";
 let multiloginCredentialLoadPromise = null;
@@ -611,6 +609,12 @@ async function ensureDasbrowserRuntime() {
   return dasbrowserInstallPromise;
 }
 function dataDir() { return path.join(app.getPath("userData")); }
+function localAutomationArtifacts() {
+  if (!automationArtifactStore) {
+    automationArtifactStore = createLocalArtifactStore({ rootDir: path.join(dataDir(), "automation-artifacts") });
+  }
+  return automationArtifactStore;
+}
 function multiloginCredentialPath() { return path.join(dataDir(), "credentials", "multilogin.json"); }
 function initializeMultiloginCredential() {
   if (multiloginCredentialLoadPromise) return multiloginCredentialLoadPromise;
@@ -1095,7 +1099,7 @@ async function invokeCommand(command, args = {}, sender) {
       }));
     }
     case "artifact_list": {
-      return await listAutomationArtifacts(String(args.workspaceId || ""), { env: childEnv() });
+      return await localAutomationArtifacts().list(String(args.workspaceId || ""));
     }
     case "artifact_import": {
       const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
@@ -1105,22 +1109,18 @@ async function invokeCommand(command, args = {}, sender) {
       });
       if (result.canceled) return [];
       for (const selected of result.filePaths.slice(0, 20)) {
-        await uploadAutomationArtifact(String(args.workspaceId || ""), selected, { env: childEnv() });
+        await localAutomationArtifacts().importFile(String(args.workspaceId || ""), selected);
       }
-      return await listAutomationArtifacts(String(args.workspaceId || ""), { env: childEnv() });
+      return await localAutomationArtifacts().list(String(args.workspaceId || ""));
     }
     case "artifact_open": {
-      const cacheDir = path.join(agentWorkspaceDir(home()), ".artifact-cache");
-      await fs.mkdir(cacheDir, { recursive: true, mode: 0o700 });
-      const safeName = path.basename(String(args.name || "artifact")).replace(/[\\/:*?"<>|\x00-\x1f]/g, "-").slice(0, 180) || "artifact";
-      const target = path.join(cacheDir, `${String(args.id || "")}--${safeName}`);
-      await downloadAutomationArtifact(String(args.id || ""), target, { env: childEnv() });
+      const target = await localAutomationArtifacts().resolvePath(String(args.workspaceId || ""), String(args.id || ""));
       const error = await shell.openPath(target);
       if (error) throw new Error(error);
       return null;
     }
     case "artifact_delete": {
-      return await deleteAutomationArtifact(String(args.id || ""), { env: childEnv() });
+      return await localAutomationArtifacts().delete(String(args.workspaceId || ""), String(args.id || ""));
     }
     case "automation_workflows_list": return await listAutomationWorkflows(String(args.workspaceId || ""), { env: childEnv() });
     case "automation_workflow_put": return await putAutomationWorkflow(String(args.workspaceId || ""), args.workflow || {}, { env: childEnv() });
@@ -1129,7 +1129,14 @@ async function invokeCommand(command, args = {}, sender) {
     case "automation_recording_put": return await putAutomationRecording(args.recording || {}, { env: childEnv() });
     case "automation_recording_delete": return await deleteAutomationRecording(String(args.id || ""), { env: childEnv() });
     case "automation_runs_list": return await listAutomationRuns(String(args.workspaceId || ""), { env: childEnv() });
-    case "automation_seed_examples": return await seedAutomationExamples(String(args.workspaceId || ""), { env: childEnv() });
+    case "automation_seed_examples": {
+      const workspaceId = String(args.workspaceId || "");
+      const [backend, artifacts] = await Promise.all([
+        seedAutomationExamples(workspaceId, { env: childEnv() }),
+        localAutomationArtifacts().seedExamples(workspaceId),
+      ]);
+      return { seeded: { ...backend.seeded, artifacts } };
+    }
     case "automation_run_create": return await createAutomationRun(args.run || {}, { env: childEnv() });
     case "automation_run_update": return await updateAutomationRun(String(args.id || ""), args.update || {}, { env: childEnv() });
     case "select_terminal_files": {

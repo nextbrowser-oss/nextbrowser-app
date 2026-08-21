@@ -79,16 +79,17 @@ test("terminal attachments are staged inside the sandboxed workspace", () => {
   assert.match(terminal, /Please inspect the attached file\(s\)\./);
 });
 
-test("automation artifacts are persisted by the authenticated backend", () => {
+test("automation artifacts are persisted only in local app storage", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   assert.match(main, /case "artifact_list"/);
-  assert.match(main, /listAutomationArtifacts/);
+  assert.match(main, /localAutomationArtifacts\(\)\.list/);
   assert.match(main, /case "artifact_import"/);
-  assert.match(main, /uploadAutomationArtifact/);
+  assert.match(main, /localAutomationArtifacts\(\)\.importFile/);
   assert.match(main, /case "artifact_open"/);
-  assert.match(main, /downloadAutomationArtifact/);
+  assert.match(main, /localAutomationArtifacts\(\)\.resolvePath/);
   assert.match(main, /case "artifact_delete"/);
-  assert.match(main, /deleteAutomationArtifact/);
+  assert.match(main, /localAutomationArtifacts\(\)\.delete/);
+  assert.doesNotMatch(main, /listAutomationArtifacts|uploadAutomationArtifact|downloadAutomationArtifact|deleteAutomationArtifact/);
 });
 
 test("automation recordings support backend deletion", () => {

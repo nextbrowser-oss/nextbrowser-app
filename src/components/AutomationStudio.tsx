@@ -475,13 +475,13 @@ export function AutomationStudio() {
   };
 
   const openArtifact = async (artifact: AutomationArtifact) => {
-    try { await invoke("artifact_open", { id: artifact.id, name: artifact.name }); }
+    try { await invoke("artifact_open", { workspaceId, id: artifact.id }); }
     catch (error) { setArtifactError(error instanceof Error ? error.message : String(error)); }
   };
 
   const deleteArtifact = async (artifact: AutomationArtifact) => {
-    if (!window.confirm(`Delete ${artifact.name} from this workspace?`)) return;
-    try { await invoke("artifact_delete", { id: artifact.id }); await loadArtifacts(); }
+    if (!window.confirm(`Delete ${artifact.name} from local storage on this computer?`)) return;
+    try { await invoke("artifact_delete", { workspaceId, id: artifact.id }); await loadArtifacts(); }
     catch (error) { setArtifactError(error instanceof Error ? error.message : String(error)); }
   };
 
@@ -591,11 +591,11 @@ export function AutomationStudio() {
       </section>}
 
       {section === "artifacts" && <section className="automation-panel">
-        <div className="automation-panel-head"><div><h2>Artifact Center</h2><p>Up to 1 GiB per file. Files are automatically deleted 30 days after upload.</p></div><button className="primary" disabled={artifactBusy} onClick={() => void importArtifacts()}>{artifactBusy ? <Spinner size={13} /> : <Icon name="plus" size={13} />} Add files</button></div>
-        <div className="artifact-retention-note"><Icon name="clock" size={14} /><span><strong>30-day temporary storage.</strong> Download anything you need to keep before its deletion date.</span></div>
+        <div className="automation-panel-head"><div><h2>Artifact Center</h2><p>Up to 1 GiB per file. Stored only on this computer.</p></div><button className="primary" disabled={artifactBusy} onClick={() => void importArtifacts()}>{artifactBusy ? <Spinner size={13} /> : <Icon name="plus" size={13} />} Add files</button></div>
+        <div className="artifact-local-note"><Icon name="info.circle" size={14} /><span><strong>Local storage.</strong> Files remain on this computer until you delete them. They are not uploaded or synced to other devices.</span></div>
         {artifactError && <div className="error automation-inline-error">{artifactError}</div>}
-        <div className="automation-management-note"><Icon name="info.circle" size={13} /><span>Uploaded files can be opened or deleted at any time. Built-in examples stay available for new users.</span></div>
-        <div className="artifact-grid">{artifacts.map((artifact) => { const demo = isBuiltInArtifact(artifact); return <article className="artifact-card" key={artifact.id}><div className="artifact-icon"><Icon name="doc" size={22} /></div><div className="artifact-copy"><strong title={artifact.name}>{artifact.name}</strong>{demo && <small className="artifact-demo-label">Built-in example</small>}<span>{artifact.extension.toUpperCase() || "FILE"} · {humanBytes(artifact.size)}</span><small>Uploaded {new Date(artifact.createdAt).toLocaleString()}</small><small className="artifact-expiry">Deletes {new Date(artifact.expiresAt || artifact.createdAt + 30 * 86_400_000).toLocaleString()}</small></div><div className="artifact-actions"><button className="secondary" onClick={() => void openArtifact(artifact)}>Open</button>{!demo && <button className="mini danger-text" onClick={() => void deleteArtifact(artifact)}>Delete</button>}</div></article>; })}{!artifactBusy && !artifacts.length && <div className="automation-empty"><Icon name="tray.full.fill" size={28} /><strong>No artifacts in this workspace</strong><span>Add reports, downloads, screenshots, spreadsheets, or other run outputs.</span></div>}</div>
+        <div className="automation-management-note"><Icon name="info.circle" size={13} /><span>Local files can be opened or deleted at any time. Built-in examples stay available for new users.</span></div>
+        <div className="artifact-grid">{artifacts.map((artifact) => { const demo = isBuiltInArtifact(artifact); return <article className="artifact-card" key={artifact.id}><div className="artifact-icon"><Icon name="doc" size={22} /></div><div className="artifact-copy"><strong title={artifact.name}>{artifact.name}</strong>{demo && <small className="artifact-demo-label">Built-in example</small>}<span>{artifact.extension.toUpperCase() || "FILE"} · {humanBytes(artifact.size)}</span><small>Added {new Date(artifact.createdAt).toLocaleString()} · Local only</small></div><div className="artifact-actions"><button className="secondary" onClick={() => void openArtifact(artifact)}>Open</button>{!demo && <button className="mini danger-text" onClick={() => void deleteArtifact(artifact)}>Delete</button>}</div></article>; })}{!artifactBusy && !artifacts.length && <div className="automation-empty"><Icon name="tray.full.fill" size={28} /><strong>No artifacts in this workspace</strong><span>Add reports, downloads, screenshots, spreadsheets, or other run outputs. They will stay on this computer.</span></div>}</div>
       </section>}
     </div>
   );

@@ -1,9 +1,4 @@
-const fs = require("node:fs/promises");
-const { createReadStream, createWriteStream } = require("node:fs");
-const path = require("node:path");
-const { randomBytes, randomUUID } = require("node:crypto");
-const { Readable } = require("node:stream");
-const { pipeline } = require("node:stream/promises");
+const { randomUUID } = require("node:crypto");
 const { projectRequest } = require("./project-sync.cjs");
 
 const query = (workspaceId) => `?workspace_id=${encodeURIComponent(workspaceId)}`;
@@ -57,45 +52,6 @@ async function listAutomationRuns(workspaceId, deps) {
 const createAutomationRun = (run, deps) => projectRequest("/v1/automation/runs", { method: "POST", body: JSON.stringify(run) }, deps);
 const updateAutomationRun = (id, update, deps) => projectRequest(`/v1/automation/runs/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(update) }, deps);
 
-function normalizeArtifact(item) {
-  return {
-    id: item.id, name: item.name, size: item.size, contentType: item.content_type,
-    sha256: item.sha256, runId: item.run_id, createdAt: Date.parse(item.created_at),
-    expiresAt: item.expires_at ? Date.parse(item.expires_at) : undefined,
-    extension: path.extname(item.name).replace(/^\./, "").toLowerCase(),
-  };
-}
-
-async function listAutomationArtifacts(workspaceId, deps) {
-  const body = await projectRequest(`/v1/automation/artifacts${query(workspaceId)}`, {}, deps);
-  return (body?.artifacts || []).map(normalizeArtifact);
-}
-
-async function uploadAutomationArtifact(workspaceId, filePath, deps) {
-  const stat = await fs.stat(filePath);
-  if (!stat.isFile()) throw new Error(`${path.basename(filePath)} is not a regular file.`);
-  if (stat.size > 1024 * 1024 * 1024) throw new Error(`${path.basename(filePath)} is larger than 1 GiB.`);
-  const boundary = `----NextBrowser${randomBytes(16).toString("hex")}`;
-  const name = path.basename(filePath);
-  const safeName = name.replace(/["\r\n]/g, "-");
-  const head = Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="workspace_id"\r\n\r\n${workspaceId}\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${safeName}"\r\nContent-Type: application/octet-stream\r\n\r\n`);
-  const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
-  const body = Readable.from((async function* () { yield head; for await (const chunk of createReadStream(filePath)) yield chunk; yield tail; })());
-  const response = await projectRequest("/v1/automation/artifacts", {
-    method: "POST", body, duplex: "half", jsonBody: false, timeoutMs: 30 * 60_000,
-    headers: { "content-type": `multipart/form-data; boundary=${boundary}`, "content-length": String(head.length + stat.size + tail.length) },
-  }, deps);
-  return normalizeArtifact(response);
-}
-
-async function uploadAutomationArtifactBytes(workspaceId, name, bytes, deps) {
-  const form = new FormData();
-  form.set("workspace_id", workspaceId);
-  form.set("file", new Blob([bytes]), name);
-  const body = await projectRequest("/v1/automation/artifacts", { method: "POST", body: form, jsonBody: false }, deps);
-  return normalizeArtifact(body);
-}
-
 function demoRun(id, task, title, evidence, createdAt) {
   return {
     id, task, evidence, conversationTitle: title,
@@ -115,8 +71,8 @@ function seedAutomationExamples(workspaceId, deps) {
 }
 
 async function seedAutomationExamplesOnce(workspaceId, deps) {
-  const [workflows, recordings, artifacts] = await Promise.all([
-    listAutomationWorkflows(workspaceId, deps), listAutomationRecordings(workspaceId, deps), listAutomationArtifacts(workspaceId, deps),
+  const [workflows, recordings] = await Promise.all([
+    listAutomationWorkflows(workspaceId, deps), listAutomationRecordings(workspaceId, deps),
   ]);
   const now = Date.now();
   const demoVersion = 3;
@@ -148,29 +104,12 @@ async function seedAutomationExamplesOnce(workspaceId, deps) {
     await putAutomationRecording({ id: existing?.id || randomUUID(), workspace_id: workspaceId, status: "completed", document: { run: demo.run, demo: true, demo_key: demo.key, demo_version: demoVersion }, base_revision: existing?.revision || 0 }, deps);
     seededRecordings += 1;
   }
-  let seededArtifacts = 0;
-  if (!artifacts.some((item) => item.name === "product-research-demo.csv")) {
-    await uploadAutomationArtifactBytes(workspaceId, "product-research-demo.csv", Buffer.from("product,price,status\nStarter plan,$19,available\nTeam plan,$49,available\nBusiness plan,$99,available\n"), deps);
-    seededArtifacts += 1;
-  }
-  if (!artifacts.some((item) => item.name === "automation-run-demo.json")) {
-    await uploadAutomationArtifactBytes(workspaceId, "automation-run-demo.json", Buffer.from(JSON.stringify({ success: true, workflow: "Search a knowledge base", results: [{ title: "Browser automation guide", url: "https://example.com/guide" }], generated_at: new Date(now).toISOString() }, null, 2)), deps);
-    seededArtifacts += 1;
-  }
-  return { seeded: { workflows: seededWorkflows, recordings: seededRecordings, artifacts: seededArtifacts } };
+  return { seeded: { workflows: seededWorkflows, recordings: seededRecordings } };
 }
-
-async function downloadAutomationArtifact(id, targetPath, deps) {
-  const body = await projectRequest(`/v1/automation/artifacts/${encodeURIComponent(id)}/content`, { responseType: "stream", timeoutMs: 30 * 60_000 }, deps);
-  if (!body) throw new Error("Artifact download returned an empty response.");
-  await pipeline(Readable.fromWeb(body), createWriteStream(targetPath, { mode: 0o600 }));
-}
-
-const deleteAutomationArtifact = (id, deps) => projectRequest(`/v1/automation/artifacts/${encodeURIComponent(id)}`, { method: "DELETE" }, deps);
 
 module.exports = {
-  createAutomationRun, deleteAutomationArtifact, deleteAutomationRecording, deleteAutomationWorkflow, downloadAutomationArtifact,
-  listAutomationArtifacts, listAutomationRecordings, listAutomationRuns, listAutomationWorkflows,
-  normalizeArtifact, normalizeWorkflow, putAutomationRecording, putAutomationWorkflow, updateAutomationRun,
-  seedAutomationExamples, uploadAutomationArtifact, uploadAutomationArtifactBytes,
+  createAutomationRun, deleteAutomationRecording, deleteAutomationWorkflow,
+  listAutomationRecordings, listAutomationRuns, listAutomationWorkflows,
+  normalizeWorkflow, putAutomationRecording, putAutomationWorkflow, updateAutomationRun,
+  seedAutomationExamples,
 };

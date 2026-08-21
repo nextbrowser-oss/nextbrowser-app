@@ -3,7 +3,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { createAutomationRun, deleteAutomationRecording, downloadAutomationArtifact, listAutomationArtifacts, listAutomationWorkflows, putAutomationWorkflow, seedAutomationExamples, uploadAutomationArtifact } = require("./automation-sync.cjs");
+const { createAutomationRun, deleteAutomationRecording, listAutomationWorkflows, putAutomationWorkflow, seedAutomationExamples } = require("./automation-sync.cjs");
 
 async function fixture(t, responder) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "automation-sync-"));
@@ -39,40 +39,8 @@ test("deletes a recording through the backend", async (t) => {
   assert.equal(f.calls[0].options.method, "DELETE");
 });
 
-test("streams artifact multipart without buffering the complete file", async (t) => {
-  const f = await fixture(t, (_url, options) => {
-    assert.equal(typeof options.body.pipe, "function");
-    assert.match(options.headers["content-type"], /^multipart\/form-data; boundary=/);
-    assert.equal(options.headers["content-length"], String(Number(options.headers["content-length"])));
-    assert.equal(options.duplex, "half");
-    return jsonResponse({ id: "a", name: "report.txt", size: 5, content_type: "text/plain", sha256: "abc", created_at: "2026-01-01T00:00:00Z", expires_at: "2026-01-31T00:00:00Z" });
-  });
-  const file = path.join(f.root, "report.txt");
-  await fs.writeFile(file, "hello");
-  const artifact = await uploadAutomationArtifact("space", file, f.deps);
-  assert.equal(artifact.extension, "txt");
-  assert.equal(artifact.expiresAt, Date.parse("2026-01-31T00:00:00Z"));
-});
-
-test("rejects files above 1 GiB before fetching", async (t) => {
-  const f = await fixture(t, () => { throw new Error("must not fetch"); });
-  const file = path.join(f.root, "large.bin");
-  await fs.writeFile(file, "x");
-  await fs.truncate(file, 1024 * 1024 * 1024 + 1);
-  await assert.rejects(uploadAutomationArtifact("space", file, f.deps), /larger than 1 GiB/);
-  assert.equal(f.calls.length, 0);
-});
-
-test("streams downloaded bytes and normalizes artifact metadata", async (t) => {
-  const f = await fixture(t, (url) => url.endsWith("/content") ? { ok: true, body: new ReadableStream({ start(controller) { controller.enqueue(Uint8Array.from([0, 1, 2, 255])); controller.close(); } }) } : jsonResponse({ artifacts: [{ id: "a", name: "data.bin", size: 4, content_type: "application/octet-stream", sha256: "hash", created_at: "2026-01-01T00:00:00Z" }] }));
-  assert.equal((await listAutomationArtifacts("space", f.deps))[0].extension, "bin");
-  const target = path.join(f.root, "download.bin");
-  await downloadAutomationArtifact("a", target, f.deps);
-  assert.deepEqual(await fs.readFile(target), Buffer.from([0, 1, 2, 255]));
-});
-
-test("seeds exactly two successful examples for every empty Automation Studio section", async (t) => {
-  const created = { workflows: [], recordings: [], artifacts: [] };
+test("seeds exactly two successful backend examples for recordings and workflows", async (t) => {
+  const created = { workflows: [], recordings: [] };
   const f = await fixture(t, async (url, options) => {
     if (options.method === "PUT" && url.includes("/workflows/")) {
       const body = JSON.parse(options.body); created.workflows.push(body);
@@ -82,23 +50,17 @@ test("seeds exactly two successful examples for every empty Automation Studio se
       const body = JSON.parse(options.body); created.recordings.push(body);
       return jsonResponse({ id: url.split("/").pop(), ...body, revision: 1, updated_at: new Date().toISOString() });
     }
-    if (options.method === "POST" && url.endsWith("/artifacts")) {
-      const name = options.body.get("file").name; created.artifacts.push(name);
-      return jsonResponse({ id: name, name, size: 10, content_type: "text/plain", sha256: "hash", created_at: new Date().toISOString() });
-    }
     if (url.includes("/workflows")) return jsonResponse({ workflows: [] });
     if (url.includes("/recordings")) return jsonResponse({ recordings: [] });
-    if (url.includes("/artifacts")) return jsonResponse({ artifacts: [] });
     throw new Error(`Unexpected request: ${url}`);
   });
-  assert.deepEqual((await seedAutomationExamples("space", f.deps)).seeded, { workflows: 2, recordings: 2, artifacts: 2 });
+  assert.deepEqual((await seedAutomationExamples("space", f.deps)).seeded, { workflows: 2, recordings: 2 });
   assert.equal(created.workflows.length, 2);
   assert.ok(created.workflows.every((item) => item.recipe.actions.length >= 2));
   assert.deepEqual(created.workflows.map((item) => item.domain).sort(), ["books.toscrape.com", "quotes.toscrape.com"]);
   assert.ok(created.workflows.every((item) => !JSON.stringify(item).includes("example.com")));
   assert.equal(created.recordings.length, 2);
   assert.ok(created.recordings.every((item) => item.status === "completed" && item.document.demo === true));
-  assert.deepEqual(created.artifacts.sort(), ["automation-run-demo.json", "product-research-demo.csv"]);
 });
 
 test("does not duplicate examples when their demo markers already exist", async (t) => {
@@ -106,22 +68,21 @@ test("does not duplicate examples when their demo markers already exist", async 
     assert.equal(options.method, undefined);
     if (url.includes("/workflows")) return jsonResponse({ workflows: ["collect-products", "search-knowledge"].map((key) => ({ id: key, title: key, task: "x", recipe: { actions: [], demo_key: key, demo_version: 3 }, revision: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })) });
     if (url.includes("/recordings")) return jsonResponse({ recordings: ["product-research", "site-search"].map((key) => ({ id: key, document: { demo_key: key, demo_version: 3 } })) });
-    return jsonResponse({ artifacts: ["product-research-demo.csv", "automation-run-demo.json"].map((name) => ({ id: name, name, size: 1, created_at: new Date().toISOString() })) });
+    throw new Error(`Unexpected request: ${url}`);
   });
-  assert.deepEqual((await seedAutomationExamples("space", f.deps)).seeded, { workflows: 0, recordings: 0, artifacts: 0 });
-  assert.equal(f.calls.length, 3);
+  assert.deepEqual((await seedAutomationExamples("space", f.deps)).seeded, { workflows: 0, recordings: 0 });
+  assert.equal(f.calls.length, 2);
 });
 
 test("coalesces concurrent seed requests for the same workspace", async (t) => {
   const f = await fixture(t, (url) => {
     if (url.includes("/workflows")) return jsonResponse({ workflows: [] });
     if (url.includes("/recordings")) return jsonResponse({ recordings: [] });
-    if (url.includes("/artifacts")) return jsonResponse({ artifacts: [] });
     throw new Error(`Unexpected request: ${url}`);
   });
   const first = seedAutomationExamples("shared-space", f.deps);
   const second = seedAutomationExamples("shared-space", f.deps);
   assert.strictEqual(first, second);
-  await assert.rejects(first);
-  assert.equal(f.calls.filter((call) => call.options.method === undefined).length, 3);
+  assert.deepEqual((await first).seeded, { workflows: 2, recordings: 2 });
+  assert.equal(f.calls.filter((call) => call.options.method === undefined).length, 2);
 });
