@@ -4,6 +4,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { invoke, listen } from "../electronBridge";
 import { Icon, Spinner } from "./Icon";
+import type { ChatAttachment } from "../types";
+import { terminalAttachmentContext } from "../lib/chatAttachments";
 import { terminalBrowserScopeContext, terminalInputWithDeferredContext, terminalLineBufferAfter } from "../lib/contextHandoff";
 import { terminalActivityPreview, terminalAgentReady, terminalInputShouldQueueBeforeReady } from "../lib/terminalReadiness";
 import { terminalBrowserSession } from "../lib/terminalBrowserSession";
@@ -97,6 +99,8 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
   const [status, setStatus] = useState<"starting" | "running" | "exited" | "failed">("starting");
   const [error, setError] = useState<string>();
   const [restartNonce, setRestartNonce] = useState(0);
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string>();
   const onContinueInChatRef = useRef(onContinueInChat);
   const onHandoffConsumedRef = useRef(onHandoffConsumed);
   const onChatHandoffConsumedRef = useRef(onChatHandoffConsumed);
@@ -113,6 +117,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
   const currentLineInputRef = useRef("");
   const lastBrowserContextRef = useRef(browserContext || "");
   const onPreviewChangeRef = useRef(onPreviewChange);
+  const attachmentsRef = useRef(attachments);
   onContinueInChatRef.current = onContinueInChat;
   onHandoffConsumedRef.current = onHandoffConsumed;
   onChatHandoffConsumedRef.current = onChatHandoffConsumed;
@@ -120,6 +125,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
   onProfileStoppedRef.current = onProfileStopped;
   onProfilesRefreshRef.current = onProfilesRefresh;
   onPreviewChangeRef.current = onPreviewChange;
+  attachmentsRef.current = attachments;
   pendingHandoffRef.current = pendingHandoff;
   browserProfilesRef.current = browserProfiles;
 
@@ -250,16 +256,21 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
       if (!id) return;
       const pending = pendingHandoffRef.current;
       const bufferedMessage = currentLineInputRef.current.trimStart();
+      const attachmentContext = terminalAttachmentContext(attachmentsRef.current);
       const scopeContext = bufferedMessage.startsWith("/")
         ? undefined
         : terminalBrowserScopeContext(browserProfilesRef.current ?? []);
-      const combinedContext = [scopeContext, pending?.text].filter(Boolean).join("\n\n") || undefined;
-      const deferred = terminalInputWithDeferredContext(combinedContext, data, currentLineInputRef.current);
+      const combinedContext = [scopeContext, pending?.text, attachmentContext].filter(Boolean).join("\n\n") || undefined;
+      const attachmentOnlyMessage = attachmentContext && data.includes("\r") && !currentLineInputRef.current
+        ? "Please inspect the attached file(s)."
+        : currentLineInputRef.current;
+      const deferred = terminalInputWithDeferredContext(combinedContext, data, attachmentOnlyMessage);
       if (pending && deferred.consumed) {
         pendingHandoffRef.current = undefined;
         userInputSinceChatHandoffRef.current = true;
         onHandoffConsumedRef.current(pending.id);
       }
+      if (attachmentContext && deferred.consumed) setAttachments([]);
       if (deferred.userInput) userInputSinceChatHandoffRef.current = true;
       currentLineInputRef.current = deferred.consumed ? "" : terminalLineBufferAfter(currentLineInputRef.current, data);
       writeInput(id, deferred.data);
@@ -401,6 +412,31 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
     onChatHandoffConsumedRef.current(handoffToChatRequest);
   }, [handoffToChatRequest, status]);
 
+  const attachFiles = async () => {
+    setAttachmentError(undefined);
+    try {
+      const selected = await invoke<ChatAttachment[]>("select_terminal_files", {
+        conversationId: conversationId || "terminal",
+      });
+      setAttachments((current) => {
+        const byPath = new Map(current.map((file) => [file.path, file]));
+        for (const file of selected) byPath.set(file.path, file);
+        return [...byPath.values()];
+      });
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason);
+      setAttachmentError(message.replace(/^Error invoking remote method '[^']+': Error:\s*/, ""));
+    } finally {
+      requestAnimationFrame(() => terminalRef.current?.focus());
+    }
+  };
+
+  const removeAttachment = async (file: ChatAttachment) => {
+    await invoke("remove_terminal_file", { path: file.path });
+    setAttachments((current) => current.filter((item) => item.path !== file.path));
+    requestAnimationFrame(() => terminalRef.current?.focus());
+  };
+
   return (
     <section className="agent-terminal-panel" aria-label={`${agentName} terminal`}>
       <header className="agent-terminal-header">
@@ -412,6 +448,15 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
         {status === "running" && <span className="terminal-status-dot" title="Running" />}
         {status === "exited" && <span className="muted small">Exited</span>}
         {status === "failed" && <span className="error small" title={error}>Failed</span>}
+        <button
+          className="mini terminal-attach-file"
+          disabled={status !== "running"}
+          onClick={() => void attachFiles()}
+          title="Attach local files to the next terminal prompt"
+          aria-label="Attach local files to the next terminal prompt"
+        >
+          <Icon name="paperclip" size={13} />
+        </button>
         {(status === "exited" || status === "failed") && (
           <button
             className="mini"
@@ -433,6 +478,26 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
           {savingWorkflow && <Spinner size={11} />} {savingWorkflow ? "Preparing…" : "Save as skill"}
         </button>
       </header>
+      {attachments.length > 0 && (
+        <div className="terminal-attachments" aria-label="Files attached to the next terminal prompt">
+          {attachments.map((file) => (
+            <span className="attachment-chip" key={file.path} title={file.path}>
+              <Icon name="paperclip" size={12} />
+              <span>{file.name}</span>
+              <button
+                className="attachment-remove"
+                aria-label={`Remove ${file.name}`}
+                onClick={() => void removeAttachment(file)}
+              >×</button>
+            </span>
+          ))}
+        </div>
+      )}
+      {attachmentError && (
+        <div className="terminal-attachment-error error small" role="alert">
+          {attachmentError}
+        </div>
+      )}
       <div ref={hostRef} className="agent-terminal-host" />
     </section>
   );
