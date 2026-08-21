@@ -7216,7 +7216,6 @@ pre,
 .capture-kind { display: grid; gap: 5px; justify-items: start; }
 .capture-kind > span { padding: 4px 7px; border-radius: 6px; font-size: 9px; font-weight: 800; letter-spacing: .06em; }
 .capture-kind .ready { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
-.capture-kind .demo { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
 .capture-kind .recording { background: color-mix(in srgb, var(--red) 15%, transparent); color: var(--red); }
 .capture-kind .stopped { background: var(--surface-5); color: var(--muted); }
 .capture-kind small { color: var(--muted); font-size: 10px; text-transform: capitalize; }
@@ -7241,9 +7240,8 @@ pre,
 .workflow-editor-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 .workflow-editor-head > div:first-child { display: grid; gap: 6px; flex: 1; }
 .workflow-title-input { font-size: 20px; font-weight: 700; border: 0 !important; background: transparent !important; padding: 0 !important; }
-.workflow-unsaved, .workflow-demo-label { display: inline-block; margin: 5px 7px 0 0; padding: 3px 6px; border-radius: 5px; font-size: 9px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
+.workflow-unsaved { display: inline-block; margin: 5px 7px 0 0; padding: 3px 6px; border-radius: 5px; font-size: 9px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
 .workflow-unsaved { background: color-mix(in srgb, var(--orange, #d98522) 13%, transparent); color: var(--orange, #d98522); }
-.workflow-demo-label { background: color-mix(in srgb, var(--accent) 13%, transparent); color: var(--accent); }
 .workflow-domain-input { width: min(340px, 100%); color: var(--muted); }
 .workflow-canvas .field-label { display: grid; gap: 6px; margin: 14px 0; }
 .workflow-canvas textarea { width: 100%; resize: vertical; }
@@ -7264,7 +7262,7 @@ pre,
 .artifact-local-note { display: flex; align-items: center; gap: 8px; padding: 10px 20px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--accent) 6%, transparent); color: var(--muted); font-size: 12px; }
 .artifact-local-note strong { color: var(--accent-text); }
 .artifact-card { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
-.artifact-demo-label { width: fit-content; padding: 3px 6px; border-radius: 5px; background: color-mix(in srgb, var(--accent) 13%, transparent); color: var(--accent) !important; font-size: 9px !important; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
+.artifact-example-label { width: fit-content; padding: 3px 6px; border-radius: 5px; background: color-mix(in srgb, var(--accent) 13%, transparent); color: var(--accent) !important; font-size: 9px !important; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
 .artifact-icon { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 10px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .artifact-copy { min-width: 0; display: grid; gap: 3px; }
 .artifact-copy strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

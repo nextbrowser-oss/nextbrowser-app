@@ -59,19 +59,50 @@ test("seeds exactly two successful backend examples for recordings and workflows
   assert.ok(created.workflows.every((item) => item.recipe.actions.length >= 2));
   assert.deepEqual(created.workflows.map((item) => item.domain).sort(), ["books.toscrape.com", "quotes.toscrape.com"]);
   assert.ok(created.workflows.every((item) => !JSON.stringify(item).includes("example.com")));
+  assert.ok(created.workflows.every((item) => item.recipe.example_key && item.recipe.example_version === 4 && !("demo_key" in item.recipe)));
   assert.equal(created.recordings.length, 2);
-  assert.ok(created.recordings.every((item) => item.status === "completed" && item.document.demo === true));
+  assert.ok(created.recordings.every((item) => item.status === "completed" && item.document.example_key && item.document.example_version === 4 && !("demo" in item.document)));
 });
 
-test("does not duplicate examples when their demo markers already exist", async (t) => {
+test("does not duplicate examples when their internal example markers already exist", async (t) => {
   const f = await fixture(t, (url, options) => {
     assert.equal(options.method, undefined);
-    if (url.includes("/workflows")) return jsonResponse({ workflows: ["collect-products", "search-knowledge"].map((key) => ({ id: key, title: key, task: "x", recipe: { actions: [], demo_key: key, demo_version: 3 }, revision: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })) });
-    if (url.includes("/recordings")) return jsonResponse({ recordings: ["product-research", "site-search"].map((key) => ({ id: key, document: { demo_key: key, demo_version: 3 } })) });
+    if (url.includes("/workflows")) return jsonResponse({ workflows: ["collect-products", "search-knowledge"].map((key) => ({ id: key, title: key, task: "x", recipe: { actions: [], example_key: key, example_version: 4 }, revision: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })) });
+    if (url.includes("/recordings")) return jsonResponse({ recordings: ["product-research", "site-search"].map((key) => ({ id: key, document: { example_key: key, example_version: 4 } })) });
     throw new Error(`Unexpected request: ${url}`);
   });
   assert.deepEqual((await seedAutomationExamples("space", f.deps)).seeded, { workflows: 0, recordings: 0 });
   assert.equal(f.calls.length, 2);
+});
+
+test("migrates legacy demo markers without creating duplicate entities", async (t) => {
+  const updated = { workflows: [], recordings: [] };
+  const legacyWorkflow = { id: "legacy-workflow", title: "Collect mystery books from a live sandbox", task: "old", recipe: { actions: [], demo_key: "collect-products", demo_version: 3 }, revision: 2, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  const currentWorkflow = { id: "current-workflow", title: "current", task: "current", recipe: { actions: [], example_key: "search-knowledge", example_version: 4 }, revision: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  const legacyRecording = { id: "legacy-recording", document: { demo: true, demo_key: "product-research", demo_version: 3 }, revision: 2 };
+  const currentRecording = { id: "current-recording", document: { example_key: "site-search", example_version: 4 }, revision: 1 };
+  const f = await fixture(t, (url, options) => {
+    if (options.method === "PUT" && url.includes("/workflows/")) {
+      const body = JSON.parse(options.body); updated.workflows.push({ id: decodeURIComponent(url.split("/").pop()), ...body });
+      return jsonResponse({ ...body, revision: 3, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    }
+    if (options.method === "PUT" && url.includes("/recordings/")) {
+      const body = JSON.parse(options.body); updated.recordings.push(body);
+      return jsonResponse({ ...body, revision: 3, updated_at: new Date().toISOString() });
+    }
+    if (url.includes("/workflows")) return jsonResponse({ workflows: [legacyWorkflow, currentWorkflow] });
+    if (url.includes("/recordings")) return jsonResponse({ recordings: [legacyRecording, currentRecording] });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  assert.deepEqual((await seedAutomationExamples("legacy-space", f.deps)).seeded, { workflows: 1, recordings: 1 });
+  assert.equal(updated.workflows[0].id, legacyWorkflow.id);
+  assert.equal(updated.workflows[0].recipe.example_key, "collect-products");
+  assert.ok(!("demo_key" in updated.workflows[0].recipe));
+  assert.equal(updated.recordings[0].id, legacyRecording.id);
+  assert.equal(updated.recordings[0].document.example_key, "product-research");
+  assert.ok(!("demo" in updated.recordings[0].document));
+  assert.ok(!("demo_key" in updated.recordings[0].document));
 });
 
 test("coalesces concurrent seed requests for the same workspace", async (t) => {

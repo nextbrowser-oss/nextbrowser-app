@@ -25,8 +25,8 @@ It does not currently support:
 
 | # | Scenario | Verification | Result |
 |---|---|---|---|
-| 1 | First-run examples | Seed two recordings, two workflows, and two artifacts twice | Pass; idempotent and upgraded by demo version |
-| 2 | Live recording replay | Run the Quotes to Scrape demo through Codex and profile `ллл` | Pass; 14 results, visible progress, successful completion |
+| 1 | First-run examples | Seed two recordings, two workflows, and two artifacts twice | Pass; idempotent and upgraded by example version |
+| 2 | Live recording replay | Run the Quotes to Scrape example through Codex and profile `ллл` | Pass; 14 results, visible progress, successful completion |
 | 3 | Complex workflow | Navigate, wait, extract, paginate across Books to Scrape | Pass; 32 records across two pages |
 | 4 | Record to workflow | Start recording, run a two-step live workflow, Stop, convert | Pass; backend recording and editable two-step workflow created |
 | 5 | Stop during preflight | Stop before an agent reply exists | Pass after fix; no permanent `Stopping…` state, backend run cancelled |
@@ -48,7 +48,7 @@ It does not currently support:
 - Real Codex runs contain no raw browser tool events. Automation-launched runs are now reconstructed from the exact recipe sent to Codex.
 - Extracted content containing words such as “failed” could be misclassified as a tool error. Only the immediate tool result is scored.
 - Secrets could be persisted in recordings or recipes. Sensitive values are redacted; backend recipes reject raw credentials, authorization data, payment data, and secret-bearing URLs.
-- Demo workflows used `example.com` and could never succeed. They now use the public Books to Scrape and Quotes to Scrape sandboxes.
+- Default workflows used `example.com` and could never succeed. They now use the public Books to Scrape and Quotes to Scrape sandboxes.
 - Automation CRUD traffic hit the captcha-provider rate limit and returned 429. Authenticated automation persistence is now excluded from that paid-provider limiter.
 - Run and step states could race or revert from terminal states. Conditional transitions and terminal step reconciliation were added.
 - A deleted backend recording could leave a permanent local recording indicator. Startup reconciliation now clears stale state.
