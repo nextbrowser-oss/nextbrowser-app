@@ -77,14 +77,14 @@ test("terminal attachments are staged inside the sandboxed workspace", () => {
   assert.match(terminal, /Please inspect the attached file\(s\)\./);
 });
 
-test("automation artifacts are isolated inside their workspace", () => {
+test("automation artifacts are persisted by the authenticated backend", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   assert.match(main, /case "artifact_list"/);
-  assert.match(main, /agentWorkspaceDir\(home\(\)\), "\.artifacts", workspace/);
+  assert.match(main, /listAutomationArtifacts/);
   assert.match(main, /case "artifact_import"/);
-  assert.match(main, /COPYFILE_FICLONE/);
+  assert.match(main, /uploadAutomationArtifact/);
   assert.match(main, /case "artifact_open"/);
-  assert.match(main, /resolvedRelative\.startsWith\("\.\."\)/);
+  assert.match(main, /downloadAutomationArtifact/);
   assert.match(main, /case "artifact_delete"/);
-  assert.match(main, /relative\.startsWith\("\.\."\)/);
+  assert.match(main, /deleteAutomationArtifact/);
 });

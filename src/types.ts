@@ -223,6 +223,7 @@ export interface BrowserWorkflowSkill {
   recipe: BrowserWorkflowRecipe;
   createdAt: number;
   updatedAt: number;
+  revision?: number;
   serverSlug?: string;
   submittedAt?: number;
 }
@@ -292,10 +293,12 @@ export type AppTab = "chat" | "automation" | "skills" | "connectors" | "live" | 
 export interface AutomationArtifact {
   id: string;
   name: string;
-  path: string;
   size: number;
   createdAt: number;
   extension: string;
+  contentType?: string;
+  sha256?: string;
+  runId?: string;
 }
 
 export function proxyFraction(p?: ProxyTraffic | null): number {

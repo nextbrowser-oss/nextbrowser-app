@@ -40,6 +40,20 @@ const {
   resolvePersonalProxy,
 } = require("./project-sync.cjs");
 const { defaultSSHConfigPath, discoverSSHHosts, isAllowedExplicitConfigPath } = require("./ssh-config.cjs");
+const {
+  createAutomationRun,
+  deleteAutomationArtifact,
+  deleteAutomationWorkflow,
+  downloadAutomationArtifact,
+  listAutomationArtifacts,
+  listAutomationRecordings,
+  listAutomationRuns,
+  listAutomationWorkflows,
+  putAutomationRecording,
+  putAutomationWorkflow,
+  updateAutomationRun,
+  uploadAutomationArtifact,
+} = require("./automation-sync.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
 const { parseMultiloginProfiles } = require("./multilogin-profiles.cjs");
@@ -1068,25 +1082,7 @@ async function invokeCommand(command, args = {}, sender) {
       }));
     }
     case "artifact_list": {
-      const workspace = String(args.workspaceId || "default").replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 96) || "default";
-      const artifactDir = path.join(agentWorkspaceDir(home()), ".artifacts", workspace);
-      await fs.mkdir(artifactDir, { recursive: true, mode: 0o700 });
-      const entries = await fs.readdir(artifactDir, { withFileTypes: true });
-      const artifacts = await Promise.all(entries.filter((entry) => entry.isFile()).map(async (entry) => {
-        const filePath = path.join(artifactDir, entry.name);
-        const stat = await fs.stat(filePath);
-        const separator = entry.name.indexOf("--");
-        const name = separator >= 0 ? entry.name.slice(separator + 2) : entry.name;
-        return {
-          id: entry.name,
-          name,
-          path: filePath,
-          size: stat.size,
-          createdAt: stat.birthtimeMs || stat.mtimeMs,
-          extension: path.extname(name).replace(/^\./, "").toLowerCase(),
-        };
-      }));
-      return artifacts.sort((a, b) => b.createdAt - a.createdAt);
+      return await listAutomationArtifacts(String(args.workspaceId || ""), { env: childEnv() });
     }
     case "artifact_import": {
       const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
@@ -1095,44 +1091,32 @@ async function invokeCommand(command, args = {}, sender) {
         properties: ["openFile", "multiSelections"],
       });
       if (result.canceled) return [];
-      const workspace = String(args.workspaceId || "default").replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 96) || "default";
-      const artifactDir = path.join(agentWorkspaceDir(home()), ".artifacts", workspace);
-      await fs.mkdir(artifactDir, { recursive: true, mode: 0o700 });
-      let totalSize = 0;
       for (const selected of result.filePaths.slice(0, 20)) {
-        const source = await fs.realpath(selected);
-        const stat = await fs.stat(source);
-        if (!stat.isFile()) throw new Error(`${path.basename(source)} is not a regular file.`);
-        if (stat.size > 1024 * 1024 * 1024) throw new Error(`${path.basename(source)} is larger than 1 GB.`);
-        totalSize += stat.size;
-        if (totalSize > 2 * 1024 * 1024 * 1024) throw new Error("Artifacts are limited to 2 GB per import.");
-        const safeName = path.basename(source).replace(/[\\/:*?"<>|\x00-\x1f]/g, "-").slice(0, 180) || "artifact";
-        const target = path.join(artifactDir, `${randomUUID()}--${safeName}`);
-        await fs.copyFile(source, target, fsSync.constants.COPYFILE_FICLONE);
-        if (process.platform !== "win32") await fs.chmod(target, 0o600);
+        await uploadAutomationArtifact(String(args.workspaceId || ""), selected, { env: childEnv() });
       }
-      return await invokeCommand("artifact_list", { workspaceId: workspace }, sender);
+      return await listAutomationArtifacts(String(args.workspaceId || ""), { env: childEnv() });
     }
     case "artifact_open": {
-      const artifactRoot = path.resolve(agentWorkspaceDir(home()), ".artifacts");
-      const target = path.resolve(String(args.path || ""));
-      const relative = path.relative(artifactRoot, target);
-      if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("Artifact path is outside the workspace.");
-      const resolved = await fs.realpath(target);
-      const resolvedRelative = path.relative(artifactRoot, resolved);
-      if (!resolvedRelative || resolvedRelative.startsWith("..") || path.isAbsolute(resolvedRelative)) throw new Error("Artifact path is outside the workspace.");
-      const error = await shell.openPath(resolved);
+      const cacheDir = path.join(agentWorkspaceDir(home()), ".artifact-cache");
+      await fs.mkdir(cacheDir, { recursive: true, mode: 0o700 });
+      const safeName = path.basename(String(args.name || "artifact")).replace(/[\\/:*?"<>|\x00-\x1f]/g, "-").slice(0, 180) || "artifact";
+      const target = path.join(cacheDir, `${String(args.id || "")}--${safeName}`);
+      await downloadAutomationArtifact(String(args.id || ""), target, { env: childEnv() });
+      const error = await shell.openPath(target);
       if (error) throw new Error(error);
       return null;
     }
     case "artifact_delete": {
-      const artifactRoot = path.resolve(agentWorkspaceDir(home()), ".artifacts");
-      const target = path.resolve(String(args.path || ""));
-      const relative = path.relative(artifactRoot, target);
-      if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("Artifact path is outside the workspace.");
-      await fs.rm(target, { force: true });
-      return null;
+      return await deleteAutomationArtifact(String(args.id || ""), { env: childEnv() });
     }
+    case "automation_workflows_list": return await listAutomationWorkflows(String(args.workspaceId || ""), { env: childEnv() });
+    case "automation_workflow_put": return await putAutomationWorkflow(String(args.workspaceId || ""), args.workflow || {}, { env: childEnv() });
+    case "automation_workflow_delete": return await deleteAutomationWorkflow(String(args.id || ""), { env: childEnv() });
+    case "automation_recordings_list": return await listAutomationRecordings(String(args.workspaceId || ""), { env: childEnv() });
+    case "automation_recording_put": return await putAutomationRecording(args.recording || {}, { env: childEnv() });
+    case "automation_runs_list": return await listAutomationRuns(String(args.workspaceId || ""), { env: childEnv() });
+    case "automation_run_create": return await createAutomationRun(args.run || {}, { env: childEnv() });
+    case "automation_run_update": return await updateAutomationRun(String(args.id || ""), args.update || {}, { env: childEnv() });
     case "select_terminal_files": {
       const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
       const result = await dialog.showOpenDialog(owner, {
