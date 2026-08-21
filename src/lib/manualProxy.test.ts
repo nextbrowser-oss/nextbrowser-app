@@ -39,6 +39,23 @@ describe("manual proxy URL parsing", () => {
     expect(() => parseManualProxyUrl("https://proxy.example:443")).toThrow("http:// or socks5://");
   });
 
+  it.each([
+    ["", "Proxy URL is required."],
+    ["http://", "Enter a valid proxy URL."],
+    ["http://proxy.example:0", "Proxy URL must include a valid port."],
+    ["http://proxy.example:65536", "Enter a valid proxy URL."],
+  ])("rejects invalid proxy URL %j", (value, message) => {
+    expect(() => parseManualProxyUrl(value)).toThrow(message);
+  });
+
+  it("parses IPv6 proxy hosts", () => {
+    expect(parseManualProxyUrl("socks5://[::1]:1080")).toMatchObject({
+      scheme: "socks5",
+      host: "[::1]",
+      port: 1080,
+    });
+  });
+
   it("builds stable generated profile names", () => {
     expect(manualProxyDefaultName(parseManualProxyUrl("socks5://proxy.example:1080"))).toBe(
       "manual-socks5-proxy.example-1080",

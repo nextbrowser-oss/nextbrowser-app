@@ -75,3 +75,26 @@ test("stores and resolves personal proxies through the authenticated entity back
   ]);
   assert.ok(calls.every((call) => call.options.headers.authorization === "Bearer secret"));
 });
+
+test("preserves personal proxy backend errors without returning submitted credentials", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "personal-proxy-error-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const configDir = path.join(root, "config");
+  await fs.mkdir(configDir, { recursive: true });
+  await fs.writeFile(path.join(configDir, "config.json"), JSON.stringify({ api_key: "secret" }));
+  const deps = {
+    env: { NEXTBROWSER_CONFIG_DIR: configDir, CLAWCTL_SKILL_SERVICE: "https://core.test" },
+    fetchImpl: async () => ({
+      ok: false,
+      status: 422,
+      text: async () => JSON.stringify({ error: "Proxy credentials were rejected." }),
+    }),
+  };
+
+  await assert.rejects(
+    createPersonalProxy({ name: "Broken", scheme: "http", host: "proxy.test", port: 8080, password: "do-not-return" }, deps),
+    (error) => error.status === 422
+      && error.message === "Proxy credentials were rejected."
+      && !error.message.includes("do-not-return"),
+  );
+});
