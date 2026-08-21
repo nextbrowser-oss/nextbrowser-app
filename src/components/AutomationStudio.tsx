@@ -60,6 +60,13 @@ export function AutomationStudio() {
   useEffect(() => { void loadRecordings(); }, [workspaceId]);
 
   useEffect(() => {
+    if (!workspaceId) return;
+    void invoke("automation_seed_examples", { workspaceId })
+      .then(() => Promise.all([loadWorkflows(), loadRecordings(), loadArtifacts()]))
+      .catch((error) => setStudioError(error instanceof Error ? error.message : String(error)));
+  }, [workspaceId]);
+
+  useEffect(() => {
     const id = localStorage.getItem("automationRecordingId");
     if (!id || !recordedRun || recordings.some((item) => item.id === id && item.status === "completed")) return;
     void invoke("automation_recording_put", { recording: { id, workspace_id: workspaceId, status: "completed", document: { run: recordedRun }, base_revision: 1 } })

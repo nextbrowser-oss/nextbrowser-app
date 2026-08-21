@@ -3,7 +3,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { createAutomationRun, downloadAutomationArtifact, listAutomationArtifacts, listAutomationWorkflows, putAutomationWorkflow, uploadAutomationArtifact } = require("./automation-sync.cjs");
+const { createAutomationRun, downloadAutomationArtifact, listAutomationArtifacts, listAutomationWorkflows, putAutomationWorkflow, seedAutomationExamples, uploadAutomationArtifact } = require("./automation-sync.cjs");
 
 async function fixture(t, responder) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "automation-sync-"));
@@ -57,4 +57,43 @@ test("round-trips downloaded bytes and normalizes artifact metadata", async (t) 
   const target = path.join(f.root, "download.bin");
   await downloadAutomationArtifact("a", target, f.deps);
   assert.deepEqual(await fs.readFile(target), Buffer.from([0, 1, 2, 255]));
+});
+
+test("seeds exactly two successful examples for every empty Automation Studio section", async (t) => {
+  const created = { workflows: [], recordings: [], artifacts: [] };
+  const f = await fixture(t, async (url, options) => {
+    if (options.method === "PUT" && url.includes("/workflows/")) {
+      const body = JSON.parse(options.body); created.workflows.push(body);
+      return jsonResponse({ id: url.split("/").pop(), ...body, revision: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    }
+    if (options.method === "PUT" && url.includes("/recordings/")) {
+      const body = JSON.parse(options.body); created.recordings.push(body);
+      return jsonResponse({ id: url.split("/").pop(), ...body, revision: 1, updated_at: new Date().toISOString() });
+    }
+    if (options.method === "POST" && url.endsWith("/artifacts")) {
+      const name = options.body.get("file").name; created.artifacts.push(name);
+      return jsonResponse({ id: name, name, size: 10, content_type: "text/plain", sha256: "hash", created_at: new Date().toISOString() });
+    }
+    if (url.includes("/workflows")) return jsonResponse({ workflows: [] });
+    if (url.includes("/recordings")) return jsonResponse({ recordings: [] });
+    if (url.includes("/artifacts")) return jsonResponse({ artifacts: [] });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+  assert.deepEqual((await seedAutomationExamples("space", f.deps)).seeded, { workflows: 2, recordings: 2, artifacts: 2 });
+  assert.equal(created.workflows.length, 2);
+  assert.ok(created.workflows.every((item) => item.recipe.actions.length >= 2));
+  assert.equal(created.recordings.length, 2);
+  assert.ok(created.recordings.every((item) => item.status === "completed" && item.document.demo === true));
+  assert.deepEqual(created.artifacts.sort(), ["automation-run-demo.json", "product-research-demo.csv"]);
+});
+
+test("does not duplicate examples when each section already has data", async (t) => {
+  const f = await fixture(t, (url, options) => {
+    assert.equal(options.method, undefined);
+    if (url.includes("/workflows")) return jsonResponse({ workflows: [{ id: "w", title: "Existing", task: "x", recipe: { actions: [] }, revision: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }] });
+    if (url.includes("/recordings")) return jsonResponse({ recordings: [{ id: "r" }] });
+    return jsonResponse({ artifacts: [{ id: "a", name: "existing.txt", size: 1, created_at: new Date().toISOString() }] });
+  });
+  assert.deepEqual((await seedAutomationExamples("space", f.deps)).seeded, { workflows: 0, recordings: 0, artifacts: 0 });
+  assert.equal(f.calls.length, 3);
 });
