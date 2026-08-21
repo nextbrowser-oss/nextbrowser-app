@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../store";
 import { invoke } from "../electronBridge";
 import { uid } from "../lib/ids";
+import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, clearActiveAutomationRecording, setActiveAutomationRecording } from "../lib/automationRecording";
 import {
   capturedWorkflowDomain,
   recordedBrowserActions,
@@ -109,17 +110,32 @@ export function AutomationStudio() {
   }, [workspaceId]);
 
   useEffect(() => {
-    const id = localStorage.getItem("automationRecordingId");
-    const recordingWorkspaceId = localStorage.getItem("automationRecordingWorkspaceId");
-    if (!id || recordingWorkspaceId !== workspaceId || !recordedRun || recordings.some((item) => item.id === id && item.status === "completed")) return;
+    const active = activeAutomationRecording();
+    const id = active?.id;
+    if (!id || active.workspaceId !== workspaceId || !recordedRun) return;
+    if (recordings.some((item) => item.id === id && item.status === "completed")) {
+      if (active.phase !== "captured") setActiveAutomationRecording({ ...active, phase: "captured" });
+      return;
+    }
+    if (active.phase === "captured") return;
     void invoke("automation_recording_put", { recording: { id, workspace_id: workspaceId, status: "completed", document: { run: recordedRun }, base_revision: 1 } })
-      .then(loadRecordings)
+      .then(() => { setActiveAutomationRecording({ ...active, phase: "captured" }); return loadRecordings(); })
       .catch((error) => setStudioError(error instanceof Error ? error.message : String(error)));
   }, [recordedRun, recordings, workspaceId]);
 
   useEffect(() => {
-    const recordingWorkspaceId = localStorage.getItem("automationRecordingWorkspaceId");
-    setRecordingSince(recordingWorkspaceId === workspaceId ? Number(localStorage.getItem("automationRecordingSince") || 0) : 0);
+    const syncRecording = () => {
+      const active = activeAutomationRecording();
+      setRecordingSince(active?.workspaceId === workspaceId ? active.startedAt : 0);
+    };
+    const openRecorder = () => setSection("recorder");
+    syncRecording();
+    window.addEventListener(AUTOMATION_RECORDING_EVENT, syncRecording);
+    window.addEventListener("nextbrowser:open-recorder", openRecorder);
+    return () => {
+      window.removeEventListener(AUTOMATION_RECORDING_EVENT, syncRecording);
+      window.removeEventListener("nextbrowser:open-recorder", openRecorder);
+    };
   }, [workspaceId]);
 
   const loadArtifacts = async () => {
@@ -144,11 +160,13 @@ export function AutomationStudio() {
   const startRecording = async () => {
     if (!workspaceId) return setStudioError("Create or select a workspace before recording.");
     try {
+      const existing = activeAutomationRecording();
+      if (existing?.phase === "recording") {
+        await invoke("automation_recording_put", { recording: { id: existing.id, workspace_id: existing.workspaceId, status: "cancelled", document: { started_at: new Date(existing.startedAt).toISOString() }, base_revision: 1 } });
+      }
       const startedAt = Date.now();
       const id = uid();
-      localStorage.setItem("automationRecordingSince", String(startedAt));
-      localStorage.setItem("automationRecordingId", id);
-      localStorage.setItem("automationRecordingWorkspaceId", workspaceId);
+      setActiveAutomationRecording({ id, workspaceId, startedAt, phase: "recording" });
       setRecordingSince(startedAt);
       const recording = await invoke<BackendRecording>("automation_recording_put", { recording: { id, workspace_id: workspaceId, status: "recording", document: { started_at: new Date(startedAt).toISOString() }, base_revision: 0 } });
       setRecordings((current) => [recording, ...current]);
@@ -160,9 +178,7 @@ export function AutomationStudio() {
   const saveCapture = async (run: CapturedRun) => {
     try {
       const saved = await invoke<BrowserWorkflowSkill>("automation_workflow_put", { workspaceId, workflow: skillFromRun(run) });
-      localStorage.removeItem("automationRecordingSince");
-      localStorage.removeItem("automationRecordingId");
-      localStorage.removeItem("automationRecordingWorkspaceId");
+      clearActiveAutomationRecording();
       setRecordingSince(0);
       await loadWorkflows();
       setSelectedWorkflowId(saved.id);
@@ -329,7 +345,7 @@ export function AutomationStudio() {
 
       {section === "recorder" && <section className="automation-panel">
         <div className="automation-panel-head"><div><h2>Recordings</h2><p>A recording is a completed browser task. Run it again as-is, or turn it into an editable workflow.</p></div>
-          <button className="primary" onClick={() => void startRecording()}><Icon name="circle.fill" size={12} /> {recordingSince ? "Restart recording" : "Record a new task"}</button>
+          <button className="primary" onClick={() => void startRecording()}><Icon name="circle.fill" size={12} /> {recordedRun ? "Record another task" : recordingSince ? "Restart recording" : "Record a new task"}</button>
         </div>
         {recordingSince > 0 && <div className="recording-banner"><span className="recording-dot" />{recordedRun ? "Run captured — review and save it below." : "Recording is armed. Complete a browser task in Project, then return here."}</div>}
         <div className="capture-list">

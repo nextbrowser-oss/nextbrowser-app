@@ -15,9 +15,16 @@ import { CountrySelect } from "./CountrySelect";
 import { UserFacingError } from "./UserFacingError";
 import { VPSSetupModal } from "./VPSSetupModal";
 import { CONNECTORS } from "../connectorsCatalog";
+import { invoke } from "../electronBridge";
+import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, clearActiveAutomationRecording, type ActiveAutomationRecording } from "../lib/automationRecording";
 
 type ManualProxyInputMode = "url" | "fields";
 const PROFILE_CREATE_TIMEOUT_MS = 120_000;
+
+function recordingDuration(startedAt: number, now = Date.now()) {
+  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+  return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
 
 interface SidebarProps {
   onOpenAgentSettings: () => void;
@@ -75,6 +82,10 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [activeRecording, setActiveRecording] = useState<ActiveAutomationRecording | undefined>(activeAutomationRecording);
+  const [recordingClock, setRecordingClock] = useState(Date.now());
+  const [recordingStopping, setRecordingStopping] = useState(false);
+  const [recordingError, setRecordingError] = useState<string>();
   const profileCreateRequestRef = useRef<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const projectListRef = useRef<HTMLDivElement | null>(null);
@@ -149,6 +160,37 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const visibleProfileCount = profileWorkspaceEntries.length;
   const runningCount = profileWorkspaceEntries.filter(({ profile }) => s.statuses[profile.name] === "running").length;
   const proxyCountries = s.proxyCountries.length ? s.proxyCountries : ROTATION_COUNTRIES;
+  const recordingWorkspace = activeRecording ? s.workspaces.find((workspace) => workspace.id === activeRecording.workspaceId) : undefined;
+
+  useEffect(() => {
+    const sync = () => { setActiveRecording(activeAutomationRecording()); setRecordingClock(Date.now()); setRecordingError(undefined); };
+    window.addEventListener(AUTOMATION_RECORDING_EVENT, sync);
+    return () => window.removeEventListener(AUTOMATION_RECORDING_EVENT, sync);
+  }, []);
+
+  useEffect(() => {
+    if (!activeRecording || activeRecording.phase !== "recording") return;
+    const timer = window.setInterval(() => setRecordingClock(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [activeRecording]);
+
+  const openRecorder = () => {
+    if (activeRecording?.workspaceId && activeRecording.workspaceId !== s.activeWorkspaceId) s.selectWorkspace(activeRecording.workspaceId);
+    s.setTab("automation");
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent("nextbrowser:open-recorder")), 0);
+  };
+
+  const stopRecording = async () => {
+    if (!activeRecording || activeRecording.phase !== "recording" || recordingStopping) return;
+    setRecordingStopping(true);
+    setRecordingError(undefined);
+    try {
+      await invoke("automation_recording_put", { recording: { id: activeRecording.id, workspace_id: activeRecording.workspaceId, status: "cancelled", document: { started_at: new Date(activeRecording.startedAt).toISOString() }, base_revision: 1 } });
+      clearActiveAutomationRecording();
+    } catch (error) {
+      setRecordingError(error instanceof Error ? error.message : String(error));
+    } finally { setRecordingStopping(false); }
+  };
 
   const openProfileCreator = () => {
     if (!s.authed) {
@@ -495,6 +537,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             {badgeFor(item.id) && <span>{badgeFor(item.id)}</span>}
           </button>
         ))}
+        {activeRecording && <button className={"mini-nav-btn mini-recording-control " + activeRecording.phase} data-tooltip={activeRecording.phase === "captured" ? "Recording captured — review it" : `Recording ${recordingDuration(activeRecording.startedAt, recordingClock)}`} aria-label="Open active recording" onClick={openRecorder}><Icon name={activeRecording.phase === "captured" ? "checkmark.circle.fill" : "circle.fill"} size={18} /><span>{activeRecording.phase === "captured" ? "done" : recordingDuration(activeRecording.startedAt, recordingClock)}</span></button>}
         <span className="spacer" />
         <button className="mini-nav-btn" data-tooltip={`Agent: ${agentName}`} aria-label={`Agent: ${agentName}`} onClick={onOpenAgentSettings}>
           <Icon name="cpu.fill" size={18} />
@@ -520,6 +563,12 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           </button>
         </div>
       </div>
+
+      {activeRecording && <section className={"sidebar-recording-control " + activeRecording.phase} aria-label={activeRecording.phase === "captured" ? "Recording captured" : "Recording in progress"}>
+        <div className="sidebar-recording-status"><span className="sidebar-recording-dot" /><div><strong>{activeRecording.phase === "captured" ? "Recording captured" : "Recording in progress"}</strong><small>{recordingWorkspace?.name || "Current workspace"}{activeRecording.phase === "recording" ? ` · ${recordingDuration(activeRecording.startedAt, recordingClock)}` : " · Ready to review"}</small></div></div>
+        <div className="sidebar-recording-actions"><button onClick={openRecorder}>{activeRecording.phase === "captured" ? "Review" : "Open recorder"}</button>{activeRecording.phase === "recording" ? <button className="stop" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={11} /> : <Icon name="stop.fill" size={11} />} Stop</button> : <button onClick={clearActiveAutomationRecording}>Dismiss</button>}</div>
+        {recordingError && <small className="sidebar-recording-error" role="alert">{recordingError}</small>}
+      </section>}
 
       <nav className="sidebar-scroll sidebar-nav-list" aria-label="Sidebar pages">
         {NAV_ITEMS.map((item) => {
