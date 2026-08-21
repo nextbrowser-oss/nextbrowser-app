@@ -35,6 +35,7 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   assert.match(main, /mcp_servers\.nextbrowser\.env_vars=.*MULTILOGIN_TOKEN/);
   assert.doesNotMatch(main, /mcpEnvKeys\.push\("MULTILOGIN_TOKEN"\)/);
   assert.match(main, /plugins\."clawbrowser@clawctl-local"\.mcp_servers\.clawbrowser\.enabled=false/);
+  assert.match(main, /plugins\."clawbrowser@nbc-local"\.enabled=false/);
   assert.match(main, /mcp_servers\.nextbrowser\.default_tools_approval_mode=approve/);
   assert.match(main, /"--add-dir", dir/);
   assert.match(main, /\.cache", "clawbrowser"/);

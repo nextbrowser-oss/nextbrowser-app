@@ -113,6 +113,9 @@ enabled = false
 [plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser]
 enabled = false
 default_tools_approval_mode = "approve"
+
+[plugins."clawbrowser@nbc-local"]
+enabled = false
 `;
 
 function codexClawbrowserMCPArgs(nextctlBin) {
@@ -131,6 +134,7 @@ function codexClawbrowserMCPArgs(nextctlBin) {
     "--profile", CODEX_TERMINAL_PROFILE,
     "-c", 'plugins."clawbrowser@clawctl-local".enabled=false',
     "-c", 'plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser.enabled=false',
+    "-c", 'plugins."clawbrowser@nbc-local".enabled=false',
     "-c", `mcp_servers.nextbrowser.command=${JSON.stringify(nextctlBin)}`,
     "-c", `mcp_servers.nextbrowser.args=${JSON.stringify(["mcp"])}`,
     "-c", `mcp_servers.nextbrowser.env=${mcpEnv}`,
