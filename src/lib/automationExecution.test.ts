@@ -29,12 +29,36 @@ describe("automation execution indicator", () => {
     expect(automationExecutionView(execution, [conversation("streaming", 2)], 150)).toMatchObject({ phase: "running", progress: 55 });
   });
 
+  it("does not count browser setup and inspection noise as completed workflow steps", () => {
+    const noisy = conversation("streaming", 0);
+    noisy.messages[1].toolEvents = [
+      { id: "start", name: "clawbrowser.start", detail: "{}", createdAt: 120 },
+      { id: "state", name: "clawbrowser.state", detail: "{}", createdAt: 121 },
+      { id: "action", name: "clawbrowser.act", detail: "{}", createdAt: 122 },
+    ];
+    expect(automationExecutionView(execution, [noisy], 150)).toMatchObject({ phase: "running", progress: 38, detail: "1 browser action completed" });
+  });
+
+  it("shows live agent activity and advances long-running indeterminate work", () => {
+    const active = conversation("streaming", 0);
+    active.messages[1].activityLabel = "Parsing data…";
+    expect(automationExecutionView(execution, [active], 40_100)).toMatchObject({
+      phase: "running", progress: 40, detail: "Parsing data…",
+    });
+  });
+
   it("reports completion from the owning agent reply", () => {
     expect(automationExecutionView(execution, [conversation("done", 4)], 150)).toMatchObject({ phase: "completed", progress: 100 });
   });
 
   it("keeps a visible stopping state until the agent confirms cancellation", () => {
     expect(automationExecutionView({ ...execution, phase: "stopping" }, [conversation("streaming", 1)], 150)).toMatchObject({ phase: "stopping" });
-    expect(automationExecutionView({ ...execution, phase: "stopping" }, [conversation("cancelled", 1)], 150)).toMatchObject({ phase: "failed", detail: "Execution stopped." });
+    expect(automationExecutionView({ ...execution, phase: "stopping" }, [conversation("cancelled", 1)], 150)).toMatchObject({ phase: "cancelled", detail: "Execution stopped." });
+  });
+
+  it("does not attach progress to a similarly named task in another workspace", () => {
+    const other = conversation("done", 4);
+    other.workspaceId = "other-workspace";
+    expect(automationExecutionView(execution, [other], 150)).toMatchObject({ phase: "running", progress: 15 });
   });
 });

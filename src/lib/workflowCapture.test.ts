@@ -74,9 +74,38 @@ describe("terminal workflow capture", () => {
     expect(instructions).not.toContain("element_id values");
   });
 
+  it("preserves every successful action in a complex workflow and drops failed retries", () => {
+    const complex = `
+Called clawbrowser.navigate({"url":"https://example.com/catalog"})
+{"ok":true}
+Called clawbrowser.click({"selector":"button.filters"})
+{"ok":true}
+Called clawbrowser.input({"selector":"input[name=query]","text":"laptop"})
+{"ok":true}
+Called clawbrowser.select({"selector":"select[name=sort]","value":"price"})
+{"ok":true}
+Called clawbrowser.click({"selector":"button.missing"})
+Error: element not found
+Called clawbrowser.press({"key":"Enter"})
+{"ok":true}
+Called clawbrowser.wait({"selector":"article.product"})
+{"ok":true}
+Called clawbrowser.extract({"container":"article.product","fields":["title","price"]})
+{"count":12}
+`;
+    expect(workflowRecipe("Find laptops on example.com", complex).actions.map((action) => action.tool)).toEqual([
+      "navigate", "click", "input", "select", "press", "wait", "extract",
+    ]);
+  });
+
   it("rejects empty and failed runs but accepts successful extraction", () => {
     expect(workflowQuality("открой makler.md", "No browser calls").reusable).toBe(false);
     expect(workflowQuality("открой makler.md", 'Called clawbrowser.navigate({"url":"https://makler.md"})\nError: failed').reusable).toBe(false);
     expect(workflowQuality(terminalBrowserTask(transcript), transcript).reusable).toBe(true);
+  });
+
+  it("does not treat words inside extracted content as a tool failure", () => {
+    const content = `Called clawbrowser.navigate({"url":"https://quotes.toscrape.com"})\n{"ok":true}\nCalled clawbrowser.extract({"container":"div.quote"})\n{"ok":true}\n${"A normal quote. ".repeat(40)}I have not failed; I found another way.`;
+    expect(workflowQuality("Collect quotes from quotes.toscrape.com", content).reusable).toBe(true);
   });
 });

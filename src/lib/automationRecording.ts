@@ -1,6 +1,7 @@
 export type ActiveAutomationRecording = {
   id: string;
   workspaceId: string;
+  agentId?: string;
   startedAt: number;
   phase: "recording" | "captured";
 };

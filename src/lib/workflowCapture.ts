@@ -1,5 +1,10 @@
 const PROMPT_MARKER = /^\s*›\s*(.+)$/gm;
 const CLAWBROWSER_CALL = /(?:clawbrowser|nextbrowser)\.([a-z_]+)/g;
+const MAX_RECORDED_ACTIONS = 100;
+const REPLAYABLE_TOOLS = new Set([
+  "open", "navigate", "click", "input", "press", "select", "scroll", "dismiss", "wait",
+  "act", "multi_action", "form_fill", "upload", "extract", "paginate_extract", "tabs_extract", "site_recipe_run",
+]);
 
 export interface CapturedCall {
   name: string;
@@ -43,7 +48,10 @@ function capturedCalls(transcript: string): CapturedCall[] {
     }
   }
   return calls.map((call, index) => {
-    const result = transcript.slice(call.end, calls[index + 1]?.start ?? transcript.length);
+    // Tool status is emitted immediately after the call. Do not classify the
+    // complete assistant answer: extracted page content may legitimately contain
+    // words such as "failed" or "error" and would create a false failure.
+    const result = transcript.slice(call.end, calls[index + 1]?.start ?? transcript.length).slice(0, 512);
     let score = 0;
     if (/\b(error|failed|failure)\b/i.test(result) || /"(?:count|executed)"\s*:\s*0\b/.test(result) || /"rows"\s*:\s*\[\s*\]/.test(result)) score -= 10;
     if (/"ok"\s*:\s*true/.test(result) || /"count"\s*:\s*[1-9]\d*/.test(result) || /"rows"\s*:\s*\[\s*\{/.test(result) || /Наш[её]л|found\s+[1-9]/i.test(result)) score += 10;
@@ -64,17 +72,20 @@ export function workflowCapability(task: string, transcript: string): WorkflowCa
 
 export function workflowRecipe(task: string, transcript: string) {
   const capability = workflowCapability(task, transcript);
-  const actions = selectedFastPath(transcript)
-    .filter(({ name }) => !["start", "prepare"].includes(name))
+  const actions = replayableCalls(transcript)
+    .slice(0, MAX_RECORDED_ACTIONS)
     .map(({ name, args }) => ({ tool: name, arguments: args }));
   return { version: 1 as const, capability, actions };
 }
 
 /** All task-relevant calls, used to explain a recording without exposing setup noise. */
 export function recordedBrowserActions(transcript: string): Array<{ tool: string; arguments: Record<string, unknown> }> {
-  return capturedCalls(transcript)
-    .filter(({ name }) => !["start", "prepare", "state", "tabs", "wait", "verify"].includes(name))
+  return replayableCalls(transcript)
     .map(({ name, args }) => ({ tool: name, arguments: args }));
+}
+
+function replayableCalls(transcript: string): CapturedCall[] {
+  return capturedCalls(transcript).filter((call) => REPLAYABLE_TOOLS.has(call.name) && call.score >= 0);
 }
 
 function pick(source: Record<string, unknown>, keys: string[]): Record<string, unknown> {
@@ -97,7 +108,7 @@ function selectedFastPath(transcript: string): CapturedCall[] {
 }
 
 function fastPath(transcript: string): string[] {
-  return selectedFastPath(transcript).filter(({ name }) => !["start", "prepare"].includes(name)).flatMap(({ name, args }) => {
+  return replayableCalls(transcript).slice(0, MAX_RECORDED_ACTIONS).flatMap(({ name, args }) => {
     if (name === "multi_action") {
       return [`clawbrowser.multi_action(${JSON.stringify(pick(args, ["actions", "stop_on_navigation", "wait_for", "state_mode"]))})`];
     }
@@ -107,8 +118,7 @@ function fastPath(transcript: string): string[] {
     if (["paginate_extract", "extract"].includes(name)) {
       return [`clawbrowser.${name}(${JSON.stringify(pick(args, ["container", "fields", "filters", "dedupe_by", "transform", "scroll", "max_pages", "limit", "initial_wait", "timeout"]))})`];
     }
-    if (name === "act") return [`clawbrowser.act(${JSON.stringify(args)})`];
-    return [];
+    return [`clawbrowser.${name}(${JSON.stringify(args)})`];
   });
 }
 
@@ -162,10 +172,12 @@ export function capturedWorkflowDomain(task: string, transcript: string): string
 
 export function workflowQuality(task: string, transcript: string, domain = capturedWorkflowDomain(task, transcript)): { reusable: boolean; reason: string } {
   if (!domain) return { reusable: false, reason: "The website could not be identified." };
+  if (transcript.includes("{{redacted}}")) return { reusable: false, reason: "The run contained credentials or payment data. It was redacted and cannot be saved as a replayable workflow." };
   const calls = capturedCalls(transcript);
   if (calls.length === 0) return { reusable: false, reason: "No browser actions were captured." };
-  const meaningful = calls.filter((call) => !["state", "tabs", "wait", "verify"].includes(call.name));
+  const meaningful = replayableCalls(transcript);
   if (meaningful.length === 0) return { reusable: false, reason: "The run only inspected the browser and did not perform a reusable task." };
+  if (meaningful.length > MAX_RECORDED_ACTIONS) return { reusable: false, reason: `The run contains more than ${MAX_RECORDED_ACTIONS} browser actions. Split it into smaller workflows.` };
   const last = calls.at(-1);
   if (last && last.score < 0) return { reusable: false, reason: "The browser workflow ended with a failed action." };
   const successfulExtraction = calls.some((call) => ["extract", "paginate_extract"].includes(call.name) && call.score > 0);

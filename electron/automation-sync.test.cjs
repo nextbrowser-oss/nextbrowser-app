@@ -94,6 +94,8 @@ test("seeds exactly two successful examples for every empty Automation Studio se
   assert.deepEqual((await seedAutomationExamples("space", f.deps)).seeded, { workflows: 2, recordings: 2, artifacts: 2 });
   assert.equal(created.workflows.length, 2);
   assert.ok(created.workflows.every((item) => item.recipe.actions.length >= 2));
+  assert.deepEqual(created.workflows.map((item) => item.domain).sort(), ["books.toscrape.com", "quotes.toscrape.com"]);
+  assert.ok(created.workflows.every((item) => !JSON.stringify(item).includes("example.com")));
   assert.equal(created.recordings.length, 2);
   assert.ok(created.recordings.every((item) => item.status === "completed" && item.document.demo === true));
   assert.deepEqual(created.artifacts.sort(), ["automation-run-demo.json", "product-research-demo.csv"]);
@@ -102,8 +104,8 @@ test("seeds exactly two successful examples for every empty Automation Studio se
 test("does not duplicate examples when their demo markers already exist", async (t) => {
   const f = await fixture(t, (url, options) => {
     assert.equal(options.method, undefined);
-    if (url.includes("/workflows")) return jsonResponse({ workflows: ["collect-products", "search-knowledge"].map((key) => ({ id: key, title: key, task: "x", recipe: { actions: [], demo_key: key, demo_version: 2 }, revision: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })) });
-    if (url.includes("/recordings")) return jsonResponse({ recordings: ["product-research", "site-search"].map((key) => ({ id: key, document: { demo_key: key, demo_version: 2 } })) });
+    if (url.includes("/workflows")) return jsonResponse({ workflows: ["collect-products", "search-knowledge"].map((key) => ({ id: key, title: key, task: "x", recipe: { actions: [], demo_key: key, demo_version: 3 }, revision: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })) });
+    if (url.includes("/recordings")) return jsonResponse({ recordings: ["product-research", "site-search"].map((key) => ({ id: key, document: { demo_key: key, demo_version: 3 } })) });
     return jsonResponse({ artifacts: ["product-research-demo.csv", "automation-run-demo.json"].map((name) => ({ id: name, name, size: 1, created_at: new Date().toISOString() })) });
   });
   assert.deepEqual((await seedAutomationExamples("space", f.deps)).seeded, { workflows: 0, recordings: 0, artifacts: 0 });

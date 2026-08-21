@@ -16,8 +16,8 @@ import { UserFacingError } from "./UserFacingError";
 import { VPSSetupModal } from "./VPSSetupModal";
 import { CONNECTORS } from "../connectorsCatalog";
 import { invoke } from "../electronBridge";
-import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, clearActiveAutomationRecording, setActiveAutomationRecording, type ActiveAutomationRecording } from "../lib/automationRecording";
-import { capturedRuns } from "../lib/automationStudio";
+import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, clearActiveAutomationRecording, type ActiveAutomationRecording } from "../lib/automationRecording";
+import { capturedRunsForRecording } from "../lib/automationStudio";
 import { activeAutomationExecution, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, setActiveAutomationExecution, type AutomationExecution } from "../lib/automationExecution";
 
 type ManualProxyInputMode = "url" | "fields";
@@ -188,13 +188,13 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   }, []);
 
   useEffect(() => {
-    if (!automationExecution || !automationExecutionState || ["completed", "failed"].includes(automationExecutionState.phase)) return;
+    if (!automationExecution || !automationExecutionState || ["completed", "failed", "cancelled"].includes(automationExecutionState.phase)) return;
     const timer = window.setInterval(() => setAutomationExecutionClock(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [automationExecution, automationExecutionState?.phase]);
 
   useEffect(() => {
-    if (!automationExecution || !automationExecutionState || !["completed", "failed"].includes(automationExecutionState.phase)) return;
+    if (!automationExecution || !automationExecutionState || !["completed", "failed", "cancelled"].includes(automationExecutionState.phase)) return;
     if (automationExecution.backendRunId) {
       const status = automationExecution.phase === "stopping" ? "cancelled" : automationExecutionState.phase;
       void invoke("automation_run_update", { id: automationExecution.backendRunId, update: { status, output: { detail: automationExecutionState.detail } } }).catch(() => undefined);
@@ -214,10 +214,10 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     setRecordingStopping(true);
     setRecordingError(undefined);
     try {
-      const captured = capturedRuns(s.conversations).find((run) => run.answer.createdAt >= activeRecording.startedAt);
+      const captured = capturedRunsForRecording(s.conversations, activeRecording)[0];
       if (captured) {
         await invoke("automation_recording_put", { recording: { id: activeRecording.id, workspace_id: activeRecording.workspaceId, status: "completed", document: { run: captured }, base_revision: 1 } });
-        setActiveAutomationRecording({ ...activeRecording, phase: "captured" });
+        clearActiveAutomationRecording();
       } else {
         await invoke("automation_recording_delete", { id: activeRecording.id });
         clearActiveAutomationRecording();
@@ -631,10 +631,10 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       </section>}
 
       {automationExecution && automationExecutionState && <section className={`sidebar-execution-control ${automationExecutionState.phase}`} aria-label="Automation execution status">
-        <div className="sidebar-execution-status"><span className="sidebar-execution-icon"><Icon name={automationExecutionState.phase === "completed" ? "checkmark.circle.fill" : automationExecutionState.phase === "failed" ? "xmark.circle.fill" : automationExecutionState.phase === "stopping" ? "stop.fill" : "play.fill"} size={12} /></span><div><strong>{automationExecutionState.phase === "completed" ? "Workflow completed" : automationExecutionState.phase === "failed" ? automationExecution.phase === "stopping" ? "Workflow stopped" : "Workflow failed" : automationExecutionState.phase === "stopping" ? "Stopping workflow" : automationExecutionState.phase === "preparing" ? "Preparing workflow" : "Workflow running"}</strong><small title={automationExecution.workflowTitle}>{automationExecution.workflowTitle} · {automationExecutionWorkspace?.name || "Current workspace"}</small></div><b>{automationExecutionState.progress}%</b></div>
+        <div className="sidebar-execution-status"><span className="sidebar-execution-icon"><Icon name={automationExecutionState.phase === "completed" ? "checkmark.circle.fill" : ["failed", "cancelled"].includes(automationExecutionState.phase) ? "xmark.circle.fill" : automationExecutionState.phase === "stopping" ? "stop.fill" : "play.fill"} size={12} /></span><div><strong>{automationExecutionState.phase === "completed" ? "Workflow completed" : automationExecutionState.phase === "cancelled" ? "Workflow stopped" : automationExecutionState.phase === "failed" ? "Workflow failed" : automationExecutionState.phase === "stopping" ? "Stopping workflow" : automationExecutionState.phase === "preparing" ? "Preparing workflow" : "Workflow running"}</strong><small title={automationExecution.workflowTitle}>{automationExecution.workflowTitle} · {automationExecutionWorkspace?.name || "Current workspace"}</small></div><b>{automationExecutionState.progress}%</b></div>
         <div className="sidebar-execution-track"><i style={{ width: `${automationExecutionState.progress}%` }} /></div>
         <small className="sidebar-execution-detail">{automationExecutionState.detail}</small>
-        <div className="sidebar-recording-actions"><button onClick={openAutomationExecution}>Open</button>{["completed", "failed"].includes(automationExecutionState.phase) ? <button onClick={clearActiveAutomationExecution}>Dismiss</button> : <button className="stop" disabled={automationExecution.phase === "stopping"} onClick={() => void stopAutomationExecution()}>{automationExecution.phase === "stopping" ? <Spinner size={11} /> : <Icon name="stop.fill" size={11} />} {automationExecution.phase === "stopping" ? "Stopping" : "Stop"}</button>}</div>
+        <div className="sidebar-recording-actions"><button onClick={openAutomationExecution}>Open</button>{["completed", "failed", "cancelled"].includes(automationExecutionState.phase) ? <button onClick={clearActiveAutomationExecution}>Dismiss</button> : <button className="stop" disabled={automationExecution.phase === "stopping"} onClick={() => void stopAutomationExecution()}>{automationExecution.phase === "stopping" ? <Spinner size={11} /> : <Icon name="stop.fill" size={11} />} {automationExecution.phase === "stopping" ? "Stopping" : "Stop"}</button>}</div>
         {automationExecutionError && <small className="sidebar-recording-error" role="alert">{automationExecutionError}</small>}
       </section>}
 

@@ -616,8 +616,8 @@ button, input, textarea, select { color: var(--text); }
 .sidebar-execution-track i { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width 300ms ease; }
 .sidebar-execution-control.completed { border-color: color-mix(in srgb, var(--green) 38%, var(--line)); box-shadow: inset 3px 0 0 color-mix(in srgb, var(--green) 75%, transparent); }
 .sidebar-execution-control.completed .sidebar-execution-icon, .sidebar-execution-control.completed .sidebar-execution-status > b { color: var(--green); }
-.sidebar-execution-control.failed, .sidebar-execution-control.stopping { border-color: color-mix(in srgb, var(--red) 38%, var(--line)); box-shadow: inset 3px 0 0 color-mix(in srgb, var(--red) 75%, transparent); }
-.sidebar-execution-control.failed .sidebar-execution-icon, .sidebar-execution-control.stopping .sidebar-execution-icon, .sidebar-execution-control.failed .sidebar-execution-status > b, .sidebar-execution-control.stopping .sidebar-execution-status > b { color: var(--red); }
+.sidebar-execution-control.failed, .sidebar-execution-control.cancelled, .sidebar-execution-control.stopping { border-color: color-mix(in srgb, var(--red) 38%, var(--line)); box-shadow: inset 3px 0 0 color-mix(in srgb, var(--red) 75%, transparent); }
+.sidebar-execution-control.failed .sidebar-execution-icon, .sidebar-execution-control.cancelled .sidebar-execution-icon, .sidebar-execution-control.stopping .sidebar-execution-icon, .sidebar-execution-control.failed .sidebar-execution-status > b, .sidebar-execution-control.cancelled .sidebar-execution-status > b, .sidebar-execution-control.stopping .sidebar-execution-status > b { color: var(--red); }
 .mini-recording-control.recording { color: var(--red); }
 .mini-recording-control.recording > svg { animation: recording-pulse 1.4s ease-in-out infinite; }
 .mini-recording-control.captured { color: var(--green); }
@@ -7184,9 +7184,9 @@ pre,
 .recording-progress-card.completed { border-color: color-mix(in srgb, var(--green) 35%, var(--border)); background: color-mix(in srgb, var(--green) 8%, var(--panel)); }
 .recording-progress-card.completed .recording-progress-head b { color: var(--green); }
 .recording-progress-card.completed .recording-progress-track i { background: var(--green); }
-.recording-progress-card.failed { border-color: color-mix(in srgb, var(--red) 35%, var(--border)); background: color-mix(in srgb, var(--red) 8%, var(--panel)); }
-.recording-progress-card.failed .recording-progress-head b { color: var(--red); }
-.recording-progress-card.failed .recording-progress-track i { background: var(--red); }
+.recording-progress-card.failed, .recording-progress-card.cancelled { border-color: color-mix(in srgb, var(--red) 35%, var(--border)); background: color-mix(in srgb, var(--red) 8%, var(--panel)); }
+.recording-progress-card.failed .recording-progress-head b, .recording-progress-card.cancelled .recording-progress-head b { color: var(--red); }
+.recording-progress-card.failed .recording-progress-track i, .recording-progress-card.cancelled .recording-progress-track i { background: var(--red); }
 .automation-panel { border: 1px solid var(--border); border-radius: 16px; background: var(--panel); overflow: hidden; }
 .automation-panel-head { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 18px 20px; border-bottom: 1px solid var(--border); }
 .automation-panel-head h2 { margin: 0 0 4px; font-size: 17px; }
@@ -7268,4 +7268,14 @@ pre,
 .artifact-copy .artifact-expiry { color: var(--orange, #d98522); }
 .artifact-actions { grid-column: 1 / -1; display: flex; gap: 6px; justify-content: flex-end; }
 .automation-inline-error { padding: 10px 20px; border-bottom: 1px solid var(--border); }
+.workflow-run-history { margin-top: 18px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+.workflow-run-history > div { display: flex; align-items: center; justify-content: space-between; }
+.workflow-run-history ul { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 7px; }
+.workflow-run-history li { display: grid; grid-template-columns: 88px 80px 1fr; align-items: center; gap: 9px; font-size: 12px; }
+.workflow-run-history li time { color: var(--muted); text-align: right; }
+.workflow-run-history li small { grid-column: 1 / -1; color: var(--red); }
+.run-status { width: fit-content; padding: 2px 7px; border-radius: 999px; background: var(--surface-5); text-transform: capitalize; }
+.run-status.completed { color: var(--green); }
+.run-status.failed, .run-status.cancelled { color: var(--red); }
+.run-status.running, .run-status.queued { color: var(--accent); }
 @media (max-width: 900px) { .automation-studio { padding-inline: 16px; } .workflow-builder { grid-template-columns: 1fr; } .workflow-list { border-right: 0; border-bottom: 1px solid var(--border); } .automation-summary { display: none; } .automation-how-it-works i { display: none; } .automation-how-it-works { align-items: flex-start; flex-direction: column; } .capture-card { grid-template-columns: 1fr; } .capture-card-actions { justify-content: flex-start; } }
