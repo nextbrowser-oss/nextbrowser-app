@@ -40,6 +40,24 @@ test("uses the same default backend as cloud skills", () => {
   assert.equal(entityBackendURL({}), "https://core.nextbrowser.com");
 });
 
+test("moves entity sync with an app API override", () => {
+  assert.equal(
+    entityBackendURL({ NEXTBROWSER_API_BASE_URL: "http://127.0.0.1:18098/" }),
+    "http://127.0.0.1:18098",
+  );
+  assert.equal(
+    entityBackendURL({ CLAWBROWSER_API_BASE_URL: "https://staging-api.nextbrowser.test/" }),
+    "https://staging-api.nextbrowser.test",
+  );
+  assert.equal(
+    entityBackendURL({
+      NEXTBROWSER_API_BASE_URL: "http://127.0.0.1:18098",
+      CLAWCTL_SKILL_SERVICE: "https://entities.test/",
+    }),
+    "https://entities.test",
+  );
+});
+
 test("stores and resolves personal proxies through the authenticated entity backend", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "personal-proxy-sync-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));

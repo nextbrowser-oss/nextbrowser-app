@@ -17,7 +17,7 @@ import { activeAutomationExecution, automationExecutionView, AUTOMATION_EXECUTIO
 type StudioSection = "recorder" | "workflows" | "artifacts";
 type BackendRecording = { id: string; status: string; revision: number; document: { run?: CapturedRun }; updated_at: string };
 type BackendRun = { id: string; workflow_id: string; workflow_version: number; status: "queued" | "running" | "completed" | "failed" | "cancelled"; error?: string; created_at: string; completed_at?: string };
-type ElementPickMode = "target" | "container" | "field" | "next";
+type ElementPickMode = "target" | "presence" | "container" | "field" | "next";
 type ElementPickState = { pickId: string; actionIndex: number; mode: ElementPickMode; fieldName?: string };
 type ElementPickResult = { cancelled?: boolean; selector?: string; locator?: { role?: string; name?: string; text?: string }; label?: string; tag?: string; attribute?: string; pageUrl?: string };
 
@@ -36,6 +36,15 @@ function defaultExamplesKey(workspaceId: string) {
 
 function actionLabel(tool: string) {
   return ACTION_OPTIONS.find(([value]) => value === tool)?.[1] || `Advanced: ${tool}`;
+}
+
+function defaultActionArguments(tool: string): Record<string, unknown> {
+  if (["navigate", "open"].includes(tool)) return { url: "https://example.com" };
+  if (tool === "input") return { text: "" };
+  if (tool === "press") return { key: "Enter" };
+  if (tool === "select") return { value: "" };
+  if (["extract", "paginate_extract"].includes(tool)) return { fields: {} };
+  return {};
 }
 
 function extractionFields(action: BrowserWorkflowAction): Record<string, Record<string, unknown>> {
@@ -307,7 +316,11 @@ export function AutomationStudio() {
   const updateAction = (index: number, field: "tool" | "arguments", value: string) => {
     if (!draft) return;
     const actions = [...draft.actions];
-    if (field === "tool") actions[index] = { ...actions[index], tool: value.replace(/^(?:clawbrowser|nextbrowser)\./, "") };
+    if (field === "tool") {
+      const tool = value.replace(/^(?:clawbrowser|nextbrowser)\./, "");
+      actions[index] = { tool, arguments: defaultActionArguments(tool) };
+      setActionErrors((current) => { const next = { ...current }; delete next[index]; return next; });
+    }
     else {
       try {
         const args = JSON.parse(value) as Record<string, unknown>;
@@ -364,21 +377,16 @@ export function AutomationStudio() {
   const pickElement = async (actionIndex: number, mode: ElementPickMode, fieldName?: string) => {
     if (!draft || elementPick) return;
     const pickId = uid();
-    const state = { pickId, actionIndex, mode, fieldName };
+    const pickerMode: ElementPickMode = mode === "target" && draft.actions[actionIndex]?.tool === "wait" ? "presence" : mode;
+    const state = { pickId, actionIndex, mode: pickerMode, fieldName };
     setElementPick(state);
     setStudioError(undefined);
     setNotice("The workflow page is opening. Click the highlighted element in the browser, or press Esc to cancel.");
     try {
-      if (s.selectedProfile) {
-        const status = s.statuses[s.selectedProfile] ?? s.profileSessions[s.selectedProfile]?.status;
-        if (status !== "running") await s.startProfile(s.selectedProfile);
-      } else if (s.defaultSession?.status !== "running") {
-        await s.startDefaultSession();
-      }
       const action = draft.actions[actionIndex];
       const result = await invoke<ElementPickResult>("automation_element_pick", {
         pickId,
-        mode,
+        mode: pickerMode,
         fieldName,
         container: mode === "field" ? action.arguments.container : undefined,
         openUrl: previewUrl(),

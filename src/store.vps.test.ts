@@ -135,7 +135,7 @@ beforeEach(() => {
 });
 
 describe("deterministic automation replay", () => {
-  it("runs without an authenticated agent and preserves profile runtime selection", async () => {
+  it("runs without an authenticated agent or conversational preflight and preserves profile runtime selection", async () => {
     useStore.setState({
       selectedProfile: "camou-profile",
       workspaces: [{
@@ -151,11 +151,6 @@ describe("deterministic automation replay", () => {
         codex: { ...useStore.getState().runtime.codex, ready: false },
       },
     });
-    preflight.prepareSession.mockResolvedValueOnce({
-      profileArgs: ["--profile", "camou-profile", "--runtime", "camoufox"],
-      host: "example.com",
-      steps: [],
-    });
     bridge.invoke.mockResolvedValueOnce({ status: "completed", results: [] });
 
     await expect(useStore.getState().runAutomationRecipe(
@@ -164,11 +159,7 @@ describe("deterministic automation replay", () => {
       { backendRunId: "backend-run", query: "laptop" },
     )).resolves.toMatchObject({ status: "completed" });
 
-    expect(preflight.prepareSession).toHaveBeenCalledWith(expect.objectContaining({
-      host: "example.com",
-      selectedProfile: "camou-profile",
-      runtime: "camoufox",
-    }));
+    expect(preflight.prepareSession).not.toHaveBeenCalled();
     expect(bridge.invoke).toHaveBeenCalledWith("automation_recipe_execute", expect.objectContaining({
       executionId: "execution",
       profile: "camou-profile",

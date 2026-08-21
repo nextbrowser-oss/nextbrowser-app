@@ -28,6 +28,7 @@ function pickerPageScript(options) {
   tip.textContent = mode === "container" ? "Click one repeated result card"
     : mode === "field" ? "Click the value inside the highlighted result card"
       : mode === "next" ? "Click the Next page button"
+        : mode === "presence" ? "Click visible content that means the page is ready"
         : "Click the page element for this step · Esc to cancel";
   document.documentElement.append(box, tip);
 
@@ -130,7 +131,7 @@ function pickerPageScript(options) {
     const role = roleOf(element);
     const name = nameOf(element);
     const locator = role && name ? { role, name } : name ? { name } : undefined;
-    const selector = mode === "container" ? repeatedSelectorFor(element) : selectorFor(element, root);
+    const selector = mode === "container" || mode === "presence" ? repeatedSelectorFor(element) : selectorFor(element, root);
     let matchCount = 1;
     try { matchCount = (root || document).querySelectorAll(selector).length; } catch { /* selector was already validated */ }
     const attribute = mode === "field" && /(?:url|link|href)$/i.test(fieldName) && element instanceof HTMLAnchorElement ? "href"

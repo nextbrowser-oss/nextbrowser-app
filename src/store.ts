@@ -4327,16 +4327,12 @@ export const useStore = create<State>((set, get) => {
     if (activeConversation?.executionTarget === "vps") {
       throw new Error("Deterministic replay currently requires a local NextBrowser profile.");
     }
-    const prep = await prepareLocalSession({
-      host: skill.domain || undefined,
-      selectedProfile: get().selectedProfile,
-      statuses: get().statuses,
-      defaultSession: get().defaultSession,
-    });
-    const profileIndex = prep.profileArgs.indexOf("--profile");
-    const runtimeIndex = prep.profileArgs.indexOf("--runtime");
-    const profile = profileIndex >= 0 ? prep.profileArgs[profileIndex + 1] : undefined;
-    const runtime = runtimeIndex >= 0 ? prep.profileArgs[runtimeIndex + 1] : "clawbrowser";
+    // The deterministic MCP runner owns navigation and can start or attach to
+    // its browser session itself. Running the conversational preflight here
+    // duplicates navigation, verifies unrelated proxy state, and can block a
+    // valid recipe before its first saved action executes.
+    const profile = get().selectedProfile;
+    const runtime = profile ? runtimeForProfile(get().workspaces, profile) : "clawbrowser";
     trackEvent("automation_recipe_started", { action_count: skill.actions.length, runtime, has_profile: !!profile });
     const result = await invoke<AutomationRecipeResult>("automation_recipe_execute", {
       executionId,

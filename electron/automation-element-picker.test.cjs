@@ -39,6 +39,7 @@ test("picker page script contains visual selection, Escape cancellation, and rel
   assert.match(source, /element\.closest\(rootSelector\)/);
   assert.match(source, /data-testid/);
   assert.match(source, /HTMLAnchorElement/);
+  assert.match(source, /mode === "container" \|\| mode === "presence"/);
 });
 
 test("returns a browser-selected semantic locator through one MCP session", async () => {

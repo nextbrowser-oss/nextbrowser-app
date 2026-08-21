@@ -122,6 +122,8 @@ test("recordings and workflows replay deterministically with explicit AI repair"
   assert.match(studio, /s\.runAutomationRecipe\(/);
   assert.match(studio, /Repair & run with AI/);
   assert.match(studio, /runLocalSkill\(repairWorkflow, repairTask\)/);
+  const deterministicRun = store.slice(store.indexOf("runAutomationRecipe: async"), store.indexOf("runLocalSkill: async"));
+  assert.doesNotMatch(deterministicRun, /prepareLocalSession/);
 });
 
 test("workflow builder selects page elements visually without exposing CSS inputs", () => {
@@ -133,4 +135,6 @@ test("workflow builder selects page elements visually without exposing CSS input
   assert.match(studio, /Select row on page/);
   assert.match(studio, /no HTML or CSS knowledge required/i);
   assert.doesNotMatch(studio, /placeholder="css=/);
+  assert.doesNotMatch(studio, /pickElement[\s\S]{0,1200}await s\.start(?:DefaultSession|Profile)/);
+  assert.match(studio, /actions\[index\] = \{ tool, arguments: defaultActionArguments\(tool\) \}/);
 });
