@@ -4,13 +4,15 @@ Last verified: 2026-08-21
 
 ## Product model
 
-Automation Studio records successful **agent-driven browser runs**, not arbitrary manual mouse and keyboard activity. A recording can be replayed directly or converted into an editable workflow. A workflow is a versioned, backend-owned recipe of up to 100 browser actions. ClawBrowser is one supported browser toolset alongside Camoufox, DasBrowser, and future compatible runtimes.
+Automation Studio records successful **agent-driven browser runs**, not arbitrary manual mouse and keyboard activity. Replay itself is deterministic: the desktop app executes the saved recipe directly through one persistent NextBrowser MCP session and does not invoke an AI agent. A workflow is a versioned, backend-owned recipe of up to 100 browser actions. ClawBrowser is one supported browser toolset alongside Camoufox, DasBrowser, and future compatible runtimes.
 
 The recorder supports:
 
 - browser runs whose agent exposes structured tool events;
 - workflows launched from Automation Studio, including Codex runs whose raw tool events are unavailable (the executed structured recipe is captured instead);
 - ordered navigation, interaction, wait, form, upload, and extraction actions;
+- direct execution on the selected runtime, step-level backend status, structured output, progress, and cancellation;
+- CSS locators, stable runtime element IDs, and accessible role/name locators resolved through semantic browser state;
 - replay, conversion to a workflow, deletion, workspace/agent isolation, and explicit Start/Stop.
 
 It does not currently support:
@@ -26,8 +28,8 @@ It does not currently support:
 | # | Scenario | Verification | Result |
 |---|---|---|---|
 | 1 | First-run examples | Seed two recordings, two workflows, and two artifacts twice | Pass; idempotent and upgraded by example version |
-| 2 | Live recording replay | Run the Quotes to Scrape example through Codex and profile `ллл` | Pass; 14 results, visible progress, successful completion |
-| 3 | Complex workflow | Navigate, wait, extract, paginate across Books to Scrape | Pass; 32 records across two pages |
+| 2 | Live recording replay | Run the Quotes to Scrape example directly on profile `ллл` | Pass; 10 + 4 results, visible progress, successful completion without an agent |
+| 3 | Complex workflow | Navigate, wait, extract, selector click, and paginate across Books to Scrape | Pass; 20 + 12 records across three pages without an agent |
 | 4 | Record to workflow | Start recording, run a two-step live workflow, Stop, convert | Pass; backend recording and editable two-step workflow created |
 | 5 | Stop during preflight | Stop before an agent reply exists | Pass after fix; no permanent `Stopping…` state, backend run cancelled |
 | 6 | Incomplete recording | Start and immediately Stop | Pass; attempt remains local while active and is never persisted as a recording |
@@ -59,14 +61,14 @@ It does not currently support:
 
 ## Design conclusions
 
-The primary UI should continue to describe this as an **agent run recorder**, because it is not equivalent to a browser DevTools recorder. Targets should prefer visible role, label, and text, with CSS selectors and recorded element IDs treated as fallbacks. Execution must always expose global status and Stop outside Automation Studio.
+The primary UI should continue to describe capture as an **agent run recorder**, because it is not equivalent to a browser DevTools recorder. Playback is a deterministic browser runner. Targets prefer visible role/name semantics, with CSS selectors and recorded element IDs as supported alternatives. The AI agent is an explicit repair path after failure, never a hidden dependency of ordinary replay. Execution always exposes global status and Stop outside Automation Studio.
 
 The next product increments, in order, should be:
 
 1. A first-class nextctl/MCP action-event bridge so arbitrary Codex tasks can be recorded without an existing recipe.
 2. Assertions/checkpoints (`text exists`, `URL matches`, `count > 0`) and explicit failure messages.
 3. Per-run parameter forms generated from `parametersSchema`, with secrets injected at runtime and never persisted.
-4. Step-level run history, retry-from-step, breakpoints, and screenshots on failure.
+4. Retry-from-step, breakpoints, screenshots on failure, and an approval flow for saving AI-repaired locators.
 5. Workflow import/export and portable file parameters instead of machine-specific upload paths.
 
 These priorities follow the strongest patterns in Playwright Codegen, Chrome DevTools Recorder, and Selenium IDE: resilient locators, editable ordered steps, assertions, visible recording state, replay controls, and debuggable run history.

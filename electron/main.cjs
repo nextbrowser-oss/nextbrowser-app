@@ -52,7 +52,9 @@ const {
   putAutomationWorkflow,
   seedAutomationExamples,
   updateAutomationRun,
+  updateAutomationRunStep,
 } = require("./automation-sync.cjs");
+const { cancelAllAutomationRecipes, cancelAutomationRecipe, executeAutomationRecipe } = require("./automation-runner.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
 const { parseMultiloginProfiles } = require("./multilogin-profiles.cjs");
@@ -1139,6 +1141,27 @@ async function invokeCommand(command, args = {}, sender) {
     }
     case "automation_run_create": return await createAutomationRun(args.run || {}, { env: childEnv() });
     case "automation_run_update": return await updateAutomationRun(String(args.id || ""), args.update || {}, { env: childEnv() });
+    case "automation_recipe_execute": {
+      const binary = await resolveOrInstallNextctl();
+      if (!binary) throw new Error("NextBrowser browser runtime is unavailable.");
+      const requestedRuntime = ["clawbrowser", "dasbrowser", "camoufox", "multilogin"].includes(args.runtime) ? args.runtime : "clawbrowser";
+      if (requestedRuntime === "multilogin") await initializeMultiloginCredential();
+      const runtimeBin = requestedRuntime === "dasbrowser" ? await ensureDasbrowserRuntime() : undefined;
+      return await executeAutomationRecipe({
+        executionId: args.executionId,
+        recipe: args.recipe,
+        parameters: args.parameters,
+        profile: args.profile,
+        runtime: requestedRuntime === "dasbrowser" ? "chromium" : requestedRuntime,
+        runtimeBin,
+      }, {
+        binary,
+        env: childEnv(),
+        onProgress: (progress) => emit("automation:recipe-progress", progress),
+        onStep: args.backendRunId ? ({ position, ...update }) => updateAutomationRunStep(String(args.backendRunId), position, update, { env: childEnv() }).catch(() => undefined) : undefined,
+      });
+    }
+    case "automation_recipe_cancel": return cancelAutomationRecipe(String(args.executionId || ""));
     case "select_terminal_files": {
       const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
       const result = await dialog.showOpenDialog(owner, {
@@ -1606,4 +1629,5 @@ app.on("before-quit", () => {
   agentControlServer?.close();
   agentControlServer = null;
   cancelAllCommands();
+  cancelAllAutomationRecipes();
 });

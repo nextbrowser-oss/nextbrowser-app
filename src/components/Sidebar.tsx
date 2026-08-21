@@ -15,10 +15,10 @@ import { CountrySelect } from "./CountrySelect";
 import { UserFacingError } from "./UserFacingError";
 import { VPSSetupModal } from "./VPSSetupModal";
 import { CONNECTORS } from "../connectorsCatalog";
-import { invoke } from "../electronBridge";
+import { invoke, listen } from "../electronBridge";
 import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, clearActiveAutomationRecording, type ActiveAutomationRecording } from "../lib/automationRecording";
 import { capturedRunsForRecording } from "../lib/automationStudio";
-import { activeAutomationExecution, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, setActiveAutomationExecution, type AutomationExecution } from "../lib/automationExecution";
+import { activeAutomationExecution, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, executionWithRecipeProgress, setActiveAutomationExecution, type AutomationExecution, type AutomationRecipeProgress } from "../lib/automationExecution";
 
 type ManualProxyInputMode = "url" | "fields";
 const PROFILE_CREATE_TIMEOUT_MS = 120_000;
@@ -188,20 +188,20 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   }, []);
 
   useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<AutomationRecipeProgress>("automation:recipe-progress", ({ payload }) => {
+      const current = activeAutomationExecution();
+      if (!current || current.executionId !== payload.executionId) return;
+      setActiveAutomationExecution(executionWithRecipeProgress(current, payload));
+    }).then((dispose) => { unlisten = dispose; });
+    return () => unlisten?.();
+  }, []);
+
+  useEffect(() => {
     if (!automationExecution || !automationExecutionState || ["completed", "failed", "cancelled"].includes(automationExecutionState.phase)) return;
     const timer = window.setInterval(() => setAutomationExecutionClock(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [automationExecution, automationExecutionState?.phase]);
-
-  useEffect(() => {
-    if (!automationExecution || !automationExecutionState || !["completed", "failed", "cancelled"].includes(automationExecutionState.phase)) return;
-    if (automationExecution.backendRunId) {
-      const status = automationExecution.phase === "stopping" ? "cancelled" : automationExecutionState.phase;
-      void invoke("automation_run_update", { id: automationExecution.backendRunId, update: { status, output: { detail: automationExecutionState.detail } } }).catch(() => undefined);
-    }
-    const timer = window.setTimeout(clearActiveAutomationExecution, 8_000);
-    return () => window.clearTimeout(timer);
-  }, [automationExecution?.executionId, automationExecution?.phase, automationExecutionState?.phase]);
 
   const openRecorder = () => {
     if (activeRecording?.workspaceId && activeRecording.workspaceId !== s.activeWorkspaceId) s.selectWorkspace(activeRecording.workspaceId);
@@ -237,10 +237,16 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     const stopping: AutomationExecution = { ...automationExecution, phase: "stopping" };
     setAutomationExecution(stopping);
     setActiveAutomationExecution(stopping);
-    const cancelledWhileQueued = !!stopping.replyId && s.cancelQueuedReply(stopping.replyId);
-    if (!cancelledWhileQueued) {
-      if (stopping.replyId) s.stopReply(stopping.replyId);
-      else s.stopRunning();
+    let cancelledWhileQueued = false;
+    if (stopping.engine === "deterministic") {
+      try { await invoke("automation_recipe_cancel", { executionId: stopping.executionId }); }
+      catch (error) { setAutomationExecutionError(error instanceof Error ? error.message : String(error)); }
+    } else {
+      cancelledWhileQueued = !!stopping.replyId && s.cancelQueuedReply(stopping.replyId);
+      if (!cancelledWhileQueued) {
+        if (stopping.replyId) s.stopReply(stopping.replyId);
+        else s.stopRunning();
+      }
     }
     if (stopping.backendRunId) {
       try { await invoke("automation_run_update", { id: stopping.backendRunId, update: { status: "cancelled", output: { detail: "Stopped by user." } } }); }

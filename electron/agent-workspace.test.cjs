@@ -109,3 +109,17 @@ test("unfinished recording attempts are never persisted as library entities", ()
   assert.match(studio, /Stop recording/);
   assert.doesNotMatch(studio, />Pause recording</);
 });
+
+test("recordings and workflows replay deterministically with explicit AI repair", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  const studio = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AutomationStudio.tsx"), "utf8");
+  const store = fs.readFileSync(path.join(__dirname, "..", "src", "store.ts"), "utf8");
+
+  assert.match(main, /case "automation_recipe_execute"/);
+  assert.match(main, /case "automation_recipe_cancel"/);
+  assert.match(store, /runAutomationRecipe: async/);
+  assert.match(store, /invoke<AutomationRecipeResult>\("automation_recipe_execute"/);
+  assert.match(studio, /s\.runAutomationRecipe\(/);
+  assert.match(studio, /Repair & run with AI/);
+  assert.match(studio, /runLocalSkill\(repairWorkflow, repairTask\)/);
+});

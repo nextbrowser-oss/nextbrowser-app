@@ -12,13 +12,29 @@ export type AutomationExecution = {
   startedAt: number;
   expectedActions: number;
   actionTools?: string[];
-  phase: "preparing" | "running" | "stopping";
+  engine?: "deterministic" | "agent";
+  phase: "preparing" | "running" | "stopping" | "completed" | "failed" | "cancelled";
+  completedActions?: number;
+  progress?: number;
+  detail?: string;
+  error?: string;
+  failedStep?: number;
 };
 
 export type AutomationExecutionView = {
   phase: "preparing" | "running" | "stopping" | "completed" | "failed" | "cancelled";
   progress: number;
   detail: string;
+};
+
+export type AutomationRecipeProgress = {
+  executionId: string;
+  phase: "preparing" | "running" | "completed" | "failed" | "cancelled";
+  stepIndex: number;
+  total: number;
+  tool?: string;
+  detail: string;
+  error?: string;
 };
 
 const STATE_KEY = "automationRecordingPlayback";
@@ -38,7 +54,7 @@ export function activeAutomationExecution(): AutomationExecution | undefined {
       executionId: value.executionId || `${sourceId}-${value.startedAt}`,
       sourceId,
       sourceKind: value.sourceKind === "workflow" ? "workflow" : "recording",
-      phase: ["preparing", "running", "stopping"].includes(value.phase) ? value.phase : "running",
+      phase: ["preparing", "running", "stopping", "completed", "failed", "cancelled"].includes(value.phase) ? value.phase : "running",
     } as AutomationExecution;
   } catch { return undefined; }
 }
@@ -53,7 +69,29 @@ export function clearActiveAutomationExecution() {
   window.dispatchEvent(new CustomEvent(AUTOMATION_EXECUTION_EVENT));
 }
 
+export function executionWithRecipeProgress(execution: AutomationExecution, update: AutomationRecipeProgress): AutomationExecution {
+  if (execution.executionId !== update.executionId || execution.engine !== "deterministic") return execution;
+  const completedActions = Math.max(0, Math.min(update.total, update.stepIndex));
+  return {
+    ...execution,
+    phase: update.phase,
+    expectedActions: update.total,
+    completedActions,
+    progress: update.phase === "completed"
+      ? 100
+      : update.phase === "preparing" ? 8 : Math.max(12, Math.round(completedActions / Math.max(1, update.total) * 100)),
+    detail: update.detail,
+    error: update.error,
+    failedStep: update.phase === "failed" ? update.stepIndex : undefined,
+  };
+}
+
 export function automationExecutionView(execution: AutomationExecution, conversations: Conversation[], now = Date.now()): AutomationExecutionView {
+  if (execution.engine === "deterministic") {
+    const completed = execution.completedActions || 0;
+    const progress = execution.progress ?? (execution.phase === "preparing" ? 8 : Math.min(100, Math.round(completed / Math.max(1, execution.expectedActions) * 100)));
+    return { phase: execution.phase, progress, detail: execution.detail || (execution.phase === "preparing" ? "Preparing the browser session…" : "Running the saved browser steps…") };
+  }
   let answer: ChatMessage | undefined;
   for (const conversation of conversations) {
     if (conversation.workspaceId && conversation.workspaceId !== execution.workspaceId) continue;

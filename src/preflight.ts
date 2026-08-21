@@ -16,8 +16,8 @@ export function hostOf(raw?: string | null): string {
   }
 }
 
-function profileArgs(selectedProfile?: string): string[] {
-  return selectedProfile ? ["--profile", selectedProfile] : [];
+function profileArgs(selectedProfile?: string, runtime?: string): string[] {
+  return [...(selectedProfile ? ["--profile", selectedProfile] : []), ...(runtime ? ["--runtime", runtime] : [])];
 }
 
 async function isRunning(
@@ -145,12 +145,13 @@ export interface PrepareResult {
 export async function prepareSession(opts: {
   host?: string;
   selectedProfile?: string;
+  runtime?: "clawbrowser" | "dasbrowser" | "camoufox";
   statuses: Record<string, string>;
   defaultSession?: SessionStatus;
   onStep?: (step: string) => void;
   onVerificationFailure?: (failure: VerificationFailure) => Promise<VerificationFailureChoice>;
 }): Promise<PrepareResult> {
-  let args = profileArgs(opts.selectedProfile);
+  let args = profileArgs(opts.selectedProfile, opts.runtime);
   const steps: string[] = [];
   let directFallback = false;
   const rawHost = opts.host?.trim();

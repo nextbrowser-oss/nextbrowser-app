@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { automationExecutionView, type AutomationExecution } from "./automationExecution";
+import {
+  automationExecutionView,
+  executionWithRecipeProgress,
+  type AutomationExecution,
+} from "./automationExecution";
 import type { Conversation } from "../types";
 
 const execution: AutomationExecution = {
@@ -25,6 +29,59 @@ function conversation(status: "streaming" | "done" | "cancelled", toolEvents = 0
 }
 
 describe("automation execution indicator", () => {
+  it("maps deterministic runner events to exact step progress", () => {
+    const deterministic = { ...execution, engine: "deterministic" as const };
+    const updated = executionWithRecipeProgress(deterministic, {
+      executionId: "execution",
+      phase: "running",
+      stepIndex: 2,
+      total: 4,
+      tool: "extract",
+      detail: "Step 3 of 4: extract",
+    });
+
+    expect(updated).toMatchObject({
+      engine: "deterministic",
+      completedActions: 2,
+      expectedActions: 4,
+      progress: 50,
+      detail: "Step 3 of 4: extract",
+    });
+    expect(automationExecutionView(updated, [])).toMatchObject({
+      phase: "running",
+      progress: 50,
+    });
+  });
+
+  it("ignores runner events belonging to another execution", () => {
+    const deterministic = { ...execution, engine: "deterministic" as const };
+    expect(executionWithRecipeProgress(deterministic, {
+      executionId: "other",
+      phase: "completed",
+      stepIndex: 4,
+      total: 4,
+      detail: "Done",
+    })).toBe(deterministic);
+  });
+
+  it("preserves the failed step and repair context", () => {
+    const deterministic = { ...execution, engine: "deterministic" as const };
+    expect(executionWithRecipeProgress(deterministic, {
+      executionId: "execution",
+      phase: "failed",
+      stepIndex: 1,
+      total: 4,
+      tool: "click",
+      detail: "Step 2 failed",
+      error: "No matching element",
+    })).toMatchObject({
+      phase: "failed",
+      failedStep: 1,
+      progress: 25,
+      error: "No matching element",
+    });
+  });
+
   it("reports action-based progress while a workflow runs", () => {
     expect(automationExecutionView(execution, [conversation("streaming", 2)], 150)).toMatchObject({ phase: "running", progress: 55 });
   });

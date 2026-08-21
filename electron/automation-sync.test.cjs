@@ -3,7 +3,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { createAutomationRun, deleteAutomationRecording, listAutomationWorkflows, putAutomationWorkflow, seedAutomationExamples } = require("./automation-sync.cjs");
+const { createAutomationRun, deleteAutomationRecording, listAutomationWorkflows, putAutomationWorkflow, seedAutomationExamples, updateAutomationRunStep } = require("./automation-sync.cjs");
 
 async function fixture(t, responder) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "automation-sync-"));
@@ -30,6 +30,13 @@ test("maps workflows and sends their optimistic revision", async (t) => {
 test("creates a backend-owned queued run", async (t) => {
   const f = await fixture(t, (_url, options) => jsonResponse({ ...JSON.parse(options.body), status: "queued" }));
   assert.equal((await createAutomationRun({ id: "run", workspace_id: "space", workflow_id: "flow", input: {} }, f.deps)).status, "queued");
+});
+
+test("persists deterministic step progress on the backend run", async (t) => {
+  const f = await fixture(t, (_url, options) => jsonResponse(JSON.parse(options.body)));
+  await updateAutomationRunStep("run/one", 3, { status: "completed", output: { count: 2 } }, f.deps);
+  assert.match(f.calls[0].url, /\/v1\/automation\/runs\/run%2Fone\/steps\/3$/);
+  assert.deepEqual(JSON.parse(f.calls[0].options.body), { status: "completed", output: { count: 2 } });
 });
 
 test("deletes a recording through the backend", async (t) => {
@@ -59,16 +66,17 @@ test("seeds exactly two successful backend examples for recordings and workflows
   assert.ok(created.workflows.every((item) => item.recipe.actions.length >= 2));
   assert.deepEqual(created.workflows.map((item) => item.domain).sort(), ["books.toscrape.com", "quotes.toscrape.com"]);
   assert.ok(created.workflows.every((item) => !JSON.stringify(item).includes("example.com")));
-  assert.ok(created.workflows.every((item) => item.recipe.example_key && item.recipe.example_version === 4 && !("demo_key" in item.recipe)));
+  assert.ok(created.workflows.every((item) => item.recipe.example_key && item.recipe.example_version === 5 && !("demo_key" in item.recipe)));
+  assert.ok(created.workflows.every((item) => item.recipe.actions.filter((action) => ["extract", "paginate_extract"].includes(action.tool)).every((action) => !Array.isArray(action.arguments.fields))));
   assert.equal(created.recordings.length, 2);
-  assert.ok(created.recordings.every((item) => item.status === "completed" && item.document.example_key && item.document.example_version === 4 && !("demo" in item.document)));
+  assert.ok(created.recordings.every((item) => item.status === "completed" && item.document.example_key && item.document.example_version === 5 && !("demo" in item.document)));
 });
 
 test("does not duplicate examples when their internal example markers already exist", async (t) => {
   const f = await fixture(t, (url, options) => {
     assert.equal(options.method, undefined);
-    if (url.includes("/workflows")) return jsonResponse({ workflows: ["collect-products", "search-knowledge"].map((key) => ({ id: key, title: key, task: "x", recipe: { actions: [], example_key: key, example_version: 4 }, revision: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })) });
-    if (url.includes("/recordings")) return jsonResponse({ recordings: ["product-research", "site-search"].map((key) => ({ id: key, document: { example_key: key, example_version: 4 } })) });
+    if (url.includes("/workflows")) return jsonResponse({ workflows: ["collect-products", "search-knowledge"].map((key) => ({ id: key, title: key, task: "x", recipe: { actions: [], example_key: key, example_version: 5 }, revision: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })) });
+    if (url.includes("/recordings")) return jsonResponse({ recordings: ["product-research", "site-search"].map((key) => ({ id: key, document: { example_key: key, example_version: 5 } })) });
     throw new Error(`Unexpected request: ${url}`);
   });
   assert.deepEqual((await seedAutomationExamples("space", f.deps)).seeded, { workflows: 0, recordings: 0 });
@@ -78,9 +86,9 @@ test("does not duplicate examples when their internal example markers already ex
 test("migrates legacy demo markers without creating duplicate entities", async (t) => {
   const updated = { workflows: [], recordings: [] };
   const legacyWorkflow = { id: "legacy-workflow", title: "Collect mystery books from a live sandbox", task: "old", recipe: { actions: [], demo_key: "collect-products", demo_version: 3 }, revision: 2, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
-  const currentWorkflow = { id: "current-workflow", title: "current", task: "current", recipe: { actions: [], example_key: "search-knowledge", example_version: 4 }, revision: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  const currentWorkflow = { id: "current-workflow", title: "current", task: "current", recipe: { actions: [], example_key: "search-knowledge", example_version: 5 }, revision: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
   const legacyRecording = { id: "legacy-recording", document: { demo: true, demo_key: "product-research", demo_version: 3 }, revision: 2 };
-  const currentRecording = { id: "current-recording", document: { example_key: "site-search", example_version: 4 }, revision: 1 };
+  const currentRecording = { id: "current-recording", document: { example_key: "site-search", example_version: 5 }, revision: 1 };
   const f = await fixture(t, (url, options) => {
     if (options.method === "PUT" && url.includes("/workflows/")) {
       const body = JSON.parse(options.body); updated.workflows.push({ id: decodeURIComponent(url.split("/").pop()), ...body });

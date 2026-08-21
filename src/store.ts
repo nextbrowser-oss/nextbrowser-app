@@ -58,6 +58,7 @@ import {
 } from "./lib/persistence";
 import type {
   AppTab,
+  AutomationRecipeResult,
   BrowserWorkflowSkill,
   ChatAttachment,
   ChatMessage,
@@ -511,6 +512,7 @@ interface State {
   saveLocalSkill: (skill: BrowserWorkflowSkill) => Promise<void>;
   deleteLocalSkill: (id: string) => Promise<void>;
   runLocalSkill: (skill: BrowserWorkflowSkill, task?: string) => Promise<string | undefined>;
+  runAutomationRecipe: (skill: BrowserWorkflowSkill, executionId: string, parameters?: Record<string, unknown>) => Promise<AutomationRecipeResult>;
 
   // Internal queue/runtime helpers
   reconcileQueues: () => void;
@@ -633,8 +635,12 @@ async function nextctlEnvelope<T>(
 async function prepareLocalSession(
   options: Parameters<typeof prepareSession>[0],
 ): ReturnType<typeof prepareSession> {
+  const selectedRuntime = options.selectedProfile
+    ? runtimeForProfile(useStore.getState().workspaces, options.selectedProfile)
+    : undefined;
   return runLocalNextctlOperation(() => prepareSession({
     ...options,
+    runtime: options.runtime ?? selectedRuntime,
     onVerificationFailure: options.onVerificationFailure ?? ((failure) =>
       invoke<VerificationFailureChoice>("browser_verification_failure_choice", {
         failedSurfaces: failure.failedSurfaces,
@@ -4313,6 +4319,35 @@ export const useStore = create<State>((set, get) => {
     persistLocalSkills(localSkills);
     set({ localSkills });
     void invoke("delete_local_skill", { slug: `workflow-${id.slice(0, 8)}` });
+  },
+
+  runAutomationRecipe: async (skill, executionId, parameters = {}) => {
+    const { backendRunId, ...recipeParameters } = parameters;
+    const activeConversation = get().activeConversation();
+    if (activeConversation?.executionTarget === "vps") {
+      throw new Error("Deterministic replay currently requires a local NextBrowser profile.");
+    }
+    const prep = await prepareLocalSession({
+      host: skill.domain || undefined,
+      selectedProfile: get().selectedProfile,
+      statuses: get().statuses,
+      defaultSession: get().defaultSession,
+    });
+    const profileIndex = prep.profileArgs.indexOf("--profile");
+    const runtimeIndex = prep.profileArgs.indexOf("--runtime");
+    const profile = profileIndex >= 0 ? prep.profileArgs[profileIndex + 1] : undefined;
+    const runtime = runtimeIndex >= 0 ? prep.profileArgs[runtimeIndex + 1] : "clawbrowser";
+    trackEvent("automation_recipe_started", { action_count: skill.actions.length, runtime, has_profile: !!profile });
+    const result = await invoke<AutomationRecipeResult>("automation_recipe_execute", {
+      executionId,
+      recipe: { ...skill.recipe, actions: skill.actions },
+      parameters: { task: skill.task, ...recipeParameters },
+      profile,
+      runtime,
+      backendRunId: typeof backendRunId === "string" ? backendRunId : undefined,
+    });
+    trackEvent(`automation_recipe_${result.status}`, { action_count: skill.actions.length, runtime, failed_step: result.failedStep });
+    return result;
   },
 
   runLocalSkill: async (skill, taskOverride) => {
