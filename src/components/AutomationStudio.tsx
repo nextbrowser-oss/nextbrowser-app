@@ -14,6 +14,7 @@ import { humanBytes } from "../types";
 import { Icon, Spinner } from "./Icon";
 
 type StudioSection = "recorder" | "workflows" | "artifacts";
+type RecordingFilter = "all" | "ready" | "recording" | "stopped" | "demos";
 type BackendRecording = { id: string; status: string; revision: number; document: { run?: CapturedRun; started_at?: string; demo?: boolean }; updated_at: string };
 type RecordingPlayback = { recordingId: string; workspaceId: string; workflowTitle: string; task: string; startedAt: number; expectedActions: number; phase: "preparing" | "running" };
 
@@ -34,6 +35,10 @@ function savedPlayback(): RecordingPlayback | undefined {
   } catch { return undefined; }
 }
 
+function isBuiltInArtifact(artifact: AutomationArtifact) {
+  return artifact.name === "product-research-demo.csv" || artifact.name === "automation-run-demo.json";
+}
+
 export function AutomationStudio() {
   const s = useStore();
   const [section, setSection] = useState<StudioSection>("recorder");
@@ -51,9 +56,21 @@ export function AutomationStudio() {
   const [notice, setNotice] = useState<string>();
   const [playback, setPlayback] = useState<RecordingPlayback | undefined>(savedPlayback);
   const [playbackClock, setPlaybackClock] = useState(Date.now());
+  const [recordingFilter, setRecordingFilter] = useState<RecordingFilter>("all");
   const workspaceId = s.activeWorkspaceId || "";
   const runs = useMemo(() => capturedRuns(s.conversations).slice(0, 12), [s.conversations]);
   const recordedRun = recordingSince > 0 ? runs.find((run) => run.answer.createdAt >= recordingSince) : undefined;
+  const visibleRecordings = recordings.filter((recording) => {
+    if (recordingFilter === "ready") return !!recording.document.run && !recording.document.demo;
+    if (recordingFilter === "recording") return !recording.document.run && recording.status === "recording";
+    if (recordingFilter === "stopped") return !recording.document.run && recording.status !== "recording";
+    if (recordingFilter === "demos") return !!recording.document.demo;
+    return true;
+  });
+  const stoppedRecordingCount = recordings.filter((recording) => !recording.document.run && recording.status !== "recording").length;
+  const selectedWorkflow = workflows.find((workflow) => workflow.id === selectedWorkflowId);
+  const draftDirty = !!draft && !!selectedWorkflow && JSON.stringify(draft) !== JSON.stringify(selectedWorkflow);
+  const draftDemo = !!(draft?.recipe as BrowserWorkflowSkill["recipe"] & { demo_key?: string } | undefined)?.demo_key;
   const playbackView = useMemo(() => {
     if (!playback || playback.workspaceId !== workspaceId) return undefined;
     let answer: ChatMessage | undefined;
@@ -250,6 +267,7 @@ export function AutomationStudio() {
   };
 
   const createWorkflow = async () => {
+    if (draftDirty && !window.confirm("Discard unsaved workflow changes and create a new workflow?")) return;
     const createdAt = Date.now();
     const action: BrowserWorkflowAction = { tool: "navigate", arguments: { url: "https://example.com" } };
     const workflow: BrowserWorkflowSkill = {
@@ -276,6 +294,21 @@ export function AutomationStudio() {
       setSelectedWorkflowId(undefined);
       setNotice("Workflow deleted.");
     } catch (error) { reportError(error); }
+  };
+
+  const duplicateWorkflow = async (workflow: BrowserWorkflowSkill) => {
+    const now = Date.now();
+    try {
+      const copy = await invoke<BrowserWorkflowSkill>("automation_workflow_put", { workspaceId, workflow: { ...structuredClone(workflow), id: uid(), title: `${workflow.title} copy`, revision: 0, createdAt: now, updatedAt: now, recipe: { ...workflow.recipe, demo_key: undefined, demo_version: undefined } } });
+      setWorkflows((current) => [copy, ...current]);
+      setSelectedWorkflowId(copy.id);
+      setNotice("Workflow duplicated. Edit the copy without changing the original.");
+    } catch (error) { reportError(error); }
+  };
+
+  const selectWorkflow = (id: string) => {
+    if (draftDirty && !window.confirm("Discard unsaved workflow changes?")) return;
+    setSelectedWorkflowId(id);
   };
 
   const runWorkflow = async (workflow: BrowserWorkflowSkill) => {
@@ -331,11 +364,35 @@ export function AutomationStudio() {
     } catch (error) { reportError(error); }
   };
 
+  const deleteRecording = async (recording: BackendRecording) => {
+    if (!window.confirm("Delete this recording? This cannot be undone.")) return;
+    try {
+      await invoke("automation_recording_delete", { id: recording.id });
+      if (activeAutomationRecording()?.id === recording.id) clearActiveAutomationRecording();
+      if (playback?.recordingId === recording.document.run?.id) {
+        setPlayback(undefined);
+        localStorage.removeItem("automationRecordingPlayback");
+      }
+      setRecordings((current) => current.filter((item) => item.id !== recording.id));
+      setNotice("Recording deleted.");
+    } catch (error) { reportError(error); }
+  };
+
+  const clearStoppedRecordings = async () => {
+    const stopped = recordings.filter((recording) => !recording.document.run && recording.status !== "recording");
+    if (!stopped.length || !window.confirm(`Delete ${stopped.length} stopped recording attempt${stopped.length === 1 ? "" : "s"}?`)) return;
+    try {
+      await Promise.all(stopped.map((recording) => invoke("automation_recording_delete", { id: recording.id })));
+      setRecordings((current) => current.filter((item) => !stopped.some((stoppedItem) => stoppedItem.id === item.id)));
+      setNotice("Stopped recording attempts cleared.");
+    } catch (error) { reportError(error); await loadRecordings(); }
+  };
+
   return (
     <div className="automation-studio page">
       <header className="automation-hero">
         <div><span className="eyebrow">Automation Studio</span><h1>Record, build, and collect</h1><p>Turn successful browser runs into repeatable workflows and keep their files with the workspace.</p></div>
-        <div className="automation-summary"><strong>{workflows.length}</strong><span>workflows</span><strong>{artifacts.length}</strong><span>artifacts</span></div>
+        <div className="automation-summary"><strong>{recordings.length}</strong><span>recordings</span><strong>{workflows.length}</strong><span>workflows</span><strong>{artifacts.length}</strong><span>artifacts</span></div>
       </header>
       <div className="automation-sections" role="tablist">
         {(["recorder", "workflows", "artifacts"] as StudioSection[]).map((item) => (
@@ -354,11 +411,13 @@ export function AutomationStudio() {
 
       {section === "recorder" && <section className="automation-panel">
         <div className="automation-panel-head"><div><h2>Recordings</h2><p>A recording is a completed browser task. Run it again as-is, or turn it into an editable workflow.</p></div>
-          <button className="primary" onClick={() => void startRecording()}><Icon name="circle.fill" size={12} /> {recordedRun ? "Record another task" : recordingSince ? "Restart recording" : "Record a new task"}</button>
+          <div className="row">{stoppedRecordingCount > 0 && <button className="secondary" onClick={() => void clearStoppedRecordings()}>Clear stopped ({stoppedRecordingCount})</button>}<button className="primary" onClick={() => void startRecording()}><Icon name="circle.fill" size={12} /> {recordedRun ? "Record another task" : recordingSince ? "Restart recording" : "Record a new task"}</button></div>
         </div>
+        <div className="recording-filters" aria-label="Filter recordings">{(["all", "ready", "recording", "stopped", "demos"] as RecordingFilter[]).map((filter) => <button key={filter} className={recordingFilter === filter ? "active" : ""} onClick={() => setRecordingFilter(filter)}>{filter === "all" ? `All ${recordings.length}` : filter === "ready" ? `Ready ${recordings.filter((item) => item.document.run && !item.document.demo).length}` : filter === "recording" ? `Recording ${recordings.filter((item) => !item.document.run && item.status === "recording").length}` : filter === "stopped" ? `Stopped ${stoppedRecordingCount}` : `Demos ${recordings.filter((item) => item.document.demo).length}`}</button>)}</div>
+        <div className="automation-management-note"><Icon name="info.circle" size={13} /><span>Your recordings and stopped attempts can be deleted. Built-in demos stay available as examples.</span></div>
         {recordingSince > 0 && <div className="recording-banner"><span className="recording-dot" />{recordedRun ? "Run captured — review and save it below." : "Recording is armed. Complete a browser task in Project, then return here."}</div>}
         <div className="capture-list">
-          {recordings.filter((item) => item.document.run).map((recording) => {
+          {visibleRecordings.filter((item) => item.document.run).map((recording) => {
             const run = recording.document.run!;
             const domain = capturedWorkflowDomain(run.task, run.evidence);
             const quality = workflowQuality(run.task, run.evidence, domain);
@@ -366,23 +425,23 @@ export function AutomationStudio() {
             return <article className={"capture-card" + (recordedRun?.id === run.id ? " is-new" : "")} key={run.id}>
               <div className="capture-kind"><span className={recording.document.demo ? "demo" : "ready"}>{recording.document.demo ? "DEMO RECORDING" : "READY RECORDING"}</span><small>{recording.status === "completed" ? "Completed" : recording.status}</small></div>
               <div className="capture-card-copy"><strong>{run.task.slice(0, 160)}</strong><span>{run.conversationTitle} · {domain || "Unknown website"} · {actions.length} recorded actions</span><small className={quality.reusable ? "ok" : "muted"}>{quality.reason}</small><details className="capture-steps"><summary>Show recorded steps</summary><ol>{actions.map((action, index) => <li key={`${index}-${action.tool}`}><b>{actionLabel(action.tool)}</b><code>{JSON.stringify(action.arguments)}</code></li>)}</ol></details></div>
-              <div className="capture-card-actions">{playback?.recordingId === run.id && playbackView && !["completed", "failed"].includes(playbackView.phase) ? <div className="capture-running"><Spinner size={13} /><span>{playbackView.phase === "preparing" ? "Preparing…" : `${playbackView.progress}% running`}</span></div> : <button className="secondary" disabled={!quality.reusable} onClick={() => void replayRecording(run)}><Icon name="play.fill" size={12} /> Run again</button>}<button className="btn-bordered-prominent" disabled={!quality.reusable} onClick={() => void saveCapture(run)}>Turn into workflow</button></div>
+              <div className="capture-card-actions">{playback?.recordingId === run.id && playbackView && !["completed", "failed"].includes(playbackView.phase) ? <div className="capture-running"><Spinner size={13} /><span>{playbackView.phase === "preparing" ? "Preparing…" : `${playbackView.progress}% running`}</span></div> : <button className="secondary" disabled={!quality.reusable} onClick={() => void replayRecording(run)}><Icon name="play.fill" size={12} /> Run again</button>}<button className="btn-bordered-prominent" disabled={!quality.reusable} onClick={() => void saveCapture(run)}>Turn into workflow</button>{!recording.document.demo && <button className="mini danger-text" title="Delete recording" onClick={() => void deleteRecording(recording)}><Icon name="trash" size={12} /> Delete</button>}</div>
             </article>;
           })}
-          {recordings.filter((item) => !item.document.run).map((recording) => {
+          {visibleRecordings.filter((item) => !item.document.run).map((recording) => {
             const startedAt = Date.parse(recording.document.started_at || "");
             const stoppedAt = Date.parse(recording.updated_at || "");
             const recoverable = runs.find((run) => run.answer.createdAt >= startedAt && (!Number.isFinite(stoppedAt) || run.answer.createdAt <= stoppedAt));
-            return <article className="capture-card capture-attempt" key={recording.id}><div className="capture-kind"><span className={recording.status === "recording" ? "recording" : "stopped"}>{recording.status === "recording" ? "RECORDING" : "STOPPED"}</span><small>{recording.status}</small></div><div className="capture-card-copy"><strong>{recoverable ? "A completed browser run can be recovered" : recording.status === "recording" ? "Waiting for a browser task" : "No completed browser run was captured"}</strong><span>{recording.document.started_at ? `Started ${new Date(recording.document.started_at).toLocaleString()}` : "Recording attempt"}</span><small>{recoverable ? "The browser task finished before this recording was stopped. Save it now." : recording.status === "recording" ? "Complete a browser task in Project, or use Stop to finish recording." : "This attempt was stopped before the agent completed a reusable browser task."}</small></div><div className="capture-card-actions">{recoverable && <button className="btn-bordered-prominent" onClick={() => void recoverRecording(recording, recoverable)}>Recover recording</button>}{recording.status === "recording" && <button className="secondary" onClick={() => s.setTab("chat")}>Go to Project</button>}</div></article>;
+            return <article className="capture-card capture-attempt" key={recording.id}><div className="capture-kind"><span className={recording.status === "recording" ? "recording" : "stopped"}>{recording.status === "recording" ? "RECORDING" : "STOPPED"}</span><small>{recording.status}</small></div><div className="capture-card-copy"><strong>{recoverable ? "A completed browser run can be recovered" : recording.status === "recording" ? "Waiting for a browser task" : "No completed browser run was captured"}</strong><span>{recording.document.started_at ? `Started ${new Date(recording.document.started_at).toLocaleString()}` : "Recording attempt"}</span><small>{recoverable ? "The browser task finished before this recording was stopped. Save it now." : recording.status === "recording" ? "Complete a browser task in Project, or use Stop to finish recording." : "This attempt was stopped before the agent completed a reusable browser task."}</small></div><div className="capture-card-actions">{recoverable && <button className="btn-bordered-prominent" onClick={() => void recoverRecording(recording, recoverable)}>Recover recording</button>}{recording.status === "recording" && <button className="secondary" onClick={() => s.setTab("chat")}>Go to Project</button>}<button className="mini danger-text" title="Delete recording attempt" onClick={() => void deleteRecording(recording)}><Icon name="trash" size={12} /> Delete</button></div></article>;
           })}
-          {!recordings.length && <div className="automation-empty"><Icon name="play.rectangle.on.rectangle.fill" size={28} /><strong>No browser runs captured yet</strong><span>Record a task that navigates, interacts with, or extracts from a website.</span></div>}
+          {!visibleRecordings.length && <div className="automation-empty"><Icon name="play.rectangle.on.rectangle.fill" size={28} /><strong>No recordings in this view</strong><span>Choose another filter or record a new browser task.</span></div>}
         </div>
       </section>}
 
       {section === "workflows" && <section className="automation-panel workflow-builder">
-        <aside className="workflow-list"><div className="workflow-list-title"><span>Workflows</span><button className="mini" title="Create workflow" aria-label="Create workflow" onClick={() => void createWorkflow()}><Icon name="plus" size={12} /></button></div>{workflows.map((skill) => <button key={skill.id} className={skill.id === selectedWorkflowId ? "active" : ""} onClick={() => setSelectedWorkflowId(skill.id)}><Icon name="arrow.triangle.branch" size={14} /><span><strong>{skill.title}</strong><small>{skill.actions.length} steps · {skill.domain || "Any site"}</small></span></button>)}{!workflows.length && <p className="muted small">Record a run or create a workflow from a task.</p>}</aside>
+        <aside className="workflow-list"><div className="workflow-list-title"><span>Workflows</span><button className="mini" title="Create workflow" aria-label="Create workflow" onClick={() => void createWorkflow()}><Icon name="plus" size={12} /></button></div>{workflows.map((skill) => <button key={skill.id} className={skill.id === selectedWorkflowId ? "active" : ""} onClick={() => selectWorkflow(skill.id)}><Icon name="arrow.triangle.branch" size={14} /><span><strong>{skill.title}</strong><small>{skill.actions.length} steps · {skill.domain || "Any site"}</small></span></button>)}{!workflows.length && <p className="muted small">Record a run or create a workflow from a task.</p>}</aside>
         <div className="workflow-canvas">{draft ? <>
-          <div className="workflow-editor-head"><div><input className="workflow-title-input" aria-label="Workflow name" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /><input className="workflow-domain-input" aria-label="Website domain" value={draft.domain} placeholder="example.com" onChange={(event) => setDraft({ ...draft, domain: event.target.value })} /></div><div className="row"><button className="mini danger-text" onClick={() => void deleteWorkflow(draft)}>Delete</button><button className="secondary" onClick={() => void runWorkflow(draft)}>Run</button><button className="primary" disabled={saving || !!Object.keys(actionErrors).length} onClick={() => void saveDraft()}>{saving && <Spinner size={12} />} Save</button></div></div>
+          <div className="workflow-editor-head"><div><input className="workflow-title-input" aria-label="Workflow name" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /><input className="workflow-domain-input" aria-label="Website domain" value={draft.domain} placeholder="example.com" onChange={(event) => setDraft({ ...draft, domain: event.target.value })} />{draftDirty && <small className="workflow-unsaved">Unsaved changes</small>}{draftDemo && <small className="workflow-demo-label">Built-in example · duplicate to edit</small>}</div><div className="row">{!draftDemo && <button className="mini danger-text" onClick={() => void deleteWorkflow(draft)}>Delete</button>}<button className="secondary" onClick={() => void duplicateWorkflow(draft)}>Duplicate</button><button className="secondary" disabled={draftDirty} title={draftDirty ? "Save changes before running" : "Run workflow"} onClick={() => void runWorkflow(draft)}>Run</button><button className="primary" disabled={saving || !draftDirty || !!Object.keys(actionErrors).length} onClick={() => void saveDraft()}>{saving && <Spinner size={12} />} Save</button></div></div>
           <div className="workflow-builder-help"><strong>No code or page source needed.</strong><span>Choose what the browser should do. Targets are optional—the agent can find controls by their visible label or text and adapt when a page changes.</span></div>
           <label className="field-label">What should this workflow accomplish?<textarea value={draft.task} onChange={(event) => setDraft({ ...draft, task: event.target.value })} /></label>
           <div className="workflow-steps">{draft.actions.map((action, index) => <div className="workflow-step" key={`${index}-${action.tool}`}><div className="workflow-step-number">{index + 1}</div><div className="workflow-step-body"><select value={ACTION_OPTIONS.some(([value]) => value === action.tool) ? action.tool : "advanced"} aria-label={`Step ${index + 1} action`} onChange={(event) => { if (event.target.value !== "advanced") updateAction(index, "tool", event.target.value); }}><option value="advanced">{actionLabel(action.tool)}</option>{ACTION_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
@@ -402,7 +461,8 @@ export function AutomationStudio() {
         <div className="automation-panel-head"><div><h2>Artifact Center</h2><p>Up to 1 GiB per file. Files are automatically deleted 30 days after upload.</p></div><button className="primary" disabled={artifactBusy} onClick={() => void importArtifacts()}>{artifactBusy ? <Spinner size={13} /> : <Icon name="plus" size={13} />} Add files</button></div>
         <div className="artifact-retention-note"><Icon name="clock" size={14} /><span><strong>30-day temporary storage.</strong> Download anything you need to keep before its deletion date.</span></div>
         {artifactError && <div className="error automation-inline-error">{artifactError}</div>}
-        <div className="artifact-grid">{artifacts.map((artifact) => <article className="artifact-card" key={artifact.id}><div className="artifact-icon"><Icon name="doc" size={22} /></div><div className="artifact-copy"><strong title={artifact.name}>{artifact.name}</strong><span>{artifact.extension.toUpperCase() || "FILE"} · {humanBytes(artifact.size)}</span><small>Uploaded {new Date(artifact.createdAt).toLocaleString()}</small><small className="artifact-expiry">Deletes {new Date(artifact.expiresAt || artifact.createdAt + 30 * 86_400_000).toLocaleString()}</small></div><div className="artifact-actions"><button className="secondary" onClick={() => void openArtifact(artifact)}>Open</button><button className="mini danger-text" onClick={() => void deleteArtifact(artifact)}>Delete</button></div></article>)}{!artifactBusy && !artifacts.length && <div className="automation-empty"><Icon name="tray.full.fill" size={28} /><strong>No artifacts in this workspace</strong><span>Add reports, downloads, screenshots, spreadsheets, or other run outputs.</span></div>}</div>
+        <div className="automation-management-note"><Icon name="info.circle" size={13} /><span>Uploaded files can be opened or deleted at any time. Built-in examples stay available for new users.</span></div>
+        <div className="artifact-grid">{artifacts.map((artifact) => { const demo = isBuiltInArtifact(artifact); return <article className="artifact-card" key={artifact.id}><div className="artifact-icon"><Icon name="doc" size={22} /></div><div className="artifact-copy"><strong title={artifact.name}>{artifact.name}</strong>{demo && <small className="artifact-demo-label">Built-in example</small>}<span>{artifact.extension.toUpperCase() || "FILE"} · {humanBytes(artifact.size)}</span><small>Uploaded {new Date(artifact.createdAt).toLocaleString()}</small><small className="artifact-expiry">Deletes {new Date(artifact.expiresAt || artifact.createdAt + 30 * 86_400_000).toLocaleString()}</small></div><div className="artifact-actions"><button className="secondary" onClick={() => void openArtifact(artifact)}>Open</button>{!demo && <button className="mini danger-text" onClick={() => void deleteArtifact(artifact)}>Delete</button>}</div></article>; })}{!artifactBusy && !artifacts.length && <div className="automation-empty"><Icon name="tray.full.fill" size={28} /><strong>No artifacts in this workspace</strong><span>Add reports, downloads, screenshots, spreadsheets, or other run outputs.</span></div>}</div>
       </section>}
     </div>
   );

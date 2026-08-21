@@ -90,3 +90,9 @@ test("automation artifacts are persisted by the authenticated backend", () => {
   assert.match(main, /case "artifact_delete"/);
   assert.match(main, /deleteAutomationArtifact/);
 });
+
+test("automation recordings support backend deletion", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  assert.match(main, /case "automation_recording_delete"/);
+  assert.match(main, /deleteAutomationRecording/);
+});

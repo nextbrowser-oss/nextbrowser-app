@@ -43,6 +43,7 @@ const { defaultSSHConfigPath, discoverSSHHosts, isAllowedExplicitConfigPath } = 
 const {
   createAutomationRun,
   deleteAutomationArtifact,
+  deleteAutomationRecording,
   deleteAutomationWorkflow,
   downloadAutomationArtifact,
   listAutomationArtifacts,
@@ -1126,6 +1127,7 @@ async function invokeCommand(command, args = {}, sender) {
     case "automation_workflow_delete": return await deleteAutomationWorkflow(String(args.id || ""), { env: childEnv() });
     case "automation_recordings_list": return await listAutomationRecordings(String(args.workspaceId || ""), { env: childEnv() });
     case "automation_recording_put": return await putAutomationRecording(args.recording || {}, { env: childEnv() });
+    case "automation_recording_delete": return await deleteAutomationRecording(String(args.id || ""), { env: childEnv() });
     case "automation_runs_list": return await listAutomationRuns(String(args.workspaceId || ""), { env: childEnv() });
     case "automation_seed_examples": return await seedAutomationExamples(String(args.workspaceId || ""), { env: childEnv() });
     case "automation_run_create": return await createAutomationRun(args.run || {}, { env: childEnv() });

@@ -47,6 +47,7 @@ async function listAutomationRecordings(workspaceId, deps) {
 const putAutomationRecording = (recording, deps) => projectRequest(`/v1/automation/recordings/${encodeURIComponent(recording.id)}`, {
   method: "PUT", body: JSON.stringify(recording),
 }, deps);
+const deleteAutomationRecording = (id, deps) => projectRequest(`/v1/automation/recordings/${encodeURIComponent(id)}`, { method: "DELETE" }, deps);
 
 async function listAutomationRuns(workspaceId, deps) {
   const body = await projectRequest(`/v1/automation/runs${query(workspaceId)}`, {}, deps);
@@ -168,7 +169,7 @@ async function downloadAutomationArtifact(id, targetPath, deps) {
 const deleteAutomationArtifact = (id, deps) => projectRequest(`/v1/automation/artifacts/${encodeURIComponent(id)}`, { method: "DELETE" }, deps);
 
 module.exports = {
-  createAutomationRun, deleteAutomationArtifact, deleteAutomationWorkflow, downloadAutomationArtifact,
+  createAutomationRun, deleteAutomationArtifact, deleteAutomationRecording, deleteAutomationWorkflow, downloadAutomationArtifact,
   listAutomationArtifacts, listAutomationRecordings, listAutomationRuns, listAutomationWorkflows,
   normalizeArtifact, normalizeWorkflow, putAutomationRecording, putAutomationWorkflow, updateAutomationRun,
   seedAutomationExamples, uploadAutomationArtifact, uploadAutomationArtifactBytes,

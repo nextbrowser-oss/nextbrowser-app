@@ -3,7 +3,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { createAutomationRun, downloadAutomationArtifact, listAutomationArtifacts, listAutomationWorkflows, putAutomationWorkflow, seedAutomationExamples, uploadAutomationArtifact } = require("./automation-sync.cjs");
+const { createAutomationRun, deleteAutomationRecording, downloadAutomationArtifact, listAutomationArtifacts, listAutomationWorkflows, putAutomationWorkflow, seedAutomationExamples, uploadAutomationArtifact } = require("./automation-sync.cjs");
 
 async function fixture(t, responder) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "automation-sync-"));
@@ -30,6 +30,13 @@ test("maps workflows and sends their optimistic revision", async (t) => {
 test("creates a backend-owned queued run", async (t) => {
   const f = await fixture(t, (_url, options) => jsonResponse({ ...JSON.parse(options.body), status: "queued" }));
   assert.equal((await createAutomationRun({ id: "run", workspace_id: "space", workflow_id: "flow", input: {} }, f.deps)).status, "queued");
+});
+
+test("deletes a recording through the backend", async (t) => {
+  const f = await fixture(t, () => jsonResponse({ deleted: true }));
+  await deleteAutomationRecording("recording/one", f.deps);
+  assert.match(f.calls[0].url, /\/v1\/automation\/recordings\/recording%2Fone$/);
+  assert.equal(f.calls[0].options.method, "DELETE");
 });
 
 test("streams artifact multipart without buffering the complete file", async (t) => {
