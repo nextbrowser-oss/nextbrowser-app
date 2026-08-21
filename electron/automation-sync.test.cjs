@@ -97,3 +97,17 @@ test("does not duplicate examples when their demo markers already exist", async 
   assert.deepEqual((await seedAutomationExamples("space", f.deps)).seeded, { workflows: 0, recordings: 0, artifacts: 0 });
   assert.equal(f.calls.length, 3);
 });
+
+test("coalesces concurrent seed requests for the same workspace", async (t) => {
+  const f = await fixture(t, (url) => {
+    if (url.includes("/workflows")) return jsonResponse({ workflows: [] });
+    if (url.includes("/recordings")) return jsonResponse({ recordings: [] });
+    if (url.includes("/artifacts")) return jsonResponse({ artifacts: [] });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+  const first = seedAutomationExamples("shared-space", f.deps);
+  const second = seedAutomationExamples("shared-space", f.deps);
+  assert.strictEqual(first, second);
+  await assert.rejects(first);
+  assert.equal(f.calls.filter((call) => call.options.method === undefined).length, 3);
+});

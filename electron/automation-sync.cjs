@@ -88,8 +88,18 @@ function demoRun(id, task, title, evidence, createdAt) {
   };
 }
 
-async function seedAutomationExamples(workspaceId, deps) {
+const seedAutomationPromises = new Map();
+
+function seedAutomationExamples(workspaceId, deps) {
   if (!workspaceId) throw new Error("A workspace is required for Automation Studio examples.");
+  const current = seedAutomationPromises.get(workspaceId);
+  if (current) return current;
+  const promise = seedAutomationExamplesOnce(workspaceId, deps).finally(() => seedAutomationPromises.delete(workspaceId));
+  seedAutomationPromises.set(workspaceId, promise);
+  return promise;
+}
+
+async function seedAutomationExamplesOnce(workspaceId, deps) {
   const [workflows, recordings, artifacts] = await Promise.all([
     listAutomationWorkflows(workspaceId, deps), listAutomationRecordings(workspaceId, deps), listAutomationArtifacts(workspaceId, deps),
   ]);
