@@ -18,6 +18,7 @@ import { CONNECTORS } from "../connectorsCatalog";
 import { invoke } from "../electronBridge";
 import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, clearActiveAutomationRecording, setActiveAutomationRecording, type ActiveAutomationRecording } from "../lib/automationRecording";
 import { capturedRuns } from "../lib/automationStudio";
+import { activeAutomationExecution, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, setActiveAutomationExecution, type AutomationExecution } from "../lib/automationExecution";
 
 type ManualProxyInputMode = "url" | "fields";
 const PROFILE_CREATE_TIMEOUT_MS = 120_000;
@@ -87,6 +88,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [recordingClock, setRecordingClock] = useState(Date.now());
   const [recordingStopping, setRecordingStopping] = useState(false);
   const [recordingError, setRecordingError] = useState<string>();
+  const [automationExecution, setAutomationExecution] = useState<AutomationExecution | undefined>(activeAutomationExecution);
+  const [automationExecutionClock, setAutomationExecutionClock] = useState(Date.now());
+  const [automationExecutionError, setAutomationExecutionError] = useState<string>();
   const profileCreateRequestRef = useRef<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const projectListRef = useRef<HTMLDivElement | null>(null);
@@ -162,6 +166,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const runningCount = profileWorkspaceEntries.filter(({ profile }) => s.statuses[profile.name] === "running").length;
   const proxyCountries = s.proxyCountries.length ? s.proxyCountries : ROTATION_COUNTRIES;
   const recordingWorkspace = activeRecording ? s.workspaces.find((workspace) => workspace.id === activeRecording.workspaceId) : undefined;
+  const automationExecutionWorkspace = automationExecution ? s.workspaces.find((workspace) => workspace.id === automationExecution.workspaceId) : undefined;
+  const automationExecutionState = automationExecution ? automationExecutionView(automationExecution, s.conversations, automationExecutionClock) : undefined;
 
   useEffect(() => {
     const sync = () => { setActiveRecording(activeAutomationRecording()); setRecordingClock(Date.now()); setRecordingError(undefined); };
@@ -174,6 +180,28 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     const timer = window.setInterval(() => setRecordingClock(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [activeRecording]);
+
+  useEffect(() => {
+    const sync = () => { setAutomationExecution(activeAutomationExecution()); setAutomationExecutionClock(Date.now()); setAutomationExecutionError(undefined); };
+    window.addEventListener(AUTOMATION_EXECUTION_EVENT, sync);
+    return () => window.removeEventListener(AUTOMATION_EXECUTION_EVENT, sync);
+  }, []);
+
+  useEffect(() => {
+    if (!automationExecution || !automationExecutionState || ["completed", "failed"].includes(automationExecutionState.phase)) return;
+    const timer = window.setInterval(() => setAutomationExecutionClock(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [automationExecution, automationExecutionState?.phase]);
+
+  useEffect(() => {
+    if (!automationExecution || !automationExecutionState || !["completed", "failed"].includes(automationExecutionState.phase)) return;
+    if (automationExecution.backendRunId) {
+      const status = automationExecution.phase === "stopping" ? "cancelled" : automationExecutionState.phase;
+      void invoke("automation_run_update", { id: automationExecution.backendRunId, update: { status, output: { detail: automationExecutionState.detail } } }).catch(() => undefined);
+    }
+    const timer = window.setTimeout(clearActiveAutomationExecution, 8_000);
+    return () => window.clearTimeout(timer);
+  }, [automationExecution?.executionId, automationExecution?.phase, automationExecutionState?.phase]);
 
   const openRecorder = () => {
     if (activeRecording?.workspaceId && activeRecording.workspaceId !== s.activeWorkspaceId) s.selectWorkspace(activeRecording.workspaceId);
@@ -197,6 +225,31 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     } catch (error) {
       setRecordingError(error instanceof Error ? error.message : String(error));
     } finally { setRecordingStopping(false); }
+  };
+
+  const openAutomationExecution = () => {
+    if (!automationExecution) return;
+    if (automationExecution.workspaceId !== s.activeWorkspaceId) s.selectWorkspace(automationExecution.workspaceId);
+    s.setTab("automation");
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent("nextbrowser:open-automation-execution", { detail: { sourceKind: automationExecution.sourceKind } })), 0);
+  };
+
+  const stopAutomationExecution = async () => {
+    if (!automationExecution || automationExecution.phase === "stopping") return;
+    setAutomationExecutionError(undefined);
+    const stopping: AutomationExecution = { ...automationExecution, phase: "stopping" };
+    setAutomationExecution(stopping);
+    setActiveAutomationExecution(stopping);
+    const cancelledWhileQueued = !!stopping.replyId && s.cancelQueuedReply(stopping.replyId);
+    if (!cancelledWhileQueued) {
+      if (stopping.replyId) s.stopReply(stopping.replyId);
+      else s.stopRunning();
+    }
+    if (stopping.backendRunId) {
+      try { await invoke("automation_run_update", { id: stopping.backendRunId, update: { status: "cancelled", output: { detail: "Stopped by user." } } }); }
+      catch (error) { setAutomationExecutionError(error instanceof Error ? error.message : String(error)); }
+    }
+    if (cancelledWhileQueued) window.setTimeout(clearActiveAutomationExecution, 600);
   };
 
   const openProfileCreator = () => {
@@ -575,6 +628,14 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         <div className="sidebar-recording-status"><span className="sidebar-recording-dot" /><div><strong>{activeRecording.phase === "captured" ? "Recording captured" : "Recording in progress"}</strong><small>{recordingWorkspace?.name || "Current workspace"}{activeRecording.phase === "recording" ? ` · ${recordingDuration(activeRecording.startedAt, recordingClock)}` : " · Ready to review"}</small></div></div>
         <div className="sidebar-recording-actions"><button onClick={openRecorder}>{activeRecording.phase === "captured" ? "Review" : "Open recorder"}</button>{activeRecording.phase === "recording" ? <button className="stop" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={11} /> : <Icon name="stop.fill" size={11} />} Stop recording</button> : <button onClick={clearActiveAutomationRecording}>Dismiss</button>}</div>
         {recordingError && <small className="sidebar-recording-error" role="alert">{recordingError}</small>}
+      </section>}
+
+      {automationExecution && automationExecutionState && <section className={`sidebar-execution-control ${automationExecutionState.phase}`} aria-label="Automation execution status">
+        <div className="sidebar-execution-status"><span className="sidebar-execution-icon"><Icon name={automationExecutionState.phase === "completed" ? "checkmark.circle.fill" : automationExecutionState.phase === "failed" ? "xmark.circle.fill" : automationExecutionState.phase === "stopping" ? "stop.fill" : "play.fill"} size={12} /></span><div><strong>{automationExecutionState.phase === "completed" ? "Workflow completed" : automationExecutionState.phase === "failed" ? automationExecution.phase === "stopping" ? "Workflow stopped" : "Workflow failed" : automationExecutionState.phase === "stopping" ? "Stopping workflow" : automationExecutionState.phase === "preparing" ? "Preparing workflow" : "Workflow running"}</strong><small title={automationExecution.workflowTitle}>{automationExecution.workflowTitle} · {automationExecutionWorkspace?.name || "Current workspace"}</small></div><b>{automationExecutionState.progress}%</b></div>
+        <div className="sidebar-execution-track"><i style={{ width: `${automationExecutionState.progress}%` }} /></div>
+        <small className="sidebar-execution-detail">{automationExecutionState.detail}</small>
+        <div className="sidebar-recording-actions"><button onClick={openAutomationExecution}>Open</button>{["completed", "failed"].includes(automationExecutionState.phase) ? <button onClick={clearActiveAutomationExecution}>Dismiss</button> : <button className="stop" disabled={automationExecution.phase === "stopping"} onClick={() => void stopAutomationExecution()}>{automationExecution.phase === "stopping" ? <Spinner size={11} /> : <Icon name="stop.fill" size={11} />} {automationExecution.phase === "stopping" ? "Stopping" : "Stop"}</button>}</div>
+        {automationExecutionError && <small className="sidebar-recording-error" role="alert">{automationExecutionError}</small>}
       </section>}
 
       <nav className="sidebar-scroll sidebar-nav-list" aria-label="Sidebar pages">

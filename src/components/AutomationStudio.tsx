@@ -9,14 +9,14 @@ import {
   workflowQuality,
 } from "../lib/workflowCapture";
 import { capturedRuns, skillFromRun, type CapturedRun } from "../lib/automationStudio";
-import type { AutomationArtifact, BrowserWorkflowAction, BrowserWorkflowSkill, ChatMessage } from "../types";
+import type { AutomationArtifact, BrowserWorkflowAction, BrowserWorkflowSkill } from "../types";
 import { humanBytes } from "../types";
 import { Icon, Spinner } from "./Icon";
+import { activeAutomationExecution, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, setActiveAutomationExecution, type AutomationExecution } from "../lib/automationExecution";
 
 type StudioSection = "recorder" | "workflows" | "artifacts";
 type RecordingFilter = "all" | "ready" | "recording" | "stopped" | "demos";
 type BackendRecording = { id: string; status: string; revision: number; document: { run?: CapturedRun; started_at?: string; demo?: boolean }; updated_at: string };
-type RecordingPlayback = { recordingId: string; workspaceId: string; workflowTitle: string; task: string; startedAt: number; expectedActions: number; phase: "preparing" | "running" };
 
 const ACTION_OPTIONS = [
   ["navigate", "Open a web page"], ["input", "Enter text"], ["click", "Click something"],
@@ -26,13 +26,6 @@ const ACTION_OPTIONS = [
 
 function actionLabel(tool: string) {
   return ACTION_OPTIONS.find(([value]) => value === tool)?.[1] || `Advanced: ${tool}`;
-}
-
-function savedPlayback(): RecordingPlayback | undefined {
-  try {
-    const value = JSON.parse(localStorage.getItem("automationRecordingPlayback") || "null");
-    return value?.recordingId && value?.startedAt ? value as RecordingPlayback : undefined;
-  } catch { return undefined; }
 }
 
 function isBuiltInArtifact(artifact: AutomationArtifact) {
@@ -54,7 +47,7 @@ export function AutomationStudio() {
   const [artifactBusy, setArtifactBusy] = useState(false);
   const [artifactError, setArtifactError] = useState<string>();
   const [notice, setNotice] = useState<string>();
-  const [playback, setPlayback] = useState<RecordingPlayback | undefined>(savedPlayback);
+  const [playback, setPlayback] = useState<AutomationExecution | undefined>(activeAutomationExecution);
   const [playbackClock, setPlaybackClock] = useState(Date.now());
   const [recordingFilter, setRecordingFilter] = useState<RecordingFilter>("all");
   const [recordingStopping, setRecordingStopping] = useState(false);
@@ -74,19 +67,14 @@ export function AutomationStudio() {
   const draftDemo = !!(draft?.recipe as BrowserWorkflowSkill["recipe"] & { demo_key?: string } | undefined)?.demo_key;
   const playbackView = useMemo(() => {
     if (!playback || playback.workspaceId !== workspaceId) return undefined;
-    let answer: ChatMessage | undefined;
-    for (const conversation of s.conversations) {
-      const taskIndex = conversation.messages.findIndex((message) => message.role === "user" && message.createdAt >= playback.startedAt && (message.commandChip?.title === playback.workflowTitle || message.text.includes(playback.task)));
-      if (taskIndex >= 0) answer = conversation.messages.slice(taskIndex + 1).find((message) => message.role === "assistant");
-      if (answer) break;
-    }
-    if (["failed", "cancelled", "timedOut"].includes(answer?.status || "")) return { phase: "failed" as const, progress: 100, detail: answer?.text || "The agent could not complete this recording." };
-    if (answer?.status === "done") return { phase: "completed" as const, progress: 100, detail: "Recording completed successfully." };
-    const actions = (answer?.toolEvents || []).filter((event) => /^(?:clawbrowser|nextbrowser)\./.test(event.name)).length;
-    if (answer) return { phase: "running" as const, progress: Math.min(90, 20 + Math.round(actions / Math.max(1, playback.expectedActions) * 70)), detail: actions ? `${actions} browser action${actions === 1 ? "" : "s"} completed` : "Agent is starting the browser task…" };
-    if (playbackClock - playback.startedAt > 120_000) return { phase: "failed" as const, progress: 100, detail: "The recording did not start within two minutes. Check the selected agent and browser profile." };
-    return { phase: playback.phase, progress: playback.phase === "preparing" ? 8 : 15, detail: playback.phase === "preparing" ? "Preparing the browser session…" : "Waiting for the agent to begin…" };
+    return automationExecutionView(playback, s.conversations, playbackClock);
   }, [playback, playbackClock, s.conversations, workspaceId]);
+
+  useEffect(() => {
+    const sync = () => setPlayback(activeAutomationExecution());
+    window.addEventListener(AUTOMATION_EXECUTION_EVENT, sync);
+    return () => window.removeEventListener(AUTOMATION_EXECUTION_EVENT, sync);
+  }, []);
 
   useEffect(() => {
     if (!playback || ["completed", "failed"].includes(playbackView?.phase || "")) return;
@@ -148,12 +136,15 @@ export function AutomationStudio() {
       void loadRecordings();
     };
     const openRecorder = () => setSection("recorder");
+    const openExecution = (event: Event) => setSection((event as CustomEvent<{ sourceKind?: "recording" | "workflow" }>).detail?.sourceKind === "workflow" ? "workflows" : "recorder");
     syncRecording();
     window.addEventListener(AUTOMATION_RECORDING_EVENT, syncRecording);
     window.addEventListener("nextbrowser:open-recorder", openRecorder);
+    window.addEventListener("nextbrowser:open-automation-execution", openExecution);
     return () => {
       window.removeEventListener(AUTOMATION_RECORDING_EVENT, syncRecording);
       window.removeEventListener("nextbrowser:open-recorder", openRecorder);
+      window.removeEventListener("nextbrowser:open-automation-execution", openExecution);
     };
   }, [workspaceId]);
 
@@ -340,29 +331,56 @@ export function AutomationStudio() {
   };
 
   const runWorkflow = async (workflow: BrowserWorkflowSkill) => {
+    if (!s.agentReady()) return setStudioError("Connect an agent before running this workflow.");
     const runId = uid();
+    const next: AutomationExecution = { executionId: uid(), sourceId: workflow.id, sourceKind: "workflow", backendRunId: runId, workspaceId, workflowTitle: workflow.title, task: workflow.task, startedAt: Date.now(), expectedActions: workflow.actions.length, phase: "preparing" };
     try {
       await invoke("automation_run_create", { run: { id: runId, workspace_id: workspaceId, workflow_id: workflow.id, input: { task: workflow.task } } });
       await invoke("automation_run_update", { id: runId, update: { status: "running", output: {} } });
-      setNotice("Workflow started in Project. Follow its progress in the conversation.");
+      setPlayback(next);
+      setActiveAutomationExecution(next);
+      setNotice("Workflow started. Its progress and Stop control remain visible in the main menu.");
       setStudioError(undefined);
-      s.runLocalSkill(workflow);
-    } catch (error) { reportError(error); }
+      const replyId = await s.runLocalSkill(workflow);
+      const current = activeAutomationExecution();
+      if (current?.executionId !== next.executionId) return;
+      if (current.phase === "stopping") {
+        if (replyId && s.cancelQueuedReply(replyId)) clearActiveAutomationExecution();
+        else if (replyId) s.stopReply(replyId);
+        else s.stopRunning();
+        return;
+      }
+      const running = { ...next, replyId, phase: "running" as const };
+      setPlayback(running);
+      setActiveAutomationExecution(running);
+    } catch (error) {
+      await invoke("automation_run_update", { id: runId, update: { status: "failed", output: { error: error instanceof Error ? error.message : String(error) } } }).catch(() => undefined);
+      clearActiveAutomationExecution();
+      reportError(error);
+    }
   };
 
   const replayRecording = async (run: CapturedRun) => {
     if (!s.agentReady()) return setStudioError("Connect an agent before running this recording.");
     const workflow = skillFromRun(run);
-    const next: RecordingPlayback = { recordingId: run.id, workspaceId, workflowTitle: workflow.title, task: run.task, startedAt: Date.now(), expectedActions: workflow.actions.length, phase: "preparing" };
+    const next: AutomationExecution = { executionId: uid(), sourceId: run.id, sourceKind: "recording", workspaceId, workflowTitle: workflow.title, task: run.task, startedAt: Date.now(), expectedActions: workflow.actions.length, phase: "preparing" };
     setPlayback(next);
-    localStorage.setItem("automationRecordingPlayback", JSON.stringify(next));
-    setNotice("Preparing this recording. Progress remains available when you return from Project.");
+    setActiveAutomationExecution(next);
+    setNotice("Preparing this recording. Its progress and Stop control remain visible in the main menu.");
     try {
-      await s.runLocalSkill(workflow, run.task);
-      const running = { ...next, phase: "running" as const };
+      const replyId = await s.runLocalSkill(workflow, run.task);
+      const current = activeAutomationExecution();
+      if (current?.executionId !== next.executionId) return;
+      if (current.phase === "stopping") {
+        if (replyId && s.cancelQueuedReply(replyId)) clearActiveAutomationExecution();
+        else if (replyId) s.stopReply(replyId);
+        else s.stopRunning();
+        return;
+      }
+      const running = { ...next, replyId, phase: "running" as const };
       setPlayback(running);
-      localStorage.setItem("automationRecordingPlayback", JSON.stringify(running));
-    } catch (error) { reportError(error); }
+      setActiveAutomationExecution(running);
+    } catch (error) { clearActiveAutomationExecution(); reportError(error); }
   };
 
   const importArtifacts = async () => {
@@ -397,9 +415,9 @@ export function AutomationStudio() {
     try {
       await invoke("automation_recording_delete", { id: recording.id });
       if (activeAutomationRecording()?.id === recording.id) clearActiveAutomationRecording();
-      if (playback?.recordingId === recording.document.run?.id) {
+      if (playback?.sourceId === recording.document.run?.id) {
         setPlayback(undefined);
-        localStorage.removeItem("automationRecordingPlayback");
+        clearActiveAutomationExecution();
       }
       setRecordings((current) => current.filter((item) => item.id !== recording.id));
       setNotice("Recording deleted.");
@@ -435,7 +453,7 @@ export function AutomationStudio() {
       </div>
       {studioError && <div className="error automation-global-message" role="alert"><strong>Automation couldn’t complete the action.</strong><span>{studioError}</span><button onClick={() => setStudioError(undefined)}>Dismiss</button></div>}
       {notice && <div className="automation-global-message success" role="status"><span>{notice}</span><button onClick={() => setNotice(undefined)}>Dismiss</button></div>}
-      {playback && playbackView && <div className={`recording-progress-card ${playbackView.phase}`} role="status"><div className="recording-progress-head"><span><Icon name={playbackView.phase === "completed" ? "checkmark.circle.fill" : playbackView.phase === "failed" ? "xmark.circle.fill" : "play.fill"} size={14} /><strong>{playbackView.phase === "completed" ? "Recording completed" : playbackView.phase === "failed" ? "Recording failed" : playbackView.phase === "preparing" ? "Preparing recording" : "Recording is running"}</strong></span><b>{playbackView.progress}%</b></div><div className="recording-progress-track"><i style={{ width: `${playbackView.progress}%` }} /></div><small>{playbackView.detail}</small>{["completed", "failed"].includes(playbackView.phase) && <button onClick={() => { setPlayback(undefined); localStorage.removeItem("automationRecordingPlayback"); }}>Dismiss</button>}</div>}
+      {playback && playbackView && <div className={`recording-progress-card ${playbackView.phase}`} role="status"><div className="recording-progress-head"><span><Icon name={playbackView.phase === "completed" ? "checkmark.circle.fill" : playbackView.phase === "failed" ? "xmark.circle.fill" : playbackView.phase === "stopping" ? "stop.fill" : "play.fill"} size={14} /><strong>{playbackView.phase === "completed" ? "Execution completed" : playbackView.phase === "failed" ? "Execution stopped" : playbackView.phase === "stopping" ? "Stopping execution" : playbackView.phase === "preparing" ? "Preparing execution" : "Workflow is running"}</strong></span><b>{playbackView.progress}%</b></div><div className="recording-progress-track"><i style={{ width: `${playbackView.progress}%` }} /></div><small>{playbackView.detail}</small>{["completed", "failed"].includes(playbackView.phase) && <button onClick={() => { setPlayback(undefined); clearActiveAutomationExecution(); }}>Dismiss</button>}</div>}
 
       {section === "recorder" && <section className="automation-panel">
         <div className="automation-panel-head"><div><h2>Recordings</h2><p>A recording is a completed browser task. Run it again as-is, or turn it into an editable workflow.</p></div>
@@ -453,7 +471,7 @@ export function AutomationStudio() {
             return <article className={"capture-card" + (recordedRun?.id === run.id ? " is-new" : "")} key={run.id}>
               <div className="capture-kind"><span className={recording.document.demo ? "demo" : "ready"}>{recording.document.demo ? "DEMO RECORDING" : "READY RECORDING"}</span><small>{recording.status === "completed" ? "Completed" : recording.status}</small></div>
               <div className="capture-card-copy"><strong>{run.task.slice(0, 160)}</strong><span>{run.conversationTitle} · {domain || "Unknown website"} · {actions.length} recorded actions</span><small className={quality.reusable ? "ok" : "muted"}>{quality.reason}</small><details className="capture-steps"><summary>Show recorded steps</summary><ol>{actions.map((action, index) => <li key={`${index}-${action.tool}`}><b>{actionLabel(action.tool)}</b><code>{JSON.stringify(action.arguments)}</code></li>)}</ol></details></div>
-              <div className="capture-card-actions">{playback?.recordingId === run.id && playbackView && !["completed", "failed"].includes(playbackView.phase) ? <div className="capture-running"><Spinner size={13} /><span>{playbackView.phase === "preparing" ? "Preparing…" : `${playbackView.progress}% running`}</span></div> : <button className="secondary" disabled={!quality.reusable} onClick={() => void replayRecording(run)}><Icon name="play.fill" size={12} /> Run again</button>}<button className="btn-bordered-prominent" disabled={!quality.reusable} onClick={() => void saveCapture(run)}>Turn into workflow</button>{!recording.document.demo && <button className="mini danger-text" title="Delete recording" onClick={() => void deleteRecording(recording)}><Icon name="trash" size={12} /> Delete</button>}</div>
+              <div className="capture-card-actions">{playback?.sourceId === run.id && playbackView && !["completed", "failed"].includes(playbackView.phase) ? <div className="capture-running"><Spinner size={13} /><span>{playbackView.phase === "preparing" ? "Preparing…" : playbackView.phase === "stopping" ? "Stopping…" : `${playbackView.progress}% running`}</span></div> : <button className="secondary" disabled={!quality.reusable} onClick={() => void replayRecording(run)}><Icon name="play.fill" size={12} /> Run again</button>}<button className="btn-bordered-prominent" disabled={!quality.reusable} onClick={() => void saveCapture(run)}>Turn into workflow</button>{!recording.document.demo && <button className="mini danger-text" title="Delete recording" onClick={() => void deleteRecording(recording)}><Icon name="trash" size={12} /> Delete</button>}</div>
             </article>;
           })}
           {visibleRecordings.filter((item) => !item.document.run).map((recording) => {
