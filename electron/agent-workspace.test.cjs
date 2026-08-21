@@ -24,6 +24,7 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   assert.match(main, /"--profile", CODEX_TERMINAL_PROFILE/);
   assert.match(main, /"--sandbox", "workspace-write"/);
   assert.match(main, /sandbox_workspace_write\.network_access=true/);
+  assert.match(main, /CLAWBROWSER_BIN: clawbrowserBin/);
   assert.match(main, /default_tools_approval_mode = "approve"/);
   assert.match(main, /\[plugins\."browser@openai-bundled"\][\s\S]*enabled = false/);
   assert.match(main, /ensureCodexTerminalProfile\(\)/);

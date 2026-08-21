@@ -229,6 +229,12 @@ function nextbrowserRuntimeRoot() {
 function childEnv(extra = {}) {
   const runtimeRoot = nextbrowserRuntimeRoot();
   const commandPaths = [managedNextctlRoot(), ...searchDirs()];
+  const clawbrowserBin = resolveBrowserRuntime({
+    platform: process.platform,
+    homeDir: home(),
+    env: process.env,
+    runtimeRoot,
+  });
   const dasbrowserBin = resolveDasbrowserRuntime({
     platform: process.platform,
     homeDir: home(),
@@ -247,6 +253,7 @@ function childEnv(extra = {}) {
     CLAWBROWSER_SESSION_ROOT: path.join(runtimeRoot, "sessions"),
     NBC_PROFILE_ROOT: path.join(runtimeRoot, "profiles"),
     CLAWBROWSER_API_BASE_URL: apiBaseURL(),
+    ...(clawbrowserBin ? { CLAWBROWSER_BIN: clawbrowserBin } : {}),
     ...(dasbrowserBin ? { DASBROWSER_BIN: dasbrowserBin } : {}),
     ...(multiloginAutomationToken ? { MULTILOGIN_TOKEN: multiloginAutomationToken } : {}),
     ...extra,
