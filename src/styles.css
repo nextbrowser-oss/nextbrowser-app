@@ -7142,6 +7142,20 @@ pre,
 .automation-global-message span { flex: 1; }
 .automation-global-message button { color: inherit; text-decoration: underline; }
 .automation-global-message.success { border-color: color-mix(in srgb, var(--green) 35%, var(--border)); background: color-mix(in srgb, var(--green) 8%, var(--panel)); color: var(--text); }
+.recording-progress-card { display: grid; gap: 7px; margin: 0 0 14px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 12px; background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
+.recording-progress-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; }
+.recording-progress-head span { display: flex; align-items: center; gap: 7px; }
+.recording-progress-head b { color: var(--accent); font-variant-numeric: tabular-nums; }
+.recording-progress-track { height: 6px; overflow: hidden; border-radius: 999px; background: var(--surface-5); }
+.recording-progress-track i { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width 300ms ease; }
+.recording-progress-card small { color: var(--muted); font-size: 11px; }
+.recording-progress-card > button { width: fit-content; color: var(--muted); font-size: 11px; text-decoration: underline; }
+.recording-progress-card.completed { border-color: color-mix(in srgb, var(--green) 35%, var(--border)); background: color-mix(in srgb, var(--green) 8%, var(--panel)); }
+.recording-progress-card.completed .recording-progress-head b { color: var(--green); }
+.recording-progress-card.completed .recording-progress-track i { background: var(--green); }
+.recording-progress-card.failed { border-color: color-mix(in srgb, var(--red) 35%, var(--border)); background: color-mix(in srgb, var(--red) 8%, var(--panel)); }
+.recording-progress-card.failed .recording-progress-head b { color: var(--red); }
+.recording-progress-card.failed .recording-progress-track i { background: var(--red); }
 .automation-panel { border: 1px solid var(--border); border-radius: 16px; background: var(--panel); overflow: hidden; }
 .automation-panel-head { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 18px 20px; border-bottom: 1px solid var(--border); }
 .automation-panel-head h2 { margin: 0 0 4px; font-size: 17px; }
@@ -7167,6 +7181,7 @@ pre,
 .capture-kind .demo { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
 .capture-kind small { color: var(--muted); font-size: 10px; text-transform: capitalize; }
 .capture-card-actions { display: flex; gap: 7px; }
+.capture-running { min-width: 106px; display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--accent); font-size: 11px; font-weight: 650; }
 .automation-empty { min-height: 230px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted); text-align: center; grid-column: 1 / -1; }
 .automation-empty strong { color: var(--text); }
 .workflow-builder { display: grid; grid-template-columns: 270px minmax(0, 1fr); min-height: 620px; }
