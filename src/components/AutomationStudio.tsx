@@ -127,6 +127,7 @@ export function AutomationStudio() {
     const syncRecording = () => {
       const active = activeAutomationRecording();
       setRecordingSince(active?.workspaceId === workspaceId ? active.startedAt : 0);
+      void loadRecordings();
     };
     const openRecorder = () => setSection("recorder");
     syncRecording();
@@ -322,6 +323,14 @@ export function AutomationStudio() {
     catch (error) { setArtifactError(error instanceof Error ? error.message : String(error)); }
   };
 
+  const recoverRecording = async (recording: BackendRecording, run: CapturedRun) => {
+    try {
+      await invoke("automation_recording_put", { recording: { id: recording.id, workspace_id: workspaceId, status: "completed", document: { run }, base_revision: recording.revision } });
+      await loadRecordings();
+      setNotice("Stopped recording recovered and saved.");
+    } catch (error) { reportError(error); }
+  };
+
   return (
     <div className="automation-studio page">
       <header className="automation-hero">
@@ -360,7 +369,13 @@ export function AutomationStudio() {
               <div className="capture-card-actions">{playback?.recordingId === run.id && playbackView && !["completed", "failed"].includes(playbackView.phase) ? <div className="capture-running"><Spinner size={13} /><span>{playbackView.phase === "preparing" ? "Preparing…" : `${playbackView.progress}% running`}</span></div> : <button className="secondary" disabled={!quality.reusable} onClick={() => void replayRecording(run)}><Icon name="play.fill" size={12} /> Run again</button>}<button className="btn-bordered-prominent" disabled={!quality.reusable} onClick={() => void saveCapture(run)}>Turn into workflow</button></div>
             </article>;
           })}
-          {!recordings.some((item) => item.document.run) && <div className="automation-empty"><Icon name="play.rectangle.on.rectangle.fill" size={28} /><strong>No browser runs captured yet</strong><span>Record a task that navigates, interacts with, or extracts from a website.</span></div>}
+          {recordings.filter((item) => !item.document.run).map((recording) => {
+            const startedAt = Date.parse(recording.document.started_at || "");
+            const stoppedAt = Date.parse(recording.updated_at || "");
+            const recoverable = runs.find((run) => run.answer.createdAt >= startedAt && (!Number.isFinite(stoppedAt) || run.answer.createdAt <= stoppedAt));
+            return <article className="capture-card capture-attempt" key={recording.id}><div className="capture-kind"><span className={recording.status === "recording" ? "recording" : "stopped"}>{recording.status === "recording" ? "RECORDING" : "STOPPED"}</span><small>{recording.status}</small></div><div className="capture-card-copy"><strong>{recoverable ? "A completed browser run can be recovered" : recording.status === "recording" ? "Waiting for a browser task" : "No completed browser run was captured"}</strong><span>{recording.document.started_at ? `Started ${new Date(recording.document.started_at).toLocaleString()}` : "Recording attempt"}</span><small>{recoverable ? "The browser task finished before this recording was stopped. Save it now." : recording.status === "recording" ? "Complete a browser task in Project, or use Stop to finish recording." : "This attempt was stopped before the agent completed a reusable browser task."}</small></div><div className="capture-card-actions">{recoverable && <button className="btn-bordered-prominent" onClick={() => void recoverRecording(recording, recoverable)}>Recover recording</button>}{recording.status === "recording" && <button className="secondary" onClick={() => s.setTab("chat")}>Go to Project</button>}</div></article>;
+          })}
+          {!recordings.length && <div className="automation-empty"><Icon name="play.rectangle.on.rectangle.fill" size={28} /><strong>No browser runs captured yet</strong><span>Record a task that navigates, interacts with, or extracts from a website.</span></div>}
         </div>
       </section>}
 

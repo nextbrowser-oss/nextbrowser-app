@@ -7196,9 +7196,12 @@ pre,
 .capture-kind > span { padding: 4px 7px; border-radius: 6px; font-size: 9px; font-weight: 800; letter-spacing: .06em; }
 .capture-kind .ready { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
 .capture-kind .demo { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+.capture-kind .recording { background: color-mix(in srgb, var(--red) 15%, transparent); color: var(--red); }
+.capture-kind .stopped { background: var(--surface-5); color: var(--muted); }
 .capture-kind small { color: var(--muted); font-size: 10px; text-transform: capitalize; }
 .capture-card-actions { display: flex; gap: 7px; }
 .capture-running { min-width: 106px; display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--accent); font-size: 11px; font-weight: 650; }
+.capture-attempt { opacity: .82; }
 .automation-empty { min-height: 230px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted); text-align: center; grid-column: 1 / -1; }
 .automation-empty strong { color: var(--text); }
 .workflow-builder { display: grid; grid-template-columns: 270px minmax(0, 1fr); min-height: 620px; }

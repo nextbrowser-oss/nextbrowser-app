@@ -16,7 +16,8 @@ import { UserFacingError } from "./UserFacingError";
 import { VPSSetupModal } from "./VPSSetupModal";
 import { CONNECTORS } from "../connectorsCatalog";
 import { invoke } from "../electronBridge";
-import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, clearActiveAutomationRecording, type ActiveAutomationRecording } from "../lib/automationRecording";
+import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, clearActiveAutomationRecording, setActiveAutomationRecording, type ActiveAutomationRecording } from "../lib/automationRecording";
+import { capturedRuns } from "../lib/automationStudio";
 
 type ManualProxyInputMode = "url" | "fields";
 const PROFILE_CREATE_TIMEOUT_MS = 120_000;
@@ -185,8 +186,14 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     setRecordingStopping(true);
     setRecordingError(undefined);
     try {
-      await invoke("automation_recording_put", { recording: { id: activeRecording.id, workspace_id: activeRecording.workspaceId, status: "cancelled", document: { started_at: new Date(activeRecording.startedAt).toISOString() }, base_revision: 1 } });
-      clearActiveAutomationRecording();
+      const captured = capturedRuns(s.conversations).find((run) => run.answer.createdAt >= activeRecording.startedAt);
+      if (captured) {
+        await invoke("automation_recording_put", { recording: { id: activeRecording.id, workspace_id: activeRecording.workspaceId, status: "completed", document: { run: captured }, base_revision: 1 } });
+        setActiveAutomationRecording({ ...activeRecording, phase: "captured" });
+      } else {
+        await invoke("automation_recording_put", { recording: { id: activeRecording.id, workspace_id: activeRecording.workspaceId, status: "cancelled", document: { started_at: new Date(activeRecording.startedAt).toISOString() }, base_revision: 1 } });
+        clearActiveAutomationRecording();
+      }
     } catch (error) {
       setRecordingError(error instanceof Error ? error.message : String(error));
     } finally { setRecordingStopping(false); }
