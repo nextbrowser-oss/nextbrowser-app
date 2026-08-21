@@ -94,31 +94,42 @@ async function seedAutomationExamples(workspaceId, deps) {
     listAutomationWorkflows(workspaceId, deps), listAutomationRecordings(workspaceId, deps), listAutomationArtifacts(workspaceId, deps),
   ]);
   const now = Date.now();
-  if (!workflows.length) {
-    const examples = [
-      { title: "Collect product cards", domain: "example.com", task: "Open the product catalog and collect the visible product names and prices.", capability: "scrape", actions: [{ tool: "navigate", arguments: { url: "https://example.com/products" } }, { tool: "extract", arguments: { container: "article", fields: ["title", "price"] } }] },
-      { title: "Search a knowledge base", domain: "example.com", task: "Search the site for the requested topic and return the best matching results.", capability: "search", actions: [{ tool: "navigate", arguments: { url: "https://example.com/search" } }, { tool: "act", arguments: { action: "type", selector: "input[type=search]", text: "browser automation" } }, { tool: "act", arguments: { action: "press", key: "Enter" } }, { tool: "extract", arguments: { container: "main", fields: ["title", "url"] } }] },
-    ];
-    for (const example of examples) await putAutomationWorkflow(workspaceId, {
+  const examples = [
+    { key: "collect-products", title: "Collect product cards", domain: "example.com", task: "Open the product catalog and collect the visible product names and prices.", capability: "scrape", actions: [{ tool: "navigate", arguments: { url: "https://example.com/products" } }, { tool: "extract", arguments: { container: "article", fields: ["title", "price"] } }] },
+    { key: "search-knowledge", title: "Search a knowledge base", domain: "example.com", task: "Search the site for the requested topic and return the best matching results.", capability: "search", actions: [{ tool: "navigate", arguments: { url: "https://example.com/search" } }, { tool: "act", arguments: { action: "type", selector: "input[type=search]", text: "browser automation" } }, { tool: "act", arguments: { action: "press", key: "Enter" } }, { tool: "extract", arguments: { container: "main", fields: ["title", "url"] } }] },
+  ];
+  let seededWorkflows = 0;
+  for (const example of examples) {
+    if (workflows.some((item) => item.recipe?.demo_key === example.key || item.title === example.title)) continue;
+    await putAutomationWorkflow(workspaceId, {
       id: randomUUID(), ...example,
       instructions: "Execute the structured recipe first. Inspect the page and adapt selectors if its layout changed.",
       parametersSchema: { type: "object", properties: { task: { type: "string" } } },
       outputSchema: { type: "object", properties: { success: { type: "boolean" }, results: { type: "array" } } },
-      recipe: { version: 1, capability: example.capability, actions: example.actions }, createdAt: now, updatedAt: now,
+      recipe: { version: 1, capability: example.capability, actions: example.actions, demo_key: example.key }, createdAt: now, updatedAt: now,
     }, deps);
+    seededWorkflows += 1;
   }
-  if (!recordings.length) {
-    const demos = [
-      demoRun(randomUUID(), "Collect product names and prices from https://example.com/products", "Product research demo", 'Called clawbrowser.navigate({"url":"https://example.com/products"})\nCalled clawbrowser.extract({"container":"article","fields":["title","price"]})\nFound 3 products.', now - 120_000),
-      demoRun(randomUUID(), "Search https://example.com for browser automation", "Site search demo", 'Called clawbrowser.navigate({"url":"https://example.com/search"})\nCalled clawbrowser.act({"action":"type","selector":"input[type=search]","text":"browser automation"})\nCalled clawbrowser.extract({"container":"main"})\nReturned 5 matching results.', now - 60_000),
-    ];
-    for (const run of demos) await putAutomationRecording({ id: randomUUID(), workspace_id: workspaceId, status: "completed", document: { run, demo: true }, base_revision: 0 }, deps);
+  const demos = [
+    { key: "product-research", run: demoRun(randomUUID(), "Collect product names and prices from https://example.com/products", "Product research demo", 'Called clawbrowser.navigate({"url":"https://example.com/products"})\nCalled clawbrowser.extract({"container":"article","fields":["title","price"]})\nFound 3 products.', now - 120_000) },
+    { key: "site-search", run: demoRun(randomUUID(), "Search https://example.com for browser automation", "Site search demo", 'Called clawbrowser.navigate({"url":"https://example.com/search"})\nCalled clawbrowser.act({"action":"type","selector":"input[type=search]","text":"browser automation"})\nCalled clawbrowser.extract({"container":"main"})\nReturned 5 matching results.', now - 60_000) },
+  ];
+  let seededRecordings = 0;
+  for (const demo of demos) {
+    if (recordings.some((item) => item.document?.demo_key === demo.key)) continue;
+    await putAutomationRecording({ id: randomUUID(), workspace_id: workspaceId, status: "completed", document: { run: demo.run, demo: true, demo_key: demo.key }, base_revision: 0 }, deps);
+    seededRecordings += 1;
   }
-  if (!artifacts.length) {
+  let seededArtifacts = 0;
+  if (!artifacts.some((item) => item.name === "product-research-demo.csv")) {
     await uploadAutomationArtifactBytes(workspaceId, "product-research-demo.csv", Buffer.from("product,price,status\nStarter plan,$19,available\nTeam plan,$49,available\nBusiness plan,$99,available\n"), deps);
-    await uploadAutomationArtifactBytes(workspaceId, "automation-run-demo.json", Buffer.from(JSON.stringify({ success: true, workflow: "Search a knowledge base", results: [{ title: "Browser automation guide", url: "https://example.com/guide" }], generated_at: new Date(now).toISOString() }, null, 2)), deps);
+    seededArtifacts += 1;
   }
-  return { seeded: { workflows: workflows.length === 0 ? 2 : 0, recordings: recordings.length === 0 ? 2 : 0, artifacts: artifacts.length === 0 ? 2 : 0 } };
+  if (!artifacts.some((item) => item.name === "automation-run-demo.json")) {
+    await uploadAutomationArtifactBytes(workspaceId, "automation-run-demo.json", Buffer.from(JSON.stringify({ success: true, workflow: "Search a knowledge base", results: [{ title: "Browser automation guide", url: "https://example.com/guide" }], generated_at: new Date(now).toISOString() }, null, 2)), deps);
+    seededArtifacts += 1;
+  }
+  return { seeded: { workflows: seededWorkflows, recordings: seededRecordings, artifacts: seededArtifacts } };
 }
 
 async function downloadAutomationArtifact(id, targetPath, deps) {

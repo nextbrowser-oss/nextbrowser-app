@@ -87,12 +87,12 @@ test("seeds exactly two successful examples for every empty Automation Studio se
   assert.deepEqual(created.artifacts.sort(), ["automation-run-demo.json", "product-research-demo.csv"]);
 });
 
-test("does not duplicate examples when each section already has data", async (t) => {
+test("does not duplicate examples when their demo markers already exist", async (t) => {
   const f = await fixture(t, (url, options) => {
     assert.equal(options.method, undefined);
-    if (url.includes("/workflows")) return jsonResponse({ workflows: [{ id: "w", title: "Existing", task: "x", recipe: { actions: [] }, revision: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }] });
-    if (url.includes("/recordings")) return jsonResponse({ recordings: [{ id: "r" }] });
-    return jsonResponse({ artifacts: [{ id: "a", name: "existing.txt", size: 1, created_at: new Date().toISOString() }] });
+    if (url.includes("/workflows")) return jsonResponse({ workflows: ["collect-products", "search-knowledge"].map((key) => ({ id: key, title: key, task: "x", recipe: { actions: [], demo_key: key }, revision: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })) });
+    if (url.includes("/recordings")) return jsonResponse({ recordings: ["product-research", "site-search"].map((key) => ({ id: key, document: { demo_key: key } })) });
+    return jsonResponse({ artifacts: ["product-research-demo.csv", "automation-run-demo.json"].map((name) => ({ id: name, name, size: 1, created_at: new Date().toISOString() })) });
   });
   assert.deepEqual((await seedAutomationExamples("space", f.deps)).seeded, { workflows: 0, recordings: 0, artifacts: 0 });
   assert.equal(f.calls.length, 3);
