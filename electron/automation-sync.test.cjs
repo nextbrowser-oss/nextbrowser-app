@@ -32,22 +32,27 @@ test("creates a backend-owned queued run", async (t) => {
   assert.equal((await createAutomationRun({ id: "run", workspace_id: "space", workflow_id: "flow", input: {} }, f.deps)).status, "queued");
 });
 
-test("uploads multipart without overriding its boundary", async (t) => {
+test("streams artifact multipart without buffering the complete file", async (t) => {
   const f = await fixture(t, (_url, options) => {
-    assert.ok(options.body instanceof FormData);
-    assert.equal(options.headers["content-type"], undefined);
-    return jsonResponse({ id: "a", name: "report.txt", size: 5, content_type: "text/plain", sha256: "abc", created_at: "2026-01-01T00:00:00Z" });
+    assert.equal(typeof options.body.pipe, "function");
+    assert.match(options.headers["content-type"], /^multipart\/form-data; boundary=/);
+    assert.equal(options.headers["content-length"], String(Number(options.headers["content-length"])));
+    assert.equal(options.duplex, "half");
+    return jsonResponse({ id: "a", name: "report.txt", size: 5, content_type: "text/plain", sha256: "abc", created_at: "2026-01-01T00:00:00Z", expires_at: "2026-01-31T00:00:00Z" });
   });
   const file = path.join(f.root, "report.txt");
   await fs.writeFile(file, "hello");
-  assert.equal((await uploadAutomationArtifact("space", file, f.deps)).extension, "txt");
+  const artifact = await uploadAutomationArtifact("space", file, f.deps);
+  assert.equal(artifact.extension, "txt");
+  assert.equal(artifact.expiresAt, Date.parse("2026-01-31T00:00:00Z"));
 });
 
-test("rejects files above 30 MiB before fetching", async (t) => {
+test("rejects files above 1 GiB before fetching", async (t) => {
   const f = await fixture(t, () => { throw new Error("must not fetch"); });
   const file = path.join(f.root, "large.bin");
-  await fs.writeFile(file, Buffer.alloc(30 * 1024 * 1024 + 1));
-  await assert.rejects(uploadAutomationArtifact("space", file, f.deps), /larger than 30 MiB/);
+  await fs.writeFile(file, "x");
+  await fs.truncate(file, 1024 * 1024 * 1024 + 1);
+  await assert.rejects(uploadAutomationArtifact("space", file, f.deps), /larger than 1 GiB/);
   assert.equal(f.calls.length, 0);
 });
 

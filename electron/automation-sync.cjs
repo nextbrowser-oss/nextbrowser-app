@@ -1,6 +1,8 @@
 const fs = require("node:fs/promises");
+const { createReadStream } = require("node:fs");
 const path = require("node:path");
-const { randomUUID } = require("node:crypto");
+const { randomBytes, randomUUID } = require("node:crypto");
+const { Readable } = require("node:stream");
 const { projectRequest } = require("./project-sync.cjs");
 
 const query = (workspaceId) => `?workspace_id=${encodeURIComponent(workspaceId)}`;
@@ -57,6 +59,7 @@ function normalizeArtifact(item) {
   return {
     id: item.id, name: item.name, size: item.size, contentType: item.content_type,
     sha256: item.sha256, runId: item.run_id, createdAt: Date.parse(item.created_at),
+    expiresAt: item.expires_at ? Date.parse(item.expires_at) : undefined,
     extension: path.extname(item.name).replace(/^\./, "").toLowerCase(),
   };
 }
@@ -69,8 +72,18 @@ async function listAutomationArtifacts(workspaceId, deps) {
 async function uploadAutomationArtifact(workspaceId, filePath, deps) {
   const stat = await fs.stat(filePath);
   if (!stat.isFile()) throw new Error(`${path.basename(filePath)} is not a regular file.`);
-  if (stat.size > 30 * 1024 * 1024) throw new Error(`${path.basename(filePath)} is larger than 30 MiB.`);
-  return uploadAutomationArtifactBytes(workspaceId, path.basename(filePath), await fs.readFile(filePath), deps);
+  if (stat.size > 1024 * 1024 * 1024) throw new Error(`${path.basename(filePath)} is larger than 1 GiB.`);
+  const boundary = `----NextBrowser${randomBytes(16).toString("hex")}`;
+  const name = path.basename(filePath);
+  const safeName = name.replace(/["\r\n]/g, "-");
+  const head = Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="workspace_id"\r\n\r\n${workspaceId}\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${safeName}"\r\nContent-Type: application/octet-stream\r\n\r\n`);
+  const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
+  const body = Readable.from((async function* () { yield head; for await (const chunk of createReadStream(filePath)) yield chunk; yield tail; })());
+  const response = await projectRequest("/v1/automation/artifacts", {
+    method: "POST", body, duplex: "half", jsonBody: false,
+    headers: { "content-type": `multipart/form-data; boundary=${boundary}`, "content-length": String(head.length + stat.size + tail.length) },
+  }, deps);
+  return normalizeArtifact(response);
 }
 
 async function uploadAutomationArtifactBytes(workspaceId, name, bytes, deps) {

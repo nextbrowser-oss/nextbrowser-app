@@ -57,7 +57,7 @@ export function workflowCapability(task: string, transcript: string): WorkflowCa
   const tools = capturedCalls(transcript).map((call) => call.name);
   if (/\b(post|publish|comment|reply|send)\b|опубли|отправ|коммент/i.test(task)) return "posting";
   if (tools.some((tool) => ["paginate_extract", "extract"].includes(tool))) return /\b(find|search)\b|найди|поиск/i.test(task) ? "search" : "scrape";
-  if (tools.some((tool) => ["input", "upload"].includes(tool))) return "form";
+  if (tools.some((tool) => ["act", "input", "upload"].includes(tool))) return "form";
   if (tools.some((tool) => ["open", "navigate", "click", "press"].includes(tool))) return "navigation";
   return "other";
 }
@@ -84,7 +84,7 @@ function selectedFastPath(transcript: string): CapturedCall[] {
   return [
     best(calls.filter((call) => ["start", "prepare"].includes(call.name))),
     best(calls.filter((call) => ["open", "navigate"].includes(call.name))),
-    best(calls.filter((call) => ["multi_action", "input", "click", "press"].includes(call.name))),
+    best(calls.filter((call) => ["act", "multi_action", "input", "click", "press"].includes(call.name))),
     best(calls.filter((call) => ["paginate_extract", "extract"].includes(call.name))),
   ].filter((call): call is CapturedCall => !!call && call.score >= 0);
 }
@@ -100,6 +100,7 @@ function fastPath(transcript: string): string[] {
     if (["paginate_extract", "extract"].includes(name)) {
       return [`clawbrowser.${name}(${JSON.stringify(pick(args, ["container", "fields", "filters", "dedupe_by", "transform", "scroll", "max_pages", "limit", "initial_wait", "timeout"]))})`];
     }
+    if (name === "act") return [`clawbrowser.act(${JSON.stringify(args)})`];
     return [];
   });
 }
@@ -162,7 +163,7 @@ export function workflowQuality(task: string, transcript: string, domain = captu
   if (last && last.score < 0) return { reusable: false, reason: "The browser workflow ended with a failed action." };
   const successfulExtraction = calls.some((call) => ["extract", "paginate_extract"].includes(call.name) && call.score > 0);
   const postingConfirmation = /\b(posted|published|submitted|saved draft|commented|sent successfully)\b|опубликован|отправлен|сохран[её]н\s+черновик/i.test(transcript);
-  const interaction = calls.some((call) => ["multi_action", "input", "click", "press", "upload"].includes(call.name));
+  const interaction = calls.some((call) => ["act", "multi_action", "input", "click", "press", "upload"].includes(call.name));
   const navigation = calls.some((call) => ["start", "prepare", "open", "navigate"].includes(call.name));
   if (!successfulExtraction && !postingConfirmation && !(interaction && navigation)) {
     return { reusable: false, reason: "No successful extraction, posting confirmation, or complete browser interaction was captured." };
@@ -199,11 +200,11 @@ export function workflowInstructions(task: string, transcript: string): string {
   if (unique.some((tool) => ["open", "navigate"].includes(tool))) {
     steps.push("Open the target website in the verified browser session.");
   }
-  if (unique.some((tool) => ["multi_action", "input", "click", "press"].includes(tool))) {
+  if (unique.some((tool) => ["act", "multi_action", "input", "click", "press"].includes(tool))) {
     steps.push("Use the site's controls to apply the requested search and filters, waiting for navigation or page settlement when needed.");
   }
   const selected = selectedFastPath(transcript);
-  const hasSearchAction = selected.some((call) => ["multi_action", "input", "click", "press"].includes(call.name));
+  const hasSearchAction = selected.some((call) => ["act", "multi_action", "input", "click", "press"].includes(call.name));
   const selectedURL = selected
     .map((call) => typeof call.args.url === "string" ? call.args.url : "")
     .find((url) => /[?&](?:q|query|search)=/i.test(url));

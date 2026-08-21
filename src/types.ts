@@ -295,6 +295,7 @@ export interface AutomationArtifact {
   name: string;
   size: number;
   createdAt: number;
+  expiresAt?: number;
   extension: string;
   contentType?: string;
   sha256?: string;

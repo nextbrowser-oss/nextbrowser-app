@@ -13,7 +13,17 @@ import { humanBytes } from "../types";
 import { Icon, Spinner } from "./Icon";
 
 type StudioSection = "recorder" | "workflows" | "artifacts";
-type BackendRecording = { id: string; status: string; revision: number; document: { run?: CapturedRun; started_at?: string }; updated_at: string };
+type BackendRecording = { id: string; status: string; revision: number; document: { run?: CapturedRun; started_at?: string; demo?: boolean }; updated_at: string };
+
+const ACTION_OPTIONS = [
+  ["navigate", "Open a web page"], ["input", "Enter text"], ["click", "Click something"],
+  ["press", "Press a key"], ["extract", "Collect data"], ["paginate_extract", "Collect data from pages"],
+  ["act", "Recorded page interaction"],
+] as const;
+
+function actionLabel(tool: string) {
+  return ACTION_OPTIONS.find(([value]) => value === tool)?.[1] || `Advanced: ${tool}`;
+}
 
 export function AutomationStudio() {
   const s = useStore();
@@ -147,6 +157,15 @@ export function AutomationStudio() {
     setDraft({ ...draft, actions, recipe: { ...draft.recipe, actions } });
   };
 
+  const updateActionArgument = (index: number, key: string, value: unknown) => {
+    if (!draft) return;
+    const actions = [...draft.actions];
+    const arguments_ = { ...actions[index].arguments };
+    if (value === "" || value === undefined) delete arguments_[key]; else arguments_[key] = value;
+    actions[index] = { ...actions[index], arguments: arguments_ };
+    setDraft({ ...draft, actions, recipe: { ...draft.recipe, actions } });
+  };
+
   const moveAction = (index: number, direction: -1 | 1) => {
     if (!draft) return;
     const target = index + direction;
@@ -222,6 +241,12 @@ export function AutomationStudio() {
     } catch (error) { reportError(error); }
   };
 
+  const replayRecording = async (run: CapturedRun) => {
+    const workflow = skillFromRun(run);
+    setNotice("Recording started again in Project.");
+    await s.runLocalSkill(workflow, run.task);
+  };
+
   const importArtifacts = async () => {
     setArtifactBusy(true);
     setArtifactError(undefined);
@@ -262,18 +287,20 @@ export function AutomationStudio() {
       {notice && <div className="automation-global-message success" role="status"><span>{notice}</span><button onClick={() => setNotice(undefined)}>Dismiss</button></div>}
 
       {section === "recorder" && <section className="automation-panel">
-        <div className="automation-panel-head"><div><h2>Browser Automation Recorder</h2><p>Capture semantic browser tool calls from the next agent run.</p></div>
-          <button className="primary" onClick={() => void startRecording()}><Icon name="circle.fill" size={12} /> {recordingSince ? "Record another run" : "Record next run"}</button>
+        <div className="automation-panel-head"><div><h2>Recordings</h2><p>A recording is a completed browser task. Run it again as-is, or turn it into an editable workflow.</p></div>
+          <button className="primary" onClick={() => void startRecording()}><Icon name="circle.fill" size={12} /> {recordingSince ? "Restart recording" : "Record a new task"}</button>
         </div>
         {recordingSince > 0 && <div className="recording-banner"><span className="recording-dot" />{recordedRun ? "Run captured — review and save it below." : "Recording is armed. Complete a browser task in Project, then return here."}</div>}
         <div className="capture-list">
-          {recordings.filter((item) => item.document.run).map((recording) => recording.document.run!).map((run) => {
+          {recordings.filter((item) => item.document.run).map((recording) => {
+            const run = recording.document.run!;
             const domain = capturedWorkflowDomain(run.task, run.evidence);
             const quality = workflowQuality(run.task, run.evidence, domain);
             const actions = workflowRecipe(run.task, run.evidence).actions;
             return <article className={"capture-card" + (recordedRun?.id === run.id ? " is-new" : "")} key={run.id}>
-              <div className="capture-card-copy"><strong>{run.task.slice(0, 120)}</strong><span>{run.conversationTitle} · {domain || "Unknown website"} · {actions.length} actions</span><small className={quality.reusable ? "ok" : "muted"}>{quality.reason}</small></div>
-              <button className="btn-bordered-prominent" disabled={!quality.reusable} onClick={() => void saveCapture(run)}>Save workflow</button>
+              <div className="capture-kind"><span className={recording.document.demo ? "demo" : "ready"}>{recording.document.demo ? "DEMO RECORDING" : "READY RECORDING"}</span><small>{recording.status === "completed" ? "Completed" : recording.status}</small></div>
+              <div className="capture-card-copy"><strong>{run.task.slice(0, 120)}</strong><span>{run.conversationTitle} · {domain || "Unknown website"} · {actions.length} recorded actions</span><small className={quality.reusable ? "ok" : "muted"}>{quality.reason}</small></div>
+              <div className="capture-card-actions"><button className="secondary" disabled={!quality.reusable} onClick={() => void replayRecording(run)}><Icon name="play.fill" size={12} /> Run again</button><button className="btn-bordered-prominent" disabled={!quality.reusable} onClick={() => void saveCapture(run)}>Turn into workflow</button></div>
             </article>;
           })}
           {!recordings.some((item) => item.document.run) && <div className="automation-empty"><Icon name="play.rectangle.on.rectangle.fill" size={28} /><strong>No browser runs captured yet</strong><span>Record a task that navigates, interacts with, or extracts from a website.</span></div>}
@@ -284,17 +311,26 @@ export function AutomationStudio() {
         <aside className="workflow-list"><div className="workflow-list-title"><span>Workflows</span><button className="mini" title="Create workflow" aria-label="Create workflow" onClick={() => void createWorkflow()}><Icon name="plus" size={12} /></button></div>{workflows.map((skill) => <button key={skill.id} className={skill.id === selectedWorkflowId ? "active" : ""} onClick={() => setSelectedWorkflowId(skill.id)}><Icon name="arrow.triangle.branch" size={14} /><span><strong>{skill.title}</strong><small>{skill.actions.length} steps · {skill.domain || "Any site"}</small></span></button>)}{!workflows.length && <p className="muted small">Record a run or create a workflow from a task.</p>}</aside>
         <div className="workflow-canvas">{draft ? <>
           <div className="workflow-editor-head"><div><input className="workflow-title-input" aria-label="Workflow name" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /><input className="workflow-domain-input" aria-label="Website domain" value={draft.domain} placeholder="example.com" onChange={(event) => setDraft({ ...draft, domain: event.target.value })} /></div><div className="row"><button className="mini danger-text" onClick={() => void deleteWorkflow(draft)}>Delete</button><button className="secondary" onClick={() => void runWorkflow(draft)}>Run</button><button className="primary" disabled={saving || !!Object.keys(actionErrors).length} onClick={() => void saveDraft()}>{saving && <Spinner size={12} />} Save</button></div></div>
-          <label className="field-label">Task template<textarea value={draft.task} onChange={(event) => setDraft({ ...draft, task: event.target.value })} /></label>
-          <div className="workflow-steps">{draft.actions.map((action, index) => <div className="workflow-step" key={`${index}-${action.tool}`}><div className="workflow-step-number">{index + 1}</div><div className="workflow-step-body"><input value={action.tool} aria-label={`Step ${index + 1} tool`} onChange={(event) => updateAction(index, "tool", event.target.value)} /><textarea defaultValue={JSON.stringify(action.arguments, null, 2)} aria-label={`Step ${index + 1} arguments`} onBlur={(event) => updateAction(index, "arguments", event.target.value)} />{actionErrors[index] && <small className="error">{actionErrors[index]}</small>}</div><div className="workflow-step-actions"><button className="mini" disabled={index === 0} onClick={() => moveAction(index, -1)}>↑</button><button className="mini" disabled={index === draft.actions.length - 1} onClick={() => moveAction(index, 1)}>↓</button><button className="mini danger-text" onClick={() => removeAction(index)}>×</button></div></div>)}</div>
+          <div className="workflow-builder-help"><strong>No code or page source needed.</strong><span>Choose what the browser should do. Targets are optional—the agent can find controls by their visible label or text and adapt when a page changes.</span></div>
+          <label className="field-label">What should this workflow accomplish?<textarea value={draft.task} onChange={(event) => setDraft({ ...draft, task: event.target.value })} /></label>
+          <div className="workflow-steps">{draft.actions.map((action, index) => <div className="workflow-step" key={`${index}-${action.tool}`}><div className="workflow-step-number">{index + 1}</div><div className="workflow-step-body"><select value={ACTION_OPTIONS.some(([value]) => value === action.tool) ? action.tool : "advanced"} aria-label={`Step ${index + 1} action`} onChange={(event) => { if (event.target.value !== "advanced") updateAction(index, "tool", event.target.value); }}><option value="advanced">{actionLabel(action.tool)}</option>{ACTION_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+            {["navigate", "open"].includes(action.tool) && <label>Page URL<input value={String(action.arguments.url || "")} placeholder="https://example.com/products" onChange={(event) => updateActionArgument(index, "url", event.target.value)} /></label>}
+            {["input", "click"].includes(action.tool) && <label>Target on the page <small>Optional</small><input value={String(action.arguments.selector || "")} placeholder="Visible label, text, or CSS selector" onChange={(event) => updateActionArgument(index, "selector", event.target.value)} /></label>}
+            {action.tool === "input" && <label>Text to enter<input value={String(action.arguments.text || "")} placeholder="Search phrase or {{input}}" onChange={(event) => updateActionArgument(index, "text", event.target.value)} /></label>}
+            {action.tool === "press" && <label>Key<input value={String(action.arguments.key || "Enter")} placeholder="Enter" onChange={(event) => updateActionArgument(index, "key", event.target.value)} /></label>}
+            {action.tool === "act" && <><label>Interaction<input value={String(action.arguments.action || "click")} placeholder="click, type, or press" onChange={(event) => updateActionArgument(index, "action", event.target.value)} /></label><label>Target on the page <small>Optional</small><input value={String(action.arguments.selector || "")} placeholder="Visible label, text, or CSS selector" onChange={(event) => updateActionArgument(index, "selector", event.target.value)} /></label>{action.arguments.action === "type" && <label>Text to enter<input value={String(action.arguments.text || "")} onChange={(event) => updateActionArgument(index, "text", event.target.value)} /></label>}</>}
+            {["extract", "paginate_extract"].includes(action.tool) && <><label>Results area <small>Optional</small><input value={String(action.arguments.container || "")} placeholder="Main content, product cards, table…" onChange={(event) => updateActionArgument(index, "container", event.target.value)} /></label><label>Data to collect<input value={Array.isArray(action.arguments.fields) ? action.arguments.fields.join(", ") : ""} placeholder="title, price, url" onChange={(event) => updateActionArgument(index, "fields", event.target.value.split(",").map((item) => item.trim()).filter(Boolean))} /></label></>}
+            <details><summary>Advanced JSON</summary><textarea key={JSON.stringify(action.arguments)} defaultValue={JSON.stringify(action.arguments, null, 2)} aria-label={`Step ${index + 1} arguments`} onBlur={(event) => updateAction(index, "arguments", event.target.value)} /></details>{actionErrors[index] && <small className="error">{actionErrors[index]}</small>}</div><div className="workflow-step-actions"><button className="mini" disabled={index === 0} onClick={() => moveAction(index, -1)}>↑</button><button className="mini" disabled={index === draft.actions.length - 1} onClick={() => moveAction(index, 1)}>↓</button><button className="mini danger-text" onClick={() => removeAction(index)}>×</button></div></div>)}</div>
           <button className="secondary workflow-add-step" onClick={addAction}><Icon name="plus" size={13} /> Add browser step</button>
           <label className="field-label">Agent fallback instructions<textarea rows={6} value={draft.instructions} onChange={(event) => setDraft({ ...draft, instructions: event.target.value })} /></label>
         </> : <div className="automation-empty"><Icon name="arrow.triangle.branch" size={28} /><strong>Select or record a workflow</strong></div>}</div>
       </section>}
 
       {section === "artifacts" && <section className="automation-panel">
-        <div className="automation-panel-head"><div><h2>Artifact Center</h2><p>Files are copied into this workspace and remain available across chats.</p></div><button className="primary" disabled={artifactBusy} onClick={() => void importArtifacts()}>{artifactBusy ? <Spinner size={13} /> : <Icon name="plus" size={13} />} Add files</button></div>
+        <div className="automation-panel-head"><div><h2>Artifact Center</h2><p>Up to 1 GiB per file. Files are automatically deleted 30 days after upload.</p></div><button className="primary" disabled={artifactBusy} onClick={() => void importArtifacts()}>{artifactBusy ? <Spinner size={13} /> : <Icon name="plus" size={13} />} Add files</button></div>
+        <div className="artifact-retention-note"><Icon name="clock" size={14} /><span><strong>30-day temporary storage.</strong> Download anything you need to keep before its deletion date.</span></div>
         {artifactError && <div className="error automation-inline-error">{artifactError}</div>}
-        <div className="artifact-grid">{artifacts.map((artifact) => <article className="artifact-card" key={artifact.id}><div className="artifact-icon"><Icon name="doc" size={22} /></div><div className="artifact-copy"><strong title={artifact.name}>{artifact.name}</strong><span>{artifact.extension.toUpperCase() || "FILE"} · {humanBytes(artifact.size)}</span><small>{new Date(artifact.createdAt).toLocaleString()}</small></div><div className="artifact-actions"><button className="secondary" onClick={() => void openArtifact(artifact)}>Open</button><button className="mini danger-text" onClick={() => void deleteArtifact(artifact)}>Delete</button></div></article>)}{!artifactBusy && !artifacts.length && <div className="automation-empty"><Icon name="tray.full.fill" size={28} /><strong>No artifacts in this workspace</strong><span>Add reports, downloads, screenshots, spreadsheets, or other run outputs.</span></div>}</div>
+        <div className="artifact-grid">{artifacts.map((artifact) => <article className="artifact-card" key={artifact.id}><div className="artifact-icon"><Icon name="doc" size={22} /></div><div className="artifact-copy"><strong title={artifact.name}>{artifact.name}</strong><span>{artifact.extension.toUpperCase() || "FILE"} · {humanBytes(artifact.size)}</span><small>Uploaded {new Date(artifact.createdAt).toLocaleString()}</small><small className="artifact-expiry">Deletes {new Date(artifact.expiresAt || artifact.createdAt + 30 * 86_400_000).toLocaleString()}</small></div><div className="artifact-actions"><button className="secondary" onClick={() => void openArtifact(artifact)}>Open</button><button className="mini danger-text" onClick={() => void deleteArtifact(artifact)}>Delete</button></div></article>)}{!artifactBusy && !artifacts.length && <div className="automation-empty"><Icon name="tray.full.fill" size={28} /><strong>No artifacts in this workspace</strong><span>Add reports, downloads, screenshots, spreadsheets, or other run outputs.</span></div>}</div>
       </section>}
     </div>
   );

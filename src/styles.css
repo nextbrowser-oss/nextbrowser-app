@@ -7149,12 +7149,18 @@ pre,
 .recording-banner { display: flex; align-items: center; gap: 9px; padding: 10px 20px; color: var(--text); background: color-mix(in srgb, #ef4444 8%, transparent); border-bottom: 1px solid color-mix(in srgb, #ef4444 22%, transparent); font-size: 13px; }
 .recording-dot { width: 9px; height: 9px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 0 4px color-mix(in srgb, #ef4444 15%, transparent); }
 .capture-list { display: grid; gap: 0; }
-.capture-card { display: flex; align-items: center; gap: 18px; padding: 15px 20px; border-bottom: 1px solid var(--border); }
+.capture-card { display: grid; grid-template-columns: 120px minmax(0,1fr) auto; align-items: center; gap: 18px; padding: 15px 20px; border-bottom: 1px solid var(--border); }
 .capture-card:last-child { border-bottom: 0; }
 .capture-card.is-new { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .capture-card-copy { display: grid; gap: 4px; min-width: 0; flex: 1; }
 .capture-card-copy strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .capture-card-copy span, .capture-card-copy small { font-size: 12px; color: var(--muted); }
+.capture-kind { display: grid; gap: 5px; justify-items: start; }
+.capture-kind > span { padding: 4px 7px; border-radius: 6px; font-size: 9px; font-weight: 800; letter-spacing: .06em; }
+.capture-kind .ready { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
+.capture-kind .demo { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+.capture-kind small { color: var(--muted); font-size: 10px; text-transform: capitalize; }
+.capture-card-actions { display: flex; gap: 7px; }
 .automation-empty { min-height: 230px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted); text-align: center; grid-column: 1 / -1; }
 .automation-empty strong { color: var(--text); }
 .workflow-builder { display: grid; grid-template-columns: 270px minmax(0, 1fr); min-height: 620px; }
@@ -7166,6 +7172,8 @@ pre,
 .workflow-list > button strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .workflow-list > button small { color: var(--muted); font-size: 10px; }
 .workflow-canvas { padding: 20px; overflow: auto; }
+.workflow-builder-help { display: grid; gap: 3px; margin: 14px 0; padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border)); border-radius: 10px; background: color-mix(in srgb, var(--accent) 7%, var(--surface-2)); font-size: 12px; }
+.workflow-builder-help span { color: var(--muted); line-height: 1.45; }
 .workflow-editor-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 .workflow-editor-head > div:first-child { display: grid; gap: 6px; flex: 1; }
 .workflow-title-input { font-size: 20px; font-weight: 700; border: 0 !important; background: transparent !important; padding: 0 !important; }
@@ -7176,16 +7184,24 @@ pre,
 .workflow-step { display: grid; grid-template-columns: 32px minmax(0,1fr) auto; gap: 10px; align-items: start; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
 .workflow-step-number { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); font-size: 12px; font-weight: 700; }
 .workflow-step-body { display: grid; gap: 7px; }
+.workflow-step-body > label { display: grid; gap: 4px; color: var(--muted); font-size: 11px; }
+.workflow-step-body > label small { display: inline; opacity: .75; }
+.workflow-step-body select { width: 100%; font-weight: 650; }
+.workflow-step-body details { margin-top: 2px; }
+.workflow-step-body summary { cursor: pointer; color: var(--muted); font-size: 11px; }
 .workflow-step-body input { font-family: var(--font-mono); font-weight: 600; }
 .workflow-step-body textarea { min-height: 88px; font-family: var(--font-mono); font-size: 11px; }
 .workflow-step-actions { display: flex; gap: 3px; }
 .workflow-add-step { margin-left: 42px; }
 .artifact-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; padding: 16px; }
+.artifact-retention-note { display: flex; align-items: center; gap: 8px; padding: 10px 20px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--orange, #d98522) 8%, transparent); color: var(--muted); font-size: 12px; }
+.artifact-retention-note strong { color: var(--text); }
 .artifact-card { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
 .artifact-icon { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 10px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .artifact-copy { min-width: 0; display: grid; gap: 3px; }
 .artifact-copy strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .artifact-copy span, .artifact-copy small { color: var(--muted); font-size: 11px; }
+.artifact-copy .artifact-expiry { color: var(--orange, #d98522); }
 .artifact-actions { grid-column: 1 / -1; display: flex; gap: 6px; justify-content: flex-end; }
 .automation-inline-error { padding: 10px 20px; border-bottom: 1px solid var(--border); }
-@media (max-width: 900px) { .automation-studio { padding-inline: 16px; } .workflow-builder { grid-template-columns: 1fr; } .workflow-list { border-right: 0; border-bottom: 1px solid var(--border); } .automation-summary { display: none; } .automation-how-it-works i { display: none; } .automation-how-it-works { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 900px) { .automation-studio { padding-inline: 16px; } .workflow-builder { grid-template-columns: 1fr; } .workflow-list { border-right: 0; border-bottom: 1px solid var(--border); } .automation-summary { display: none; } .automation-how-it-works i { display: none; } .automation-how-it-works { align-items: flex-start; flex-direction: column; } .capture-card { grid-template-columns: 1fr; } .capture-card-actions { justify-content: flex-start; } }
