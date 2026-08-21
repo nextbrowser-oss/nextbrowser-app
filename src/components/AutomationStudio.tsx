@@ -15,8 +15,7 @@ import { Icon, Spinner } from "./Icon";
 import { activeAutomationExecution, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, setActiveAutomationExecution, type AutomationExecution } from "../lib/automationExecution";
 
 type StudioSection = "recorder" | "workflows" | "artifacts";
-type RecordingFilter = "all" | "ready" | "recording" | "stopped";
-type BackendRecording = { id: string; status: string; revision: number; document: { run?: CapturedRun; started_at?: string }; updated_at: string };
+type BackendRecording = { id: string; status: string; revision: number; document: { run?: CapturedRun }; updated_at: string };
 type BackendRun = { id: string; workflow_id: string; workflow_version: number; status: "queued" | "running" | "completed" | "failed" | "cancelled"; error?: string; created_at: string; completed_at?: string };
 
 const ACTION_OPTIONS = [
@@ -111,7 +110,6 @@ export function AutomationStudio() {
   const [notice, setNotice] = useState<string>();
   const [playback, setPlayback] = useState<AutomationExecution | undefined>(activeAutomationExecution);
   const [playbackClock, setPlaybackClock] = useState(Date.now());
-  const [recordingFilter, setRecordingFilter] = useState<RecordingFilter>("all");
   const [recordingStopping, setRecordingStopping] = useState(false);
   const workspaceId = s.activeWorkspaceId || "";
   const recordingAgentId = activeAutomationRecording()?.agentId;
@@ -119,13 +117,6 @@ export function AutomationStudio() {
     workspaceId, agentId: recordingAgentId, startedAt: recordingSince,
   }).slice(0, 12) : [], [s.conversations, workspaceId, recordingAgentId, recordingSince]);
   const recordedRun = runs[0];
-  const visibleRecordings = recordings.filter((recording) => {
-    if (recordingFilter === "ready") return !!recording.document.run;
-    if (recordingFilter === "recording") return !recording.document.run && recording.status === "recording";
-    if (recordingFilter === "stopped") return !recording.document.run && recording.status !== "recording";
-    return true;
-  });
-  const stoppedRecordingCount = recordings.filter((recording) => !recording.document.run && recording.status !== "recording").length;
   const selectedWorkflow = workflows.find((workflow) => workflow.id === selectedWorkflowId);
   const draftDirty = !!draft && !!selectedWorkflow && JSON.stringify(draft) !== JSON.stringify(selectedWorkflow);
   const draftValidationError = workflowDraftError(draft);
@@ -178,12 +169,10 @@ export function AutomationStudio() {
     if (!workspaceId) return setRecordings([]);
     try {
       const items = await invoke<BackendRecording[]>("automation_recordings_list", { workspaceId });
-      setRecordings(items);
-      const active = activeAutomationRecording();
-      if (active?.workspaceId === workspaceId && Date.now() - active.startedAt > 10_000 && !items.some((item) => item.id === active.id)) {
-        clearActiveAutomationRecording();
-        setRecordingSince(0);
-      }
+      const completed = items.filter((item) => !!item.document.run);
+      const unfinished = items.filter((item) => !item.document.run);
+      setRecordings(completed);
+      if (unfinished.length) await Promise.allSettled(unfinished.map((item) => invoke("automation_recording_delete", { id: item.id })));
     }
     catch (error) { setStudioError(error instanceof Error ? error.message : String(error)); }
   };
@@ -251,19 +240,13 @@ export function AutomationStudio() {
     try {
       const existing = activeAutomationRecording();
       if (existing?.phase === "recording") {
-        if (recordedRun && existing.workspaceId === workspaceId) {
-          await invoke("automation_recording_put", { recording: { id: existing.id, workspace_id: existing.workspaceId, status: "completed", document: { run: recordedRun }, base_revision: 1 } });
-        } else {
-          await invoke("automation_recording_delete", { id: existing.id });
-          setRecordings((current) => current.filter((item) => item.id !== existing.id));
-        }
+        if (existing.workspaceId !== workspaceId) return setStudioError("Stop the recording in the other workspace before starting a new one.");
+        return;
       }
       const startedAt = Date.now();
       const id = uid();
       setActiveAutomationRecording({ id, workspaceId, agentId: s.agentId, startedAt, phase: "recording" });
       setRecordingSince(startedAt);
-      const recording = await invoke<BackendRecording>("automation_recording_put", { recording: { id, workspace_id: workspaceId, status: "recording", document: { started_at: new Date(startedAt).toISOString() }, base_revision: 0 } });
-      setRecordings((current) => [recording, ...current]);
       setStudioError(undefined);
       if (s.terminalChat) s.setTerminalChat(false);
       s.setTab("chat");
@@ -277,15 +260,13 @@ export function AutomationStudio() {
     try {
       const captured = runs.find((run) => run.answer.createdAt >= active.startedAt);
       if (captured) {
-        await invoke("automation_recording_put", { recording: { id: active.id, workspace_id: workspaceId, status: "completed", document: { run: captured }, base_revision: 1 } });
+        await invoke("automation_recording_put", { recording: { id: active.id, workspace_id: workspaceId, status: "completed", document: { run: captured }, base_revision: 0 } });
         clearActiveAutomationRecording();
         setRecordingSince(0);
         setNotice("Recording stopped and saved. Review it below or turn it into a workflow.");
       } else {
-        await invoke("automation_recording_delete", { id: active.id });
         clearActiveAutomationRecording();
         setRecordingSince(0);
-        setRecordings((current) => current.filter((item) => item.id !== active.id));
         setNotice("Recording stopped. The incomplete attempt was discarded.");
       }
       await loadRecordings();
@@ -493,14 +474,6 @@ export function AutomationStudio() {
     catch (error) { setArtifactError(error instanceof Error ? error.message : String(error)); }
   };
 
-  const recoverRecording = async (recording: BackendRecording, run: CapturedRun) => {
-    try {
-      await invoke("automation_recording_put", { recording: { id: recording.id, workspace_id: workspaceId, status: "completed", document: { run }, base_revision: recording.revision } });
-      await loadRecordings();
-      setNotice("Stopped recording recovered and saved.");
-    } catch (error) { reportError(error); }
-  };
-
   const deleteRecording = async (recording: BackendRecording) => {
     if (!window.confirm("Delete this recording? This cannot be undone.")) return;
     try {
@@ -513,16 +486,6 @@ export function AutomationStudio() {
       setRecordings((current) => current.filter((item) => item.id !== recording.id));
       setNotice("Recording deleted.");
     } catch (error) { reportError(error); }
-  };
-
-  const clearStoppedRecordings = async () => {
-    const stopped = recordings.filter((recording) => !recording.document.run && recording.status !== "recording");
-    if (!stopped.length || !window.confirm(`Delete ${stopped.length} stopped recording attempt${stopped.length === 1 ? "" : "s"}?`)) return;
-    try {
-      await Promise.all(stopped.map((recording) => invoke("automation_recording_delete", { id: recording.id })));
-      setRecordings((current) => current.filter((item) => !stopped.some((stoppedItem) => stoppedItem.id === item.id)));
-      setNotice("Stopped recording attempts cleared.");
-    } catch (error) { reportError(error); await loadRecordings(); }
   };
 
   return (
@@ -548,13 +511,12 @@ export function AutomationStudio() {
 
       {section === "recorder" && <section className="automation-panel">
         <div className="automation-panel-head"><div><h2>Recordings</h2><p>A recording is a completed browser task. Run it again as-is, or turn it into an editable workflow.</p></div>
-          <div className="row">{stoppedRecordingCount > 0 && <button className="secondary" onClick={() => void clearStoppedRecordings()}>Clear stopped ({stoppedRecordingCount})</button>}{recordingSince > 0 ? <button className="secondary danger-text" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={12} /> : <Icon name="stop.fill" size={12} />} Stop recording</button> : <button className="primary" onClick={() => void startRecording()}><Icon name="circle.fill" size={12} /> Start recording</button>}</div>
+          <div className="row">{recordingSince > 0 ? <button className="secondary danger-text" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={12} /> : <Icon name="stop.fill" size={12} />} Stop recording</button> : <button className="primary" onClick={() => void startRecording()}><Icon name="circle.fill" size={12} /> Start recording</button>}</div>
         </div>
-        <div className="recording-filters" aria-label="Filter recordings">{(["all", "ready", "recording", "stopped"] as RecordingFilter[]).map((filter) => <button key={filter} className={recordingFilter === filter ? "active" : ""} onClick={() => setRecordingFilter(filter)}>{filter === "all" ? `All ${recordings.length}` : filter === "ready" ? `Ready ${recordings.filter((item) => item.document.run).length}` : filter === "recording" ? `Recording ${recordings.filter((item) => !item.document.run && item.status === "recording").length}` : `Stopped ${stoppedRecordingCount}`}</button>)}</div>
         <div className="automation-management-note"><Icon name="info.circle" size={13} /><span>Records agent-driven browser actions in Project Chat—not manual clicks or Terminal sessions. There is no pause because page state may change.</span></div>
         {recordingSince > 0 && <div className="recording-banner"><span className="recording-dot" />{recordedRun ? "Browser run captured — click Stop recording to save it." : "Recording is armed. Complete one browser task in Project Chat, then click Stop recording."}</div>}
         <div className="capture-list">
-          {visibleRecordings.filter((item) => item.document.run).map((recording) => {
+          {recordings.map((recording) => {
             const run = recording.document.run!;
             const domain = capturedWorkflowDomain(run.task, run.evidence);
             const quality = workflowQuality(run.task, run.evidence, domain);
@@ -565,13 +527,7 @@ export function AutomationStudio() {
               <div className="capture-card-actions">{playback?.sourceId === run.id && playbackView && !["completed", "failed", "cancelled"].includes(playbackView.phase) ? <div className="capture-running"><Spinner size={13} /><span>{playbackView.phase === "preparing" ? "Preparing…" : playbackView.phase === "stopping" ? "Stopping…" : `${playbackView.progress}% running`}</span></div> : <button className="secondary" disabled={!quality.reusable || executionBusy} title={executionBusy ? "Stop the running automation first" : "Run recording"} onClick={() => void replayRecording(run)}><Icon name="play.fill" size={12} /> Run again</button>}<button className="btn-bordered-prominent" disabled={!quality.reusable} onClick={() => void saveCapture(run)}>Turn into workflow</button><button className="mini danger-text" title="Delete recording" onClick={() => void deleteRecording(recording)}><Icon name="trash" size={12} /> Delete</button></div>
             </article>;
           })}
-          {visibleRecordings.filter((item) => !item.document.run).map((recording) => {
-            const startedAt = Date.parse(recording.document.started_at || "");
-            const stoppedAt = Date.parse(recording.updated_at || "");
-            const recoverable = runs.find((run) => run.answer.createdAt >= startedAt && (!Number.isFinite(stoppedAt) || run.answer.createdAt <= stoppedAt));
-            return <article className="capture-card capture-attempt" key={recording.id}><div className="capture-kind"><span className={recording.status === "recording" ? "recording" : "stopped"}>{recording.status === "recording" ? "RECORDING" : "STOPPED"}</span><small>{recording.status}</small></div><div className="capture-card-copy"><strong>{recoverable ? "A completed browser run can be recovered" : recording.status === "recording" ? "Waiting for a browser task" : "No completed browser run was captured"}</strong><span>{recording.document.started_at ? `Started ${new Date(recording.document.started_at).toLocaleString()}` : "Recording attempt"}</span><small>{recoverable ? "The browser task finished before this recording was stopped. Save it now." : recording.status === "recording" ? "Complete a browser task in Project, or use Stop to finish recording." : "This attempt was stopped before the agent completed a reusable browser task."}</small></div><div className="capture-card-actions">{recoverable && <button className="btn-bordered-prominent" onClick={() => void recoverRecording(recording, recoverable)}>Recover recording</button>}{recording.status === "recording" && <button className="secondary" onClick={() => s.setTab("chat")}>Go to Project</button>}<button className="mini danger-text" title="Delete recording attempt" onClick={() => void deleteRecording(recording)}><Icon name="trash" size={12} /> Delete</button></div></article>;
-          })}
-          {!visibleRecordings.length && <div className="automation-empty"><Icon name="play.rectangle.on.rectangle.fill" size={28} /><strong>No recordings in this view</strong><span>Choose another filter or record a new browser task.</span></div>}
+          {!recordings.length && <div className="automation-empty"><Icon name="play.rectangle.on.rectangle.fill" size={28} /><strong>No recordings yet</strong><span>Record and stop a successful browser task to save it here.</span></div>}
         </div>
       </section>}
 

@@ -30,7 +30,7 @@ It does not currently support:
 | 3 | Complex workflow | Navigate, wait, extract, paginate across Books to Scrape | Pass; 32 records across two pages |
 | 4 | Record to workflow | Start recording, run a two-step live workflow, Stop, convert | Pass; backend recording and editable two-step workflow created |
 | 5 | Stop during preflight | Stop before an agent reply exists | Pass after fix; no permanent `Stopping…` state, backend run cancelled |
-| 6 | Incomplete recording | Start and immediately Stop | Pass; attempt is deleted from backend and UI |
+| 6 | Incomplete recording | Start and immediately Stop | Pass; attempt remains local while active and is never persisted as a recording |
 | 7 | Isolation | Competing workspace, agent, and pre-start runs | Pass; only the owning workspace, agent, and time window are captured |
 | 8 | Security | Password, bearer token, API key, card/security-code contexts | Pass; values redacted client-side and raw secrets rejected by workflow API |
 | 9 | Builder lifecycle | Duplicate, invalidate domain, block Save/Run, save revision, delete | Pass; inline validation and optimistic revisions work |
@@ -42,6 +42,7 @@ It does not currently support:
 - Failed retries could leak into recipes. Failed actions are excluded.
 - Recordings could capture another workspace or agent. Capture is now scoped by workspace, agent, and start time.
 - Recorder completion happened before the user pressed Stop. Stop is now the only commit point.
+- Empty recording attempts were previously persisted and exposed as Recording/Stopped categories. Only successful recordings are now stored or shown in the library.
 - A second automation could overwrite the first execution indicator. Concurrent starts are blocked.
 - Failed executions were sometimes presented as stopped. Completed, failed, cancelled, preparing, running, and stopping are distinct.
 - Stop during browser preflight could remain stuck forever. A missing reply now terminates Stop cleanly or produces an immediate launch error.
@@ -51,7 +52,7 @@ It does not currently support:
 - Default workflows used `example.com` and could never succeed. They now use the public Books to Scrape and Quotes to Scrape sandboxes.
 - Automation CRUD traffic hit the captcha-provider rate limit and returned 429. Authenticated automation persistence is now excluded from that paid-provider limiter.
 - Run and step states could race or revert from terminal states. Conditional transitions and terminal step reconciliation were added.
-- A deleted backend recording could leave a permanent local recording indicator. Startup reconciliation now clears stale state.
+- Recording-in-progress state is local UI state and is never represented as an incomplete backend entity.
 - Background timer throttling made duration and progress appear frozen. The Electron window keeps automation timers active.
 - Workflow progress counted setup/inspection calls as completed actions. Only replayable recipe actions count; long-running work shows the agent's live activity label.
 - Backend runs existed but were invisible in the builder. The selected workflow now shows its five most recent backend runs.

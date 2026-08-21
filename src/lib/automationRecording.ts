@@ -3,7 +3,7 @@ export type ActiveAutomationRecording = {
   workspaceId: string;
   agentId?: string;
   startedAt: number;
-  phase: "recording" | "captured";
+  phase: "recording";
 };
 
 const STATE_KEY = "automationRecordingState";

@@ -7165,7 +7165,7 @@ pre,
 .automation-sections button { display: flex; align-items: center; gap: 7px; padding: 8px 12px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); transition: color 140ms ease, background 140ms ease, border-color 140ms ease; }
 .automation-sections button:hover { color: var(--text); background: var(--surface-3); }
 .automation-sections button.active { border-color: color-mix(in srgb, var(--accent) 30%, transparent); color: var(--accent-text); background: color-mix(in srgb, var(--accent) 14%, transparent); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--accent-text) 8%, transparent); }
-.automation-sections button:focus-visible, .recording-filters button:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 72%, transparent); outline-offset: 2px; }
+.automation-sections button:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 72%, transparent); outline-offset: 2px; }
 .automation-how-it-works { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); color: var(--muted); font-size: 12px; }
 .automation-how-it-works span { display: flex; align-items: center; gap: 7px; }
 .automation-how-it-works b { width: 20px; height: 20px; display: inline-grid; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-size: 10px; }
@@ -7194,10 +7194,6 @@ pre,
 .automation-panel-head h2 { margin: 0 0 4px; font-size: 17px; }
 .automation-panel-head p { margin: 0; color: var(--muted); font-size: 13px; }
 .recording-banner { display: flex; align-items: center; gap: 9px; padding: 10px 20px; color: var(--text); background: color-mix(in srgb, #ef4444 8%, transparent); border-bottom: 1px solid color-mix(in srgb, #ef4444 22%, transparent); font-size: 13px; }
-.recording-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; padding: 9px 20px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
-.recording-filters button { min-height: 26px; padding: 4px 9px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--muted); font-size: 10px; font-weight: 650; transition: color 140ms ease, background 140ms ease, border-color 140ms ease; }
-.recording-filters button:hover { background: var(--surface-4); color: var(--text); }
-.recording-filters button.active { border-color: color-mix(in srgb, var(--accent) 28%, transparent); background: color-mix(in srgb, var(--accent) 13%, transparent); color: var(--accent-text); }
 .automation-management-note { display: flex; align-items: center; gap: 7px; padding: 8px 20px; border-bottom: 1px solid var(--line); color: var(--muted); background: color-mix(in srgb, var(--accent) 3%, transparent); font-size: 11px; }
 .recording-dot { width: 9px; height: 9px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 0 4px color-mix(in srgb, #ef4444 15%, transparent); }
 .capture-list { display: grid; gap: 0; }
@@ -7216,12 +7212,9 @@ pre,
 .capture-kind { display: grid; gap: 5px; justify-items: start; }
 .capture-kind > span { padding: 4px 7px; border-radius: 6px; font-size: 9px; font-weight: 800; letter-spacing: .06em; }
 .capture-kind .ready { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
-.capture-kind .recording { background: color-mix(in srgb, var(--red) 15%, transparent); color: var(--red); }
-.capture-kind .stopped { background: var(--surface-5); color: var(--muted); }
 .capture-kind small { color: var(--muted); font-size: 10px; text-transform: capitalize; }
 .capture-card-actions { display: flex; gap: 7px; }
 .capture-running { min-width: 106px; display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--accent); font-size: 11px; font-weight: 650; }
-.capture-attempt { opacity: .82; }
 .automation-empty { min-height: 230px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted); text-align: center; grid-column: 1 / -1; }
 .automation-empty strong { color: var(--text); }
 .workflow-builder { display: grid; grid-template-columns: 270px minmax(0, 1fr); min-height: 620px; }
