@@ -15,9 +15,18 @@ import { CountrySelect } from "./CountrySelect";
 import { UserFacingError } from "./UserFacingError";
 import { VPSSetupModal } from "./VPSSetupModal";
 import { CONNECTORS } from "../connectorsCatalog";
+import { invoke, listen } from "../electronBridge";
+import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, clearActiveAutomationRecording, type ActiveAutomationRecording } from "../lib/automationRecording";
+import { capturedRunsForRecording } from "../lib/automationStudio";
+import { activeAutomationExecution, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, executionWithRecipeProgress, setActiveAutomationExecution, type AutomationExecution, type AutomationRecipeProgress } from "../lib/automationExecution";
 
 type ManualProxyInputMode = "url" | "fields";
 const PROFILE_CREATE_TIMEOUT_MS = 120_000;
+
+function recordingDuration(startedAt: number, now = Date.now()) {
+  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+  return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
 
 interface SidebarProps {
   onOpenAgentSettings: () => void;
@@ -75,6 +84,13 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [activeRecording, setActiveRecording] = useState<ActiveAutomationRecording | undefined>(activeAutomationRecording);
+  const [recordingClock, setRecordingClock] = useState(Date.now());
+  const [recordingStopping, setRecordingStopping] = useState(false);
+  const [recordingError, setRecordingError] = useState<string>();
+  const [automationExecution, setAutomationExecution] = useState<AutomationExecution | undefined>(activeAutomationExecution);
+  const [automationExecutionClock, setAutomationExecutionClock] = useState(Date.now());
+  const [automationExecutionError, setAutomationExecutionError] = useState<string>();
   const profileCreateRequestRef = useRef<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const projectListRef = useRef<HTMLDivElement | null>(null);
@@ -149,6 +165,95 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const visibleProfileCount = profileWorkspaceEntries.length;
   const runningCount = profileWorkspaceEntries.filter(({ profile }) => s.statuses[profile.name] === "running").length;
   const proxyCountries = s.proxyCountries.length ? s.proxyCountries : ROTATION_COUNTRIES;
+  const recordingWorkspace = activeRecording ? s.workspaces.find((workspace) => workspace.id === activeRecording.workspaceId) : undefined;
+  const automationExecutionWorkspace = automationExecution ? s.workspaces.find((workspace) => workspace.id === automationExecution.workspaceId) : undefined;
+  const automationExecutionState = automationExecution ? automationExecutionView(automationExecution, s.conversations, automationExecutionClock) : undefined;
+
+  useEffect(() => {
+    const sync = () => { setActiveRecording(activeAutomationRecording()); setRecordingClock(Date.now()); setRecordingError(undefined); };
+    window.addEventListener(AUTOMATION_RECORDING_EVENT, sync);
+    return () => window.removeEventListener(AUTOMATION_RECORDING_EVENT, sync);
+  }, []);
+
+  useEffect(() => {
+    if (!activeRecording || activeRecording.phase !== "recording") return;
+    const timer = window.setInterval(() => setRecordingClock(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [activeRecording]);
+
+  useEffect(() => {
+    const sync = () => { setAutomationExecution(activeAutomationExecution()); setAutomationExecutionClock(Date.now()); setAutomationExecutionError(undefined); };
+    window.addEventListener(AUTOMATION_EXECUTION_EVENT, sync);
+    return () => window.removeEventListener(AUTOMATION_EXECUTION_EVENT, sync);
+  }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<AutomationRecipeProgress>("automation:recipe-progress", ({ payload }) => {
+      const current = activeAutomationExecution();
+      if (!current || current.executionId !== payload.executionId) return;
+      setActiveAutomationExecution(executionWithRecipeProgress(current, payload));
+    }).then((dispose) => { unlisten = dispose; });
+    return () => unlisten?.();
+  }, []);
+
+  useEffect(() => {
+    if (!automationExecution || !automationExecutionState || ["completed", "failed", "cancelled"].includes(automationExecutionState.phase)) return;
+    const timer = window.setInterval(() => setAutomationExecutionClock(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [automationExecution, automationExecutionState?.phase]);
+
+  const openRecorder = () => {
+    if (activeRecording?.workspaceId && activeRecording.workspaceId !== s.activeWorkspaceId) s.selectWorkspace(activeRecording.workspaceId);
+    s.setTab("automation");
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent("nextbrowser:open-recorder")), 0);
+  };
+
+  const stopRecording = async () => {
+    if (!activeRecording || activeRecording.phase !== "recording" || recordingStopping) return;
+    setRecordingStopping(true);
+    setRecordingError(undefined);
+    try {
+      const captured = capturedRunsForRecording(s.conversations, activeRecording)[0];
+      if (captured) {
+        await invoke("automation_recording_put", { recording: { id: activeRecording.id, workspace_id: activeRecording.workspaceId, status: "completed", document: { run: captured }, base_revision: 0 } });
+      }
+      clearActiveAutomationRecording();
+    } catch (error) {
+      setRecordingError(error instanceof Error ? error.message : String(error));
+    } finally { setRecordingStopping(false); }
+  };
+
+  const openAutomationExecution = () => {
+    if (!automationExecution) return;
+    if (automationExecution.workspaceId !== s.activeWorkspaceId) s.selectWorkspace(automationExecution.workspaceId);
+    s.setTab("automation");
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent("nextbrowser:open-automation-execution", { detail: { sourceKind: automationExecution.sourceKind } })), 0);
+  };
+
+  const stopAutomationExecution = async () => {
+    if (!automationExecution || automationExecution.phase === "stopping") return;
+    setAutomationExecutionError(undefined);
+    const stopping: AutomationExecution = { ...automationExecution, phase: "stopping" };
+    setAutomationExecution(stopping);
+    setActiveAutomationExecution(stopping);
+    let cancelledWhileQueued = false;
+    if (stopping.engine === "deterministic") {
+      try { await invoke("automation_recipe_cancel", { executionId: stopping.executionId }); }
+      catch (error) { setAutomationExecutionError(error instanceof Error ? error.message : String(error)); }
+    } else {
+      cancelledWhileQueued = !!stopping.replyId && s.cancelQueuedReply(stopping.replyId);
+      if (!cancelledWhileQueued) {
+        if (stopping.replyId) s.stopReply(stopping.replyId);
+        else s.stopRunning();
+      }
+    }
+    if (stopping.backendRunId) {
+      try { await invoke("automation_run_update", { id: stopping.backendRunId, update: { status: "cancelled", output: { detail: "Stopped by user." } } }); }
+      catch (error) { setAutomationExecutionError(error instanceof Error ? error.message : String(error)); }
+    }
+    if (cancelledWhileQueued) window.setTimeout(clearActiveAutomationExecution, 600);
+  };
 
   const openProfileCreator = () => {
     if (!s.authed) {
@@ -495,6 +600,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             {badgeFor(item.id) && <span>{badgeFor(item.id)}</span>}
           </button>
         ))}
+        {activeRecording && <button className="mini-nav-btn mini-recording-control recording" data-tooltip={`Recording ${recordingDuration(activeRecording.startedAt, recordingClock)}`} aria-label="Open active recording" onClick={openRecorder}><Icon name="circle.fill" size={18} /><span>{recordingDuration(activeRecording.startedAt, recordingClock)}</span></button>}
         <span className="spacer" />
         <button className="mini-nav-btn" data-tooltip={`Agent: ${agentName}`} aria-label={`Agent: ${agentName}`} onClick={onOpenAgentSettings}>
           <Icon name="cpu.fill" size={18} />
@@ -520,6 +626,20 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           </button>
         </div>
       </div>
+
+      {activeRecording && <section className="sidebar-recording-control recording" aria-label="Recording in progress">
+        <div className="sidebar-recording-status"><span className="sidebar-recording-dot" /><div><strong>Recording in progress</strong><small>{recordingWorkspace?.name || "Current workspace"} · {recordingDuration(activeRecording.startedAt, recordingClock)}</small></div></div>
+        <div className="sidebar-recording-actions"><button onClick={openRecorder}>Open recorder</button><button className="stop" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={11} /> : <Icon name="stop.fill" size={11} />} Stop recording</button></div>
+        {recordingError && <small className="sidebar-recording-error" role="alert">{recordingError}</small>}
+      </section>}
+
+      {automationExecution && automationExecutionState && <section className={`sidebar-execution-control ${automationExecutionState.phase}`} aria-label="Automation execution status">
+        <div className="sidebar-execution-status"><span className="sidebar-execution-icon"><Icon name={automationExecutionState.phase === "completed" ? "checkmark.circle.fill" : ["failed", "cancelled"].includes(automationExecutionState.phase) ? "xmark.circle.fill" : automationExecutionState.phase === "stopping" ? "stop.fill" : "play.fill"} size={12} /></span><div><strong>{automationExecutionState.phase === "completed" ? "Workflow completed" : automationExecutionState.phase === "cancelled" ? "Workflow stopped" : automationExecutionState.phase === "failed" ? "Workflow failed" : automationExecutionState.phase === "stopping" ? "Stopping workflow" : automationExecutionState.phase === "preparing" ? "Preparing workflow" : "Workflow running"}</strong><small title={automationExecution.workflowTitle}>{automationExecution.workflowTitle} · {automationExecutionWorkspace?.name || "Current workspace"}</small></div><b>{automationExecutionState.progress}%</b></div>
+        <div className="sidebar-execution-track"><i style={{ width: `${automationExecutionState.progress}%` }} /></div>
+        <small className="sidebar-execution-detail">{automationExecutionState.detail}</small>
+        <div className="sidebar-recording-actions"><button onClick={openAutomationExecution}>Open</button>{["completed", "failed", "cancelled"].includes(automationExecutionState.phase) ? <button onClick={clearActiveAutomationExecution}>Dismiss</button> : <button className="stop" disabled={automationExecution.phase === "stopping"} onClick={() => void stopAutomationExecution()}>{automationExecution.phase === "stopping" ? <Spinner size={11} /> : <Icon name="stop.fill" size={11} />} {automationExecution.phase === "stopping" ? "Stopping" : "Stop"}</button>}</div>
+        {automationExecutionError && <small className="sidebar-recording-error" role="alert">{automationExecutionError}</small>}
+      </section>}
 
       <nav className="sidebar-scroll sidebar-nav-list" aria-label="Sidebar pages">
         {NAV_ITEMS.map((item) => {

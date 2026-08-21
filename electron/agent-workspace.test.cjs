@@ -24,6 +24,7 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   assert.match(main, /"--profile", CODEX_TERMINAL_PROFILE/);
   assert.match(main, /"--sandbox", "workspace-write"/);
   assert.match(main, /sandbox_workspace_write\.network_access=true/);
+  assert.match(main, /CLAWBROWSER_BIN: clawbrowserBin/);
   assert.match(main, /default_tools_approval_mode = "approve"/);
   assert.match(main, /\[plugins\."browser@openai-bundled"\][\s\S]*enabled = false/);
   assert.match(main, /ensureCodexTerminalProfile\(\)/);
@@ -35,6 +36,7 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   assert.match(main, /mcp_servers\.nextbrowser\.env_vars=.*MULTILOGIN_TOKEN/);
   assert.doesNotMatch(main, /mcpEnvKeys\.push\("MULTILOGIN_TOKEN"\)/);
   assert.match(main, /plugins\."clawbrowser@clawctl-local"\.mcp_servers\.clawbrowser\.enabled=false/);
+  assert.match(main, /plugins\."clawbrowser@nbc-local"\.enabled=false/);
   assert.match(main, /mcp_servers\.nextbrowser\.default_tools_approval_mode=approve/);
   assert.match(main, /"--add-dir", dir/);
   assert.match(main, /\.cache", "clawbrowser"/);
@@ -75,4 +77,64 @@ test("terminal attachments are staged inside the sandboxed workspace", () => {
   assert.match(terminal, /select_terminal_files/);
   assert.match(terminal, /setAttachmentError/);
   assert.match(terminal, /Please inspect the attached file\(s\)\./);
+});
+
+test("automation artifacts are persisted only in local app storage", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  assert.match(main, /case "artifact_list"/);
+  assert.match(main, /localAutomationArtifacts\(\)\.list/);
+  assert.match(main, /case "artifact_import"/);
+  assert.match(main, /localAutomationArtifacts\(\)\.importFile/);
+  assert.match(main, /case "artifact_open"/);
+  assert.match(main, /localAutomationArtifacts\(\)\.resolvePath/);
+  assert.match(main, /case "artifact_delete"/);
+  assert.match(main, /localAutomationArtifacts\(\)\.delete/);
+  assert.doesNotMatch(main, /listAutomationArtifacts|uploadAutomationArtifact|downloadAutomationArtifact|deleteAutomationArtifact/);
+});
+
+test("automation recordings support backend deletion", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  assert.match(main, /case "automation_recording_delete"/);
+  assert.match(main, /deleteAutomationRecording/);
+});
+
+test("unfinished recording attempts are never persisted as library entities", () => {
+  const studio = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AutomationStudio.tsx"), "utf8");
+  const sidebar = fs.readFileSync(path.join(__dirname, "..", "src", "components", "Sidebar.tsx"), "utf8");
+  assert.doesNotMatch(studio, /status: "recording"/);
+  assert.doesNotMatch(sidebar, /automation_recording_delete/);
+  assert.doesNotMatch(studio, /RecordingFilter|Clear stopped|STOPPED|No recordings in this view/);
+  assert.match(studio, /items\.filter\(\(item\) => !!item\.document\.run\)/);
+  assert.match(studio, /Start recording/);
+  assert.match(studio, /Stop recording/);
+  assert.doesNotMatch(studio, />Pause recording</);
+});
+
+test("recordings and workflows replay deterministically with explicit AI repair", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  const studio = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AutomationStudio.tsx"), "utf8");
+  const store = fs.readFileSync(path.join(__dirname, "..", "src", "store.ts"), "utf8");
+
+  assert.match(main, /case "automation_recipe_execute"/);
+  assert.match(main, /case "automation_recipe_cancel"/);
+  assert.match(store, /runAutomationRecipe: async/);
+  assert.match(store, /invoke<AutomationRecipeResult>\("automation_recipe_execute"/);
+  assert.match(studio, /s\.runAutomationRecipe\(/);
+  assert.match(studio, /Repair & run with AI/);
+  assert.match(studio, /runLocalSkill\(repairWorkflow, repairTask\)/);
+  const deterministicRun = store.slice(store.indexOf("runAutomationRecipe: async"), store.indexOf("runLocalSkill: async"));
+  assert.doesNotMatch(deterministicRun, /prepareLocalSession/);
+});
+
+test("workflow builder selects page elements visually without exposing CSS inputs", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  const studio = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AutomationStudio.tsx"), "utf8");
+  assert.match(main, /case "automation_element_pick"/);
+  assert.match(main, /case "automation_element_pick_cancel"/);
+  assert.match(studio, /Select on page/);
+  assert.match(studio, /Select row on page/);
+  assert.match(studio, /no HTML or CSS knowledge required/i);
+  assert.doesNotMatch(studio, /placeholder="css=/);
+  assert.doesNotMatch(studio, /pickElement[\s\S]{0,1200}await s\.start(?:DefaultSession|Profile)/);
+  assert.match(studio, /actions\[index\] = \{ tool, arguments: defaultActionArguments\(tool\) \}/);
 });

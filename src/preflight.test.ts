@@ -32,6 +32,26 @@ beforeEach(() => {
 });
 
 describe("prepareSession command reporting", () => {
+  it("keeps the selected runtime on every profile command", async () => {
+    nextctl.json
+      .mockResolvedValueOnce(greenVerification)
+      .mockResolvedValueOnce({ tabs: [{ id: "page", url: "https://example.com" }] });
+
+    const result = await prepareSession({
+      selectedProfile: "work-profile",
+      runtime: "camoufox",
+      statuses: { "work-profile": "running" },
+    });
+
+    expect(result.profileArgs).toEqual(["--profile", "work-profile", "--runtime", "camoufox"]);
+    expect(nextctl.json).toHaveBeenNthCalledWith(1, [
+      "--profile", "work-profile", "--runtime", "camoufox", "verify", "--timeout", "30s",
+    ]);
+    expect(nextctl.json).toHaveBeenNthCalledWith(2, [
+      "--profile", "work-profile", "--runtime", "camoufox", "tabs", "list",
+    ]);
+  });
+
   it("does not report a started session when start fails", async () => {
     const onStep = vi.fn();
     nextctl.run.mockResolvedValueOnce({

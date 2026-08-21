@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ChatMessage, Conversation, CustomScript } from "./types";
+import type { BrowserWorkflowSkill, ChatMessage, Conversation, CustomScript } from "./types";
 import type { SkillEntry } from "./skillsCatalog";
 import { VPS_PROMPT_MARKER } from "./lib/vpsPrompt";
 import { setMultiloginSelection } from "./lib/multiloginSelection";
@@ -83,6 +83,23 @@ function customScript(): CustomScript {
   };
 }
 
+function workflowSkill(): BrowserWorkflowSkill {
+  return {
+    id: "workflow",
+    title: "Collect products",
+    domain: "example.com",
+    task: "Collect product cards",
+    instructions: "Use only for explicit AI repair.",
+    actions: [{ tool: "extract", arguments: { selector: ".product", fields: { title: ".name" } } }],
+    capability: "scrape",
+    parametersSchema: {},
+    outputSchema: {},
+    recipe: { version: 1, capability: "scrape", actions: [] },
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
 function localNextctlCalls() {
   return bridge.invoke.mock.calls.filter(([command]) => command === "nextctl_run");
 }
@@ -115,6 +132,42 @@ beforeEach(() => {
     startConsumer: vi.fn(),
     startSessionPoll: vi.fn(),
   }, true);
+});
+
+describe("deterministic automation replay", () => {
+  it("runs without an authenticated agent or conversational preflight and preserves profile runtime selection", async () => {
+    useStore.setState({
+      selectedProfile: "camou-profile",
+      workspaces: [{
+        id: "workspace",
+        name: "Camoufox",
+        profileNames: ["camou-profile"],
+        profileToolsets: { "camou-profile": "camoufox" },
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+      runtime: {
+        ...useStore.getState().runtime,
+        codex: { ...useStore.getState().runtime.codex, ready: false },
+      },
+    });
+    bridge.invoke.mockResolvedValueOnce({ status: "completed", results: [] });
+
+    await expect(useStore.getState().runAutomationRecipe(
+      workflowSkill(),
+      "execution",
+      { backendRunId: "backend-run", query: "laptop" },
+    )).resolves.toMatchObject({ status: "completed" });
+
+    expect(preflight.prepareSession).not.toHaveBeenCalled();
+    expect(bridge.invoke).toHaveBeenCalledWith("automation_recipe_execute", expect.objectContaining({
+      executionId: "execution",
+      profile: "camou-profile",
+      runtime: "camoufox",
+      backendRunId: "backend-run",
+      parameters: { task: "Collect product cards", query: "laptop" },
+    }));
+  });
 });
 
 describe("VPS execution target isolation", () => {

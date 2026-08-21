@@ -40,6 +40,22 @@ const {
   resolvePersonalProxy,
 } = require("./project-sync.cjs");
 const { defaultSSHConfigPath, discoverSSHHosts, isAllowedExplicitConfigPath } = require("./ssh-config.cjs");
+const { createLocalArtifactStore } = require("./local-artifacts.cjs");
+const {
+  createAutomationRun,
+  deleteAutomationRecording,
+  deleteAutomationWorkflow,
+  listAutomationRecordings,
+  listAutomationRuns,
+  listAutomationWorkflows,
+  putAutomationRecording,
+  putAutomationWorkflow,
+  seedAutomationExamples,
+  updateAutomationRun,
+  updateAutomationRunStep,
+} = require("./automation-sync.cjs");
+const { cancelAllAutomationRecipes, cancelAutomationRecipe, executeAutomationRecipe } = require("./automation-runner.cjs");
+const { cancelAllAutomationElementPicks, cancelAutomationElementPick, pickAutomationElement } = require("./automation-element-picker.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
 const { parseMultiloginProfiles } = require("./multilogin-profiles.cjs");
@@ -84,6 +100,7 @@ let agentControlURL = "";
 const agentControlScopes = new Map();
 const agentControlProfileOwners = new Map();
 let multiloginCredentialStore = null;
+let automationArtifactStore = null;
 let multiloginAutomationToken = "";
 let multiloginCredentialLoadError = "";
 let multiloginCredentialLoadPromise = null;
@@ -98,6 +115,9 @@ enabled = false
 [plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser]
 enabled = false
 default_tools_approval_mode = "approve"
+
+[plugins."clawbrowser@nbc-local"]
+enabled = false
 `;
 
 function codexClawbrowserMCPArgs(nextctlBin) {
@@ -116,6 +136,7 @@ function codexClawbrowserMCPArgs(nextctlBin) {
     "--profile", CODEX_TERMINAL_PROFILE,
     "-c", 'plugins."clawbrowser@clawctl-local".enabled=false',
     "-c", 'plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser.enabled=false',
+    "-c", 'plugins."clawbrowser@nbc-local".enabled=false',
     "-c", `mcp_servers.nextbrowser.command=${JSON.stringify(nextctlBin)}`,
     "-c", `mcp_servers.nextbrowser.args=${JSON.stringify(["mcp"])}`,
     "-c", `mcp_servers.nextbrowser.env=${mcpEnv}`,
@@ -210,6 +231,12 @@ function nextbrowserRuntimeRoot() {
 function childEnv(extra = {}) {
   const runtimeRoot = nextbrowserRuntimeRoot();
   const commandPaths = [managedNextctlRoot(), ...searchDirs()];
+  const clawbrowserBin = resolveBrowserRuntime({
+    platform: process.platform,
+    homeDir: home(),
+    env: process.env,
+    runtimeRoot,
+  });
   const dasbrowserBin = resolveDasbrowserRuntime({
     platform: process.platform,
     homeDir: home(),
@@ -228,6 +255,7 @@ function childEnv(extra = {}) {
     CLAWBROWSER_SESSION_ROOT: path.join(runtimeRoot, "sessions"),
     NBC_PROFILE_ROOT: path.join(runtimeRoot, "profiles"),
     CLAWBROWSER_API_BASE_URL: apiBaseURL(),
+    ...(clawbrowserBin ? { CLAWBROWSER_BIN: clawbrowserBin } : {}),
     ...(dasbrowserBin ? { DASBROWSER_BIN: dasbrowserBin } : {}),
     ...(multiloginAutomationToken ? { MULTILOGIN_TOKEN: multiloginAutomationToken } : {}),
     ...extra,
@@ -584,6 +612,12 @@ async function ensureDasbrowserRuntime() {
   return dasbrowserInstallPromise;
 }
 function dataDir() { return path.join(app.getPath("userData")); }
+function localAutomationArtifacts() {
+  if (!automationArtifactStore) {
+    automationArtifactStore = createLocalArtifactStore({ rootDir: path.join(dataDir(), "automation-artifacts") });
+  }
+  return automationArtifactStore;
+}
 function multiloginCredentialPath() { return path.join(dataDir(), "credentials", "multilogin.json"); }
 function initializeMultiloginCredential() {
   if (multiloginCredentialLoadPromise) return multiloginCredentialLoadPromise;
@@ -1067,6 +1101,95 @@ async function invokeCommand(command, args = {}, sender) {
         return { name: path.basename(file), path: file, size: stat.size };
       }));
     }
+    case "artifact_list": {
+      return await localAutomationArtifacts().list(String(args.workspaceId || ""));
+    }
+    case "artifact_import": {
+      const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+      const result = await dialog.showOpenDialog(owner, {
+        title: "Add artifacts",
+        properties: ["openFile", "multiSelections"],
+      });
+      if (result.canceled) return [];
+      for (const selected of result.filePaths.slice(0, 20)) {
+        await localAutomationArtifacts().importFile(String(args.workspaceId || ""), selected);
+      }
+      return await localAutomationArtifacts().list(String(args.workspaceId || ""));
+    }
+    case "artifact_open": {
+      const target = await localAutomationArtifacts().resolvePath(String(args.workspaceId || ""), String(args.id || ""));
+      const error = await shell.openPath(target);
+      if (error) throw new Error(error);
+      return null;
+    }
+    case "artifact_delete": {
+      return await localAutomationArtifacts().delete(String(args.workspaceId || ""), String(args.id || ""));
+    }
+    case "automation_workflows_list": return await listAutomationWorkflows(String(args.workspaceId || ""), { env: childEnv() });
+    case "automation_workflow_put": return await putAutomationWorkflow(String(args.workspaceId || ""), args.workflow || {}, { env: childEnv() });
+    case "automation_workflow_delete": return await deleteAutomationWorkflow(String(args.id || ""), { env: childEnv() });
+    case "automation_recordings_list": return await listAutomationRecordings(String(args.workspaceId || ""), { env: childEnv() });
+    case "automation_recording_put": return await putAutomationRecording(args.recording || {}, { env: childEnv() });
+    case "automation_recording_delete": return await deleteAutomationRecording(String(args.id || ""), { env: childEnv() });
+    case "automation_runs_list": return await listAutomationRuns(String(args.workspaceId || ""), { env: childEnv() });
+    case "automation_seed_examples": {
+      const workspaceId = String(args.workspaceId || "");
+      const [backend, artifacts] = await Promise.all([
+        seedAutomationExamples(workspaceId, { env: childEnv() }),
+        localAutomationArtifacts().seedExamples(workspaceId),
+      ]);
+      return { seeded: { ...backend.seeded, artifacts } };
+    }
+    case "automation_run_create": return await createAutomationRun(args.run || {}, { env: childEnv() });
+    case "automation_run_update": return await updateAutomationRun(String(args.id || ""), args.update || {}, { env: childEnv() });
+    case "automation_recipe_execute": {
+      const binary = await resolveOrInstallNextctl();
+      if (!binary) throw new Error("NextBrowser browser runtime is unavailable.");
+      const requestedRuntime = ["clawbrowser", "dasbrowser", "camoufox", "multilogin"].includes(args.runtime) ? args.runtime : "clawbrowser";
+      if (requestedRuntime === "multilogin") await initializeMultiloginCredential();
+      const runtimeBin = requestedRuntime === "dasbrowser" ? await ensureDasbrowserRuntime() : undefined;
+      return await executeAutomationRecipe({
+        executionId: args.executionId,
+        recipe: args.recipe,
+        parameters: args.parameters,
+        profile: args.profile,
+        runtime: requestedRuntime === "dasbrowser" ? "chromium" : requestedRuntime,
+        runtimeBin,
+      }, {
+        binary,
+        env: childEnv(),
+        onProgress: (progress) => emit("automation:recipe-progress", progress),
+        onStep: args.backendRunId ? ({ position, ...update }) => updateAutomationRunStep(String(args.backendRunId), position, update, { env: childEnv() }).catch(() => undefined) : undefined,
+      });
+    }
+    case "automation_recipe_cancel": return cancelAutomationRecipe(String(args.executionId || ""));
+    case "automation_element_pick": {
+      const binary = await resolveOrInstallNextctl();
+      if (!binary) throw new Error("NextBrowser browser runtime is unavailable.");
+      const requestedRuntime = ["clawbrowser", "dasbrowser", "camoufox", "multilogin"].includes(args.runtime) ? args.runtime : "clawbrowser";
+      if (requestedRuntime === "multilogin") await initializeMultiloginCredential();
+      const runtimeBin = requestedRuntime === "dasbrowser" ? await ensureDasbrowserRuntime() : undefined;
+      const owner = sender && !sender.isDestroyed() ? BrowserWindow.fromWebContents(sender) : undefined;
+      try {
+        return await pickAutomationElement({
+          pickId: args.pickId,
+          mode: args.mode,
+          container: args.container,
+          fieldName: args.fieldName,
+          openUrl: args.openUrl,
+          profile: args.profile,
+          runtime: requestedRuntime === "dasbrowser" ? "chromium" : requestedRuntime,
+          runtimeBin,
+        }, {
+          binary,
+          env: childEnv(),
+          onReady: () => { if (owner && !owner.isDestroyed()) owner.minimize(); },
+        });
+      } finally {
+        if (owner && !owner.isDestroyed()) { owner.restore(); owner.show(); owner.focus(); }
+      }
+    }
+    case "automation_element_pick_cancel": return cancelAutomationElementPick(String(args.pickId || ""));
     case "select_terminal_files": {
       const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
       const result = await dialog.showOpenDialog(owner, {
@@ -1472,7 +1595,7 @@ function createWindow() {
     title: "NextBrowser", width: 1180, height: 760, minWidth: 960, minHeight: 640,
     backgroundColor: "#0e0e0e", show: false,
     ...(icon ? { icon } : {}),
-    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: true },
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: true, backgroundThrottling: false },
   });
   window.once("ready-to-show", () => window.show());
   window.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: "deny" }; });
@@ -1534,4 +1657,6 @@ app.on("before-quit", () => {
   agentControlServer?.close();
   agentControlServer = null;
   cancelAllCommands();
+  cancelAllAutomationRecipes();
+  cancelAllAutomationElementPicks();
 });

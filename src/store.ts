@@ -58,6 +58,7 @@ import {
 } from "./lib/persistence";
 import type {
   AppTab,
+  AutomationRecipeResult,
   BrowserWorkflowSkill,
   ChatAttachment,
   ChatMessage,
@@ -484,8 +485,9 @@ interface State {
   deleteConversation: (id: string) => void;
   forkConversation: (atMessageId?: string) => void;
   clearChat: () => void;
-  enqueue: (text: string, chip?: UserCommandChip, into?: string, attachments?: ChatAttachment[], agentPrompt?: string) => void;
+  enqueue: (text: string, chip?: UserCommandChip, into?: string, attachments?: ChatAttachment[], agentPrompt?: string) => string | undefined;
   stopRunning: () => void;
+  stopReply: (replyId: string) => void;
   cancelQueuedReply: (replyId: string) => boolean;
   editQueuedReply: (replyId: string, newText: string) => boolean;
   canManageQueuedReply: (replyId: string) => boolean;
@@ -509,7 +511,8 @@ interface State {
   runCustomScript: (script: CustomScript) => Promise<void>;
   saveLocalSkill: (skill: BrowserWorkflowSkill) => Promise<void>;
   deleteLocalSkill: (id: string) => Promise<void>;
-  runLocalSkill: (skill: BrowserWorkflowSkill, task?: string) => Promise<void>;
+  runLocalSkill: (skill: BrowserWorkflowSkill, task?: string) => Promise<string | undefined>;
+  runAutomationRecipe: (skill: BrowserWorkflowSkill, executionId: string, parameters?: Record<string, unknown>) => Promise<AutomationRecipeResult>;
 
   // Internal queue/runtime helpers
   reconcileQueues: () => void;
@@ -632,8 +635,12 @@ async function nextctlEnvelope<T>(
 async function prepareLocalSession(
   options: Parameters<typeof prepareSession>[0],
 ): ReturnType<typeof prepareSession> {
+  const selectedRuntime = options.selectedProfile
+    ? runtimeForProfile(useStore.getState().workspaces, options.selectedProfile)
+    : undefined;
   return runLocalNextctlOperation(() => prepareSession({
     ...options,
+    runtime: options.runtime ?? selectedRuntime,
     onVerificationFailure: options.onVerificationFailure ?? ((failure) =>
       invoke<VerificationFailureChoice>("browser_verification_failure_choice", {
         failedSurfaces: failure.failedSurfaces,
@@ -970,6 +977,7 @@ export const useStore = create<State>((set, get) => {
       return { conversations, runtime };
     });
     get().startConsumer(agentId);
+    return replyId;
   };
 
   const finishAgentRun = async (replyId: string, result: AgentDone) => {
@@ -3511,13 +3519,19 @@ export const useStore = create<State>((set, get) => {
 
   enqueue: (text, chip, into, attachments = [], agentPrompt) => {
     if (hasVPSPromptMarker(text)) return;
-    enqueueWithTarget(text, chip, into, attachments, undefined, agentPrompt);
+    return enqueueWithTarget(text, chip, into, attachments, undefined, agentPrompt);
   },
 
   stopRunning: () => {
     const agentId = get().agentId;
     const replyId = get().runtime[agentId]?.runningReplyId;
     if (!replyId) return;
+    get().stopReply(replyId);
+  },
+
+  stopReply: (replyId) => {
+    const agentId = Object.entries(get().runtime).find(([, runtime]) => runtime.runningReplyId === replyId)?.[0];
+    if (!agentId) return;
     trackEvent("agent_turn_stop_requested", { agent: agentId });
     set((s) => ({
       runtime: {
@@ -4307,6 +4321,31 @@ export const useStore = create<State>((set, get) => {
     void invoke("delete_local_skill", { slug: `workflow-${id.slice(0, 8)}` });
   },
 
+  runAutomationRecipe: async (skill, executionId, parameters = {}) => {
+    const { backendRunId, ...recipeParameters } = parameters;
+    const activeConversation = get().activeConversation();
+    if (activeConversation?.executionTarget === "vps") {
+      throw new Error("Deterministic replay currently requires a local NextBrowser profile.");
+    }
+    // The deterministic MCP runner owns navigation and can start or attach to
+    // its browser session itself. Running the conversational preflight here
+    // duplicates navigation, verifies unrelated proxy state, and can block a
+    // valid recipe before its first saved action executes.
+    const profile = get().selectedProfile;
+    const runtime = profile ? runtimeForProfile(get().workspaces, profile) : "clawbrowser";
+    trackEvent("automation_recipe_started", { action_count: skill.actions.length, runtime, has_profile: !!profile });
+    const result = await invoke<AutomationRecipeResult>("automation_recipe_execute", {
+      executionId,
+      recipe: { ...skill.recipe, actions: skill.actions },
+      parameters: { task: skill.task, ...recipeParameters },
+      profile,
+      runtime,
+      backendRunId: typeof backendRunId === "string" ? backendRunId : undefined,
+    });
+    trackEvent(`automation_recipe_${result.status}`, { action_count: skill.actions.length, runtime, failed_step: result.failedStep });
+    return result;
+  },
+
   runLocalSkill: async (skill, taskOverride) => {
     if (!get().agentReady()) return;
     const task = taskOverride?.trim() || skill.task.trim();
@@ -4317,11 +4356,10 @@ export const useStore = create<State>((set, get) => {
     const target = skill.domain || "the active website";
     const chip: UserCommandChip = { kind: "skill", title: skill.title, detail: skill.domain || "Local skill" };
     if (remoteOnly) {
-      get().enqueue(
+      return get().enqueue(
         `Use my local browser skill "${skill.title}" for ${target} on the selected VPS only. Do not prepare or change any local NextBrowser session.\n\nTask for this run:\n${task}\n\nWorkflow instructions:\n${skill.instructions}`,
         chip, cid,
       );
-      return;
     }
     const stepId = get().makeStepMessage(cid);
     let prep;
@@ -4340,12 +4378,13 @@ export const useStore = create<State>((set, get) => {
     }
     if (!get().agentReady()) return;
     const note = pageReadyNote(prep.host, prep.directFallback);
-    get().enqueue(
+    const replyId = get().enqueue(
       `Use my local browser skill "${skill.title}" for ${target} in the active verified NextBrowser session.${note}\nThe app already prepared the session, verified the selected proxy, and opened the website. Do not run saved start/prepare operations again. Begin with the first task-specific action. Reuse the proven recipe, adapting selectors only if the page changed.\n\nTask for this run:\n${task}\n\nStructured recipe (execute first):\n${JSON.stringify(skill.recipe, null, 2)}\n\nWorkflow fallback:\n${skill.instructions}`,
       chip,
       cid,
     );
     trackEvent("local_skill_run_queued", { has_domain: !!skill.domain, customized_task: task !== skill.task.trim() });
+    return replyId;
   },
 
   startRemoteStream: async (target = { runtime: "clawbrowser" }) => {
