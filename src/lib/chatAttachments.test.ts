@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { promptWithAttachments } from "./chatAttachments";
+import { promptWithAttachments, terminalAttachmentContext } from "./chatAttachments";
 
 describe("chat attachments", () => {
   it("passes exact local paths to the agent", () => {
@@ -11,5 +11,12 @@ describe("chat attachments", () => {
 
   it("does not alter prompts without attachments", () => {
     expect(promptWithAttachments("Hello", [])).toBe("Hello");
+  });
+
+  it("builds terminal context from staged attachment paths", () => {
+    expect(terminalAttachmentContext([
+      { name: "brief.pdf", path: "/workspace/.attachments/chat/brief.pdf", size: 42 },
+    ])).toBe("[Attached local files — open/read these exact paths:]\n- /workspace/.attachments/chat/brief.pdf");
+    expect(terminalAttachmentContext([])).toBeUndefined();
   });
 });

@@ -61,3 +61,18 @@ test("terminal chat is isolated by conversation", () => {
   assert.match(chat, /conversationId=\{conv\?\.id\}/);
   assert.match(terminal, /terminal_context_menu/);
 });
+
+test("terminal attachments are staged inside the sandboxed workspace", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  const terminal = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AgentTerminal.tsx"), "utf8");
+  assert.match(main, /case "select_terminal_files"/);
+  assert.match(main, /agentWorkspaceDir\(home\(\)\), "\.attachments", conversation/);
+  assert.match(main, /stat\.size > 30 \* 1024 \* 1024/);
+  assert.match(main, /totalSize > 600 \* 1024 \* 1024/);
+  assert.match(main, /COPYFILE_FICLONE/);
+  assert.match(main, /case "remove_terminal_file"/);
+  assert.match(terminal, /terminalAttachmentContext\(attachmentsRef\.current\)/);
+  assert.match(terminal, /select_terminal_files/);
+  assert.match(terminal, /setAttachmentError/);
+  assert.match(terminal, /Please inspect the attached file\(s\)\./);
+});

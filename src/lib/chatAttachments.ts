@@ -6,3 +6,10 @@ export function promptWithAttachments(text: string, attachments: ChatAttachment[
     .map((file) => `- ${file.path}`)
     .join("\n")}`;
 }
+
+export function terminalAttachmentContext(attachments: ChatAttachment[]): string | undefined {
+  if (!attachments.length) return undefined;
+  return `[Attached local files — open/read these exact paths:]\n${attachments
+    .map((file) => `- ${file.path}`)
+    .join("\n")}`;
+}

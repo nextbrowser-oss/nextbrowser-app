@@ -2680,6 +2680,19 @@ body.is-resizing-sidebar {
 }
 .agent-terminal-host .xterm { height: 100%; }
 .agent-terminal-host .xterm-viewport { scrollbar-color: var(--surface-8) transparent; }
+.terminal-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.terminal-attachment-error {
+  padding: 7px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--error) 35%, transparent);
+  background: color-mix(in srgb, var(--error) 8%, transparent);
+}
 [data-theme="light"] .agent-terminal-panel { background: #f7f7f8; }
 .msg { max-width: 80%; min-width: 0; overflow-wrap: anywhere; }
 .msg-system { text-align: center; color: var(--muted); font-size: 12px; }

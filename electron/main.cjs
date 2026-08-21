@@ -1067,6 +1067,51 @@ async function invokeCommand(command, args = {}, sender) {
         return { name: path.basename(file), path: file, size: stat.size };
       }));
     }
+    case "select_terminal_files": {
+      const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+      const result = await dialog.showOpenDialog(owner, {
+        title: "Attach files to terminal",
+        properties: ["openFile", "multiSelections"],
+      });
+      if (result.canceled) return [];
+      const conversation = String(args.conversationId || "terminal")
+        .replace(/[^A-Za-z0-9_-]/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 96) || "terminal";
+      const attachmentDir = path.join(agentWorkspaceDir(home()), ".attachments", conversation);
+      await fs.mkdir(attachmentDir, { recursive: true, mode: 0o700 });
+      const files = [];
+      let totalSize = 0;
+      for (const selected of result.filePaths.slice(0, 20)) {
+        const source = await fs.realpath(selected);
+        const stat = await fs.stat(source);
+        if (!stat.isFile()) throw new Error(`${path.basename(source)} is not a regular file.`);
+        if (stat.size > 30 * 1024 * 1024) throw new Error(`${path.basename(source)} is larger than 30 MB.`);
+        totalSize += stat.size;
+        if (totalSize > 600 * 1024 * 1024) throw new Error("Terminal attachments are limited to 600 MB per selection.");
+        const safeName = path.basename(source).replace(/[\\/:*?"<>|\x00-\x1f]/g, "-").slice(0, 180) || "file";
+        const target = path.join(attachmentDir, `${randomUUID()}-${safeName}`);
+        // Prefer copy-on-write cloning where the filesystem supports it. This
+        // keeps large explicit attachments sandbox-readable without doubling
+        // their disk usage; Node falls back to a regular copy when unavailable.
+        await fs.copyFile(source, target, fsSync.constants.COPYFILE_FICLONE);
+        if (process.platform !== "win32") await fs.chmod(target, 0o600);
+        files.push({ name: path.basename(source), path: target, size: stat.size });
+      }
+      return files;
+    }
+    case "remove_terminal_file": {
+      const workspace = agentWorkspaceDir(home());
+      const attachmentRoot = path.resolve(workspace, ".attachments");
+      const target = path.resolve(String(args.path || ""));
+      const relative = path.relative(attachmentRoot, target);
+      if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+        throw new Error("Refusing to remove a file outside the terminal attachment directory.");
+      }
+      await fs.rm(target, { force: true });
+      return null;
+    }
     case "open_path": {
       const error = await shell.openPath(path.resolve(String(args.path || "")));
       if (error) throw new Error(error);
