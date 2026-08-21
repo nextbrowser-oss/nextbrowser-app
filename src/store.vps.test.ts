@@ -583,6 +583,18 @@ describe("browser profile creation", () => {
     expect(JSON.stringify(bridge.invoke.mock.calls)).not.toContain("NBC_PROXY_PASSWORD");
   });
 
+  it("rejects a failed saved-proxy profile creation without selecting the profile", async () => {
+    bridge.invoke.mockResolvedValue({
+      stdout: JSON.stringify({ ok: false, error: { code: "PROXY_CONNECTION_FAILED", message: "Proxy refused the connection." } }),
+      stderr: "",
+      code: 1,
+    });
+
+    await expect(useStore.getState().createPersonalProxyProfile("broken-proxy", "proxy-id"))
+      .rejects.toThrow("Proxy refused the connection.");
+    expect(useStore.getState().selectedProfile).not.toBe("broken-proxy");
+  });
+
   it("persists the personal proxy association in the workspace document", () => {
     useStore.setState({
       activeWorkspaceId: "workspace",

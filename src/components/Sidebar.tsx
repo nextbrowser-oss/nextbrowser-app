@@ -7,7 +7,7 @@ import { Icon, Spinner } from "./Icon";
 import { withLocalScripts } from "../skillsCatalog";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
 import { guideProfileTarget } from "../lib/guideQuickStart";
-import { manualProxyDefaultName, parseManualProxyUrl, type ManualProxyScheme } from "../lib/manualProxy";
+import { manualProxyDefaultName, manualProxyLimits, parseManualProxyUrl, validateManualProxyFields, type ManualProxyScheme } from "../lib/manualProxy";
 import { internalError, needsSupportLink } from "../lib/userFacingError";
 import { cancelNextctlRun } from "../nextctl";
 import { conversationPreview, type AppTab } from "../types";
@@ -352,9 +352,11 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         ...parsed,
       };
     } else {
-      const port = Number.parseInt(manualPort, 10);
-      if (!name || !manualHost.trim() || !Number.isInteger(port) || port < 1 || port > 65535) {
-        setManualError("Name, host, and a valid port are required.");
+      const port = Number(manualPort);
+      try {
+        validateManualProxyFields({ name, host: manualHost, port, username: manualUsername, password: manualPassword });
+      } catch (error) {
+        setManualError(error instanceof Error ? error.message : String(error));
         return;
       }
       input = {
@@ -366,6 +368,12 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         password: manualPassword,
       };
     }
+    try {
+      validateManualProxyFields(input);
+    } catch (error) {
+      setManualError(error instanceof Error ? error.message : String(error));
+      return;
+    }
     setManualSaving(true);
     setManualError(null);
     try {
@@ -373,8 +381,13 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       setProfilePersonalProxyId(saved.id);
       resetManualProxyForm();
       setManualProxyEditing(false);
-    } catch {
-      setManualError(internalError("We couldn't save the proxy.", "PERSONAL_PROXY_SAVE_FAILED"));
+    } catch (error) {
+      const detail = (error instanceof Error ? error.message : String(error))
+        .replace(/^Error invoking remote method '[^']+': Error:\s*/, "")
+        .trim();
+      setManualError(detail && !/^fetch failed$/i.test(detail)
+        ? detail
+        : internalError("We couldn't save the proxy. Check the format and your connection, then try again.", "PERSONAL_PROXY_SAVE_FAILED"));
     } finally {
       setManualSaving(false);
     }
@@ -1224,6 +1237,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                         value={manualProxyUrl}
                         onChange={(e) => setManualProxyUrl(e.target.value)}
                         placeholder="http://user:pass@host:8080"
+                        maxLength={manualProxyLimits.url + 1}
                         autoFocus
                       />
                     </label>
@@ -1233,6 +1247,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                         value={manualName}
                         onChange={(e) => setManualName(e.target.value)}
                         placeholder="generated from proxy URL"
+                        maxLength={manualProxyLimits.name + 1}
                       />
                     </label>
                   </>
@@ -1240,7 +1255,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   <>
                     <label className="modal-field">
                       <span>Name</span>
-                      <input value={manualName} onChange={(e) => setManualName(e.target.value)} autoFocus />
+                      <input value={manualName} maxLength={manualProxyLimits.name + 1} onChange={(e) => setManualName(e.target.value)} autoFocus />
                     </label>
                     <div className="manual-proxy-grid">
                       <label className="modal-field">
@@ -1257,15 +1272,15 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                     </div>
                     <label className="modal-field">
                       <span>Host</span>
-                      <input value={manualHost} onChange={(e) => setManualHost(e.target.value)} />
+                      <input value={manualHost} maxLength={manualProxyLimits.host + 1} onChange={(e) => setManualHost(e.target.value)} />
                     </label>
                     <label className="modal-field">
                       <span>Username</span>
-                      <input value={manualUsername} onChange={(e) => setManualUsername(e.target.value)} />
+                      <input value={manualUsername} maxLength={manualProxyLimits.username + 1} onChange={(e) => setManualUsername(e.target.value)} />
                     </label>
                     <label className="modal-field">
                       <span>Password</span>
-                      <input type="password" value={manualPassword} onChange={(e) => setManualPassword(e.target.value)} />
+                      <input type="password" value={manualPassword} maxLength={manualProxyLimits.password + 1} onChange={(e) => setManualPassword(e.target.value)} />
                     </label>
                   </>
                 )}
