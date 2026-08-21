@@ -4,8 +4,8 @@ import { invoke } from "../electronBridge";
 import { uid } from "../lib/ids";
 import {
   capturedWorkflowDomain,
+  recordedBrowserActions,
   workflowQuality,
-  workflowRecipe,
 } from "../lib/workflowCapture";
 import { capturedRuns, skillFromRun, type CapturedRun } from "../lib/automationStudio";
 import type { AutomationArtifact, BrowserWorkflowAction, BrowserWorkflowSkill } from "../types";
@@ -296,10 +296,10 @@ export function AutomationStudio() {
             const run = recording.document.run!;
             const domain = capturedWorkflowDomain(run.task, run.evidence);
             const quality = workflowQuality(run.task, run.evidence, domain);
-            const actions = workflowRecipe(run.task, run.evidence).actions;
+            const actions = recordedBrowserActions(run.evidence);
             return <article className={"capture-card" + (recordedRun?.id === run.id ? " is-new" : "")} key={run.id}>
               <div className="capture-kind"><span className={recording.document.demo ? "demo" : "ready"}>{recording.document.demo ? "DEMO RECORDING" : "READY RECORDING"}</span><small>{recording.status === "completed" ? "Completed" : recording.status}</small></div>
-              <div className="capture-card-copy"><strong>{run.task.slice(0, 120)}</strong><span>{run.conversationTitle} · {domain || "Unknown website"} · {actions.length} recorded actions</span><small className={quality.reusable ? "ok" : "muted"}>{quality.reason}</small></div>
+              <div className="capture-card-copy"><strong>{run.task.slice(0, 160)}</strong><span>{run.conversationTitle} · {domain || "Unknown website"} · {actions.length} recorded actions</span><small className={quality.reusable ? "ok" : "muted"}>{quality.reason}</small><details className="capture-steps"><summary>Show recorded steps</summary><ol>{actions.map((action, index) => <li key={`${index}-${action.tool}`}><b>{actionLabel(action.tool)}</b><code>{JSON.stringify(action.arguments)}</code></li>)}</ol></details></div>
               <div className="capture-card-actions"><button className="secondary" disabled={!quality.reusable} onClick={() => void replayRecording(run)}><Icon name="play.fill" size={12} /> Run again</button><button className="btn-bordered-prominent" disabled={!quality.reusable} onClick={() => void saveCapture(run)}>Turn into workflow</button></div>
             </article>;
           })}

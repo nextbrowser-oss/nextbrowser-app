@@ -70,6 +70,13 @@ export function workflowRecipe(task: string, transcript: string) {
   return { version: 1 as const, capability, actions };
 }
 
+/** All task-relevant calls, used to explain a recording without exposing setup noise. */
+export function recordedBrowserActions(transcript: string): Array<{ tool: string; arguments: Record<string, unknown> }> {
+  return capturedCalls(transcript)
+    .filter(({ name }) => !["start", "prepare", "state", "tabs", "wait", "verify"].includes(name))
+    .map(({ name, args }) => ({ tool: name, arguments: args }));
+}
+
 function pick(source: Record<string, unknown>, keys: string[]): Record<string, unknown> {
   return Object.fromEntries(keys.filter((key) => source[key] !== undefined).map((key) => [key, source[key]]));
 }

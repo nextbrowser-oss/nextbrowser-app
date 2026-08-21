@@ -7155,6 +7155,12 @@ pre,
 .capture-card-copy { display: grid; gap: 4px; min-width: 0; flex: 1; }
 .capture-card-copy strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .capture-card-copy span, .capture-card-copy small { font-size: 12px; color: var(--muted); }
+.capture-steps { margin-top: 3px; }
+.capture-steps summary { width: fit-content; cursor: pointer; color: var(--accent); font-size: 11px; font-weight: 650; }
+.capture-steps ol { display: grid; gap: 6px; margin: 8px 0 0; padding-left: 20px; }
+.capture-steps li { padding-left: 3px; color: var(--muted); font-size: 11px; }
+.capture-steps li b { display: block; color: var(--text); }
+.capture-steps code { display: block; max-width: 620px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
 .capture-kind { display: grid; gap: 5px; justify-items: start; }
 .capture-kind > span { padding: 4px 7px; border-radius: 6px; font-size: 9px; font-weight: 800; letter-spacing: .06em; }
 .capture-kind .ready { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
