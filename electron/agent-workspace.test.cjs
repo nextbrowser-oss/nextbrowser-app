@@ -107,6 +107,9 @@ test("unfinished recording attempts are never persisted as library entities", ()
   assert.match(studio, /items\.filter\(\(item\) => !!item\.document\.run\)/);
   assert.match(studio, /Start recording/);
   assert.match(studio, /Stop recording/);
+  assert.match(studio, /Record new workflow/);
+  assert.match(studio, /Stop &amp; open workflow/);
+  assert.match(studio, /startRecording\("workflow"\)/);
   assert.doesNotMatch(studio, />Pause recording</);
 });
 

@@ -4,6 +4,7 @@ export type ActiveAutomationRecording = {
   agentId?: string;
   startedAt: number;
   phase: "recording";
+  destination?: "recording" | "workflow";
 };
 
 const STATE_KEY = "automationRecordingState";

@@ -118,6 +118,7 @@ export function AutomationStudio() {
   const s = useStore();
   const [section, setSection] = useState<StudioSection>("recorder");
   const [recordingSince, setRecordingSince] = useState(() => Number(localStorage.getItem("automationRecordingSince") || 0));
+  const [recordingDestination, setRecordingDestination] = useState<"recording" | "workflow">(() => activeAutomationRecording()?.destination || "recording");
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>();
   const [draft, setDraft] = useState<BrowserWorkflowSkill>();
   const [actionErrors, setActionErrors] = useState<Record<number, string>>({});
@@ -228,17 +229,26 @@ export function AutomationStudio() {
     const syncRecording = () => {
       const active = activeAutomationRecording();
       setRecordingSince(active?.workspaceId === workspaceId ? active.startedAt : 0);
+      setRecordingDestination(active?.workspaceId === workspaceId ? active.destination || "recording" : "recording");
       void loadRecordings();
     };
     const openRecorder = () => setSection("recorder");
+    const openWorkflow = (event: Event) => {
+      const workflowId = (event as CustomEvent<{ workflowId?: string }>).detail?.workflowId;
+      setSection("workflows");
+      if (workflowId) setSelectedWorkflowId(workflowId);
+      void loadWorkflows();
+    };
     const openExecution = (event: Event) => setSection((event as CustomEvent<{ sourceKind?: "recording" | "workflow" }>).detail?.sourceKind === "workflow" ? "workflows" : "recorder");
     syncRecording();
     window.addEventListener(AUTOMATION_RECORDING_EVENT, syncRecording);
     window.addEventListener("nextbrowser:open-recorder", openRecorder);
+    window.addEventListener("nextbrowser:open-workflow", openWorkflow);
     window.addEventListener("nextbrowser:open-automation-execution", openExecution);
     return () => {
       window.removeEventListener(AUTOMATION_RECORDING_EVENT, syncRecording);
       window.removeEventListener("nextbrowser:open-recorder", openRecorder);
+      window.removeEventListener("nextbrowser:open-workflow", openWorkflow);
       window.removeEventListener("nextbrowser:open-automation-execution", openExecution);
     };
   }, [workspaceId]);
@@ -262,18 +272,25 @@ export function AutomationStudio() {
     setNotice(undefined);
   };
 
-  const startRecording = async () => {
+  const startRecording = async (destination: "recording" | "workflow" = "recording") => {
     if (!workspaceId) return setStudioError("Create or select a workspace before recording.");
     try {
       const existing = activeAutomationRecording();
       if (existing?.phase === "recording") {
         if (existing.workspaceId !== workspaceId) return setStudioError("Stop the recording in the other workspace before starting a new one.");
+        if ((existing.destination || "recording") !== destination) {
+          setActiveAutomationRecording({ ...existing, destination });
+          setRecordingDestination(destination);
+        }
+        if (s.terminalChat) s.setTerminalChat(false);
+        s.setTab("chat");
         return;
       }
       const startedAt = Date.now();
       const id = uid();
-      setActiveAutomationRecording({ id, workspaceId, agentId: s.agentId, startedAt, phase: "recording" });
+      setActiveAutomationRecording({ id, workspaceId, agentId: s.agentId, startedAt, phase: "recording", destination });
       setRecordingSince(startedAt);
+      setRecordingDestination(destination);
       setStudioError(undefined);
       if (s.terminalChat) s.setTerminalChat(false);
       s.setTab("chat");
@@ -288,12 +305,32 @@ export function AutomationStudio() {
       const captured = runs.find((run) => run.answer.createdAt >= active.startedAt);
       if (captured) {
         await invoke("automation_recording_put", { recording: { id: active.id, workspace_id: workspaceId, status: "completed", document: { run: captured }, base_revision: 0 } });
+        let savedWorkflow: BrowserWorkflowSkill | undefined;
+        if (active.destination === "workflow") {
+          const domain = capturedWorkflowDomain(captured.task, captured.evidence);
+          const quality = workflowQuality(captured.task, captured.evidence, domain);
+          if (quality.reusable) {
+            savedWorkflow = await invoke<BrowserWorkflowSkill>("automation_workflow_put", { workspaceId, workflow: skillFromRun(captured) });
+          }
+        }
         clearActiveAutomationRecording();
         setRecordingSince(0);
-        setNotice("Recording stopped and saved. Review it below or turn it into a workflow.");
+        setRecordingDestination("recording");
+        if (savedWorkflow) {
+          await loadWorkflows();
+          setSelectedWorkflowId(savedWorkflow.id);
+          setSection("workflows");
+          setNotice("Recording stopped. Your new workflow is open and ready to review.");
+        } else if (active.destination === "workflow") {
+          setSection("recorder");
+          setNotice("Recording saved, but its browser steps were not reusable enough to create a workflow. Review the recording below.");
+        } else {
+          setNotice("Recording stopped and saved. Review it below or turn it into a workflow.");
+        }
       } else {
         clearActiveAutomationRecording();
         setRecordingSince(0);
+        setRecordingDestination("recording");
         setNotice("Recording stopped. The incomplete attempt was discarded.");
       }
       await loadRecordings();
@@ -665,7 +702,7 @@ export function AutomationStudio() {
 
       {section === "recorder" && <section className="automation-panel">
         <div className="automation-panel-head"><div><h2>Recordings</h2><p>A recording is a completed browser task. Run it again as-is, or turn it into an editable workflow.</p></div>
-          <div className="row">{recordingSince > 0 ? <button className="secondary danger-text" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={12} /> : <Icon name="stop.fill" size={12} />} Stop recording</button> : <button className="primary" onClick={() => void startRecording()}><Icon name="circle.fill" size={12} /> Start recording</button>}</div>
+          <div className="row">{recordingSince > 0 ? <button className="secondary danger-text" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={12} /> : <Icon name="stop.fill" size={12} />} {recordingDestination === "workflow" ? "Stop & open workflow" : "Stop recording"}</button> : <button className="primary" onClick={() => void startRecording()}><Icon name="circle.fill" size={12} /> Start recording</button>}</div>
         </div>
         <div className="automation-management-note"><Icon name="info.circle" size={13} /><span>Records agent-driven browser actions in Project Chat—not manual clicks or Terminal sessions. There is no pause because page state may change.</span></div>
         {recordingSince > 0 && <div className="recording-banner"><span className="recording-dot" />{recordedRun ? "Browser run captured — click Stop recording to save it." : "Recording is armed. Complete one browser task in Project Chat, then click Stop recording."}</div>}
@@ -686,6 +723,7 @@ export function AutomationStudio() {
       </section>}
 
       {section === "workflows" && <section className="automation-panel workflow-builder">
+        <header className="workflow-builder-start"><div><h2>Workflow Builder</h2><p>Record a successful browser task and continue editing its reusable steps here, or build one manually.</p></div><div className="row">{recordingSince > 0 && recordingDestination === "workflow" ? <button className="secondary danger-text" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={12} /> : <Icon name="stop.fill" size={12} />} Stop &amp; open workflow</button> : <button className="primary" onClick={() => void startRecording("workflow")}><Icon name="circle.fill" size={12} /> Record new workflow</button>}<button className="secondary" onClick={() => void createWorkflow()}><Icon name="plus" size={12} /> Create manually</button></div></header>
         <aside className="workflow-list"><div className="workflow-list-title"><span>Workflows</span><button className="mini" title="Create workflow" aria-label="Create workflow" onClick={() => void createWorkflow()}><Icon name="plus" size={12} /></button></div>{workflows.map((skill) => <button key={skill.id} className={skill.id === selectedWorkflowId ? "active" : ""} onClick={() => selectWorkflow(skill.id)}><Icon name="arrow.triangle.branch" size={14} /><span><strong>{skill.title}</strong><small>{skill.actions.length} steps · {skill.domain || "Any site"}</small></span></button>)}{!workflows.length && <p className="muted small">Record a run or create a workflow from a task.</p>}</aside>
         <div className="workflow-canvas">{draft ? <>
           <div className="workflow-editor-head"><div><input className="workflow-title-input" aria-label="Workflow name" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /><input className="workflow-domain-input" aria-label="Website domain" value={draft.domain} placeholder="example.com" onChange={(event) => setDraft({ ...draft, domain: event.target.value })} />{draftDirty && <small className="workflow-unsaved">Unsaved changes</small>}</div><div className="row"><button className="mini danger-text" onClick={() => void deleteWorkflow(draft)}>Delete</button><button className="secondary" onClick={() => void duplicateWorkflow(draft)}>Duplicate</button><button className="secondary" disabled={draftDirty || executionBusy || !!draftValidationError} title={draftDirty ? "Save changes before running" : draftValidationError || (executionBusy ? "Stop the running automation first" : "Run workflow")} onClick={() => void runWorkflow(draft)}>Run</button><button className="primary" disabled={saving || !draftDirty || !!draftValidationError || !!Object.keys(actionErrors).length} onClick={() => void saveDraft()}>{saving && <Spinner size={12} />} Save</button></div></div>

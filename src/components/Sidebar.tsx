@@ -17,7 +17,8 @@ import { VPSSetupModal } from "./VPSSetupModal";
 import { CONNECTORS } from "../connectorsCatalog";
 import { invoke, listen } from "../electronBridge";
 import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, clearActiveAutomationRecording, type ActiveAutomationRecording } from "../lib/automationRecording";
-import { capturedRunsForRecording } from "../lib/automationStudio";
+import { capturedRunsForRecording, skillFromRun } from "../lib/automationStudio";
+import { capturedWorkflowDomain, workflowQuality } from "../lib/workflowCapture";
 import { activeAutomationExecution, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, executionWithRecipeProgress, setActiveAutomationExecution, type AutomationExecution, type AutomationRecipeProgress } from "../lib/automationExecution";
 
 type ManualProxyInputMode = "url" | "fields";
@@ -206,7 +207,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const openRecorder = () => {
     if (activeRecording?.workspaceId && activeRecording.workspaceId !== s.activeWorkspaceId) s.selectWorkspace(activeRecording.workspaceId);
     s.setTab("automation");
-    window.setTimeout(() => window.dispatchEvent(new CustomEvent("nextbrowser:open-recorder")), 0);
+    const eventName = activeRecording?.destination === "workflow" ? "nextbrowser:open-workflow" : "nextbrowser:open-recorder";
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent(eventName)), 0);
   };
 
   const stopRecording = async () => {
@@ -215,10 +217,22 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     setRecordingError(undefined);
     try {
       const captured = capturedRunsForRecording(s.conversations, activeRecording)[0];
+      let workflowId: string | undefined;
       if (captured) {
         await invoke("automation_recording_put", { recording: { id: activeRecording.id, workspace_id: activeRecording.workspaceId, status: "completed", document: { run: captured }, base_revision: 0 } });
+        if (activeRecording.destination === "workflow") {
+          const domain = capturedWorkflowDomain(captured.task, captured.evidence);
+          if (workflowQuality(captured.task, captured.evidence, domain).reusable) {
+            workflowId = (await invoke<{ id: string }>("automation_workflow_put", { workspaceId: activeRecording.workspaceId, workflow: skillFromRun(captured) })).id;
+          }
+        }
       }
       clearActiveAutomationRecording();
+      if (workflowId) {
+        if (activeRecording.workspaceId !== s.activeWorkspaceId) s.selectWorkspace(activeRecording.workspaceId);
+        s.setTab("automation");
+        window.setTimeout(() => window.dispatchEvent(new CustomEvent("nextbrowser:open-workflow", { detail: { workflowId } })), 0);
+      }
     } catch (error) {
       setRecordingError(error instanceof Error ? error.message : String(error));
     } finally { setRecordingStopping(false); }
@@ -600,7 +614,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             {badgeFor(item.id) && <span>{badgeFor(item.id)}</span>}
           </button>
         ))}
-        {activeRecording && <button className="mini-nav-btn mini-recording-control recording" data-tooltip={`Recording ${recordingDuration(activeRecording.startedAt, recordingClock)}`} aria-label="Open active recording" onClick={openRecorder}><Icon name="circle.fill" size={18} /><span>{recordingDuration(activeRecording.startedAt, recordingClock)}</span></button>}
+        {activeRecording && <button className="mini-nav-btn mini-recording-control recording" data-tooltip={`${activeRecording.destination === "workflow" ? "Recording workflow" : "Recording"} ${recordingDuration(activeRecording.startedAt, recordingClock)}`} aria-label={activeRecording.destination === "workflow" ? "Open workflow recording" : "Open active recording"} onClick={openRecorder}><Icon name="circle.fill" size={18} /><span>{recordingDuration(activeRecording.startedAt, recordingClock)}</span></button>}
         <span className="spacer" />
         <button className="mini-nav-btn" data-tooltip={`Agent: ${agentName}`} aria-label={`Agent: ${agentName}`} onClick={onOpenAgentSettings}>
           <Icon name="cpu.fill" size={18} />
@@ -627,9 +641,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         </div>
       </div>
 
-      {activeRecording && <section className="sidebar-recording-control recording" aria-label="Recording in progress">
-        <div className="sidebar-recording-status"><span className="sidebar-recording-dot" /><div><strong>Recording in progress</strong><small>{recordingWorkspace?.name || "Current workspace"} · {recordingDuration(activeRecording.startedAt, recordingClock)}</small></div></div>
-        <div className="sidebar-recording-actions"><button onClick={openRecorder}>Open recorder</button><button className="stop" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={11} /> : <Icon name="stop.fill" size={11} />} Stop recording</button></div>
+      {activeRecording && <section className="sidebar-recording-control recording" aria-label={activeRecording.destination === "workflow" ? "Workflow recording in progress" : "Recording in progress"}>
+        <div className="sidebar-recording-status"><span className="sidebar-recording-dot" /><div><strong>{activeRecording.destination === "workflow" ? "Recording a new workflow" : "Recording in progress"}</strong><small>{recordingWorkspace?.name || "Current workspace"} · {recordingDuration(activeRecording.startedAt, recordingClock)}</small></div></div>
+        <div className="sidebar-recording-actions"><button onClick={openRecorder}>{activeRecording.destination === "workflow" ? "Open Workflow Builder" : "Open recorder"}</button><button className="stop" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={11} /> : <Icon name="stop.fill" size={11} />} {activeRecording.destination === "workflow" ? "Stop & open" : "Stop recording"}</button></div>
         {recordingError && <small className="sidebar-recording-error" role="alert">{recordingError}</small>}
       </section>}
 

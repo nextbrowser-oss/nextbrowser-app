@@ -7218,6 +7218,9 @@ pre,
 .automation-empty { min-height: 230px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted); text-align: center; grid-column: 1 / -1; }
 .automation-empty strong { color: var(--text); }
 .workflow-builder { display: grid; grid-template-columns: 270px minmax(0, 1fr); min-height: 620px; }
+.workflow-builder-start { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 18px; border-bottom: 1px solid var(--line); background: var(--surface-1); }
+.workflow-builder-start h2 { margin: 0 0 4px; font-size: 17px; }
+.workflow-builder-start p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
 .workflow-list { padding: 12px; border-right: 1px solid var(--line); background: var(--surface-2); }
 .workflow-list-title { display: flex; align-items: center; justify-content: space-between; padding: 5px 8px 10px; color: var(--muted); text-transform: uppercase; font-size: 10px; font-weight: 700; letter-spacing: .08em; }
 .workflow-list > button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 10px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--muted); text-align: left; }
@@ -7279,4 +7282,4 @@ pre,
 .run-status.completed { color: var(--green); }
 .run-status.failed, .run-status.cancelled { color: var(--red); }
 .run-status.running, .run-status.queued { color: var(--accent); }
-@media (max-width: 900px) { .automation-studio { padding-inline: 16px; } .workflow-builder { grid-template-columns: 1fr; } .workflow-list { border-right: 0; border-bottom: 1px solid var(--line); } .automation-summary { display: none; } .automation-how-it-works i { display: none; } .automation-how-it-works { align-items: flex-start; flex-direction: column; } .capture-card { grid-template-columns: 1fr; } .capture-card-actions { justify-content: flex-start; } }
+@media (max-width: 900px) { .automation-studio { padding-inline: 16px; } .workflow-builder { grid-template-columns: 1fr; } .workflow-builder-start { align-items: flex-start; flex-direction: column; } .workflow-list { border-right: 0; border-bottom: 1px solid var(--line); } .automation-summary { display: none; } .automation-how-it-works i { display: none; } .automation-how-it-works { align-items: flex-start; flex-direction: column; } .capture-card { grid-template-columns: 1fr; } .capture-card-actions { justify-content: flex-start; } }
