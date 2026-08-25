@@ -159,12 +159,17 @@ function publicDomainsInText(text: string): string[] {
 
 /** Resolve the task's website without accidentally selecting verification/API URLs from tool output. */
 export function capturedWorkflowDomain(task: string, transcript: string): string {
-  const requested = workflowDomain(task);
-  if (requested) return requested;
+  // An explicit URL in the request is authoritative. For bare dotted tokens,
+  // prefer the URL that was actually opened: artifact names such as report.csv
+  // otherwise look like hostnames and leak into recording cards and titles.
+  const explicitRequested = publicDomainsInText(task)[0];
+  if (explicitRequested) return explicitRequested;
   for (const call of capturedCalls(transcript)) {
     const domain = publicDomainFromURL(call.args.url);
     if (domain) return domain;
   }
+  const requested = workflowDomain(task);
+  if (requested) return requested;
   // Normal chat messages may keep tool events outside the rendered answer. Result
   // links are still a reliable fallback once internal verification hosts are removed.
   return publicDomainsInText(transcript)[0] ?? "";

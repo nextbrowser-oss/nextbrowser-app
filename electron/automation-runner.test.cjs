@@ -123,6 +123,42 @@ test("executes every recipe step through one persistent MCP process", async () =
   assert.equal(progress.at(-1).phase, "completed");
 });
 
+test("retries only transient navigation failures", async () => {
+  let opens = 0;
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    if (message.params.name === "open" && opens++ === 0) {
+      return { isError: true, content: [{ type: "text", text: "navigation failed: net::ERR_SSL_PROTOCOL_ERROR" }] };
+    }
+    return { content: [{ type: "text", text: JSON.stringify({ ok: true }) }] };
+  });
+  const progress = [];
+  const result = await executeAutomationRecipe({
+    executionId: "retry-navigation",
+    recipe: { version: 1, actions: [{ tool: "open", arguments: { url: "https://example.com" } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {}, onProgress: (update) => progress.push(update) });
+
+  assert.equal(result.status, "completed");
+  assert.equal(opens, 2);
+  assert.ok(progress.some((update) => /Retrying navigation/.test(update.detail)));
+});
+
+test("does not retry permanent navigation failures", async () => {
+  let opens = 0;
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    opens += 1;
+    return { isError: true, content: [{ type: "text", text: "navigation failed: invalid URL" }] };
+  });
+  const result = await executeAutomationRecipe({
+    executionId: "no-retry-invalid-url",
+    recipe: { version: 1, actions: [{ tool: "open", arguments: { url: "not-a-url" } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+
+  assert.equal(result.status, "failed");
+  assert.equal(opens, 1);
+});
+
 test("runs artifact steps locally with access to earlier results", async () => {
   const server = fakeMCP((message) => message.method === "initialize"
     ? { protocolVersion: "2025-03-26", capabilities: {} }

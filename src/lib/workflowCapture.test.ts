@@ -35,6 +35,11 @@ describe("terminal workflow capture", () => {
     expect(capturedWorkflowDomain("найди все матизы", answer)).toBe("makler.md");
   });
 
+  it("does not mistake an artifact filename for the website that was opened", () => {
+    const answer = 'Called clawbrowser.open({"url":"https://news.ycombinator.com/newest"})\n{"ok":true}';
+    expect(capturedWorkflowDomain("Collect stories and save them as hacker-news-newest.csv", answer)).toBe("news.ycombinator.com");
+  });
+
   it("creates a useful title and normalized instructions", () => {
     const task = terminalBrowserTask(transcript);
     expect(workflowTitle(task, "makler.md")).toBe("makler.md — матизы");
