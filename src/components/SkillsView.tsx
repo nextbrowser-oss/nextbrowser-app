@@ -10,6 +10,7 @@ import { uid } from "../lib/ids";
 import { internalError } from "../lib/userFacingError";
 import { Icon } from "./Icon";
 import { UserFacingError } from "./UserFacingError";
+import { WatchedProfilesPanel } from "./WatchedProfilesPanel";
 
 export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () => void }) {
   const s = useStore();
@@ -19,6 +20,15 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
   const [scriptEditor, setScriptEditor] = useState<CustomScript | "new" | null>(null);
   const [skillRun, setSkillRun] = useState<BrowserWorkflowSkill | null>(null);
   const [skillDetails, setSkillDetails] = useState<BrowserWorkflowSkill | null>(null);
+  const [watchlistSkill, setWatchlistSkill] = useState<SkillEntry | null>(null);
+  // A run that stops on a signed-out profile opens its manager, which is where
+  // the sign-in prompt lives; otherwise pressing Run looks like nothing at all.
+  const signInNeeded = s.xReplySignInNeeded;
+  useEffect(() => {
+    if (!signInNeeded || watchlistSkill) return;
+    const entry = categories.flatMap((category) => category.entries).find((candidate) => candidate.watchlist?.engine);
+    if (entry) setWatchlistSkill(entry);
+  }, [signInNeeded, watchlistSkill, categories]);
 
   const cat = categories.find((c) => c.id === category);
   const isSkillsOverview = category === "__skills__";
@@ -208,6 +218,20 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                   </div>
                 )}
                 {repositorySkill && <div className="small ok skill-status"><Icon name="checkmark.seal.fill" size={12} /> Included with NextBrowser</div>}
+                {e.watchlist && (
+                  <button
+                    className="skill-watchlist-summary small"
+                    title={`Manage ${e.watchlist.title.toLowerCase()}`}
+                    onClick={() => setWatchlistSkill(e)}
+                  >
+                    <span className={"status-dot " + (s.watchlistRunFor(e.id)?.enabled ? "ok-dot" : "muted-dot")} />
+                    {watchedSummary(
+                      s.watchedProfilesFor(e.id),
+                      e.watchlist.prefix ?? "",
+                      s.watchlistRunFor(e.id)?.enabled ? s.watchlistRunFor(e.id)?.intervalMinutes : undefined,
+                    )}
+                  </button>
+                )}
                 {!publishedScript && !repositorySkill && (
                   <>
                     {st === "idle" && <div className="small muted skill-status">Not installed</div>}
@@ -232,9 +256,18 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                 )}
                 <div className="skill-actions">
                   {repositorySkill ? (
-                    <button className="btn-bordered-prominent full" disabled={!ready} title={`Run ${e.title} in chat`} onClick={() => void s.useSkillInChat(e)}>
-                      <Icon name="play.fill" size={13} /> Run
-                    </button>
+                    // A watchlist skill is driven from its own manager: start,
+                    // stop and the accounts all live there, so the card opens it
+                    // instead of offering a second way to run.
+                    e.watchlist ? (
+                      <button className="btn-bordered-prominent full" title={e.watchlist.title} onClick={() => setWatchlistSkill(e)}>
+                        <Icon name="person.crop.circle" size={13} /> Open
+                      </button>
+                    ) : (
+                      <button className="btn-bordered-prominent full" disabled={!ready} title={`Run ${e.title} in chat`} onClick={() => void s.useSkillInChat(e)}>
+                        <Icon name="play.fill" size={13} /> Run
+                      </button>
+                    )
                   ) : e.js ? (
                     <button className="btn-bordered-prominent full" title={`Run ${e.title}`} onClick={() => s.runScript(e)}>
                       <Icon name="bolt.fill" size={14} />
@@ -403,8 +436,29 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
       {skillDetails && (
         <LocalSkillDetails skill={skillDetails} onClose={() => setSkillDetails(null)} />
       )}
+      {watchlistSkill && (
+        <WatchedProfilesPanel entry={watchlistSkill} onClose={() => { s.dismissXReplySignIn(); setWatchlistSkill(null); }} />
+      )}
     </div>
   );
+}
+
+/// The card shows who is being watched, and whether the loop is on, without
+/// opening the manager: both change what pressing Run will do.
+function watchedSummary(
+  profiles: { handle: string; enabled: boolean }[],
+  prefix: string,
+  runningEveryMinutes?: number,
+): string {
+  const active = profiles.filter((profile) => profile.enabled);
+  const cadence = runningEveryMinutes
+    ? ` · every ${runningEveryMinutes < 60 ? `${runningEveryMinutes}m` : `${runningEveryMinutes / 60}h`}`
+    : "";
+  if (!profiles.length) return "No watched profiles yet";
+  if (!active.length) return `${profiles.length} watched · all paused`;
+  const names = active.slice(0, 2).map((profile) => `${prefix}${profile.handle}`).join(", ");
+  const list = active.length > 2 ? `${names} +${active.length - 2}` : names;
+  return `${runningEveryMinutes ? "Running" : "Watching"} ${list}${cadence}`;
 }
 
 function RunLocalSkillSheet({ skill, sessionName, onClose, onRun }: {

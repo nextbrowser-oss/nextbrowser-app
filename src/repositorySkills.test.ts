@@ -11,6 +11,15 @@ describe("repository skills", () => {
     expect(skill?.instructions).toContain("# 999.md car search");
   });
 
+  it("carries a declared watchlist into the catalog entry", () => {
+    const skill = repositorySkillCategories().flatMap((category) => category.entries)
+      .find((entry) => entry.id === "repository:x-reply-agent");
+    expect(skill?.selector).toEqual({ kind: "domain", value: "x.com" });
+    expect(skill?.watchlist?.stateFile).toBe("x-reply-agent-state.json");
+    expect(skill?.watchlist?.subscribeTask).toContain("{handle}");
+    expect(skill?.watchlist?.checkTask).toContain("{handles}");
+  });
+
   it("merges repository and backend skills in the same category", () => {
     const merged = mergeSkillCategories([{
       id: "marketplaces",

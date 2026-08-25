@@ -3,6 +3,32 @@ export type Selector =
   | { kind: "captcha"; value: string }
   | { kind: "script"; value: string };
 
+/// A skill that follows accounts over time declares a watchlist, and the app
+/// renders the manager for it. The wording of the runs stays with the skill so
+/// the app never has to know what the site calls a follow or a notification.
+export interface SkillWatchlist {
+  /// Panel heading, for example "Watched X profiles".
+  title: string;
+  blurb?: string;
+  /// Placeholder for the add field, for example "handle without @".
+  placeholder: string;
+  /// Rendered before a handle, for example "@".
+  prefix?: string;
+  /// Profile URL template containing `{handle}`.
+  profileUrl?: string;
+  /// File in the agent workspace where the skill records what it observed.
+  /// Only the chat-driven fallback uses it; an engine keeps its own state.
+  stateFile?: string;
+  /// Task template for subscribing to one account; contains `{handle}`.
+  subscribeTask: string;
+  /// Task template for one pass over the list; contains `{handles}`.
+  checkTask: string;
+  /// Built-in engine that performs the run in app code instead of handing the
+  /// whole workflow to the agent. The agent is then called only where a model
+  /// is genuinely needed — writing the reply.
+  engine?: "x-reply";
+}
+
 export interface SkillEntry {
   id: string;
   title: string;
@@ -17,6 +43,13 @@ export interface SkillEntry {
   source?: "backend" | "repository";
   instructions?: string;
   author?: string;
+  watchlist?: SkillWatchlist;
+}
+
+/// fillTemplate substitutes `{name}` placeholders. A placeholder without a
+/// value is dropped rather than left in the prompt as literal braces.
+export function fillTemplate(template: string, values: Record<string, string>): string {
+  return template.replace(/\{([a-z_]+)\}/gi, (_, name: string) => values[name] ?? "");
 }
 
 export interface SkillCategory {

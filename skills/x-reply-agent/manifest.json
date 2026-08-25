@@ -1,0 +1,31 @@
+{
+  "id": "x-reply-agent",
+  "name": "X Reply Agent",
+  "description": "Watch new x.com posts, draft one short reply per post, and publish the replies the user approved.",
+  "author": "nextbrowser-oss",
+  "domains": [
+    "x.com"
+  ],
+  "operations": [
+    "scrape",
+    "post",
+    "comment"
+  ],
+  "category": {
+    "id": "social",
+    "title": "Social",
+    "icon": "bubble.left.and.bubble.right.fill",
+    "order": 40
+  },
+  "watchlist": {
+    "title": "Watched X profiles",
+    "blurb": "Accounts NextBrowser checks for new posts. Every pass turns on X post notifications for an account you already follow, and drafts one reply per new post.",
+    "placeholder": "handle without @",
+    "prefix": "@",
+    "profileUrl": "https://x.com/{handle}",
+    "stateFile": "x-reply-agent-state.json",
+    "subscribeTask": "Subscribe to @{handle}: open the profile, confirm this X account follows it, turn on post notifications only if they are off, then record @{handle} in the state file with the newest visible post id as its baseline. Reply to nothing in this run and report what the bell and follow state actually were.",
+    "checkTask": "Run one watch pass over these accounts: {handles}. Only these accounts are watched right now. Draft replies for posts newer than each recorded baseline, show me the drafts, and update the state file.",
+    "engine": "x-reply"
+  }
+}

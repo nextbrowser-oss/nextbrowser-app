@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { conversationPreview, humanBytes, weekdaysSummary, type Conversation } from "./types";
+import {
+  clampWatchlistInterval,
+  conversationPreview,
+  humanBytes,
+  normalizeWatchHandle,
+  parseWatchState,
+  weekdaysSummary,
+  type Conversation,
+} from "./types";
 import { countryFlag, countryLabel, filterCountries, ROTATION_COUNTRIES } from "./lib/countryFlag";
 import { normalizeNextctlVersion } from "./lib/version";
 
@@ -41,5 +49,59 @@ describe("Swift-compatible model helpers", () => {
     expect(humanBytes(1_024)).toBe("1 KiB");
     expect(humanBytes(1.5 * 1024 * 1024)).toBe("1.5 MiB");
     expect(humanBytes(1024 * 1024 * 1024)).toBe("1 GiB");
+  });
+});
+
+describe("watched profile handles", () => {
+  it("accepts what a user actually pastes and rejects the rest", () => {
+    expect(normalizeWatchHandle(" @NextBrowser ")).toBe("NextBrowser");
+    expect(normalizeWatchHandle("https://x.com/nextbrowser")).toBe("nextbrowser");
+    expect(normalizeWatchHandle("https://x.com/@nextbrowser/")).toBe("nextbrowser");
+    expect(normalizeWatchHandle("x.com/nextbrowser?lang=en")).toBe("nextbrowser");
+    expect(normalizeWatchHandle("sixteen_char_handle_x")).toBe("");
+    expect(normalizeWatchHandle("has spaces")).toBe("");
+    expect(normalizeWatchHandle("")).toBe("");
+  });
+});
+
+describe("watchlist intervals", () => {
+  it("snaps any stored value onto the offered choices", () => {
+    expect(clampWatchlistInterval(1)).toBe(1);
+    expect(clampWatchlistInterval(2)).toBe(2);
+    expect(clampWatchlistInterval(15)).toBe(20);
+    expect(clampWatchlistInterval(0)).toBe(1);
+    expect(clampWatchlistInterval(999)).toBe(20);
+    expect(clampWatchlistInterval(Number.NaN)).toBe(2);
+  });
+});
+
+describe("agent watch state file", () => {
+  it("reads the reports an agent recorded and keeps the panel usable", () => {
+    const { reports } = parseWatchState(JSON.stringify({
+      version: 1,
+      handles: [
+        { handle: "@NextBrowser", following: true, notifications: true, last_post_id: "1899", last_checked_at: "2026-08-25T09:40:00Z", replies_sent: 3, last_reply_url: "https://x.com/me/status/1900" },
+        { handle: "not a handle", notifications: true },
+      ],
+    }));
+    expect(Object.keys(reports)).toEqual(["nextbrowser"]);
+    expect(reports.nextbrowser).toMatchObject({
+      handle: "NextBrowser",
+      following: true,
+      notifications: true,
+      lastPostId: "1899",
+      repliesSent: 3,
+      lastReplyUrl: "https://x.com/me/status/1900",
+    });
+    expect(reports.nextbrowser.lastCheckedAt).toBe(Date.parse("2026-08-25T09:40:00Z"));
+  });
+
+  it("survives a missing, malformed, or differently shaped file", () => {
+    expect(parseWatchState(null).reports).toEqual({});
+    expect(parseWatchState("{ half written").reports).toEqual({});
+    expect(parseWatchState(JSON.stringify({ handles: { nextbrowser: { notifications: false } } })).reports)
+      .toMatchObject({ nextbrowser: { handle: "nextbrowser", notifications: false } });
+    expect(parseWatchState(JSON.stringify({ handles: [{ handle: "a", last_reply_url: "javascript:alert(1)" }] })).reports.a.lastReplyUrl)
+      .toBeUndefined();
   });
 });

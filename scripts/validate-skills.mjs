@@ -30,6 +30,35 @@ for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
   if (!manifest.category || !slugPattern.test(manifest.category.id ?? "") || typeof manifest.category.title !== "string" || typeof manifest.category.icon !== "string" || !Number.isInteger(manifest.category.order)) {
     failures.push(`${entry.name}: category must include id, title, icon, and integer order`);
   }
+  // A watchlist is optional, but a half-declared one renders a manager the app
+  // cannot run, so every field it needs is required once the block exists.
+  if (manifest.watchlist != null) {
+    const watchlist = manifest.watchlist;
+    if (typeof watchlist !== "object" || Array.isArray(watchlist)) {
+      failures.push(`${entry.name}: watchlist must be an object`);
+    } else {
+      for (const field of ["title", "placeholder", "subscribeTask", "checkTask"]) {
+        if (typeof watchlist[field] !== "string" || !watchlist[field].trim()) failures.push(`${entry.name}: watchlist.${field} is required`);
+      }
+      if (typeof watchlist.subscribeTask === "string" && !watchlist.subscribeTask.includes("{handle}")) {
+        failures.push(`${entry.name}: watchlist.subscribeTask must contain {handle}`);
+      }
+      if (typeof watchlist.checkTask === "string" && !watchlist.checkTask.includes("{handles}")) {
+        failures.push(`${entry.name}: watchlist.checkTask must contain {handles}`);
+      }
+      if (watchlist.profileUrl != null && (typeof watchlist.profileUrl !== "string" || !watchlist.profileUrl.startsWith("https://") || !watchlist.profileUrl.includes("{handle}"))) {
+        failures.push(`${entry.name}: watchlist.profileUrl must be an https template containing {handle}`);
+      }
+      if (watchlist.stateFile != null && (typeof watchlist.stateFile !== "string" || !/^[A-Za-z0-9._-]+$/.test(watchlist.stateFile))) {
+        failures.push(`${entry.name}: watchlist.stateFile must be a plain file name`);
+      }
+      // An engine name the app does not implement would silently fall back to
+      // the chat path, which is a different product than the manifest promises.
+      if (watchlist.engine != null && !["x-reply"].includes(watchlist.engine)) {
+        failures.push(`${entry.name}: watchlist.engine is not a built-in engine`);
+      }
+    }
+  }
   const skillPath = path.join(dir, "SKILL.md");
   if (fs.existsSync(skillPath)) {
     // Git commonly checks text files out with CRLF on Windows. Normalize the

@@ -20,10 +20,21 @@ import {
 import {
   type SkillEntry,
   type SkillCategory,
+  fillTemplate,
   selectorFlags,
   selectorTargetHost,
 } from "./skillsCatalog";
 import { REPOSITORY_SKILL_CATEGORIES, mergeSkillCategories } from "./repositorySkills";
+import { cliBrowser } from "./lib/xreply/browser";
+import { openNotifications, readPublisher, runPass, sendDraft, subscribeHandle } from "./lib/xreply/engine";
+import {
+  emptyXReplyState,
+  normalizeXReplyState,
+  updateDraft as updateXReplyDraft,
+  withinLimits as withinXReplyLimits,
+  type XReplyDraft,
+  type XReplyState,
+} from "./lib/xreply/state";
 import { activityFromText, extractToolEvents } from "./lib/activityParser";
 import { composePrompt } from "./lib/composePrompt";
 import { executionTargetForTurn, type ExecutionTarget } from "./lib/executionTarget";
@@ -76,7 +87,18 @@ import type {
   SkillRef,
   UserCommandChip,
   UsageSnapshot,
+  WatchedProfile,
+  WatchedProfileReport,
+  WatchedPublisher,
+  WatchlistRun,
   Workspace,
+} from "./types";
+import {
+  DEFAULT_WATCHLIST_INTERVAL_MINUTES,
+  clampWatchlistInterval,
+  normalizeWatchHandle,
+  parseWatchState,
+  sameWatchHandle,
 } from "./types";
 import type { RotationCountry } from "./lib/countryFlag";
 import { browserProfileContext } from "./lib/browserProfileContext";
@@ -90,6 +112,14 @@ interface QueuedItem {
   rawText: string;
   replyId: string;
   executionTarget: ExecutionTarget;
+}
+
+/// How a skill run is placed. A loop tick supplies its own conversation and
+/// stays in the background, so a pass that fires while the user is reading
+/// something else does not drag the window to another chat.
+export interface SkillRunOptions {
+  conversationId?: string;
+  background?: boolean;
 }
 
 type BrowserToolset = "clawbrowser" | "dasbrowser" | "camoufox";
@@ -272,17 +302,21 @@ function skillAgentPrompt(
   slug: string | undefined,
   openedHost?: string,
   directFallback = false,
+  task?: string,
 ): string {
   const startHint = openedHost
     ? pageReadyNote(openedHost, directFallback)
     : ` Start by opening ${target} in the active NextBrowser profile.${pageReadyNote(undefined, directFallback)}`;
+  // The task is the app's own instruction for this run, so it precedes the
+  // skill text: the workflow explains how, the task says what.
+  const thisRun = task?.trim() ? `\n\nTask for this run:\n${task.trim()}` : "";
   if (md) {
-    return `Use the "${title}" skill to work with ${target}.${startHint} Follow this SKILL.md exactly, step by step:\n\n${md}`;
+    return `Use the "${title}" skill to work with ${target}.${startHint}${thisRun}\n\nFollow this SKILL.md exactly, step by step:\n\n${md}`;
   }
   if (slug) {
-    return `Use the skill "${slug}" (${title}) to work with ${target}. It is installed in your skills directory — read its SKILL.md and follow it.${startHint}`;
+    return `Use the skill "${slug}" (${title}) to work with ${target}. It is installed in your skills directory — read its SKILL.md and follow it.${startHint}${thisRun}`;
   }
-  return `Use the "${title}" skill you just installed to work with ${target}.${startHint}`;
+  return `Use the "${title}" skill you just installed to work with ${target}.${startHint}${thisRun}`;
 }
 
 function scriptAgentPrompt(
@@ -389,6 +423,15 @@ interface State {
   nextctlSupportsSkill: boolean;
   nextctlAvailable: boolean;
   skillCategories: SkillCategory[];
+  watchedProfiles: WatchedProfile[];
+  watchReports: Record<string, WatchedProfileReport>;
+  watchPublishers: Record<string, WatchedPublisher>;
+  watchlistRuns: WatchlistRun[];
+  xReplyState: XReplyState;
+  xReplyBusy: boolean;
+  xReplyStep?: string;
+  /** Set when something the user pressed needs a signed-in profile. */
+  xReplySignInNeeded: boolean;
   appActive: boolean;
   connectAnnounced: Set<string>;
   workingDir: string;
@@ -503,8 +546,31 @@ interface State {
   sendVPSPrompt: (text: string, connectionLabel?: string) => Promise<void>;
 
   applySkill: (entry: SkillEntry) => Promise<SkillRef | undefined>;
-  useSkillInChat: (entry: SkillEntry) => Promise<void>;
+  useSkillInChat: (entry: SkillEntry, task?: string, options?: SkillRunOptions) => Promise<void>;
   runScript: (entry: SkillEntry, host?: string) => Promise<void>;
+
+  addWatchedProfile: (skillId: string, handle: string) => WatchedProfile | undefined;
+  removeWatchedProfile: (id: string) => void;
+  setWatchedProfileEnabled: (id: string, enabled: boolean) => void;
+  watchedProfilesFor: (skillId: string) => WatchedProfile[];
+  watchReportFor: (skillId: string, handle: string) => WatchedProfileReport | undefined;
+  watchPublisherFor: (skillId: string) => WatchedPublisher | undefined;
+  loadWatchReports: (entry: SkillEntry) => Promise<void>;
+  subscribeWatchedProfile: (entry: SkillEntry, profileId: string) => Promise<void>;
+  runWatchlistPass: (entry: SkillEntry, options?: SkillRunOptions) => Promise<void>;
+  watchlistRunFor: (skillId: string) => WatchlistRun | undefined;
+  startWatchlistRun: (entry: SkillEntry, intervalMinutes?: number) => Promise<void>;
+  runXReplyPass: (entry: SkillEntry) => Promise<void>;
+  openSkillSite: (entry: SkillEntry) => Promise<void>;
+  checkXReplySignIn: (entry: SkillEntry) => Promise<boolean>;
+  dismissXReplySignIn: () => void;
+  subscribeXReplyHandle: (entry: SkillEntry, handle: string) => Promise<void>;
+  updateXReplySettings: (patch: Partial<XReplyState>) => void;
+  setXReplyAutoSend: (autoSend: boolean) => void;
+  reviewXReplyDraft: (id: string, decision: "approve" | "reject") => void;
+  sendXReplyDraft: (entry: SkillEntry, id: string) => Promise<void>;
+  stopWatchlistRun: (skillId: string) => void;
+  tickWatchlistRuns: () => Promise<void>;
   startRemoteStream: (target?: LiveStreamTarget) => Promise<RemoteStreamInfo>;
 
   addScheduledRun: (run: Omit<ScheduledRun, "id" | "agent" | "enabled">) => void;
@@ -722,6 +788,143 @@ function persistLocalSkills(skills: BrowserWorkflowSkill[]) {
 
 function persistAppliedScripts(scripts: SkillEntry[]) {
   void saveJson("applied-scripts.json", scripts);
+}
+
+function persistWatchedProfiles(profiles: WatchedProfile[]) {
+  void saveJson("watched-profiles.json", profiles);
+}
+
+function persistWatchlistRuns(runs: WatchlistRun[]) {
+  void saveJson("watchlist-runs.json", runs);
+}
+
+function normalizeWatchlistRuns(raw: WatchlistRun[]): WatchlistRun[] {
+  const seen = new Set<string>();
+  const runs: WatchlistRun[] = [];
+  for (const item of raw) {
+    const skillId = String(item?.skillId ?? "").trim();
+    if (!skillId || seen.has(skillId)) continue;
+    seen.add(skillId);
+    runs.push({
+      skillId,
+      enabled: item.enabled === true,
+      intervalMinutes: clampWatchlistInterval(Number(item.intervalMinutes)),
+      conversationId: item.conversationId || undefined,
+      lastRunAt: Number(item.lastRunAt) || undefined,
+      // A loop that was running when the app closed is due immediately, so
+      // reopening the app resumes it instead of waiting out a stale delay.
+      nextRunAt: item.enabled === true ? now() : undefined,
+    });
+  }
+  return runs;
+}
+
+/// normalizeWatchedProfiles drops records that can no longer address an
+/// account, so a corrupted file degrades to a shorter list instead of rows the
+/// panel cannot act on.
+function normalizeWatchedProfiles(raw: WatchedProfile[]): WatchedProfile[] {
+  const seen = new Set<string>();
+  const profiles: WatchedProfile[] = [];
+  for (const item of raw) {
+    const handle = normalizeWatchHandle(String(item?.handle ?? ""));
+    const skillId = String(item?.skillId ?? "").trim();
+    if (!handle || !skillId) continue;
+    const key = `${skillId}\n${handle.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    profiles.push({
+      id: item.id || uid(),
+      skillId,
+      handle,
+      enabled: item.enabled !== false,
+      addedAt: Number(item.addedAt) || now(),
+      subscribeQueuedAt: Number(item.subscribeQueuedAt) || undefined,
+      lastRunAt: Number(item.lastRunAt) || undefined,
+    });
+  }
+  return profiles;
+}
+
+function watchReportKey(skillId: string, handle: string): string {
+  return `${skillId}\n${handle.toLowerCase()}`;
+}
+
+const X_REPLY_STATE_FILE = "x-reply-state.json";
+
+/** Errors that mean the browser session behind the profile is gone. Ported from
+ *  the Go client's SessionUnavailable: the cure is a fresh start, not a retry
+ *  against the same dead endpoint. */
+function sessionLost(message: string): boolean {
+  return /SESSION_NOT_FOUND|CDP_UNREACHABLE|TAB_NOT_FOUND|connection refused|cdp targets/i.test(message);
+}
+
+/** friendlyXReplyError keeps a CDP transcript out of the panel. */
+function friendlyXReplyError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (sessionLost(message)) return "The browser session was lost. Press Start again to reopen it.";
+  if (/API_KEY|not authorized|unauthorized/i.test(message)) return "NextBrowser could not authenticate. Reconnect your account.";
+  return message.replace(/\s+/g, " ").trim().slice(0, 160);
+}
+
+// Nothing writes this file per keystroke any more, and a deferred write is a
+// write that a crash can lose — the profile choice went missing exactly that
+// way. Every change goes to disk at once.
+function persistXReplyState(state: XReplyState) {
+  void saveJson(X_REPLY_STATE_FILE, state);
+}
+
+/// Set while a pass should wind down. The engine checks it between steps, so
+/// Stop ends the current pass instead of the app waiting it out.
+let xReplyStopRequested = false;
+
+/// prepareXReplySession opens the profile this skill runs in. A session the
+/// runtime lost is restarted once: the app's cached status can say running long
+/// after the browser is gone, and the first call then fails on a dead endpoint.
+async function prepareXReplySession(
+  host: string | undefined,
+  onStep: (step: string) => void,
+): Promise<string[]> {
+  const state = useStore.getState();
+  const profile = state.xReplyState.profileName ?? state.selectedProfile;
+  const prepare = () => prepareLocalSession({
+    host,
+    selectedProfile: profile,
+    statuses: useStore.getState().statuses,
+    defaultSession: useStore.getState().defaultSession,
+    onStep,
+  });
+  try {
+    return (await prepare()).profileArgs;
+  } catch (error) {
+    if (!sessionLost(error instanceof Error ? error.message : String(error))) throw error;
+    onStep("Reopening the browser session");
+    await Promise.all([
+      useStore.getState().loadProfiles().catch(() => {}),
+      useStore.getState().loadDefaultSession().catch(() => {}),
+    ]);
+    return (await prepare()).profileArgs;
+  }
+}
+
+/// runDraftAgent runs the connected agent once, outside the chat queue. The
+/// drafting call is not a conversation turn: it writes no message, holds no
+/// chat slot, and its tools are switched off by draftInvocation.
+async function runDraftAgent(options: {
+  agentId: string;
+  binary: string;
+  envVar: string;
+  args: string[];
+  stdinText?: string;
+}): Promise<AgentDone> {
+  return invoke<AgentDone>("agent_run", {
+    replyId: `xreply-${uid()}`,
+    agentId: options.agentId,
+    binary: options.binary,
+    envVar: options.envVar,
+    args: options.args,
+    stdinText: options.stdinText ?? null,
+    workingDir: useStore.getState().workingDir || null,
+  });
 }
 
 interface VerifyCheck {
@@ -1079,6 +1282,13 @@ export const useStore = create<State>((set, get) => {
   tab: "chat",
   skillState: {},
   skillCategories: REPOSITORY_SKILL_CATEGORIES,
+  watchedProfiles: [],
+  watchReports: {},
+  watchPublishers: {},
+  watchlistRuns: [],
+  xReplyState: emptyXReplyState(),
+  xReplyBusy: false,
+  xReplySignInNeeded: false,
   scheduledRuns: [],
   customScripts: [],
   localSkills: [],
@@ -1163,7 +1373,7 @@ export const useStore = create<State>((set, get) => {
     didBootstrap = true;
     const startedAt = performance.now();
     trackEvent("bootstrap_started");
-    const [rawConvs, rawWorkspaces, rawSchedules, rawScripts, rawLocalSkills, rawAppliedScripts, rawHistory, wd] = await Promise.all([
+    const [rawConvs, rawWorkspaces, rawSchedules, rawScripts, rawLocalSkills, rawAppliedScripts, rawHistory, rawWatched, rawWatchlistRuns, rawXReply, wd] = await Promise.all([
       loadJson<Conversation[]>("conversations.json", []),
       loadJson<Workspace[]>("workspaces.json", []),
       loadJson<ScheduledRun[]>("scheduled-runs.json", []),
@@ -1171,6 +1381,9 @@ export const useStore = create<State>((set, get) => {
       loadJson<BrowserWorkflowSkill[]>("local-skills.json", []),
       loadJson<SkillEntry[]>("applied-scripts.json", []),
       loadJson<UsageSnapshot[]>("usage-history.json", []),
+      loadJson<WatchedProfile[]>("watched-profiles.json", []),
+      loadJson<WatchlistRun[]>("watchlist-runs.json", []),
+      loadJson<unknown>(X_REPLY_STATE_FILE, null),
       invoke<string>("working_directory").catch(() => ""),
     ]);
     const convs = rawConvs.map(normalizeConversation);
@@ -1206,6 +1419,9 @@ export const useStore = create<State>((set, get) => {
       localSkills: rawLocalSkills.map(normalizeWorkflowSkill),
       appliedScripts: rawAppliedScripts.filter((entry) => entry?.selector?.kind === "script"),
       usageHistory: history,
+      watchedProfiles: normalizeWatchedProfiles(rawWatched),
+      watchlistRuns: normalizeWatchlistRuns(rawWatchlistRuns),
+      xReplyState: normalizeXReplyState(rawXReply),
       workingDir: wd,
     });
     get().reconcileQueues();
@@ -1337,7 +1553,10 @@ export const useStore = create<State>((set, get) => {
       get().loadDefaultSession().catch(() => {});
     }, PROXY_REFRESH_MS);
     if (scheduleTimer) clearInterval(scheduleTimer);
-    scheduleTimer = setInterval(() => get().tickScheduledRuns(), SCHEDULE_TICK_MS);
+    scheduleTimer = setInterval(() => {
+      void get().tickScheduledRuns();
+      void get().tickWatchlistRuns();
+    }, SCHEDULE_TICK_MS);
     if (nextctlDailyUpdateTimer) clearInterval(nextctlDailyUpdateTimer);
     nextctlDailyUpdateTimer = setInterval(
       () => void get().tickNextctlDailyUpdate(),
@@ -3926,22 +4145,28 @@ export const useStore = create<State>((set, get) => {
     return activeRef ?? anyRef;
   },
 
-  useSkillInChat: async (entry) => {
+  useSkillInChat: async (entry, task, options) => {
     if (!get().agentReady()) return;
     trackEvent("skill_used_in_chat", {
       category: entry.category,
       selector_kind: entry.selector.kind,
+      has_task: !!task?.trim(),
+      background: !!options?.background,
     });
-    set({ tab: "chat" });
+    if (!options?.background) set({ tab: "chat" });
     const target =
       entry.selector.kind === "domain" ? entry.selector.value : entry.selector.value;
-    const cid = get().activeConversation()?.id ?? get().newChat();
+    const requested = options?.conversationId;
+    const cid = (requested && get().conversations.some((conversation) => conversation.id === requested) ? requested : undefined)
+      ?? get().activeConversation()?.id
+      ?? get().newChat();
     const remoteOnly = get().conversations.find((conversation) => conversation.id === cid)?.executionTarget === "vps";
     if (remoteOnly) {
       const chip: UserCommandChip = { kind: "skill", title: entry.title, detail: target };
+      const thisRun = task?.trim() ? `\n\nTask for this run:\n${task.trim()}` : "";
       const prompt = entry.instructions
-        ? `Use the "${entry.title}" repository skill for ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local NextBrowser session. Follow this SKILL.md exactly:\n\n${entry.instructions}`
-        : `Use the "${entry.title}" skill for ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local NextBrowser session. Use only skill instructions and browser tooling that are already available on the VPS; if the skill is missing there, report that without installing it.${entry.description ? `\n\nSkill description: ${entry.description}` : ""}`;
+        ? `Use the "${entry.title}" repository skill for ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local NextBrowser session.${thisRun}\n\nFollow this SKILL.md exactly:\n\n${entry.instructions}`
+        : `Use the "${entry.title}" skill for ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local NextBrowser session. Use only skill instructions and browser tooling that are already available on the VPS; if the skill is missing there, report that without installing it.${entry.description ? `\n\nSkill description: ${entry.description}` : ""}${thisRun}`;
       get().enqueue(prompt, chip, cid);
       return;
     }
@@ -3994,9 +4219,375 @@ export const useStore = create<State>((set, get) => {
       ref?.slug ?? ref?.title,
       prep.host,
       prep.directFallback,
+      task,
     );
     get().enqueue(prompt, chip, cid);
     await get().loadDefaultSession();
+  },
+
+  addWatchedProfile: (skillId, rawHandle) => {
+    const handle = normalizeWatchHandle(rawHandle);
+    if (!handle || !skillId) return undefined;
+    const existing = get().watchedProfiles.find(
+      (item) => item.skillId === skillId && sameWatchHandle(item.handle, handle),
+    );
+    if (existing) return existing;
+    const profile: WatchedProfile = { id: uid(), skillId, handle, enabled: true, addedAt: now() };
+    const watchedProfiles = [...get().watchedProfiles, profile];
+    persistWatchedProfiles(watchedProfiles);
+    set({ watchedProfiles });
+    trackEvent("watched_profile_added", { skill: skillId, watched_count: watchedProfiles.length });
+    return profile;
+  },
+
+  removeWatchedProfile: (id) => {
+    const profile = get().watchedProfiles.find((item) => item.id === id);
+    const watchedProfiles = get().watchedProfiles.filter((item) => item.id !== id);
+    persistWatchedProfiles(watchedProfiles);
+    set({ watchedProfiles });
+    if (profile) trackEvent("watched_profile_removed", { skill: profile.skillId, watched_count: watchedProfiles.length });
+  },
+
+  setWatchedProfileEnabled: (id, enabled) => {
+    const watchedProfiles = get().watchedProfiles.map((item) => (item.id === id ? { ...item, enabled } : item));
+    persistWatchedProfiles(watchedProfiles);
+    set({ watchedProfiles });
+  },
+
+  watchedProfilesFor: (skillId) =>
+    get().watchedProfiles.filter((item) => item.skillId === skillId),
+
+  watchReportFor: (skillId, handle) =>
+    get().watchReports[watchReportKey(skillId, handle)],
+
+  watchPublisherFor: (skillId) => get().watchPublishers[skillId],
+
+  // The state file belongs to the agent, so the app only ever reads it. A
+  // missing or malformed file leaves the panel showing what the user added,
+  // without agent-side detail.
+  loadWatchReports: async (entry) => {
+    const name = entry.watchlist?.stateFile;
+    if (!name) return;
+    let raw: string | null = null;
+    try {
+      raw = await invoke<string | null>("workspace_file_read", { name });
+    } catch {
+      raw = null;
+    }
+    const parsed = parseWatchState(raw);
+    set((state) => {
+      const watchReports = { ...state.watchReports };
+      for (const key of Object.keys(watchReports)) {
+        if (key.startsWith(`${entry.id}\n`)) delete watchReports[key];
+      }
+      for (const report of Object.values(parsed.reports)) {
+        watchReports[watchReportKey(entry.id, report.handle)] = report;
+      }
+      const watchPublishers = { ...state.watchPublishers };
+      if (parsed.publisher) watchPublishers[entry.id] = parsed.publisher;
+      else delete watchPublishers[entry.id];
+      return { watchReports, watchPublishers };
+    });
+  },
+
+  subscribeWatchedProfile: async (entry, profileId) => {
+    const profile = get().watchedProfiles.find((item) => item.id === profileId);
+    if (!entry.watchlist || !profile) return;
+    const watchedProfiles = get().watchedProfiles.map((item) =>
+      item.id === profileId ? { ...item, subscribeQueuedAt: now() } : item,
+    );
+    persistWatchedProfiles(watchedProfiles);
+    set({ watchedProfiles });
+    trackEvent("watched_profile_subscribe_queued", { skill: entry.id });
+    await get().useSkillInChat(entry, fillTemplate(entry.watchlist.subscribeTask, { handle: profile.handle }));
+  },
+
+  runWatchlistPass: async (entry, options) => {
+    const watchlist = entry.watchlist;
+    if (!watchlist) return;
+    // A skill with an engine runs in app code. The chat path below is the
+    // fallback for skills that only ship instructions.
+    if (watchlist.engine === "x-reply") {
+      await get().runXReplyPass(entry);
+      return;
+    }
+    const prefix = watchlist.prefix ?? "";
+    const active = get().watchedProfilesFor(entry.id).filter((item) => item.enabled);
+    if (!active.length) {
+      await get().useSkillInChat(entry, undefined, options);
+      return;
+    }
+    const startedAt = now();
+    const watchedProfiles = get().watchedProfiles.map((item) =>
+      active.some((candidate) => candidate.id === item.id) ? { ...item, lastRunAt: startedAt } : item,
+    );
+    persistWatchedProfiles(watchedProfiles);
+    set({ watchedProfiles });
+    trackEvent("watchlist_pass_queued", { skill: entry.id, watched_count: active.length });
+    const handles = active.map((item) => `${prefix}${item.handle}`).join(", ");
+    await get().useSkillInChat(entry, fillTemplate(watchlist.checkTask, { handles }), options);
+  },
+
+  // The engine, not the agent, performs a pass: detection, the publish gates,
+  // watermarks and limits are code, and the agent is called once per post only
+  // to write the reply itself.
+  runXReplyPass: async (entry) => {
+    if (get().xReplyBusy) return;
+    if (!get().agentReady()) return;
+    if (pendingTarget(get(), "vps")) return;
+    const handles = get().watchedProfilesFor(entry.id).filter((item) => item.enabled).map((item) => item.handle);
+    if (!handles.length) return;
+
+    xReplyStopRequested = false;
+    set({ xReplyBusy: true, xReplyStep: "Preparing the browser session", xReplySignInNeeded: false });
+    try {
+      const profileArgs = await prepareXReplySession(undefined, (step) => set({ xReplyStep: step }));
+      const { state, summary } = await runPass({
+        browser: cliBrowser(profileArgs),
+        agentId: get().agentId,
+        runAgent: runDraftAgent,
+        handles,
+        state: get().xReplyState,
+        now,
+        newId: uid,
+        onStep: (step) => set({ xReplyStep: step }),
+        shouldStop: () => xReplyStopRequested,
+      });
+      persistXReplyState(state);
+      // A pass that found the profile signed out asks for a sign-in rather than
+      // leaving the panel to guess why nothing happened.
+      set({ xReplyState: state, xReplySignInNeeded: summary.loginRequired });
+      trackEvent("x_reply_pass_finished", {
+        watched_count: handles.length,
+        drafts: state.drafts.filter((draft) => draft.status === "pending").length,
+        auto_send: state.autoSend,
+      });
+    } catch (error) {
+      const state: XReplyState = { ...get().xReplyState, lastPassAt: now(), lastPassSummary: friendlyXReplyError(error) };
+      persistXReplyState(state);
+      set({ xReplyState: state });
+      trackEvent("x_reply_pass_failed", {});
+    } finally {
+      set({ xReplyBusy: false, xReplyStep: undefined });
+    }
+  },
+
+  // Opening the site is how a user signs in: the app prepares the profile and
+  // puts x.com on screen, and the person types their own credentials there.
+  openSkillSite: async (entry) => {
+    const host = selectorTargetHost(entry.selector);
+    if (!host || get().xReplyBusy) return;
+    set({ xReplyBusy: true, xReplyStep: `Opening ${host}` });
+    try {
+      const profileArgs = await prepareXReplySession(undefined, (step) => set({ xReplyStep: step }));
+      await openNotifications(cliBrowser(profileArgs));
+    } catch (error) {
+      set({ xReplyState: { ...get().xReplyState, lastPassSummary: friendlyXReplyError(error) } });
+    } finally {
+      set({ xReplyBusy: false, xReplyStep: undefined });
+    }
+  },
+
+  // Reading who is signed in is the first step of the panel's flow: the list
+  // only makes sense once x.com knows the user.
+  checkXReplySignIn: async (_entry) => {
+    if (get().xReplyBusy) return get().xReplyState.publisher?.signedIn === true;
+    set({ xReplyBusy: true, xReplyStep: "Checking the signed-in account" });
+    try {
+      const profileArgs = await prepareXReplySession(undefined, (step) => set({ xReplyStep: step }));
+      const browser = cliBrowser(profileArgs);
+      // Identity lives in the page chrome, so the check happens on the feed —
+      // which is also where a signed-in user wants to end up.
+      await openNotifications(browser);
+      const publisher = await readPublisher(browser);
+      const xReplyState: XReplyState = { ...get().xReplyState, publisher: { ...publisher, checkedAt: now() } };
+      persistXReplyState(xReplyState);
+      set({ xReplyState, xReplySignInNeeded: !publisher.signedIn });
+      trackEvent("x_reply_sign_in_checked", { signed_in: publisher.signedIn });
+      return publisher.signedIn;
+    } catch (error) {
+      set({ xReplyState: { ...get().xReplyState, lastPassSummary: friendlyXReplyError(error) } });
+      return false;
+    } finally {
+      set({ xReplyBusy: false, xReplyStep: undefined });
+    }
+  },
+
+  dismissXReplySignIn: () => set({ xReplySignInNeeded: false }),
+
+  // Adding an account subscribes it right away: the bell goes on and the
+  // account's current position is recorded, so the first pass answers what
+  // comes next instead of the whole visible timeline.
+  subscribeXReplyHandle: async (_entry, handle) => {
+    if (get().xReplyBusy) return;
+    set({ xReplyBusy: true, xReplyStep: `Subscribing to @${handle}`, xReplySignInNeeded: false });
+    try {
+      const profileArgs = await prepareXReplySession(undefined, (step) => set({ xReplyStep: step }));
+      const result = await subscribeHandle({
+        browser: cliBrowser(profileArgs),
+        handle,
+        state: get().xReplyState,
+        now,
+        onStep: (step) => set({ xReplyStep: step }),
+      });
+      persistXReplyState(result.state);
+      set({ xReplyState: result.state, xReplySignInNeeded: !result.signedIn });
+      trackEvent("x_reply_handle_subscribed", { signed_in: result.signedIn, noted: !!result.note });
+    } catch (error) {
+      const xReplyState = { ...get().xReplyState, lastPassSummary: friendlyXReplyError(error) };
+      persistXReplyState(xReplyState);
+      set({ xReplyState });
+    } finally {
+      set({ xReplyBusy: false, xReplyStep: undefined });
+    }
+  },
+
+  updateXReplySettings: (patch) => {
+    const xReplyState = normalizeXReplyState({ ...get().xReplyState, ...patch });
+    persistXReplyState(xReplyState);
+    set({ xReplyState });
+  },
+
+  setXReplyAutoSend: (autoSend) => {
+    const xReplyState = { ...get().xReplyState, autoSend };
+    persistXReplyState(xReplyState);
+    set({ xReplyState });
+    trackEvent("x_reply_auto_send_changed", { auto_send: autoSend });
+  },
+
+  reviewXReplyDraft: (id, decision) => {
+    const xReplyState = updateXReplyDraft(get().xReplyState, id, {
+      status: decision === "approve" ? "approved" : "rejected",
+    });
+    persistXReplyState(xReplyState);
+    set({ xReplyState });
+    trackEvent("x_reply_draft_reviewed", { decision });
+  },
+
+  // Sending one approved draft on demand runs the same gates as an automatic
+  // send, including the limits: an approval is not permission to exceed them.
+  sendXReplyDraft: async (entry, id) => {
+    if (get().xReplyBusy || !get().agentReady()) return;
+    const draft = get().xReplyState.drafts.find((item) => item.id === id);
+    if (!draft) return;
+    const verdict = withinXReplyLimits(get().xReplyState, now());
+    if (!verdict.allowed) {
+      const blocked = { ...get().xReplyState, lastPassSummary: verdict.reason };
+      persistXReplyState(blocked);
+      set({ xReplyState: blocked });
+      return;
+    }
+    set({ xReplyBusy: true, xReplyStep: `Publishing the reply to @${draft.handle}` });
+    try {
+      const profileArgs = await prepareXReplySession(
+        selectorTargetHost(entry.selector),
+        (step) => set({ xReplyStep: step }),
+      );
+      const approved: XReplyDraft = { ...draft, status: "approved" };
+      const result = await sendDraft(
+        { browser: cliBrowser(profileArgs), now },
+        updateXReplyDraft(get().xReplyState, id, { status: "approved" }),
+        approved,
+      );
+      persistXReplyState(result.state);
+      set({ xReplyState: result.state });
+      trackEvent("x_reply_draft_sent", { sent: result.sent });
+    } catch (error) {
+      const failed = updateXReplyDraft(get().xReplyState, id, { status: "failed", error: friendlyXReplyError(error) });
+      persistXReplyState(failed);
+      set({ xReplyState: failed });
+    } finally {
+      set({ xReplyBusy: false, xReplyStep: undefined });
+    }
+  },
+
+  watchlistRunFor: (skillId) => get().watchlistRuns.find((run) => run.skillId === skillId),
+
+  startWatchlistRun: async (entry, intervalMinutes) => {
+    if (!entry.watchlist) return;
+    const existing = get().watchlistRunFor(entry.id);
+    const interval = clampWatchlistInterval(intervalMinutes ?? existing?.intervalMinutes ?? DEFAULT_WATCHLIST_INTERVAL_MINUTES);
+    let conversationId = existing?.conversationId;
+    if (!entry.watchlist.engine
+      && (!conversationId || !get().conversations.some((conversation) => conversation.id === conversationId))) {
+      conversationId = get().newChat();
+      get().renameConversation(conversationId, entry.title);
+    }
+    const run: WatchlistRun = {
+      skillId: entry.id,
+      enabled: true,
+      intervalMinutes: interval,
+      conversationId,
+      lastRunAt: existing?.lastRunAt,
+      nextRunAt: now(),
+    };
+    const watchlistRuns = [...get().watchlistRuns.filter((item) => item.skillId !== entry.id), run];
+    persistWatchlistRuns(watchlistRuns);
+    set({ watchlistRuns });
+    trackEvent("watchlist_run_started", { skill: entry.id, interval_minutes: interval });
+    // Start means start: the first pass goes out now rather than one interval
+    // from now, so switching the loop on visibly does something.
+    await get().tickWatchlistRuns();
+  },
+
+  stopWatchlistRun: (skillId) => {
+    const run = get().watchlistRunFor(skillId);
+    if (!run) return;
+    const watchlistRuns = get().watchlistRuns.map((item) =>
+      item.skillId === skillId ? { ...item, enabled: false, nextRunAt: undefined } : item,
+    );
+    persistWatchlistRuns(watchlistRuns);
+    set({ watchlistRuns });
+    trackEvent("watchlist_run_stopped", { skill: skillId });
+    // An engine pass checks this between steps and stops there.
+    xReplyStopRequested = true;
+
+    // Stop also ends the pass that is already out: a loop the user switched off
+    // must not keep driving the browser for another few minutes.
+    const conversation = get().conversations.find((item) => item.id === run.conversationId);
+    if (!conversation) return;
+    for (const message of conversation.messages) {
+      if (message.role !== "assistant") continue;
+      if (message.status === "queued") get().cancelQueuedReply(message.id);
+      else if (message.status === "streaming" && get().runtime[get().agentId]?.runningReplyId === message.id) {
+        get().stopRunning();
+      }
+    }
+  },
+
+  tickWatchlistRuns: async () => {
+    const due = get().watchlistRuns.filter((run) => run.enabled && (run.nextRunAt ?? 0) <= now());
+    if (!due.length) return;
+    // A pass drives the local browser profile, so it never runs against a
+    // conversation pinned to a VPS and never overlaps VPS setup.
+    if (pendingTarget(get(), "vps")) return;
+    if (!get().agentReady()) return;
+
+    for (const run of due) {
+      const entry = get().skillCategories
+        .flatMap((category) => category.entries)
+        .find((candidate) => candidate.id === run.skillId);
+      if (!entry?.watchlist) continue;
+      const conversation = get().conversations.find((item) => item.id === run.conversationId);
+      // A pass still running holds the next one back instead of stacking two
+      // runs onto one browser profile.
+      const busy = entry.watchlist.engine
+        ? get().xReplyBusy
+        : conversation?.messages.some(
+          (message) => message.role === "assistant" && (message.status === "queued" || message.status === "streaming"),
+        );
+      if (busy) continue;
+      const startedAt = now();
+      const watchlistRuns = get().watchlistRuns.map((item) =>
+        item.skillId === run.skillId
+          ? { ...item, lastRunAt: startedAt, nextRunAt: startedAt + item.intervalMinutes * 60_000 }
+          : item,
+      );
+      persistWatchlistRuns(watchlistRuns);
+      set({ watchlistRuns });
+      trackEvent("watchlist_run_fired", { skill: run.skillId, interval_minutes: run.intervalMinutes });
+      await get().runWatchlistPass(entry, { conversationId: run.conversationId, background: true });
+    }
   },
 
   runScript: async (entry, host = "") => {

@@ -1,4 +1,4 @@
-import type { SkillCategory, SkillEntry } from "./skillsCatalog";
+import type { SkillCategory, SkillEntry, SkillWatchlist } from "./skillsCatalog";
 
 interface RepositorySkillManifest {
   id: string;
@@ -8,6 +8,7 @@ interface RepositorySkillManifest {
   domains: string[];
   operations: string[];
   category: { id: string; title: string; icon: string; order: number };
+  watchlist?: SkillWatchlist;
 }
 
 const manifests = import.meta.glob<RepositorySkillManifest>("../skills/*/manifest.json", {
@@ -51,6 +52,7 @@ export function repositorySkillCategories(): SkillCategory[] {
       source: "repository",
       instructions: skillInstructions,
       author: manifest.author,
+      watchlist: manifest.watchlist,
     };
     category.entries.push(entry);
     grouped.set(manifest.category.id, category);

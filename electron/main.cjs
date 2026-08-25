@@ -85,6 +85,9 @@ function killTerminalsForWebContents(webContentsId) {
 const remoteSignalSockets = new Map();
 const APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const NEXTCTL_RELEASE_BASE = "https://github.com/nextbrowser-oss/nbc_releases/releases/latest/download";
+// A workspace state file is read for display only, so it is truncated rather
+// than streamed: a runaway file must not be pulled into the renderer whole.
+const MAX_WORKSPACE_FILE_BYTES = 256 * 1024;
 const DEFAULT_API_BASE_URL = "https://api.nextbrowser.com";
 const DEFAULT_AUTH_BASE_URL = "https://app.nextbrowser.com";
 const DEFAULT_AUTH0_ISSUER_BASE_URL = "https://dev-5v20zhlfh5c7o71v.us.auth0.com";
@@ -1337,6 +1340,19 @@ async function invokeCommand(command, args = {}, sender) {
       await ensureWorkspaceInstructions(dir);
       return dir;
     }
+    // Read-only view of one file an agent keeps in its workspace, which is how
+    // the UI shows what a skill recorded. The renderer never writes there: the
+    // file belongs to the agent, and a write from here could overwrite a run.
+    case "workspace_file_read": {
+      const file = path.join(agentWorkspaceDir(home()), safeName(args.name));
+      try {
+        const content = await fs.readFile(file, "utf8");
+        return content.length > MAX_WORKSPACE_FILE_BYTES ? content.slice(0, MAX_WORKSPACE_FILE_BYTES) : content;
+      } catch (e) {
+        if (e.code === "ENOENT") return null;
+        throw e;
+      }
+    }
     case "agent_run": {
       const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} executable not found.`);
       const conversationId = String(args.conversationId || "");
@@ -1698,6 +1714,29 @@ function createWindow() {
   if (process.env.VITE_DEV_SERVER_URL) window.loadURL(process.env.VITE_DEV_SERVER_URL);
   else window.loadFile(path.join(__dirname, "..", "dist", "index.html"));
 }
+
+// Crash breadcrumbs. The app has been seen dying without a trace in stdout, so
+// every abnormal process exit is appended to a file the next session can read.
+function logCrash(kind, detail) {
+  try {
+    const line = `${new Date().toISOString()} ${kind} ${JSON.stringify(detail)}\n`;
+    require("node:fs").appendFileSync(path.join(dataDir(), "crash.log"), line);
+  } catch {}
+}
+process.on("uncaughtException", (error) => {
+  logCrash("main-uncaught", { message: error?.message, stack: String(error?.stack || "").split("\n").slice(0, 12) });
+  // Rethrowing would abort with the default handler; the app stays up and the
+  // breadcrumb tells us what would have taken it down.
+});
+process.on("unhandledRejection", (reason) => {
+  logCrash("main-unhandled-rejection", { message: reason instanceof Error ? reason.message : String(reason) });
+});
+app.on("render-process-gone", (_event, _webContents, details) => {
+  if (details.reason !== "clean-exit") logCrash("renderer-gone", details);
+});
+app.on("child-process-gone", (_event, details) => {
+  if (details.reason !== "clean-exit" && details.type !== "Utility") logCrash("child-gone", details);
+});
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {

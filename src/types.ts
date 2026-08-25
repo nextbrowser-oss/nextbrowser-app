@@ -273,6 +273,153 @@ export function weekdaysSummary(weekdays: number[]): string {
     .join(" ");
 }
 
+/// One account a watchlist skill follows. The app owns this record; an agent
+/// never writes it, so a bad run cannot lose the user's list.
+export interface WatchedProfile {
+  id: string;
+  skillId: string;
+  handle: string;
+  enabled: boolean;
+  addedAt: number;
+  subscribeQueuedAt?: number;
+  lastRunAt?: number;
+}
+
+/// A watchlist skill left running in the app. It survives a restart, so a user
+/// who switched it on finds it still on, and it only ever runs while the app is
+/// open — there is no background service behind it.
+export interface WatchlistRun {
+  skillId: string;
+  enabled: boolean;
+  intervalMinutes: number;
+  conversationId?: string;
+  lastRunAt?: number;
+  nextRunAt?: number;
+}
+
+export const WATCHLIST_INTERVAL_CHOICES = [1, 2, 3, 4, 5, 20] as const;
+export const DEFAULT_WATCHLIST_INTERVAL_MINUTES = 2;
+
+/// clampWatchlistInterval snaps a stored interval onto the offered set, so the
+/// picker always shows the value that is actually in effect. A pass that is
+/// still running holds the next one back regardless of how short this is.
+export function clampWatchlistInterval(minutes: number): number {
+  if (!Number.isFinite(minutes)) return DEFAULT_WATCHLIST_INTERVAL_MINUTES;
+  let nearest: number = WATCHLIST_INTERVAL_CHOICES[0];
+  for (const choice of WATCHLIST_INTERVAL_CHOICES) {
+    if (Math.abs(choice - minutes) < Math.abs(nearest - minutes)) nearest = choice;
+  }
+  return nearest;
+}
+
+/// What an agent recorded for one watched account in its workspace state file.
+/// Every field is optional: the file is written by a model, so the panel has to
+/// render whatever survived rather than assume a complete record.
+export interface WatchedProfileReport {
+  handle: string;
+  following?: boolean;
+  notifications?: boolean;
+  lastPostId?: string;
+  lastCheckedAt?: number;
+  repliesSent?: number;
+  lastReplyUrl?: string;
+  note?: string;
+}
+
+const WATCH_HANDLE_PATTERN = /^[A-Za-z0-9_]{1,15}$/;
+
+/// normalizeWatchHandle accepts what a user actually pastes — `@handle`, a
+/// profile URL, or the bare handle — and returns the bare handle, or an empty
+/// string when the value cannot be one.
+export function normalizeWatchHandle(value: string): string {
+  let handle = value.trim();
+  const url = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)*[a-z0-9-]+\.[a-z]{2,}\/(@?[A-Za-z0-9_]+)/i.exec(handle);
+  if (url) handle = url[1];
+  handle = handle.replace(/^@+/, "").split(/[/?#]/)[0].trim();
+  return WATCH_HANDLE_PATTERN.test(handle) ? handle : "";
+}
+
+export function sameWatchHandle(left: string, right: string): boolean {
+  return left.toLowerCase() === right.toLowerCase();
+}
+
+function reportNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value < 10_000_000_000 ? value * 1000 : value;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function reportCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : undefined;
+}
+
+/// The account the skill posts from, as the agent last observed it. Without
+/// this the panel cannot tell "nothing happened yet" from "the browser profile
+/// is signed out", which is the single most common reason a watch pass does
+/// nothing at all.
+export interface WatchedPublisher {
+  handle?: string;
+  signedIn?: boolean;
+  checkedAt?: number;
+}
+
+export interface WatchState {
+  publisher?: WatchedPublisher;
+  reports: Record<string, WatchedProfileReport>;
+}
+
+/// parseWatchState reads the state file an agent keeps in its workspace. The
+/// file is untrusted input in both directions: it may be missing, half-written,
+/// or shaped differently than the skill asked for, and none of that may break
+/// the panel. Unknown handles are kept — the list the user sees is filtered
+/// against their own records.
+export function parseWatchState(raw: string | null | undefined): WatchState {
+  if (!raw) return { reports: {} };
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { return { reports: {} }; }
+  const root = parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
+  const rawPublisher = root.publisher && typeof root.publisher === "object"
+    ? root.publisher as Record<string, unknown>
+    : undefined;
+  const publisher: WatchedPublisher | undefined = rawPublisher
+    ? {
+      handle: normalizeWatchHandle(typeof rawPublisher.handle === "string" ? rawPublisher.handle : "") || undefined,
+      signedIn: typeof rawPublisher.signed_in === "boolean" ? rawPublisher.signed_in : undefined,
+      checkedAt: reportNumber(rawPublisher.checked_at),
+    }
+    : undefined;
+  const container = root.handles ?? parsed;
+  const rows: unknown[] = Array.isArray(container)
+    ? container
+    : container && typeof container === "object"
+      ? Object.entries(container).map(([handle, value]) =>
+        value && typeof value === "object" ? { handle, ...(value as Record<string, unknown>) } : { handle })
+      : [];
+  const reports: Record<string, WatchedProfileReport> = {};
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const record = row as Record<string, unknown>;
+    const handle = normalizeWatchHandle(typeof record.handle === "string" ? record.handle : "");
+    if (!handle) continue;
+    reports[handle.toLowerCase()] = {
+      handle,
+      following: typeof record.following === "boolean" ? record.following : undefined,
+      notifications: typeof record.notifications === "boolean" ? record.notifications : undefined,
+      lastPostId: typeof record.last_post_id === "string" ? record.last_post_id.slice(0, 32) : undefined,
+      lastCheckedAt: reportNumber(record.last_checked_at),
+      repliesSent: reportCount(record.replies_sent),
+      lastReplyUrl: typeof record.last_reply_url === "string" && /^https:\/\//i.test(record.last_reply_url)
+        ? record.last_reply_url.slice(0, 512)
+        : undefined,
+      note: typeof record.note === "string" ? record.note.replace(/\s+/g, " ").trim().slice(0, 160) || undefined : undefined,
+    };
+  }
+  return { publisher, reports };
+}
+
 export interface UsageSnapshot {
   id: string;
   date: number;
