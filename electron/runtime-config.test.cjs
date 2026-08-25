@@ -11,6 +11,7 @@ const {
   applyLegacyRuntimeMigration,
   applyRuntimeRootMigration,
   clearRuntimeCredential,
+  runtimeAPIBaseURL,
 } = require("./runtime-config.cjs");
 
 const homeDir = "/home/u";
@@ -38,6 +39,14 @@ function plan(files) {
 }
 
 const nbKey = JSON.stringify({ api_key: "nb_live_abc123", theme: "dark" });
+
+test("keeps browser runtime traffic off an entity-only dev backend", () => {
+  assert.equal(runtimeAPIBaseURL({ NEXTBROWSER_DEV_API_BASE_URL: "http://127.0.0.1:18098" }), "https://api.nextbrowser.com");
+  assert.equal(runtimeAPIBaseURL({
+    NEXTBROWSER_DEV_API_BASE_URL: "http://127.0.0.1:18098",
+    NEXTBROWSER_RUNTIME_API_BASE_URL: "https://runtime.dev/",
+  }), "https://runtime.dev");
+});
 
 test("migrates config + profile metadata, with config.json copied last", () => {
   const steps = plan({ [legacyConfig]: nbKey, [legacyProfiles]: "", [legacyProxies]: "" });

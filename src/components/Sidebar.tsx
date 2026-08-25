@@ -7,17 +7,28 @@ import { Icon, Spinner } from "./Icon";
 import { withLocalScripts } from "../skillsCatalog";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
 import { guideProfileTarget } from "../lib/guideQuickStart";
-import { manualProxyDefaultName, manualProxyLimits, parseManualProxyUrl, validateManualProxyFields, type ManualProxyScheme } from "../lib/manualProxy";
+import { manualProxyDefaultName, manualProxyLimits, parseManualProxyClipboard, parseManualProxyUrl, validateManualProxyFields, type ManualProxyScheme } from "../lib/manualProxy";
 import { internalError, needsSupportLink } from "../lib/userFacingError";
+import { entityNameLimits, validateEntityName } from "../lib/entityValidation";
 import { cancelNextctlRun } from "../nextctl";
 import { conversationPreview, type AppTab } from "../types";
 import { CountrySelect } from "./CountrySelect";
 import { UserFacingError } from "./UserFacingError";
 import { VPSSetupModal } from "./VPSSetupModal";
 import { CONNECTORS } from "../connectorsCatalog";
+import { invoke, listen } from "../electronBridge";
+import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, clearActiveAutomationRecording, type ActiveAutomationRecording } from "../lib/automationRecording";
+import { capturedRunFromHybridRecording, capturedRunsForRecording, skillFromRun, type ManualBrowserRecording } from "../lib/automationStudio";
+import { capturedWorkflowDomain, workflowQuality } from "../lib/workflowCapture";
+import { activeAutomationExecution, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, executionWithRecipeProgress, setActiveAutomationExecution, type AutomationExecution, type AutomationRecipeProgress } from "../lib/automationExecution";
 
 type ManualProxyInputMode = "url" | "fields";
 const PROFILE_CREATE_TIMEOUT_MS = 120_000;
+
+function recordingDuration(startedAt: number, now = Date.now()) {
+  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+  return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
 
 interface SidebarProps {
   onOpenAgentSettings: () => void;
@@ -47,6 +58,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [manualPort, setManualPort] = useState("8080");
   const [manualUsername, setManualUsername] = useState("");
   const [manualPassword, setManualPassword] = useState("");
+  const [manualPasswordVisible, setManualPasswordVisible] = useState(false);
   const [manualError, setManualError] = useState<string | null>(null);
   const [manualSaving, setManualSaving] = useState(false);
   const [manualProxyEditing, setManualProxyEditing] = useState(false);
@@ -64,6 +76,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileActionError, setProfileActionError] = useState<string | null>(null);
   const [profileMoveError, setProfileMoveError] = useState<string | null>(null);
+  const [profileConnectionEditor, setProfileConnectionEditor] = useState<{ name: string; connection: "managed" | "direct" | "personal"; country: string; proxyId: string } | null>(null);
+  const [profileConnectionSaving, setProfileConnectionSaving] = useState(false);
+  const [profileConnectionError, setProfileConnectionError] = useState<string | null>(null);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [workspaceCreatorOpen, setWorkspaceCreatorOpen] = useState(false);
   const [workspaceName, setWorkspaceName] = useState("");
@@ -75,6 +90,13 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [activeRecording, setActiveRecording] = useState<ActiveAutomationRecording | undefined>(activeAutomationRecording);
+  const [recordingClock, setRecordingClock] = useState(Date.now());
+  const [recordingStopping, setRecordingStopping] = useState(false);
+  const [recordingError, setRecordingError] = useState<string>();
+  const [automationExecution, setAutomationExecution] = useState<AutomationExecution | undefined>(activeAutomationExecution);
+  const [automationExecutionClock, setAutomationExecutionClock] = useState(Date.now());
+  const [automationExecutionError, setAutomationExecutionError] = useState<string>();
   const profileCreateRequestRef = useRef<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const projectListRef = useRef<HTMLDivElement | null>(null);
@@ -149,6 +171,113 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const visibleProfileCount = profileWorkspaceEntries.length;
   const runningCount = profileWorkspaceEntries.filter(({ profile }) => s.statuses[profile.name] === "running").length;
   const proxyCountries = s.proxyCountries.length ? s.proxyCountries : ROTATION_COUNTRIES;
+  const recordingWorkspace = activeRecording ? s.workspaces.find((workspace) => workspace.id === activeRecording.workspaceId) : undefined;
+  const automationExecutionWorkspace = automationExecution ? s.workspaces.find((workspace) => workspace.id === automationExecution.workspaceId) : undefined;
+  const automationExecutionState = automationExecution ? automationExecutionView(automationExecution, s.conversations, automationExecutionClock) : undefined;
+  const recordingDestinationLabel = activeRecording?.destination === "workflow" ? "Workflow Builder" : "Recorder";
+  const recordingMiniLabel = activeRecording ? `${recordingDestinationLabel} ${recordingDuration(activeRecording.startedAt, recordingClock)}` : "Recording";
+
+  useEffect(() => {
+    const sync = () => { setActiveRecording(activeAutomationRecording()); setRecordingClock(Date.now()); setRecordingError(undefined); };
+    window.addEventListener(AUTOMATION_RECORDING_EVENT, sync);
+    return () => window.removeEventListener(AUTOMATION_RECORDING_EVENT, sync);
+  }, []);
+
+  useEffect(() => {
+    if (!activeRecording || activeRecording.phase !== "recording") return;
+    const timer = window.setInterval(() => setRecordingClock(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [activeRecording]);
+
+  useEffect(() => {
+    const sync = () => { setAutomationExecution(activeAutomationExecution()); setAutomationExecutionClock(Date.now()); setAutomationExecutionError(undefined); };
+    window.addEventListener(AUTOMATION_EXECUTION_EVENT, sync);
+    return () => window.removeEventListener(AUTOMATION_EXECUTION_EVENT, sync);
+  }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<AutomationRecipeProgress>("automation:recipe-progress", ({ payload }) => {
+      const current = activeAutomationExecution();
+      if (!current || current.executionId !== payload.executionId) return;
+      setActiveAutomationExecution(executionWithRecipeProgress(current, payload));
+    }).then((dispose) => { unlisten = dispose; });
+    return () => unlisten?.();
+  }, []);
+
+  useEffect(() => {
+    if (!automationExecution || !automationExecutionState || ["completed", "failed", "cancelled"].includes(automationExecutionState.phase)) return;
+    const timer = window.setInterval(() => setAutomationExecutionClock(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [automationExecution, automationExecutionState?.phase]);
+
+  const openRecorder = () => {
+    if (activeRecording?.workspaceId && activeRecording.workspaceId !== s.activeWorkspaceId) s.selectWorkspace(activeRecording.workspaceId);
+    s.setTab("automation");
+    const eventName = activeRecording?.destination === "workflow" ? "nextbrowser:open-workflow" : "nextbrowser:open-recorder";
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent(eventName)), 0);
+  };
+
+  const stopRecording = async () => {
+    if (!activeRecording || activeRecording.phase !== "recording" || recordingStopping) return;
+    setRecordingStopping(true);
+    setRecordingError(undefined);
+    try {
+      const agentCaptured = capturedRunsForRecording(s.conversations, activeRecording)[0];
+      const captured = ["manual", "hybrid"].includes(activeRecording.source || "agent")
+        ? capturedRunFromHybridRecording(activeRecording.id, await invoke<ManualBrowserRecording>("automation_page_recording_stop", { recordingId: activeRecording.id }), agentCaptured)
+        : agentCaptured;
+      let workflowId: string | undefined;
+      if (captured) {
+        await invoke("automation_recording_put", { recording: { id: activeRecording.id, workspace_id: activeRecording.workspaceId, status: "completed", document: { run: captured }, base_revision: 0 } });
+        if (activeRecording.destination === "workflow") {
+          const domain = capturedWorkflowDomain(captured.task, captured.evidence);
+          if (workflowQuality(captured.task, captured.evidence, domain).reusable) {
+            workflowId = (await invoke<{ id: string }>("automation_workflow_put", { workspaceId: activeRecording.workspaceId, workflow: skillFromRun(captured) })).id;
+          }
+        }
+      }
+      clearActiveAutomationRecording();
+      if (workflowId) {
+        if (activeRecording.workspaceId !== s.activeWorkspaceId) s.selectWorkspace(activeRecording.workspaceId);
+        s.setTab("automation");
+        window.setTimeout(() => window.dispatchEvent(new CustomEvent("nextbrowser:open-workflow", { detail: { workflowId } })), 0);
+      }
+    } catch (error) {
+      setRecordingError(error instanceof Error ? error.message : String(error));
+    } finally { setRecordingStopping(false); }
+  };
+
+  const openAutomationExecution = () => {
+    if (!automationExecution) return;
+    if (automationExecution.workspaceId !== s.activeWorkspaceId) s.selectWorkspace(automationExecution.workspaceId);
+    s.setTab("automation");
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent("nextbrowser:open-automation-execution", { detail: { sourceKind: automationExecution.sourceKind } })), 0);
+  };
+
+  const stopAutomationExecution = async () => {
+    if (!automationExecution || automationExecution.phase === "stopping") return;
+    setAutomationExecutionError(undefined);
+    const stopping: AutomationExecution = { ...automationExecution, phase: "stopping" };
+    setAutomationExecution(stopping);
+    setActiveAutomationExecution(stopping);
+    let cancelledWhileQueued = false;
+    if (stopping.engine === "deterministic") {
+      try { await invoke("automation_recipe_cancel", { executionId: stopping.executionId }); }
+      catch (error) { setAutomationExecutionError(error instanceof Error ? error.message : String(error)); }
+    } else {
+      cancelledWhileQueued = !!stopping.replyId && s.cancelQueuedReply(stopping.replyId);
+      if (!cancelledWhileQueued) {
+        if (stopping.replyId) s.stopReply(stopping.replyId);
+        else s.stopRunning();
+      }
+    }
+    if (stopping.backendRunId) {
+      try { await invoke("automation_run_update", { id: stopping.backendRunId, update: { status: "cancelled", output: { detail: "Stopped by user." } } }); }
+      catch (error) { setAutomationExecutionError(error instanceof Error ? error.message : String(error)); }
+    }
+    if (cancelledWhileQueued) window.setTimeout(clearActiveAutomationExecution, 600);
+  };
 
   const openProfileCreator = () => {
     if (!s.authed) {
@@ -393,10 +522,31 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     }
   };
 
+  const importManualProxyFromClipboard = async () => {
+    setManualError(null);
+    try {
+      const parsed = parseManualProxyClipboard(await navigator.clipboard.readText());
+      setManualProxyMode(parsed.source === "fields" ? "fields" : "url");
+      setManualScheme(parsed.scheme);
+      setManualHost(parsed.host);
+      setManualPort(String(parsed.port));
+      setManualUsername(parsed.username);
+      setManualPassword(parsed.password);
+      if (parsed.source === "url") {
+        setManualProxyUrl(`${parsed.scheme}://${parsed.username ? `${encodeURIComponent(parsed.username)}:${encodeURIComponent(parsed.password)}@` : ""}${parsed.host}:${parsed.port}`);
+      }
+      if (!manualName.trim()) setManualName(uniqueManualProxyName(manualProxyDefaultName(parsed)));
+    } catch (error) {
+      setManualError(error instanceof Error ? error.message : "Clipboard does not contain a supported proxy.");
+    }
+  };
+
   const submitManagedProfile = async (event: FormEvent) => {
     event.preventDefault();
-    if (!profileName.trim()) {
-      setProfileError("Profile name is required.");
+    try {
+      validateEntityName("profile", profileName);
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : String(error));
       return;
     }
     if (profileSaving) return;
@@ -495,6 +645,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             {badgeFor(item.id) && <span>{badgeFor(item.id)}</span>}
           </button>
         ))}
+        {activeRecording && <button className="mini-nav-btn mini-recording-control recording" data-tooltip={recordingMiniLabel} aria-label={`${activeRecording.destination === "workflow" ? "Open workflow recording" : "Open active recording"}.`} onClick={openRecorder}><Icon name="circle.fill" size={18} /><span>{recordingDuration(activeRecording.startedAt, recordingClock)}</span></button>}
         <span className="spacer" />
         <button className="mini-nav-btn" data-tooltip={`Agent: ${agentName}`} aria-label={`Agent: ${agentName}`} onClick={onOpenAgentSettings}>
           <Icon name="cpu.fill" size={18} />
@@ -520,6 +671,20 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           </button>
         </div>
       </div>
+
+      {activeRecording && <section className="sidebar-recording-control recording" aria-label={activeRecording.destination === "workflow" ? "Workflow recording in progress" : "Recording in progress"}>
+        <div className="sidebar-recording-status"><span className="sidebar-recording-dot" /><div><strong>{activeRecording.destination === "workflow" ? "Recording a workflow" : "Recording in progress"}</strong><small>{recordingWorkspace?.name || "Current workspace"} · {recordingDestinationLabel}</small><small>{recordingDuration(activeRecording.startedAt, recordingClock)} elapsed</small></div></div>
+        <div className="sidebar-recording-actions"><button onClick={openRecorder}>{activeRecording.destination === "workflow" ? "Open Workflow Builder" : "Open recorder"}</button><button className="stop" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={11} /> : <Icon name="stop.fill" size={11} />} {activeRecording.destination === "workflow" ? "Stop & open" : "Stop recording"}</button></div>
+        {recordingError && <small className="sidebar-recording-error" role="alert">{recordingError}</small>}
+      </section>}
+
+      {automationExecution && automationExecutionState && <section className={`sidebar-execution-control ${automationExecutionState.phase}`} aria-label="Automation execution status">
+        <div className="sidebar-execution-status"><span className="sidebar-execution-icon"><Icon name={automationExecutionState.phase === "completed" ? "checkmark.circle.fill" : ["failed", "cancelled"].includes(automationExecutionState.phase) ? "xmark.circle.fill" : automationExecutionState.phase === "stopping" ? "stop.fill" : "play.fill"} size={12} /></span><div><strong>{automationExecutionState.phase === "completed" ? "Workflow completed" : automationExecutionState.phase === "cancelled" ? "Workflow stopped" : automationExecutionState.phase === "failed" ? "Workflow failed" : automationExecutionState.phase === "stopping" ? "Stopping workflow" : automationExecutionState.phase === "preparing" ? "Preparing workflow" : "Workflow running"}</strong><small title={automationExecution.workflowTitle}>{automationExecution.workflowTitle} · {automationExecutionWorkspace?.name || "Current workspace"}</small></div><b>{automationExecutionState.progress}%</b></div>
+        <div className="sidebar-execution-track"><i style={{ width: `${automationExecutionState.progress}%` }} /></div>
+        <small className="sidebar-execution-detail">{automationExecutionState.detail}</small>
+        <div className="sidebar-recording-actions"><button onClick={openAutomationExecution}>Open</button>{["completed", "failed", "cancelled"].includes(automationExecutionState.phase) ? <button onClick={clearActiveAutomationExecution}>Dismiss</button> : <button className="stop" disabled={automationExecution.phase === "stopping"} onClick={() => void stopAutomationExecution()}>{automationExecution.phase === "stopping" ? <Spinner size={11} /> : <Icon name="stop.fill" size={11} />} {automationExecution.phase === "stopping" ? "Stopping" : "Stop"}</button>}</div>
+        {automationExecutionError && <small className="sidebar-recording-error" role="alert">{automationExecutionError}</small>}
+      </section>}
 
       <nav className="sidebar-scroll sidebar-nav-list" aria-label="Sidebar pages">
         {NAV_ITEMS.map((item) => {
@@ -863,10 +1028,11 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               <span>Workspace</span>
               <strong>{activeWorkspace?.name ?? "Current workspace"}</strong>
             </div>
-            <label className="modal-field">
-              <span>Profile name</span>
+            <label className="modal-field profile-name-primary">
+              <span className="modal-field-heading"><span>Profile name</span><small>Max {entityNameLimits.profile}</small></span>
               <input
                 value={profileName}
+                maxLength={entityNameLimits.profile}
                 disabled={profileSaving}
                 onChange={(event) => {
                   setProfileName(event.target.value);
@@ -1029,15 +1195,21 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             onMouseDown={(event) => event.stopPropagation()}
             onSubmit={(event) => {
               event.preventDefault();
-              const nextName = workspaceName.trim();
-              if (!nextName) return;
+              let nextName: string;
+              try {
+                nextName = validateEntityName("workspace", workspaceName);
+              } catch (error) {
+                setWorkspaceError(error instanceof Error ? error.message : String(error));
+                return;
+              }
               setWorkspaceSaving(true);
               setWorkspaceError(null);
               void s.createWorkspace(nextName)
                 .then(() => setWorkspaceCreatorOpen(false))
                 .catch((error: unknown) => {
                   console.error("[WORKSPACE_CREATE_FAILED]", error);
-                  setWorkspaceError(internalError("We couldn't create the workspace.", "WORKSPACE_CREATE_FAILED"));
+                  const detail = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
+                  setWorkspaceError(detail || internalError("We couldn't create the workspace.", "WORKSPACE_CREATE_FAILED"));
                 })
                 .finally(() => setWorkspaceSaving(false));
             }}
@@ -1051,8 +1223,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               </button>
             </div>
             <label className="modal-field">
-              <span>Workspace name</span>
-              <input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} placeholder="New workspace" autoFocus />
+              <span className="modal-field-heading"><span>Workspace name</span><small>Max {entityNameLimits.workspace}</small></span>
+              <input value={workspaceName} maxLength={entityNameLimits.workspace} onChange={(event) => { setWorkspaceName(event.target.value); setWorkspaceError(null); }} placeholder="New workspace" autoFocus />
             </label>
             <p className="muted small workspace-create-note">Chats and profiles created here stay inside this workspace.</p>
             {workspaceError && <div className="error small">{workspaceError}</div>}
@@ -1135,6 +1307,28 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
               {!isDefaultProfile && profileWorkspace && (
                 <>
+                  <div className="section profile-menu-label">Connection</div>
+                  <button
+                    type="button"
+                    className="profile-connection-edit-button"
+                    disabled={profileBusy}
+                    title={profileBusy ? "Stop the profile before changing its connection" : "Change profile connection"}
+                    onClick={() => {
+                      setProfileConnectionError(null);
+                      setProfileConnectionEditor({
+                        name: menuProfile,
+                        connection: manual ? "personal" : direct ? "direct" : "managed",
+                        country: (activeCountry || "US").toUpperCase(),
+                        proxyId: profileWorkspace.profileProxyIds?.[menuProfile] || "",
+                      });
+                      void s.loadPersonalProxies().catch(() => undefined);
+                      setMenuProfile(null);
+                    }}
+                  >
+                    <span className="profile-connection-edit-icon"><Icon name={manual ? "network" : direct ? "lock.open" : "globe"} size={14} /></span>
+                    <span><strong>{manual ? "Personal proxy" : direct ? "No proxy" : "Managed proxy"}</strong><small>{profileBusy ? "Stop profile to change" : "Change connection"}</small></span>
+                    <Icon name="chevron.right" size={12} className="muted" />
+                  </button>
                   <div className="section profile-menu-label">Workspace</div>
                   <select
                     className="profile-workspace-select"
@@ -1182,6 +1376,56 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           </div>
         );
       })(), document.body)}
+
+      {profileConnectionEditor && createPortal((
+        <div className="modal-overlay" onMouseDown={() => !profileConnectionSaving && setProfileConnectionEditor(null)}>
+          <form
+            className="modal-card profile-connection-editor"
+            onMouseDown={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (profileConnectionSaving) return;
+              setProfileConnectionSaving(true);
+              setProfileConnectionError(null);
+              void s.updateProfileConnection(profileConnectionEditor.name, profileConnectionEditor.connection, {
+                country: profileConnectionEditor.country,
+                proxyId: profileConnectionEditor.proxyId,
+              }).then(() => setProfileConnectionEditor(null)).catch((error: unknown) => {
+                setProfileConnectionError(error instanceof Error ? error.message : String(error));
+              }).finally(() => setProfileConnectionSaving(false));
+            }}
+          >
+            <div className="profile-menu-head">
+              <Icon name="network" size={15} className="accent-icon" />
+              <span className="profile-menu-name">Change connection</span>
+              <span className="spacer" />
+              <button type="button" className="plain-icon-btn" title="Close" disabled={profileConnectionSaving} onClick={() => setProfileConnectionEditor(null)}><Icon name="xmark.circle.fill" size={18} /></button>
+            </div>
+            <p className="muted personal-proxy-note">Profile <strong>{profileConnectionEditor.name}</strong> keeps its browser data and identity. The new connection is used on its next start.</p>
+            <fieldset className="project-mode-field profile-connection-field">
+              <legend>Connection</legend>
+              {([
+                ["direct", "network", "No proxy", "Use your direct internet connection"],
+                ["managed", "globe", "Managed proxy", "Choose a country and rotate IP later"],
+                ["personal", "network", "Personal proxy", "Use one of your saved proxies"],
+              ] as const).map(([connection, icon, title, description]) => (
+                <label key={connection} className={"project-mode-option" + (profileConnectionEditor.connection === connection ? " is-selected" : "")}>
+                  <input type="radio" name="existing-profile-connection" checked={profileConnectionEditor.connection === connection} onChange={() => setProfileConnectionEditor({ ...profileConnectionEditor, connection })} />
+                  <Icon name={icon} size={16} />
+                  <span><strong>{title}</strong><small>{description}</small></span>
+                </label>
+              ))}
+            </fieldset>
+            {profileConnectionEditor.connection === "managed" && <div className="modal-field profile-proxy-country-field"><span>Proxy country</span><CountrySelect countries={proxyCountries} value={profileConnectionEditor.country} disabled={profileConnectionSaving} ariaLabel="Proxy country" onChange={(country) => setProfileConnectionEditor({ ...profileConnectionEditor, country })} /></div>}
+            {profileConnectionEditor.connection === "personal" && <div className="modal-field profile-personal-proxy-field">
+              <span className="profile-field-heading"><span>Personal proxy</span><button type="button" className="link" onClick={() => { resetManualProxyForm(); setManualProxyEditing(s.personalProxies.length === 0); setManualProxyOpen(true); }}>Manage</button></span>
+              {s.personalProxies.length ? <select value={profileConnectionEditor.proxyId} disabled={profileConnectionSaving} onChange={(event) => setProfileConnectionEditor({ ...profileConnectionEditor, proxyId: event.target.value })}><option value="" disabled>Choose a proxy</option>{s.personalProxies.map((proxy) => <option key={proxy.id} value={proxy.id}>{proxy.name} · {proxy.scheme.toUpperCase()} · {proxy.host}:{proxy.port}</option>)}</select> : <button type="button" className="personal-proxy-empty-action" onClick={() => { resetManualProxyForm(); setManualProxyEditing(true); setManualProxyOpen(true); }}><Icon name="plus" size={13} /> Create your first proxy</button>}
+            </div>}
+            {profileConnectionError && <div className="error small" role="alert">{profileConnectionError}</div>}
+            <div className="modal-actions"><button type="button" className="secondary" disabled={profileConnectionSaving} onClick={() => setProfileConnectionEditor(null)}>Cancel</button><button type="submit" className="primary" disabled={profileConnectionSaving || (profileConnectionEditor.connection === "personal" && !profileConnectionEditor.proxyId)}>{profileConnectionSaving ? <Spinner size={13} /> : <Icon name="checkmark" size={13} />}{profileConnectionSaving ? "Saving…" : "Save connection"}</button></div>
+          </form>
+        </div>
+      ), document.body)}
 
       {vpsSetupOpen && <VPSSetupModal onClose={() => setVPSSetupOpen(false)} />}
 
@@ -1232,30 +1476,30 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 {manualProxyMode === "url" ? (
                   <>
                     <label className="modal-field">
-                      <span>Proxy URL</span>
+                      <span className="modal-field-heading"><span>Proxy URL</span><small>Max {manualProxyLimits.url.toLocaleString("en-US")}</small></span>
                       <input
                         value={manualProxyUrl}
                         onChange={(e) => setManualProxyUrl(e.target.value)}
                         placeholder="http://user:pass@host:8080"
-                        maxLength={manualProxyLimits.url + 1}
+                        maxLength={manualProxyLimits.url}
                         autoFocus
                       />
                     </label>
                     <label className="modal-field">
-                      <span>Name (optional)</span>
+                      <span className="modal-field-heading"><span>Name (optional)</span><small>Max {manualProxyLimits.name}</small></span>
                       <input
                         value={manualName}
                         onChange={(e) => setManualName(e.target.value)}
                         placeholder="generated from proxy URL"
-                        maxLength={manualProxyLimits.name + 1}
+                        maxLength={manualProxyLimits.name}
                       />
                     </label>
                   </>
                 ) : (
                   <>
                     <label className="modal-field">
-                      <span>Name</span>
-                      <input value={manualName} maxLength={manualProxyLimits.name + 1} onChange={(e) => setManualName(e.target.value)} autoFocus />
+                      <span className="modal-field-heading"><span>Name</span><small>Max {manualProxyLimits.name}</small></span>
+                      <input value={manualName} maxLength={manualProxyLimits.name} onChange={(e) => setManualName(e.target.value)} autoFocus />
                     </label>
                     <div className="manual-proxy-grid">
                       <label className="modal-field">
@@ -1267,23 +1511,31 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       </label>
                       <label className="modal-field">
                         <span>Port</span>
-                        <input value={manualPort} inputMode="numeric" onChange={(e) => setManualPort(e.target.value)} />
+                        <input value={manualPort} inputMode="numeric" maxLength={5} onChange={(e) => setManualPort(e.target.value.replace(/\D/g, ""))} />
                       </label>
                     </div>
                     <label className="modal-field">
-                      <span>Host</span>
-                      <input value={manualHost} maxLength={manualProxyLimits.host + 1} onChange={(e) => setManualHost(e.target.value)} />
+                      <span className="modal-field-heading"><span>Host</span><small>Max {manualProxyLimits.host}</small></span>
+                      <input value={manualHost} maxLength={manualProxyLimits.host} onChange={(e) => setManualHost(e.target.value)} />
                     </label>
                     <label className="modal-field">
-                      <span>Username</span>
-                      <input value={manualUsername} maxLength={manualProxyLimits.username + 1} onChange={(e) => setManualUsername(e.target.value)} />
+                      <span className="modal-field-heading"><span>Username</span><small>Max {manualProxyLimits.username}</small></span>
+                      <input value={manualUsername} maxLength={manualProxyLimits.username} onChange={(e) => setManualUsername(e.target.value)} />
                     </label>
                     <label className="modal-field">
-                      <span>Password</span>
-                      <input type="password" value={manualPassword} maxLength={manualProxyLimits.password + 1} onChange={(e) => setManualPassword(e.target.value)} />
+                      <span className="modal-field-heading"><span>Password</span><small>Max {manualProxyLimits.password.toLocaleString("en-US")}</small></span>
+                      <span className="password-input-wrap">
+                        <input type={manualPasswordVisible ? "text" : "password"} value={manualPassword} maxLength={manualProxyLimits.password} onChange={(e) => setManualPassword(e.target.value)} />
+                        <button type="button" className="password-visibility" title={manualPasswordVisible ? "Hide password" : "Show password"} aria-label={manualPasswordVisible ? "Hide password" : "Show password"} onClick={() => setManualPasswordVisible((visible) => !visible)}>
+                          <Icon name={manualPasswordVisible ? "eye.slash" : "eye"} size={14} />
+                        </button>
+                      </span>
                     </label>
                   </>
                 )}
+                <button type="button" className="secondary manual-proxy-paste" onClick={() => void importManualProxyFromClipboard()}>
+                  <Icon name="doc.on.doc" size={13} /> Paste proxy from clipboard
+                </button>
                 {manualError && (
                   <div className="error manual-proxy-error">
                     <UserFacingError message={manualError} surface="manual_proxy" />

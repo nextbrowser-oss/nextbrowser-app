@@ -40,6 +40,24 @@ test("uses the same default backend as cloud skills", () => {
   assert.equal(entityBackendURL({}), "https://core.nextbrowser.com");
 });
 
+test("moves entity sync with an app API override", () => {
+  assert.equal(
+    entityBackendURL({ NEXTBROWSER_API_BASE_URL: "http://127.0.0.1:18098/" }),
+    "http://127.0.0.1:18098",
+  );
+  assert.equal(
+    entityBackendURL({ CLAWBROWSER_API_BASE_URL: "https://staging-api.nextbrowser.test/" }),
+    "https://staging-api.nextbrowser.test",
+  );
+  assert.equal(
+    entityBackendURL({
+      NEXTBROWSER_API_BASE_URL: "http://127.0.0.1:18098",
+      CLAWCTL_SKILL_SERVICE: "https://entities.test/",
+    }),
+    "https://entities.test",
+  );
+});
+
 test("stores and resolves personal proxies through the authenticated entity backend", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "personal-proxy-sync-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -96,5 +114,24 @@ test("preserves personal proxy backend errors without returning submitted creden
     (error) => error.status === 422
       && error.message === "Proxy credentials were rejected."
       && !error.message.includes("do-not-return"),
+  );
+});
+
+test("explains when the entity backend cannot be reached", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "project-sync-unavailable-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const configDir = path.join(root, "config");
+  await fs.mkdir(configDir, { recursive: true });
+  await fs.writeFile(path.join(configDir, "config.json"), JSON.stringify({ api_key: "secret" }));
+  const deps = {
+    env: { NEXTBROWSER_CONFIG_DIR: configDir, NEXTBROWSER_DEV_API_BASE_URL: "http://127.0.0.1:18098" },
+    fetchImpl: async () => { throw new TypeError("fetch failed"); },
+  };
+
+  await assert.rejects(
+    listProjects(deps),
+    (error) => error.code === "NEXTBROWSER_BACKEND_UNAVAILABLE"
+      && error.message === "Cannot reach the NextBrowser backend at http://127.0.0.1:18098. Check that the backend is running and try again."
+      && error.cause?.message === "fetch failed",
   );
 });

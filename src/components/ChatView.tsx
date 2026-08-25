@@ -9,9 +9,11 @@ import { filePathForFile, invoke } from "../electronBridge";
 import { agentById, agentInvocation, type AgentSpec } from "../agents";
 import { trackEvent } from "../lib/analytics";
 import { needsSupportLink } from "../lib/userFacingError";
+import { userFacingBrowserError } from "../lib/userFacingBrowserError";
 import { UserFacingError } from "./UserFacingError";
 import { AgentInstallLink } from "./AgentInstallLink";
 import { takeGuideDraft } from "../lib/guideDraft";
+import { entityNameLimits } from "../lib/entityValidation";
 import { AgentTerminal } from "./AgentTerminal";
 import { uid } from "../lib/ids";
 import {
@@ -717,8 +719,8 @@ export function ChatView() {
               Each project has its own agent chat, context, and browser profiles.
             </p>
             <label className="modal-field">
-              <span>Project name</span>
-              <input autoFocus value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="Product research" />
+              <span className="modal-field-heading"><span>Project name</span><small>Max {entityNameLimits.project}</small></span>
+              <input autoFocus value={projectName} maxLength={entityNameLimits.project} onChange={(event) => setProjectName(event.target.value)} placeholder="Product research" />
             </label>
             <fieldset className="project-mode-field">
               <legend>Agent workspace</legend>
@@ -855,9 +857,10 @@ function MessageBubble({
   };
 
   if (m.role === "system") {
-    const visibleText = /^.+ connected — .+/.test(m.text)
-      ? m.text.replace(/ — .+?(?=\. You're|\.$)/, "")
-      : m.text;
+    const systemText = m.status === "failed" || m.status === "timedOut" ? userFacingBrowserError(m.text) : m.text;
+    const visibleText = /^.+ connected — .+/.test(systemText)
+      ? systemText.replace(/ — .+?(?=\. You're|\.$)/, "")
+      : systemText;
     return (
       <div className="msg msg-system">
         <div className="msg-body">
@@ -938,6 +941,7 @@ function MessageBubble({
     "assistant-bubble" +
     (m.status === "failed" ? " bubble-failed" : "") +
     (m.status === "timedOut" ? " bubble-warn" : "");
+  const visibleText = m.status === "failed" || m.status === "timedOut" ? userFacingBrowserError(m.text) : m.text;
 
   return (
     <div className="msg-assistant-wrap">
@@ -967,21 +971,21 @@ function MessageBubble({
           </div>
         )}
         <div className="msg-body">
-          {needsSupportLink(m.text) ? (
-            <UserFacingError message={m.text} surface="agent_turn" />
-          ) : (m.status === "failed" || m.status === "timedOut") && m.text.length > 180 ? (
+          {needsSupportLink(visibleText) ? (
+            <UserFacingError message={visibleText} surface="agent_turn" />
+          ) : (m.status === "failed" || m.status === "timedOut") && visibleText.length > 180 ? (
             <div className="error-collapse">
               <div className="error-summary">
                 <Icon name="exclamationmark.triangle.fill" size={13} className="error" />
-                <span>{errorSummary(m.text)}</span>
+                <span>{errorSummary(visibleText)}</span>
               </div>
               <button className="error-toggle" onClick={() => setShowErrorDetails((v) => !v)}>
                 {showErrorDetails ? "Hide details" : "Show details"}
               </button>
-              {showErrorDetails && <pre className="error-details">{m.text}</pre>}
+              {showErrorDetails && <pre className="error-details">{visibleText}</pre>}
             </div>
           ) : (
-            <MarkdownText text={m.text || (m.status === "streaming" ? "Working on your request…" : "")} />
+            <MarkdownText text={visibleText || (m.status === "streaming" ? "Working on your request…" : "")} />
           )}
         </div>
       </div>
@@ -990,7 +994,7 @@ function MessageBubble({
           <button
             className="plain-icon-btn plain-icon-btn-compact"
             title="Copy message"
-            onClick={() => void navigator.clipboard.writeText(m.text)}
+            onClick={() => void navigator.clipboard.writeText(visibleText)}
           >
             <Icon name="doc.on.doc" size={12} />
           </button>

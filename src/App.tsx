@@ -34,13 +34,15 @@ import { AgentConnectionGate } from "./components/AgentConnectionGate";
 import { WorkspaceSetupGate } from "./components/WorkspaceSetupGate";
 import { AgentInstallLink } from "./components/AgentInstallLink";
 import { ConnectorsView } from "./components/ConnectorsView";
+import { AutomationStudio } from "./components/AutomationStudio";
 
 const TABS: { id: AppTab; label: string; icon?: string }[] = [
   { id: "chat", label: "Project", icon: "folder" },
   { id: "live", label: "Live", icon: "video.fill" },
+  { id: "automation", label: "Automation", icon: "arrow.triangle.branch" },
 ];
 
-const PREVIEW_TABS = new Set<string>(["chat", "skills", "connectors", "live", "usage", "guide", "scheduled"]);
+const PREVIEW_TABS = new Set<string>(["chat", "automation", "skills", "connectors", "live", "usage", "guide", "scheduled"]);
 
 interface AppUpdateStatus {
   status?: string;
@@ -984,6 +986,7 @@ export function App() {
             <ChatView />
           </div>
           {tab === "skills" && <SkillsView onOpenAgentSettings={() => openSettings("agent")} />}
+          {tab === "automation" && <AutomationStudio />}
           {tab === "connectors" && <ConnectorsView />}
           <div className={"persistent-tab-panel" + (tab === "live" ? "" : " is-hidden")}>
             <LiveView active={tab === "live"} />

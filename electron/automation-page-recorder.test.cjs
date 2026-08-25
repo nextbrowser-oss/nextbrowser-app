@@ -1,0 +1,72 @@
+const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
+const { PassThrough, Writable } = require("node:stream");
+const test = require("node:test");
+const { recorderPageScript, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
+
+function fakeMCP(handler) {
+  const calls = [];
+  const spawnImpl = (_binary, args) => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.stdin = new Writable({
+      write(chunk, _encoding, callback) {
+        const message = JSON.parse(chunk.toString());
+        if (message.id) {
+          calls.push(message);
+          Promise.resolve(handler(message)).then((result) => {
+            if (!child.stdout.destroyed) child.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: message.id, result })}\n`);
+          });
+        }
+        callback();
+      },
+    });
+    child.kill = () => { child.stdin.destroy(); child.stdout.destroy(); queueMicrotask(() => child.emit("close", 0)); return true; };
+    child.spawnArgs = args;
+    return child;
+  };
+  return { calls, spawnImpl };
+}
+
+const toolResult = (value) => ({ content: [{ type: "text", text: JSON.stringify({ result: value, session: { name: "Work" } }) }] });
+
+test("page recorder captures manual page interactions without blocking them", () => {
+  const source = recorderPageScript.toString();
+  assert.match(source, /document\.addEventListener\("click", onClick, true\)/);
+  assert.match(source, /document\.addEventListener\("input", onChange, true\)/);
+  assert.match(source, /document\.addEventListener\("change", onChange, true\)/);
+  assert.match(source, /push\("input"/);
+  assert.match(source, /push\("select"/);
+  assert.match(source, /push\("press"/);
+  assert.doesNotMatch(source, /preventDefault/);
+  assert.match(source, /sensitive \? "\{\{secret\}\}"/);
+  assert.match(source, /sessionStorage\.setItem\(storageKey/);
+  assert.match(source, /sessionStorage\.removeItem\(storageKey/);
+});
+
+test("manual recording returns an initial navigation and collected deterministic actions", async () => {
+  let drained = false;
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    if (message.params.name === "state") return toolResult({ page: { url: "https://example.com/form" } });
+    const expression = message.params.arguments.expression;
+    if (expression.includes("function recorderPageScript")) return toolResult({ installed: true, url: "https://example.com/form", title: "Form" });
+    if (expression.includes("state?.cleanup")) return toolResult(true);
+    const actions = drained ? [] : [{ tool: "input", arguments: { selector: "input[name=q]", text: "hello" }, at: Date.now() }];
+    drained = true;
+    return toolResult({ missing: false, url: "https://example.com/form", title: "Form", actions });
+  });
+
+  await startAutomationPageRecording({ recordingId: "manual-one", profile: "Work", runtime: "clawbrowser" }, {
+    binary: "nextctl", env: {}, spawnImpl: server.spawnImpl,
+  });
+  const result = await stopAutomationPageRecording("manual-one");
+
+  assert.equal(result.title, "Form");
+  assert.deepEqual(result.actions.map(({ tool, arguments }) => ({ tool, arguments })), [
+    { tool: "open", arguments: { url: "https://example.com/form" } },
+    { tool: "input", arguments: { selector: "input[name=q]", text: "hello" } },
+  ]);
+  assert.ok(server.calls.some((call) => call.params?.name === "evaluate"));
+});

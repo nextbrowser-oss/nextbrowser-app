@@ -223,6 +223,7 @@ export interface BrowserWorkflowSkill {
   recipe: BrowserWorkflowRecipe;
   createdAt: number;
   updatedAt: number;
+  revision?: number;
   serverSlug?: string;
   submittedAt?: number;
 }
@@ -230,6 +231,8 @@ export interface BrowserWorkflowSkill {
 export type BrowserSkillCapability = "scrape" | "search" | "posting" | "form" | "navigation" | "other";
 export interface BrowserWorkflowAction { tool: string; arguments: Record<string, unknown>; }
 export interface BrowserWorkflowRecipe { version: 1; capability: BrowserSkillCapability; actions: BrowserWorkflowAction[]; }
+export interface AutomationRecipeStepResult { index: number; tool: string; ok: boolean; output?: unknown; error?: string; }
+export interface AutomationRecipeResult { status: "completed" | "failed" | "cancelled"; results: AutomationRecipeStepResult[]; failedStep?: number; error?: string; }
 
 export function customPrivateSlug(script: CustomScript): string {
   return script.serverSlug ?? `custom-${script.id.slice(0, 8).toLowerCase()}`;
@@ -287,7 +290,18 @@ export interface TabsList {
   }[];
 }
 
-export type AppTab = "chat" | "skills" | "connectors" | "live" | "usage" | "guide" | "scheduled";
+export type AppTab = "chat" | "automation" | "skills" | "connectors" | "live" | "usage" | "guide" | "scheduled";
+
+export interface AutomationArtifact {
+  id: string;
+  name: string;
+  size: number;
+  createdAt: number;
+  extension: string;
+  contentType?: string;
+  sha256?: string;
+  runId?: string;
+}
 
 export function proxyFraction(p?: ProxyTraffic | null): number {
   if (!p) return 0;

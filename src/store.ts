@@ -34,6 +34,7 @@ import { normalizeNextctlVersion } from "./lib/version";
 import { proxyTrafficWarning } from "./lib/proxyTraffic";
 import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
 import { internalError } from "./lib/userFacingError";
+import { userFacingBrowserError } from "./lib/userFacingBrowserError";
 import {
   hasCompletedCurrentOnboarding,
   saveOnboardingCompletion,
@@ -43,6 +44,7 @@ import { loadJson, saveJson } from "./lib/storage";
 import { apiBaseUrl } from "./constants";
 import { accountLoginURL } from "./lib/accountAuth";
 import { requiresWorkspaceSetup } from "./lib/workspaceSetup";
+import { validateEntityName } from "./lib/entityValidation";
 import { moveProfileToWorkspace as moveProfileBetweenWorkspaces } from "./lib/workspaceProfiles";
 import {
   normalizeConversation,
@@ -58,6 +60,7 @@ import {
 } from "./lib/persistence";
 import type {
   AppTab,
+  AutomationRecipeResult,
   BrowserWorkflowSkill,
   ChatAttachment,
   ChatMessage,
@@ -430,6 +433,11 @@ interface State {
     proxyId: string,
     options?: NextctlRunOptions & { runtime?: BrowserToolset },
   ) => Promise<void>;
+  updateProfileConnection: (
+    name: string,
+    connection: "managed" | "direct" | "personal",
+    options?: { country?: string; proxyId?: string },
+  ) => Promise<void>;
   deleteProfile: (n: string) => Promise<void>;
   selectProfile: (n?: string) => void;
   switchAgent: (id: string) => void;
@@ -484,8 +492,9 @@ interface State {
   deleteConversation: (id: string) => void;
   forkConversation: (atMessageId?: string) => void;
   clearChat: () => void;
-  enqueue: (text: string, chip?: UserCommandChip, into?: string, attachments?: ChatAttachment[], agentPrompt?: string) => void;
+  enqueue: (text: string, chip?: UserCommandChip, into?: string, attachments?: ChatAttachment[], agentPrompt?: string) => string | undefined;
   stopRunning: () => void;
+  stopReply: (replyId: string) => void;
   cancelQueuedReply: (replyId: string) => boolean;
   editQueuedReply: (replyId: string, newText: string) => boolean;
   canManageQueuedReply: (replyId: string) => boolean;
@@ -509,7 +518,8 @@ interface State {
   runCustomScript: (script: CustomScript) => Promise<void>;
   saveLocalSkill: (skill: BrowserWorkflowSkill) => Promise<void>;
   deleteLocalSkill: (id: string) => Promise<void>;
-  runLocalSkill: (skill: BrowserWorkflowSkill, task?: string) => Promise<void>;
+  runLocalSkill: (skill: BrowserWorkflowSkill, task?: string) => Promise<string | undefined>;
+  runAutomationRecipe: (skill: BrowserWorkflowSkill, executionId: string, parameters?: Record<string, unknown>) => Promise<AutomationRecipeResult>;
 
   // Internal queue/runtime helpers
   reconcileQueues: () => void;
@@ -632,8 +642,12 @@ async function nextctlEnvelope<T>(
 async function prepareLocalSession(
   options: Parameters<typeof prepareSession>[0],
 ): ReturnType<typeof prepareSession> {
+  const selectedRuntime = options.selectedProfile
+    ? runtimeForProfile(useStore.getState().workspaces, options.selectedProfile)
+    : undefined;
   return runLocalNextctlOperation(() => prepareSession({
     ...options,
+    runtime: options.runtime ?? selectedRuntime,
     onVerificationFailure: options.onVerificationFailure ?? ((failure) =>
       invoke<VerificationFailureChoice>("browser_verification_failure_choice", {
         failedSurfaces: failure.failedSurfaces,
@@ -859,7 +873,8 @@ function isAccountRequiredError(error: unknown): boolean {
 }
 
 function preflightFailureMessage(error: unknown): string {
-  const detail = error instanceof Error ? error.message.trim() : "";
+  console.error("[BROWSER_PREFLIGHT_FAILED]", error);
+  const detail = userFacingBrowserError(error);
   return detail
     ? `Browser setup stopped. ${detail}`
     : "Browser setup stopped. Check the session and try again.";
@@ -970,6 +985,7 @@ export const useStore = create<State>((set, get) => {
       return { conversations, runtime };
     });
     get().startConsumer(agentId);
+    return replyId;
   };
 
   const finishAgentRun = async (replyId: string, result: AgentDone) => {
@@ -1673,20 +1689,29 @@ export const useStore = create<State>((set, get) => {
       return;
     }
 
+    const activeProfile = get().selectedProfile;
+    const browserContext = browserProfileContext(
+      get().workspaces,
+      conversationWorkspaceId,
+      activeProfile,
+      multiloginSelection,
+      get().statuses,
+    );
+    const browserProfiles = (itemWorkspace?.profileNames ?? []).map((name) => ({
+      name,
+      runtime: itemWorkspace?.profileToolsets[name] ?? "clawbrowser",
+      running: get().statuses[name] === "running",
+      selected: activeProfile === name,
+      ownerConversationId: get().profileChatOwners[name],
+    }));
     const prompt = composePrompt(
       get().conversations,
       item.conversationId,
       item.replyId,
       item.rawText
         + privateSkillContext(get().localSkills, item.rawText)
-        + browserProfileContext(
-          get().workspaces,
-          conversationWorkspaceId,
-          get().selectedProfile,
-          multiloginSelection,
-          get().statuses,
-        ),
-      get().selectedProfile,
+        + browserContext,
+      activeProfile,
       { nextctlAvailable: get().nextctlAvailable, executionTarget: item.executionTarget },
     );
     const a = agentById(agentId);
@@ -1722,6 +1747,9 @@ export const useStore = create<State>((set, get) => {
         args,
         stdinText: stdin ?? null,
         workingDir: get().workingDir || null,
+        conversationId: item.conversationId,
+        browserContext,
+        browserProfiles,
       });
       await finishAgentRun(item.replyId, result);
     } catch {
@@ -2443,9 +2471,8 @@ export const useStore = create<State>((set, get) => {
 
   createManagedProfile: async (rawName, rawCountry, options) => {
     const startedAt = performance.now();
-    const name = rawName.trim();
+    const name = validateEntityName("profile", rawName);
     const country = rawCountry.trim().toUpperCase();
-    if (!name) throw new Error("Profile name is required.");
     const direct = options?.direct === true;
     if (!direct && !/^[A-Z]{2}$/.test(country)) throw new Error("Choose a valid proxy country.");
     trackEvent("profile_create_requested", { kind: direct ? "direct" : "managed", country });
@@ -2554,6 +2581,56 @@ export const useStore = create<State>((set, get) => {
     await get().loadProfiles();
     get().selectProfile(name);
     trackTiming("profile_create_completed", startedAt, { kind: "personal_proxy", runtime });
+  },
+
+  updateProfileConnection: async (rawName, connection, options) => {
+    const name = rawName.trim();
+    if (!name) throw new Error("Profile name is required.");
+    const status = get().statuses[name] ?? "stopped";
+    if (["running", "starting", "stopping", "rotating"].includes(status)) {
+      throw new Error("Stop the profile before changing its connection.");
+    }
+    const runtime = runtimeForProfile(get().workspaces, name);
+    if (connection === "personal") {
+      const proxyId = options?.proxyId?.trim();
+      if (!proxyId) throw new Error("Choose a personal proxy.");
+      const result = await invoke<RunResult>("manual_proxy_profile_update", { profileName: name, proxyId, runtime, timeoutMs: 60_000 });
+      let envelopeFailed = false;
+      try {
+        const envelope = JSON.parse(result.stdout) as { ok?: boolean; error?: unknown };
+        envelopeFailed = envelope.ok === false || envelope.error != null;
+      } catch {
+        /* plain output is valid for older nextctl builds */
+      }
+      if (result.code !== 0 || envelopeFailed) throw new Error(nextctlErrorMessage(result));
+    } else {
+      const country = options?.country?.trim().toUpperCase() ?? "";
+      if (connection === "managed" && !/^[A-Z]{2}$/.test(country)) throw new Error("Choose a valid proxy country.");
+      await nextctlRunChecked([
+        "profiles", "set-proxy", name,
+        ...(connection === "direct" ? ["--no-proxy"] : ["--country", country]),
+        "--runtime", runtime,
+        "--format", "json",
+      ]);
+    }
+    await get().loadProfiles();
+    await get().loadProxy().catch(() => undefined);
+    const workspaces = get().workspaces.map((workspace) => {
+      if (!workspace.profileNames.includes(name)) return workspace;
+      const profileProxyIds = { ...(workspace.profileProxyIds ?? {}) };
+      if (connection === "personal" && options?.proxyId) profileProxyIds[name] = options.proxyId;
+      else delete profileProxyIds[name];
+      return { ...workspace, profileProxyIds, updatedAt: now() };
+    });
+    await saveJson("workspaces.json", workspaces);
+    set((state) => ({
+      workspaces,
+      profileIdentities: connection === "managed"
+        ? { ...state.profileIdentities, [name]: { country: options?.country?.toUpperCase() } }
+        : Object.fromEntries(Object.entries(state.profileIdentities).filter(([profileName]) => profileName !== name)),
+    }));
+    await get().syncProjects().catch(() => undefined);
+    trackEvent("profile_connection_changed", { connection, runtime });
   },
 
   deleteProfile: async (n) => {
@@ -3154,8 +3231,7 @@ export const useStore = create<State>((set, get) => {
   },
 
   createWorkspace: async (rawName) => {
-    const name = rawName.trim();
-    if (!name) throw new Error("Workspace name is required.");
+    const name = validateEntityName("workspace", rawName);
     const state = get();
     const migrateLegacyData = state.workspaces.length === 0;
     const workspaceId = uid();
@@ -3259,7 +3335,7 @@ export const useStore = create<State>((set, get) => {
     const agentId = get().agentId;
     const workspaceId = get().activeWorkspaceId;
     if (!workspaceId) return "";
-    const cleanName = name.trim();
+    const cleanName = validateEntityName("project", name);
     const c: Conversation = {
       id: uid(),
       title: cleanName || `Project ${get().conversationsForAgent(agentId).length + 1}`,
@@ -3511,13 +3587,19 @@ export const useStore = create<State>((set, get) => {
 
   enqueue: (text, chip, into, attachments = [], agentPrompt) => {
     if (hasVPSPromptMarker(text)) return;
-    enqueueWithTarget(text, chip, into, attachments, undefined, agentPrompt);
+    return enqueueWithTarget(text, chip, into, attachments, undefined, agentPrompt);
   },
 
   stopRunning: () => {
     const agentId = get().agentId;
     const replyId = get().runtime[agentId]?.runningReplyId;
     if (!replyId) return;
+    get().stopReply(replyId);
+  },
+
+  stopReply: (replyId) => {
+    const agentId = Object.entries(get().runtime).find(([, runtime]) => runtime.runningReplyId === replyId)?.[0];
+    if (!agentId) return;
     trackEvent("agent_turn_stop_requested", { agent: agentId });
     set((s) => ({
       runtime: {
@@ -4307,6 +4389,37 @@ export const useStore = create<State>((set, get) => {
     void invoke("delete_local_skill", { slug: `workflow-${id.slice(0, 8)}` });
   },
 
+  runAutomationRecipe: async (skill, executionId, parameters = {}) => {
+    const { backendRunId, ...recipeParameters } = parameters;
+    const activeConversation = get().activeConversation();
+    if (activeConversation?.executionTarget === "vps") {
+      throw new Error("Deterministic replay currently requires a local NextBrowser profile.");
+    }
+    // Deterministic replay deliberately skips the conversational preflight,
+    // but MCP page actions still require a live CDP session. Start or reattach
+    // the selected profile without navigating; the saved recipe remains the
+    // sole owner of page navigation.
+    const profile = get().selectedProfile;
+    const runtime = profile ? runtimeForProfile(get().workspaces, profile) : "clawbrowser";
+    if (profile) {
+      if (get().statuses[profile] !== "running") await get().startProfile(profile);
+    } else if (get().defaultSession?.status !== "running") {
+      await get().startDefaultSession();
+    }
+    trackEvent("automation_recipe_started", { action_count: skill.actions.length, runtime, has_profile: !!profile });
+    const result = await invoke<AutomationRecipeResult>("automation_recipe_execute", {
+      executionId,
+      recipe: { ...skill.recipe, actions: skill.actions },
+      parameters: { task: skill.task, ...recipeParameters },
+      profile,
+      runtime,
+      workspaceId: get().activeWorkspaceId,
+      backendRunId: typeof backendRunId === "string" ? backendRunId : undefined,
+    });
+    trackEvent(`automation_recipe_${result.status}`, { action_count: skill.actions.length, runtime, failed_step: result.failedStep });
+    return result;
+  },
+
   runLocalSkill: async (skill, taskOverride) => {
     if (!get().agentReady()) return;
     const task = taskOverride?.trim() || skill.task.trim();
@@ -4317,11 +4430,10 @@ export const useStore = create<State>((set, get) => {
     const target = skill.domain || "the active website";
     const chip: UserCommandChip = { kind: "skill", title: skill.title, detail: skill.domain || "Local skill" };
     if (remoteOnly) {
-      get().enqueue(
+      return get().enqueue(
         `Use my local browser skill "${skill.title}" for ${target} on the selected VPS only. Do not prepare or change any local NextBrowser session.\n\nTask for this run:\n${task}\n\nWorkflow instructions:\n${skill.instructions}`,
         chip, cid,
       );
-      return;
     }
     const stepId = get().makeStepMessage(cid);
     let prep;
@@ -4340,12 +4452,13 @@ export const useStore = create<State>((set, get) => {
     }
     if (!get().agentReady()) return;
     const note = pageReadyNote(prep.host, prep.directFallback);
-    get().enqueue(
+    const replyId = get().enqueue(
       `Use my local browser skill "${skill.title}" for ${target} in the active verified NextBrowser session.${note}\nThe app already prepared the session, verified the selected proxy, and opened the website. Do not run saved start/prepare operations again. Begin with the first task-specific action. Reuse the proven recipe, adapting selectors only if the page changed.\n\nTask for this run:\n${task}\n\nStructured recipe (execute first):\n${JSON.stringify(skill.recipe, null, 2)}\n\nWorkflow fallback:\n${skill.instructions}`,
       chip,
       cid,
     );
     trackEvent("local_skill_run_queued", { has_domain: !!skill.domain, customized_task: task !== skill.task.trim() });
+    return replyId;
   },
 
   startRemoteStream: async (target = { runtime: "clawbrowser" }) => {

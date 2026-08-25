@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ChatMessage, Conversation, CustomScript } from "./types";
+import type { BrowserWorkflowSkill, ChatMessage, Conversation, CustomScript } from "./types";
 import type { SkillEntry } from "./skillsCatalog";
 import { VPS_PROMPT_MARKER } from "./lib/vpsPrompt";
 import { setMultiloginSelection } from "./lib/multiloginSelection";
@@ -83,6 +83,23 @@ function customScript(): CustomScript {
   };
 }
 
+function workflowSkill(): BrowserWorkflowSkill {
+  return {
+    id: "workflow",
+    title: "Collect products",
+    domain: "example.com",
+    task: "Collect product cards",
+    instructions: "Use only for explicit AI repair.",
+    actions: [{ tool: "extract", arguments: { selector: ".product", fields: { title: ".name" } } }],
+    capability: "scrape",
+    parametersSchema: {},
+    outputSchema: {},
+    recipe: { version: 1, capability: "scrape", actions: [] },
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
 function localNextctlCalls() {
   return bridge.invoke.mock.calls.filter(([command]) => command === "nextctl_run");
 }
@@ -115,6 +132,71 @@ beforeEach(() => {
     startConsumer: vi.fn(),
     startSessionPoll: vi.fn(),
   }, true);
+});
+
+describe("deterministic automation replay", () => {
+  it("runs without an authenticated agent or conversational preflight and preserves profile runtime selection", async () => {
+    const startProfile = vi.fn().mockImplementation(async () => {
+      useStore.setState((state) => ({ statuses: { ...state.statuses, "camou-profile": "running" } }));
+    });
+    useStore.setState({
+      selectedProfile: "camou-profile",
+      statuses: { "camou-profile": "stopped" },
+      startProfile,
+      workspaces: [{
+        id: "workspace",
+        name: "Camoufox",
+        profileNames: ["camou-profile"],
+        profileToolsets: { "camou-profile": "camoufox" },
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+      runtime: {
+        ...useStore.getState().runtime,
+        codex: { ...useStore.getState().runtime.codex, ready: false },
+      },
+    });
+    bridge.invoke.mockResolvedValueOnce({ status: "completed", results: [] });
+
+    await expect(useStore.getState().runAutomationRecipe(
+      workflowSkill(),
+      "execution",
+      { backendRunId: "backend-run", query: "laptop" },
+    )).resolves.toMatchObject({ status: "completed" });
+
+    expect(preflight.prepareSession).not.toHaveBeenCalled();
+    expect(startProfile).toHaveBeenCalledWith("camou-profile");
+    expect(bridge.invoke).toHaveBeenCalledWith("automation_recipe_execute", expect.objectContaining({
+      executionId: "execution",
+      profile: "camou-profile",
+      runtime: "camoufox",
+      backendRunId: "backend-run",
+      parameters: { task: "Collect product cards", query: "laptop" },
+    }));
+  });
+
+  it("does not restart an already running profile before deterministic replay", async () => {
+    const startProfile = vi.fn();
+    useStore.setState({
+      selectedProfile: "work",
+      statuses: { work: "running" },
+      startProfile,
+      workspaces: [{
+        id: "workspace",
+        name: "Workspace",
+        profileNames: ["work"],
+        profileToolsets: { work: "clawbrowser" },
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+    });
+    bridge.invoke.mockResolvedValueOnce({ status: "completed", results: [] });
+
+    await useStore.getState().runAutomationRecipe(workflowSkill(), "running-execution");
+
+    expect(startProfile).not.toHaveBeenCalled();
+    expect(bridge.invoke).toHaveBeenCalledWith("automation_recipe_execute", expect.objectContaining({ profile: "work" }));
+  });
 });
 
 describe("VPS execution target isolation", () => {
@@ -593,6 +675,75 @@ describe("browser profile creation", () => {
     await expect(useStore.getState().createPersonalProxyProfile("broken-proxy", "proxy-id"))
       .rejects.toThrow("Proxy refused the connection.");
     expect(useStore.getState().selectedProfile).not.toBe("broken-proxy");
+  });
+
+  it("changes an existing profile to a saved personal proxy without exposing its credentials", async () => {
+    useStore.setState({
+      statuses: { existing: "stopped" },
+      activeWorkspaceId: "workspace",
+      workspaces: [{
+        id: "workspace",
+        name: "Workspace",
+        profileNames: ["existing"],
+        profileToolsets: { existing: "camoufox" },
+        profileProxyIds: {},
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+    });
+    bridge.invoke.mockImplementation((command) => Promise.resolve(command === "manual_proxy_profile_update"
+      ? { stdout: JSON.stringify({ ok: true, data: {} }), stderr: "", code: 0 }
+      : command === "nextctl_run"
+        ? { stdout: JSON.stringify({ ok: true, data: { profiles: [] } }), stderr: "", code: 0 }
+        : undefined));
+
+    await useStore.getState().updateProfileConnection("existing", "personal", { proxyId: "proxy-id" });
+
+    expect(bridge.invoke).toHaveBeenCalledWith("manual_proxy_profile_update", {
+      profileName: "existing",
+      proxyId: "proxy-id",
+      runtime: "camoufox",
+      timeoutMs: 60_000,
+    });
+    expect(useStore.getState().workspaces[0].profileProxyIds).toEqual({ existing: "proxy-id" });
+    expect(JSON.stringify(bridge.invoke.mock.calls)).not.toContain("NBC_PROXY_PASSWORD");
+  });
+
+  it("changes a stopped existing profile to managed proxy and clears its personal-proxy association", async () => {
+    useStore.setState({
+      statuses: { existing: "stopped" },
+      activeWorkspaceId: "workspace",
+      workspaces: [{
+        id: "workspace",
+        name: "Workspace",
+        profileNames: ["existing"],
+        profileToolsets: { existing: "clawbrowser" },
+        profileProxyIds: { existing: "old-proxy" },
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+    });
+    bridge.invoke.mockResolvedValue({
+      stdout: JSON.stringify({ ok: true, data: { profiles: [] } }),
+      stderr: "",
+      code: 0,
+    });
+
+    await useStore.getState().updateProfileConnection("existing", "managed", { country: "us" });
+
+    expect(bridge.invoke).toHaveBeenCalledWith("nextctl_run", expect.objectContaining({
+      args: ["profiles", "set-proxy", "existing", "--country", "US", "--runtime", "clawbrowser", "--format", "json"],
+    }));
+    expect(useStore.getState().workspaces[0].profileProxyIds).toEqual({});
+    expect(useStore.getState().profileIdentities.existing).toEqual({ country: "US" });
+  });
+
+  it("does not change the connection while the profile is running", async () => {
+    useStore.setState({ statuses: { existing: "running" } });
+
+    await expect(useStore.getState().updateProfileConnection("existing", "direct"))
+      .rejects.toThrow("Stop the profile before changing its connection.");
+    expect(bridge.invoke).not.toHaveBeenCalled();
   });
 
   it("persists the personal proxy association in the workspace document", () => {

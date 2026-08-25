@@ -6,7 +6,16 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_SKILL_SERVICE_URL = "https://core.nextbrowser.com";
 
 function entityBackendURL(env = process.env) {
-  const raw = String(env.CLAWCTL_SKILL_SERVICE || DEFAULT_SKILL_SERVICE_URL).trim();
+  // next-browser-api owns both the entity APIs and the browser-facing API.
+  // A dev/staging API override must therefore move the whole app to the same
+  // backend instead of leaving Automation Studio pointed at production.
+  const raw = String(
+    env.CLAWCTL_SKILL_SERVICE
+      || env.NEXTBROWSER_DEV_API_BASE_URL
+      || env.NEXTBROWSER_API_BASE_URL
+      || env.CLAWBROWSER_API_BASE_URL
+      || DEFAULT_SKILL_SERVICE_URL,
+  ).trim();
   const parsed = new URL(raw);
   if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
     throw new Error("Unsupported skill service URL.");
@@ -21,22 +30,37 @@ async function projectRequest(route, options = {}, deps = {}) {
   const fetchImpl = deps.fetchImpl || fetch;
   const { apiKey } = await loadBackendConfig(deps);
   const baseURL = entityBackendURL(deps.env);
-  const response = await fetchImpl(`${baseURL}${route}`, {
-    ...options,
-    headers: {
-      accept: "application/json",
-      authorization: `Bearer ${apiKey}`,
-      ...(options.body ? { "content-type": "application/json" } : {}),
-    },
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
+  const { responseType = "json", jsonBody = true, timeoutMs = REQUEST_TIMEOUT_MS, ...fetchOptions } = options;
+  let response;
+  try {
+    response = await fetchImpl(`${baseURL}${route}`, {
+      ...fetchOptions,
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${apiKey}`,
+        ...(fetchOptions.body && jsonBody ? { "content-type": "application/json" } : {}),
+        ...(fetchOptions.headers || {}),
+      },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (cause) {
+    const error = new Error(`Cannot reach the NextBrowser backend at ${baseURL}. Check that the backend is running and try again.`);
+    error.code = "NEXTBROWSER_BACKEND_UNAVAILABLE";
+    error.cause = cause;
+    throw error;
+  }
+  if (response.ok && responseType === "stream") return response.body;
+  if (response.ok && responseType === "buffer") return Buffer.from(await response.arrayBuffer());
   const text = await response.text();
   let body = null;
   if (text) {
     try { body = JSON.parse(text); } catch { body = null; }
   }
   if (!response.ok) {
-    const error = new Error(body?.error || `Project sync failed (${response.status}).`);
+    const reason = response.status === 401
+      ? "Project sync failed (401). The account token is not valid for this backend."
+      : body?.error || `Project sync failed (${response.status}).`;
+    const error = new Error(reason);
     error.status = response.status;
     throw error;
   }
