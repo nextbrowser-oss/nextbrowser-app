@@ -57,7 +57,8 @@ async function loadBackendConfig({
     throw new Error("NextBrowser account is not connected.");
   }
 
-  const configuredBaseURL = env.NEXTBROWSER_API_BASE_URL
+  const configuredBaseURL = env.NEXTBROWSER_DEV_API_BASE_URL
+    || env.NEXTBROWSER_API_BASE_URL
     || env.CLAWBROWSER_API_BASE_URL
     || payload.api_base_url
     || payload.backend_api_base_url

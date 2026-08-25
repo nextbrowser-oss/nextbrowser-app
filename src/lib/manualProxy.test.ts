@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { manualProxyDefaultName, manualProxyLimits, parseManualProxyUrl, validateManualProxyFields } from "./manualProxy";
+import { manualProxyDefaultName, manualProxyLimits, parseManualProxyClipboard, parseManualProxyUrl, validateManualProxyFields } from "./manualProxy";
 
 describe("manual proxy URL parsing", () => {
   it("parses HTTP proxy URLs with credentials", () => {
@@ -44,6 +44,8 @@ describe("manual proxy URL parsing", () => {
     ["http://", "Enter a valid proxy URL."],
     ["http://proxy.example:0", "Proxy URL must include a valid port."],
     ["http://proxy.example:65536", "Enter a valid proxy URL."],
+    ["definitely not a proxy", "Enter host:port"],
+    ["nohost:8080", "domain name or IP address"],
   ])("rejects invalid proxy URL %j", (value, message) => {
     expect(() => parseManualProxyUrl(value)).toThrow(message);
   });
@@ -67,10 +69,10 @@ describe("manual proxy URL parsing", () => {
     expect(() => validateManualProxyFields({ name: "x".repeat(manualProxyLimits.name + 1), host: "host", port: 80, username: "", password: "" }))
       .toThrow("Proxy name is too long");
     expect(() => validateManualProxyFields({ name: "Proxy", host: "bad host", port: 80, username: "", password: "" }))
-      .toThrow("cannot contain spaces");
-    expect(() => validateManualProxyFields({ name: "Proxy", host: "host", port: 12.5, username: "", password: "" }))
+      .toThrow("without spaces");
+    expect(() => validateManualProxyFields({ name: "Proxy", host: "proxy.example", port: 12.5, username: "", password: "" }))
       .toThrow("whole number between 1 and 65535");
-    expect(() => validateManualProxyFields({ name: "Proxy", host: "host", port: 80, username: "x".repeat(manualProxyLimits.username + 1), password: "" }))
+    expect(() => validateManualProxyFields({ name: "Proxy", host: "proxy.example", port: 80, username: "x".repeat(manualProxyLimits.username + 1), password: "" }))
       .toThrow("Proxy username is too long");
   });
 
@@ -78,5 +80,25 @@ describe("manual proxy URL parsing", () => {
     expect(manualProxyDefaultName(parseManualProxyUrl("socks5://proxy.example:1080"))).toBe(
       "manual-socks5-proxy.example-1080",
     );
+  });
+
+  it("imports provider-style host:port:user:pass clipboard values", () => {
+    expect(parseManualProxyClipboard("proxy.example:8080:alice:p:a:ss")).toEqual({
+      source: "fields",
+      scheme: "http",
+      host: "proxy.example",
+      port: 8080,
+      username: "alice",
+      password: "p:a:ss",
+    });
+  });
+
+  it("imports regular proxy URLs from the clipboard", () => {
+    expect(parseManualProxyClipboard("socks5://alice:secret@proxy.example:1080")).toMatchObject({
+      source: "url",
+      scheme: "socks5",
+      host: "proxy.example",
+      port: 1080,
+    });
   });
 });

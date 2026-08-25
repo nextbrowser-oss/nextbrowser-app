@@ -18,6 +18,8 @@ describe("browserProfileContext", () => {
     expect(result).toContain("baka: ClawBrowser (workspace: Work");
     expect(result).toContain("do not spawn it through nextctl or nextbrowser.start");
     expect(result).toContain("NEXTBROWSER_CONTROL_URL");
+    expect(result).toContain("short-lived host-control URL and token into every chat run");
+    expect(result).toContain("never ask the user to start or reconnect a stopped DasBrowser profile manually");
     expect(result).toContain("rejects profiles outside");
   });
 

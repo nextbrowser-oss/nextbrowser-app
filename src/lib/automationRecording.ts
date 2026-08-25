@@ -5,6 +5,7 @@ export type ActiveAutomationRecording = {
   startedAt: number;
   phase: "recording";
   destination?: "recording" | "workflow";
+  source?: "manual" | "hybrid" | "agent";
 };
 
 const STATE_KEY = "automationRecordingState";

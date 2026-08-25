@@ -16,7 +16,7 @@ const {
   resolveBinary,
   searchDirs,
 } = require("./binary-resolver.cjs");
-const { applyLegacyRuntimeMigration, applyRuntimeRootMigration, clearRuntimeCredential } = require("./runtime-config.cjs");
+const { applyLegacyRuntimeMigration, applyRuntimeRootMigration, clearRuntimeCredential, runtimeAPIBaseURL } = require("./runtime-config.cjs");
 const { fetchGitHubStars } = require("./github-stars.cjs");
 const { ensureWorkspaceInstructions } = require("./workspace-instructions.cjs");
 const pty = require("node-pty");
@@ -41,6 +41,7 @@ const {
 } = require("./project-sync.cjs");
 const { defaultSSHConfigPath, discoverSSHHosts, isAllowedExplicitConfigPath } = require("./ssh-config.cjs");
 const { createLocalArtifactStore } = require("./local-artifacts.cjs");
+const { saveAutomationArtifact } = require("./automation-artifact.cjs");
 const {
   createAutomationRun,
   deleteAutomationRecording,
@@ -56,6 +57,7 @@ const {
 } = require("./automation-sync.cjs");
 const { cancelAllAutomationRecipes, cancelAutomationRecipe, executeAutomationRecipe } = require("./automation-runner.cjs");
 const { cancelAllAutomationElementPicks, cancelAutomationElementPick, pickAutomationElement } = require("./automation-element-picker.cjs");
+const { cancelAllAutomationPageRecordings, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
 const { parseMultiloginProfiles } = require("./multilogin-profiles.cjs");
@@ -254,7 +256,7 @@ function childEnv(extra = {}) {
     CLAWBROWSER_STATE_ROOT: path.join(runtimeRoot, "state"),
     CLAWBROWSER_SESSION_ROOT: path.join(runtimeRoot, "sessions"),
     NBC_PROFILE_ROOT: path.join(runtimeRoot, "profiles"),
-    CLAWBROWSER_API_BASE_URL: apiBaseURL(),
+    CLAWBROWSER_API_BASE_URL: runtimeAPIBaseURL(process.env),
     ...(clawbrowserBin ? { CLAWBROWSER_BIN: clawbrowserBin } : {}),
     ...(dasbrowserBin ? { DASBROWSER_BIN: dasbrowserBin } : {}),
     ...(multiloginAutomationToken ? { MULTILOGIN_TOKEN: multiloginAutomationToken } : {}),
@@ -832,7 +834,13 @@ function startAutoUpdater() {
   appUpdateTimer = setInterval(() => { void checkForAppUpdate(); }, APP_UPDATE_CHECK_INTERVAL_MS);
 }
 function apiBaseURL(raw) {
-  return String(raw || process.env.NEXTBROWSER_API_BASE_URL || process.env.CLAWBROWSER_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/$/, "");
+  return String(
+    raw
+      || process.env.NEXTBROWSER_DEV_API_BASE_URL
+      || process.env.NEXTBROWSER_API_BASE_URL
+      || process.env.CLAWBROWSER_API_BASE_URL
+      || DEFAULT_API_BASE_URL,
+  ).replace(/\/$/, "");
 }
 function authBaseURL() {
   return String(process.env.NEXTBROWSER_AUTH_BASE_URL || DEFAULT_AUTH_BASE_URL).replace(/\/$/, "");
@@ -922,6 +930,28 @@ async function invokeCommand(command, args = {}, sender) {
       const proxy = await resolvePersonalProxy(args.proxyId);
       return await executeNextctl([
         "profiles", "create", profileName,
+        "--manual-proxy",
+        "--proxy-scheme", proxy.scheme,
+        "--proxy-host", proxy.host,
+        "--proxy-port", String(proxy.port),
+        ...(proxy.username ? ["--proxy-username", proxy.username] : []),
+        "--runtime", runtime,
+        "--format", "json",
+      ], {
+        extraEnv: proxy.password ? { NBC_PROXY_PASSWORD: proxy.password } : {},
+        requestId: args.requestId,
+        timeoutMs: args.timeoutMs,
+      });
+    }
+    case "manual_proxy_profile_update": {
+      const profileName = String(args.profileName || "").trim();
+      if (!profileName) throw new Error("Profile name is required.");
+      const runtime = ["clawbrowser", "dasbrowser", "camoufox"].includes(args.runtime)
+        ? args.runtime
+        : "clawbrowser";
+      const proxy = await resolvePersonalProxy(args.proxyId);
+      return await executeNextctl([
+        "profiles", "set-proxy", profileName,
         "--manual-proxy",
         "--proxy-scheme", proxy.scheme,
         "--proxy-host", proxy.host,
@@ -1159,10 +1189,31 @@ async function invokeCommand(command, args = {}, sender) {
         binary,
         env: childEnv(),
         onProgress: (progress) => emit("automation:recipe-progress", progress),
+        onLocalAction: (action, context) => saveAutomationArtifact({
+          action,
+          results: context.results,
+          workspaceId: String(args.workspaceId || ""),
+          runId: args.backendRunId ? String(args.backendRunId) : undefined,
+          store: localAutomationArtifacts(),
+        }),
         onStep: args.backendRunId ? ({ position, ...update }) => updateAutomationRunStep(String(args.backendRunId), position, update, { env: childEnv() }).catch(() => undefined) : undefined,
       });
     }
     case "automation_recipe_cancel": return cancelAutomationRecipe(String(args.executionId || ""));
+    case "automation_page_recording_start": {
+      const binary = await resolveOrInstallNextctl();
+      if (!binary) throw new Error("NextBrowser browser runtime is unavailable.");
+      const requestedRuntime = ["clawbrowser", "dasbrowser", "camoufox", "multilogin"].includes(args.runtime) ? args.runtime : "clawbrowser";
+      if (requestedRuntime === "multilogin") await initializeMultiloginCredential();
+      const runtimeBin = requestedRuntime === "dasbrowser" ? await ensureDasbrowserRuntime() : undefined;
+      return await startAutomationPageRecording({
+        recordingId: args.recordingId,
+        profile: args.profile,
+        runtime: requestedRuntime === "dasbrowser" ? "chromium" : requestedRuntime,
+        runtimeBin,
+      }, { binary, env: childEnv() });
+    }
+    case "automation_page_recording_stop": return await stopAutomationPageRecording(String(args.recordingId || ""));
     case "automation_element_pick": {
       const binary = await resolveOrInstallNextctl();
       if (!binary) throw new Error("NextBrowser browser runtime is unavailable.");
@@ -1288,6 +1339,30 @@ async function invokeCommand(command, args = {}, sender) {
     }
     case "agent_run": {
       const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} executable not found.`);
+      const conversationId = String(args.conversationId || "");
+      const controlToken = randomUUID();
+      const controlURL = await ensureAgentControlServer();
+      const profileScope = new Map(
+        (Array.isArray(args.browserProfiles) ? args.browserProfiles : [])
+          .filter((item) => item && typeof item.name === "string" && ["clawbrowser", "dasbrowser", "camoufox"].includes(item.runtime))
+          .map((item) => [item.name, {
+            runtime: item.runtime,
+            conversationId,
+            ownerConversationId: typeof item.ownerConversationId === "string" ? item.ownerConversationId : "",
+            wasRunning: item.running === true,
+          }]),
+      );
+      for (const [profile, access] of profileScope) {
+        if (access.ownerConversationId) agentControlProfileOwners.set(profile, access.ownerConversationId);
+      }
+      agentControlScopes.set(controlToken, profileScope);
+      const profileScopeDir = path.join(nextbrowserRuntimeRoot(), "chat-scopes");
+      const profileScopeFile = path.join(profileScopeDir, `${args.replyId}.json`);
+      await fs.mkdir(profileScopeDir, { recursive: true });
+      await fs.writeFile(profileScopeFile, JSON.stringify(Object.fromEntries(
+        [...profileScope.entries()].map(([name, access]) => [name, access.runtime]),
+      )), "utf8");
+      if (args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
       let agentArgs = args.args || [];
       if (args.agentId === "codex") {
         await ensureCodexTerminalProfile();
@@ -1296,21 +1371,33 @@ async function invokeCommand(command, args = {}, sender) {
         agentArgs = [...codexClawbrowserMCPArgs(nextctlBin), ...agentArgs];
       }
       const spec = commandSpec(bin, agentArgs);
-      return runAgentProcess({
-        spawnProcess: spawn,
-        file: spec.file,
-        args: spec.args,
-        cwd: args.workingDir,
-        env: childEnv(),
-        stdinText: args.stdinText,
-        onSpawn: (child) => children.set(args.replyId, child),
-        onStdout: (chunk) => emit("agent:chunk", [args.replyId, chunk.toString()]),
-        onStderr: (chunk) => emit("agent:activity", [args.replyId, chunk.toString()]),
-        onDone: (result) => {
-          children.delete(args.replyId);
-          emit("agent:done", [args.replyId, result.code, result.stderr, result.stdout]);
-        },
-      });
+      try {
+        return await runAgentProcess({
+          spawnProcess: spawn,
+          file: spec.file,
+          args: spec.args,
+          cwd: args.workingDir,
+          env: childEnv({
+            NEXTBROWSER_CONTROL_URL: controlURL,
+            NEXTBROWSER_CONTROL_TOKEN: controlToken,
+            NEXTBROWSER_ALLOWED_PROFILES_JSON: JSON.stringify(Object.fromEntries(
+              [...profileScope.entries()].map(([name, access]) => [name, access.runtime]),
+            )),
+            NEXTBROWSER_PROFILE_SCOPE_FILE: profileScopeFile,
+          }),
+          stdinText: args.stdinText,
+          onSpawn: (child) => children.set(args.replyId, child),
+          onStdout: (chunk) => emit("agent:chunk", [args.replyId, chunk.toString()]),
+          onStderr: (chunk) => emit("agent:activity", [args.replyId, chunk.toString()]),
+          onDone: (result) => {
+            children.delete(args.replyId);
+            emit("agent:done", [args.replyId, result.code, result.stderr, result.stdout]);
+          },
+        });
+      } finally {
+        agentControlScopes.delete(controlToken);
+        await fs.unlink(profileScopeFile).catch(() => undefined);
+      }
     }
     case "workflow_author_run": {
       const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} executable not found.`);
@@ -1659,4 +1746,5 @@ app.on("before-quit", () => {
   cancelAllCommands();
   cancelAllAutomationRecipes();
   cancelAllAutomationElementPicks();
+  cancelAllAutomationPageRecordings();
 });

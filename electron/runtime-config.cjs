@@ -8,6 +8,19 @@ const path = require("node:path");
 // carries it, which lets the migration tell the two apart when they share the
 // legacy config path.
 const NEXTBROWSER_TOKEN_PREFIX = "nb_live_";
+const DEFAULT_RUNTIME_API_BASE_URL = "https://api.nextbrowser.com";
+
+// A development entity service may not expose browser Remote Session routes.
+// Keep runtime traffic independently configurable while the app continues to
+// send workspace and Automation entities to NEXTBROWSER_DEV_API_BASE_URL.
+function runtimeAPIBaseURL(env = process.env) {
+  return String(
+    env.NEXTBROWSER_RUNTIME_API_BASE_URL
+      || env.NEXTBROWSER_API_BASE_URL
+      || env.CLAWBROWSER_API_BASE_URL
+      || DEFAULT_RUNTIME_API_BASE_URL,
+  ).replace(/\/$/, "");
+}
 
 // Legacy (pre-isolation) config path. Before the app switched to an isolated
 // NEXTBROWSER_CONFIG_DIR, `nbc config set` wrote the key to nbc's default
@@ -140,6 +153,7 @@ async function clearRuntimeCredential({ runtimeRoot }) {
 
 module.exports = {
   NEXTBROWSER_TOKEN_PREFIX,
+  runtimeAPIBaseURL,
   legacyConfigPath,
   legacyStateRoot,
   planRuntimeMigration,

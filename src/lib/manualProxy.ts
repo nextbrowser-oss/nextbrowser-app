@@ -8,6 +8,10 @@ export interface ParsedManualProxyUrl {
   password: string;
 }
 
+export interface ParsedManualProxyClipboard extends ParsedManualProxyUrl {
+  source: "url" | "fields";
+}
+
 export const manualProxyLimits = {
   name: 120,
   host: 512,
@@ -30,11 +34,28 @@ function decodeUrlPart(value: string): string {
   }
 }
 
+function validateProxyHost(rawHost: string): string {
+  const host = rawHost.trim().replace(/^\[|\]$/g, "");
+  if (!host) throw new Error("Proxy host is required.");
+  if (/\s/.test(host) || /[/@]/.test(host)) throw new Error("Proxy host must be a domain name or IP address without spaces.");
+  const isIPv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host)
+    && host.split(".").every((part) => Number(part) <= 255);
+  const isIPv6 = host.includes(":") && /^[0-9a-f:]+$/i.test(host);
+  const isDomain = host.includes(".") && host.split(".").every((part) => /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(part));
+  if (!isIPv4 && !isIPv6 && !isDomain && host.toLowerCase() !== "localhost") {
+    throw new Error("Proxy host must be a domain name or IP address, for example proxy.example.com or 203.0.113.10.");
+  }
+  return rawHost.trim();
+}
+
 export function parseManualProxyUrl(rawValue: string): ParsedManualProxyUrl {
   const raw = rawValue.trim();
   if (!raw) throw new Error("Proxy URL is required.");
   if (raw.length > manualProxyLimits.url) {
     throw new Error(`Proxy URL is too long (maximum ${manualProxyLimits.url.toLocaleString("en-US")} characters).`);
+  }
+  if (!raw.includes("://") && !raw.includes(":")) {
+    throw new Error("Enter host:port or a full http:// or socks5:// proxy URL.");
   }
 
   let url: URL;
@@ -49,6 +70,7 @@ export function parseManualProxyUrl(rawValue: string): ParsedManualProxyUrl {
     throw new Error("Proxy URL must use http:// or socks5://.");
   }
   if (!url.hostname) throw new Error("Proxy URL must include a host.");
+  validateProxyHost(url.hostname);
   if ((url.pathname && url.pathname !== "/") || url.search || url.hash) {
     throw new Error("Proxy URL must contain only scheme, credentials, host, and port — remove the path, query, or fragment.");
   }
@@ -79,6 +101,25 @@ export function parseManualProxyUrl(rawValue: string): ParsedManualProxyUrl {
   };
 }
 
+export function parseManualProxyClipboard(rawValue: string): ParsedManualProxyClipboard {
+  const raw = rawValue.trim();
+  if (!raw) throw new Error("Clipboard is empty.");
+
+  // Common provider export: host:port:username:password. Passwords may contain
+  // colons, so only the first three separators are structural.
+  if (!raw.includes("://") && !raw.includes("@")) {
+    const [host = "", portRaw = "", username = "", ...passwordParts] = raw.split(":");
+    if (host && /^\d+$/.test(portRaw) && passwordParts.length > 0) {
+      const password = passwordParts.join(":");
+      const port = Number(portRaw);
+      validateManualProxyFields({ name: "Imported proxy", host, port, username, password });
+      return { source: "fields", scheme: "http", host, port, username, password };
+    }
+  }
+
+  return { source: "url", ...parseManualProxyUrl(raw) };
+}
+
 export function validateManualProxyFields(input: {
   name: string;
   host: string;
@@ -90,12 +131,10 @@ export function validateManualProxyFields(input: {
   if ([...input.name.trim()].length > manualProxyLimits.name) {
     throw new Error(`Proxy name is too long (maximum ${manualProxyLimits.name} characters).`);
   }
-  const host = input.host.trim();
-  if (!host) throw new Error("Proxy host is required.");
+  const host = validateProxyHost(input.host);
   if (host.length > manualProxyLimits.host) {
     throw new Error(`Proxy host is too long (maximum ${manualProxyLimits.host} characters).`);
   }
-  if (/\s/.test(host)) throw new Error("Proxy host cannot contain spaces.");
   if (!Number.isInteger(input.port) || input.port < 1 || input.port > 65535) {
     throw new Error("Proxy port must be a whole number between 1 and 65535.");
   }

@@ -51,6 +51,14 @@ npm ci
 npm run dev
 ~~~
 
+For a dev build that must use a non-production API/backend, set the backend base URL before launching:
+
+~~~bash
+NEXTBROWSER_DEV_API_BASE_URL=http://127.0.0.1:18098 npm run dev
+~~~
+
+`NEXTBROWSER_DEV_API_BASE_URL` has priority over production API settings in the desktop process.
+
 Before submitting application changes, run:
 
 ~~~bash

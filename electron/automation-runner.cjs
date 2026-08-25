@@ -8,6 +8,7 @@ const DIRECT_TOOLS = new Set([
   "open", "wait", "click", "input", "press", "select", "scroll", "dismiss", "upload",
   "extract", "paginate_extract", "tabs_extract", "multi_action", "form_fill", "site_recipe_run",
 ]);
+const LOCAL_TOOLS = new Set(["save_artifact"]);
 const activeExecutions = new Map();
 
 function cleanExecutionId(value) {
@@ -57,10 +58,14 @@ function locatorFrom(args) {
   return undefined;
 }
 
+function semanticLocatorPrelude(locator) {
+  return `const locator=${JSON.stringify(locator)}; const norm=value=>String(value||"").replace(/\\s+/g," ").trim().toLowerCase(); const implicitRole=element=>element.getAttribute("role")||({BUTTON:"button",A:"link",INPUT:element.type==="checkbox"?"checkbox":element.type==="radio"?"radio":"textbox",TEXTAREA:"textbox",SELECT:"combobox"}[element.tagName]||""); const accessibleName=element=>{const labelledBy=String(element.getAttribute("aria-labelledby")||"").split(/\\s+/).filter(Boolean).map(id=>document.getElementById(id)?.innerText||document.getElementById(id)?.textContent||"").join(" "); const labels=Array.from(element.labels||[]).map(label=>label.innerText||label.textContent||"").join(" "); return element.getAttribute("aria-label")||labelledBy||labels||element.innerText||element.textContent||element.value||element.placeholder||element.title||"";};`;
+}
+
 function selectorEvaluation(tool, args) {
   const locator = locatorFrom(args);
   if (!locator?.css) return undefined;
-  const prefix = `(() => { const locator=${JSON.stringify(locator)}; const norm=value=>String(value||"").replace(/\\s+/g," ").trim().toLowerCase(); const implicitRole=element=>element.getAttribute("role")||({BUTTON:"button",A:"link",INPUT:element.type==="checkbox"?"checkbox":element.type==="radio"?"radio":"textbox",TEXTAREA:"textbox",SELECT:"combobox"}[element.tagName]||""); const candidates=locator.css?[document.querySelector(locator.css)].filter(Boolean):Array.from(document.querySelectorAll("button,a,input,textarea,select,[role],[aria-label]")); const element=candidates.find(candidate=>(!locator.role||norm(implicitRole(candidate))===norm(locator.role))&&(!locator.name||norm(candidate.getAttribute("aria-label")||candidate.innerText||candidate.value||candidate.placeholder).includes(norm(locator.name)))&&(!locator.text||norm(candidate.innerText||candidate.textContent).includes(norm(locator.text)))); if (!element) throw new Error("No element matches the saved locator");`;
+  const prefix = `(() => { ${semanticLocatorPrelude(locator)} const candidates=locator.css?[document.querySelector(locator.css)].filter(Boolean):Array.from(document.querySelectorAll("button,a,input,textarea,select,[role],[aria-label]")); const element=candidates.find(candidate=>(!locator.role||norm(implicitRole(candidate))===norm(locator.role))&&(!locator.name||norm(accessibleName(candidate)).includes(norm(locator.name)))&&(!locator.text||norm(candidate.innerText||candidate.textContent).includes(norm(locator.text)))); if (!element) throw new Error("No element matches the saved locator");`;
   if (tool === "click") return `${prefix} element.click(); return {ok:true,action:"click",locator,url:location.href}; })()`;
   if (tool === "input") {
     const text = String(args.text ?? args.value ?? "");
@@ -75,8 +80,16 @@ function selectorEvaluation(tool, args) {
 
 function semanticActionCalls(tool, args) {
   const locator = locatorFrom(args);
-  if (!locator || locator.css || !["click", "input", "select"].includes(tool)) return undefined;
-  const expression = `(() => { const locator=${JSON.stringify(locator)}; const norm=value=>String(value||"").replace(/\\s+/g," ").trim().toLowerCase(); const implicitRole=element=>element.getAttribute("role")||({BUTTON:"button",A:"link",INPUT:element.type==="checkbox"?"checkbox":element.type==="radio"?"radio":"textbox",TEXTAREA:"textbox",SELECT:"combobox"}[element.tagName]||""); const element=Array.from(document.querySelectorAll("button,a,input,textarea,select,[role],[aria-label]")).find(candidate=>(!locator.role||norm(implicitRole(candidate))===norm(locator.role))&&(!locator.name||norm(candidate.getAttribute("aria-label")||candidate.innerText||candidate.value||candidate.placeholder).includes(norm(locator.name)))&&(!locator.text||norm(candidate.innerText||candidate.textContent).includes(norm(locator.text)))); if(!element)throw new Error("No element matches the saved locator"); element.scrollIntoView({block:"center",inline:"nearest"}); return {ok:true,locator,tag:element.tagName.toLowerCase(),href:element instanceof HTMLAnchorElement?element.href:undefined}; })()`;
+  if (!locator || locator.css || !["click", "input", "select", "press"].includes(tool)) return undefined;
+  const directControlClick = tool === "click" && ["button", "checkbox", "radio"].includes(String(locator.role || "").toLowerCase());
+  const expression = `(() => { ${semanticLocatorPrelude(locator)} const element=Array.from(document.querySelectorAll("button,a,input,textarea,select,[role],[aria-label]")).find(candidate=>(!locator.role||norm(implicitRole(candidate))===norm(locator.role))&&(!locator.name||norm(accessibleName(candidate)).includes(norm(locator.name)))&&(!locator.text||norm(candidate.innerText||candidate.textContent).includes(norm(locator.text)))); if(!element)throw new Error("No element matches the saved locator"); element.scrollIntoView({block:"center",inline:"nearest"}); ${directControlClick ? "element.click(); return {ok:true,action:\"click\",locator,tag:element.tagName.toLowerCase(),checked:typeof element.checked===\"boolean\"?element.checked:undefined};" : tool === "press" ? "element.focus(); return {ok:true,action:\"focus\",locator,tag:element.tagName.toLowerCase()};" : "return {ok:true,locator,tag:element.tagName.toLowerCase(),href:element instanceof HTMLAnchorElement?element.href:undefined};"} })()`;
+  if (directControlClick) {
+    const calls = [{ name: "evaluate", arguments: { expression } }];
+    const wait = postActionWait(args);
+    if (wait) calls.push({ name: "wait", arguments: wait });
+    return calls;
+  }
+  if (tool === "press") return [{ name: "evaluate", arguments: { expression } }, { name: "press", arguments: { key: String(args.key || "Enter") } }];
   return [{ name: "evaluate", arguments: { expression } }, { name: "state", arguments: {} }, { name: "__semantic_action", arguments: { tool, locator, original: args } }];
 }
 
@@ -123,6 +136,9 @@ function toolCalls(action) {
     delete args.wait_for;
   }
   if (!DIRECT_TOOLS.has(tool)) throw new Error(`The browser action “${tool}” is not supported by deterministic replay.`);
+  if (tool === "scroll" && Number.isFinite(args.x) && Number.isFinite(args.y)) {
+    return [{ name: "evaluate", arguments: { expression: `(() => { scrollTo(${Math.round(args.x)},${Math.round(args.y)}); return {ok:true,x:scrollX,y:scrollY}; })()` } }];
+  }
   if (["extract", "paginate_extract", "tabs_extract"].includes(tool) && (!args.container || !plainObject(args.fields))) {
     throw new Error(`${tool} needs a CSS row container and named field locators.`);
   }
@@ -133,6 +149,13 @@ function toolCalls(action) {
   if (semantic) {
     if (wait) semantic.push({ name: "wait", arguments: wait });
     return semantic;
+  }
+  const pressLocator = locatorFrom(args);
+  if (tool === "press" && pressLocator?.css) {
+    const expression = `(() => { const element=document.querySelector(${JSON.stringify(pressLocator.css)}); if(!element)throw new Error("No element matches the saved locator"); element.scrollIntoView({block:"center",inline:"nearest"}); element.focus(); return {ok:true,action:"focus"}; })()`;
+    const calls = [{ name: "evaluate", arguments: { expression } }, { name: "press", arguments: { key: String(args.key || "Enter") } }];
+    if (wait) calls.push({ name: "wait", arguments: wait });
+    return calls;
   }
   const evaluation = selectorEvaluation(tool, args);
   if (evaluation) {
@@ -250,6 +273,7 @@ async function executeAutomationRecipe(input, deps) {
   const state = { client, cancelled: false };
   activeExecutions.set(executionId, state);
   const results = [];
+  const localResults = [];
   const progress = (payload) => deps.onProgress?.({ executionId, total: actions.length, ...payload });
   try {
     progress({ phase: "preparing", stepIndex: 0, detail: "Connecting to the selected browser runtime…" });
@@ -262,16 +286,27 @@ async function executeAutomationRecipe(input, deps) {
         await deps.onStep?.({ position: index, status: "running", output: {} });
         let output = null;
         const callOutputs = [];
-        for (const call of toolCalls(action)) {
+        if (LOCAL_TOOLS.has(action.tool)) {
+          if (!deps.onLocalAction) throw new Error(`The local workflow action “${action.tool}” is not available.`);
+          output = await deps.onLocalAction(action, { executionId, results: localResults });
+        } else for (const call of toolCalls(action)) {
           const resolved = call.name === "__semantic_action"
-            ? resolveSemanticAction(call.arguments, output, callOutputs[0])
+            ? resolveSemanticAction(call.arguments, output, callOutputs[0]?.result ?? callOutputs[0])
             : call;
-          output = parseToolResult(await client.callTool(resolved.name, resolved.arguments));
+          // The MCP process is launched with the selected profile for runtime
+          // discovery, but individual tools resolve their scope from their
+          // arguments. Bind every call to the current app-selected profile so
+          // replay can never fall back to another profile's stale CDP state.
+          const scopedArguments = profile
+            ? { ...resolved.arguments, profile }
+            : resolved.arguments;
+          output = parseToolResult(await client.callTool(resolved.name, scopedArguments));
           callOutputs.push(output);
         }
-        output = boundedOutput(output);
-        results.push({ index, tool: action.tool, ok: true, output });
-        await deps.onStep?.({ position: index, status: "completed", output });
+        localResults.push({ index, tool: action.tool, ok: true, output });
+        const displayOutput = boundedOutput(output);
+        results.push({ index, tool: action.tool, ok: true, output: displayOutput });
+        await deps.onStep?.({ position: index, status: "completed", output: displayOutput });
         progress({ phase: "running", stepIndex: index + 1, tool: action.tool, detail: `Completed step ${index + 1} of ${actions.length}` });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

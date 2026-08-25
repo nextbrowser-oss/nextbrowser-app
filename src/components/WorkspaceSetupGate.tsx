@@ -4,6 +4,7 @@ import { internalError } from "../lib/userFacingError";
 import { useStore } from "../store";
 import { CountrySelect } from "./CountrySelect";
 import { Icon, Spinner } from "./Icon";
+import { entityNameLimits, validateEntityName } from "../lib/entityValidation";
 
 export function WorkspaceSetupGate() {
   const s = useStore();
@@ -25,12 +26,12 @@ export function WorkspaceSetupGate() {
     setError(undefined);
     try {
       if (!workspace) {
-        await s.createWorkspace(workspaceName);
+        await s.createWorkspace(validateEntityName("workspace", workspaceName));
       } else if (chats.length === 0) {
-        const projectId = s.createProject(chatName, chatMode);
+        const projectId = s.createProject(validateEntityName("project", chatName), chatMode);
         if (projectId) window.dispatchEvent(new CustomEvent("nextbrowser:project-created", { detail: { id: projectId } }));
       } else {
-        const name = profileName.trim();
+        const name = validateEntityName("profile", profileName);
         await s.createManagedProfile(name, country, { runtime: toolset, direct });
         s.assignProfileToProject(name, toolset, workspace.id);
         s.selectProfile(name);
@@ -39,7 +40,8 @@ export function WorkspaceSetupGate() {
       }
     } catch (cause) {
       console.error("[WORKSPACE_SETUP_FAILED]", cause);
-      setError(internalError("We couldn't complete workspace setup.", "WORKSPACE_SETUP_FAILED"));
+      const detail = cause instanceof Error ? cause.message.trim() : String(cause ?? "").trim();
+      setError(detail || internalError("We couldn't complete workspace setup.", "WORKSPACE_SETUP_FAILED"));
     } finally {
       setSaving(false);
     }
@@ -64,16 +66,16 @@ export function WorkspaceSetupGate() {
           {step === 2 && "Each project has its own agent context inside this workspace."}
           {step === 3 && "Profiles belong to the workspace and can be used by one running chat at a time."}
         </p>
-        {step === 1 && <label className="modal-field"><span>Workspace name</span><input autoFocus value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} placeholder="My workspace" /></label>}
+        {step === 1 && <label className="modal-field"><span className="modal-field-heading"><span>Workspace name</span><small>Max {entityNameLimits.workspace}</small></span><input autoFocus value={workspaceName} maxLength={entityNameLimits.workspace} onChange={(event) => { setWorkspaceName(event.target.value); setError(undefined); }} placeholder="My workspace" /></label>}
         {step === 2 && <>
-          <label className="modal-field"><span>Project name</span><input autoFocus value={chatName} onChange={(event) => setChatName(event.target.value)} placeholder="First project" /></label>
+          <label className="modal-field"><span className="modal-field-heading"><span>Project name</span><small>Max {entityNameLimits.project}</small></span><input autoFocus value={chatName} maxLength={entityNameLimits.project} onChange={(event) => { setChatName(event.target.value); setError(undefined); }} placeholder="First project" /></label>
           <fieldset className="project-mode-field"><legend>Interface</legend>
             <label className={"project-mode-option" + (chatMode === "chat" ? " is-selected" : "")}><input type="radio" checked={chatMode === "chat"} onChange={() => setChatMode("chat")} /><Icon name="bubble.left.and.bubble.right.fill" size={16} /><span><strong>Chat</strong><small>Regular conversation UI</small></span></label>
             <label className={"project-mode-option" + (chatMode === "terminal" ? " is-selected" : "")}><input type="radio" checked={chatMode === "terminal"} onChange={() => setChatMode("terminal")} /><Icon name="terminal" size={16} /><span><strong>Terminal</strong><small>Persistent agent terminal</small></span></label>
           </fieldset>
         </>}
         {step === 3 && <>
-          <label className="modal-field"><span>Profile name</span><input autoFocus value={profileName} onChange={(event) => setProfileName(event.target.value)} placeholder="Browser profile" /></label>
+          <label className="modal-field workspace-setup-profile-name"><span className="modal-field-heading"><span>Profile name</span><small>Max {entityNameLimits.profile}</small></span><input autoFocus value={profileName} maxLength={entityNameLimits.profile} onChange={(event) => { setProfileName(event.target.value); setError(undefined); }} placeholder="Browser profile" /></label>
           <fieldset className="project-mode-field"><legend>Connection</legend>
             <label className={"project-mode-option" + (direct ? " is-selected" : "")}><input type="radio" checked={direct} onChange={() => setDirect(true)} /><Icon name="network" size={16} /><span><strong>No proxy</strong><small>Direct internet connection</small></span></label>
             <label className={"project-mode-option" + (!direct ? " is-selected" : "")}><input type="radio" checked={!direct} onChange={() => setDirect(false)} /><Icon name="globe" size={16} /><span><strong>Managed proxy</strong><small>Choose a country</small></span></label>

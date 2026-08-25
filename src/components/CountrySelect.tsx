@@ -1,4 +1,5 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { countryFlag, filterCountryList, ROTATION_COUNTRIES, type RotationCountry } from "../lib/countryFlag";
 import { Icon } from "./Icon";
 
@@ -14,11 +15,13 @@ export function CountrySelect({ value, onChange, disabled = false, ariaLabel, co
   const id = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [dropdownStyle, setDropdownStyle] = useState<CSSProperties>();
   const selectedCountry = countries.find((country) => country.code === value.toUpperCase());
   const results = useMemo(() => filterCountryList(countries, query), [countries, query]);
 
@@ -41,14 +44,43 @@ export function CountrySelect({ value, onChange, disabled = false, ariaLabel, co
     close(true);
   };
 
+  const positionDropdown = () => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const gap = 6;
+    const viewportPadding = 8;
+    const spaceBelow = window.innerHeight - rect.bottom - viewportPadding - gap;
+    const spaceAbove = rect.top - viewportPadding - gap;
+    const placeAbove = spaceBelow < 220 && spaceAbove > spaceBelow;
+    const availableHeight = Math.max(140, Math.min(330, placeAbove ? spaceAbove : spaceBelow));
+    setDropdownStyle({
+      left: Math.max(viewportPadding, Math.min(rect.left, window.innerWidth - rect.width - viewportPadding)),
+      top: placeAbove ? Math.max(viewportPadding, rect.top - availableHeight - gap) : rect.bottom + gap,
+      width: rect.width,
+      maxHeight: availableHeight,
+    });
+  };
+
   useEffect(() => {
     if (!open) return;
-    window.requestAnimationFrame(() => searchRef.current?.focus());
+    window.requestAnimationFrame(() => {
+      positionDropdown();
+      searchRef.current?.focus();
+    });
     const handlePointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) close();
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target) && !dropdownRef.current?.contains(target)) close();
     };
+    const handlePositionChange = () => positionDropdown();
     document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("resize", handlePositionChange);
+    window.addEventListener("scroll", handlePositionChange, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("resize", handlePositionChange);
+      window.removeEventListener("scroll", handlePositionChange, true);
+    };
   }, [open]);
 
   useEffect(() => {
@@ -121,8 +153,13 @@ export function CountrySelect({ value, onChange, disabled = false, ariaLabel, co
         <Icon name="chevron.down" size={14} className="country-select-chevron" />
       </button>
 
-      {open && (
-        <div className="country-select-dropdown">
+      {open && createPortal((
+        <div
+          ref={dropdownRef}
+          className="country-select-dropdown country-select-dropdown-portal"
+          style={dropdownStyle}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
           <div className="country-select-search">
             <Icon name="magnifyingglass" size={13} className="muted" />
             <input
@@ -165,7 +202,7 @@ export function CountrySelect({ value, onChange, disabled = false, ariaLabel, co
             {results.length === 0 && <div className="country-select-empty">No countries found</div>}
           </div>
         </div>
-      )}
+      ), document.body)}
     </div>
   );
 }
