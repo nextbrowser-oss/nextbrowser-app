@@ -10,6 +10,13 @@ const DIRECT_TOOLS = new Set([
 ]);
 const LOCAL_TOOLS = new Set(["save_artifact"]);
 const activeExecutions = new Map();
+const RETRYABLE_NAVIGATION_ERRORS = [
+  "ERR_SSL_PROTOCOL_ERROR",
+  "ERR_NETWORK_CHANGED",
+  "ERR_CONNECTION_RESET",
+  "ERR_CONNECTION_CLOSED",
+  "ERR_TIMED_OUT",
+];
 
 function cleanExecutionId(value) {
   const id = String(value || "").trim();
@@ -180,6 +187,24 @@ function parseToolResult(result) {
   catch { return text; }
 }
 
+function isRetryableNavigationError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return RETRYABLE_NAVIGATION_ERRORS.some((code) => message.includes(code));
+}
+
+async function callBrowserTool(client, call, options = {}) {
+  const attempts = call.name === "open" ? 3 : 1;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return parseToolResult(await client.callTool(call.name, call.arguments));
+    } catch (error) {
+      if (attempt + 1 >= attempts || !isRetryableNavigationError(error) || options.cancelled?.()) throw error;
+      options.onRetry?.(attempt + 1, error);
+      await (options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms))))(attempt === 0 ? 400 : 900);
+    }
+  }
+}
+
 function boundedOutput(value, maxBytes = 1_500_000) {
   if (value == null) return value;
   try {
@@ -300,7 +325,11 @@ async function executeAutomationRecipe(input, deps) {
           const scopedArguments = profile
             ? { ...resolved.arguments, profile }
             : resolved.arguments;
-          output = parseToolResult(await client.callTool(resolved.name, scopedArguments));
+          output = await callBrowserTool(client, { name: resolved.name, arguments: scopedArguments }, {
+            cancelled: () => state.cancelled,
+            sleep: deps.sleep,
+            onRetry: (attempt) => progress({ phase: "running", stepIndex: index, tool: action.tool, detail: `Temporary network error. Retrying navigation (${attempt}/2)…` }),
+          });
           callOutputs.push(output);
         }
         localResults.push({ index, tool: action.tool, ok: true, output });
