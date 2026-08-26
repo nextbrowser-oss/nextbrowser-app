@@ -339,6 +339,12 @@ export function AutomationStudio() {
   useEffect(() => {
     if (section === "artifacts" && workspaceId) void loadArtifacts();
   }, [section, workspaceId]);
+  useEffect(() => {
+    if (section !== "artifacts" || !workspaceId) return;
+    const refreshAfterExternalChanges = () => void loadArtifacts();
+    window.addEventListener("focus", refreshAfterExternalChanges);
+    return () => window.removeEventListener("focus", refreshAfterExternalChanges);
+  }, [section, workspaceId]);
 
   const reportError = (error: unknown) => {
     console.error("[AUTOMATION_STUDIO_FAILED]", error);
