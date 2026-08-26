@@ -14,6 +14,7 @@ interface AgentTerminalProps {
   agentId: string;
   agentName: string;
   conversationId?: string;
+  workspaceId?: string;
   workingDir?: string;
   browserContext?: string;
   browserProfiles?: Array<{ name: string; runtime: "clawbrowser" | "dasbrowser" | "camoufox"; running: boolean; selected?: boolean; ownerConversationId?: string }>;
@@ -92,7 +93,7 @@ function handoffFingerprint(value: string): string {
     .trim();
 }
 
-export function AgentTerminal({ agentId, agentName, conversationId, workingDir, browserContext, browserProfiles, savingWorkflow, pendingHandoff, handoffToChatRequest, onSaveWorkflow, onContinueInChat, onHandoffConsumed, onChatHandoffConsumed, onProfileStarted, onProfileStopped, onProfilesRefresh, onPreviewChange }: AgentTerminalProps) {
+export function AgentTerminal({ agentId, agentName, conversationId, workspaceId, workingDir, browserContext, browserProfiles, savingWorkflow, pendingHandoff, handoffToChatRequest, onSaveWorkflow, onContinueInChat, onHandoffConsumed, onChatHandoffConsumed, onProfileStarted, onProfileStopped, onProfilesRefresh, onPreviewChange }: AgentTerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalIdRef = useRef<string>();
   const terminalRef = useRef<Terminal>();
@@ -335,6 +336,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
       const id = await invoke<string>("terminal_start", {
         agentId,
         conversationId: conversationId || "",
+        workspaceId: workspaceId || "",
         workingDir: workingDir || null,
         browserContext: browserContext || "",
         browserProfiles: browserProfiles || [],
@@ -379,7 +381,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
   // A terminal is the interactive state of one chat, not a global agent
   // process. Restart it when the selected conversation changes so pending
   // input, scrollback, or an unfinished prompt cannot leak into another chat.
-  }, [agentId, conversationId, workingDir, restartNonce]);
+  }, [agentId, conversationId, workspaceId, workingDir, restartNonce]);
 
   const browserProfilesFingerprint = JSON.stringify(browserProfiles ?? []);
   useEffect(() => {
@@ -389,12 +391,13 @@ export function AgentTerminal({ agentId, agentName, conversationId, workingDir, 
     lastBrowserContextRef.current = nextContext;
     void invoke("terminal_update_context", {
       id,
+      workspaceId: workspaceId || "",
       workingDir: workingDir || null,
       browserContext: nextContext,
       browserProfiles: browserProfiles || [],
       conversationId: conversationId || "",
     });
-  }, [browserContext, browserProfilesFingerprint, conversationId, status, workingDir]);
+  }, [browserContext, browserProfilesFingerprint, conversationId, status, workspaceId, workingDir]);
 
   useEffect(() => {
     if (!handoffToChatRequest || status !== "running") return;

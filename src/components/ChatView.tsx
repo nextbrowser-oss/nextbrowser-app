@@ -384,6 +384,7 @@ export function ChatView() {
               agentId={agentId}
               agentName={agentName}
               conversationId={conv?.id}
+              workspaceId={conv?.workspaceId}
               workingDir={s.workingDir}
               browserContext={browserProfileContext(
                 s.workspaces,
@@ -391,6 +392,7 @@ export function ChatView() {
                 s.selectedProfile,
                 multiloginSelection,
                 s.statuses,
+                s.profileIdentities,
               )}
               browserProfiles={(s.workspaces.find((workspace) => workspace.id === conv?.workspaceId)?.profileNames ?? []).map((name) => ({
                 name,
@@ -716,7 +718,7 @@ export function ChatView() {
               </button>
             </div>
             <p className="muted small project-create-explainer">
-              Each project has its own agent chat, context, and browser profiles.
+              Each project has its own agent chat and context. Browser profiles are shared by projects in this workspace.
             </p>
             <label className="modal-field">
               <span className="modal-field-heading"><span>Project name</span><small>Max {entityNameLimits.project}</small></span>

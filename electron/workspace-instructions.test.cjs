@@ -8,6 +8,8 @@ test("adds browser and secret-handling guidance", () => {
   assert.match(result, /Playwright for Camoufox/);
   assert.match(result, /authoritative NextBrowser profile runtime context/);
   assert.match(result, /use one `paginate_extract` call/);
+  assert.match(result, /short read-only top-N request/);
+  assert.match(result, /finish immediately/);
   assert.match(result, /same MCP `start` call/);
   assert.match(result, /Do not wait for `load` after a plain scroll/);
   assert.match(result, /Never search for, read, print, copy/);

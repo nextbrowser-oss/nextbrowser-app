@@ -29,6 +29,7 @@ describe("Automation Studio recorder", () => {
     expect(workflow.domain).toBe("example.com");
     expect(workflow.actions).toEqual([
       { tool: "navigate", arguments: { url: "https://example.com/products" } },
+      { tool: "wait", arguments: { selector: "article", timeout: 30 } },
       { tool: "extract", arguments: { container: "article" } },
     ]);
     expect(workflow.recipe.actions).toEqual(workflow.actions);
@@ -103,7 +104,7 @@ describe("Automation Studio recorder", () => {
     const [run] = capturedRuns(conversations);
     expect(run.captureSource).toBe("structured-recipe");
     expect(run.task).toBe("Collect books from https://books.toscrape.com");
-    expect(skillFromRun(run).actions.map((action) => action.tool)).toEqual(["navigate", "extract"]);
+    expect(skillFromRun(run).actions.map((action) => action.tool)).toEqual(["navigate", "wait", "extract"]);
   });
 
   it("does not save a failed skill result merely because its planned recipe was valid", () => {

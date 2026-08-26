@@ -58,7 +58,7 @@ const {
 } = require("./automation-sync.cjs");
 const { cancelAllAutomationRecipes, cancelAutomationRecipe, executeAutomationRecipe } = require("./automation-runner.cjs");
 const { cancelAllAutomationElementPicks, cancelAutomationElementPick, pickAutomationElement } = require("./automation-element-picker.cjs");
-const { cancelAllAutomationPageRecordings, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
+const { activeAutomationRecordingHasDataAction, activeAutomationTraceFile, cancelAllAutomationPageRecordings, recordAutomationToolAction, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
 const { parseMultiloginProfiles } = require("./multilogin-profiles.cjs");
@@ -79,6 +79,7 @@ function killTerminalsForWebContents(webContentsId) {
     if (record.webContentsId !== webContentsId) continue;
     try { record.process.kill(); } catch { /* process may already have exited */ }
     agentControlScopes.delete(record.controlToken);
+    agentControlArtifactScopes.delete(record.controlToken);
     if (record.profileScopeFile) void fs.unlink(record.profileScopeFile).catch(() => undefined);
     terminals.delete(id);
   }
@@ -111,6 +112,7 @@ let automationArtifactStore = null;
 let multiloginAutomationToken = "";
 let multiloginCredentialLoadError = "";
 let multiloginCredentialLoadPromise = null;
+const nextctlAutomationTraceSupport = new Map();
 
 const CODEX_TERMINAL_PROFILE = "nextbrowser";
 const CODEX_TERMINAL_PROFILE_CONTENT = `[plugins."browser@openai-bundled"]
@@ -127,8 +129,8 @@ default_tools_approval_mode = "approve"
 enabled = false
 `;
 
-function codexClawbrowserMCPArgs(nextctlBin) {
-  const runtimeEnv = childEnv();
+function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
+  const runtimeEnv = childEnv(automationTraceFile ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: automationTraceFile } : {});
   const mcpEnvKeys = [
     "NEXTBROWSER_CONFIG_DIR",
     "CLAWBROWSER_CACHE_DIR",
@@ -137,6 +139,7 @@ function codexClawbrowserMCPArgs(nextctlBin) {
     "CLAWBROWSER_SESSION_ROOT",
     "NBC_PROFILE_ROOT",
     "CLAWBROWSER_API_BASE_URL",
+    ...(automationTraceFile ? ["NEXTBROWSER_AUTOMATION_TRACE_FILE"] : []),
   ];
   const mcpEnv = `{${mcpEnvKeys.map((key) => `${key}=${JSON.stringify(runtimeEnv[key])}`).join(",")}}`;
   return [
@@ -145,9 +148,12 @@ function codexClawbrowserMCPArgs(nextctlBin) {
     "-c", 'plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser.enabled=false',
     "-c", 'plugins."clawbrowser@nbc-local".enabled=false',
     "-c", `mcp_servers.nextbrowser.command=${JSON.stringify(nextctlBin)}`,
-    "-c", `mcp_servers.nextbrowser.args=${JSON.stringify(["mcp"])}`,
+    "-c", `mcp_servers.nextbrowser.args=${JSON.stringify(["mcp", ...(automationTraceFile ? ["--automation-trace-file", automationTraceFile] : [])])}`,
     "-c", `mcp_servers.nextbrowser.env=${mcpEnv}`,
-    "-c", `mcp_servers.nextbrowser.env_vars=${JSON.stringify(["MULTILOGIN_TOKEN"])}`,
+    // Codex starts the MCP server itself. Forward the Recorder's ephemeral
+    // trace path from the agent process; putting it only in the parent env is
+    // not enough when an explicit MCP env allow-list is configured.
+    "-c", `mcp_servers.nextbrowser.env_vars=${JSON.stringify(["MULTILOGIN_TOKEN", "NEXTBROWSER_AUTOMATION_TRACE_FILE"])}`,
     "-c", "mcp_servers.nextbrowser.startup_timeout_sec=30",
     "-c", "mcp_servers.nextbrowser.default_tools_approval_mode=approve",
   ];
@@ -292,6 +298,19 @@ async function run(binary, args, extraEnv = {}, options = {}) {
 }
 async function nextctlHasSkill(binary) {
   const r = await run(binary, ["--help"]); return `${r.stdout}\n${r.stderr}`.includes("\n  skill");
+}
+async function nextctlHasAutomationTrace(binary) {
+  if (!nextctlAutomationTraceSupport.has(binary)) {
+    // The internal Recorder flag is intentionally hidden from --help. Probe
+    // parsing with a relative path: supporting builds reject it as non-absolute,
+    // while older builds reject the flag itself before starting the MCP server.
+    // A fresh binary without this app's isolated credential can reject auth
+    // after parsing; that also proves Cobra accepted the flag.
+    nextctlAutomationTraceSupport.set(binary, run(binary, ["mcp", "--automation-trace-file", "nextbrowser-capability-probe"], {}, { timeoutMs: 5_000 })
+      .then((result) => /automation trace file must be an absolute path|API_KEY_REQUIRED|Missing Clawbrowser API key/i.test(`${result.stdout}\n${result.stderr}`))
+      .catch(() => false));
+  }
+  return nextctlAutomationTraceSupport.get(binary);
 }
 function setNextctlInstallStatus(status, patch = {}) {
   nextctlInstallStatus = { status, ...patch, updatedAt: Date.now() };
@@ -465,10 +484,19 @@ async function ensureAgentControlServer() {
       }
       const payload = JSON.parse(raw || "{}");
       if (artifactSave) {
+        if (artifactScope.recorderTraceRequired !== false && !await activeAutomationRecordingHasDataAction()) {
+          sendControlResponse(response, 409, { ok: false, error: "recording_requires_deterministic_data_action", message: "Recorder needs a successful extract, paginate_extract, tabs_extract, or read-only evaluate call before this result can be saved." });
+          return;
+        }
         const result = await saveAgentArtifact({
           workspaceId: artifactScope.workspaceId,
           payload,
           store: localAutomationArtifacts(),
+        });
+        recordAutomationToolAction("save_artifact", {
+          source: "last_result",
+          format: String(payload.format || result.artifact?.extension || "json").replace(/^\./, ""),
+          name: String(result.artifact?.name || payload.name || "workflow-result.json"),
         });
         sendControlResponse(response, 200, { ok: true, artifact: result.artifact });
         return;
@@ -769,8 +797,10 @@ function emit(channel, payload) { for (const window of BrowserWindow.getAllWindo
 function focusMainWindow() {
   const window = BrowserWindow.getAllWindows()[0];
   if (!window) return null;
+  if (process.platform === "darwin") app.focus({ steal: true });
   if (window.isMinimized()) window.restore();
   window.show();
+  window.moveTop();
   window.focus();
   return window;
 }
@@ -1034,6 +1064,11 @@ async function invokeCommand(command, args = {}, sender) {
       return null;
     }
     case "app_platform": return { platform: process.platform, arch: process.arch };
+    case "app_focus": {
+      focusMainWindow();
+      setTimeout(() => focusMainWindow(), 400);
+      return null;
+    }
     case "app_set_theme": {
       const theme = args.theme === "light" ? "light" : "dark";
       nativeTheme.themeSource = theme;
@@ -1167,6 +1202,11 @@ async function invokeCommand(command, args = {}, sender) {
       const target = await localAutomationArtifacts().resolvePath(String(args.workspaceId || ""), String(args.id || ""));
       const error = await shell.openPath(target);
       if (error) throw new Error(error);
+      return null;
+    }
+    case "artifact_reveal": {
+      const target = await localAutomationArtifacts().resolvePath(String(args.workspaceId || ""), String(args.id || ""));
+      shell.showItemInFolder(target);
       return null;
     }
     case "artifact_delete": {
@@ -1386,7 +1426,10 @@ async function invokeCommand(command, args = {}, sender) {
         if (access.ownerConversationId) agentControlProfileOwners.set(profile, access.ownerConversationId);
       }
       agentControlScopes.set(controlToken, profileScope);
-      if (args.workspaceId) agentControlArtifactScopes.set(controlToken, { workspaceId: String(args.workspaceId), conversationId });
+      const artifactScope = args.workspaceId
+        ? { workspaceId: String(args.workspaceId), conversationId, recorderTraceRequired: true }
+        : null;
+      if (artifactScope) agentControlArtifactScopes.set(controlToken, artifactScope);
       const profileScopeDir = path.join(nextbrowserRuntimeRoot(), "chat-scopes");
       const profileScopeFile = path.join(profileScopeDir, `${args.replyId}.json`);
       await fs.mkdir(profileScopeDir, { recursive: true });
@@ -1399,7 +1442,12 @@ async function invokeCommand(command, args = {}, sender) {
         await ensureCodexTerminalProfile();
         const nextctlBin = await resolveOrInstallNextctl();
         if (!nextctlBin) throw new Error("nextctl is required for Clawbrowser MCP.");
-        agentArgs = [...codexClawbrowserMCPArgs(nextctlBin), ...agentArgs];
+        const requestedTraceFile = activeAutomationTraceFile();
+        const supportedTraceFile = requestedTraceFile && await nextctlHasAutomationTrace(nextctlBin)
+          ? requestedTraceFile
+          : "";
+        if (artifactScope && requestedTraceFile && !supportedTraceFile) artifactScope.recorderTraceRequired = false;
+        agentArgs = [...codexClawbrowserMCPArgs(nextctlBin, supportedTraceFile), ...agentArgs];
       }
       const spec = commandSpec(bin, agentArgs);
       try {
@@ -1415,6 +1463,7 @@ async function invokeCommand(command, args = {}, sender) {
               [...profileScope.entries()].map(([name, access]) => [name, access.runtime]),
             )),
             NEXTBROWSER_PROFILE_SCOPE_FILE: profileScopeFile,
+            ...(activeAutomationTraceFile() ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: activeAutomationTraceFile() } : {}),
           }),
           stdinText: args.stdinText,
           onSpawn: (child) => children.set(args.replyId, child),
@@ -1483,6 +1532,10 @@ async function invokeCommand(command, args = {}, sender) {
         if (access.ownerConversationId) agentControlProfileOwners.set(profile, access.ownerConversationId);
       }
       agentControlScopes.set(controlToken, profileScope);
+      if (args.workspaceId) agentControlArtifactScopes.set(controlToken, {
+        workspaceId: String(args.workspaceId),
+        conversationId: String(args.conversationId || ""),
+      });
       const profileScopeDir = path.join(nextbrowserRuntimeRoot(), "terminal-scopes");
       const profileScopeFile = path.join(profileScopeDir, `${id}.json`);
       await fs.mkdir(profileScopeDir, { recursive: true });
@@ -1538,6 +1591,7 @@ async function invokeCommand(command, args = {}, sender) {
         if (record.ready) {
           terminals.delete(id);
           agentControlScopes.delete(record.controlToken);
+          agentControlArtifactScopes.delete(record.controlToken);
           void fs.unlink(record.profileScopeFile).catch(() => undefined);
           emit("terminal:exit", [id, exitCode, signal]);
         }
@@ -1566,6 +1620,7 @@ async function invokeCommand(command, args = {}, sender) {
       if (record.exit) {
         terminals.delete(id);
         agentControlScopes.delete(record.controlToken);
+        agentControlArtifactScopes.delete(record.controlToken);
         emit("terminal:exit", [id, record.exit[0], record.exit[1]]);
       }
       return null;
@@ -1589,6 +1644,11 @@ async function invokeCommand(command, args = {}, sender) {
       );
       record.profileScope = nextScope;
       agentControlScopes.set(record.controlToken, nextScope);
+      if (args.workspaceId) agentControlArtifactScopes.set(record.controlToken, {
+        workspaceId: String(args.workspaceId),
+        conversationId,
+      });
+      else agentControlArtifactScopes.delete(record.controlToken);
       await fs.writeFile(record.profileScopeFile, JSON.stringify(Object.fromEntries(
         [...nextScope.entries()].map(([name, access]) => [name, access.runtime]),
       )), "utf8");
@@ -1641,6 +1701,7 @@ async function invokeCommand(command, args = {}, sender) {
       const record = terminals.get(id);
       if (record) record.process.kill();
       if (record) agentControlScopes.delete(record.controlToken);
+      if (record) agentControlArtifactScopes.delete(record.controlToken);
       if (record?.profileScopeFile) await fs.unlink(record.profileScopeFile).catch(() => undefined);
       terminals.delete(id);
       return null;

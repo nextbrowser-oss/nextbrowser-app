@@ -43,6 +43,7 @@ import { hasVPSPromptMarker, vpsConnectionInstructions } from "./lib/vpsPrompt";
 import { promptWithAttachments } from "./lib/chatAttachments";
 import { normalizeNextctlVersion } from "./lib/version";
 import { proxyTrafficWarning } from "./lib/proxyTraffic";
+import { activeAutomationRecording } from "./lib/automationRecording";
 import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
 import { internalError } from "./lib/userFacingError";
 import { userFacingBrowserError } from "./lib/userFacingBrowserError";
@@ -1909,13 +1910,18 @@ export const useStore = create<State>((set, get) => {
     }
 
     const activeProfile = get().selectedProfile;
+    const recording = activeAutomationRecording();
+    const recorderContext = recording?.phase === "recording" && recording.workspaceId === conversationWorkspaceId
+      ? `\n\nNextBrowser Recorder is active for this task. The final reusable dataset must come from a deterministic browser tool call, not from reading state and transforming it only in your reasoning. After using state to discover the page, call extract or paginate_extract with the exact fields and limit. If the dynamic page cannot be represented by those tools, call evaluate once with a read-only expression that returns the exact structured dataset; it must not read cookies/storage, use network APIs, click/submit, or mutate the DOM. If the user requested an Artifact Center file, save that deterministic call's returned dataset. Do not finish with state as the only data-collection step.`
+      : "";
     const browserContext = browserProfileContext(
       get().workspaces,
       conversationWorkspaceId,
       activeProfile,
       multiloginSelection,
       get().statuses,
-    );
+      get().profileIdentities,
+    ) + recorderContext;
     const browserProfiles = (itemWorkspace?.profileNames ?? []).map((name) => ({
       name,
       runtime: itemWorkspace?.profileToolsets[name] ?? "clawbrowser",

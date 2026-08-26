@@ -1,8 +1,9 @@
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const { PassThrough, Writable } = require("node:stream");
+const fs = require("node:fs/promises");
 const test = require("node:test");
-const { recorderPageScript, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
+const { activeAutomationRecordingHasDataAction, activeAutomationTraceFile, recorderPageScript, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
 
 function fakeMCP(handler) {
   const calls = [];
@@ -69,4 +70,32 @@ test("manual recording returns an initial navigation and collected deterministic
     { tool: "input", arguments: { selector: "input[name=q]", text: "hello" } },
   ]);
   assert.ok(server.calls.some((call) => call.params?.name === "evaluate"));
+});
+
+test("recording merges successful nextctl MCP extraction calls from the local trace", async () => {
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    if (message.params.name === "state") return toolResult({ page: { url: "https://coinmarketcap.com/trending-cryptocurrencies/" } });
+    const expression = message.params.arguments.expression;
+    if (expression.includes("function recorderPageScript")) return toolResult({ installed: true, url: "https://coinmarketcap.com/trending-cryptocurrencies/", title: "Trending" });
+    if (expression.includes("state?.cleanup")) return toolResult(true);
+    return toolResult({ missing: false, url: "https://coinmarketcap.com/trending-cryptocurrencies/", title: "Trending", actions: [] });
+  });
+
+  await startAutomationPageRecording({ recordingId: "agent-trace", profile: "Work", runtime: "clawbrowser" }, {
+    binary: "nextctl", env: {}, spawnImpl: server.spawnImpl,
+  });
+  const traceFile = activeAutomationTraceFile();
+  assert.ok(traceFile);
+  assert.equal(await activeAutomationRecordingHasDataAction(), false);
+  await fs.appendFile(traceFile, `${JSON.stringify({
+    tool: "extract",
+    arguments: { container: "tbody tr", fields: { name: { selector: "td:nth-child(2)" }, price: { selector: "td:nth-child(4)" } } },
+    at: Date.now(),
+  })}\n`);
+  assert.equal(await activeAutomationRecordingHasDataAction(), true);
+  const result = await stopAutomationPageRecording("agent-trace");
+
+  assert.deepEqual(result.actions.map(({ tool }) => tool), ["open", "extract"]);
+  await assert.rejects(fs.stat(traceFile), { code: "ENOENT" });
 });

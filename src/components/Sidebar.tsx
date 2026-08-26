@@ -17,9 +17,7 @@ import { UserFacingError } from "./UserFacingError";
 import { VPSSetupModal } from "./VPSSetupModal";
 import { CONNECTORS } from "../connectorsCatalog";
 import { invoke, listen } from "../electronBridge";
-import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, clearActiveAutomationRecording, type ActiveAutomationRecording } from "../lib/automationRecording";
-import { capturedRunFromHybridRecording, capturedRunsForRecording, skillFromRun, type ManualBrowserRecording } from "../lib/automationStudio";
-import { capturedWorkflowDomain, workflowQuality } from "../lib/workflowCapture";
+import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, type ActiveAutomationRecording } from "../lib/automationRecording";
 import { activeAutomationExecution, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, executionWithRecipeProgress, setActiveAutomationExecution, type AutomationExecution, type AutomationRecipeProgress } from "../lib/automationExecution";
 
 type ManualProxyInputMode = "url" | "fields";
@@ -222,30 +220,10 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     if (!activeRecording || activeRecording.phase !== "recording" || recordingStopping) return;
     setRecordingStopping(true);
     setRecordingError(undefined);
-    try {
-      const agentCaptured = capturedRunsForRecording(s.conversations, activeRecording)[0];
-      const captured = ["manual", "hybrid"].includes(activeRecording.source || "agent")
-        ? capturedRunFromHybridRecording(activeRecording.id, await invoke<ManualBrowserRecording>("automation_page_recording_stop", { recordingId: activeRecording.id }), agentCaptured)
-        : agentCaptured;
-      let workflowId: string | undefined;
-      if (captured) {
-        await invoke("automation_recording_put", { recording: { id: activeRecording.id, workspace_id: activeRecording.workspaceId, status: "completed", document: { run: captured }, base_revision: 0 } });
-        if (activeRecording.destination === "workflow") {
-          const domain = capturedWorkflowDomain(captured.task, captured.evidence);
-          if (workflowQuality(captured.task, captured.evidence, domain).reusable) {
-            workflowId = (await invoke<{ id: string }>("automation_workflow_put", { workspaceId: activeRecording.workspaceId, workflow: skillFromRun(captured) })).id;
-          }
-        }
-      }
-      clearActiveAutomationRecording();
-      if (workflowId) {
-        if (activeRecording.workspaceId !== s.activeWorkspaceId) s.selectWorkspace(activeRecording.workspaceId);
-        s.setTab("automation");
-        window.setTimeout(() => window.dispatchEvent(new CustomEvent("nextbrowser:open-workflow", { detail: { workflowId } })), 0);
-      }
-    } catch (error) {
-      setRecordingError(error instanceof Error ? error.message : String(error));
-    } finally { setRecordingStopping(false); }
+    sessionStorage.setItem("nextbrowser:automation-stop-request", activeRecording.id);
+    openRecorder();
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent("nextbrowser:request-stop-recording")), 0);
+    window.setTimeout(() => setRecordingStopping(false), 1_000);
   };
 
   const openAutomationExecution = () => {

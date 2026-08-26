@@ -1,14 +1,15 @@
 const path = require("node:path");
 
 const FORMATS = new Set(["json", "csv", "txt"]);
-const SOURCES = new Set(["last_result", "run_results"]);
+const SOURCES = new Set(["last_result", "data_results", "run_results"]);
+const DATA_TOOLS = new Set(["evaluate", "extract", "paginate_extract", "tabs_extract"]);
 
 function normalizeArtifactAction(action) {
   const args = action?.arguments || {};
   const format = String(args.format || "json").toLowerCase();
   const source = String(args.source || "last_result");
   if (!FORMATS.has(format)) throw new Error("Artifact format must be JSON, CSV, or text.");
-  if (!SOURCES.has(source)) throw new Error("Choose the previous step result or all workflow results for this artifact.");
+  if (!SOURCES.has(source)) throw new Error("Choose the previous step result, collected data, or all workflow results for this artifact.");
   const requested = path.basename(String(args.name || `workflow-result.${format}`).trim());
   if (!requested) throw new Error("Give the artifact a file name.");
   const name = requested.toLowerCase().endsWith(`.${format}`) ? requested : `${requested.replace(/\.[^.]+$/, "")}.${format}`;
@@ -54,7 +55,9 @@ async function saveAutomationArtifact({ action, results, workspaceId, runId, sto
   if (!completed.length) throw new Error("There is no completed workflow result to save yet. Move this step after a data-producing step.");
   const value = spec.source === "run_results"
     ? completed.map(({ index, tool, output }) => ({ step: index + 1, tool, output }))
-    : completed.at(-1).output;
+    : spec.source === "data_results"
+      ? completed.filter(({ tool }) => DATA_TOOLS.has(tool)).map(({ output }) => usefulValue(output))
+      : completed.at(-1).output;
   const serialized = serializeArtifact(value, spec.format);
   const artifact = await store.addBytes(workspaceId, spec.name, serialized.bytes, { contentType: serialized.contentType, runId });
   return { saved: true, artifact };

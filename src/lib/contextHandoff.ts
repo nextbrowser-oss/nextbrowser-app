@@ -102,10 +102,13 @@ export function terminalBrowserScopeContext(
     : runtime === "dasbrowser"
       ? "DasBrowser"
       : "ClawBrowser";
-  const rows = profiles.map((profile) =>
+  const uniqueProfiles = profiles.filter((profile, index) =>
+    profiles.findIndex((candidate) => candidate.name === profile.name) === index
+  );
+  const rows = uniqueProfiles.map((profile) =>
     `- ${profile.name}: ${runtimeLabel(profile.runtime)}${profile.selected ? " (selected)" : ""}`,
   );
-  return `Current authoritative NextBrowser profiles for this workspace:\n${rows.join("\n")}\nExisting profiles always take priority. Match an explicit name exactly; otherwise use the selected profile, or the sole profile when only one exists. If multiple profiles are plausible, ask which existing profile to use. Ignore names from older turns. Never invent, clone, substitute, create, or start an unlisted profile from a site name or task. Do not use a separate Chrome/browser-control skill.`;
+  return `NextBrowser workspace browser access (not project chat history):\n${rows.join("\n")}\nUse an explicit profile name exactly; otherwise use the selected or sole profile. If several profiles are plausible, ask which one to use. Ignore profile names from older turns. Never invent, clone, create, start, or substitute an unlisted profile, and do not use another browser-control integration.`;
 }
 
 export function terminalLineBufferAfter(current: string, data: string): string {

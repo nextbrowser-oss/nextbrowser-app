@@ -4,6 +4,7 @@ const MAX_RECORDED_ACTIONS = 100;
 const REPLAYABLE_TOOLS = new Set([
   "open", "navigate", "click", "input", "press", "select", "scroll", "dismiss", "wait",
   "act", "multi_action", "form_fill", "upload", "extract", "paginate_extract", "tabs_extract", "site_recipe_run",
+  "evaluate", "save_artifact",
 ]);
 
 export interface CapturedCall {
@@ -64,7 +65,7 @@ export type WorkflowCapability = "scrape" | "search" | "posting" | "form" | "nav
 export function workflowCapability(task: string, transcript: string): WorkflowCapability {
   const tools = capturedCalls(transcript).map((call) => call.name);
   if (/\b(post|publish|comment|reply|send)\b|опубли|отправ|коммент/i.test(task)) return "posting";
-  if (tools.some((tool) => ["paginate_extract", "extract"].includes(tool))) return /\b(find|search)\b|найди|поиск/i.test(task) ? "search" : "scrape";
+  if (tools.some((tool) => ["paginate_extract", "extract", "evaluate"].includes(tool))) return /\b(find|search)\b|найди|поиск/i.test(task) ? "search" : "scrape";
   if (tools.some((tool) => ["act", "input", "upload"].includes(tool))) return "form";
   if (tools.some((tool) => ["open", "navigate", "click", "press"].includes(tool))) return "navigation";
   return "other";
@@ -72,20 +73,146 @@ export function workflowCapability(task: string, transcript: string): WorkflowCa
 
 export function workflowRecipe(task: string, transcript: string) {
   const capability = workflowCapability(task, transcript);
-  const actions = replayableCalls(transcript)
-    .slice(0, MAX_RECORDED_ACTIONS)
-    .map(({ name, args }) => ({ tool: name, arguments: args }));
+  const preserveAllData = /\brun_results\b|\b(?:all|every)\s+(?:(?:workflow|collected)\s+)?(?:results?|datasets?)\b/i.test(task);
+  const actions = optimizedReplayableActions(transcript, preserveAllData).slice(0, MAX_RECORDED_ACTIONS);
   return { version: 1 as const, capability, actions };
 }
 
 /** All task-relevant calls, used to explain a recording without exposing setup noise. */
 export function recordedBrowserActions(transcript: string): Array<{ tool: string; arguments: Record<string, unknown> }> {
-  return replayableCalls(transcript)
-    .map(({ name, args }) => ({ tool: name, arguments: args }));
+  return optimizedReplayableActions(transcript);
+}
+
+/** Raw successful calls are used while merging page events with agent telemetry. */
+export function rawRecordedBrowserActions(transcript: string): Array<{ tool: string; arguments: Record<string, unknown> }> {
+  return replayableCalls(transcript).map(({ name, args }) => ({ tool: name, arguments: args }));
 }
 
 function replayableCalls(transcript: string): CapturedCall[] {
   return capturedCalls(transcript).filter((call) => REPLAYABLE_TOOLS.has(call.name) && call.score >= 0);
+}
+
+const DATA_TOOLS = new Set(["evaluate", "extract", "paginate_extract", "tabs_extract"]);
+const TARGETED_TOOLS = new Set(["click", "input", "select"]);
+
+function hasStableTarget(args: Record<string, unknown>): boolean {
+  return typeof args.selector === "string" && !!args.selector.trim()
+    || !!args.locator && typeof args.locator === "object" && !Array.isArray(args.locator);
+}
+
+function hasPortableArguments(call: CapturedCall): boolean {
+  if (TARGETED_TOOLS.has(call.name)) return hasStableTarget(call.args);
+  if (call.name === "act") return !Object.prototype.hasOwnProperty.call(call.args, "element_id") || hasStableTarget(call.args);
+  if (call.name !== "multi_action") return true;
+  const actions = Array.isArray(call.args.actions) ? call.args.actions : [];
+  return actions.length > 0 && actions.every((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const action = value as Record<string, unknown>;
+    if (Object.prototype.hasOwnProperty.call(action, "element_id") && !hasStableTarget(action)) return false;
+    return true;
+  });
+}
+
+function sameOrigin(left: unknown, right: unknown): boolean {
+  if (typeof left !== "string" || typeof right !== "string") return false;
+  try { return new URL(left).origin === new URL(right).origin; } catch { return false; }
+}
+
+function hasSearchParameters(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return ["q", "query", "search", "keyword", "term"].some((key) => url.searchParams.has(key));
+  } catch { return false; }
+}
+
+/** Drop a failed form-search branch once the agent falls back to a complete results URL. */
+function collapseSearchFallback(calls: CapturedCall[]): CapturedCall[] {
+  let finalNavigation = -1;
+  for (let index = calls.length - 1; index >= 0; index -= 1) {
+    if (["open", "navigate"].includes(calls[index].name)) {
+      finalNavigation = index;
+      break;
+    }
+  }
+  if (finalNavigation <= 0 || !hasSearchParameters(calls[finalNavigation].args.url)) return calls;
+  let earlierNavigation = -1;
+  for (let index = finalNavigation - 1; index >= 0; index -= 1) {
+    if (["open", "navigate"].includes(calls[index].name)
+      && sameOrigin(calls[index].args.url, calls[finalNavigation].args.url)) {
+      earlierNavigation = index;
+      break;
+    }
+  }
+  if (earlierNavigation < 0) return calls;
+  const attemptedSearch = calls.slice(earlierNavigation + 1, finalNavigation)
+    .some((call) => ["click", "input", "press", "select", "multi_action", "act"].includes(call.name));
+  return attemptedSearch ? calls.slice(finalNavigation) : calls;
+}
+
+function selectorFromDataCall(call: CapturedCall): string | undefined {
+  if (typeof call.args.container === "string" && call.args.container.trim()) return call.args.container.trim();
+  if (call.name !== "evaluate" || typeof call.args.expression !== "string") return undefined;
+  return call.args.expression.match(/querySelector(?:All)?\(\s*(['"`])([^'"`]+)\1\s*\)/)?.[2];
+}
+
+function normalizedReplayArguments(call: CapturedCall): Record<string, unknown> {
+  if (!["extract", "paginate_extract", "tabs_extract"].includes(call.name)
+    || !call.args.fields || typeof call.args.fields !== "object" || Array.isArray(call.args.fields)) return call.args;
+  const fields = Object.fromEntries(Object.entries(call.args.fields as Record<string, unknown>).map(([name, value]) => {
+    if (typeof value === "string") return [name, { selector: value }];
+    return [name, value];
+  }));
+  return { ...call.args, fields };
+}
+
+/** Keep the result of selector discovery, not every exploratory probe the agent made. */
+function optimizedReplayableActions(transcript: string, preserveAllData = false): Array<{ tool: string; arguments: Record<string, unknown> }> {
+  let calls = collapseSearchFallback(replayableCalls(transcript).filter(hasPortableArguments));
+  const consumedData = new Set<number>();
+  calls.forEach((call, index) => {
+    if (call.name !== "save_artifact" || call.args.source !== "last_result") return;
+    for (let candidate = index - 1; candidate >= 0; candidate -= 1) {
+      if (calls[candidate].name === "save_artifact") break;
+      if (DATA_TOOLS.has(calls[candidate].name)) {
+        consumedData.add(candidate);
+        break;
+      }
+    }
+  });
+  if (!preserveAllData && consumedData.size) calls = calls.filter((call, index) => !DATA_TOOLS.has(call.name) || consumedData.has(index));
+  const optimized: CapturedCall[] = [];
+  for (let index = 0; index < calls.length; index += 1) {
+    const call = calls[index];
+    const previous = optimized.at(-1);
+    if (["open", "navigate"].includes(call.name) && previous && ["open", "navigate"].includes(previous.name)) {
+      // Redirect recovery and the page that was open before recording can
+      // produce adjacent navigations. Nothing consumed the first page, so the
+      // last target is the only deterministic replay step.
+      optimized[optimized.length - 1] = call;
+      continue;
+    }
+    if (call.name === "click" && typeof call.args.selector === "string"
+      && /^(?:button|a|input|div|span)$/i.test(call.args.selector.trim())) {
+      // A bare tag selects an arbitrary first element and can change with any
+      // layout update. Omit it from generated workflows; users can pick the
+      // intended element visually if the interaction is actually required.
+      continue;
+    }
+    if (!DATA_TOOLS.has(call.name)) {
+      optimized.push(call);
+      continue;
+    }
+    let finalDataCall = call;
+    while (index + 1 < calls.length && DATA_TOOLS.has(calls[index + 1].name)) finalDataCall = calls[++index];
+    const dataPrevious = optimized.at(-1);
+    const selector = selectorFromDataCall(finalDataCall);
+    if (selector && dataPrevious && ["open", "navigate", "click", "press", "select"].includes(dataPrevious.name)) {
+      optimized.push({ name: "wait", args: { selector, timeout: 30 }, start: finalDataCall.start, end: finalDataCall.start, score: 10 });
+    }
+    optimized.push(finalDataCall);
+  }
+  return optimized.map((call) => ({ tool: call.name, arguments: normalizedReplayArguments(call) }));
 }
 
 function pick(source: Record<string, unknown>, keys: string[]): Record<string, unknown> {
@@ -185,7 +312,7 @@ export function workflowQuality(task: string, transcript: string, domain = captu
   if (meaningful.length > MAX_RECORDED_ACTIONS) return { reusable: false, reason: `The run contains more than ${MAX_RECORDED_ACTIONS} browser actions. Split it into smaller workflows.` };
   const last = calls.at(-1);
   if (last && last.score < 0) return { reusable: false, reason: "The browser workflow ended with a failed action." };
-  const successfulExtraction = calls.some((call) => ["extract", "paginate_extract"].includes(call.name) && call.score > 0);
+  const successfulExtraction = calls.some((call) => ["extract", "paginate_extract", "evaluate"].includes(call.name) && call.score > 0);
   const postingConfirmation = /\b(posted|published|submitted|saved draft|commented|sent successfully)\b|опубликован|отправлен|сохран[её]н\s+черновик/i.test(transcript);
   const interaction = calls.some((call) => ["act", "multi_action", "input", "click", "press", "upload"].includes(call.name));
   const navigation = calls.some((call) => ["start", "prepare", "open", "navigate"].includes(call.name));
@@ -236,7 +363,7 @@ export function workflowInstructions(task: string, transcript: string): string {
   if (searchTask && !hasSearchAction && !selectedURL) {
     steps.push("Before extraction, apply the requested search on the site and wait until the results page is loaded; the recorded run started from browser state that was not fully self-contained.");
   }
-  if (unique.some((tool) => ["paginate_extract", "extract", "state"].includes(tool))) {
+  if (unique.some((tool) => ["paginate_extract", "extract", "evaluate", "state"].includes(tool))) {
     steps.push("Extract all matching results, paginate or scroll as needed, deduplicate by canonical URL, and exclude irrelevant matches.");
   }
   steps.push("Return a concise result list with titles, URLs, and the important details requested by the user.");

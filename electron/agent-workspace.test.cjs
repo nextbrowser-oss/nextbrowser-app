@@ -34,6 +34,11 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   assert.match(main, /mcp_servers\.nextbrowser\.args=/);
   assert.match(main, /mcp_servers\.nextbrowser\.env=/);
   assert.match(main, /mcp_servers\.nextbrowser\.env_vars=.*MULTILOGIN_TOKEN/);
+  assert.match(main, /mcp_servers\.nextbrowser\.env_vars=.*NEXTBROWSER_AUTOMATION_TRACE_FILE/);
+  assert.match(main, /nextctlHasAutomationTrace\(nextctlBin\)/);
+  assert.match(main, /codexClawbrowserMCPArgs\(nextctlBin, supportedTraceFile\)/);
+  assert.match(main, /automationTraceFile \? \["NEXTBROWSER_AUTOMATION_TRACE_FILE"\] : \[\]/);
+  assert.match(main, /automationTraceFile \? \["--automation-trace-file", automationTraceFile\] : \[\]/);
   assert.doesNotMatch(main, /mcpEnvKeys\.push\("MULTILOGIN_TOKEN"\)/);
   assert.match(main, /plugins\."clawbrowser@clawctl-local"\.mcp_servers\.clawbrowser\.enabled=false/);
   assert.match(main, /plugins\."clawbrowser@nbc-local"\.enabled=false/);
@@ -53,7 +58,25 @@ test("Codex chat uses the managed Clawbrowser MCP configuration", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   assert.match(main, /case "agent_run":[\s\S]*args\.agentId === "codex"/);
   assert.match(main, /case "agent_run":[\s\S]*resolveOrInstallNextctl\(\)/);
-  assert.match(main, /case "agent_run":[\s\S]*codexClawbrowserMCPArgs\(nextctlBin\)/);
+  assert.match(main, /case "agent_run":[\s\S]*nextctlHasAutomationTrace\(nextctlBin\)/);
+  assert.match(main, /case "agent_run":[\s\S]*codexClawbrowserMCPArgs\(nextctlBin, supportedTraceFile\)/);
+});
+
+test("active Recorder requires a replayable final data-collection call", () => {
+  const store = fs.readFileSync(path.join(__dirname, "..", "src", "store.ts"), "utf8");
+  assert.match(store, /NextBrowser Recorder is active for this task/);
+  assert.match(store, /call extract or paginate_extract/);
+  assert.match(store, /call evaluate once with a read-only expression/);
+  assert.match(store, /Do not finish with state as the only data-collection step/);
+});
+
+test("older nextctl builds do not break chat MCP or local artifact saving during recording", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  assert.match(main, /"--automation-trace-file", "nextbrowser-capability-probe"/);
+  assert.match(main, /automation trace file must be an absolute path/);
+  assert.match(main, /API_KEY_REQUIRED/);
+  assert.match(main, /artifactScope\.recorderTraceRequired = false/);
+  assert.match(main, /artifactScope\.recorderTraceRequired !== false/);
 });
 
 test("project chat receives scoped host control for stopped browser profiles", () => {
@@ -77,11 +100,16 @@ test("project chat receives scoped host control for stopped browser profiles", (
 });
 
 test("terminal chat is isolated by conversation", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const terminal = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AgentTerminal.tsx"), "utf8");
   const chat = fs.readFileSync(path.join(__dirname, "..", "src", "components", "ChatView.tsx"), "utf8");
-  assert.match(terminal, /\[agentId, conversationId, workingDir, restartNonce\]/);
+  assert.match(terminal, /\[agentId, conversationId, workspaceId, workingDir, restartNonce\]/);
   assert.match(chat, /conversationId=\{conv\?\.id\}/);
   assert.match(terminal, /terminal_context_menu/);
+  assert.match(terminal, /workspaceId: workspaceId \|\| ""/);
+  assert.match(chat, /workspaceId=\{conv\?\.workspaceId\}/);
+  assert.match(main, /case "terminal_start"[\s\S]*agentControlArtifactScopes\.set\(controlToken/);
+  assert.match(main, /case "terminal_update_context"[\s\S]*agentControlArtifactScopes\.set\(record\.controlToken/);
 });
 
 test("terminal attachments are staged inside the sandboxed workspace", () => {
@@ -123,6 +151,9 @@ test("automation artifacts are persisted only in local app storage", () => {
   assert.match(main, /localAutomationArtifacts\(\)\.importFile/);
   assert.match(main, /case "artifact_open"/);
   assert.match(main, /localAutomationArtifacts\(\)\.resolvePath/);
+  assert.match(main, /case "artifact_reveal"[\s\S]*shell\.showItemInFolder\(target\)/);
+  assert.match(studio, /Show in File Explorer/);
+  assert.match(studio, /Show in Finder/);
   assert.match(main, /case "artifact_delete"/);
   assert.match(main, /localAutomationArtifacts\(\)\.delete/);
   assert.doesNotMatch(main, /listAutomationArtifacts|uploadAutomationArtifact|downloadAutomationArtifact|deleteAutomationArtifact/);
@@ -136,6 +167,7 @@ test("automation recordings support backend deletion", () => {
 });
 
 test("unfinished recording attempts are never persisted as library entities", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const studio = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AutomationStudio.tsx"), "utf8");
   const sidebar = fs.readFileSync(path.join(__dirname, "..", "src", "components", "Sidebar.tsx"), "utf8");
   assert.doesNotMatch(studio, /status: "recording"/);
@@ -149,8 +181,16 @@ test("unfinished recording attempts are never persisted as library entities", ()
   assert.match(studio, /startRecording\("workflow", "hybrid"\)/);
   assert.match(studio, /automation_page_recording_start/);
   assert.match(studio, /automation_page_recording_stop/);
+  assert.match(sidebar, /nextbrowser:automation-stop-request/);
+  assert.match(studio, /nextbrowser:request-stop-recording/);
+  assert.doesNotMatch(sidebar, /automation_recording_put/);
   assert.doesNotMatch(studio, /else \{\s*s\.setTab\("live"\)/);
   assert.match(studio, /if \(s\.terminalChat\) s\.setTerminalChat\(false\);\s*s\.setTab\("chat"\)/);
+  assert.match(studio, /s\.setTab\("chat"\);\s*await invoke\("app_focus"\)/);
+  assert.match(main, /case "app_focus":[\s\S]*focusMainWindow\(\)/);
+  assert.match(main, /case "app_focus":[\s\S]*setTimeout\(\(\) => focusMainWindow\(\), 400\)/);
+  assert.match(main, /process\.platform === "darwin"\) app\.focus\(\{ steal: true \}\)/);
+  assert.match(main, /window\.show\(\);\s*window\.moveTop\(\);\s*window\.focus\(\)/);
   assert.match(studio, /Open browser/);
   assert.match(studio, /Open Project Chat/);
   assert.doesNotMatch(studio, />Pause recording</);

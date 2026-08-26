@@ -6,7 +6,7 @@ const CALL_TIMEOUT_MS = 120_000;
 const TOOL_ALIASES = new Map([["navigate", "open"]]);
 const DIRECT_TOOLS = new Set([
   "open", "wait", "click", "input", "press", "select", "scroll", "dismiss", "upload",
-  "extract", "paginate_extract", "tabs_extract", "multi_action", "form_fill", "site_recipe_run",
+  "extract", "paginate_extract", "tabs_extract", "multi_action", "form_fill", "site_recipe_run", "evaluate",
 ]);
 const LOCAL_TOOLS = new Set(["save_artifact"]);
 const activeExecutions = new Map();
@@ -17,6 +17,8 @@ const RETRYABLE_NAVIGATION_ERRORS = [
   "ERR_CONNECTION_CLOSED",
   "ERR_TIMED_OUT",
 ];
+const RETRYABLE_DATA_ERROR = /(?:did not return exactly|returned only empty|data (?:is )?not (?:ready|loaded)|incomplete (?:rows|data)|no (?:rows|data) (?:yet|available))/i;
+const UNSAFE_EVALUATION = /(document\s*\.\s*cookie|localStorage|sessionStorage|indexedDB|caches\s*\.|navigator\s*\.\s*(clipboard|sendBeacon)|fetch\s*\(|XMLHttpRequest|WebSocket|EventSource|\.\s*(click|submit|remove)\s*\(|\.\s*(innerHTML|outerHTML|textContent|innerText|value)\s*=|eval\s*\(|new\s+Function|location\s*=|window\s*\.\s*open)/i;
 
 function cleanExecutionId(value) {
   const id = String(value || "").trim();
@@ -143,6 +145,12 @@ function toolCalls(action) {
     delete args.wait_for;
   }
   if (!DIRECT_TOOLS.has(tool)) throw new Error(`The browser action “${tool}” is not supported by deterministic replay.`);
+  if (tool === "evaluate") {
+    const expression = String(args.expression || "").trim();
+    if (!expression || expression.length > 32 * 1024 || UNSAFE_EVALUATION.test(expression)) {
+      throw new Error("The saved page data script is missing or uses browser data/actions that cannot be replayed safely.");
+    }
+  }
   if (tool === "scroll" && Number.isFinite(args.x) && Number.isFinite(args.y)) {
     return [{ name: "evaluate", arguments: { expression: `(() => { scrollTo(${Math.round(args.x)},${Math.round(args.y)}); return {ok:true,x:scrollX,y:scrollY}; })()` } }];
   }
@@ -187,6 +195,52 @@ function parseToolResult(result) {
   catch { return text; }
 }
 
+function meaningfulPageData(value) {
+  if (value == null) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number") return Number.isFinite(value) && value !== 0;
+  if (typeof value === "boolean") return value;
+  if (Array.isArray(value)) return value.some(meaningfulPageData);
+  if (plainObject(value)) return Object.values(value).some(meaningfulPageData);
+  return false;
+}
+
+function assertMeaningfulEvaluateOutput(output) {
+  const data = plainObject(output) && Object.prototype.hasOwnProperty.call(output, "result") ? output.result : output;
+  if (!meaningfulPageData(data)) {
+    throw new Error("The page data script returned only empty values. Add a wait step or repair its page selectors before saving the result.");
+  }
+}
+
+function extractionRows(value) {
+  if (Array.isArray(value)) return value;
+  if (!plainObject(value)) return undefined;
+  if (Array.isArray(value.rows)) return value.rows;
+  for (const key of ["result", "data", "value"]) {
+    const rows = extractionRows(value[key]);
+    if (rows) return rows;
+  }
+  return undefined;
+}
+
+function assertMeaningfulExtractionOutput(output) {
+  const rows = extractionRows(output);
+  if (!rows?.some(meaningfulPageData)) {
+    throw new Error("The saved extraction returned only empty rows. Wait for the page data or repair its field selectors before saving the result.");
+  }
+}
+
+function hasMeaningfulActionData(tool, output) {
+  if (tool === "evaluate") {
+    const data = plainObject(output) && Object.prototype.hasOwnProperty.call(output, "result") ? output.result : output;
+    return meaningfulPageData(data);
+  }
+  if (["extract", "paginate_extract", "tabs_extract"].includes(tool)) {
+    return !!extractionRows(output)?.some(meaningfulPageData);
+  }
+  return true;
+}
+
 function isRetryableNavigationError(error) {
   const message = error instanceof Error ? error.message : String(error);
   return RETRYABLE_NAVIGATION_ERRORS.some((code) => message.includes(code));
@@ -201,6 +255,19 @@ async function callBrowserTool(client, call, options = {}) {
       if (attempt + 1 >= attempts || !isRetryableNavigationError(error) || options.cancelled?.()) throw error;
       options.onRetry?.(attempt + 1, error);
       await (options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms))))(attempt === 0 ? 400 : 900);
+    }
+  }
+}
+
+async function callDataTool(client, call, tool, options = {}) {
+  for (let attempt = 0; attempt <= 20; attempt += 1) {
+    try {
+      return await callBrowserTool(client, call, options);
+    } catch (error) {
+      if (attempt >= 20 || !["evaluate", "extract", "paginate_extract", "tabs_extract"].includes(tool)
+        || !RETRYABLE_DATA_ERROR.test(error instanceof Error ? error.message : String(error)) || options.cancelled?.()) throw error;
+      options.onDataWait?.(attempt + 1);
+      await (options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms))))(500);
     }
   }
 }
@@ -325,13 +392,29 @@ async function executeAutomationRecipe(input, deps) {
           const scopedArguments = profile
             ? { ...resolved.arguments, profile }
             : resolved.arguments;
-          output = await callBrowserTool(client, { name: resolved.name, arguments: scopedArguments }, {
+          output = await callDataTool(client, { name: resolved.name, arguments: scopedArguments }, action.tool, {
             cancelled: () => state.cancelled,
             sleep: deps.sleep,
             onRetry: (attempt) => progress({ phase: "running", stepIndex: index, tool: action.tool, detail: `Temporary network error. Retrying navigation (${attempt}/2)…` }),
+            onDataWait: (attempt) => progress({ phase: "running", stepIndex: index, tool: action.tool, detail: `Waiting for complete page data (${attempt}/20)…` }),
           });
           callOutputs.push(output);
         }
+        if (!hasMeaningfulActionData(action.tool, output) && !state.cancelled) {
+          const retryCall = toolCalls(action).at(-1);
+          if (retryCall && retryCall.name !== "__semantic_action") {
+            for (let attempt = 1; attempt <= 20 && !hasMeaningfulActionData(action.tool, output) && !state.cancelled; attempt += 1) {
+              progress({ phase: "running", stepIndex: index, tool: action.tool, detail: `Waiting for page data (${attempt}/20)…` });
+              await (deps.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms))))(500);
+              output = await callDataTool(client, {
+                name: retryCall.name,
+                arguments: profile ? { ...retryCall.arguments, profile } : retryCall.arguments,
+              }, action.tool, { cancelled: () => state.cancelled, sleep: deps.sleep });
+            }
+          }
+        }
+        if (action.tool === "evaluate") assertMeaningfulEvaluateOutput(output);
+        if (["extract", "paginate_extract", "tabs_extract"].includes(action.tool)) assertMeaningfulExtractionOutput(output);
         localResults.push({ index, tool: action.tool, ok: true, output });
         const displayOutput = boundedOutput(output);
         results.push({ index, tool: action.tool, ok: true, output: displayOutput });

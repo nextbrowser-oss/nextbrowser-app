@@ -47,6 +47,24 @@ test("keeps artifacts isolated by workspace and deletes both bytes and metadata"
   assert.equal((await store.list("workspace-two")).length, 1);
 });
 
+test("removes stale metadata when an artifact file is deleted outside the app", async (t) => {
+  const { store } = await fixture(t);
+  const artifact = await store.addBytes("workspace", "external-delete.json", "{}");
+  await fs.rm(await store.resolvePath("workspace", artifact.id));
+
+  assert.deepEqual(await store.list("workspace"), []);
+  await assert.rejects(store.resolvePath("workspace", artifact.id), /no longer exists/);
+});
+
+test("delete remains successful when the artifact bytes are already missing", async (t) => {
+  const { store } = await fixture(t);
+  const artifact = await store.addBytes("workspace", "already-gone.json", "{}");
+  await fs.rm(await store.resolvePath("workspace", artifact.id));
+
+  assert.deepEqual(await store.delete("workspace", artifact.id), { deleted: true });
+  assert.deepEqual(await store.list("workspace"), []);
+});
+
 test("seeds two local examples once even when calls overlap", async (t) => {
   const { store } = await fixture(t);
   const [first, second] = await Promise.all([store.seedExamples("workspace"), store.seedExamples("workspace")]);
