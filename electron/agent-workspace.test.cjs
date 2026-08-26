@@ -35,7 +35,8 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   assert.match(main, /mcp_servers\.nextbrowser\.env=/);
   assert.match(main, /mcp_servers\.nextbrowser\.env_vars=.*MULTILOGIN_TOKEN/);
   assert.match(main, /mcp_servers\.nextbrowser\.env_vars=.*NEXTBROWSER_AUTOMATION_TRACE_FILE/);
-  assert.match(main, /codexClawbrowserMCPArgs\(nextctlBin, activeAutomationTraceFile\(\)\)/);
+  assert.match(main, /nextctlHasAutomationTrace\(nextctlBin\)/);
+  assert.match(main, /codexClawbrowserMCPArgs\(nextctlBin, supportedTraceFile\)/);
   assert.match(main, /automationTraceFile \? \["NEXTBROWSER_AUTOMATION_TRACE_FILE"\] : \[\]/);
   assert.match(main, /automationTraceFile \? \["--automation-trace-file", automationTraceFile\] : \[\]/);
   assert.doesNotMatch(main, /mcpEnvKeys\.push\("MULTILOGIN_TOKEN"\)/);
@@ -57,7 +58,8 @@ test("Codex chat uses the managed Clawbrowser MCP configuration", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   assert.match(main, /case "agent_run":[\s\S]*args\.agentId === "codex"/);
   assert.match(main, /case "agent_run":[\s\S]*resolveOrInstallNextctl\(\)/);
-  assert.match(main, /case "agent_run":[\s\S]*codexClawbrowserMCPArgs\(nextctlBin, activeAutomationTraceFile\(\)\)/);
+  assert.match(main, /case "agent_run":[\s\S]*nextctlHasAutomationTrace\(nextctlBin\)/);
+  assert.match(main, /case "agent_run":[\s\S]*codexClawbrowserMCPArgs\(nextctlBin, supportedTraceFile\)/);
 });
 
 test("active Recorder requires a replayable final data-collection call", () => {
@@ -66,6 +68,14 @@ test("active Recorder requires a replayable final data-collection call", () => {
   assert.match(store, /call extract or paginate_extract/);
   assert.match(store, /call evaluate once with a read-only expression/);
   assert.match(store, /Do not finish with state as the only data-collection step/);
+});
+
+test("older nextctl builds do not break chat MCP or local artifact saving during recording", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  assert.match(main, /run\(binary, \["mcp", "--help"\]/);
+  assert.match(main, /includes\("--automation-trace-file"\)/);
+  assert.match(main, /artifactScope\.recorderTraceRequired = false/);
+  assert.match(main, /artifactScope\.recorderTraceRequired !== false/);
 });
 
 test("project chat receives scoped host control for stopped browser profiles", () => {

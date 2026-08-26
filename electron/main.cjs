@@ -112,6 +112,7 @@ let automationArtifactStore = null;
 let multiloginAutomationToken = "";
 let multiloginCredentialLoadError = "";
 let multiloginCredentialLoadPromise = null;
+const nextctlAutomationTraceSupport = new Map();
 
 const CODEX_TERMINAL_PROFILE = "nextbrowser";
 const CODEX_TERMINAL_PROFILE_CONTENT = `[plugins."browser@openai-bundled"]
@@ -298,6 +299,14 @@ async function run(binary, args, extraEnv = {}, options = {}) {
 async function nextctlHasSkill(binary) {
   const r = await run(binary, ["--help"]); return `${r.stdout}\n${r.stderr}`.includes("\n  skill");
 }
+async function nextctlHasAutomationTrace(binary) {
+  if (!nextctlAutomationTraceSupport.has(binary)) {
+    nextctlAutomationTraceSupport.set(binary, run(binary, ["mcp", "--help"], {}, { timeoutMs: 5_000 })
+      .then((result) => `${result.stdout}\n${result.stderr}`.includes("--automation-trace-file"))
+      .catch(() => false));
+  }
+  return nextctlAutomationTraceSupport.get(binary);
+}
 function setNextctlInstallStatus(status, patch = {}) {
   nextctlInstallStatus = { status, ...patch, updatedAt: Date.now() };
   emit("nextctl:install", nextctlInstallStatus);
@@ -470,7 +479,7 @@ async function ensureAgentControlServer() {
       }
       const payload = JSON.parse(raw || "{}");
       if (artifactSave) {
-        if (!await activeAutomationRecordingHasDataAction()) {
+        if (artifactScope.recorderTraceRequired !== false && !await activeAutomationRecordingHasDataAction()) {
           sendControlResponse(response, 409, { ok: false, error: "recording_requires_deterministic_data_action", message: "Recorder needs a successful extract, paginate_extract, tabs_extract, or read-only evaluate call before this result can be saved." });
           return;
         }
@@ -1412,7 +1421,10 @@ async function invokeCommand(command, args = {}, sender) {
         if (access.ownerConversationId) agentControlProfileOwners.set(profile, access.ownerConversationId);
       }
       agentControlScopes.set(controlToken, profileScope);
-      if (args.workspaceId) agentControlArtifactScopes.set(controlToken, { workspaceId: String(args.workspaceId), conversationId });
+      const artifactScope = args.workspaceId
+        ? { workspaceId: String(args.workspaceId), conversationId, recorderTraceRequired: true }
+        : null;
+      if (artifactScope) agentControlArtifactScopes.set(controlToken, artifactScope);
       const profileScopeDir = path.join(nextbrowserRuntimeRoot(), "chat-scopes");
       const profileScopeFile = path.join(profileScopeDir, `${args.replyId}.json`);
       await fs.mkdir(profileScopeDir, { recursive: true });
@@ -1425,7 +1437,12 @@ async function invokeCommand(command, args = {}, sender) {
         await ensureCodexTerminalProfile();
         const nextctlBin = await resolveOrInstallNextctl();
         if (!nextctlBin) throw new Error("nextctl is required for Clawbrowser MCP.");
-        agentArgs = [...codexClawbrowserMCPArgs(nextctlBin, activeAutomationTraceFile()), ...agentArgs];
+        const requestedTraceFile = activeAutomationTraceFile();
+        const supportedTraceFile = requestedTraceFile && await nextctlHasAutomationTrace(nextctlBin)
+          ? requestedTraceFile
+          : "";
+        if (artifactScope && requestedTraceFile && !supportedTraceFile) artifactScope.recorderTraceRequired = false;
+        agentArgs = [...codexClawbrowserMCPArgs(nextctlBin, supportedTraceFile), ...agentArgs];
       }
       const spec = commandSpec(bin, agentArgs);
       try {
