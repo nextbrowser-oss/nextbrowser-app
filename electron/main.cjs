@@ -58,7 +58,7 @@ const {
 } = require("./automation-sync.cjs");
 const { cancelAllAutomationRecipes, cancelAutomationRecipe, executeAutomationRecipe } = require("./automation-runner.cjs");
 const { cancelAllAutomationElementPicks, cancelAutomationElementPick, pickAutomationElement } = require("./automation-element-picker.cjs");
-const { cancelAllAutomationPageRecordings, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
+const { activeAutomationTraceFile, cancelAllAutomationPageRecordings, recordAutomationToolAction, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
 const { parseMultiloginProfiles } = require("./multilogin-profiles.cjs");
@@ -470,6 +470,11 @@ async function ensureAgentControlServer() {
           workspaceId: artifactScope.workspaceId,
           payload,
           store: localAutomationArtifacts(),
+        });
+        recordAutomationToolAction("save_artifact", {
+          source: "last_result",
+          format: String(payload.format || result.artifact?.extension || "json").replace(/^\./, ""),
+          name: String(result.artifact?.name || payload.name || "workflow-result.json"),
         });
         sendControlResponse(response, 200, { ok: true, artifact: result.artifact });
         return;
@@ -1428,6 +1433,7 @@ async function invokeCommand(command, args = {}, sender) {
               [...profileScope.entries()].map(([name, access]) => [name, access.runtime]),
             )),
             NEXTBROWSER_PROFILE_SCOPE_FILE: profileScopeFile,
+            ...(activeAutomationTraceFile() ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: activeAutomationTraceFile() } : {}),
           }),
           stdinText: args.stdinText,
           onSpawn: (child) => children.set(args.replyId, child),
