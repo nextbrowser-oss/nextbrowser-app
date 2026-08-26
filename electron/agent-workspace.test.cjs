@@ -123,6 +123,9 @@ test("automation artifacts are persisted only in local app storage", () => {
   assert.match(main, /localAutomationArtifacts\(\)\.importFile/);
   assert.match(main, /case "artifact_open"/);
   assert.match(main, /localAutomationArtifacts\(\)\.resolvePath/);
+  assert.match(main, /case "artifact_reveal"[\s\S]*shell\.showItemInFolder\(target\)/);
+  assert.match(studio, /Show in File Explorer/);
+  assert.match(studio, /Show in Finder/);
   assert.match(main, /case "artifact_delete"/);
   assert.match(main, /localAutomationArtifacts\(\)\.delete/);
   assert.doesNotMatch(main, /listAutomationArtifacts|uploadAutomationArtifact|downloadAutomationArtifact|deleteAutomationArtifact/);

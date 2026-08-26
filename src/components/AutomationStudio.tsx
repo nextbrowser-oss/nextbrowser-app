@@ -75,6 +75,13 @@ function isBuiltInArtifact(artifact: AutomationArtifact) {
   return artifact.name === "product-research-demo.csv" || artifact.name === "automation-run-demo.json";
 }
 
+function revealArtifactLabel() {
+  const platform = `${navigator.userAgent} ${navigator.platform}`;
+  if (/Windows|Win32|Win64/i.test(platform)) return "Show in File Explorer";
+  if (/Macintosh|MacIntel|MacPPC|Mac68K/i.test(platform)) return "Show in Finder";
+  return "Show in folder";
+}
+
 const SENSITIVE_WORKFLOW_KEY = /^(?:password|passwd|passcode|secret|token|access_token|refresh_token|api[_-]?key|authorization|cookie|card[_-]?(?:number|no)|cvv|cvc)$/i;
 const WORKFLOW_TEMPLATE = /^\{\{[A-Za-z0-9_.-]+\}\}$/;
 
@@ -785,6 +792,11 @@ export function AutomationStudio() {
     catch (error) { setArtifactError(error instanceof Error ? error.message : String(error)); }
   };
 
+  const revealArtifact = async (artifact: AutomationArtifact) => {
+    try { await invoke("artifact_reveal", { workspaceId, id: artifact.id }); }
+    catch (error) { setArtifactError(error instanceof Error ? error.message : String(error)); }
+  };
+
   const deleteArtifact = async (artifact: AutomationArtifact) => {
     if (!window.confirm(`Delete ${artifact.name} from local storage on this computer?`)) return;
     try { await invoke("artifact_delete", { workspaceId, id: artifact.id }); await loadArtifacts(); }
@@ -942,7 +954,7 @@ export function AutomationStudio() {
         <div className="artifact-local-note"><Icon name="info.circle" size={14} /><span><strong>Local storage.</strong> Files remain on this computer until you delete them. They are not uploaded or synced to other devices.</span></div>
         {artifactError && <div className="error automation-inline-error">{artifactError}</div>}
         <div className="automation-management-note"><Icon name="info.circle" size={13} /><span>Local files can be opened or deleted at any time. Built-in examples stay available for new users.</span></div>
-        <div className="artifact-grid">{artifacts.map((artifact) => { const builtIn = isBuiltInArtifact(artifact); return <article className="artifact-card" key={artifact.id}><div className="artifact-icon"><Icon name="doc" size={22} /></div><div className="artifact-copy"><strong title={artifact.name}>{artifact.name}</strong>{builtIn && <small className="artifact-example-label">Built-in example</small>}<span>{artifact.extension.toUpperCase() || "FILE"} · {humanBytes(artifact.size)}</span><small>Added {new Date(artifact.createdAt).toLocaleString()} · Local only</small></div><div className="artifact-actions"><button className="secondary" onClick={() => void openArtifact(artifact)}>Open</button>{!builtIn && <button className="mini danger-text" onClick={() => void deleteArtifact(artifact)}>Delete</button>}</div></article>; })}{!artifactBusy && !artifacts.length && <div className="automation-empty"><Icon name="tray.full.fill" size={28} /><strong>No artifacts in this workspace</strong><span>Add reports, downloads, screenshots, spreadsheets, or other run outputs. They will stay on this computer.</span></div>}</div>
+        <div className="artifact-grid">{artifacts.map((artifact) => { const builtIn = isBuiltInArtifact(artifact); return <article className="artifact-card" key={artifact.id}><div className="artifact-icon"><Icon name="doc" size={22} /></div><div className="artifact-copy"><strong title={artifact.name}>{artifact.name}</strong>{builtIn && <small className="artifact-example-label">Built-in example</small>}<span>{artifact.extension.toUpperCase() || "FILE"} · {humanBytes(artifact.size)}</span><small>Added {new Date(artifact.createdAt).toLocaleString()} · Local only</small></div><div className="artifact-actions"><button className="secondary" title="Reveal this file without opening it" onClick={() => void revealArtifact(artifact)}><Icon name="folder" size={12} /> {revealArtifactLabel()}</button><button className="secondary" onClick={() => void openArtifact(artifact)}>Open</button>{!builtIn && <button className="mini danger-text" onClick={() => void deleteArtifact(artifact)}>Delete</button>}</div></article>; })}{!artifactBusy && !artifacts.length && <div className="automation-empty"><Icon name="tray.full.fill" size={28} /><strong>No artifacts in this workspace</strong><span>Add reports, downloads, screenshots, spreadsheets, or other run outputs. They will stay on this computer.</span></div>}</div>
       </section>}
     </div>
   );
