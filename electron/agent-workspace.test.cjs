@@ -63,11 +63,16 @@ test("project chat receives scoped host control for stopped browser profiles", (
   assert.match(store, /browserProfiles,/);
   assert.match(store, /browserContext,/);
   assert.match(store, /conversationId: item\.conversationId/);
+  assert.match(store, /workspaceId: conversationWorkspaceId/);
   assert.match(main, /case "agent_run":[\s\S]*ensureAgentControlServer\(\)/);
   assert.match(main, /case "agent_run":[\s\S]*NEXTBROWSER_CONTROL_URL/);
   assert.match(main, /case "agent_run":[\s\S]*NEXTBROWSER_CONTROL_TOKEN/);
   assert.match(main, /case "agent_run":[\s\S]*NEXTBROWSER_ALLOWED_PROFILES_JSON/);
   assert.match(main, /case "agent_run":[\s\S]*agentControlScopes\.delete\(controlToken\)/);
+  assert.match(main, /case "agent_run":[\s\S]*agentControlArtifactScopes\.set\(controlToken/);
+  assert.match(main, /case "agent_run":[\s\S]*agentControlArtifactScopes\.delete\(controlToken\)/);
+  assert.match(main, /request\.url === "\/artifact\/save"/);
+  assert.match(main, /workspaceId: artifactScope\.workspaceId/);
   assert.match(main, /case "agent_run":[\s\S]*fs\.unlink\(profileScopeFile\)/);
 });
 

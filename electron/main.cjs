@@ -42,6 +42,7 @@ const {
 const { defaultSSHConfigPath, discoverSSHHosts, isAllowedExplicitConfigPath } = require("./ssh-config.cjs");
 const { createLocalArtifactStore } = require("./local-artifacts.cjs");
 const { saveAutomationArtifact } = require("./automation-artifact.cjs");
+const { AGENT_ARTIFACT_BODY_LIMIT, saveAgentArtifact } = require("./agent-artifact.cjs");
 const {
   createAutomationRun,
   deleteAutomationRecording,
@@ -103,6 +104,7 @@ let dasbrowserInstallPromise = null;
 let agentControlServer = null;
 let agentControlURL = "";
 const agentControlScopes = new Map();
+const agentControlArtifactScopes = new Map();
 const agentControlProfileOwners = new Map();
 let multiloginCredentialStore = null;
 let automationArtifactStore = null;
@@ -444,23 +446,35 @@ async function ensureAgentControlServer() {
   agentControlServer = http.createServer((request, response) => {
     void (async () => {
       const action = request.url === "/profile/start" ? "start" : request.url === "/profile/stop" ? "stop" : "";
-      if (request.method !== "POST" || !action) {
+      const artifactSave = request.url === "/artifact/save";
+      if (request.method !== "POST" || (!action && !artifactSave)) {
         sendControlResponse(response, 404, { ok: false, error: "not_found" });
         return;
       }
       const token = String(request.headers.authorization || "").replace(/^Bearer\s+/i, "");
-      const scope = agentControlScopes.get(token);
-      if (!scope) {
+      const profileScope = agentControlScopes.get(token);
+      const artifactScope = agentControlArtifactScopes.get(token);
+      if ((action && !profileScope) || (artifactSave && !artifactScope)) {
         sendControlResponse(response, 401, { ok: false, error: "unauthorized" });
         return;
       }
       let raw = "";
       for await (const chunk of request) {
         raw += chunk;
-        if (raw.length > 8192) throw new Error("request_too_large");
+        if (raw.length > (artifactSave ? AGENT_ARTIFACT_BODY_LIMIT : 8192)) throw new Error("request_too_large");
       }
-      const profile = String(JSON.parse(raw || "{}").profile || "");
-      const profileAccess = scope.get(profile);
+      const payload = JSON.parse(raw || "{}");
+      if (artifactSave) {
+        const result = await saveAgentArtifact({
+          workspaceId: artifactScope.workspaceId,
+          payload,
+          store: localAutomationArtifacts(),
+        });
+        sendControlResponse(response, 200, { ok: true, artifact: result.artifact });
+        return;
+      }
+      const profile = String(payload.profile || "");
+      const profileAccess = profileScope.get(profile);
       if (!profileAccess) {
         sendControlResponse(response, 403, { ok: false, error: "profile_outside_workspace" });
         return;
@@ -1372,6 +1386,7 @@ async function invokeCommand(command, args = {}, sender) {
         if (access.ownerConversationId) agentControlProfileOwners.set(profile, access.ownerConversationId);
       }
       agentControlScopes.set(controlToken, profileScope);
+      if (args.workspaceId) agentControlArtifactScopes.set(controlToken, { workspaceId: String(args.workspaceId), conversationId });
       const profileScopeDir = path.join(nextbrowserRuntimeRoot(), "chat-scopes");
       const profileScopeFile = path.join(profileScopeDir, `${args.replyId}.json`);
       await fs.mkdir(profileScopeDir, { recursive: true });
@@ -1412,6 +1427,7 @@ async function invokeCommand(command, args = {}, sender) {
         });
       } finally {
         agentControlScopes.delete(controlToken);
+        agentControlArtifactScopes.delete(controlToken);
         await fs.unlink(profileScopeFile).catch(() => undefined);
       }
     }
@@ -1778,6 +1794,7 @@ app.on("before-quit", () => {
   for (const terminal of terminals.values()) terminal.process.kill();
   terminals.clear();
   agentControlScopes.clear();
+  agentControlArtifactScopes.clear();
   agentControlProfileOwners.clear();
   agentControlServer?.close();
   agentControlServer = null;

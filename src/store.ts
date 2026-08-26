@@ -1967,6 +1967,7 @@ export const useStore = create<State>((set, get) => {
         stdinText: stdin ?? null,
         workingDir: get().workingDir || null,
         conversationId: item.conversationId,
+        workspaceId: conversationWorkspaceId,
         browserContext,
         browserProfiles,
       });
