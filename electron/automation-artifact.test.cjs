@@ -3,6 +3,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { AGENT_ARTIFACT_BODY_LIMIT, saveAgentArtifact } = require("./agent-artifact.cjs");
 const { asCSV, saveAutomationArtifact } = require("./automation-artifact.cjs");
 const { createLocalArtifactStore } = require("./local-artifacts.cjs");
 
@@ -30,6 +31,31 @@ test("refuses to create an artifact before a workflow has a result", async () =>
   await assert.rejects(() => saveAutomationArtifact({
     action: { tool: "save_artifact", arguments: {} }, results: [], workspaceId: "workspace-1", store: {},
   }), /no completed workflow result/i);
+});
+
+test("saves chat agent output through the workspace-scoped artifact store", async () => {
+  let saved;
+  const result = await saveAgentArtifact({
+    workspaceId: "workspace-1",
+    payload: { name: "cmc-top-trending-coin", format: "json", content: { coin: "Bubblemaps", price: 0.02633 } },
+    store: { addBytes: async (workspaceId, name, bytes, options) => {
+      saved = { workspaceId, name, text: bytes.toString("utf8"), contentType: options.contentType };
+      return { id: "artifact-1", name, size: bytes.length };
+    } },
+  });
+  assert.equal(result.saved, true);
+  assert.equal(saved.workspaceId, "workspace-1");
+  assert.equal(saved.name, "cmc-top-trending-coin.json");
+  assert.deepEqual(JSON.parse(saved.text), { coin: "Bubblemaps", price: 0.02633 });
+  assert.equal(saved.contentType, "application/json");
+  assert.equal(AGENT_ARTIFACT_BODY_LIMIT, 8 * 1024 * 1024);
+});
+
+test("requires actual agent content instead of allowing a false saved claim", async () => {
+  await assert.rejects(
+    saveAgentArtifact({ workspaceId: "workspace-1", payload: { name: "empty" }, store: {} }),
+    /content is required/i,
+  );
 });
 
 test("persists JSON, CSV, and text through the real local artifact store", async (context) => {

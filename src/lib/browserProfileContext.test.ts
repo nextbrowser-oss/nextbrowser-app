@@ -33,6 +33,15 @@ describe("browserProfileContext", () => {
     expect(result).not.toContain("hidden");
   });
 
+  it("exposes verified local artifact saving even without a browser profile", () => {
+    const workspaces = [
+      { id: "one", name: "One", createdAt: 1, updatedAt: 1, profileNames: [], profileToolsets: {} },
+    ] as Workspace[];
+    const result = browserProfileContext(workspaces, "one");
+    expect(result).toContain("/artifact/save");
+    expect(result).toContain("Do not claim that a file was saved unless");
+  });
+
   it("uses the only workspace profile by default without changing its runtime", () => {
     const workspaces = [
       { id: "one", name: "One", createdAt: 1, updatedAt: 1, profileNames: ["foxy"], profileToolsets: { foxy: "camoufox" } },
