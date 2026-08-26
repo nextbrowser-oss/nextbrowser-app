@@ -7654,7 +7654,7 @@ pre,
 .artifact-copy { min-width: 0; display: grid; gap: 3px; }
 .artifact-copy strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .artifact-copy span, .artifact-copy small { color: var(--muted); font-size: 11px; }
-.artifact-actions { grid-column: 1 / -1; display: flex; gap: 6px; justify-content: flex-end; }
+.artifact-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .automation-inline-error { padding: 10px 20px; border-bottom: 1px solid var(--line); }
 .workflow-run-history { margin-top: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
 .workflow-run-history > div { display: flex; align-items: center; justify-content: space-between; }

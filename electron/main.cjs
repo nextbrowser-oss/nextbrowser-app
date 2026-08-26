@@ -1176,6 +1176,11 @@ async function invokeCommand(command, args = {}, sender) {
       if (error) throw new Error(error);
       return null;
     }
+    case "artifact_reveal": {
+      const target = await localAutomationArtifacts().resolvePath(String(args.workspaceId || ""), String(args.id || ""));
+      shell.showItemInFolder(target);
+      return null;
+    }
     case "artifact_delete": {
       return await localAutomationArtifacts().delete(String(args.workspaceId || ""), String(args.id || ""));
     }
