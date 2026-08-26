@@ -77,11 +77,16 @@ test("project chat receives scoped host control for stopped browser profiles", (
 });
 
 test("terminal chat is isolated by conversation", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const terminal = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AgentTerminal.tsx"), "utf8");
   const chat = fs.readFileSync(path.join(__dirname, "..", "src", "components", "ChatView.tsx"), "utf8");
-  assert.match(terminal, /\[agentId, conversationId, workingDir, restartNonce\]/);
+  assert.match(terminal, /\[agentId, conversationId, workspaceId, workingDir, restartNonce\]/);
   assert.match(chat, /conversationId=\{conv\?\.id\}/);
   assert.match(terminal, /terminal_context_menu/);
+  assert.match(terminal, /workspaceId: workspaceId \|\| ""/);
+  assert.match(chat, /workspaceId=\{conv\?\.workspaceId\}/);
+  assert.match(main, /case "terminal_start"[\s\S]*agentControlArtifactScopes\.set\(controlToken/);
+  assert.match(main, /case "terminal_update_context"[\s\S]*agentControlArtifactScopes\.set\(record\.controlToken/);
 });
 
 test("terminal attachments are staged inside the sandboxed workspace", () => {

@@ -79,6 +79,7 @@ function killTerminalsForWebContents(webContentsId) {
     if (record.webContentsId !== webContentsId) continue;
     try { record.process.kill(); } catch { /* process may already have exited */ }
     agentControlScopes.delete(record.controlToken);
+    agentControlArtifactScopes.delete(record.controlToken);
     if (record.profileScopeFile) void fs.unlink(record.profileScopeFile).catch(() => undefined);
     terminals.delete(id);
   }
@@ -1495,6 +1496,10 @@ async function invokeCommand(command, args = {}, sender) {
         if (access.ownerConversationId) agentControlProfileOwners.set(profile, access.ownerConversationId);
       }
       agentControlScopes.set(controlToken, profileScope);
+      if (args.workspaceId) agentControlArtifactScopes.set(controlToken, {
+        workspaceId: String(args.workspaceId),
+        conversationId: String(args.conversationId || ""),
+      });
       const profileScopeDir = path.join(nextbrowserRuntimeRoot(), "terminal-scopes");
       const profileScopeFile = path.join(profileScopeDir, `${id}.json`);
       await fs.mkdir(profileScopeDir, { recursive: true });
@@ -1550,6 +1555,7 @@ async function invokeCommand(command, args = {}, sender) {
         if (record.ready) {
           terminals.delete(id);
           agentControlScopes.delete(record.controlToken);
+          agentControlArtifactScopes.delete(record.controlToken);
           void fs.unlink(record.profileScopeFile).catch(() => undefined);
           emit("terminal:exit", [id, exitCode, signal]);
         }
@@ -1578,6 +1584,7 @@ async function invokeCommand(command, args = {}, sender) {
       if (record.exit) {
         terminals.delete(id);
         agentControlScopes.delete(record.controlToken);
+        agentControlArtifactScopes.delete(record.controlToken);
         emit("terminal:exit", [id, record.exit[0], record.exit[1]]);
       }
       return null;
@@ -1601,6 +1608,11 @@ async function invokeCommand(command, args = {}, sender) {
       );
       record.profileScope = nextScope;
       agentControlScopes.set(record.controlToken, nextScope);
+      if (args.workspaceId) agentControlArtifactScopes.set(record.controlToken, {
+        workspaceId: String(args.workspaceId),
+        conversationId,
+      });
+      else agentControlArtifactScopes.delete(record.controlToken);
       await fs.writeFile(record.profileScopeFile, JSON.stringify(Object.fromEntries(
         [...nextScope.entries()].map(([name, access]) => [name, access.runtime]),
       )), "utf8");
@@ -1653,6 +1665,7 @@ async function invokeCommand(command, args = {}, sender) {
       const record = terminals.get(id);
       if (record) record.process.kill();
       if (record) agentControlScopes.delete(record.controlToken);
+      if (record) agentControlArtifactScopes.delete(record.controlToken);
       if (record?.profileScopeFile) await fs.unlink(record.profileScopeFile).catch(() => undefined);
       terminals.delete(id);
       return null;

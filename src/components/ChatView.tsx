@@ -384,6 +384,7 @@ export function ChatView() {
               agentId={agentId}
               agentName={agentName}
               conversationId={conv?.id}
+              workspaceId={conv?.workspaceId}
               workingDir={s.workingDir}
               browserContext={browserProfileContext(
                 s.workspaces,
