@@ -27,6 +27,22 @@ test("saves the previous result to the local artifact store", async () => {
   assert.deepEqual(calls[0][3], { contentType: "text/csv; charset=utf-8", runId: "run-1" });
 });
 
+test("saves only collected datasets without navigation and wait diagnostics", async () => {
+  let saved;
+  await saveAutomationArtifact({
+    action: { tool: "save_artifact", arguments: { source: "data_results", format: "json", name: "research.json" } },
+    results: [
+      { index: 0, tool: "open", ok: true, output: { url: "https://example.com" } },
+      { index: 1, tool: "evaluate", ok: true, output: { result: { name: "Bitcoin", price: "$1" }, session: { name: "default" } } },
+      { index: 2, tool: "wait", ok: true, output: { matched: true } },
+      { index: 3, tool: "extract", ok: true, output: { rows: [{ rank: 1, name: "Coin" }], count: 1 } },
+    ],
+    workspaceId: "workspace-1",
+    store: { addBytes: async (_workspaceId, _name, bytes) => { saved = JSON.parse(bytes.toString()); return { id: "artifact-1" }; } },
+  });
+  assert.deepEqual(saved, [{ name: "Bitcoin", price: "$1" }, [{ rank: 1, name: "Coin" }]]);
+});
+
 test("refuses to create an artifact before a workflow has a result", async () => {
   await assert.rejects(() => saveAutomationArtifact({
     action: { tool: "save_artifact", arguments: {} }, results: [], workspaceId: "workspace-1", store: {},

@@ -30,4 +30,12 @@ describe("workflow AI editing", () => {
   it("rejects incomplete edits", () => {
     expect(parseWorkflowAiEdit('{"title":"Broken","actions":[]}')).toBeUndefined();
   });
+
+  it("normalizes AI-authored wait milliseconds to nextctl seconds", () => {
+    const parsed = parseWorkflowAiEdit(JSON.stringify({
+      title: "Dynamic page", domain: "example.com", task: "Wait for results", capability: "scrape",
+      actions: [{ tool: "wait", arguments: { selector: "tbody tr", timeout: 30_000 } }], summary: "Added readiness wait.",
+    }));
+    expect(parsed?.actions[0].arguments.timeout).toBe(30);
+  });
 });

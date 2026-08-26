@@ -73,20 +73,52 @@ export function workflowCapability(task: string, transcript: string): WorkflowCa
 
 export function workflowRecipe(task: string, transcript: string) {
   const capability = workflowCapability(task, transcript);
-  const actions = replayableCalls(transcript)
-    .slice(0, MAX_RECORDED_ACTIONS)
-    .map(({ name, args }) => ({ tool: name, arguments: args }));
+  const actions = optimizedReplayableActions(transcript).slice(0, MAX_RECORDED_ACTIONS);
   return { version: 1 as const, capability, actions };
 }
 
 /** All task-relevant calls, used to explain a recording without exposing setup noise. */
 export function recordedBrowserActions(transcript: string): Array<{ tool: string; arguments: Record<string, unknown> }> {
-  return replayableCalls(transcript)
-    .map(({ name, args }) => ({ tool: name, arguments: args }));
+  return optimizedReplayableActions(transcript);
+}
+
+/** Raw successful calls are used while merging page events with agent telemetry. */
+export function rawRecordedBrowserActions(transcript: string): Array<{ tool: string; arguments: Record<string, unknown> }> {
+  return replayableCalls(transcript).map(({ name, args }) => ({ tool: name, arguments: args }));
 }
 
 function replayableCalls(transcript: string): CapturedCall[] {
   return capturedCalls(transcript).filter((call) => REPLAYABLE_TOOLS.has(call.name) && call.score >= 0);
+}
+
+const DATA_TOOLS = new Set(["evaluate", "extract", "paginate_extract", "tabs_extract"]);
+
+function selectorFromDataCall(call: CapturedCall): string | undefined {
+  if (typeof call.args.container === "string" && call.args.container.trim()) return call.args.container.trim();
+  if (call.name !== "evaluate" || typeof call.args.expression !== "string") return undefined;
+  return call.args.expression.match(/querySelectorAll?\(\s*(['"`])([^'"`]+)\1\s*\)/)?.[2];
+}
+
+/** Keep the result of selector discovery, not every exploratory probe the agent made. */
+function optimizedReplayableActions(transcript: string): Array<{ tool: string; arguments: Record<string, unknown> }> {
+  const calls = replayableCalls(transcript);
+  const optimized: CapturedCall[] = [];
+  for (let index = 0; index < calls.length; index += 1) {
+    const call = calls[index];
+    if (!DATA_TOOLS.has(call.name)) {
+      optimized.push(call);
+      continue;
+    }
+    let finalDataCall = call;
+    while (index + 1 < calls.length && DATA_TOOLS.has(calls[index + 1].name)) finalDataCall = calls[++index];
+    const previous = optimized.at(-1);
+    const selector = selectorFromDataCall(finalDataCall);
+    if (selector && previous && ["open", "navigate", "click", "press", "select"].includes(previous.name)) {
+      optimized.push({ name: "wait", args: { selector, timeout: 30 }, start: finalDataCall.start, end: finalDataCall.start, score: 10 });
+    }
+    optimized.push(finalDataCall);
+  }
+  return optimized.map(({ name, args }) => ({ tool: name, arguments: args }));
 }
 
 function pick(source: Record<string, unknown>, keys: string[]): Record<string, unknown> {

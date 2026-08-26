@@ -1,7 +1,7 @@
 import { uid } from "./ids";
 import {
   capturedWorkflowDomain,
-  recordedBrowserActions,
+  rawRecordedBrowserActions,
   workflowCapability,
   workflowInstructions,
   workflowRecipe,
@@ -72,7 +72,7 @@ export function capturedRunFromHybridRecording(id: string, recording: ManualBrow
 
   const events = agentRun.answer.toolEvents || [];
   const usedEvents = new Set<number>();
-  const agent = recordedBrowserActions(agentRun.evidence).map((action, index) => {
+  const agent = rawRecordedBrowserActions(agentRun.evidence).map((action, index) => {
     const tool = normalizedRecordedTool(action.tool);
     const eventIndex = events.findIndex((event, candidate) => !usedEvents.has(candidate) && normalizedRecordedTool(event.name) === tool);
     if (eventIndex >= 0) usedEvents.add(eventIndex);

@@ -41,10 +41,10 @@ Rules:
 - actions must be an array of deterministic steps shaped as {"tool":"...","arguments":{...}}.
 - Allowed tools: navigate, open, input, click, press, select, wait, scroll, dismiss, upload, extract, paginate_extract, tabs_extract, form_fill, multi_action, site_recipe_run, act, evaluate, save_artifact.
 - Preserve a proven read-only evaluate step when the recorded site needs a page data script. Never add network, cookies/storage access, clicks, form submission, or DOM mutation to it.
-- After navigating to dynamic content, add a wait step for the exact result selector before extract/evaluate. A page data script must throw when its required container is missing or when it would return only empty rows.
+- After navigating to dynamic content, add a wait step for the exact result selector before extract/evaluate. Wait timeout values are seconds (normally 30, never milliseconds). A page data script must throw when its required container is missing or when it would return only empty rows.
 - Never add an AI/prompt/agent step to the runtime. AI edits the recipe now; replay remains deterministic.
 - For extract/paginate_extract/tabs_extract, include container and named fields. Prefer selectors already proven in the current workflow.
-- Keep Artifact Center output local. If multiple extracted datasets must be stored together, use save_artifact with source "run_results", format "json".
+- Keep Artifact Center output local. If multiple extracted datasets must be stored together, use save_artifact with source "data_results", format "json" so navigation and wait diagnostics are excluded.
 - Keep the same domain unless the request explicitly changes the website.
 - Never add credentials, tokens, cookies, payment data, profile/session lifecycle steps, or results copied from a previous run.
 - summary must be one short sentence describing the recipe changes.
@@ -73,7 +73,14 @@ export function parseWorkflowAiEdit(raw: string): WorkflowAiEdit | undefined {
     if (!item || typeof item !== "object" || Array.isArray(item)) return undefined;
     const action = item as Record<string, unknown>;
     if (typeof action.tool !== "string" || !action.tool.trim() || !action.arguments || typeof action.arguments !== "object" || Array.isArray(action.arguments)) return undefined;
-    actions.push({ tool: action.tool.replace(/^(?:clawbrowser|nextbrowser)\./, ""), arguments: structuredClone(action.arguments as Record<string, unknown>) });
+    const tool = action.tool.replace(/^(?:clawbrowser|nextbrowser)\./, "");
+    const arguments_ = structuredClone(action.arguments as Record<string, unknown>);
+    // Models commonly express browser timeouts in milliseconds while nextctl's
+    // wait tool explicitly accepts seconds. Normalize that safe, obvious case.
+    if (tool === "wait" && typeof arguments_.timeout === "number" && arguments_.timeout > 300 && arguments_.timeout <= 300_000) {
+      arguments_.timeout = Math.max(1, Math.round(arguments_.timeout / 1_000));
+    }
+    actions.push({ tool, arguments: arguments_ });
   }
   return { title, domain, task, capability, actions, summary: summary || "Workflow steps updated with AI." };
 }

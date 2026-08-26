@@ -66,7 +66,7 @@ describe("hybrid browser recording", () => {
     const result = capturedRunFromHybridRecording("hybrid", recording, agentRun());
     expect(result?.captureSource).toBe("hybrid");
     expect(result?.task).toBe("Collect the visible result after opening the page.");
-    expect(recordedBrowserActions(result?.evidence || "").map((action) => action.tool)).toEqual(["open", "click", "extract", "input"]);
+    expect(recordedBrowserActions(result?.evidence || "").map((action) => action.tool)).toEqual(["open", "click", "wait", "extract", "input"]);
   });
 
   it("collapses a repeated initial URL and keeps an explicitly requested artifact output", () => {

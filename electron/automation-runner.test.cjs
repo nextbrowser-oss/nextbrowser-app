@@ -90,7 +90,7 @@ test("unwraps the MCP evaluate envelope during semantic click replay", async () 
     executionId: "semantic-envelope",
     profile: "Work",
     recipe: { version: 1, actions: [{ tool: "click", arguments: { locator: { role: "link", name: "Love" } } }] },
-  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl });
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
 
   assert.equal(result.status, "completed");
   assert.deepEqual(server.calls.filter((call) => call.method === "tools/call").map((call) => call.params.name), ["evaluate", "state", "open"]);
@@ -180,6 +180,53 @@ test("runs artifact steps locally with access to earlier results", async () => {
   assert.equal(result.results[1].output.artifact.name, "books.csv");
 });
 
+test("rejects extraction rows that contain only empty field values", async () => {
+  const server = fakeMCP((message) => message.method === "initialize"
+    ? { protocolVersion: "2025-03-26", capabilities: {} }
+    : { content: [{ type: "text", text: JSON.stringify({ rows: [{ name: "", symbol: "", rank: "", price: "" }], count: 1 }) }] });
+  const result = await executeAutomationRecipe({
+    executionId: "empty-extraction",
+    recipe: { version: 1, actions: [{ tool: "extract", arguments: { container: "tr", fields: { name: { selector: "td" } } } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+  assert.equal(result.status, "failed");
+  assert.match(result.error, /returned only empty rows/);
+});
+
+test("waits for dynamic extraction rows to become populated", async () => {
+  let extracts = 0;
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    extracts += 1;
+    return { content: [{ type: "text", text: JSON.stringify(extracts < 3
+      ? { rows: [{ name: "" }], count: 1 }
+      : { rows: [{ name: "Bitcoin" }], count: 1 }) }] };
+  });
+  const result = await executeAutomationRecipe({
+    executionId: "dynamic-extraction",
+    recipe: { version: 1, actions: [{ tool: "extract", arguments: { container: "tr", fields: { name: { selector: "td" } } } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+  assert.equal(result.status, "completed");
+  assert.equal(extracts, 3);
+  assert.equal(result.results[0].output.rows[0].name, "Bitcoin");
+});
+
+test("retries a page script that reports temporarily incomplete dynamic data", async () => {
+  let evaluations = 0;
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    evaluations += 1;
+    return evaluations < 3
+      ? { isError: true, content: [{ type: "text", text: "Trending table did not return exactly 10 complete rows" }] }
+      : { content: [{ type: "text", text: JSON.stringify({ result: [{ rank: 1, name: "Bitcoin" }] }) }] };
+  });
+  const result = await executeAutomationRecipe({
+    executionId: "dynamic-evaluate-error",
+    recipe: { version: 1, actions: [{ tool: "evaluate", arguments: { expression: 'Array.from(document.querySelectorAll("tr"))' } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+  assert.equal(result.status, "completed");
+  assert.equal(evaluations, 3);
+});
+
 test("replays read-only page extraction scripts and rejects unsafe scripts", async () => {
   const server = fakeMCP((message) => message.method === "initialize"
     ? { protocolVersion: "2025-03-26", capabilities: {} }
@@ -201,7 +248,7 @@ test("replays read-only page extraction scripts and rejects unsafe scripts", asy
   const empty = await executeAutomationRecipe({
     executionId: "empty-page-script",
     recipe: { version: 1, actions: [{ tool: "evaluate", arguments: { expression: 'Array.from(document.querySelectorAll("tr")).map(() => ({ name: "", rank: 0 }))' } }] },
-  }, { binary: "nbc", env: {}, spawnImpl: fakeMCP((message) => message.method === "initialize"
+  }, { binary: "nbc", env: {}, sleep: async () => {}, spawnImpl: fakeMCP((message) => message.method === "initialize"
     ? { protocolVersion: "2025-03-26", capabilities: {} }
     : { content: [{ type: "text", text: JSON.stringify({ result: [{ name: "", rank: 0 }], session: { name: "default" } }) }] }).spawnImpl });
   assert.equal(empty.status, "failed");

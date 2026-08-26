@@ -103,6 +103,23 @@ Called clawbrowser.extract({"container":"article.product","fields":["title","pri
     ]);
   });
 
+  it("keeps the final selector probe and waits for its container after navigation", () => {
+    const probes = [
+      'Called nextbrowser.open({"url":"https://coinmarketcap.com/trending-cryptocurrencies/"})\n{"ok":true}',
+      'Called nextbrowser.evaluate({"expression":"Array.from(document.querySelectorAll(\\"table tbody tr\\")).slice(0,5)"})\n{"ok":true}',
+      'Called nextbrowser.extract({"container":"table tbody tr","fields":{"bad":{"selector":"td:nth-child(2)"}},"limit":5})\n{"count":5,"rows":[{}]}',
+      'Called nextbrowser.extract({"container":"table tbody tr","fields":{"name":{"selector":"td:nth-child(3)"},"price":{"selector":"td:nth-child(4)"}},"limit":5})\n{"count":5,"rows":[{"name":"Bitcoin"}]}',
+      'Called nextbrowser.save_artifact({"source":"last_result","format":"json","name":"top-five.json"})\n{"ok":true}',
+    ].join("\n");
+
+    expect(workflowRecipe("Save the top five", probes).actions).toEqual([
+      { tool: "open", arguments: { url: "https://coinmarketcap.com/trending-cryptocurrencies/" } },
+      { tool: "wait", arguments: { selector: "table tbody tr", timeout: 30 } },
+      { tool: "extract", arguments: { container: "table tbody tr", fields: { name: { selector: "td:nth-child(3)" }, price: { selector: "td:nth-child(4)" } }, limit: 5 } },
+      { tool: "save_artifact", arguments: { source: "last_result", format: "json", name: "top-five.json" } },
+    ]);
+  });
+
   it("rejects empty and failed runs but accepts successful extraction", () => {
     expect(workflowQuality("открой makler.md", "No browser calls").reusable).toBe(false);
     expect(workflowQuality("открой makler.md", 'Called clawbrowser.navigate({"url":"https://makler.md"})\nError: failed').reusable).toBe(false);
