@@ -1,4 +1,7 @@
 const { createMCPClient } = require("./automation-runner.cjs");
+const fs = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
 
 const POLL_MS = 250;
 const MAX_ACTIONS = 100;
@@ -160,7 +163,10 @@ async function startAutomationPageRecording(input, deps) {
   const runtime = ["clawbrowser", "camoufox", "chromium", "multilogin"].includes(input.runtime) ? input.runtime : "clawbrowser";
   const args = [...(profile ? ["--profile", profile] : []), "--runtime", runtime, ...(input.runtimeBin ? ["--runtime-bin", input.runtimeBin] : []), "mcp"];
   const client = createMCPClient({ binary: deps.binary, args, env: deps.env, spawnImpl: deps.spawnImpl });
-  const state = { client, actions: [], currentUrl: "", title: "", lastPageInteractionAt: 0, polling: false, stopping: false, closed: false, lastError: "" };
+  const traceDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-recording-"));
+  const traceFile = path.join(traceDir, "mcp-actions.jsonl");
+  await fs.writeFile(traceFile, "", { mode: 0o600 });
+  const state = { client, actions: [], traceFile, traceDir, currentUrl: "", title: "", lastPageInteractionAt: 0, polling: false, stopping: false, closed: false, lastError: "" };
   activeRecorders.set(recordingId, state);
   try {
     await client.initialize();
@@ -172,8 +178,35 @@ async function startAutomationPageRecording(input, deps) {
     state.closed = true;
     client.close();
     activeRecorders.delete(recordingId);
+    await fs.rm(traceDir, { recursive: true, force: true }).catch(() => undefined);
     throw error;
   }
+}
+
+function activeAutomationTraceFile() {
+  return activeRecorders.values().next().value?.traceFile || "";
+}
+
+function recordAutomationToolAction(tool, arguments_) {
+  const state = activeRecorders.values().next().value;
+  if (!state || state.closed) return;
+  addAction(state, { tool, arguments: arguments_, at: Date.now() });
+}
+
+async function tracedActions(state) {
+  let text = "";
+  try { text = await fs.readFile(state.traceFile, "utf8"); } catch { return []; }
+  const actions = [];
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const event = JSON.parse(line);
+      if (typeof event.tool === "string" && event.arguments && typeof event.arguments === "object" && !Array.isArray(event.arguments)) {
+        actions.push({ tool: event.tool, arguments: event.arguments, at: Number(event.at) || Date.now() });
+      }
+    } catch { /* ignore a partial final JSONL line */ }
+  }
+  return actions;
 }
 
 async function stopAutomationPageRecording(recordingId) {
@@ -189,7 +222,13 @@ async function stopAutomationPageRecording(recordingId) {
   await state.client.callTool("evaluate", { expression: `(() => { const state=window.__nextbrowserPageRecorder; state?.cleanup?.(); delete window.__nextbrowserPageRecorder; return true; })()` }).catch(() => undefined);
   state.client.close();
   activeRecorders.delete(id);
-  const result = { actions: state.actions, url: state.currentUrl, title: state.title, error: state.lastError || undefined, stoppedAt: Date.now() };
+  const pageActions = [...state.actions];
+  const toolActions = (await tracedActions(state)).filter((action) => !pageActions.some((pageAction) =>
+    pageAction.tool === action.tool && Math.abs(pageAction.at - action.at) <= 3_000,
+  ));
+  const actions = [...pageActions, ...toolActions].sort((left, right) => left.at - right.at).slice(0, MAX_ACTIONS);
+  await fs.rm(state.traceDir, { recursive: true, force: true }).catch(() => undefined);
+  const result = { actions, url: state.currentUrl, title: state.title, error: state.lastError || undefined, stoppedAt: Date.now() };
   completedRecorders.set(id, result);
   setTimeout(() => completedRecorders.delete(id), 5 * 60_000).unref?.();
   return structuredClone(result);
@@ -201,7 +240,8 @@ function cancelAllAutomationPageRecordings() {
     state.closed = true;
     state.client.close();
     activeRecorders.delete(id);
+    void fs.rm(state.traceDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
-module.exports = { cancelAllAutomationPageRecordings, recorderPageScript, startAutomationPageRecording, stopAutomationPageRecording };
+module.exports = { activeAutomationTraceFile, cancelAllAutomationPageRecordings, recordAutomationToolAction, recorderPageScript, startAutomationPageRecording, stopAutomationPageRecording };
