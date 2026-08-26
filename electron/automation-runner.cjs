@@ -6,7 +6,7 @@ const CALL_TIMEOUT_MS = 120_000;
 const TOOL_ALIASES = new Map([["navigate", "open"]]);
 const DIRECT_TOOLS = new Set([
   "open", "wait", "click", "input", "press", "select", "scroll", "dismiss", "upload",
-  "extract", "paginate_extract", "tabs_extract", "multi_action", "form_fill", "site_recipe_run",
+  "extract", "paginate_extract", "tabs_extract", "multi_action", "form_fill", "site_recipe_run", "evaluate",
 ]);
 const LOCAL_TOOLS = new Set(["save_artifact"]);
 const activeExecutions = new Map();
@@ -17,6 +17,7 @@ const RETRYABLE_NAVIGATION_ERRORS = [
   "ERR_CONNECTION_CLOSED",
   "ERR_TIMED_OUT",
 ];
+const UNSAFE_EVALUATION = /(document\s*\.\s*cookie|localStorage|sessionStorage|indexedDB|caches\s*\.|navigator\s*\.\s*(clipboard|sendBeacon)|fetch\s*\(|XMLHttpRequest|WebSocket|EventSource|\.\s*(click|submit|remove)\s*\(|\.\s*(innerHTML|outerHTML|textContent|innerText|value)\s*=|eval\s*\(|new\s+Function|location\s*=|window\s*\.\s*open)/i;
 
 function cleanExecutionId(value) {
   const id = String(value || "").trim();
@@ -143,6 +144,12 @@ function toolCalls(action) {
     delete args.wait_for;
   }
   if (!DIRECT_TOOLS.has(tool)) throw new Error(`The browser action “${tool}” is not supported by deterministic replay.`);
+  if (tool === "evaluate") {
+    const expression = String(args.expression || "").trim();
+    if (!expression || expression.length > 32 * 1024 || UNSAFE_EVALUATION.test(expression)) {
+      throw new Error("The saved page data script is missing or uses browser data/actions that cannot be replayed safely.");
+    }
+  }
   if (tool === "scroll" && Number.isFinite(args.x) && Number.isFinite(args.y)) {
     return [{ name: "evaluate", arguments: { expression: `(() => { scrollTo(${Math.round(args.x)},${Math.round(args.y)}); return {ok:true,x:scrollX,y:scrollY}; })()` } }];
   }
@@ -185,6 +192,23 @@ function parseToolResult(result) {
   if (!text) return null;
   try { return JSON.parse(text); }
   catch { return text; }
+}
+
+function meaningfulPageData(value) {
+  if (value == null) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number") return Number.isFinite(value) && value !== 0;
+  if (typeof value === "boolean") return value;
+  if (Array.isArray(value)) return value.some(meaningfulPageData);
+  if (plainObject(value)) return Object.values(value).some(meaningfulPageData);
+  return false;
+}
+
+function assertMeaningfulEvaluateOutput(output) {
+  const data = plainObject(output) && Object.prototype.hasOwnProperty.call(output, "result") ? output.result : output;
+  if (!meaningfulPageData(data)) {
+    throw new Error("The page data script returned only empty values. Add a wait step or repair its page selectors before saving the result.");
+  }
 }
 
 function isRetryableNavigationError(error) {
@@ -332,6 +356,7 @@ async function executeAutomationRecipe(input, deps) {
           });
           callOutputs.push(output);
         }
+        if (action.tool === "evaluate") assertMeaningfulEvaluateOutput(output);
         localResults.push({ index, tool: action.tool, ok: true, output });
         const displayOutput = boundedOutput(output);
         results.push({ index, tool: action.tool, ok: true, output: displayOutput });

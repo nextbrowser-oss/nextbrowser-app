@@ -68,6 +68,26 @@ describe("hybrid browser recording", () => {
     expect(result?.task).toBe("Collect the visible result after opening the page.");
     expect(recordedBrowserActions(result?.evidence || "").map((action) => action.tool)).toEqual(["open", "click", "extract", "input"]);
   });
+
+  it("collapses a repeated initial URL and keeps an explicitly requested artifact output", () => {
+    const agent = {
+      ...agentRun(),
+      task: "Open https://example.com and save the extracted rows as top-five.json in Artifact Center.",
+      evidence: "Saved the requested rows.",
+      answer: { ...agentRun().answer, toolEvents: [] },
+    };
+    const recording: ManualBrowserRecording = { actions: [
+      { tool: "open", arguments: { url: "https://example.com" }, at: 1_000 },
+      { tool: "open", arguments: { profile: "demo", url: "https://example.com" }, at: 5_000 },
+      { tool: "evaluate", arguments: { expression: "(() => [{ rank: 1 }])()" }, at: 6_000 },
+    ] };
+    const result = capturedRunFromHybridRecording("hybrid", recording, agent);
+    expect(recordedBrowserActions(result?.evidence || "")).toEqual([
+      { tool: "open", arguments: { url: "https://example.com" } },
+      { tool: "evaluate", arguments: { expression: "(() => [{ rank: 1 }])()" } },
+      { tool: "save_artifact", arguments: { source: "last_result", format: "json", name: "top-five.json" } },
+    ]);
+  });
 });
 
 describe("agent-requested artifacts", () => {

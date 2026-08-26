@@ -4,6 +4,7 @@ const MAX_RECORDED_ACTIONS = 100;
 const REPLAYABLE_TOOLS = new Set([
   "open", "navigate", "click", "input", "press", "select", "scroll", "dismiss", "wait",
   "act", "multi_action", "form_fill", "upload", "extract", "paginate_extract", "tabs_extract", "site_recipe_run",
+  "evaluate", "save_artifact",
 ]);
 
 export interface CapturedCall {
@@ -64,7 +65,7 @@ export type WorkflowCapability = "scrape" | "search" | "posting" | "form" | "nav
 export function workflowCapability(task: string, transcript: string): WorkflowCapability {
   const tools = capturedCalls(transcript).map((call) => call.name);
   if (/\b(post|publish|comment|reply|send)\b|опубли|отправ|коммент/i.test(task)) return "posting";
-  if (tools.some((tool) => ["paginate_extract", "extract"].includes(tool))) return /\b(find|search)\b|найди|поиск/i.test(task) ? "search" : "scrape";
+  if (tools.some((tool) => ["paginate_extract", "extract", "evaluate"].includes(tool))) return /\b(find|search)\b|найди|поиск/i.test(task) ? "search" : "scrape";
   if (tools.some((tool) => ["act", "input", "upload"].includes(tool))) return "form";
   if (tools.some((tool) => ["open", "navigate", "click", "press"].includes(tool))) return "navigation";
   return "other";
@@ -185,7 +186,7 @@ export function workflowQuality(task: string, transcript: string, domain = captu
   if (meaningful.length > MAX_RECORDED_ACTIONS) return { reusable: false, reason: `The run contains more than ${MAX_RECORDED_ACTIONS} browser actions. Split it into smaller workflows.` };
   const last = calls.at(-1);
   if (last && last.score < 0) return { reusable: false, reason: "The browser workflow ended with a failed action." };
-  const successfulExtraction = calls.some((call) => ["extract", "paginate_extract"].includes(call.name) && call.score > 0);
+  const successfulExtraction = calls.some((call) => ["extract", "paginate_extract", "evaluate"].includes(call.name) && call.score > 0);
   const postingConfirmation = /\b(posted|published|submitted|saved draft|commented|sent successfully)\b|опубликован|отправлен|сохран[её]н\s+черновик/i.test(transcript);
   const interaction = calls.some((call) => ["act", "multi_action", "input", "click", "press", "upload"].includes(call.name));
   const navigation = calls.some((call) => ["start", "prepare", "open", "navigate"].includes(call.name));
@@ -236,7 +237,7 @@ export function workflowInstructions(task: string, transcript: string): string {
   if (searchTask && !hasSearchAction && !selectedURL) {
     steps.push("Before extraction, apply the requested search on the site and wait until the results page is loaded; the recorded run started from browser state that was not fully self-contained.");
   }
-  if (unique.some((tool) => ["paginate_extract", "extract", "state"].includes(tool))) {
+  if (unique.some((tool) => ["paginate_extract", "extract", "evaluate", "state"].includes(tool))) {
     steps.push("Extract all matching results, paginate or scroll as needed, deduplicate by canonical URL, and exclude irrelevant matches.");
   }
   steps.push("Return a concise result list with titles, URLs, and the important details requested by the user.");

@@ -144,7 +144,11 @@ async function collect(state) {
     const url = String(snapshot?.url || "");
     if (/^https?:\/\//.test(url) && url !== state.currentUrl) {
       const causedByPageAction = state.currentUrl && Date.now() - state.lastPageInteractionAt < 10_000;
-      if (!causedByPageAction) addAction(state, { tool: "open", arguments: { url } });
+      // A queued interaction may have happened just before this polling pass
+      // observed the URL. The URL still has to precede that interaction in the
+      // replay recipe, regardless of wall-clock scheduling within the pass.
+      const firstQueuedAt = Math.min(...(snapshot?.actions || []).map((action) => Number(action.at) || Date.now()));
+      if (!causedByPageAction) addAction(state, { tool: "open", arguments: { url }, at: Number.isFinite(firstQueuedAt) ? firstQueuedAt - 1 : Date.now() });
       state.currentUrl = url;
     }
     if (snapshot?.title) state.title = String(snapshot.title);
@@ -209,6 +213,13 @@ async function tracedActions(state) {
   return actions;
 }
 
+async function activeAutomationRecordingHasDataAction() {
+  const state = activeRecorders.values().next().value;
+  if (!state || state.closed) return true;
+  const actions = await tracedActions(state);
+  return actions.some((action) => ["extract", "paginate_extract", "tabs_extract", "evaluate"].includes(action.tool));
+}
+
 async function stopAutomationPageRecording(recordingId) {
   const id = cleanId(recordingId);
   if (completedRecorders.has(id)) return structuredClone(completedRecorders.get(id));
@@ -244,4 +255,4 @@ function cancelAllAutomationPageRecordings() {
   }
 }
 
-module.exports = { activeAutomationTraceFile, cancelAllAutomationPageRecordings, recordAutomationToolAction, recorderPageScript, startAutomationPageRecording, stopAutomationPageRecording };
+module.exports = { activeAutomationRecordingHasDataAction, activeAutomationTraceFile, cancelAllAutomationPageRecordings, recordAutomationToolAction, recorderPageScript, startAutomationPageRecording, stopAutomationPageRecording };

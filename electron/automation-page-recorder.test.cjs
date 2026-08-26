@@ -3,7 +3,7 @@ const { EventEmitter } = require("node:events");
 const { PassThrough, Writable } = require("node:stream");
 const fs = require("node:fs/promises");
 const test = require("node:test");
-const { activeAutomationTraceFile, recorderPageScript, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
+const { activeAutomationRecordingHasDataAction, activeAutomationTraceFile, recorderPageScript, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
 
 function fakeMCP(handler) {
   const calls = [];
@@ -87,11 +87,13 @@ test("recording merges successful nextctl MCP extraction calls from the local tr
   });
   const traceFile = activeAutomationTraceFile();
   assert.ok(traceFile);
+  assert.equal(await activeAutomationRecordingHasDataAction(), false);
   await fs.appendFile(traceFile, `${JSON.stringify({
     tool: "extract",
     arguments: { container: "tbody tr", fields: { name: { selector: "td:nth-child(2)" }, price: { selector: "td:nth-child(4)" } } },
     at: Date.now(),
   })}\n`);
+  assert.equal(await activeAutomationRecordingHasDataAction(), true);
   const result = await stopAutomationPageRecording("agent-trace");
 
   assert.deepEqual(result.actions.map(({ tool }) => tool), ["open", "extract"]);

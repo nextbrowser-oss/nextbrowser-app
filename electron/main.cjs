@@ -58,7 +58,7 @@ const {
 } = require("./automation-sync.cjs");
 const { cancelAllAutomationRecipes, cancelAutomationRecipe, executeAutomationRecipe } = require("./automation-runner.cjs");
 const { cancelAllAutomationElementPicks, cancelAutomationElementPick, pickAutomationElement } = require("./automation-element-picker.cjs");
-const { activeAutomationTraceFile, cancelAllAutomationPageRecordings, recordAutomationToolAction, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
+const { activeAutomationRecordingHasDataAction, activeAutomationTraceFile, cancelAllAutomationPageRecordings, recordAutomationToolAction, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
 const { parseMultiloginProfiles } = require("./multilogin-profiles.cjs");
@@ -128,8 +128,8 @@ default_tools_approval_mode = "approve"
 enabled = false
 `;
 
-function codexClawbrowserMCPArgs(nextctlBin) {
-  const runtimeEnv = childEnv();
+function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
+  const runtimeEnv = childEnv(automationTraceFile ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: automationTraceFile } : {});
   const mcpEnvKeys = [
     "NEXTBROWSER_CONFIG_DIR",
     "CLAWBROWSER_CACHE_DIR",
@@ -138,6 +138,7 @@ function codexClawbrowserMCPArgs(nextctlBin) {
     "CLAWBROWSER_SESSION_ROOT",
     "NBC_PROFILE_ROOT",
     "CLAWBROWSER_API_BASE_URL",
+    ...(automationTraceFile ? ["NEXTBROWSER_AUTOMATION_TRACE_FILE"] : []),
   ];
   const mcpEnv = `{${mcpEnvKeys.map((key) => `${key}=${JSON.stringify(runtimeEnv[key])}`).join(",")}}`;
   return [
@@ -146,9 +147,12 @@ function codexClawbrowserMCPArgs(nextctlBin) {
     "-c", 'plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser.enabled=false',
     "-c", 'plugins."clawbrowser@nbc-local".enabled=false',
     "-c", `mcp_servers.nextbrowser.command=${JSON.stringify(nextctlBin)}`,
-    "-c", `mcp_servers.nextbrowser.args=${JSON.stringify(["mcp"])}`,
+    "-c", `mcp_servers.nextbrowser.args=${JSON.stringify(["mcp", ...(automationTraceFile ? ["--automation-trace-file", automationTraceFile] : [])])}`,
     "-c", `mcp_servers.nextbrowser.env=${mcpEnv}`,
-    "-c", `mcp_servers.nextbrowser.env_vars=${JSON.stringify(["MULTILOGIN_TOKEN"])}`,
+    // Codex starts the MCP server itself. Forward the Recorder's ephemeral
+    // trace path from the agent process; putting it only in the parent env is
+    // not enough when an explicit MCP env allow-list is configured.
+    "-c", `mcp_servers.nextbrowser.env_vars=${JSON.stringify(["MULTILOGIN_TOKEN", "NEXTBROWSER_AUTOMATION_TRACE_FILE"])}`,
     "-c", "mcp_servers.nextbrowser.startup_timeout_sec=30",
     "-c", "mcp_servers.nextbrowser.default_tools_approval_mode=approve",
   ];
@@ -466,6 +470,10 @@ async function ensureAgentControlServer() {
       }
       const payload = JSON.parse(raw || "{}");
       if (artifactSave) {
+        if (!await activeAutomationRecordingHasDataAction()) {
+          sendControlResponse(response, 409, { ok: false, error: "recording_requires_deterministic_data_action", message: "Recorder needs a successful extract, paginate_extract, tabs_extract, or read-only evaluate call before this result can be saved." });
+          return;
+        }
         const result = await saveAgentArtifact({
           workspaceId: artifactScope.workspaceId,
           payload,
@@ -1417,7 +1425,7 @@ async function invokeCommand(command, args = {}, sender) {
         await ensureCodexTerminalProfile();
         const nextctlBin = await resolveOrInstallNextctl();
         if (!nextctlBin) throw new Error("nextctl is required for Clawbrowser MCP.");
-        agentArgs = [...codexClawbrowserMCPArgs(nextctlBin), ...agentArgs];
+        agentArgs = [...codexClawbrowserMCPArgs(nextctlBin, activeAutomationTraceFile()), ...agentArgs];
       }
       const spec = commandSpec(bin, agentArgs);
       try {

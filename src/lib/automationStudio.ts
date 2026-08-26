@@ -88,10 +88,23 @@ export function capturedRunFromHybridRecording(id: string, recording: ManualBrow
     matchedManual.add(match);
     return false;
   });
-  const actions = [...manual, ...agentOnly]
+  const mergedActions = [...manual, ...agentOnly]
     .sort((left, right) => left.at - right.at)
-    .slice(0, 100)
-    .map(({ tool, arguments: arguments_ }) => ({ tool, arguments: arguments_ }));
+    .reduce<typeof manual>((kept, action) => {
+      const previous = kept.at(-1);
+      // Recorder observes the page that was already open when Start was pressed,
+      // then the agent may explicitly open that same URL. Replaying both is noisy
+      // and can restart a dynamic page before extraction.
+      if (action.tool === "open" && previous?.tool === "open"
+        && String(previous.arguments.url || "") === String(action.arguments.url || "")) return kept;
+      kept.push(action);
+      return kept;
+    }, []);
+  const requestedArtifact = artifactActionFromTask(agentRun.task);
+  if (requestedArtifact && !mergedActions.some((action) => action.tool === "save_artifact")) {
+    mergedActions.push({ ...requestedArtifact, at: (mergedActions.at(-1)?.at || agentRun.answer.createdAt) + 1 });
+  }
+  const actions = mergedActions.slice(0, 100).map(({ tool, arguments: arguments_ }) => ({ tool, arguments: arguments_ }));
   const merged = capturedRunFromManualRecording(id, { ...recording, actions });
   if (!merged) return agentRun;
   return {

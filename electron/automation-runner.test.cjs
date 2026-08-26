@@ -180,6 +180,34 @@ test("runs artifact steps locally with access to earlier results", async () => {
   assert.equal(result.results[1].output.artifact.name, "books.csv");
 });
 
+test("replays read-only page extraction scripts and rejects unsafe scripts", async () => {
+  const server = fakeMCP((message) => message.method === "initialize"
+    ? { protocolVersion: "2025-03-26", capabilities: {} }
+    : { content: [{ type: "text", text: JSON.stringify([{ name: "Bitcoin" }]) }] });
+  const safe = await executeAutomationRecipe({
+    executionId: "safe-page-script",
+    recipe: { version: 1, actions: [{ tool: "evaluate", arguments: { expression: 'Array.from(document.querySelectorAll("tr")).map(row => row.innerText)' } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl });
+  assert.equal(safe.status, "completed");
+  assert.equal(server.calls.find((call) => call.method === "tools/call")?.params.name, "evaluate");
+
+  const unsafe = await executeAutomationRecipe({
+    executionId: "unsafe-page-script",
+    recipe: { version: 1, actions: [{ tool: "evaluate", arguments: { expression: "document.cookie" } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: fakeMCP(() => ({ protocolVersion: "2025-03-26", capabilities: {} })).spawnImpl });
+  assert.equal(unsafe.status, "failed");
+  assert.match(unsafe.error, /cannot be replayed safely/);
+
+  const empty = await executeAutomationRecipe({
+    executionId: "empty-page-script",
+    recipe: { version: 1, actions: [{ tool: "evaluate", arguments: { expression: 'Array.from(document.querySelectorAll("tr")).map(() => ({ name: "", rank: 0 }))' } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: fakeMCP((message) => message.method === "initialize"
+    ? { protocolVersion: "2025-03-26", capabilities: {} }
+    : { content: [{ type: "text", text: JSON.stringify({ result: [{ name: "", rank: 0 }], session: { name: "default" } }) }] }).spawnImpl });
+  assert.equal(empty.status, "failed");
+  assert.match(empty.error, /returned only empty values/);
+});
+
 test("keeps the full previous result for a local artifact while bounding run history", async () => {
   const large = "x".repeat(1_600_000);
   const server = fakeMCP((message) => message.method === "initialize"
