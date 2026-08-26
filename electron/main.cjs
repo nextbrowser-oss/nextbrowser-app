@@ -1751,7 +1751,6 @@ if (!gotLock) {
   }).then(() => {
     return migrateLegacyRuntimeConfig();
   }).then(() => {
-    void initializeMultiloginCredential();
     applyAppIcon();
     if (process.defaultApp) {
       const script = process.argv[1];

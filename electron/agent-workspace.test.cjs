@@ -102,6 +102,13 @@ test("manual proxy operations use the isolated NextBrowser account configuration
   assert.equal((main.match(/resolvePersonalProxy\(args\.proxyId, \{ env: childEnv\(\) \}\)/g) || []).length, 2);
 });
 
+test("ordinary app startup does not unlock the optional Multilogin credential", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  const startup = main.slice(main.indexOf("app.whenReady()"), main.indexOf('app.on("open-url"'));
+  assert.doesNotMatch(startup, /initializeMultiloginCredential/);
+  assert.match(main, /async function multiloginStatus\(\)[\s\S]*initializeMultiloginCredential\(\)/);
+});
+
 test("automation artifacts are persisted only in local app storage", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const studio = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AutomationStudio.tsx"), "utf8");
