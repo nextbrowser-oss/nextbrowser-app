@@ -73,7 +73,8 @@ export function workflowCapability(task: string, transcript: string): WorkflowCa
 
 export function workflowRecipe(task: string, transcript: string) {
   const capability = workflowCapability(task, transcript);
-  const actions = optimizedReplayableActions(transcript).slice(0, MAX_RECORDED_ACTIONS);
+  const preserveAllData = /\brun_results\b|\b(?:all|every)\s+(?:(?:workflow|collected)\s+)?(?:results?|datasets?)\b/i.test(task);
+  const actions = optimizedReplayableActions(transcript, preserveAllData).slice(0, MAX_RECORDED_ACTIONS);
   return { version: 1 as const, capability, actions };
 }
 
@@ -92,6 +93,62 @@ function replayableCalls(transcript: string): CapturedCall[] {
 }
 
 const DATA_TOOLS = new Set(["evaluate", "extract", "paginate_extract", "tabs_extract"]);
+const TARGETED_TOOLS = new Set(["click", "input", "select"]);
+
+function hasStableTarget(args: Record<string, unknown>): boolean {
+  return typeof args.selector === "string" && !!args.selector.trim()
+    || !!args.locator && typeof args.locator === "object" && !Array.isArray(args.locator);
+}
+
+function hasPortableArguments(call: CapturedCall): boolean {
+  if (TARGETED_TOOLS.has(call.name)) return hasStableTarget(call.args);
+  if (call.name === "act") return !Object.prototype.hasOwnProperty.call(call.args, "element_id") || hasStableTarget(call.args);
+  if (call.name !== "multi_action") return true;
+  const actions = Array.isArray(call.args.actions) ? call.args.actions : [];
+  return actions.length > 0 && actions.every((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const action = value as Record<string, unknown>;
+    if (Object.prototype.hasOwnProperty.call(action, "element_id") && !hasStableTarget(action)) return false;
+    return true;
+  });
+}
+
+function sameOrigin(left: unknown, right: unknown): boolean {
+  if (typeof left !== "string" || typeof right !== "string") return false;
+  try { return new URL(left).origin === new URL(right).origin; } catch { return false; }
+}
+
+function hasSearchParameters(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return ["q", "query", "search", "keyword", "term"].some((key) => url.searchParams.has(key));
+  } catch { return false; }
+}
+
+/** Drop a failed form-search branch once the agent falls back to a complete results URL. */
+function collapseSearchFallback(calls: CapturedCall[]): CapturedCall[] {
+  let finalNavigation = -1;
+  for (let index = calls.length - 1; index >= 0; index -= 1) {
+    if (["open", "navigate"].includes(calls[index].name)) {
+      finalNavigation = index;
+      break;
+    }
+  }
+  if (finalNavigation <= 0 || !hasSearchParameters(calls[finalNavigation].args.url)) return calls;
+  let earlierNavigation = -1;
+  for (let index = finalNavigation - 1; index >= 0; index -= 1) {
+    if (["open", "navigate"].includes(calls[index].name)
+      && sameOrigin(calls[index].args.url, calls[finalNavigation].args.url)) {
+      earlierNavigation = index;
+      break;
+    }
+  }
+  if (earlierNavigation < 0) return calls;
+  const attemptedSearch = calls.slice(earlierNavigation + 1, finalNavigation)
+    .some((call) => ["click", "input", "press", "select", "multi_action", "act"].includes(call.name));
+  return attemptedSearch ? calls.slice(finalNavigation) : calls;
+}
 
 function selectorFromDataCall(call: CapturedCall): string | undefined {
   if (typeof call.args.container === "string" && call.args.container.trim()) return call.args.container.trim();
@@ -99,9 +156,31 @@ function selectorFromDataCall(call: CapturedCall): string | undefined {
   return call.args.expression.match(/querySelector(?:All)?\(\s*(['"`])([^'"`]+)\1\s*\)/)?.[2];
 }
 
+function normalizedReplayArguments(call: CapturedCall): Record<string, unknown> {
+  if (!["extract", "paginate_extract", "tabs_extract"].includes(call.name)
+    || !call.args.fields || typeof call.args.fields !== "object" || Array.isArray(call.args.fields)) return call.args;
+  const fields = Object.fromEntries(Object.entries(call.args.fields as Record<string, unknown>).map(([name, value]) => {
+    if (typeof value === "string") return [name, { selector: value }];
+    return [name, value];
+  }));
+  return { ...call.args, fields };
+}
+
 /** Keep the result of selector discovery, not every exploratory probe the agent made. */
-function optimizedReplayableActions(transcript: string): Array<{ tool: string; arguments: Record<string, unknown> }> {
-  const calls = replayableCalls(transcript);
+function optimizedReplayableActions(transcript: string, preserveAllData = false): Array<{ tool: string; arguments: Record<string, unknown> }> {
+  let calls = collapseSearchFallback(replayableCalls(transcript).filter(hasPortableArguments));
+  const consumedData = new Set<number>();
+  calls.forEach((call, index) => {
+    if (call.name !== "save_artifact" || call.args.source !== "last_result") return;
+    for (let candidate = index - 1; candidate >= 0; candidate -= 1) {
+      if (calls[candidate].name === "save_artifact") break;
+      if (DATA_TOOLS.has(calls[candidate].name)) {
+        consumedData.add(candidate);
+        break;
+      }
+    }
+  });
+  if (!preserveAllData && consumedData.size) calls = calls.filter((call, index) => !DATA_TOOLS.has(call.name) || consumedData.has(index));
   const optimized: CapturedCall[] = [];
   for (let index = 0; index < calls.length; index += 1) {
     const call = calls[index];
@@ -133,7 +212,7 @@ function optimizedReplayableActions(transcript: string): Array<{ tool: string; a
     }
     optimized.push(finalDataCall);
   }
-  return optimized.map(({ name, args }) => ({ tool: name, arguments: args }));
+  return optimized.map((call) => ({ tool: call.name, arguments: normalizedReplayArguments(call) }));
 }
 
 function pick(source: Record<string, unknown>, keys: string[]): Record<string, unknown> {

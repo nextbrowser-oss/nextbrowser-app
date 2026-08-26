@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { artifactActionFromTask, capturedRunFromHybridRecording, capturedTaskRunsForRecording, skillFromRun, type CapturedRun, type ManualBrowserRecording } from "./automationStudio";
+import { artifactActionFromTask, capturedRunFromHybridRecording, capturedRunFromManualRecording, capturedTaskRunsForRecording, skillFromRun, type CapturedRun, type ManualBrowserRecording } from "./automationStudio";
 import { recordedBrowserActions } from "./workflowCapture";
 
 function agentRun(): CapturedRun {
@@ -50,6 +50,18 @@ describe("hybrid browser recording", () => {
     const result = capturedRunFromHybridRecording("manual", recording);
     expect(result?.captureSource).toBe("manual");
     expect(recordedBrowserActions(result?.evidence || "")).toEqual([{ tool: "open", arguments: { url: "https://example.com" } }]);
+  });
+
+  it("drops the previously open page from a stopped manual capture", () => {
+    const result = capturedRunFromManualRecording("manual", { actions: [
+      { tool: "open", arguments: { url: "https://arxiv.org/abs/1706.03762" }, at: 1_000 },
+      { tool: "open", arguments: { url: "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status" }, at: 2_000 },
+      { tool: "evaluate", arguments: { expression: "document.title" }, at: 3_000 },
+    ] });
+    expect(recordedBrowserActions(result?.evidence || "")).toEqual([
+      { tool: "open", arguments: { url: "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status" } },
+      { tool: "evaluate", arguments: { expression: "document.title" } },
+    ]);
   });
 
   it("keeps an agent-only recording when no page events were observable", () => {
@@ -115,6 +127,19 @@ describe("agent-requested artifacts", () => {
       arguments: { source: "last_result", format: "csv", name: "products.csv" },
     });
     expect(skillFromRun({ ...agentRun(), task: "Собери товары и сохрани результат как products.csv в Artifact Center" }).actions.at(-1)?.tool).toBe("save_artifact");
+  });
+
+  it("keeps all page datasets when the task explicitly requests run_results", () => {
+    expect(artifactActionFromTask('Save all collected datasets as combined.json with source "run_results" in Artifact Center')).toEqual({
+      tool: "save_artifact",
+      arguments: { source: "run_results", format: "json", name: "combined.json" },
+    });
+    const run = {
+      ...agentRun(),
+      task: 'Save all collected datasets as combined.json with source "run_results" in Artifact Center',
+      evidence: `${agentRun().evidence}\nCalled clawbrowser.save_artifact({"source":"last_result","format":"json","name":"combined.json"})\n{"ok":true}`,
+    };
+    expect(skillFromRun(run).actions.at(-1)?.arguments.source).toBe("run_results");
   });
 
   it("does not infer an artifact from an unrelated save instruction", () => {

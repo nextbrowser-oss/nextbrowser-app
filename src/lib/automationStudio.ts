@@ -28,21 +28,33 @@ export interface ManualBrowserRecording {
 
 export function capturedRunFromManualRecording(id: string, recording: ManualBrowserRecording): CapturedRun | undefined {
   if (!recording.actions.length) return undefined;
+  const actions = recording.actions.reduce<ManualBrowserRecording["actions"]>((kept, action) => {
+    const previous = kept.at(-1);
+    // The page observer emits the tab that was already open when recording
+    // starts. If the first real task action immediately navigates elsewhere,
+    // the old tab is context rather than a replayable workflow step.
+    if (action.tool === "open" && previous?.tool === "open") {
+      kept[kept.length - 1] = action;
+      return kept;
+    }
+    kept.push(action);
+    return kept;
+  }, []);
   const stoppedAt = recording.stoppedAt || Date.now();
   let domain = "browser";
   try { domain = new URL(recording.url || "").hostname || domain; } catch { /* keep generic title */ }
   const task = `Replay the recorded browser actions on ${domain}.`;
-  const evidence = recording.actions.map((action) => `Called clawbrowser.${action.tool}(${JSON.stringify(action.arguments)})\n{"ok":true}`).join("\n");
+  const evidence = actions.map((action) => `Called clawbrowser.${action.tool}(${JSON.stringify(action.arguments)})\n{"ok":true}`).join("\n");
   return {
     id,
     task,
     answer: {
       id,
       role: "assistant",
-      text: `Recorded ${recording.actions.length} manual browser action${recording.actions.length === 1 ? "" : "s"}.`,
+      text: `Recorded ${actions.length} manual browser action${actions.length === 1 ? "" : "s"}.`,
       status: "done",
       createdAt: stoppedAt,
-      toolEvents: recording.actions.map((action, index) => ({
+      toolEvents: actions.map((action, index) => ({
         id: `${id}-${index}`,
         name: `clawbrowser.${action.tool}`,
         detail: JSON.stringify(action.arguments),
@@ -264,7 +276,9 @@ export function artifactActionFromTask(task: string): BrowserWorkflowAction | un
   const format = /\bcsv\b/i.test(task) ? "csv" : /\btxt\b|текстов(?:ый|ом)/i.test(task) ? "txt" : "json";
   const explicitName = task.match(/(?:^|[\s"'«])([\p{L}\p{N}_.-]+\.(?:csv|json|txt))(?=$|[\s"'».,])/iu)?.[1];
   const name = explicitName || `workflow-result.${format}`;
-  const source = /\b(?:all|every)\s+(?:workflow\s+)?results?\b|все\s+результат|весь\s+(?:ход|журнал)/i.test(task) ? "run_results" : "last_result";
+  const source = /\brun_results\b|\bsource\s*["'`:=-]*\s*run_results\b|\b(?:all|every)\s+(?:(?:workflow|collected)\s+)?(?:results?|datasets?)\b|все\s+результат|весь\s+(?:ход|журнал)/i.test(task)
+    ? "run_results"
+    : "last_result";
   return { tool: "save_artifact", arguments: { source, format, name } };
 }
 
@@ -273,8 +287,11 @@ export function skillFromRun(run: CapturedRun): BrowserWorkflowSkill {
   const capability = workflowCapability(run.task, run.evidence);
   const recipe = workflowRecipe(run.task, run.evidence);
   const artifactAction = artifactActionFromTask(run.task);
-  const actions = artifactAction && !recipe.actions.some((action) => action.tool.replace(/^(?:clawbrowser|nextbrowser)\./, "") === "save_artifact")
-    ? [...recipe.actions, artifactAction]
+  const hasArtifact = recipe.actions.some((action) => action.tool.replace(/^(?:clawbrowser|nextbrowser)\./, "") === "save_artifact");
+  const actions = artifactAction
+    ? hasArtifact
+      ? recipe.actions.map((action) => action.tool.replace(/^(?:clawbrowser|nextbrowser)\./, "") === "save_artifact" ? artifactAction : action)
+      : [...recipe.actions, artifactAction]
     : recipe.actions;
   return {
     id: uid(), title: workflowTitle(run.task, domain), domain, task: run.task,

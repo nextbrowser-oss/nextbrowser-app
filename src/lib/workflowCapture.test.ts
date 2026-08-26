@@ -52,10 +52,10 @@ describe("terminal workflow capture", () => {
     expect(instructions).not.toContain("gpt-5.6-sol");
   });
 
-  it("stores task actions but leaves session lifecycle to the app", () => {
+  it("stores portable task actions, dropping transient element ids and session lifecycle", () => {
     const recipe = workflowRecipe(terminalBrowserTask(transcript), transcript);
     expect(recipe.capability).toBe("search");
-    expect(recipe.actions.map((action) => action.tool)).toEqual(["multi_action", "paginate_extract"]);
+    expect(recipe.actions.map((action) => action.tool)).toEqual(["paginate_extract"]);
     expect(recipe.actions.some((action) => ["start", "prepare"].includes(action.tool))).toBe(false);
   });
 
@@ -132,6 +132,38 @@ Called clawbrowser.extract({"container":"article.product","fields":["title","pri
       { tool: "wait", arguments: { selector: "shreddit-post", timeout: 30 } },
       { tool: "evaluate", arguments: { expression: 'Array.from(document.querySelectorAll("shreddit-post"))' } },
     ]);
+  });
+
+  it("drops transient element ids, diagnostic probes, and a failed search branch before a results URL fallback", () => {
+    const noisySearch = [
+      'Called clawbrowser.open({"url":"https://github.com/search"})\n{"ok":true}',
+      'Called clawbrowser.multi_action({"actions":[{"type":"input","element_id":1557,"text":"browser automation"},{"type":"press","key":"Enter"}]})\n{"ok":true}',
+      'Called clawbrowser.click({"element_id":1569})\n{"ok":true}',
+      'Called clawbrowser.evaluate({"expression":"document.querySelector(\\"input\\")?.outerHTML"})\n{"ok":true}',
+      'Called clawbrowser.input({"locator":{"role":"textbox","name":"Search GitHub"},"text":"browser automation"})\n{"ok":true}',
+      'Called clawbrowser.press({"locator":{"role":"textbox","name":"Search GitHub"},"key":"Enter"})\n{"ok":true}',
+      'Called clawbrowser.open({"url":"https://github.com/search?q=browser+automation&type=repositories"})\n{"ok":true}',
+      'Called clawbrowser.evaluate({"expression":"document.querySelector(\\"[data-testid=results-list]\\")?.outerHTML"})\n{"ok":true}',
+      'Called clawbrowser.extract({"container":"[data-testid=results-list] > div","fields":{"name":{"selector":"h3 a"}},"limit":5})\n{"count":5}',
+      'Called clawbrowser.save_artifact({"source":"last_result","format":"json","name":"github.json"})\n{"ok":true}',
+    ].join("\n");
+    expect(workflowRecipe("Search GitHub", noisySearch).actions).toEqual([
+      { tool: "open", arguments: { url: "https://github.com/search?q=browser+automation&type=repositories" } },
+      { tool: "wait", arguments: { selector: "[data-testid=results-list] > div", timeout: 30 } },
+      { tool: "extract", arguments: { container: "[data-testid=results-list] > div", fields: { name: { selector: "h3 a" } }, limit: 5 } },
+      { tool: "save_artifact", arguments: { source: "last_result", format: "json", name: "github.json" } },
+    ]);
+  });
+
+  it("normalizes nextctl field shorthand for deterministic replay", () => {
+    const shorthand = [
+      'Called clawbrowser.open({"url":"https://github.com/search?q=browser"})\n{"ok":true}',
+      'Called clawbrowser.extract({"container":"article","fields":{"url":"","title":"h3"},"limit":5})\n{"count":5}',
+    ].join("\n");
+    expect(workflowRecipe("Search GitHub", shorthand).actions.at(-1)?.arguments.fields).toEqual({
+      url: { selector: "" },
+      title: { selector: "h3" },
+    });
   });
 
   it("prefers a singular container selector when deriving the readiness wait", () => {
