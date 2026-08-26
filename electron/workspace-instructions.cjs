@@ -14,6 +14,7 @@ function managedInstructions(browserContext = "") {
 - Start or reuse the requested profile exactly once. Pass the target URL to \`start\`; do not separately open the same URL unless navigation actually failed.
 - Include \`wait_for: {"settle": true}\` and \`return_state: true\` in the same MCP \`start\` call when the next step needs page controls; do not issue separate \`wait\` and \`state\` calls.
 - For catalogs, listings, and search results, use one \`paginate_extract\` call after the page is ready. Do not manually repeat \`scroll\` → \`wait\` → \`state\`; \`paginate_extract\` scrolls, waits, extracts, deduplicates, filters, and sorts in one operation.
+- For a short read-only top-N request on an already-open listing, use one \`extract\` or \`paginate_extract\` call, save the requested artifact once, and finish immediately. Do not run status, recipe discovery, repeated state, lifecycle, or proxy verification calls first when the authoritative context already says that the profile is running in the requested country.
 - Combine actions with \`wait_for\` and \`return_state: true\` when another decision is needed. Do not wait for \`load\` after a plain scroll because scrolling does not navigate.
 - Do not use another browser integration when the user asks for a specific runtime or profile.
 - Do not read or invoke Chrome, browser-control, or another browser skill when a NextBrowser profile is available; the profile's saved runtime and NextBrowser MCP are authoritative.

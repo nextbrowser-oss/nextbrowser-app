@@ -12,8 +12,8 @@ describe("browserProfileContext", () => {
       profileNames: ["HEY!", "baka"],
       profileToolsets: { "HEY!": "dasbrowser", baka: "clawbrowser" },
     } as Workspace;
-    const result = browserProfileContext([workspace], "one", "HEY!", undefined, { "HEY!": "running" });
-    expect(result).toContain("HEY!: DasBrowser (workspace: Work, selected, running; reuse without starting)");
+    const result = browserProfileContext([workspace], "one", "HEY!", undefined, { "HEY!": "running" }, { "HEY!": { country: "us" } });
+    expect(result).toContain("HEY!: DasBrowser (workspace: Work, selected, running; reuse without starting, verified proxy country: US)");
     expect(result).toContain("running; reuse without starting");
     expect(result).toContain("baka: ClawBrowser (workspace: Work");
     expect(result).toContain("do not spawn it through nextctl or nextbrowser.start");
@@ -21,6 +21,8 @@ describe("browserProfileContext", () => {
     expect(result).toContain("short-lived host-control URL and token into every chat run");
     expect(result).toContain("never ask the user to start or reconnect a stopped DasBrowser profile manually");
     expect(result).toContain("rejects profiles outside");
+    expect(result).toContain("if it matches the requested country, do not rotate, restart, verify, or inspect");
+    expect(result).toContain("short read-only top-N request");
   });
 
   it("keeps profiles from other workspaces outside the chat scope", () => {

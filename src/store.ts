@@ -1920,6 +1920,7 @@ export const useStore = create<State>((set, get) => {
       activeProfile,
       multiloginSelection,
       get().statuses,
+      get().profileIdentities,
     ) + recorderContext;
     const browserProfiles = (itemWorkspace?.profileNames ?? []).map((name) => ({
       name,

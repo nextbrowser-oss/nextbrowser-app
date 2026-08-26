@@ -392,6 +392,7 @@ export function ChatView() {
                 s.selectedProfile,
                 multiloginSelection,
                 s.statuses,
+                s.profileIdentities,
               )}
               browserProfiles={(s.workspaces.find((workspace) => workspace.id === conv?.workspaceId)?.profileNames ?? []).map((name) => ({
                 name,
