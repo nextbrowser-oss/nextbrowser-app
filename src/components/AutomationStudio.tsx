@@ -789,12 +789,24 @@ export function AutomationStudio() {
 
   const openArtifact = async (artifact: AutomationArtifact) => {
     try { await invoke("artifact_open", { workspaceId, id: artifact.id }); }
-    catch (error) { setArtifactError(error instanceof Error ? error.message : String(error)); }
+    catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/artifact (?:file was removed|no longer exists)/i.test(message)) {
+        await loadArtifacts();
+        setArtifactError(`${artifact.name} was deleted outside NextBrowser and has been removed from this list.`);
+      } else setArtifactError(message);
+    }
   };
 
   const revealArtifact = async (artifact: AutomationArtifact) => {
     try { await invoke("artifact_reveal", { workspaceId, id: artifact.id }); }
-    catch (error) { setArtifactError(error instanceof Error ? error.message : String(error)); }
+    catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/artifact (?:file was removed|no longer exists)/i.test(message)) {
+        await loadArtifacts();
+        setArtifactError(`${artifact.name} was deleted outside NextBrowser and has been removed from this list.`);
+      } else setArtifactError(message);
+    }
   };
 
   const deleteArtifact = async (artifact: AutomationArtifact) => {

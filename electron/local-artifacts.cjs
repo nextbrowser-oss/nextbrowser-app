@@ -100,8 +100,23 @@ function createLocalArtifactStore({ rootDir, now = () => Date.now(), makeId = ra
   }
 
   return {
-    async list(workspaceId) {
-      return (await readIndex(workspaceId)).map(publicArtifact).sort((a, b) => b.createdAt - a.createdAt);
+    list(workspaceId) {
+      return enqueue(workspaceId, async () => {
+        const items = await readIndex(workspaceId);
+        const location = locations(workspaceId);
+        const present = await Promise.all(items.map(async (item) => {
+          const target = path.join(location.files, path.basename(item.storedName));
+          try {
+            return (await fs.stat(target)).isFile();
+          } catch (error) {
+            if (error?.code === "ENOENT" || error?.code === "ENOTDIR") return false;
+            throw error;
+          }
+        }));
+        const existing = items.filter((_item, index) => present[index]);
+        if (existing.length !== items.length) await writeIndex(workspaceId, existing);
+        return existing.map(publicArtifact).sort((a, b) => b.createdAt - a.createdAt);
+      });
     },
 
     importFile(workspaceId, filePath) {
