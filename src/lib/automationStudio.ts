@@ -205,6 +205,42 @@ export function capturedRunsForRecording(
   )).filter((run) => run.answer.createdAt >= recording.startedAt);
 }
 
+/**
+ * Return the latest completed browser task even when the agent transport did
+ * not expose structured tool calls. Hybrid recording still needs this run to
+ * retain the user's real task/title instead of becoming a generic manual run.
+ */
+export function capturedTaskRunsForRecording(
+  conversations: Conversation[],
+  recording: { workspaceId: string; agentId?: string; startedAt: number },
+): CapturedRun[] {
+  const traced = new Map(capturedRunsForRecording(conversations, recording).map((run) => [run.id, run]));
+  const runs: CapturedRun[] = [];
+  for (const conversation of conversations) {
+    if ((conversation.workspaceId && conversation.workspaceId !== recording.workspaceId)
+      || (recording.agentId && conversation.agent !== recording.agentId)) continue;
+    for (let index = 0; index < conversation.messages.length - 1; index += 1) {
+      const task = conversation.messages[index];
+      const answer = conversation.messages[index + 1];
+      if (task.role !== "user" || answer.role !== "assistant" || !successfulBrowserAnswer(answer)
+        || answer.createdAt < recording.startedAt) continue;
+      const existing = traced.get(answer.id);
+      if (existing) runs.push(existing);
+      else {
+        const sanitizedAnswer = sanitizedRecordedAnswer(answer);
+        runs.push({
+          id: answer.id,
+          task: redactText(task.text),
+          answer: sanitizedAnswer,
+          evidence: runEvidence(sanitizedAnswer),
+          conversationTitle: conversation.title,
+        });
+      }
+    }
+  }
+  return runs.sort((a, b) => b.answer.createdAt - a.answer.createdAt);
+}
+
 export function artifactActionFromTask(task: string): BrowserWorkflowAction | undefined {
   const saveIntent = /(?:\bsave\b|\bexport\b|сохран(?:и|ить|яй)|экспорт(?:ируй|ировать)?)/i.test(task);
   const artifactIntent = /(?:artifact\s*center|артефакт(?:ный|ов)?\s*(?:центр|центре)?|\b(?:csv|json|txt)\b|\bfile\b|\bфайл\w*)/i.test(task);

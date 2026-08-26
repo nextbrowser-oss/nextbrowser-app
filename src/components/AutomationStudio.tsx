@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { invoke } from "../electronBridge";
 import { uid } from "../lib/ids";
-import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, clearActiveAutomationRecording, setActiveAutomationRecording } from "../lib/automationRecording";
+import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, clearActiveAutomationRecording, setActiveAutomationRecording, type ActiveAutomationRecording } from "../lib/automationRecording";
 import {
   capturedWorkflowDomain,
   recordedBrowserActions,
   workflowQuality,
 } from "../lib/workflowCapture";
-import { capturedRunFromHybridRecording, capturedRunsForRecording, skillFromRun, type CapturedRun, type ManualBrowserRecording } from "../lib/automationStudio";
+import { capturedRunFromHybridRecording, capturedRunsForRecording, capturedTaskRunsForRecording, skillFromRun, type CapturedRun, type ManualBrowserRecording } from "../lib/automationStudio";
 import type { AutomationArtifact, BrowserWorkflowAction, BrowserWorkflowSkill } from "../types";
 import { humanBytes } from "../types";
 import { Icon, Spinner } from "./Icon";
@@ -16,12 +16,13 @@ import { activeAutomationExecution, automationExecutionView, AUTOMATION_EXECUTIO
 import { userFacingBrowserError } from "../lib/userFacingBrowserError";
 
 type StudioSection = "recorder" | "workflows" | "artifacts";
-type BackendRecording = { id: string; status: string; revision: number; document: { run?: CapturedRun }; updated_at: string };
+type BackendRecording = { id: string; status: string; revision: number; document: { run?: CapturedRun }; created_at?: string; updated_at: string };
 type BackendRun = { id: string; workflow_id: string; workflow_version: number; status: "queued" | "running" | "completed" | "failed" | "cancelled"; error?: string; created_at: string; completed_at?: string };
 type ElementPickMode = "target" | "presence" | "container" | "field" | "next";
 type ElementPickState = { pickId: string; actionIndex: number; mode: ElementPickMode; fieldName?: string };
 type ElementPickResult = { cancelled?: boolean; selector?: string; locator?: { role?: string; name?: string; text?: string }; label?: string; tag?: string; attribute?: string; pageUrl?: string };
 type WorkflowContextMenu = { workflowId: string; x: number; y: number };
+type RecordingReview = { active: ActiveAutomationRecording; captured: CapturedRun; reason: string; actionCount: number; missingAgentTrace: boolean };
 
 const ACTION_OPTIONS = [
   ["navigate", "Open a web page"], ["open", "Open a URL"], ["input", "Enter text"], ["click", "Click something"],
@@ -171,6 +172,7 @@ export function AutomationStudio() {
   const [playback, setPlayback] = useState<AutomationExecution | undefined>(activeAutomationExecution);
   const [playbackClock, setPlaybackClock] = useState(Date.now());
   const [recordingStopping, setRecordingStopping] = useState(false);
+  const [recordingReview, setRecordingReview] = useState<RecordingReview>();
   const [elementPick, setElementPick] = useState<ElementPickState>();
   const [selectedActionIndex, setSelectedActionIndex] = useState(0);
   const [workflowContextMenu, setWorkflowContextMenu] = useState<WorkflowContextMenu>();
@@ -387,11 +389,37 @@ export function AutomationStudio() {
     if (!active || active.phase !== "recording" || active.workspaceId !== workspaceId || recordingStopping) return;
     setRecordingStopping(true);
     try {
-      const agentCaptured = runs.find((run) => run.answer.createdAt >= active.startedAt);
+      // Read the store at the moment Stop is pressed. A just-finished agent
+      // response may not yet be present in this render's memoized `runs`.
+      const agentCaptured = capturedTaskRunsForRecording(useStore.getState().conversations, active)[0];
       const captured = ["manual", "hybrid"].includes(active.source || "agent")
         ? capturedRunFromHybridRecording(active.id, await invoke<ManualBrowserRecording>("automation_page_recording_stop", { recordingId: active.id }), agentCaptured)
         : agentCaptured;
       if (captured) {
+        const domain = capturedWorkflowDomain(captured.task, captured.evidence);
+        const quality = workflowQuality(captured.task, captured.evidence, domain);
+        const actionCount = recordedBrowserActions(captured.evidence).length;
+        const missingAgentTrace = !!agentCaptured && !/(?:clawbrowser|nextbrowser)\.[a-z_]+\s*\(/i.test(agentCaptured.evidence);
+        clearActiveAutomationRecording();
+        setRecordingSince(0);
+        setRecordingDestination("recording");
+        if (!quality.reusable) {
+          setRecordingReview({ active, captured, reason: quality.reason, actionCount, missingAgentTrace });
+          return;
+        }
+        await saveCompletedRecording(active, captured);
+      } else {
+        clearActiveAutomationRecording();
+        setRecordingSince(0);
+        setRecordingDestination("recording");
+        setNotice("Recording stopped. The incomplete attempt was discarded.");
+      }
+      await loadRecordings();
+    } catch (error) { reportError(error); }
+    finally { setRecordingStopping(false); }
+  };
+
+  const saveCompletedRecording = async (active: ActiveAutomationRecording, captured: CapturedRun) => {
         await invoke("automation_recording_put", { recording: { id: active.id, workspace_id: workspaceId, status: "completed", document: { run: captured }, base_revision: 0 } });
         let savedWorkflow: BrowserWorkflowSkill | undefined;
         if (active.destination === "workflow") {
@@ -418,12 +446,14 @@ export function AutomationStudio() {
         } else {
           setNotice("Recording stopped and saved. Review it below or turn it into a workflow.");
         }
-      } else {
-        clearActiveAutomationRecording();
-        setRecordingSince(0);
-        setRecordingDestination("recording");
-        setNotice("Recording stopped. The incomplete attempt was discarded.");
-      }
+  };
+
+  const saveRecordingReview = async () => {
+    if (!recordingReview) return;
+    setRecordingStopping(true);
+    try {
+      await saveCompletedRecording(recordingReview.active, recordingReview.captured);
+      setRecordingReview(undefined);
       await loadRecordings();
     } catch (error) { reportError(error); }
     finally { setRecordingStopping(false); }
@@ -869,11 +899,13 @@ export function AutomationStudio() {
             const domain = capturedWorkflowDomain(run.task, run.evidence);
             const quality = workflowQuality(run.task, run.evidence, domain);
             const actions = recordedBrowserActions(run.evidence);
+            const createdAt = recording.created_at ? Date.parse(recording.created_at) : run.answer.createdAt;
             return <article className={"capture-card" + (recordedRun?.id === run.id ? " is-new" : "")} key={run.id}>
               <div className="capture-kind"><span className="ready">COMPLETED RECORDING</span><small>{recording.status === "completed" ? "Completed" : recording.status}</small></div>
               <div className="capture-card-copy">
                 <strong>{run.task.slice(0, 160)}</strong>
                 <span>{run.conversationTitle} · {domain || "Unknown website"} · {actions.length} recorded action{actions.length === 1 ? "" : "s"}</span>
+                <time className="capture-created-at" dateTime={new Date(createdAt).toISOString()}>Recorded {new Date(createdAt).toLocaleString()}</time>
                 {run.captureSource === "structured-recipe" && <small>Captured from the workflow recipe used by the agent; raw Codex tool events were not available.</small>}
                 <small className={quality.reusable ? "ok" : "muted"}><strong>{quality.reusable ? "Reusable" : "Not reusable"}:</strong> {quality.reason}</small>
                 <details className="capture-steps"><summary>Show recorded steps</summary><ol>{actions.map((action, index) => <li key={`${index}-${action.tool}`}><b>{actionLabel(action.tool)}</b><code>{JSON.stringify(action.arguments)}</code></li>)}</ol></details>
@@ -974,6 +1006,20 @@ export function AutomationStudio() {
         <div className="automation-management-note"><Icon name="info.circle" size={13} /><span>Local files can be opened or deleted at any time. Built-in examples stay available for new users.</span></div>
         <div className="artifact-grid">{artifacts.map((artifact) => { const builtIn = isBuiltInArtifact(artifact); return <article className="artifact-card" key={artifact.id}><div className="artifact-icon"><Icon name="doc" size={22} /></div><div className="artifact-copy"><strong title={artifact.name}>{artifact.name}</strong>{builtIn && <small className="artifact-example-label">Built-in example</small>}<span>{artifact.extension.toUpperCase() || "FILE"} · {humanBytes(artifact.size)}</span><small>Added {new Date(artifact.createdAt).toLocaleString()} · Local only</small></div><div className="artifact-actions"><button className="secondary" title="Reveal this file without opening it" onClick={() => void revealArtifact(artifact)}><Icon name="folder" size={12} /> {revealArtifactLabel()}</button><button className="secondary" onClick={() => void openArtifact(artifact)}>Open</button>{!builtIn && <button className="mini danger-text" onClick={() => void deleteArtifact(artifact)}>Delete</button>}</div></article>; })}{!artifactBusy && !artifacts.length && <div className="automation-empty"><Icon name="tray.full.fill" size={28} /><strong>No artifacts in this workspace</strong><span>Add reports, downloads, screenshots, spreadsheets, or other run outputs. They will stay on this computer.</span></div>}</div>
       </section>}
+      {recordingReview && <div className="modal-overlay recording-review-overlay" role="presentation">
+        <section className="modal-card recording-review-dialog" role="dialog" aria-modal="true" aria-labelledby="recording-review-title">
+          <div className="recording-review-icon"><Icon name="exclamationmark.triangle.fill" size={20} /></div>
+          <div>
+            <h2 id="recording-review-title">This recording may not replay successfully</h2>
+            <p>Only {recordingReview.actionCount} replayable action{recordingReview.actionCount === 1 ? " was" : "s were"} captured. {recordingReview.reason}</p>
+            {recordingReview.missingAgentTrace && <p className="recording-review-detail">The agent completed the chat task, but its structured extraction actions were not available to Recorder. Browser navigation and visible page interactions were captured; silent data extraction was not.</p>}
+          </div>
+          <div className="recording-review-actions">
+            <button className="secondary danger-text" disabled={recordingStopping} onClick={() => { setRecordingReview(undefined); setNotice("Recording discarded."); }}>Discard</button>
+            <button className="primary" disabled={recordingStopping} onClick={() => void saveRecordingReview()}>{recordingStopping && <Spinner size={12} />} Save anyway</button>
+          </div>
+        </section>
+      </div>}
     </div>
   );
 }

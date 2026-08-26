@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { artifactActionFromTask, capturedRunFromHybridRecording, skillFromRun, type CapturedRun, type ManualBrowserRecording } from "./automationStudio";
+import { artifactActionFromTask, capturedRunFromHybridRecording, capturedTaskRunsForRecording, skillFromRun, type CapturedRun, type ManualBrowserRecording } from "./automationStudio";
 import { recordedBrowserActions } from "./workflowCapture";
 
 function agentRun(): CapturedRun {
@@ -32,6 +32,19 @@ function agentRun(): CapturedRun {
 }
 
 describe("hybrid browser recording", () => {
+  it("retains the real chat task when structured agent tool telemetry is unavailable", () => {
+    const runs = capturedTaskRunsForRecording([{
+      id: "conversation", title: "CMC research", agent: "codex", workspaceId: "workspace", createdAt: 900, updatedAt: 1_200,
+      messages: [
+        { id: "task", role: "user", text: "Collect the top five trending coins", status: "done", createdAt: 1_100 },
+        { id: "answer", role: "assistant", text: "Collected and saved the top five coins.", status: "done", createdAt: 1_200, toolEvents: [] },
+      ],
+    }], { workspaceId: "workspace", agentId: "codex", startedAt: 1_000 });
+    expect(runs).toHaveLength(1);
+    expect(runs[0].task).toBe("Collect the top five trending coins");
+    expect(runs[0].evidence).toBe("Collected and saved the top five coins.");
+  });
+
   it("keeps a manual-only recording", () => {
     const recording: ManualBrowserRecording = { actions: [{ tool: "open", arguments: { url: "https://example.com" }, at: 1_000 }] };
     const result = capturedRunFromHybridRecording("manual", recording);
