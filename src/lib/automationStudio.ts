@@ -93,10 +93,13 @@ export function capturedRunFromHybridRecording(id: string, recording: ManualBrow
     .reduce<typeof manual>((kept, action) => {
       const previous = kept.at(-1);
       // Recorder observes the page that was already open when Start was pressed,
-      // then the agent may explicitly open that same URL. Replaying both is noisy
-      // and can restart a dynamic page before extraction.
-      if (action.tool === "open" && previous?.tool === "open"
-        && String(previous.arguments.url || "") === String(action.arguments.url || "")) return kept;
+      // then the agent may explicitly open the task URL. With no interaction
+      // between them, only the latter navigation belongs to the workflow. This
+      // also removes a redundant same-URL reopen on dynamic pages.
+      if (action.tool === "open" && previous?.tool === "open") {
+        kept[kept.length - 1] = action;
+        return kept;
+      }
       kept.push(action);
       return kept;
     }, []);

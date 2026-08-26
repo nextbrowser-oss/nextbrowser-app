@@ -301,8 +301,13 @@ async function nextctlHasSkill(binary) {
 }
 async function nextctlHasAutomationTrace(binary) {
   if (!nextctlAutomationTraceSupport.has(binary)) {
-    nextctlAutomationTraceSupport.set(binary, run(binary, ["mcp", "--help"], {}, { timeoutMs: 5_000 })
-      .then((result) => `${result.stdout}\n${result.stderr}`.includes("--automation-trace-file"))
+    // The internal Recorder flag is intentionally hidden from --help. Probe
+    // parsing with a relative path: supporting builds reject it as non-absolute,
+    // while older builds reject the flag itself before starting the MCP server.
+    // A fresh binary without this app's isolated credential can reject auth
+    // after parsing; that also proves Cobra accepted the flag.
+    nextctlAutomationTraceSupport.set(binary, run(binary, ["mcp", "--automation-trace-file", "nextbrowser-capability-probe"], {}, { timeoutMs: 5_000 })
+      .then((result) => /automation trace file must be an absolute path|API_KEY_REQUIRED|Missing Clawbrowser API key/i.test(`${result.stdout}\n${result.stderr}`))
       .catch(() => false));
   }
   return nextctlAutomationTraceSupport.get(binary);

@@ -83,9 +83,27 @@ describe("hybrid browser recording", () => {
     ] };
     const result = capturedRunFromHybridRecording("hybrid", recording, agent);
     expect(recordedBrowserActions(result?.evidence || "")).toEqual([
-      { tool: "open", arguments: { url: "https://example.com" } },
+      { tool: "open", arguments: { profile: "demo", url: "https://example.com" } },
       { tool: "evaluate", arguments: { expression: "(() => [{ rank: 1 }])()" } },
       { tool: "save_artifact", arguments: { source: "last_result", format: "json", name: "top-five.json" } },
+    ]);
+  });
+
+  it("drops the previously open page when the recorded task immediately navigates elsewhere", () => {
+    const agent = {
+      ...agentRun(),
+      task: "Collect recent papers from arxiv.org and save papers.json in Artifact Center.",
+      evidence: "Saved the requested papers.",
+      answer: { ...agentRun().answer, toolEvents: [] },
+    };
+    const recording: ManualBrowserRecording = { actions: [
+      { tool: "open", arguments: { url: "https://github.com/trending" }, at: 1_000 },
+      { tool: "open", arguments: { url: "https://arxiv.org/list/cs.AI/recent" }, at: 5_000 },
+      { tool: "evaluate", arguments: { expression: "(() => [...document.querySelectorAll('dt')])()" }, at: 6_000 },
+    ] };
+    const result = capturedRunFromHybridRecording("hybrid", recording, agent);
+    expect(recordedBrowserActions(result?.evidence || "").map((action) => action.arguments.url).filter(Boolean)).toEqual([
+      "https://arxiv.org/list/cs.AI/recent",
     ]);
   });
 });

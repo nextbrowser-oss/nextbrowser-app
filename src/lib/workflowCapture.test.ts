@@ -120,6 +120,31 @@ Called clawbrowser.extract({"container":"article.product","fields":["title","pri
     ]);
   });
 
+  it("drops stale adjacent navigation and an ambiguous bare-tag click", () => {
+    const noisy = [
+      'Called clawbrowser.open({"url":"https://old.reddit.com/login"})\n{"ok":true}',
+      'Called clawbrowser.open({"url":"https://www.reddit.com/r/programming/top"})\n{"ok":true}',
+      'Called clawbrowser.click({"selector":"button"})\n{"ok":true}',
+      'Called clawbrowser.evaluate({"expression":"Array.from(document.querySelectorAll(\\"shreddit-post\\"))"})\n{"ok":true}',
+    ].join("\n");
+    expect(workflowRecipe("Collect Reddit posts", noisy).actions).toEqual([
+      { tool: "open", arguments: { url: "https://www.reddit.com/r/programming/top" } },
+      { tool: "wait", arguments: { selector: "shreddit-post", timeout: 30 } },
+      { tool: "evaluate", arguments: { expression: 'Array.from(document.querySelectorAll("shreddit-post"))' } },
+    ]);
+  });
+
+  it("prefers a singular container selector when deriving the readiness wait", () => {
+    const article = [
+      'Called clawbrowser.open({"url":"https://en.wikipedia.org/wiki/Web_browser"})\n{"ok":true}',
+      'Called clawbrowser.evaluate({"expression":"(() => { const article = document.querySelector(\\"#bodyContent\\"); return Array.from(article.querySelectorAll(\\"p\\")); })()"})\n{"ok":true}',
+    ].join("\n");
+    expect(workflowRecipe("Read Wikipedia", article).actions[1]).toEqual({
+      tool: "wait",
+      arguments: { selector: "#bodyContent", timeout: 30 },
+    });
+  });
+
   it("rejects empty and failed runs but accepts successful extraction", () => {
     expect(workflowQuality("открой makler.md", "No browser calls").reusable).toBe(false);
     expect(workflowQuality("открой makler.md", 'Called clawbrowser.navigate({"url":"https://makler.md"})\nError: failed').reusable).toBe(false);

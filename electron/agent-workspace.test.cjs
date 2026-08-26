@@ -72,8 +72,9 @@ test("active Recorder requires a replayable final data-collection call", () => {
 
 test("older nextctl builds do not break chat MCP or local artifact saving during recording", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
-  assert.match(main, /run\(binary, \["mcp", "--help"\]/);
-  assert.match(main, /includes\("--automation-trace-file"\)/);
+  assert.match(main, /"--automation-trace-file", "nextbrowser-capability-probe"/);
+  assert.match(main, /automation trace file must be an absolute path/);
+  assert.match(main, /API_KEY_REQUIRED/);
   assert.match(main, /artifactScope\.recorderTraceRequired = false/);
   assert.match(main, /artifactScope\.recorderTraceRequired !== false/);
 });

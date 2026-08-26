@@ -96,7 +96,7 @@ const DATA_TOOLS = new Set(["evaluate", "extract", "paginate_extract", "tabs_ext
 function selectorFromDataCall(call: CapturedCall): string | undefined {
   if (typeof call.args.container === "string" && call.args.container.trim()) return call.args.container.trim();
   if (call.name !== "evaluate" || typeof call.args.expression !== "string") return undefined;
-  return call.args.expression.match(/querySelectorAll?\(\s*(['"`])([^'"`]+)\1\s*\)/)?.[2];
+  return call.args.expression.match(/querySelector(?:All)?\(\s*(['"`])([^'"`]+)\1\s*\)/)?.[2];
 }
 
 /** Keep the result of selector discovery, not every exploratory probe the agent made. */
@@ -105,15 +105,30 @@ function optimizedReplayableActions(transcript: string): Array<{ tool: string; a
   const optimized: CapturedCall[] = [];
   for (let index = 0; index < calls.length; index += 1) {
     const call = calls[index];
+    const previous = optimized.at(-1);
+    if (["open", "navigate"].includes(call.name) && previous && ["open", "navigate"].includes(previous.name)) {
+      // Redirect recovery and the page that was open before recording can
+      // produce adjacent navigations. Nothing consumed the first page, so the
+      // last target is the only deterministic replay step.
+      optimized[optimized.length - 1] = call;
+      continue;
+    }
+    if (call.name === "click" && typeof call.args.selector === "string"
+      && /^(?:button|a|input|div|span)$/i.test(call.args.selector.trim())) {
+      // A bare tag selects an arbitrary first element and can change with any
+      // layout update. Omit it from generated workflows; users can pick the
+      // intended element visually if the interaction is actually required.
+      continue;
+    }
     if (!DATA_TOOLS.has(call.name)) {
       optimized.push(call);
       continue;
     }
     let finalDataCall = call;
     while (index + 1 < calls.length && DATA_TOOLS.has(calls[index + 1].name)) finalDataCall = calls[++index];
-    const previous = optimized.at(-1);
+    const dataPrevious = optimized.at(-1);
     const selector = selectorFromDataCall(finalDataCall);
-    if (selector && previous && ["open", "navigate", "click", "press", "select"].includes(previous.name)) {
+    if (selector && dataPrevious && ["open", "navigate", "click", "press", "select"].includes(dataPrevious.name)) {
       optimized.push({ name: "wait", args: { selector, timeout: 30 }, start: finalDataCall.start, end: finalDataCall.start, score: 10 });
     }
     optimized.push(finalDataCall);
