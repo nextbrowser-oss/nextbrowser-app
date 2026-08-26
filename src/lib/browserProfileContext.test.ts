@@ -40,6 +40,7 @@ describe("browserProfileContext", () => {
     const result = browserProfileContext(workspaces, "one");
     expect(result).toContain("/artifact/save");
     expect(result).toContain("Do not claim that a file was saved unless");
+    expect(result).toContain("never ask the user to reconnect their account");
   });
 
   it("uses the only workspace profile by default without changing its runtime", () => {
