@@ -23,7 +23,7 @@ function render({
   profileKind = "browser" as const,
   selection,
 }: {
-  status?: MultiloginConnectionStatus;
+  status?: MultiloginConnectionStatus | null;
   open?: boolean;
   query?: string;
   profileKind?: "browser" | "mobile";
@@ -109,5 +109,16 @@ describe("MultiloginChatProfilePickerView", () => {
     expect(html).toContain("7_GitHub_acc");
     expect(html).toContain("Token expired");
     expect(html).toContain("Manage connector");
+  });
+
+  it("renders a saved selection without treating an unopened credential as disconnected", () => {
+    const html = render({
+      status: null,
+      selection: { kind: "browser", id: "browser-1", name: "7_GitHub_acc" },
+    });
+
+    expect(html).toContain("7_GitHub_acc");
+    expect(html).not.toContain("is-warning");
+    expect(html).not.toContain("Reconnect");
   });
 });

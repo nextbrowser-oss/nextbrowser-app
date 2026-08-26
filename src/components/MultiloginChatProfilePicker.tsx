@@ -60,7 +60,9 @@ export function MultiloginChatProfilePickerView({
   onManage,
   searchRef,
 }: MultiloginChatProfilePickerViewProps) {
-  const connected = Boolean(status?.connected && status.valid);
+  // A persisted selection can be rendered without unlocking its credential.
+  // Validate it only when the person explicitly opens the picker.
+  const connected = status == null ? Boolean(selection) : Boolean(status.connected && status.valid);
   if (!selection && !status?.connected) return null;
 
   const browserProfiles = status?.browserProfiles ?? [];
@@ -192,7 +194,7 @@ export function MultiloginChatProfilePicker({
   const rootRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<MultiloginConnectionStatus | null>(() => preview ? previewMultiloginConnectionStatus() : null);
-  const [checking, setChecking] = useState(!preview);
+  const [checking, setChecking] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string>();
   const [open, setOpen] = useState(false);
@@ -216,14 +218,6 @@ export function MultiloginChatProfilePicker({
       setRefreshing(false);
     }
   }, [preview]);
-
-  useEffect(() => {
-    if (preview || !workspaceId) {
-      setChecking(false);
-      return;
-    }
-    void loadStatus();
-  }, [loadStatus, preview, workspaceId]);
 
   useEffect(() => {
     if (selection) setProfileKind(selection.kind);

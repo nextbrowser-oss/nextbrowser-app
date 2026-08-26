@@ -6,14 +6,14 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_SKILL_SERVICE_URL = "https://core.nextbrowser.com";
 
 function entityBackendURL(env = process.env) {
-  // next-browser-api owns both the entity APIs and the browser-facing API.
-  // A dev/staging API override must therefore move the whole app to the same
-  // backend instead of leaving Automation Studio pointed at production.
+  // Entity sync and browser runtime traffic intentionally use different
+  // production services. childEnv() always injects CLAWBROWSER_API_BASE_URL for
+  // browser sessions, so accepting that variable here silently sends workspace
+  // and Automation requests to api.nextbrowser.com instead of core.nextbrowser.com.
   const raw = String(
     env.CLAWCTL_SKILL_SERVICE
       || env.NEXTBROWSER_DEV_API_BASE_URL
-      || env.NEXTBROWSER_API_BASE_URL
-      || env.CLAWBROWSER_API_BASE_URL
+      || env.NEXTBROWSER_ENTITY_API_BASE_URL
       || DEFAULT_SKILL_SERVICE_URL,
   ).trim();
   const parsed = new URL(raw);
