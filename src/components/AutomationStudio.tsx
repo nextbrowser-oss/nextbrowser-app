@@ -459,6 +459,19 @@ export function AutomationStudio() {
     finally { setRecordingStopping(false); }
   };
 
+  useEffect(() => {
+    const requestedStop = () => {
+      const active = activeAutomationRecording();
+      const requestedId = sessionStorage.getItem("nextbrowser:automation-stop-request");
+      if (!active || requestedId !== active.id) return;
+      sessionStorage.removeItem("nextbrowser:automation-stop-request");
+      void stopRecording();
+    };
+    requestedStop();
+    window.addEventListener("nextbrowser:request-stop-recording", requestedStop);
+    return () => window.removeEventListener("nextbrowser:request-stop-recording", requestedStop);
+  }, [workspaceId, recordingStopping]);
+
   const recordingModeLabel = recordingDestination === "workflow" ? "Workflow capture mode" : "Manual browser recording";
   const recordingModeButtonLabel = recordingDestination === "workflow" ? "Stop & open workflow" : "Stop recording";
 
