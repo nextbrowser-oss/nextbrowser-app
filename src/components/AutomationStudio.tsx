@@ -365,6 +365,7 @@ export function AutomationStudio() {
       setStudioError(undefined);
       if (s.terminalChat) s.setTerminalChat(false);
       s.setTab("chat");
+      await invoke("app_focus");
     } catch (error) { reportError(error); }
   };
 

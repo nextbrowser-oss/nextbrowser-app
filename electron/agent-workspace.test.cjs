@@ -136,6 +136,7 @@ test("automation recordings support backend deletion", () => {
 });
 
 test("unfinished recording attempts are never persisted as library entities", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const studio = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AutomationStudio.tsx"), "utf8");
   const sidebar = fs.readFileSync(path.join(__dirname, "..", "src", "components", "Sidebar.tsx"), "utf8");
   assert.doesNotMatch(studio, /status: "recording"/);
@@ -151,6 +152,11 @@ test("unfinished recording attempts are never persisted as library entities", ()
   assert.match(studio, /automation_page_recording_stop/);
   assert.doesNotMatch(studio, /else \{\s*s\.setTab\("live"\)/);
   assert.match(studio, /if \(s\.terminalChat\) s\.setTerminalChat\(false\);\s*s\.setTab\("chat"\)/);
+  assert.match(studio, /s\.setTab\("chat"\);\s*await invoke\("app_focus"\)/);
+  assert.match(main, /case "app_focus":[\s\S]*focusMainWindow\(\)/);
+  assert.match(main, /case "app_focus":[\s\S]*setTimeout\(\(\) => focusMainWindow\(\), 400\)/);
+  assert.match(main, /process\.platform === "darwin"\) app\.focus\(\{ steal: true \}\)/);
+  assert.match(main, /window\.show\(\);\s*window\.moveTop\(\);\s*window\.focus\(\)/);
   assert.match(studio, /Open browser/);
   assert.match(studio, /Open Project Chat/);
   assert.doesNotMatch(studio, />Pause recording</);

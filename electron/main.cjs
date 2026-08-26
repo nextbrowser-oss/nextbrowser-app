@@ -769,8 +769,10 @@ function emit(channel, payload) { for (const window of BrowserWindow.getAllWindo
 function focusMainWindow() {
   const window = BrowserWindow.getAllWindows()[0];
   if (!window) return null;
+  if (process.platform === "darwin") app.focus({ steal: true });
   if (window.isMinimized()) window.restore();
   window.show();
+  window.moveTop();
   window.focus();
   return window;
 }
@@ -1034,6 +1036,11 @@ async function invokeCommand(command, args = {}, sender) {
       return null;
     }
     case "app_platform": return { platform: process.platform, arch: process.arch };
+    case "app_focus": {
+      focusMainWindow();
+      setTimeout(() => focusMainWindow(), 400);
+      return null;
+    }
     case "app_set_theme": {
       const theme = args.theme === "light" ? "light" : "dark";
       nativeTheme.themeSource = theme;
