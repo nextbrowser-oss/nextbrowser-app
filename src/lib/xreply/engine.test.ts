@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { runPass } from "./engine";
-import { emptyXReplyState, hasReplied, withHandleState, type XReplyState } from "./state";
+import {
+  accruedTokens,
+  emptyXReplyState,
+  hasReplied,
+  recordReply,
+  replyBudget,
+  withHandleState,
+  withinLimits,
+  type XReplyState,
+} from "./state";
 import type { XBrowser } from "./browser";
 
 interface PostFixture { id: string; text?: string; author?: string; promoted?: boolean; createdAt?: string }
@@ -226,7 +235,7 @@ describe("one watch pass", () => {
     const { args } = deps(spent, { triggers: NOTICE, posts: [{ id: "20" }] });
     const { state, summary } = await runPass(args);
     expect(summary.sent).toBe(0);
-    expect(summary.notes.join(" ")).toContain("Hourly limit");
+    expect(summary.notes.join(" ")).toContain("Hourly budget spent");
     expect(state.drafts[0].status).toBe("approved");
   });
 
@@ -356,5 +365,48 @@ describe("reaction GIFs", () => {
     const { summary } = await runPass(args);
     expect(summary.sent).toBe(1);
     expect(clicks).not.toContain("gif-button");
+  });
+});
+
+describe("the stacking reply budget", () => {
+  const HOUR = 60 * 60 * 1000;
+  const at = 1_800_000_000_000;
+
+  it("carries unused hourly budget forward, capped by the daily limit", () => {
+    const state = { ...emptyXReplyState(), hourlyMax: 5, dailyMax: 20, rateTokens: 0, rateAccruedAt: at };
+    expect(accruedTokens(state, at + 2 * HOUR)).toBe(10);
+    // A long quiet stretch stacks only up to one day's worth.
+    expect(accruedTokens(state, at + 100 * HOUR)).toBe(20);
+  });
+
+  it("starts a migrated state from what the last hour already spent", () => {
+    const state = {
+      ...emptyXReplyState(),
+      hourlyMax: 5,
+      replies: [{ postId: "a", repliedAt: at - 10_000 }, { postId: "b", repliedAt: at - 20_000 }],
+    };
+    expect(accruedTokens(state, at)).toBe(3);
+  });
+
+  it("spends one token per reply and refills over time", () => {
+    let state: XReplyState = { ...emptyXReplyState(), hourlyMax: 2, dailyMax: 20, rateTokens: 2, rateAccruedAt: at };
+    state = recordReply(state, { postId: "a", repliedAt: at });
+    state = recordReply(state, { postId: "b", repliedAt: at });
+    expect(withinLimits(state, at).allowed).toBe(false);
+    expect(withinLimits(state, at + HOUR / 2).allowed).toBe(true);
+  });
+
+  it("keeps the daily cap hard no matter how much stacked", () => {
+    const replies = Array.from({ length: 20 }, (_, index) => ({ postId: String(index), repliedAt: at - index * 60_000 }));
+    const state = { ...emptyXReplyState(), hourlyMax: 60, dailyMax: 20, rateTokens: 50, rateAccruedAt: at, replies };
+    const verdict = withinLimits(state, at);
+    expect(verdict.allowed).toBe(false);
+    expect(verdict.reason).toContain("Daily limit");
+    expect(replyBudget(state, at)).toBe(0);
+  });
+
+  it("reports what may go out right now", () => {
+    const state = { ...emptyXReplyState(), hourlyMax: 5, dailyMax: 20, rateTokens: 7.9, rateAccruedAt: at };
+    expect(replyBudget(state, at)).toBe(7);
   });
 });

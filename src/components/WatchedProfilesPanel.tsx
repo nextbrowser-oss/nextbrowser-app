@@ -9,7 +9,7 @@ import {
   type WatchedProfile,
   type WatchedProfileReport,
 } from "../types";
-import type { XReplyDraft } from "../lib/xreply/state";
+import { replyBudget, type XReplyDraft } from "../lib/xreply/state";
 import { Icon } from "./Icon";
 
 const MINUTE = 60_000;
@@ -386,6 +386,29 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                 ))}
               </select>
             </label>
+            {engine && (
+              <label className="muted small watchlist-limits"
+                title="Unused hourly budget carries over, up to the daily cap.">
+                Max
+                <input type="number" min={1} max={60} value={engineState.hourlyMax}
+                  onChange={(event) => {
+                    const value = Math.max(1, Math.min(60, Math.round(Number(event.target.value) || 1)));
+                    updateSettings({ hourlyMax: value });
+                  }} />
+                /h
+                <input type="number" min={1} max={500} value={engineState.dailyMax}
+                  onChange={(event) => {
+                    const value = Math.max(1, Math.min(500, Math.round(Number(event.target.value) || 1)));
+                    updateSettings({ dailyMax: value });
+                  }} />
+                /day
+              </label>
+            )}
+            {engine && (
+              <span className="watchlist-chip" title="Replies that may go out right now — the stacked hourly budget, capped by the day.">
+                {replyBudget(engineState, Date.now())} ready
+              </span>
+            )}
             <span className="spacer" />
             <button
               className="btn-bordered"

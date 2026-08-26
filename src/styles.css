@@ -3253,6 +3253,21 @@ body.is-resizing-sidebar {
 .watchlist-loop-state .status-dot { margin-top: 6px; }
 .watchlist-loop-controls { align-items: center; gap: 8px; }
 .watchlist-interval { display: inline-flex; align-items: center; gap: 6px; }
+.watchlist-limits { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.watchlist-limits input {
+  width: 46px;
+  border: 1px solid var(--surface-7);
+  border-radius: var(--button-radius-compact);
+  background: var(--surface-3);
+  color: var(--text);
+  padding: 4px 5px;
+  text-align: center;
+  /* The native spinner eats half of a two-digit value at this width. */
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.watchlist-limits input::-webkit-outer-spin-button,
+.watchlist-limits input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .watchlist-interval select {
   border: 1px solid var(--surface-7);
   border-radius: var(--button-radius-compact);
