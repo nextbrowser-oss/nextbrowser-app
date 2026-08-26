@@ -158,6 +158,9 @@ test("unfinished recording attempts are never persisted as library entities", ()
   assert.match(studio, /startRecording\("workflow", "hybrid"\)/);
   assert.match(studio, /automation_page_recording_start/);
   assert.match(studio, /automation_page_recording_stop/);
+  assert.match(sidebar, /nextbrowser:automation-stop-request/);
+  assert.match(studio, /nextbrowser:request-stop-recording/);
+  assert.doesNotMatch(sidebar, /automation_recording_put/);
   assert.doesNotMatch(studio, /else \{\s*s\.setTab\("live"\)/);
   assert.match(studio, /if \(s\.terminalChat\) s\.setTerminalChat\(false\);\s*s\.setTab\("chat"\)/);
   assert.match(studio, /s\.setTab\("chat"\);\s*await invoke\("app_focus"\)/);
