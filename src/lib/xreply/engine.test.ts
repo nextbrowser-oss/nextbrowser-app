@@ -62,7 +62,12 @@ function fakeBrowser(fixture: PageFixture) {
     press: vi.fn(async () => { clicks.push("escape"); }),
     evaluate: vi.fn(async (script: string) => {
       if (script.includes('identity: publisherIdentity("")')) {
-        return { url: "https://x.com/home", login_wall: !signedIn, identity: { present: signedIn, handle: signedIn ? publisher : "" } } as never;
+        return {
+          url: "https://x.com/home", login_wall: !signedIn,
+          // An empty publisher is the delegated-account case: the chrome is
+          // there, the "@handle" line is not.
+          identity: { present: signedIn, session: signedIn, handle: signedIn ? publisher : "", matches: false },
+        } as never;
       }
       if (script.includes("snapshot.triggers")) {
         return {
@@ -90,7 +95,7 @@ function fakeBrowser(fixture: PageFixture) {
           composer: { present: true, text: inspected > 1 ? "drafted reply" : "" },
           submit: { present: true, disabled: fixture.publishOutcome === "refused" },
           media: { present: !!fixture.gif && fixture.gif.found !== false && fixture.gif.settles !== false && inspected > 1, uploading: false },
-          identity: { present: true, handle: publisher, matches: true },
+          identity: { present: true, session: true, handle: publisher, matches: true },
           reply_control: true, existing_reply_url: "",
         } as never;
       }
@@ -245,6 +250,18 @@ describe("one watch pass", () => {
     expect(summary.loginRequired).toBe(true);
     expect(summary.checked).toBe(0);
     expect(state.publisher?.signedIn).toBe(false);
+  });
+
+  it("does not ask for a sign-in when the session is there but unnamed", async () => {
+    // A delegated account renders the account chrome without the "@handle"
+    // line. Asking for a sign-in here is the one thing that cannot help.
+    const { args } = deps(watching(), { publisher: "", triggers: NOTICE, posts: [{ id: "20" }] });
+    const { state, summary } = await runPass(args);
+    expect(summary.loginRequired).toBe(false);
+    expect(summary.checked).toBe(0);
+    expect(state.publisher?.signedIn).toBe(true);
+    expect(summary.blocked).toContain("did not name the account");
+    expect(state.lastPassSummary).toContain("did not name the account");
   });
 
   it("refuses to run as an account other than the pinned publisher", async () => {

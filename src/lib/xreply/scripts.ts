@@ -80,6 +80,22 @@ export interface BellState {
   visible: boolean;
 }
 
+/** Who the page is signed in as. `session` is whether x.com rendered a signed-in
+ *  shell at all, which is a separate question from whether it named the account:
+ *  a delegated account and a collapsed sidebar are signed in without saying so. */
+export interface Identity {
+  present: boolean;
+  session: boolean;
+  handle: string;
+  matches: boolean;
+}
+
+export interface IdentitySnapshot {
+  url: string;
+  login_wall: boolean;
+  identity: Identity;
+}
+
 export interface PageState {
   url: string;
   on_post: boolean;
@@ -88,7 +104,7 @@ export interface PageState {
   composer: { present: boolean; text: string };
   submit: { present: boolean; disabled: boolean };
   media: { present: boolean; uploading: boolean };
-  identity: { present: boolean; handle: string; matches: boolean };
+  identity: Identity;
   reply_control: boolean;
   existing_reply_url: string;
 }
@@ -334,17 +350,54 @@ const REPLY_FINDER_HELPER = `
     return "";
   };`;
 
+/** The account chrome a signed-in x.com renders. Any one of these means there
+ *  is a session, even in the layouts where none of them says whose it is. */
+const IDENTITY_ANCHOR_SELECTOR = `[data-testid="SideNav_AccountSwitcher_Button"], a[data-testid="AppTabBar_Profile_Link"], [data-testid="SideNav_NewTweet_Button"]`;
+/** The same chrome plus the markers of a signed-out page, which is what an
+ *  identity read waits for. x.com draws all of it after load, so a read that
+ *  does not wait meets an empty shell and calls a signed-in profile signed out;
+ *  ending the wait on the signed-out markers too keeps that case fast. */
+export const IDENTITY_READY_SELECTOR = `${IDENTITY_ANCHOR_SELECTOR}, a[href="/i/flow/login"], input[autocomplete="username"]`;
+
 const IDENTITY_HELPER = `
   const publisherIdentity = (wantedHandle) => {
     const expected = (wantedHandle || "").toLowerCase();
-    const nodes = Array.from(document.querySelectorAll('[data-testid="SideNav_AccountSwitcher_Button"], a[data-testid="AppTabBar_Profile_Link"]'));
+    const AVATAR = "UserAvatar-Container-";
+    const testIdHandle = (node) => {
+      const id = node ? (node.getAttribute("data-testid") || "") : "";
+      const handle = id.indexOf(AVATAR) === 0 ? id.slice(AVATAR.length) : "";
+      return /^[A-Za-z0-9_]{1,15}$/.test(handle) ? handle : "";
+    };
+    // The avatar names the acting account in its own test id, and that survives
+    // what the switcher's "@handle" line does not: a collapsed sidebar, and a
+    // delegated account, where the label is the account being acted for. It is
+    // only ever read from inside the account chrome — every post on the page
+    // carries one of these too, and those belong to strangers.
+    const avatarHandle = (root) =>
+      testIdHandle(root) || testIdHandle(root.querySelector('[data-testid^="' + AVATAR + '"]'));
+    const textHandle = (node) => {
+      const match = /@([A-Za-z0-9_]{1,15})(?![A-Za-z0-9_])/.exec(node.innerText || node.getAttribute("aria-label") || "");
+      return match ? match[1] : "";
+    };
+    const hrefHandle = (node) => {
+      const match = /^\\/([A-Za-z0-9_]{1,15})\\/?(?:[?#]|$)/.exec(node.getAttribute("href") || "");
+      return match ? match[1] : "";
+    };
+    const found = (handle) => ({ present: true, session: true, handle: handle, matches: handle.toLowerCase() === expected });
+    const nodes = Array.from(document.querySelectorAll('${IDENTITY_ANCHOR_SELECTOR}'));
     for (const node of nodes) {
-      const textMatch = /@([A-Za-z0-9_]{1,15})(?![A-Za-z0-9_])/.exec(node.innerText || node.getAttribute("aria-label") || "");
-      const hrefMatch = /^\\/([A-Za-z0-9_]{1,15})\\/?(?:[?#]|$)/.exec(node.getAttribute("href") || "");
-      const handle = textMatch ? textMatch[1] : (hrefMatch ? hrefMatch[1] : "");
-      if (handle) return { present: true, handle: handle, matches: handle.toLowerCase() === expected };
+      const handle = avatarHandle(node) || textHandle(node) || hrefHandle(node);
+      if (handle) return found(handle);
     }
-    return { present: nodes.length > 0, handle: "", matches: false };
+    // The sidebar is the last place to look: a layout that drops the switcher
+    // entirely still draws the account's avatar in it.
+    const sideNav = document.querySelector('header[role="banner"]');
+    const fromSideNav = sideNav ? avatarHandle(sideNav) : "";
+    if (fromSideNav) return found(fromSideNav);
+    // A session nobody could name is not a signed-out one, and reporting it as
+    // signed out sends the user to a sign-in they have already done.
+    const session = nodes.length > 0;
+    return { present: session, session: session, handle: "", matches: false };
   };`;
 
 const HIT_TEST_HELPER = `

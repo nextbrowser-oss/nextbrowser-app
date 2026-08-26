@@ -11,12 +11,14 @@
 import type { XBrowser } from "./browser";
 import {
   FEED_READY_SELECTOR,
+  IDENTITY_READY_SELECTOR,
   TIMELINE_READY_SELECTOR,
   bellScript,
   identityScript,
   notificationsScript,
   timelineScript,
   type BellState,
+  type IdentitySnapshot,
   type NotificationsSnapshot,
   type RawPost,
   type TimelineSnapshot,
@@ -46,6 +48,10 @@ const NOTIFICATIONS_URL = "https://x.com/notifications";
 /** A notice says the newest post is what matters, so the read that follows it
  *  is deliberately small. Ported from noticeReadLimit. */
 const NOTICE_READ_LIMIT = 5;
+/** How long an identity read waits for x.com to draw its account chrome. The
+ *  wait ends on the signed-out markers too, so only a page that renders nothing
+ *  at all pays for the whole window. */
+const IDENTITY_WAIT_SECONDS = 12;
 
 export interface PassDeps {
   browser: XBrowser;
@@ -71,6 +77,9 @@ export interface PassSummary {
   baselined: number;
   stopped: boolean;
   loginRequired: boolean;
+  /** Why the pass did nothing, when the answer is not a missing sign-in. Without
+   *  it the panel reports "0 checked" and the reason stays in the notes. */
+  blocked?: string;
   notes: string[];
 }
 
@@ -83,13 +92,18 @@ class StopRequested extends Error {}
 
 /** readPublisher reports who the profile is signed in as. Everything else in a
  *  pass depends on this: a signed-out profile reads an empty timeline that looks
- *  exactly like an account that has not posted. */
+ *  exactly like an account that has not posted.
+ *
+ *  Being signed in and being named are two answers, not one. x.com renders the
+ *  account chrome after load and, on a delegated account or a narrow window,
+ *  renders it without the "@handle" line — reading either too early or too
+ *  narrowly used to report a working session as signed out, which left the
+ *  panel asking for a sign-in that was already done. */
 export async function readPublisher(browser: XBrowser): Promise<{ handle?: string; signedIn: boolean }> {
-  const state = await browser.evaluate<{ login_wall: boolean; identity: { present: boolean; handle: string } }>(
-    identityScript(),
-  );
-  if (state.login_wall || !state.identity.present) return { signedIn: false };
-  return { handle: state.identity.handle || undefined, signedIn: !!state.identity.handle };
+  await browser.waitForSelector(IDENTITY_READY_SELECTOR, IDENTITY_WAIT_SECONDS).catch(() => undefined);
+  const state = await browser.evaluate<IdentitySnapshot>(identityScript());
+  if (state.login_wall || !state.identity.session) return { signedIn: false };
+  return { handle: state.identity.handle || undefined, signedIn: true };
 }
 
 /** ensureNotifications turns the Notify bell on for one account. It never
@@ -261,6 +275,13 @@ export async function runPass(deps: PassDeps): Promise<PassResult> {
   const passStartedAt = deps.now();
   let state = deps.state;
   if (!state.startedAt) state = { ...state, startedAt: deps.now() };
+  // Every exit goes through here, including the ones that stop early: a pass
+  // that ends without stamping its summary leaves the panel showing the result
+  // of the pass before it.
+  const finish = (): PassResult => {
+    const took = Math.max(1, Math.round((deps.now() - passStartedAt) / 1000));
+    return { state: { ...state, lastPassAt: deps.now(), lastPassSummary: `${describe(summary)} · ${took}s` }, summary };
+  };
   const stopIfAsked = () => {
     if (deps.shouldStop?.()) throw new StopRequested();
   };
@@ -275,14 +296,23 @@ export async function runPass(deps: PassDeps): Promise<PassResult> {
     await openNotifications(deps.browser);
     const publisher = await readPublisher(deps.browser);
     state = { ...state, publisher: { ...publisher, checkedAt: deps.now() } };
-    if (!publisher.signedIn || !publisher.handle) {
+    if (!publisher.signedIn) {
       summary.loginRequired = true;
       note("The browser profile is not signed in to x.com.");
-      return { state, summary };
+      return finish();
+    }
+    if (!publisher.handle) {
+      // Signed in, but the page never named the account. Asking for a sign-in
+      // here is the one thing that cannot help, so the pass says what it saw
+      // and stops instead.
+      summary.blocked = "Signed in, but x.com did not name the account";
+      note("Signed in to x.com, but the page did not say which account. Open x.com in this profile and reload it.");
+      return finish();
     }
     if (state.publisherHandle && state.publisherHandle.toLowerCase() !== publisher.handle.toLowerCase()) {
+      summary.blocked = `Signed in as @${publisher.handle}, replies pinned to @${state.publisherHandle}`;
       note(`Signed in as @${publisher.handle}, but replies are pinned to @${state.publisherHandle}.`);
-      return { state, summary };
+      return finish();
     }
 
     stopIfAsked();
@@ -291,7 +321,8 @@ export async function runPass(deps: PassDeps): Promise<PassResult> {
     if (feed.login_wall) {
       summary.loginRequired = true;
       note("x.com signed the profile out during the pass.");
-      return { state: { ...state, publisher: { ...state.publisher, signedIn: false, checkedAt: deps.now() } }, summary };
+      state = { ...state, publisher: { ...state.publisher, signedIn: false, checkedAt: deps.now() } };
+      return finish();
     }
 
     for (const handle of deps.handles) {
@@ -312,7 +343,8 @@ export async function runPass(deps: PassDeps): Promise<PassResult> {
         if (snapshot.login_wall) {
           summary.loginRequired = true;
           note("x.com signed the profile out during the pass.");
-          return { state: { ...state, publisher: { ...state.publisher, signedIn: false, checkedAt: deps.now() } }, summary };
+          state = { ...state, publisher: { ...state.publisher, signedIn: false, checkedAt: deps.now() } };
+          return finish();
         }
         const fromProfile = normalizePosts(snapshot.posts, handle);
         if (fromProfile.length > 0) consumedNoticeAt = noticeAt;
@@ -410,9 +442,7 @@ export async function runPass(deps: PassDeps): Promise<PassResult> {
     }
   }
 
-  const took = Math.max(1, Math.round((deps.now() - passStartedAt) / 1000));
-  state = { ...state, lastPassAt: deps.now(), lastPassSummary: `${describe(summary)} · ${took}s` };
-  return { state, summary };
+  return finish();
 }
 
 /** draftPosts writes one reply per new post and advances the watermark as it
@@ -543,6 +573,7 @@ export async function sendDraft(
 
 function describe(summary: PassSummary): string {
   if (summary.loginRequired) return "Not signed in to x.com";
+  if (summary.blocked) return summary.blocked;
   const parts = [`${summary.checked} checked`];
   if (summary.baselined) parts.push(`${summary.baselined} baselined`);
   if (summary.drafted) parts.push(`${summary.drafted} drafted`);

@@ -102,11 +102,15 @@ export async function publishReply(
   await browser.waitForLoad(15).catch(() => undefined);
   let state = await inspect();
 
-  if (state.login_wall || !state.identity.present) {
+  if (state.login_wall || !state.identity.session) {
     return { status: "refused", reason: "The browser profile is not signed in to x.com." };
   }
   if (!state.on_post) return { status: "refused", reason: `Landed on ${state.url} instead of the post.` };
-  if (!state.identity.handle) return { status: "refused", reason: "Could not read the signed-in account." };
+  // A reply from the wrong account cannot be taken back, so an account the page
+  // did not name is refused exactly like an account that does not match.
+  if (!state.identity.handle) {
+    return { status: "refused", reason: "x.com did not say which account is signed in, so the reply was not sent." };
+  }
   if (!state.identity.matches) {
     return {
       status: "refused",
@@ -162,7 +166,7 @@ export async function publishReply(
     await browser.press("Escape").catch(() => undefined);
     return { status: "refused", reason: `Landed on ${state.url} instead of the post.` };
   }
-  if (!state.identity.present || !state.identity.matches) {
+  if (!state.identity.session || !state.identity.matches) {
     await browser.press("Escape").catch(() => undefined);
     return { status: "refused", reason: "The signed-in account changed while the reply was being typed." };
   }
