@@ -101,8 +101,9 @@ describe("chat context handoff", () => {
     ]);
     expect(result).toContain("Fox profile: Camoufox (selected)");
     expect(result).toContain("Wiki research: ClawBrowser");
-    expect(result).toContain("Existing profiles always take priority");
-    expect(result).toContain("Never invent, clone, substitute, create, or start an unlisted profile");
+    expect(result).toContain("workspace browser access (not project chat history)");
+    expect(result).toContain("Never invent, clone, create, start, or substitute an unlisted profile");
+    expect(result?.match(/Wiki research: ClawBrowser/g)).toHaveLength(1);
     expect(result).not.toContain("Reddit scraper");
   });
 
