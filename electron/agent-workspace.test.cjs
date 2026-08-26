@@ -94,6 +94,14 @@ test("terminal attachments are staged inside the sandboxed workspace", () => {
   assert.match(terminal, /Please inspect the attached file\(s\)\./);
 });
 
+test("manual proxy operations use the isolated NextBrowser account configuration", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  assert.match(main, /listPersonalProxies\(\{ env: childEnv\(\) \}\)/);
+  assert.match(main, /createPersonalProxy\(args\.proxy, \{ env: childEnv\(\) \}\)/);
+  assert.match(main, /deletePersonalProxy\(args\.id, \{ env: childEnv\(\) \}\)/);
+  assert.equal((main.match(/resolvePersonalProxy\(args\.proxyId, \{ env: childEnv\(\) \}\)/g) || []).length, 2);
+});
+
 test("automation artifacts are persisted only in local app storage", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const studio = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AutomationStudio.tsx"), "utf8");

@@ -921,16 +921,16 @@ async function invokeCommand(command, args = {}, sender) {
     case "multilogin_status": return await multiloginStatus();
     case "multilogin_connect": return await connectMultilogin(args.bearerToken);
     case "multilogin_disconnect": return await disconnectMultilogin();
-    case "manual_proxies_list": return await listPersonalProxies();
-    case "manual_proxy_save": return await createPersonalProxy(args.proxy);
-    case "manual_proxy_delete": return await deletePersonalProxy(args.id);
+    case "manual_proxies_list": return await listPersonalProxies({ env: childEnv() });
+    case "manual_proxy_save": return await createPersonalProxy(args.proxy, { env: childEnv() });
+    case "manual_proxy_delete": return await deletePersonalProxy(args.id, { env: childEnv() });
     case "manual_proxy_profile_create": {
       const profileName = String(args.profileName || "").trim();
       if (!profileName) throw new Error("Profile name is required.");
       const runtime = ["clawbrowser", "dasbrowser", "camoufox"].includes(args.runtime)
         ? args.runtime
         : "clawbrowser";
-      const proxy = await resolvePersonalProxy(args.proxyId);
+      const proxy = await resolvePersonalProxy(args.proxyId, { env: childEnv() });
       return await executeNextctl([
         "profiles", "create", profileName,
         "--manual-proxy",
@@ -952,7 +952,7 @@ async function invokeCommand(command, args = {}, sender) {
       const runtime = ["clawbrowser", "dasbrowser", "camoufox"].includes(args.runtime)
         ? args.runtime
         : "clawbrowser";
-      const proxy = await resolvePersonalProxy(args.proxyId);
+      const proxy = await resolvePersonalProxy(args.proxyId, { env: childEnv() });
       return await executeNextctl([
         "profiles", "set-proxy", profileName,
         "--manual-proxy",

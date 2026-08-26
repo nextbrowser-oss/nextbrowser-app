@@ -42,11 +42,11 @@ test("uses the same default backend as cloud skills", () => {
 
 test("moves entity sync with an app API override", () => {
   assert.equal(
-    entityBackendURL({ NEXTBROWSER_API_BASE_URL: "http://127.0.0.1:18098/" }),
+    entityBackendURL({ NEXTBROWSER_DEV_API_BASE_URL: "http://127.0.0.1:18098/" }),
     "http://127.0.0.1:18098",
   );
   assert.equal(
-    entityBackendURL({ CLAWBROWSER_API_BASE_URL: "https://staging-api.nextbrowser.test/" }),
+    entityBackendURL({ NEXTBROWSER_ENTITY_API_BASE_URL: "https://staging-api.nextbrowser.test/" }),
     "https://staging-api.nextbrowser.test",
   );
   assert.equal(
@@ -55,6 +55,16 @@ test("moves entity sync with an app API override", () => {
       CLAWCTL_SKILL_SERVICE: "https://entities.test/",
     }),
     "https://entities.test",
+  );
+});
+
+test("keeps runtime API variables away from the production entity service", () => {
+  assert.equal(
+    entityBackendURL({
+      NEXTBROWSER_API_BASE_URL: "https://api.nextbrowser.com",
+      CLAWBROWSER_API_BASE_URL: "https://api.nextbrowser.com",
+    }),
+    "https://core.nextbrowser.com",
   );
 });
 

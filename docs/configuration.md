@@ -58,6 +58,10 @@ NEXTBROWSER_DEV_API_BASE_URL=http://127.0.0.1:18098 npm run dev
 ~~~
 
 `NEXTBROWSER_DEV_API_BASE_URL` has priority over production API settings in the desktop process.
+For a dedicated non-production entity service without changing browser runtime traffic, use
+`NEXTBROWSER_ENTITY_API_BASE_URL`. `NEXTBROWSER_RUNTIME_API_BASE_URL` controls only browser
+runtime traffic. Production defaults remain `core.nextbrowser.com` for workspace/Automation
+entities and `api.nextbrowser.com` for browser sessions.
 
 Before submitting application changes, run:
 
