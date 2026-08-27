@@ -153,6 +153,8 @@ function collapseSearchFallback(calls: CapturedCall[]): CapturedCall[] {
 function selectorFromDataCall(call: CapturedCall): string | undefined {
   if (typeof call.args.container === "string" && call.args.container.trim()) return call.args.container.trim();
   if (call.name !== "evaluate" || typeof call.args.expression !== "string") return undefined;
+  if (/querySelectorAll\(\s*(['"`])table\1\s*\)/.test(call.args.expression)
+    && /querySelectorAll\(\s*(['"`])tbody\s+tr\1\s*\)/.test(call.args.expression)) return "table tbody tr";
   return call.args.expression.match(/querySelector(?:All)?\(\s*(['"`])([^'"`]+)\1\s*\)/)?.[2];
 }
 

@@ -17,7 +17,7 @@ const RETRYABLE_NAVIGATION_ERRORS = [
   "ERR_CONNECTION_CLOSED",
   "ERR_TIMED_OUT",
 ];
-const RETRYABLE_DATA_ERROR = /(?:did not return exactly|returned only empty|data (?:is )?not (?:ready|loaded)|incomplete (?:rows|data)|no (?:rows|data) (?:yet|available))/i;
+const RETRYABLE_DATA_ERROR = /(?:did not return exactly|expected\s+\d+\s+(?:fully\s+)?populated|returned only empty|data (?:is )?not (?:ready|loaded)|incomplete (?:rows|data)|(?:table|list|results?|rows?) (?:was |were )?not found|no (?:rows|data) (?:yet|available))/i;
 const UNSAFE_EVALUATION = /(document\s*\.\s*cookie|localStorage|sessionStorage|indexedDB|caches\s*\.|navigator\s*\.\s*(clipboard|sendBeacon)|fetch\s*\(|XMLHttpRequest|WebSocket|EventSource|\.\s*(click|submit|remove)\s*\(|\.\s*(innerHTML|outerHTML|textContent|innerText|value)\s*=|eval\s*\(|new\s+Function|location\s*=|window\s*\.\s*open)/i;
 
 function cleanExecutionId(value) {

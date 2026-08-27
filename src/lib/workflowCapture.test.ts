@@ -120,6 +120,18 @@ Called clawbrowser.extract({"container":"article.product","fields":["title","pri
     ]);
   });
 
+  it("waits for table body rows used by a dynamic evaluate script", () => {
+    const transcript = [
+      'Called nextbrowser.open({"url":"https://example.com/trending"})\n{"ok":true}',
+      'Called nextbrowser.evaluate({"expression":"(() => { const table=[...document.querySelectorAll(\\"table\\")].find(t=>t.querySelectorAll(\\"tbody tr\\").length>=5); return [...table.querySelectorAll(\\"tbody tr\\")]; })()"})\n{"ok":true}',
+    ].join("\n");
+    expect(workflowRecipe("Collect five rows", transcript).actions).toEqual([
+      { tool: "open", arguments: { url: "https://example.com/trending" } },
+      { tool: "wait", arguments: { selector: "table tbody tr", timeout: 30 } },
+      { tool: "evaluate", arguments: { expression: '(() => { const table=[...document.querySelectorAll("table")].find(t=>t.querySelectorAll("tbody tr").length>=5); return [...table.querySelectorAll("tbody tr")]; })()' } },
+    ]);
+  });
+
   it("drops stale adjacent navigation and an ambiguous bare-tag click", () => {
     const noisy = [
       'Called clawbrowser.open({"url":"https://old.reddit.com/login"})\n{"ok":true}',

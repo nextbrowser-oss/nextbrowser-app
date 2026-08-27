@@ -265,6 +265,23 @@ test("retries a page script that reports temporarily incomplete dynamic data", a
   assert.equal(evaluations, 3);
 });
 
+test("retries a page script that expects a populated top-N result", async () => {
+  let evaluations = 0;
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    evaluations += 1;
+    return evaluations < 3
+      ? { isError: true, content: [{ type: "text", text: "Error: Expected 5 populated trending rows" }] }
+      : { content: [{ type: "text", text: JSON.stringify({ result: Array.from({ length: 5 }, (_, index) => ({ rank: index + 1, name: `Coin ${index + 1}`, price: "$1" })) }) }] };
+  });
+  const result = await executeAutomationRecipe({
+    executionId: "dynamic-populated-top-n",
+    recipe: { version: 1, actions: [{ tool: "evaluate", arguments: { expression: 'Array.from(document.querySelectorAll("tbody tr"))' } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+  assert.equal(result.status, "completed");
+  assert.equal(evaluations, 3);
+});
+
 test("replays read-only page extraction scripts and rejects unsafe scripts", async () => {
   const server = fakeMCP((message) => message.method === "initialize"
     ? { protocolVersion: "2025-03-26", capabilities: {} }
