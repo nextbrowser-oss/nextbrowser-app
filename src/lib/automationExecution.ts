@@ -19,6 +19,7 @@ export type AutomationExecution = {
   detail?: string;
   error?: string;
   failedStep?: number;
+  autoRepairAttempted?: boolean;
 };
 
 export type AutomationExecutionView = {

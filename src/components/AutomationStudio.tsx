@@ -16,6 +16,7 @@ import { activeAutomationExecution, automationExecutionView, AUTOMATION_EXECUTIO
 import { userFacingBrowserError } from "../lib/userFacingBrowserError";
 import { agentById, agentInvocation } from "../agents";
 import { parseWorkflowAiEdit, workflowAiEditPrompt } from "../lib/workflowAiEdit";
+import { shouldAutoRepairAutomation } from "../lib/automationRepair";
 
 type StudioSection = "recorder" | "workflows" | "artifacts";
 type BackendRecording = { id: string; status: string; revision: number; document: { run?: CapturedRun }; created_at?: string; updated_at: string };
@@ -813,13 +814,13 @@ export function AutomationStudio() {
       }
       setPlayback(next);
       setActiveAutomationExecution(next);
-      setNotice(`${sourceKind === "workflow" ? "Workflow" : "Recording"} started without an AI agent. Progress and Stop remain visible in the main menu.`);
+      setNotice(`${sourceKind === "workflow" ? "Workflow" : "Recording"} is running. Progress and Stop remain visible in the main menu.`);
       setStudioError(undefined);
       const result = await s.runAutomationRecipe(workflow, next.executionId, { task: workflow.task, ...(runId ? { backendRunId: runId } : {}) });
       const completedActions = result.results.filter((step) => step.ok).length;
       const displayError = result.error ? userFacingBrowserError(result.error) : undefined;
       const detail = result.status === "completed"
-        ? `Completed all ${workflow.actions.length} browser steps without AI.`
+        ? `Completed all ${workflow.actions.length} saved browser steps.`
         : result.status === "cancelled" ? "Execution stopped by user."
           : `Step ${(result.failedStep ?? completedActions) + 1} failed: ${displayError || "The saved browser action could not be completed."}`;
       const progress = result.status === "completed" ? 100 : Math.max(12, Math.round(completedActions / Math.max(1, workflow.actions.length) * 100));
@@ -827,9 +828,15 @@ export function AutomationStudio() {
       setPlayback(finished);
       setActiveAutomationExecution(finished);
       if (runId) await invoke("automation_run_update", { id: runId, update: { status: result.status, output: { engine: "deterministic", steps: result.results.map(({ index, tool, ok, error }) => ({ index, tool, ok, error })), detail } } });
-      if (result.status === "completed") setNotice("Deterministic replay completed successfully without using an AI agent.");
-      else if (result.status === "failed") setStudioError("A saved browser step failed. You can inspect the step or use Repair & run with AI.");
       await Promise.all([loadRuns(), loadArtifacts()]);
+      if (result.status === "completed") setNotice("Replay completed successfully.");
+      else if (result.status === "failed") {
+        const failedTool = workflow.actions[result.failedStep ?? completedActions]?.tool;
+        if (s.agentReady() && shouldAutoRepairAutomation(failedTool, result.error)) {
+          setNotice("The page changed. AI is repairing the failed step automatically…");
+          await repairWithAgent(finished, true);
+        } else setStudioError("A saved browser step failed. Inspect the step or retry the run.");
+      }
     } catch (error) {
       const technicalMessage = error instanceof Error ? error.message : String(error);
       console.error("[AUTOMATION_EXECUTION_FAILED]", error);
@@ -855,19 +862,19 @@ export function AutomationStudio() {
     await executeRecipe(workflow, "recording", run.id);
   };
 
-  const repairWithAgent = async () => {
-    if (!playback || playback.phase !== "failed") return;
+  const repairWithAgent = async (failedExecution = playback, automatic = false) => {
+    if (!failedExecution || failedExecution.phase !== "failed") return;
     if (!s.agentReady()) return setStudioError("Connect an agent to repair this failed automation.");
-    const workflow = playback.sourceKind === "workflow"
-      ? workflows.find((item) => item.id === playback.sourceId)
-      : recordings.map((item) => item.document.run).filter((run): run is CapturedRun => !!run).find((run) => run.id === playback.sourceId);
+    const workflow = failedExecution.sourceKind === "workflow"
+      ? workflows.find((item) => item.id === failedExecution.sourceId)
+      : recordings.map((item) => item.document.run).filter((run): run is CapturedRun => !!run).find((run) => run.id === failedExecution.sourceId);
     const repairWorkflow = workflow && "recipe" in workflow ? workflow : workflow ? skillFromRun(workflow) : undefined;
     if (!repairWorkflow) return setStudioError("The source automation is no longer available.");
-    const agentExecution: AutomationExecution = { ...playback, executionId: uid(), engine: "agent", phase: "preparing", startedAt: Date.now(), progress: undefined, completedActions: undefined, detail: "Preparing AI-assisted repair…", error: undefined, failedStep: undefined, backendRunId: undefined };
+    const agentExecution: AutomationExecution = { ...failedExecution, executionId: uid(), engine: "agent", phase: "preparing", startedAt: Date.now(), progress: undefined, completedActions: undefined, detail: automatic ? "The saved page step changed. Starting automatic AI repair…" : "Preparing AI-assisted repair…", error: undefined, failedStep: undefined, backendRunId: undefined, autoRepairAttempted: true };
     setPlayback(agentExecution);
     setActiveAutomationExecution(agentExecution);
     try {
-      const repairTask = `${repairWorkflow.task}\n\nThe deterministic replay failed${playback.failedStep != null ? ` at step ${playback.failedStep + 1}` : ""}: ${playback.error || playback.detail || "unknown browser error"}. Inspect the current page, adapt the failed selector or action, complete the task, and explain the repair so the recording can be updated.`;
+      const repairTask = `${repairWorkflow.task}\n\nThe deterministic replay failed${failedExecution.failedStep != null ? ` at step ${failedExecution.failedStep + 1}` : ""}: ${failedExecution.error || failedExecution.detail || "unknown browser error"}. Inspect the current page, adapt the failed selector or action, complete the task, and explain the repair so the recording can be updated.`;
       const replyId = await s.runLocalSkill(repairWorkflow, repairTask);
       if (!replyId) throw new Error("The AI repair run could not be started.");
       const running = { ...agentExecution, replyId, phase: "running" as const };
@@ -879,7 +886,7 @@ export function AutomationStudio() {
       const failed = { ...agentExecution, phase: "failed" as const, progress: 100, detail: message, error: message };
       setPlayback(failed);
       setActiveAutomationExecution(failed);
-      setStudioError(message);
+      setStudioError(automatic ? `Automatic AI repair could not start: ${message}` : message);
     }
   };
 
@@ -968,7 +975,7 @@ export function AutomationStudio() {
       </div>
       {studioError && <div className="error automation-global-message" role="alert"><strong>Automation couldn’t complete the action.</strong><span>{studioError}</span><button onClick={() => setStudioError(undefined)}>Dismiss</button></div>}
       {notice && <div className="automation-global-message success" role="status"><span>{notice}</span><button onClick={() => setNotice(undefined)}>Dismiss</button></div>}
-      {playback && playbackView && <div className={`recording-progress-card ${playbackView.phase}`} role="status"><div className="recording-progress-head"><span><Icon name={playbackView.phase === "completed" ? "checkmark.circle.fill" : ["failed", "cancelled"].includes(playbackView.phase) ? "xmark.circle.fill" : playbackView.phase === "stopping" ? "stop.fill" : "play.fill"} size={14} /><strong>{playbackView.phase === "completed" ? "Execution completed" : playbackView.phase === "cancelled" ? "Execution stopped" : playbackView.phase === "failed" ? "Execution failed" : playbackView.phase === "stopping" ? "Stopping execution" : playbackView.phase === "preparing" ? "Preparing execution" : playback.engine === "deterministic" ? "Running saved steps" : "AI repair is running"}</strong></span><b>{playbackView.progress}%</b></div><div className="recording-progress-track"><i style={{ width: `${playbackView.progress}%` }} /></div><small>{playbackView.detail}</small><div className="row">{playbackView.phase === "failed" && <button className="primary" disabled={!s.agentReady()} title={s.agentReady() ? "Let the agent inspect and repair the failed step" : "Connect an agent to repair this workflow"} onClick={() => void repairWithAgent()}>Repair &amp; run with AI</button>}{["completed", "failed", "cancelled"].includes(playbackView.phase) ? <button onClick={() => { setPlayback(undefined); clearActiveAutomationExecution(); }}>Dismiss</button> : <button className="secondary danger-text" disabled={playbackView.phase === "stopping"} onClick={() => void stopExecution()}><Icon name="stop.fill" size={12} /> {playbackView.phase === "stopping" ? "Stopping…" : "Stop"}</button>}</div></div>}
+      {playback && playbackView && <div className={`recording-progress-card ${playbackView.phase}`} role="status"><div className="recording-progress-head"><span><Icon name={playbackView.phase === "completed" ? "checkmark.circle.fill" : ["failed", "cancelled"].includes(playbackView.phase) ? "xmark.circle.fill" : playbackView.phase === "stopping" ? "stop.fill" : "play.fill"} size={14} /><strong>{playbackView.phase === "completed" ? "Execution completed" : playbackView.phase === "cancelled" ? "Execution stopped" : playbackView.phase === "failed" ? "Execution failed" : playbackView.phase === "stopping" ? "Stopping execution" : playback.engine === "agent" ? "AI is repairing the workflow" : playbackView.phase === "preparing" ? "Preparing execution" : "Running saved steps"}</strong></span><b>{playbackView.progress}%</b></div><div className="recording-progress-track"><i style={{ width: `${playbackView.progress}%` }} /></div><small>{playbackView.detail}</small><div className="row">{playbackView.phase === "failed" && <button className="primary" disabled={!s.agentReady()} title={s.agentReady() ? "Let the agent inspect and repair the failed step" : "Connect an agent to repair this workflow"} onClick={() => void repairWithAgent()}>Repair &amp; run with AI</button>}{["completed", "failed", "cancelled"].includes(playbackView.phase) ? <button onClick={() => { setPlayback(undefined); clearActiveAutomationExecution(); }}>Dismiss</button> : <button className="secondary danger-text" disabled={playbackView.phase === "stopping"} onClick={() => void stopExecution()}><Icon name="stop.fill" size={12} /> {playbackView.phase === "stopping" ? "Stopping…" : "Stop"}</button>}</div></div>}
 
       {section === "recorder" && <section className="automation-panel">
         <div className="automation-panel-head"><div><h2>Recordings</h2><p>Perform a task in the browser once, then replay the captured actions.</p></div>
@@ -1090,7 +1097,7 @@ export function AutomationStudio() {
               })() : <div className="automation-empty"><strong>No steps yet</strong><span>Use a + button in the diagram to add the first browser step.</span></div>}
             </aside>
           </div>
-          <label className="field-label">AI repair instructions <small>Used only when you explicitly choose Repair &amp; run with AI.</small><textarea rows={6} value={draft.instructions} onChange={(event) => setDraft({ ...draft, instructions: event.target.value })} /></label>
+          <label className="field-label">AI repair instructions <small>Used automatically once when a saved page step can no longer find or read its target.</small><textarea rows={6} value={draft.instructions} onChange={(event) => setDraft({ ...draft, instructions: event.target.value })} /></label>
           <section className="workflow-run-history"><div><strong>Recent runs</strong><button className="mini" onClick={() => void loadRuns()}>Refresh</button></div>{selectedRuns.length ? <ul>{selectedRuns.map((run) => <li key={run.id}><span className={`run-status ${run.status}`}>{run.status}</span><span>Version {run.workflow_version}</span><time>{new Date(run.created_at).toLocaleString()}</time>{run.error && <small>{run.error}</small>}</li>)}</ul> : <p className="muted small">No runs yet. Run this workflow to create backend history.</p>}</section>
         </> : <div className="automation-empty"><Icon name="arrow.triangle.branch" size={28} /><strong>Select or record a workflow</strong></div>}</div>
       </section>}
