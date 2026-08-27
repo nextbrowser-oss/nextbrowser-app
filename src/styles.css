@@ -3887,6 +3887,22 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   color: var(--muted);
   font-size: 11px;
 }
+.connector-source-tabs { margin-top: 16px; }
+.connector-source-tabs + .connector-token-steps { margin-top: 12px; }
+.connector-token-steps-plain { margin-bottom: 16px; }
+.connector-token-figure {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+.connector-token-figure svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.connector-token-figure text { font-family: inherit; }
 .connector-token-steps {
   display: flex;
   flex-direction: column;
@@ -3915,6 +3931,10 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
+}
+.connector-token-steps p strong {
+  color: var(--text);
+  font-weight: 600;
 }
 .connector-token-steps button,
 .connector-text-link {
