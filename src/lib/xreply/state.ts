@@ -182,9 +182,14 @@ export function normalizeXReplyState(raw: unknown): XReplyState {
   const replies = Array.isArray(record.replies)
     ? record.replies.filter((reply) => reply && typeof reply.postId === "string")
     : [];
+  // autoSend was a setting once. Carrying the key forward leaves a file saying
+  // "autoSend": false on an account that auto-sends — a setting that reads live
+  // and is not.
+  const carried: Partial<XReplyState> = { ...record };
+  delete (carried as { autoSend?: boolean }).autoSend;
   return {
     ...base,
-    ...record,
+    ...carried,
     version: 1,
     handles,
     drafts: drafts.slice(-MAX_DRAFTS_KEPT),

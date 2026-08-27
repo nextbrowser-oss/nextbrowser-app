@@ -25,3 +25,11 @@ describe("reading a state file written by an older build", () => {
     expect(state.drafts.map((item) => item.status)).toEqual(["rejected", "sent"]);
   });
 });
+
+describe("settings that no longer exist", () => {
+  it("drops the old auto-send key instead of carrying it forward", () => {
+    const state = normalizeXReplyState({ ...emptyXReplyState(), autoSend: false, hourlyMax: 7 });
+    expect("autoSend" in state).toBe(false);
+    expect(state.hourlyMax).toBe(7);
+  });
+});
