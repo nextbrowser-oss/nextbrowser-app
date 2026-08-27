@@ -94,7 +94,7 @@ export function terminalInputWithDeferredContext(
 }
 
 export function terminalBrowserScopeContext(
-  profiles: Array<{ name: string; runtime: "clawbrowser" | "dasbrowser" | "camoufox"; selected?: boolean }>,
+  profiles: Array<{ name: string; runtime: "clawbrowser" | "dasbrowser" | "camoufox"; running?: boolean; selected?: boolean }>,
 ): string | undefined {
   if (!profiles.length) return undefined;
   const runtimeLabel = (runtime: string) => runtime === "camoufox"
@@ -106,9 +106,9 @@ export function terminalBrowserScopeContext(
     profiles.findIndex((candidate) => candidate.name === profile.name) === index
   );
   const rows = uniqueProfiles.map((profile) =>
-    `- ${profile.name}: ${runtimeLabel(profile.runtime)}${profile.selected ? " (selected)" : ""}`,
+    `- ${profile.name}: ${runtimeLabel(profile.runtime)} (${profile.running ? "running" : "stopped"}${profile.selected ? ", selected" : ""})`,
   );
-  return `NextBrowser workspace browser access (not project chat history):\n${rows.join("\n")}\nUse an explicit profile name exactly; otherwise use the selected or sole profile. If several profiles are plausible, ask which one to use. Ignore profile names from older turns. Never invent, clone, create, start, or substitute an unlisted profile, and do not use another browser-control integration.`;
+  return `NextBrowser workspace browser access (not project chat history):\n${rows.join("\n")}\nUse an explicit profile name exactly; otherwise use the selected or sole profile. If several profiles are plausible, ask which one to use. Ignore profile names from older turns. Never invent, clone, create, start, or substitute an unlisted profile, and do not use another browser-control integration. A runtime label such as ClawBrowser, Camoufox, or DasBrowser is not a profile name and must never be passed as one. If the chosen listed profile is stopped, or a page tool reports that its session is missing, start that exact profile once through the app host: curl -sS -X POST "$NEXTBROWSER_CONTROL_URL/profile/start" -H "Authorization: Bearer $NEXTBROWSER_CONTROL_TOKEN" -H "Content-Type: application/json" --data '{"profile":"PROFILE_NAME"}'. On Windows use curl.exe. After a successful host start, retry the original page action once with the exact listed profile name. If either attempt fails, report that error without trying another name.`;
 }
 
 export function terminalLineBufferAfter(current: string, data: string): string {

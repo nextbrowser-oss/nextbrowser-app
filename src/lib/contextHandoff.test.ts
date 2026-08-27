@@ -96,14 +96,17 @@ describe("chat context handoff", () => {
 
   it("builds a concise authoritative terminal profile scope", () => {
     const result = terminalBrowserScopeContext([
-      { name: "Fox profile", runtime: "camoufox", selected: true },
-      { name: "Wiki research", runtime: "clawbrowser" },
+      { name: "Fox profile", runtime: "camoufox", running: true, selected: true },
+      { name: "Wiki research", runtime: "clawbrowser", running: false },
     ]);
-    expect(result).toContain("Fox profile: Camoufox (selected)");
-    expect(result).toContain("Wiki research: ClawBrowser");
+    expect(result).toContain("Fox profile: Camoufox (running, selected)");
+    expect(result).toContain("Wiki research: ClawBrowser (stopped)");
     expect(result).toContain("workspace browser access (not project chat history)");
     expect(result).toContain("Never invent, clone, create, start, or substitute an unlisted profile");
-    expect(result?.match(/Wiki research: ClawBrowser/g)).toHaveLength(1);
+    expect(result).toContain("A runtime label such as ClawBrowser, Camoufox, or DasBrowser is not a profile name");
+    expect(result).toContain("$NEXTBROWSER_CONTROL_URL/profile/start");
+    expect(result).toContain("retry the original page action once with the exact listed profile name");
+    expect(result?.match(/Wiki research: ClawBrowser \(stopped\)/g)).toHaveLength(1);
     expect(result).not.toContain("Reddit scraper");
   });
 
