@@ -205,9 +205,26 @@ function meaningfulPageData(value) {
   return false;
 }
 
+const ORDINAL_DATA_KEYS = new Set(["rank", "index", "position", "order", "row_number", "rowNumber"]);
+
+function meaningfulDataRow(value) {
+  if (!plainObject(value)) return meaningfulPageData(value);
+  const entries = Object.entries(value);
+  const contentEntries = entries.filter(([key]) => !ORDINAL_DATA_KEYS.has(key));
+  // Rank-like values only describe where an item appeared. They must not make
+  // an otherwise empty extraction look successful.
+  return (contentEntries.length ? contentEntries : entries).some(([, item]) => meaningfulPageData(item));
+}
+
+function completeDataRows(value) {
+  const rows = extractionRows(value);
+  return Array.isArray(rows) && rows.length > 0 && rows.every(meaningfulDataRow);
+}
+
 function assertMeaningfulEvaluateOutput(output) {
   const data = plainObject(output) && Object.prototype.hasOwnProperty.call(output, "result") ? output.result : output;
-  if (!meaningfulPageData(data)) {
+  const rows = extractionRows(data);
+  if ((rows && !completeDataRows(data)) || (!rows && !meaningfulPageData(data))) {
     throw new Error("The page data script returned only empty values. Add a wait step or repair its page selectors before saving the result.");
   }
 }
@@ -224,8 +241,7 @@ function extractionRows(value) {
 }
 
 function assertMeaningfulExtractionOutput(output) {
-  const rows = extractionRows(output);
-  if (!rows?.some(meaningfulPageData)) {
+  if (!completeDataRows(output)) {
     throw new Error("The saved extraction returned only empty rows. Wait for the page data or repair its field selectors before saving the result.");
   }
 }
@@ -233,10 +249,11 @@ function assertMeaningfulExtractionOutput(output) {
 function hasMeaningfulActionData(tool, output) {
   if (tool === "evaluate") {
     const data = plainObject(output) && Object.prototype.hasOwnProperty.call(output, "result") ? output.result : output;
-    return meaningfulPageData(data);
+    const rows = extractionRows(data);
+    return rows ? completeDataRows(data) : meaningfulPageData(data);
   }
   if (["extract", "paginate_extract", "tabs_extract"].includes(tool)) {
-    return !!extractionRows(output)?.some(meaningfulPageData);
+    return completeDataRows(output);
   }
   return true;
 }

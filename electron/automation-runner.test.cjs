@@ -192,6 +192,44 @@ test("rejects extraction rows that contain only empty field values", async () =>
   assert.match(result.error, /returned only empty rows/);
 });
 
+test("does not treat rank-only evaluate rows as extracted data", async () => {
+  const server = fakeMCP((message) => message.method === "initialize"
+    ? { protocolVersion: "2025-03-26", capabilities: {} }
+    : { content: [{ type: "text", text: JSON.stringify({
+      result: Array.from({ length: 5 }, (_, index) => ({ rank: index + 1, name: null, symbol: null, price: null })),
+      session: { name: "default" },
+    }) }] });
+  const result = await executeAutomationRecipe({
+    executionId: "rank-only-evaluate",
+    recipe: { version: 1, actions: [{ tool: "evaluate", arguments: { expression: 'Array.from(document.querySelectorAll("tr"))' } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+  assert.equal(result.status, "failed");
+  assert.match(result.error, /returned only empty values/);
+  assert.equal(server.calls.filter((call) => call.method === "tools/call").length, 21);
+});
+
+test("rejects partially empty evaluate row sets instead of saving incomplete data", async () => {
+  const server = fakeMCP((message) => message.method === "initialize"
+    ? { protocolVersion: "2025-03-26", capabilities: {} }
+    : { content: [{ type: "text", text: JSON.stringify({ result: [
+      { rank: 1, name: "Bitcoin", price: "$1" },
+      { rank: 2, name: null, price: null },
+    ] }) }] });
+  const local = [];
+  const result = await executeAutomationRecipe({
+    executionId: "partially-empty-evaluate",
+    recipe: { version: 1, actions: [
+      { tool: "evaluate", arguments: { expression: 'Array.from(document.querySelectorAll("tr"))' } },
+      { tool: "save_artifact", arguments: { source: "last_result", format: "json", name: "coins.json" } },
+    ] },
+  }, {
+    binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {},
+    onLocalAction: async () => { local.push(true); return { saved: true }; },
+  });
+  assert.equal(result.status, "failed");
+  assert.equal(local.length, 0);
+});
+
 test("waits for dynamic extraction rows to become populated", async () => {
   let extracts = 0;
   const server = fakeMCP((message) => {
