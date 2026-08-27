@@ -18,7 +18,7 @@ import { VPSSetupModal } from "./VPSSetupModal";
 import { CONNECTORS } from "../connectorsCatalog";
 import { invoke, listen } from "../electronBridge";
 import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, type ActiveAutomationRecording } from "../lib/automationRecording";
-import { activeAutomationExecution, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, executionWithRecipeProgress, setActiveAutomationExecution, type AutomationExecution, type AutomationRecipeProgress } from "../lib/automationExecution";
+import { activeAutomationExecution, automationAgentAnswer, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, executionWithRecipeProgress, setActiveAutomationExecution, type AutomationExecution, type AutomationRecipeProgress } from "../lib/automationExecution";
 
 type ManualProxyInputMode = "url" | "fields" | "bulk";
 const PROFILE_CREATE_TIMEOUT_MS = 120_000;
@@ -174,6 +174,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const recordingWorkspace = activeRecording ? s.workspaces.find((workspace) => workspace.id === activeRecording.workspaceId) : undefined;
   const automationExecutionWorkspace = automationExecution ? s.workspaces.find((workspace) => workspace.id === automationExecution.workspaceId) : undefined;
   const automationExecutionState = automationExecution ? automationExecutionView(automationExecution, s.conversations, automationExecutionClock) : undefined;
+  const automationAgentStatus = automationExecution?.engine === "agent" ? automationAgentAnswer(automationExecution, s.conversations)?.status : undefined;
   const recordingDestinationLabel = activeRecording?.destination === "workflow" ? "Workflow Builder" : "Recorder";
   const recordingMiniLabel = activeRecording ? `${recordingDestinationLabel} ${recordingDuration(activeRecording.startedAt, recordingClock)}` : "Recording";
 
@@ -210,6 +211,30 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     const timer = window.setInterval(() => setAutomationExecutionClock(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [automationExecution, automationExecutionState?.phase]);
+
+  useEffect(() => {
+    if (!automationExecution || automationExecution.engine !== "agent" || !automationExecution.expectedArtifactName || automationExecution.outputValidated || automationExecution.outputValidationError) return;
+    if (automationAgentStatus !== "done") return;
+    let cancelled = false;
+    void (async () => {
+      let found = false;
+      for (let attempt = 0; attempt < 4 && !found; attempt += 1) {
+        const items = await invoke<Array<{ name: string; createdAt: number }>>("artifact_list", { workspaceId: automationExecution.workspaceId });
+        found = items.some((artifact) => artifact.name === automationExecution.expectedArtifactName && artifact.createdAt >= automationExecution.startedAt);
+        if (!found && attempt < 3) await new Promise((resolve) => window.setTimeout(resolve, 400));
+      }
+      if (cancelled) return;
+      const detail = found
+        ? "Workflow completed and the repaired artifact was verified."
+        : `AI repair finished, but it did not create ${automationExecution.expectedArtifactName}. The workflow result was not accepted.`;
+      setActiveAutomationExecution(found
+        ? { ...automationExecution, phase: "completed", outputValidated: true, progress: 100, detail }
+        : { ...automationExecution, phase: "failed", progress: 100, outputValidationError: detail, detail });
+    })().catch((error) => {
+      if (!cancelled) setAutomationExecutionError(error instanceof Error ? error.message : String(error));
+    });
+    return () => { cancelled = true; };
+  }, [automationExecution?.executionId, automationExecution?.expectedArtifactName, automationExecution?.outputValidated, automationExecution?.outputValidationError, automationExecution?.startedAt, automationAgentStatus]);
 
   const openRecorder = () => {
     if (activeRecording?.workspaceId && activeRecording.workspaceId !== s.activeWorkspaceId) s.selectWorkspace(activeRecording.workspaceId);

@@ -91,6 +91,8 @@ test("active Recorder requires a replayable final data-collection call", () => {
   assert.match(store, /NextBrowser Recorder is active for this task/);
   assert.match(store, /call extract or paginate_extract/);
   assert.match(store, /call evaluate once with a read-only expression/);
+  assert.match(store, /open that exact API URL in the listed browser profile/);
+  assert.match(store, /Never leave the final request hidden in curl, fetch, or an uncaptured shell action/);
   assert.match(store, /Do not finish with state as the only data-collection step/);
   assert.match(main, /artifact_saved_recording_incomplete/);
   assert.match(main, /artifactScope\.pendingArtifact/);
@@ -175,6 +177,7 @@ test("ordinary app startup does not unlock the optional Multilogin credential", 
 test("automation artifacts are persisted only in local app storage", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const studio = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AutomationStudio.tsx"), "utf8");
+  const sidebar = fs.readFileSync(path.join(__dirname, "..", "src", "components", "Sidebar.tsx"), "utf8");
   assert.match(main, /case "artifact_list"/);
   assert.match(main, /localAutomationArtifacts\(\)\.list/);
   assert.match(main, /case "artifact_import"/);
@@ -232,6 +235,8 @@ test("automation studio gives newcomers a complete path and runs unsaved edits s
   assert.match(studio, /Build an editable, predictable automation/);
   assert.match(studio, /Keep automation files on this computer/);
   assert.match(studio, /Save &amp; run/);
+  assert.match(studio, /min_rows: count/);
+  assert.match(studio, /replaceTopCount\(artifactArguments\.name\)/);
   assert.match(studio, /const workflow = draftDirty \? await saveDraft\(\) : draft/);
   assert.doesNotMatch(studio, /disabled=\{draftDirty \|\| executionBusy/);
   assert.doesNotMatch(studio, /className="automation-mode-note"/);
@@ -261,6 +266,7 @@ test("workflow list exposes the same actions from a right-click menu", () => {
 test("recordings and workflows replay deterministically with explicit AI repair", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const studio = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AutomationStudio.tsx"), "utf8");
+  const sidebar = fs.readFileSync(path.join(__dirname, "..", "src", "components", "Sidebar.tsx"), "utf8");
   const store = fs.readFileSync(path.join(__dirname, "..", "src", "store.ts"), "utf8");
 
   assert.match(main, /case "automation_recipe_execute"/);
@@ -268,8 +274,11 @@ test("recordings and workflows replay deterministically with explicit AI repair"
   assert.match(store, /runAutomationRecipe: async/);
   assert.match(store, /invoke<AutomationRecipeResult>\("automation_recipe_execute"/);
   assert.match(studio, /s\.runAutomationRecipe\(/);
+  assert.match(studio, /phase: "cancelled", detail: "Execution stopped by user\."/);
   assert.match(studio, /Repair & run with AI/);
   assert.match(studio, /runLocalSkill\(repairWorkflow, repairTask\)/);
+  assert.match(sidebar, /artifact\.name === automationExecution\.expectedArtifactName/);
+  assert.match(sidebar, /The workflow result was not accepted\./);
   const deterministicRun = store.slice(store.indexOf("runAutomationRecipe: async"), store.indexOf("runLocalSkill: async"));
   assert.doesNotMatch(deterministicRun, /prepareLocalSession/);
 });

@@ -64,6 +64,17 @@ function buildArtifactDataContract(content, format = "json") {
 }
 
 function assertArtifactDataContract(value, contract) {
+  if (contract?.kind === "object") {
+    const object = usefulValue(value);
+    if (!object || typeof object !== "object" || Array.isArray(object)) throw new Error("The replayed artifact must contain the requested named datasets.");
+    for (const [field, rule] of Object.entries(contract.fields || {})) {
+      if (!meaningfulContractValue(object[field])) throw new Error(`The replayed artifact is missing a populated “${field}” field.`);
+      if (rule && typeof rule === "object") assertArtifactDataContract(object[field], rule);
+      else if (rule === "url" && !validHTTPURL(object[field])) throw new Error(`The replayed “${field}” field must contain a valid HTTP or HTTPS URL.`);
+      else if (rule === "number" && (typeof object[field] !== "number" || !Number.isFinite(object[field]))) throw new Error(`The replayed “${field}” field must contain a number.`);
+    }
+    return;
+  }
   if (!contract || contract.kind !== "rows") return;
   const rows = usefulValue(value);
   if (!Array.isArray(rows) || rows.length < Number(contract.min_rows || 1)) {
@@ -107,11 +118,21 @@ async function saveAutomationArtifact({ action, results, workspaceId, runId, sto
   const spec = normalizeArtifactAction(action);
   const completed = results.filter((result) => result?.ok);
   if (!completed.length) throw new Error("There is no completed workflow result to save yet. Move this step after a data-producing step.");
+  const collected = completed.filter(({ tool }) => DATA_TOOLS.has(tool));
+  const keyedCollected = collected.length > 1 && collected.every(({ resultKey }) => typeof resultKey === "string" && resultKey.trim());
   const value = spec.source === "run_results"
     ? completed.map(({ index, tool, output }) => ({ step: index + 1, tool, output }))
     : spec.source === "data_results"
-      ? completed.filter(({ tool }) => DATA_TOOLS.has(tool)).map(({ output }) => usefulValue(output))
-      : completed.at(-1).output;
+      ? keyedCollected
+        ? Object.fromEntries(collected.map(({ output, resultKey }) => {
+          const useful = usefulValue(output);
+          const scalar = Array.isArray(useful) && useful.length === 1 && useful[0] && typeof useful[0] === "object" && Object.prototype.hasOwnProperty.call(useful[0], resultKey)
+            ? useful[0][resultKey] : useful;
+          return [resultKey, scalar];
+        }))
+        : collected.map(({ output }) => usefulValue(output))
+      : usefulValue(completed.at(-1).output);
+  assertArtifactDataContract(value, action.arguments?.contract);
   const serialized = serializeArtifact(value, spec.format);
   const artifact = await store.addBytes(workspaceId, spec.name, serialized.bytes, { contentType: serialized.contentType, runId });
   return { saved: true, artifact };

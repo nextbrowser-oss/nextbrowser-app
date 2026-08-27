@@ -82,6 +82,17 @@ describe("automation execution indicator", () => {
     });
   });
 
+  it("shows browser recovery instead of a false failure while the same profile restarts", () => {
+    const deterministic = { ...execution, engine: "deterministic" as const };
+    expect(executionWithRecipeProgress(deterministic, {
+      executionId: "execution", phase: "failed", stepIndex: 0, total: 4, tool: "open",
+      detail: "Step 1 failed", error: "list cdp targets: dial tcp: connection refused",
+    })).toMatchObject({
+      phase: "preparing", failedStep: undefined,
+      detail: "The browser was closed. Reopening the selected profile and retrying once…",
+    });
+  });
+
   it("reports action-based progress while a workflow runs", () => {
     expect(automationExecutionView(execution, [conversation("streaming", 2)], 150)).toMatchObject({ phase: "running", progress: 55 });
   });
@@ -106,6 +117,15 @@ describe("automation execution indicator", () => {
 
   it("reports completion from the owning agent reply", () => {
     expect(automationExecutionView(execution, [conversation("done", 4)], 150)).toMatchObject({ phase: "completed", progress: 100 });
+  });
+
+  it("does not accept AI repair until its expected artifact is verified", () => {
+    const repair = { ...execution, engine: "agent" as const, expectedArtifactName: "expected.json" };
+    expect(automationExecutionView(repair, [conversation("done", 4)], 150)).toMatchObject({
+      phase: "running", progress: 95, detail: "Validating the repaired Artifact Center output…",
+    });
+    expect(automationExecutionView({ ...repair, outputValidated: true }, [conversation("done", 4)], 150)).toMatchObject({ phase: "completed" });
+    expect(automationExecutionView({ ...repair, outputValidationError: "Expected artifact missing" }, [conversation("done", 4)], 150)).toMatchObject({ phase: "failed", detail: "Expected artifact missing" });
   });
 
   it("keeps a visible stopping state until the agent confirms cancellation", () => {

@@ -70,6 +70,32 @@ test("keeps the local required row contract out of MCP arguments", () => {
   assert.equal(Object.hasOwn(call.arguments, "required_rows"), false);
 });
 
+test("normalizes displayed or missing ordinal ranks before validating an extraction", async () => {
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    return { content: [{ type: "text", text: JSON.stringify({ rows: [
+      { rank: "1st", name: "Solana" },
+      { rank: null, name: "Ethereum" },
+    ] }) }] };
+  });
+  const result = await executeAutomationRecipe({
+    executionId: "normalize-ordinal-ranks",
+    recipe: { version: 1, actions: [{
+      tool: "extract",
+      arguments: {
+        container: "tr",
+        fields: { rank: { selector: ".rank" }, name: { selector: ".name" } },
+        transform: { rank: "number" },
+      },
+    }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl });
+  assert.equal(result.status, "completed");
+  assert.deepEqual(result.results[0].output.rows, [
+    { rank: 1, name: "Solana" },
+    { rank: 2, name: "Ethereum" },
+  ]);
+});
+
 test("clicks semantic form controls directly instead of relying on a stale state element id", () => {
   for (const role of ["button", "checkbox", "radio"]) {
     const calls = toolCalls({ tool: "click", arguments: { locator: { role, name: "Control" } } });
@@ -188,6 +214,23 @@ test("retries a temporary proxy tunnel navigation failure", async () => {
   assert.equal(opens, 2);
 });
 
+test("retries an aborted navigation from a page that was already loading", async () => {
+  let opens = 0;
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    if (message.params.name === "open" && opens++ === 0) {
+      return { isError: true, content: [{ type: "text", text: "open failed: navigation failed: net::ERR_ABORTED" }] };
+    }
+    return { content: [{ type: "text", text: JSON.stringify({ ok: true }) }] };
+  });
+  const result = await executeAutomationRecipe({
+    executionId: "retry-aborted-navigation",
+    recipe: { version: 1, actions: [{ tool: "open", arguments: { url: "https://example.com" } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+  assert.equal(result.status, "completed");
+  assert.equal(opens, 2);
+});
+
 test("does not retry permanent navigation failures", async () => {
   let opens = 0;
   const server = fakeMCP((message) => {
@@ -223,6 +266,25 @@ test("runs artifact steps locally with access to earlier results", async () => {
   assert.deepEqual(server.calls.filter((call) => call.method === "tools/call").map((call) => call.params.name), ["extract"]);
   assert.equal(local[0].context.results[0].output.rows[0].title, "Book");
   assert.equal(result.results[1].output.artifact.name, "books.csv");
+});
+
+test("continues from a timed-out readiness hint into a validated data step", async () => {
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    if (message.params.name === "wait") return { isError: true, content: [{ type: "text", text: "wait failed: wait timed out" }] };
+    return { content: [{ type: "text", text: JSON.stringify({ rows: [{ name: "Bitcoin" }] }) }] };
+  });
+  const result = await executeAutomationRecipe({
+    executionId: "soft-readiness-wait",
+    recipe: { version: 1, actions: [
+      { tool: "wait", arguments: { selector: ".dynamic", timeout: 30 } },
+      { tool: "extract", arguments: { container: ".row", fields: { name: { selector: ".name" } }, result_key: "coins" } },
+    ] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+  assert.equal(result.status, "completed");
+  assert.equal(result.results[0].output.continued_to_validated_data_step, true);
+  const waitCall = server.calls.find((call) => call.params?.name === "wait");
+  assert.equal(waitCall.params.arguments.timeout, 8);
 });
 
 test("rejects extraction rows that contain only empty field values", async () => {
@@ -392,6 +454,21 @@ test("retries a page script that expects at least a populated top-N result", asy
   assert.equal(evaluations, 2);
 });
 
+test("retries a recorded page script whose temporary row error spells out the count", async () => {
+  let attempts = 0;
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    if (attempts++ === 0) return { isError: true, content: [{ type: "text", text: "runtime evaluation failed: Expected five complete CMC trending rows" }] };
+    return { content: [{ type: "text", text: JSON.stringify({ result: [{ rank: 1, name: "Solana", symbol: "SOL", price: "$1", url: "https://coinmarketcap.com/currencies/solana/" }] }) }] };
+  });
+  const result = await executeAutomationRecipe({
+    executionId: "retry-spelled-row-count",
+    recipe: { version: 1, actions: [{ tool: "evaluate", arguments: { expression: "document.querySelectorAll('tr')" } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+  assert.equal(result.status, "completed");
+  assert.equal(attempts, 2);
+});
+
 test("replays read-only page extraction scripts and rejects unsafe scripts", async () => {
   const server = fakeMCP((message) => message.method === "initialize"
     ? { protocolVersion: "2025-03-26", capabilities: {} }
@@ -464,4 +541,18 @@ test("cancels an in-flight MCP action", async () => {
   const result = await execution;
   assert.equal(result.status, "cancelled");
   hold({ content: [] });
+});
+
+test("honors Stop pressed while the profile is still preparing", async () => {
+  const executionId = "cancel-before-runner-start";
+  assert.equal(cancelAutomationRecipe(executionId), true);
+  const server = fakeMCP(() => ({ content: [{ type: "text", text: JSON.stringify({ ok: true }) }] }));
+  const progress = [];
+  const result = await executeAutomationRecipe({
+    executionId,
+    recipe: { version: 1, actions: [{ tool: "open", arguments: { url: "https://example.com" } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, onProgress: (update) => progress.push(update) });
+  assert.equal(result.status, "cancelled");
+  assert.equal(server.calls.length, 0);
+  assert.equal(progress.at(-1).phase, "cancelled");
 });

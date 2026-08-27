@@ -20,6 +20,9 @@ export type AutomationExecution = {
   error?: string;
   failedStep?: number;
   autoRepairAttempted?: boolean;
+  expectedArtifactName?: string;
+  outputValidated?: boolean;
+  outputValidationError?: string;
 };
 
 export type AutomationExecutionView = {
@@ -72,19 +75,32 @@ export function clearActiveAutomationExecution() {
 
 export function executionWithRecipeProgress(execution: AutomationExecution, update: AutomationRecipeProgress): AutomationExecution {
   if (execution.executionId !== update.executionId || execution.engine !== "deterministic") return execution;
+  const browserSessionLost = update.phase === "failed" && /(?:list cdp targets|session .*not found|connection refused|CDP became reachable|browser (?:process )?(?:closed|exited)|target closed)/i.test(update.error || update.detail);
   const completedActions = Math.max(0, Math.min(update.total, update.stepIndex));
   return {
     ...execution,
-    phase: update.phase,
+    phase: browserSessionLost ? "preparing" : update.phase,
     expectedActions: update.total,
     completedActions,
     progress: update.phase === "completed"
       ? 100
       : update.phase === "preparing" ? 8 : Math.max(12, Math.round(completedActions / Math.max(1, update.total) * 100)),
-    detail: update.detail,
+    detail: browserSessionLost ? "The browser was closed. Reopening the selected profile and retrying once…" : update.detail,
     error: update.error,
-    failedStep: update.phase === "failed" ? update.stepIndex : undefined,
+    failedStep: update.phase === "failed" && !browserSessionLost ? update.stepIndex : undefined,
   };
+}
+
+export function automationAgentAnswer(execution: AutomationExecution, conversations: Conversation[]): ChatMessage | undefined {
+  for (const conversation of conversations) {
+    if (conversation.workspaceId && conversation.workspaceId !== execution.workspaceId) continue;
+    const taskIndex = conversation.messages.findIndex((message) => message.role === "user" && message.createdAt >= execution.startedAt && (message.commandChip?.title === execution.workflowTitle || message.text.includes(execution.task)));
+    if (taskIndex >= 0) {
+      const answer = conversation.messages.slice(taskIndex + 1).find((message) => message.role === "assistant");
+      if (answer) return answer;
+    }
+  }
+  return undefined;
 }
 
 export function automationExecutionView(execution: AutomationExecution, conversations: Conversation[], now = Date.now()): AutomationExecutionView {
@@ -93,16 +109,14 @@ export function automationExecutionView(execution: AutomationExecution, conversa
     const progress = execution.progress ?? (execution.phase === "preparing" ? 8 : Math.min(100, Math.round(completed / Math.max(1, execution.expectedActions) * 100)));
     return { phase: execution.phase, progress, detail: execution.detail || (execution.phase === "preparing" ? "Preparing the browser session…" : "Running the saved browser steps…") };
   }
-  let answer: ChatMessage | undefined;
-  for (const conversation of conversations) {
-    if (conversation.workspaceId && conversation.workspaceId !== execution.workspaceId) continue;
-    const taskIndex = conversation.messages.findIndex((message) => message.role === "user" && message.createdAt >= execution.startedAt && (message.commandChip?.title === execution.workflowTitle || message.text.includes(execution.task)));
-    if (taskIndex >= 0) answer = conversation.messages.slice(taskIndex + 1).find((message) => message.role === "assistant");
-    if (answer) break;
-  }
+  const answer = automationAgentAnswer(execution, conversations);
   if (answer?.status === "cancelled") return { phase: "cancelled", progress: 100, detail: "Execution stopped." };
   if (["failed", "timedOut"].includes(answer?.status || "")) return { phase: "failed", progress: 100, detail: answer?.text || "The workflow could not complete." };
-  if (answer?.status === "done") return { phase: "completed", progress: 100, detail: "Workflow completed successfully." };
+  if (answer?.status === "done") {
+    if (execution.outputValidationError) return { phase: "failed", progress: 100, detail: execution.outputValidationError };
+    if (execution.expectedArtifactName && !execution.outputValidated) return { phase: "running", progress: 95, detail: "Validating the repaired Artifact Center output…" };
+    return { phase: "completed", progress: 100, detail: "Workflow completed successfully." };
+  }
   const expectedTools = execution.actionTools?.length ? new Set(execution.actionTools) : PROGRESS_TOOLS;
   const actions = (answer?.toolEvents || []).filter((event) => {
     const match = event.name.match(/^(?:clawbrowser|nextbrowser)\.(.+)$/);

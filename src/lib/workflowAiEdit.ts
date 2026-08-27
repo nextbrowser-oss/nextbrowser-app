@@ -44,7 +44,7 @@ Rules:
 - After navigating to dynamic content, add a wait step for the exact result selector before extract/evaluate. Wait timeout values are seconds (normally 30, never milliseconds). A page data script must throw when its required container is missing or when it would return only empty rows.
 - Never add an AI/prompt/agent step to the runtime. AI edits the recipe now; replay remains deterministic.
 - For extract/paginate_extract/tabs_extract, include container and named fields. Prefer selectors already proven in the current workflow.
-- Keep Artifact Center output local. If multiple extracted datasets must be stored together, use save_artifact with source "data_results", format "json" so navigation and wait diagnostics are excluded.
+- Keep Artifact Center output local. If multiple extracted datasets must be stored together, give every extract/evaluate action a unique result_key and use save_artifact with source "data_results", format "json". The artifact will use those result_key values as object fields while excluding navigation and wait diagnostics.
 - Keep the same domain unless the request explicitly changes the website.
 - Never add credentials, tokens, cookies, payment data, profile/session lifecycle steps, or results copied from a previous run.
 - summary must be one short sentence describing the recipe changes.

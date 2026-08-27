@@ -48,6 +48,20 @@ test("saves the previous result to the local artifact store", async () => {
   assert.deepEqual(calls[0][3], { contentType: "text/csv; charset=utf-8", runId: "run-1" });
 });
 
+test("removes browser session diagnostics from a saved evaluate result", async () => {
+  let saved;
+  await saveAutomationArtifact({
+    action: { tool: "save_artifact", arguments: { source: "last_result", format: "json", name: "coins.json" } },
+    results: [{ index: 0, tool: "evaluate", ok: true, output: {
+      result: [{ rank: 1, name: "Solana" }],
+      session: { name: "Worker", endpoint: "http://127.0.0.1:1234" },
+    } }],
+    workspaceId: "workspace-1",
+    store: { addBytes: async (_workspaceId, _name, bytes) => { saved = JSON.parse(bytes.toString()); return { id: "artifact-1" }; } },
+  });
+  assert.deepEqual(saved, [{ rank: 1, name: "Solana" }]);
+});
+
 test("saves only collected datasets without navigation and wait diagnostics", async () => {
   let saved;
   await saveAutomationArtifact({
@@ -62,6 +76,35 @@ test("saves only collected datasets without navigation and wait diagnostics", as
     store: { addBytes: async (_workspaceId, _name, bytes) => { saved = JSON.parse(bytes.toString()); return { id: "artifact-1" }; } },
   });
   assert.deepEqual(saved, [{ name: "Bitcoin", price: "$1" }, [{ rank: 1, name: "Coin" }]]);
+});
+
+test("assembles named collected datasets and validates their object contract", async () => {
+  let saved;
+  const action = { tool: "save_artifact", arguments: {
+    source: "data_results", format: "json", name: "combined.json",
+    contract: { kind: "object", fields: {
+      bitcoin_price_usd: "non_empty",
+      trending_coins: { kind: "rows", min_rows: 2, fields: { rank: "number", name: "non_empty" } },
+    } },
+  } };
+  await saveAutomationArtifact({
+    action,
+    results: [
+      { index: 0, tool: "extract", resultKey: "bitcoin_price_usd", ok: true, output: { rows: [{ bitcoin_price_usd: "$80,000" }] } },
+      { index: 1, tool: "extract", resultKey: "trending_coins", ok: true, output: { rows: [{ rank: 1, name: "One" }, { rank: 2, name: "Two" }] } },
+    ],
+    workspaceId: "workspace-1",
+    store: { addBytes: async (_workspaceId, _name, bytes) => { saved = JSON.parse(bytes.toString()); return { id: "artifact-1" }; } },
+  });
+  assert.deepEqual(saved, {
+    bitcoin_price_usd: "$80,000",
+    trending_coins: [{ rank: 1, name: "One" }, { rank: 2, name: "Two" }],
+  });
+  await assert.rejects(() => saveAutomationArtifact({
+    action,
+    results: [{ index: 0, tool: "extract", resultKey: "bitcoin_price_usd", ok: true, output: { rows: [{ bitcoin_price_usd: "$80,000" }] } }],
+    workspaceId: "workspace-1", store: {},
+  }), /named datasets|trending_coins/i);
 });
 
 test("refuses to create an artifact before a workflow has a result", async () => {

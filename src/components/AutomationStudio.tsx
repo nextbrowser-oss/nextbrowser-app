@@ -8,7 +8,7 @@ import {
   recordedBrowserActions,
   workflowQuality,
 } from "../lib/workflowCapture";
-import { capturedRunFromHybridRecording, capturedRunsForRecording, capturedTaskRunsForRecording, skillFromRun, type CapturedRun, type ManualBrowserRecording } from "../lib/automationStudio";
+import { capturedRunFromHybridRecording, capturedRunsForRecording, capturedTaskRunsForRecording, hasPendingTaskRunForRecording, skillFromRun, type CapturedRun, type ManualBrowserRecording } from "../lib/automationStudio";
 import type { AutomationArtifact, BrowserWorkflowAction, BrowserWorkflowSkill } from "../types";
 import { humanBytes } from "../types";
 import { Icon, Spinner } from "./Icon";
@@ -420,7 +420,17 @@ export function AutomationStudio() {
     try {
       // Read the store at the moment Stop is pressed. A just-finished agent
       // response may not yet be present in this render's memoized `runs`.
-      const agentCaptured = capturedTaskRunsForRecording(useStore.getState().conversations, active)[0];
+      let conversations = useStore.getState().conversations;
+      let agentCaptured = capturedTaskRunsForRecording(conversations, active)[0];
+      // The answer text and its final `done` status arrive in adjacent store
+      // updates. A user naturally presses Stop as soon as the answer appears.
+      // Give that final status a short bounded window to settle so the run is
+      // not discarded while the UI already looks complete.
+      for (let attempt = 0; !agentCaptured && hasPendingTaskRunForRecording(conversations, active) && attempt < 20; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 100));
+        conversations = useStore.getState().conversations;
+        agentCaptured = capturedTaskRunsForRecording(conversations, active)[0];
+      }
       const captured = ["manual", "hybrid"].includes(active.source || "agent")
         ? capturedRunFromHybridRecording(active.id, await invoke<ManualBrowserRecording>("automation_page_recording_stop", { recordingId: active.id }), agentCaptured)
         : agentCaptured;
@@ -551,11 +561,33 @@ export function AutomationStudio() {
   const updateExtractionResultCount = (index: number, rawValue: string) => {
     if (!draft) return;
     const count = Math.max(1, Math.min(1_000, Number.parseInt(rawValue, 10) || 1));
+    const previousCount = Number(draft.actions[index].arguments.required_rows || draft.actions[index].arguments.limit || 10);
+    const replaceTopCount = (value: string) => value.replace(
+      new RegExp(`(\\btop[\\s_-]+)${previousCount}\\b`, "gi"),
+      `$1${count}`,
+    );
     const actions = [...draft.actions];
     const arguments_ = { ...actions[index].arguments, limit: count, required_rows: count };
     actions[index] = { ...actions[index], arguments: arguments_ };
+    for (let actionIndex = index + 1; actionIndex < actions.length; actionIndex += 1) {
+      if (actions[actionIndex].tool !== "save_artifact") continue;
+      const artifactArguments = { ...actions[actionIndex].arguments };
+      if (typeof artifactArguments.name === "string") artifactArguments.name = replaceTopCount(artifactArguments.name);
+      const contract = artifactArguments.contract;
+      if (contract && typeof contract === "object" && !Array.isArray(contract) && (contract as Record<string, unknown>).kind === "rows") {
+        artifactArguments.contract = { ...(contract as Record<string, unknown>), min_rows: count };
+      }
+      actions[actionIndex] = { ...actions[actionIndex], arguments: artifactArguments };
+    }
     setActionErrors((current) => { const next = { ...current }; delete next[index]; return next; });
-    setDraft({ ...draft, actions, recipe: { ...draft.recipe, actions } });
+    setDraft({
+      ...draft,
+      title: replaceTopCount(draft.title),
+      task: replaceTopCount(draft.task),
+      instructions: replaceTopCount(draft.instructions),
+      actions,
+      recipe: { ...draft.recipe, actions },
+    });
   };
 
   const updateArtifactFormat = (index: number, format: string) => {
@@ -884,7 +916,8 @@ export function AutomationStudio() {
       : recordings.map((item) => item.document.run).filter((run): run is CapturedRun => !!run).find((run) => run.id === failedExecution.sourceId);
     const repairWorkflow = workflow && "recipe" in workflow ? workflow : workflow ? skillFromRun(workflow) : undefined;
     if (!repairWorkflow) return setStudioError("The source automation is no longer available.");
-    const agentExecution: AutomationExecution = { ...failedExecution, executionId: uid(), engine: "agent", phase: "preparing", startedAt: Date.now(), progress: undefined, completedActions: undefined, detail: automatic ? "The saved page step changed. Starting automatic AI repair…" : "Preparing AI-assisted repair…", error: undefined, failedStep: undefined, backendRunId: undefined, autoRepairAttempted: true };
+    const expectedArtifactName = [...repairWorkflow.actions].reverse().find((action) => action.tool === "save_artifact")?.arguments.name;
+    const agentExecution: AutomationExecution = { ...failedExecution, executionId: uid(), engine: "agent", phase: "preparing", startedAt: Date.now(), progress: undefined, completedActions: undefined, detail: automatic ? "The saved page step changed. Starting automatic AI repair…" : "Preparing AI-assisted repair…", error: undefined, failedStep: undefined, backendRunId: undefined, autoRepairAttempted: true, expectedArtifactName: typeof expectedArtifactName === "string" ? expectedArtifactName : undefined, outputValidated: undefined, outputValidationError: undefined };
     setPlayback(agentExecution);
     setActiveAutomationExecution(agentExecution);
     try {
@@ -911,6 +944,9 @@ export function AutomationStudio() {
     setActiveAutomationExecution(stopping);
     if (stopping.engine === "deterministic") {
       await invoke("automation_recipe_cancel", { executionId: stopping.executionId }).catch(reportError);
+      const cancelled: AutomationExecution = { ...stopping, phase: "cancelled", detail: "Execution stopped by user." };
+      setPlayback(cancelled);
+      setActiveAutomationExecution(cancelled);
       return;
     }
     if (stopping.replyId && s.cancelQueuedReply(stopping.replyId)) return clearActiveAutomationExecution();

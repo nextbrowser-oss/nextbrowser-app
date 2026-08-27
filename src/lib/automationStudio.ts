@@ -269,6 +269,26 @@ export function capturedTaskRunsForRecording(
   return runs.sort((a, b) => b.answer.createdAt - a.answer.createdAt);
 }
 
+/**
+ * The final assistant text can render one state update before its status flips
+ * from streaming to done. Stop must briefly wait for that transition instead
+ * of silently discarding the just-finished browser task.
+ */
+export function hasPendingTaskRunForRecording(
+  conversations: Conversation[],
+  recording: { workspaceId: string; agentId?: string; startedAt: number },
+): boolean {
+  return conversations.some((conversation) => {
+    if ((conversation.workspaceId && conversation.workspaceId !== recording.workspaceId)
+      || (recording.agentId && conversation.agent !== recording.agentId)) return false;
+    return conversation.messages.some((message) =>
+      message.role === "assistant"
+      && message.createdAt >= recording.startedAt
+      && ["queued", "streaming"].includes(message.status),
+    );
+  });
+}
+
 export function artifactActionFromTask(task: string): BrowserWorkflowAction | undefined {
   const saveIntent = /(?:\bsave\b|\bexport\b|сохран(?:и|ить|яй)|экспорт(?:ируй|ировать)?)/i.test(task);
   const artifactIntent = /(?:artifact\s*center|артефакт(?:ный|ов)?\s*(?:центр|центре)?|\b(?:csv|json|txt)\b|\bfile\b|\bфайл\w*)/i.test(task);

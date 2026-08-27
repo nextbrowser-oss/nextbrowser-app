@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { artifactActionFromTask, capturedRunFromHybridRecording, capturedRunFromManualRecording, capturedTaskRunsForRecording, skillFromRun, type CapturedRun, type ManualBrowserRecording } from "./automationStudio";
+import { artifactActionFromTask, capturedRunFromHybridRecording, capturedRunFromManualRecording, capturedTaskRunsForRecording, hasPendingTaskRunForRecording, skillFromRun, type CapturedRun, type ManualBrowserRecording } from "./automationStudio";
 import { recordedBrowserActions } from "./workflowCapture";
+import type { Conversation } from "../types";
 
 function agentRun(): CapturedRun {
   return {
@@ -32,6 +33,22 @@ function agentRun(): CapturedRun {
 }
 
 describe("hybrid browser recording", () => {
+  it("recognizes the visible final answer while its completion status is still settling", () => {
+    const conversations: Conversation[] = [{
+      id: "conversation", title: "CMC research", agent: "codex", workspaceId: "workspace", createdAt: 900, updatedAt: 1_200,
+      messages: [
+        { id: "task", role: "user", text: "Collect the top five", status: "done", createdAt: 1_100 },
+        { id: "answer", role: "assistant", text: "Saved five results.", status: "streaming", createdAt: 1_200 },
+      ],
+    }];
+    const recording = { workspaceId: "workspace", agentId: "codex", startedAt: 1_000 };
+    expect(hasPendingTaskRunForRecording(conversations, recording)).toBe(true);
+    expect(capturedTaskRunsForRecording(conversations, recording)).toEqual([]);
+    conversations[0].messages[1].status = "done";
+    expect(hasPendingTaskRunForRecording(conversations, recording)).toBe(false);
+    expect(capturedTaskRunsForRecording(conversations, recording)).toHaveLength(1);
+  });
+
   it("retains the real chat task when structured agent tool telemetry is unavailable", () => {
     const runs = capturedTaskRunsForRecording([{
       id: "conversation", title: "CMC research", agent: "codex", workspaceId: "workspace", createdAt: 900, updatedAt: 1_200,
