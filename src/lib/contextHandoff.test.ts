@@ -125,6 +125,8 @@ describe("chat context handoff", () => {
     expect(result).toContain("State is discovery only");
     expect(result).toContain("before Artifact Center save");
     expect(result).toContain("rather than a numeric querySelectorAll position");
+    expect(result).toContain("open that exact API URL");
+    expect(result).toContain("uncaptured shell action");
     expect(result).toContain("Do not finish with only open, state, and save_artifact");
   });
 
