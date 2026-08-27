@@ -1626,6 +1626,9 @@ body.is-resizing-sidebar {
   top: calc(100% + 6px);
   right: 0;
   left: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   padding: 4px;
   border: 1px solid var(--line-strong);
   border-radius: 9px;
@@ -1637,6 +1640,8 @@ body.is-resizing-sidebar {
   align-items: center;
   gap: 7px;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   padding: 7px;
   border: 0;
   border-radius: 6px;
@@ -1644,6 +1649,14 @@ body.is-resizing-sidebar {
   color: var(--text);
   font-size: 10px;
   text-align: left;
+}
+.workspace-menu button > svg { flex: none; }
+.workspace-menu button > span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .workspace-menu button:hover,
 .workspace-menu button.active { background: var(--surface-5); }

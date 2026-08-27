@@ -705,6 +705,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                     <button
                       key={workspace.id}
                       className={workspace.id === s.activeWorkspaceId ? "active" : ""}
+                      title={workspace.name}
                       onClick={() => { s.selectWorkspace(workspace.id); setWorkspaceMenuOpen(false); }}
                     >
                       <Icon name={workspace.id === s.activeWorkspaceId ? "checkmark" : "square.grid.2x2"} size={11} />
