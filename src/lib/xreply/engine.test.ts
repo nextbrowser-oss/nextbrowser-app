@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { runPass } from "./engine";
-import { emptyXReplyState, hasReplied, withHandleState, type XReplyState } from "./state";
+import {
+  accruedTokens,
+  emptyXReplyState,
+  hasReplied,
+  recordReply,
+  replyBudget,
+  withHandleState,
+  withinLimits,
+  type XReplyState,
+} from "./state";
 import type { XBrowser } from "./browser";
 
 interface PostFixture { id: string; text?: string; author?: string; promoted?: boolean; createdAt?: string }
@@ -53,7 +62,12 @@ function fakeBrowser(fixture: PageFixture) {
     press: vi.fn(async () => { clicks.push("escape"); }),
     evaluate: vi.fn(async (script: string) => {
       if (script.includes('identity: publisherIdentity("")')) {
-        return { url: "https://x.com/home", login_wall: !signedIn, identity: { present: signedIn, handle: signedIn ? publisher : "" } } as never;
+        return {
+          url: "https://x.com/home", login_wall: !signedIn,
+          // An empty publisher is the delegated-account case: the chrome is
+          // there, the "@handle" line is not.
+          identity: { present: signedIn, session: signedIn, handle: signedIn ? publisher : "", matches: false },
+        } as never;
       }
       if (script.includes("snapshot.triggers")) {
         return {
@@ -81,7 +95,7 @@ function fakeBrowser(fixture: PageFixture) {
           composer: { present: true, text: inspected > 1 ? "drafted reply" : "" },
           submit: { present: true, disabled: fixture.publishOutcome === "refused" },
           media: { present: !!fixture.gif && fixture.gif.found !== false && fixture.gif.settles !== false && inspected > 1, uploading: false },
-          identity: { present: true, handle: publisher, matches: true },
+          identity: { present: true, session: true, handle: publisher, matches: true },
           reply_control: true, existing_reply_url: "",
         } as never;
       }
@@ -178,16 +192,56 @@ describe("one watch pass", () => {
     expect(second.state.handles.author.noticeAt).toBe(Date.parse("2026-08-25T10:00:00Z"));
   });
 
-  it("drafts only posts newer than the watermark and leaves them for approval", async () => {
+  it("answers only posts newer than the watermark", async () => {
     const { args } = deps(seeded("10"), { triggers: NOTICE, posts: [{ id: "10" }, { id: "20" }] });
     const { state, summary } = await runPass(args);
     expect(summary.drafted).toBe(1);
-    expect(state.drafts[0]).toMatchObject({ postId: "20", status: "pending", replyText: "drafted reply" });
+    // No review step exists, so a reply is written and published in one pass.
+    expect(state.drafts[0]).toMatchObject({ postId: "20", status: "sent", replyText: "drafted reply" });
     expect(state.handles.author.lastPostId).toBe("20");
   });
 
-  it("sends immediately in auto-send mode and remembers the answered post", async () => {
-    const { args } = deps(seeded("10", { autoSend: true }), { triggers: NOTICE, posts: [{ id: "20" }] });
+  it("holds a post the agent could not draft instead of losing it", async () => {
+    // What a mis-built CLI call looks like from here: an exit code and no answer.
+    const broken = { code: 1, stdout: "", stderr: "Input must be provided either through stdin" };
+    const failing = deps(seeded("10"), { triggers: NOTICE, posts: [{ id: "20" }] }, {
+      runAgent: vi.fn().mockResolvedValue(broken),
+    });
+    const first = await runPass(failing.args);
+    expect(first.summary.failed).toBe(1);
+    // Seen but never answered, so the watermark and the notice both wait for it.
+    expect(first.state.handles.author.lastPostId).toBe("10");
+    expect(first.state.handles.author.noticeAt).toBeUndefined();
+    expect(first.state.handles.author.draftFailAttempts).toBe(1);
+    expect(first.state.lastPassNotes?.join(" ")).toContain("Input must be provided");
+
+    const working = deps(first.state, { triggers: NOTICE, posts: [{ id: "20" }] });
+    const second = await runPass(working.args);
+    expect(second.summary.drafted).toBe(1);
+    expect(second.state.drafts[0].postId).toBe("20");
+    expect(second.state.handles.author.lastPostId).toBe("20");
+    expect(second.state.handles.author.draftFailPostId).toBeUndefined();
+    expect(second.state.lastPassNotes).toBeUndefined();
+  });
+
+  it("gives up on a post no pass can draft rather than stalling the account", async () => {
+    const broken = { code: 1, stdout: "", stderr: "the agent is down" };
+    let state = seeded("10");
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const { args } = deps(state, { triggers: NOTICE, posts: [{ id: "20" }] }, {
+        runAgent: vi.fn().mockResolvedValue(broken),
+      });
+      state = (await runPass(args)).state;
+    }
+    // Three failures is the budget: the watermark moves past the post and the
+    // feed is free again, with the reason on the record.
+    expect(state.handles.author.lastPostId).toBe("20");
+    expect(state.handles.author.draftFailPostId).toBeUndefined();
+    expect(state.lastPassNotes?.join(" ")).toContain("gave up on");
+  });
+
+  it("publishes without asking and remembers the answered post", async () => {
+    const { args } = deps(seeded("10"), { triggers: NOTICE, posts: [{ id: "20" }] });
     const { state, summary } = await runPass(args);
     expect(summary.sent).toBe(1);
     expect(state.drafts[0]).toMatchObject({ status: "sent", replyUrl: "https://x.com/me/status/99" });
@@ -196,7 +250,7 @@ describe("one watch pass", () => {
   });
 
   it("never resends a post that is already answered", async () => {
-    const answered = { ...seeded("10", { autoSend: true }), replies: [{ postId: "20", repliedAt: 1 }] };
+    const answered = { ...seeded("10"), replies: [{ postId: "20", repliedAt: 1 }] };
     const { args } = deps(answered, { triggers: NOTICE, posts: [{ id: "20" }] });
     const { state, summary } = await runPass(args);
     expect(summary.drafted).toBe(0);
@@ -204,14 +258,14 @@ describe("one watch pass", () => {
   });
 
   it("holds an unconfirmed submit out of the queue instead of retrying it", async () => {
-    const { args } = deps(seeded("10", { autoSend: true, autoRetry: true }), { triggers: NOTICE, posts: [{ id: "20" }], publishOutcome: "unverified" });
+    const { args } = deps(seeded("10", { autoRetry: true }), { triggers: NOTICE, posts: [{ id: "20" }], publishOutcome: "unverified" });
     const { state } = await runPass(args);
     expect(state.drafts[0].status).toBe("unverified");
     expect(hasReplied(state, "20")).toBe(true);
   });
 
   it("re-queues a refused attempt only while auto-retry has budget", async () => {
-    const { args } = deps(seeded("10", { autoSend: true, autoRetry: true, maxAttempts: 2 }), { triggers: NOTICE, posts: [{ id: "20" }], publishOutcome: "refused" });
+    const { args } = deps(seeded("10", { autoRetry: true, maxAttempts: 2 }), { triggers: NOTICE, posts: [{ id: "20" }], publishOutcome: "refused" });
     const first = await runPass(args);
     expect(first.state.drafts[0]).toMatchObject({ status: "approved", attempts: 1 });
 
@@ -222,11 +276,11 @@ describe("one watch pass", () => {
 
   it("stops sending at the hourly limit", async () => {
     const at = 1_800_000_000_000;
-    const spent = { ...seeded("10", { autoSend: true, hourlyMax: 1 }), replies: [{ postId: "old", repliedAt: at - 60_000 }] };
+    const spent = { ...seeded("10", { hourlyMax: 1 }), replies: [{ postId: "old", repliedAt: at - 60_000 }] };
     const { args } = deps(spent, { triggers: NOTICE, posts: [{ id: "20" }] });
     const { state, summary } = await runPass(args);
     expect(summary.sent).toBe(0);
-    expect(summary.notes.join(" ")).toContain("Hourly limit");
+    expect(summary.notes.join(" ")).toContain("Hourly budget spent");
     expect(state.drafts[0].status).toBe("approved");
   });
 
@@ -236,6 +290,18 @@ describe("one watch pass", () => {
     expect(summary.loginRequired).toBe(true);
     expect(summary.checked).toBe(0);
     expect(state.publisher?.signedIn).toBe(false);
+  });
+
+  it("does not ask for a sign-in when the session is there but unnamed", async () => {
+    // A delegated account renders the account chrome without the "@handle"
+    // line. Asking for a sign-in here is the one thing that cannot help.
+    const { args } = deps(watching(), { publisher: "", triggers: NOTICE, posts: [{ id: "20" }] });
+    const { state, summary } = await runPass(args);
+    expect(summary.loginRequired).toBe(false);
+    expect(summary.checked).toBe(0);
+    expect(state.publisher?.signedIn).toBe(true);
+    expect(summary.blocked).toContain("did not name the account");
+    expect(state.lastPassSummary).toContain("did not name the account");
   });
 
   it("refuses to run as an account other than the pinned publisher", async () => {
@@ -308,7 +374,7 @@ describe("reaction GIFs", () => {
   const gifDraft = '{"reply":"drafted reply","reaction":"agree"}';
 
   it("attaches the curated GIF the mood resolved to", async () => {
-    const { args, clicks } = deps(seeded("10", { autoSend: true }), { triggers: NOTICE, posts: [{ id: "20" }], gif: { found: true } }, {
+    const { args, clicks } = deps(seeded("10"), { triggers: NOTICE, posts: [{ id: "20" }], gif: { found: true } }, {
       runAgent: vi.fn().mockResolvedValue({ code: 0, stdout: gifDraft, stderr: "" }),
     });
     const { state, summary } = await runPass(args);
@@ -320,7 +386,7 @@ describe("reaction GIFs", () => {
   });
 
   it("sends text only when every result was blocked", async () => {
-    const { args } = deps(seeded("10", { autoSend: true }), { triggers: NOTICE, posts: [{ id: "20" }], gif: { found: false } }, {
+    const { args } = deps(seeded("10"), { triggers: NOTICE, posts: [{ id: "20" }], gif: { found: false } }, {
       runAgent: vi.fn().mockResolvedValue({ code: 0, stdout: gifDraft, stderr: "" }),
     });
     const { state, summary } = await runPass(args);
@@ -330,7 +396,7 @@ describe("reaction GIFs", () => {
   });
 
   it("refuses to send at all when a GIF is required and the picker fails", async () => {
-    const { args } = deps(seeded("10", { autoSend: true, gifMode: "required" }), { triggers: NOTICE, posts: [{ id: "20" }], gif: { found: false } }, {
+    const { args } = deps(seeded("10", { gifMode: "required" }), { triggers: NOTICE, posts: [{ id: "20" }], gif: { found: false } }, {
       runAgent: vi.fn().mockResolvedValue({ code: 0, stdout: gifDraft, stderr: "" }),
     });
     const { state, summary } = await runPass(args);
@@ -339,7 +405,7 @@ describe("reaction GIFs", () => {
   });
 
   it("ignores the reaction entirely when GIFs are switched off", async () => {
-    const { args, clicks } = deps(seeded("10", { autoSend: true, gifMode: "off" }), { triggers: NOTICE, posts: [{ id: "20" }] }, {
+    const { args, clicks } = deps(seeded("10", { gifMode: "off" }), { triggers: NOTICE, posts: [{ id: "20" }] }, {
       runAgent: vi.fn().mockResolvedValue({ code: 0, stdout: gifDraft, stderr: "" }),
     });
     const { summary } = await runPass(args);
@@ -349,12 +415,55 @@ describe("reaction GIFs", () => {
 
   it("keeps GIFs inside their own hourly budget", async () => {
     const at = 1_800_000_000_000;
-    const spent = { ...seeded("10", { autoSend: true, gifHourlyMax: 1 }), replies: [{ postId: "old", repliedAt: at - 60_000, gif: true }] };
+    const spent = { ...seeded("10", { gifHourlyMax: 1 }), replies: [{ postId: "old", repliedAt: at - 60_000, gif: true }] };
     const { args, clicks } = deps(spent, { triggers: NOTICE, posts: [{ id: "20" }] }, {
       runAgent: vi.fn().mockResolvedValue({ code: 0, stdout: gifDraft, stderr: "" }),
     });
     const { summary } = await runPass(args);
     expect(summary.sent).toBe(1);
     expect(clicks).not.toContain("gif-button");
+  });
+});
+
+describe("the stacking reply budget", () => {
+  const HOUR = 60 * 60 * 1000;
+  const at = 1_800_000_000_000;
+
+  it("carries unused hourly budget forward, capped by the daily limit", () => {
+    const state = { ...emptyXReplyState(), hourlyMax: 5, dailyMax: 20, rateTokens: 0, rateAccruedAt: at };
+    expect(accruedTokens(state, at + 2 * HOUR)).toBe(10);
+    // A long quiet stretch stacks only up to one day's worth.
+    expect(accruedTokens(state, at + 100 * HOUR)).toBe(20);
+  });
+
+  it("starts a migrated state from what the last hour already spent", () => {
+    const state = {
+      ...emptyXReplyState(),
+      hourlyMax: 5,
+      replies: [{ postId: "a", repliedAt: at - 10_000 }, { postId: "b", repliedAt: at - 20_000 }],
+    };
+    expect(accruedTokens(state, at)).toBe(3);
+  });
+
+  it("spends one token per reply and refills over time", () => {
+    let state: XReplyState = { ...emptyXReplyState(), hourlyMax: 2, dailyMax: 20, rateTokens: 2, rateAccruedAt: at };
+    state = recordReply(state, { postId: "a", repliedAt: at });
+    state = recordReply(state, { postId: "b", repliedAt: at });
+    expect(withinLimits(state, at).allowed).toBe(false);
+    expect(withinLimits(state, at + HOUR / 2).allowed).toBe(true);
+  });
+
+  it("keeps the daily cap hard no matter how much stacked", () => {
+    const replies = Array.from({ length: 20 }, (_, index) => ({ postId: String(index), repliedAt: at - index * 60_000 }));
+    const state = { ...emptyXReplyState(), hourlyMax: 60, dailyMax: 20, rateTokens: 50, rateAccruedAt: at, replies };
+    const verdict = withinLimits(state, at);
+    expect(verdict.allowed).toBe(false);
+    expect(verdict.reason).toContain("Daily limit");
+    expect(replyBudget(state, at)).toBe(0);
+  });
+
+  it("reports what may go out right now", () => {
+    const state = { ...emptyXReplyState(), hourlyMax: 5, dailyMax: 20, rateTokens: 7.9, rateAccruedAt: at };
+    expect(replyBudget(state, at)).toBe(7);
   });
 });

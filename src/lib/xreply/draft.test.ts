@@ -17,11 +17,16 @@ describe("the drafting prompt", () => {
     expect(prompt).toContain("Write like an engineer.");
   });
 
-  it("runs Claude Code with its tools switched off", () => {
+  it("runs Claude Code with its tools switched off and the prompt on stdin", () => {
     const invocation = draftInvocation("claude", "prompt");
-    expect(invocation.args).toContain("--disallowed-tools");
-    expect(invocation.args.join(" ")).toContain("Bash,Edit,Write,Read,WebFetch,WebSearch,NotebookEdit");
-    expect(invocation.args).toContain("-p");
+    expect(invocation.args).toEqual([
+      "-p", "--output-format", "text",
+      "--disallowed-tools", "Bash,Edit,Write,Read,WebFetch,WebSearch,NotebookEdit",
+    ]);
+    expect(invocation.stdin).toBe("prompt");
+    // --disallowed-tools is variadic: a prompt in argv after it is parsed as a
+    // list of tool names and the CLI exits without writing an answer.
+    expect(invocation.args).not.toContain("prompt");
   });
 
   it("runs Codex read-only and hands it the prompt on stdin", () => {
@@ -80,8 +85,8 @@ describe("drafting one reply", () => {
     await expect(draftReply("claude", request, run)).resolves.toMatchObject({ text: "Tail latency is the tell.", reaction: "none", gifQuery: "" });
     const call = run.mock.calls[0][0];
     expect(call.binary).toBe("claude");
-    expect(call.args.join(" ")).toContain("Post author: @author");
-    expect(call.args.join(" ")).toContain("Shipped the new indexer today.");
+    expect(call.stdinText).toContain("Post author: @author");
+    expect(call.stdinText).toContain("Shipped the new indexer today.");
   });
 
   it("surfaces a failed agent run instead of inventing a reply", async () => {

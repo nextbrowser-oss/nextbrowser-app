@@ -70,7 +70,16 @@ export function formatPost(request: DraftRequest): string {
 export function draftInvocation(agentId: string, prompt: string): { args: string[]; stdin?: string } {
   const spec = agentById(agentId);
   if (spec.id === "claude") {
-    return { args: ["-p", "--output-format", "text", "--disallowed-tools", CLAUDE_DISALLOWED_TOOLS, prompt] };
+    // The prompt goes on stdin, never in argv. --disallowed-tools is variadic
+    // in the Claude Code CLI, so a prompt placed after it is swallowed as a
+    // list of tool names and the run dies with "Input must be provided either
+    // through stdin or as a prompt argument" — an exit code, no output, and a
+    // post that was seen but never answered. Stdin also keeps a long post out
+    // of the process argument limit.
+    return {
+      args: ["-p", "--output-format", "text", "--disallowed-tools", CLAUDE_DISALLOWED_TOOLS],
+      stdin: prompt,
+    };
   }
   if (spec.id === "codex") {
     return { args: ["exec", "--skip-git-repo-check", "--sandbox", "read-only", "-"], stdin: prompt };

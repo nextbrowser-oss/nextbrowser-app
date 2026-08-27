@@ -1829,6 +1829,47 @@ body.is-resizing-sidebar {
   scrollbar-gutter: stable;
 }
 .workspace-empty { padding: 7px; }
+.workspace-multilogin-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--line));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.workspace-multilogin-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 34px;
+  padding: 4px 5px 4px 7px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.workspace-multilogin-open:hover { background: var(--surface-2); }
+.workspace-multilogin-open > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.workspace-multilogin-open strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-multilogin-open small {
+  color: var(--muted);
+  font-size: 9.5px;
+}
 .workspace-profile-list .profile-row {
   position: relative;
   border-color: var(--line);
@@ -3233,7 +3274,6 @@ body.is-resizing-sidebar {
 .watchlist-signin-actions button { white-space: nowrap; }
 .watchlist-drafts { display: flex; flex-direction: column; gap: 7px; flex: none; }
 .watchlist-drafts-head { align-items: center; gap: 7px; }
-.watchlist-autosend { display: inline-flex; align-items: center; gap: 6px; }
 .watchlist-draft {
   display: flex;
   flex-direction: column;
@@ -3264,8 +3304,28 @@ body.is-resizing-sidebar {
 }
 .watchlist-loop-state { display: flex; align-items: flex-start; gap: 9px; }
 .watchlist-loop-state .status-dot { margin-top: 6px; }
+.watchlist-pass-note {
+  margin-top: 3px;
+  color: var(--warn);
+  overflow-wrap: anywhere;
+}
 .watchlist-loop-controls { align-items: center; gap: 8px; }
 .watchlist-interval { display: inline-flex; align-items: center; gap: 6px; }
+.watchlist-limits { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.watchlist-limits input {
+  width: 46px;
+  border: 1px solid var(--surface-7);
+  border-radius: var(--button-radius-compact);
+  background: var(--surface-3);
+  color: var(--text);
+  padding: 4px 5px;
+  text-align: center;
+  /* The native spinner eats half of a two-digit value at this width. */
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.watchlist-limits input::-webkit-outer-spin-button,
+.watchlist-limits input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .watchlist-interval select {
   border: 1px solid var(--surface-7);
   border-radius: var(--button-radius-compact);
@@ -3885,6 +3945,22 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   color: var(--muted);
   font-size: 11px;
 }
+.connector-source-tabs { margin-top: 16px; }
+.connector-source-tabs + .connector-token-steps { margin-top: 12px; }
+.connector-token-steps-plain { margin-bottom: 16px; }
+.connector-token-figure {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+.connector-token-figure svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.connector-token-figure text { font-family: inherit; }
 .connector-token-steps {
   display: flex;
   flex-direction: column;
@@ -3913,6 +3989,10 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
+}
+.connector-token-steps p strong {
+  color: var(--text);
+  font-weight: 600;
 }
 .connector-token-steps button,
 .connector-text-link {
@@ -6627,6 +6707,80 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .create-profile-modal .profile-remote-section + .profile-create-error,
 .create-profile-modal .profile-remote-section + .modal-actions {
   margin-top: 14px;
+}
+.profile-toolset-mark {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+}
+.profile-toolset-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.profile-multilogin-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 12px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-2) 58%, transparent);
+}
+.profile-multilogin-pending {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.profile-multilogin-pending button { margin-left: auto; }
+.profile-multilogin-os { gap: 5px; }
+.profile-multilogin-os > span {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 650;
+}
+.profile-multilogin-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.profile-multilogin-picker-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.profile-multilogin-picker-head .connector-profile-tabs { flex: 1; }
+.profile-multilogin-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.profile-multilogin-search:focus-within { border-color: color-mix(in srgb, var(--accent) 52%, var(--line)); }
+.profile-multilogin-search input {
+  min-width: 0;
+  width: 100%;
+  padding: 7px 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+}
+.profile-multilogin-list {
+  max-height: 176px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
 }
 .create-profile-modal .modal-actions {
   padding-top: 14px;

@@ -9,7 +9,7 @@ import {
   type WatchedProfile,
   type WatchedProfileReport,
 } from "../types";
-import type { XReplyDraft } from "../lib/xreply/state";
+import { replyBudget } from "../lib/xreply/state";
 import { Icon } from "./Icon";
 
 const MINUTE = 60_000;
@@ -36,7 +36,8 @@ type PendingAction = { kind: "start"; minutes: number } | { kind: "add"; handle:
 
 /// The panel shows three separate truths and never blurs them: the list is the
 /// user's, the per-account chips are what the engine observed on the page, and
-/// the drafts are what the model wrote and nobody has approved yet.
+/// the replies are what already went out — the engine publishes on its own, so
+/// nothing here is waiting on a decision.
 export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; onClose: () => void }) {
   const watchlist = entry.watchlist;
   const profiles = useStore((s) => s.watchedProfiles).filter((item) => item.skillId === entry.id);
@@ -59,10 +60,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
   const openSkillSite = useStore((s) => s.openSkillSite);
   const checkSignIn = useStore((s) => s.checkXReplySignIn);
   const subscribeHandleNow = useStore((s) => s.subscribeXReplyHandle);
-  const setAutoSend = useStore((s) => s.setXReplyAutoSend);
   const updateSettings = useStore((s) => s.updateXReplySettings);
-  const reviewDraft = useStore((s) => s.reviewXReplyDraft);
-  const sendDraft = useStore((s) => s.sendXReplyDraft);
   const run = useStore((s) => s.watchlistRuns).find((item) => item.skillId === entry.id);
   const startWatchlistRun = useStore((s) => s.startWatchlistRun);
   const stopWatchlistRun = useStore((s) => s.stopWatchlistRun);
@@ -91,9 +89,8 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
   const activeCount = profiles.filter((item) => item.enabled).length;
   const publisher = engine ? engineState.publisher : watchPublishers[entry.id];
   const signedIn = publisher?.signedIn === true;
-  const pendingDrafts = engine ? engineState.drafts.filter((item) => item.status === "pending") : [];
   const recentDrafts = engine
-    ? engineState.drafts.filter((item) => item.status !== "pending" && item.status !== "rejected").slice(-3).reverse()
+    ? engineState.drafts.filter((item) => item.status !== "rejected").slice(-3).reverse()
     : [];
 
   const reportFor = (profile: WatchedProfile): WatchedProfileReport | undefined => {
@@ -324,22 +321,15 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
           </div>
         )}
 
-        {engine && (pendingDrafts.length > 0 || recentDrafts.length > 0) && (
+        {engine && recentDrafts.length > 0 && (
           <div className="watchlist-drafts">
             <div className="row watchlist-drafts-head">
-              <strong className="small">Drafts</strong>
-              {pendingDrafts.length > 0 && <span className="profiles-count">{pendingDrafts.length}</span>}
+              <strong className="small">Recent replies</strong>
               <span className="spacer" />
-              <label className="muted small watchlist-autosend">
-                <input type="checkbox" checked={engineState.autoSend} onChange={(event) => setAutoSend(event.target.checked)} />
-                Auto-send
-              </label>
+              {/* There is no review step: a reply is written and published in
+                  the same pass, and this list is what already went out. */}
+              <span className="muted small">Sent automatically</span>
             </div>
-            {pendingDrafts.map((item) => (
-              <DraftRow key={item.id} draft={item} prefix={prefix} busy={busy}
-                onSend={() => void sendDraft(entry, item.id)}
-                onReject={() => reviewDraft(item.id, "reject")} />
-            ))}
             {recentDrafts.map((item) => (
               <div key={item.id} className="watchlist-draft is-done">
                 <div className="watchlist-draft-head">
@@ -368,6 +358,11 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                     ? `Next check ${until(run.nextRunAt)}${engineState.lastPassSummary ? ` · ${engineState.lastPassSummary}` : ""}`
                     : engineState.lastPassSummary || "Checks the list on a schedule while NextBrowser is open."}
               </div>
+              {/* The counted summary says a post failed; only these say why, and
+                  without them a broken pass is indistinguishable from a quiet one. */}
+              {!busy && engineState.lastPassNotes?.map((text) => (
+                <div key={text} className="small watchlist-pass-note">{text}</div>
+              ))}
             </div>
           </div>
           <div className="row watchlist-loop-controls">
@@ -386,6 +381,29 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                 ))}
               </select>
             </label>
+            {engine && (
+              <label className="muted small watchlist-limits"
+                title="Unused hourly budget carries over, up to the daily cap.">
+                Max
+                <input type="number" min={1} max={60} value={engineState.hourlyMax}
+                  onChange={(event) => {
+                    const value = Math.max(1, Math.min(60, Math.round(Number(event.target.value) || 1)));
+                    updateSettings({ hourlyMax: value });
+                  }} />
+                /h
+                <input type="number" min={1} max={500} value={engineState.dailyMax}
+                  onChange={(event) => {
+                    const value = Math.max(1, Math.min(500, Math.round(Number(event.target.value) || 1)));
+                    updateSettings({ dailyMax: value });
+                  }} />
+                /day
+              </label>
+            )}
+            {engine && (
+              <span className="watchlist-chip" title="Replies that may go out right now — the stacked hourly budget, capped by the day.">
+                {replyBudget(engineState, Date.now())} ready
+              </span>
+            )}
             <span className="spacer" />
             <button
               className="btn-bordered"
@@ -417,29 +435,3 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
   );
 }
 
-function DraftRow({ draft, prefix, busy, onSend, onReject }: {
-  draft: XReplyDraft;
-  prefix: string;
-  busy: boolean;
-  onSend: () => void;
-  onReject: () => void;
-}) {
-  return (
-    <div className="watchlist-draft">
-      <div className="watchlist-draft-head">
-        <span className="muted small">Reply to {prefix}{draft.handle}</span>
-        <button className="link small" onClick={() => void invoke("open_external", { url: draft.postUrl })}>Source post</button>
-        <span className="spacer" />
-        <span className="muted small">{since(draft.createdAt)}</span>
-      </div>
-      <div className="muted small watchlist-draft-source">{draft.postText.slice(0, 160)}{draft.postText.length > 160 ? "…" : ""}</div>
-      <div className="watchlist-draft-text">{draft.replyText}</div>
-      <div className="row watchlist-draft-actions">
-        {draft.gifQuery && <span className="watchlist-chip">GIF: {draft.gifQuery}</span>}
-        <span className="spacer" />
-        <button className="mini" onClick={onReject}>Discard</button>
-        <button className="btn-bordered-prominent" disabled={busy} onClick={onSend}>Send reply</button>
-      </div>
-    </div>
-  );
-}

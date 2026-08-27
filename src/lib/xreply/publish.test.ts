@@ -14,7 +14,7 @@ function pageState(patch: Partial<PageState> = {}): PageState {
     composer: { present: true, text: "" },
     submit: { present: true, disabled: false },
     media: { present: false, uploading: false },
-    identity: { present: true, handle: "me", matches: true },
+    identity: { present: true, session: true, handle: "me", matches: true },
     reply_control: true,
     existing_reply_url: "",
     ...patch,
@@ -84,11 +84,23 @@ describe("publishing one reply", () => {
 
   it("refuses when the profile is signed in as another account", async () => {
     const { browser, calls } = fakeBrowser({
-      inspect: pageState({ identity: { present: true, handle: "someone_else", matches: false } }),
+      inspect: pageState({ identity: { present: true, session: true, handle: "someone_else", matches: false } }),
     });
     const outcome = await publishReply(browser, request, noSleep);
     expect(outcome).toMatchObject({ status: "refused" });
     expect(outcome.status === "refused" && outcome.reason).toContain("someone_else");
+    expect(calls.some((call) => call.startsWith("clickAt"))).toBe(false);
+  });
+
+  it("refuses when the page never named the signed-in account", async () => {
+    // A session the page did not name is not a licence to guess: a reply from
+    // the wrong account cannot be taken back.
+    const { browser, calls } = fakeBrowser({
+      inspect: pageState({ identity: { present: true, session: true, handle: "", matches: false } }),
+    });
+    const outcome = await publishReply(browser, request, noSleep);
+    expect(outcome).toMatchObject({ status: "refused" });
+    expect(outcome.status === "refused" && outcome.reason).toContain("did not say which account");
     expect(calls.some((call) => call.startsWith("clickAt"))).toBe(false);
   });
 
@@ -158,7 +170,7 @@ describe("publishing one reply", () => {
 
   it("stops at a sign-in wall", async () => {
     const { browser } = fakeBrowser({
-      inspect: pageState({ login_wall: true, identity: { present: false, handle: "", matches: false } }),
+      inspect: pageState({ login_wall: true, identity: { present: false, session: false, handle: "", matches: false } }),
     });
     await expect(publishReply(browser, request, noSleep)).resolves.toMatchObject({
       status: "refused",

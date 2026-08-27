@@ -7,6 +7,7 @@ import {
   type MultiloginProfileSelection,
 } from "../lib/multiloginSelection";
 import {
+  filterMultiloginProfiles,
   multiloginProfileSelected,
   previewMultiloginConnectionStatus,
   type MultiloginConnectionStatus,
@@ -33,12 +34,6 @@ interface MultiloginChatProfilePickerViewProps {
   onClear: () => void;
   onManage: () => void;
   searchRef?: RefObject<HTMLInputElement>;
-}
-
-function filteredProfiles(profiles: MultiloginProfileSummary[], query: string): MultiloginProfileSummary[] {
-  const normalized = query.trim().toLocaleLowerCase();
-  if (!normalized) return profiles;
-  return profiles.filter((profile) => profile.name.toLocaleLowerCase().includes(normalized));
 }
 
 export function MultiloginChatProfilePickerView({
@@ -68,7 +63,7 @@ export function MultiloginChatProfilePickerView({
   const browserProfiles = status?.browserProfiles ?? [];
   const cloudPhones = status?.cloudPhones ?? [];
   const activeProfiles = profileKind === "browser" ? browserProfiles : cloudPhones;
-  const visibleProfiles = filteredProfiles(activeProfiles, query);
+  const visibleProfiles = filterMultiloginProfiles(activeProfiles, query);
   const profileError = profileKind === "browser" ? status?.browserProfilesError : status?.cloudPhonesError;
   const connectionError = error || (!connected ? status?.error || "Reconnect Multilogin to load profiles." : undefined);
   const triggerLabel = selection?.name || (connected ? "Multilogin" : "Reconnect");

@@ -62,7 +62,7 @@ const { cancelAllAutomationElementPicks, cancelAutomationElementPick, pickAutoma
 const { activeAutomationRecordingHasDataAction, activeAutomationTraceFile, attachAutomationPageRecording, cancelAllAutomationPageRecordings, recordAutomationToolAction, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
-const { parseMultiloginProfiles } = require("./multilogin-profiles.cjs");
+const { parseMultiloginProfiles, parseMultiloginCreatedProfile } = require("./multilogin-profiles.cjs");
 const { runAgentProcess } = require("./agent-process.cjs");
 const {
   DASBROWSER_DOWNLOADS,
@@ -783,6 +783,35 @@ async function connectMultilogin(bearerToken) {
     ...profiles,
   };
 }
+const MULTILOGIN_OS_TYPES = ["windows", "macos", "linux"];
+
+// Multilogin profiles live in the Multilogin workspace rather than the local
+// profile store, so creation goes straight to `nbc --runtime multilogin`.
+async function createMultiloginProfile(args = {}) {
+  await initializeMultiloginCredential();
+  if (!multiloginAutomationToken) throw new Error("Connect Multilogin before creating a profile.");
+  const name = String(args.name || "").trim();
+  if (!name) throw new Error("Profile name is required.");
+  const country = String(args.country || "").trim().toUpperCase();
+  const osType = String(args.osType || "").trim().toLowerCase();
+  const bin = await resolveOrInstallNextctl();
+  if (!bin) throw new Error("nextctl is required to create Multilogin profiles.");
+  const result = await run(
+    bin,
+    [
+      "--runtime", "multilogin",
+      "profiles", "create", name,
+      ...(/^[A-Z]{2}$/.test(country) ? ["--country", country] : []),
+      ...(MULTILOGIN_OS_TYPES.includes(osType) ? ["--os-type", osType] : []),
+      "--format", "json",
+    ],
+    { MULTILOGIN_TOKEN: multiloginAutomationToken },
+    { requestId: args.requestId, timeoutMs: Number(args.timeoutMs) || 120_000 },
+  );
+  if (result.code !== 0) throw multiloginCommandError(result);
+  return parseMultiloginCreatedProfile(result.stdout);
+}
+
 async function disconnectMultilogin() {
   await initializeMultiloginCredential();
   await multiloginCredentialStore?.clear();
@@ -987,6 +1016,7 @@ async function invokeCommand(command, args = {}, sender) {
     case "multilogin_status": return await multiloginStatus();
     case "multilogin_connect": return await connectMultilogin(args.bearerToken);
     case "multilogin_disconnect": return await disconnectMultilogin();
+    case "multilogin_profile_create": return await createMultiloginProfile(args);
     case "manual_proxies_list": return await listPersonalProxies({ env: childEnv() });
     case "manual_proxy_save": return await createPersonalProxy(args.proxy, { env: childEnv() });
     case "manual_proxy_delete": return await deletePersonalProxy(args.id, { env: childEnv() });

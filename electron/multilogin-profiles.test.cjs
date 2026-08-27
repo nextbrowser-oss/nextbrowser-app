@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { parseMultiloginProfiles } = require("./multilogin-profiles.cjs");
+const { parseMultiloginProfiles, parseMultiloginCreatedProfile } = require("./multilogin-profiles.cjs");
 
 test("normalizes Multilogin Mimic browser profiles", () => {
   assert.deepEqual(
@@ -35,4 +35,28 @@ test("normalizes cloud phones and removes duplicate IDs", () => {
 
 test("rejects invalid Multilogin profile output", () => {
   assert.throws(() => parseMultiloginProfiles("not-json"), /invalid Multilogin profile response/);
+});
+
+test("reads the created Multilogin profile identifiers", () => {
+  assert.deepEqual(
+    parseMultiloginCreatedProfile(JSON.stringify({
+      ok: true,
+      data: {
+        profile: {
+          profile: { id: "browser-9", name: "Shop US", folder_id: "folder-3", os_type: "windows" },
+          country: "us",
+          proxy_scheme: "http",
+          storage: "cloud",
+        },
+      },
+    })),
+    { id: "browser-9", name: "Shop US", folderId: "folder-3", country: "US", storage: "cloud" },
+  );
+});
+
+test("rejects a Multilogin create response without an ID", () => {
+  assert.throws(
+    () => parseMultiloginCreatedProfile(JSON.stringify({ data: { profile: { profile: { name: "Shop US" } } } })),
+    /did not return the created profile/,
+  );
 });

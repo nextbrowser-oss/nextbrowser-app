@@ -34,8 +34,9 @@ You write the reply yourself. Do not call an external model service, do not read
 
 1. Start or reattach one named profile and use it for the whole run. Never create a profile, never start a second session, and never sign in on the user's behalf.
 2. If the user requested a proxy country, verify it before opening x.com.
-3. Read the signed-in handle once from the account switcher `[data-testid="SideNav_AccountSwitcher_Button"]` or the profile link `a[data-testid="AppTabBar_Profile_Link"]`, and compare it with the publishing handle the user named. On a mismatch, stop and report both handles; a reply from the wrong account cannot be undone quietly.
-4. A page whose path starts with `/i/flow/`, `/i/jf/` or `/login`, or that renders `a[href="/i/flow/login"]` or `input[autocomplete="username"]`, is a sign-in wall. Stop, and ask the user to sign in themselves in that profile.
+3. Read the signed-in handle once, after the account chrome has rendered — x.com draws it well after the page load, so a read that does not wait for `[data-testid="SideNav_AccountSwitcher_Button"]`, `[data-testid="SideNav_NewTweet_Button"]` or `a[data-testid="AppTabBar_Profile_Link"]` reports a signed-in profile as signed out. Take the handle from the avatar's own test id inside the account switcher or the sidebar `header[role="banner"]` (`[data-testid="UserAvatar-Container-<handle>"]`), and only then from the switcher's `@handle` text or the profile link's href: a delegated account and a collapsed sidebar render the avatar without the text. Never read that test id from anywhere else on the page — every post carries one, and those are strangers.
+4. Compare the handle with the publishing handle the user named. On a mismatch, stop and report both handles; a reply from the wrong account cannot be undone quietly. If the chrome is there but names no account, the profile is signed in — say so and stop, rather than asking for a sign-in that is already done.
+5. A page whose path starts with `/i/flow/`, `/i/jf/` or `/login`, or that renders `a[href="/i/flow/login"]` or `input[autocomplete="username"]`, is a sign-in wall. Stop, and ask the user to sign in themselves in that profile.
 
 ## State between runs
 

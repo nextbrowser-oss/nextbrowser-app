@@ -26,15 +26,8 @@ import {
 } from "./skillsCatalog";
 import { REPOSITORY_SKILL_CATEGORIES, mergeSkillCategories } from "./repositorySkills";
 import { cliBrowser } from "./lib/xreply/browser";
-import { openNotifications, readPublisher, runPass, sendDraft, subscribeHandle } from "./lib/xreply/engine";
-import {
-  emptyXReplyState,
-  normalizeXReplyState,
-  updateDraft as updateXReplyDraft,
-  withinLimits as withinXReplyLimits,
-  type XReplyDraft,
-  type XReplyState,
-} from "./lib/xreply/state";
+import { openNotifications, readPublisher, runPass, subscribeHandle } from "./lib/xreply/engine";
+import { emptyXReplyState, normalizeXReplyState, type XReplyState } from "./lib/xreply/state";
 import { activityFromText, extractToolEvents } from "./lib/activityParser";
 import { composePrompt } from "./lib/composePrompt";
 import { executionTargetForTurn, type ExecutionTarget } from "./lib/executionTarget";
@@ -103,6 +96,7 @@ import {
 } from "./types";
 import type { RotationCountry } from "./lib/countryFlag";
 import { browserProfileContext } from "./lib/browserProfileContext";
+import { CONNECTOR_PROMPT_RESUMED_EVENT, type ConnectorPrompt } from "./connectorsCatalog";
 import { clearMultiloginSelection, multiloginSelectionForWorkspace } from "./lib/multiloginSelection";
 import { isMultiloginStartRequest, multiloginStartReply } from "./lib/multiloginChatCommand";
 import { multiloginSessionName, nextctlRemoteArgs, type LiveStreamTarget } from "./lib/liveStreamTarget";
@@ -422,6 +416,7 @@ interface State {
   chatListCollapsed: boolean;
   terminalChat: boolean;
   dashboardKeyPromptOpen: boolean;
+  connectorPrompt?: ConnectorPrompt;
   accountPairing?: AccountPairingState;
   nextctlVersion: string;
   nextctlUpdating: boolean;
@@ -503,6 +498,9 @@ interface State {
   setChatListCollapsed: (v: boolean) => void;
   setTerminalChat: (v: boolean) => void;
   setDashboardKeyPromptOpen: (v: boolean) => void;
+  openConnectorPrompt: (id: ConnectorPrompt["id"], resume?: ConnectorPrompt["resume"]) => void;
+  clearConnectorPrompt: () => void;
+  completeConnectorPrompt: () => void;
   setOnboardingStepIndex: (index: number) => void;
   suspendOnboardingForSetup: () => void;
   resumeOnboardingAfterSetup: () => void;
@@ -573,9 +571,6 @@ interface State {
   dismissXReplySignIn: () => void;
   subscribeXReplyHandle: (entry: SkillEntry, handle: string) => Promise<void>;
   updateXReplySettings: (patch: Partial<XReplyState>) => void;
-  setXReplyAutoSend: (autoSend: boolean) => void;
-  reviewXReplyDraft: (id: string, decision: "approve" | "reject") => void;
-  sendXReplyDraft: (entry: SkillEntry, id: string) => Promise<void>;
   stopWatchlistRun: (skillId: string) => void;
   tickWatchlistRuns: () => Promise<void>;
   startRemoteStream: (target?: LiveStreamTarget) => Promise<RemoteStreamInfo>;
@@ -3264,6 +3259,23 @@ export const useStore = create<State>((set, get) => {
     trackEvent(v ? "dashboard_key_prompt_opened" : "dashboard_key_prompt_closed");
     set({ dashboardKeyPromptOpen: v, loginError: v ? undefined : get().loginError });
   },
+  openConnectorPrompt: (id, resume) => {
+    const returnTab = get().tab;
+    trackEvent("connector_prompt_opened", { connector: id, resume: resume ?? "none" });
+    set({ tab: "connectors", connectorPrompt: { id, returnTab, resume } });
+  },
+  clearConnectorPrompt: () => set({ connectorPrompt: undefined }),
+  completeConnectorPrompt: () => {
+    const prompt = get().connectorPrompt;
+    set({ connectorPrompt: undefined });
+    if (!prompt?.resume) return;
+    // Hand the person back to the flow that sent them to the connector so a
+    // one-time setup never costs them the profile they were creating.
+    set({ tab: prompt.returnTab ?? "chat" });
+    window.dispatchEvent(new CustomEvent(CONNECTOR_PROMPT_RESUMED_EVENT, {
+      detail: { connector: prompt.id, resume: prompt.resume },
+    }));
+  },
   setOnboardingStepIndex: (index) => set({ onboardingStepIndex: index }),
   suspendOnboardingForSetup: () => set({
     showOnboarding: false,
@@ -4396,13 +4408,14 @@ export const useStore = create<State>((set, get) => {
       // A pass that found the profile signed out asks for a sign-in rather than
       // leaving the panel to guess why nothing happened.
       set({ xReplyState: state, xReplySignInNeeded: summary.loginRequired });
-      trackEvent("x_reply_pass_finished", {
-        watched_count: handles.length,
-        drafts: state.drafts.filter((draft) => draft.status === "pending").length,
-        auto_send: state.autoSend,
-      });
+      trackEvent("x_reply_pass_finished", { watched_count: handles.length, sent: summary.sent });
     } catch (error) {
-      const state: XReplyState = { ...get().xReplyState, lastPassAt: now(), lastPassSummary: friendlyXReplyError(error) };
+      const state: XReplyState = {
+        ...get().xReplyState,
+        lastPassAt: now(),
+        lastPassSummary: friendlyXReplyError(error),
+        lastPassNotes: undefined,
+      };
       persistXReplyState(state);
       set({ xReplyState: state });
       trackEvent("x_reply_pass_failed", {});
@@ -4485,59 +4498,6 @@ export const useStore = create<State>((set, get) => {
     const xReplyState = normalizeXReplyState({ ...get().xReplyState, ...patch });
     persistXReplyState(xReplyState);
     set({ xReplyState });
-  },
-
-  setXReplyAutoSend: (autoSend) => {
-    const xReplyState = { ...get().xReplyState, autoSend };
-    persistXReplyState(xReplyState);
-    set({ xReplyState });
-    trackEvent("x_reply_auto_send_changed", { auto_send: autoSend });
-  },
-
-  reviewXReplyDraft: (id, decision) => {
-    const xReplyState = updateXReplyDraft(get().xReplyState, id, {
-      status: decision === "approve" ? "approved" : "rejected",
-    });
-    persistXReplyState(xReplyState);
-    set({ xReplyState });
-    trackEvent("x_reply_draft_reviewed", { decision });
-  },
-
-  // Sending one approved draft on demand runs the same gates as an automatic
-  // send, including the limits: an approval is not permission to exceed them.
-  sendXReplyDraft: async (entry, id) => {
-    if (get().xReplyBusy || !get().agentReady()) return;
-    const draft = get().xReplyState.drafts.find((item) => item.id === id);
-    if (!draft) return;
-    const verdict = withinXReplyLimits(get().xReplyState, now());
-    if (!verdict.allowed) {
-      const blocked = { ...get().xReplyState, lastPassSummary: verdict.reason };
-      persistXReplyState(blocked);
-      set({ xReplyState: blocked });
-      return;
-    }
-    set({ xReplyBusy: true, xReplyStep: `Publishing the reply to @${draft.handle}` });
-    try {
-      const profileArgs = await prepareXReplySession(
-        selectorTargetHost(entry.selector),
-        (step) => set({ xReplyStep: step }),
-      );
-      const approved: XReplyDraft = { ...draft, status: "approved" };
-      const result = await sendDraft(
-        { browser: cliBrowser(profileArgs), now },
-        updateXReplyDraft(get().xReplyState, id, { status: "approved" }),
-        approved,
-      );
-      persistXReplyState(result.state);
-      set({ xReplyState: result.state });
-      trackEvent("x_reply_draft_sent", { sent: result.sent });
-    } catch (error) {
-      const failed = updateXReplyDraft(get().xReplyState, id, { status: "failed", error: friendlyXReplyError(error) });
-      persistXReplyState(failed);
-      set({ xReplyState: failed });
-    } finally {
-      set({ xReplyBusy: false, xReplyStep: undefined });
-    }
   },
 
   watchlistRunFor: (skillId) => get().watchlistRuns.find((run) => run.skillId === skillId),

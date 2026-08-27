@@ -26,6 +26,15 @@ export function multiloginProfileSelected(
   return selection?.kind === kind && selection.id === profile.id && selection.folderId === profile.folderId;
 }
 
+export function filterMultiloginProfiles(
+  profiles: MultiloginProfileSummary[],
+  query: string,
+): MultiloginProfileSummary[] {
+  const normalized = query.trim().toLocaleLowerCase();
+  if (!normalized) return profiles;
+  return profiles.filter((profile) => profile.name.toLocaleLowerCase().includes(normalized));
+}
+
 export function previewMultiloginConnectionStatus(search = window.location.search): MultiloginConnectionStatus {
   const connected = new URLSearchParams(search).get("connector") === "connected";
   if (!connected) return { connected: false, valid: false, secureStorageAvailable: true };
