@@ -199,4 +199,28 @@ Called clawbrowser.extract({"container":"article.product","fields":["title","pri
     const content = `Called clawbrowser.navigate({"url":"https://quotes.toscrape.com"})\n{"ok":true}\nCalled clawbrowser.extract({"container":"div.quote"})\n{"ok":true}\n${"A normal quote. ".repeat(40)}I have not failed; I found another way.`;
     expect(workflowQuality("Collect quotes from quotes.toscrape.com", content).reusable).toBe(true);
   });
+
+  it("rejects a JSON body parser when the trace only captured an ordinary HTML page", () => {
+    const jsonFromMissingPage = [
+      'Called clawbrowser.open({"url":"https://coinmarketcap.com/trending-cryptocurrencies/"})',
+      '{"ok":true}',
+      'Called clawbrowser.evaluate({"expression":"JSON.parse(document.body.innerText)"})',
+      '{"ok":true,"count":5}',
+      'Called clawbrowser.save_artifact({"source":"last_result","format":"json","name":"coins.json"})',
+      '{"ok":true}',
+    ].join("\n");
+    const quality = workflowQuality("Collect coins from coinmarketcap.com", jsonFromMissingPage);
+    expect(quality.reusable).toBe(false);
+    expect(quality.reason).toMatch(/JSON page.*not captured/i);
+  });
+
+  it("accepts a JSON body parser when the API navigation is present", () => {
+    const jsonApi = [
+      'Called clawbrowser.open({"url":"https://api.example.com/data/list.json"})',
+      '{"ok":true}',
+      'Called clawbrowser.evaluate({"expression":"JSON.parse(document.body.innerText)"})',
+      '{"ok":true,"count":5}',
+    ].join("\n");
+    expect(workflowQuality("Collect data from example.com", jsonApi).reusable).toBe(true);
+  });
 });

@@ -126,6 +126,23 @@ function hasSearchParameters(value: unknown): boolean {
   } catch { return false; }
 }
 
+function dependsOnUncapturedJsonNavigation(calls: CapturedCall[]): boolean {
+  for (let index = 0; index < calls.length; index += 1) {
+    const call = calls[index];
+    if (call.name !== "evaluate" || typeof call.args.expression !== "string"
+      || !/JSON\.parse\(\s*document\.body\.(?:innerText|textContent)\s*\)/.test(call.args.expression)) continue;
+    const navigation = calls.slice(0, index).reverse().find((candidate) => ["open", "navigate"].includes(candidate.name));
+    if (!navigation || typeof navigation.args.url !== "string") return true;
+    try {
+      const url = new URL(navigation.args.url);
+      const looksLikeJsonSource = /(?:^|\.)api\./i.test(url.hostname)
+        || /(?:^|\/)api(?:\/|$)|\.json$/i.test(url.pathname);
+      if (!looksLikeJsonSource) return true;
+    } catch { return true; }
+  }
+  return false;
+}
+
 /** Drop a failed form-search branch once the agent falls back to a complete results URL. */
 function collapseSearchFallback(calls: CapturedCall[]): CapturedCall[] {
   let finalNavigation = -1;
@@ -314,6 +331,9 @@ export function workflowQuality(task: string, transcript: string, domain = captu
   if (meaningful.length > MAX_RECORDED_ACTIONS) return { reusable: false, reason: `The run contains more than ${MAX_RECORDED_ACTIONS} browser actions. Split it into smaller workflows.` };
   const last = calls.at(-1);
   if (last && last.score < 0) return { reusable: false, reason: "The browser workflow ended with a failed action." };
+  if (dependsOnUncapturedJsonNavigation(calls)) {
+    return { reusable: false, reason: "A data step depended on a JSON page that was not captured. Record the complete navigation before saving this workflow." };
+  }
   const successfulExtraction = calls.some((call) => ["extract", "paginate_extract", "evaluate"].includes(call.name) && call.score > 0);
   const postingConfirmation = /\b(posted|published|submitted|saved draft|commented|sent successfully)\b|опубликован|отправлен|сохран[её]н\s+черновик/i.test(transcript);
   const interaction = calls.some((call) => ["act", "multi_action", "input", "click", "press", "upload"].includes(call.name));

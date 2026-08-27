@@ -865,6 +865,10 @@ function sessionLost(message: string): boolean {
   return /SESSION_NOT_FOUND|CDP_UNREACHABLE|TAB_NOT_FOUND|connection refused|cdp targets/i.test(message);
 }
 
+function proxyTunnelLost(message: string): boolean {
+  return /ERR_TUNNEL_CONNECTION_FAILED/i.test(message);
+}
+
 /** friendlyXReplyError keeps a CDP transcript out of the panel. */
 function friendlyXReplyError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
@@ -5025,7 +5029,9 @@ export const useStore = create<State>((set, get) => {
     // but MCP page actions still require a live CDP session. Start or reattach
     // the selected profile without navigating; the saved recipe remains the
     // sole owner of page navigation.
-    const profile = get().selectedProfile;
+    const activeWorkspace = get().workspaces.find((workspace) => workspace.id === get().activeWorkspaceId);
+    const soleWorkspaceProfile = activeWorkspace?.profileNames.length === 1 ? activeWorkspace.profileNames[0] : undefined;
+    const profile = get().selectedProfile || soleWorkspaceProfile;
     const runtime = profile ? runtimeForProfile(get().workspaces, profile) : "clawbrowser";
     if (profile) {
       if (get().statuses[profile] !== "running") await get().startProfile(profile);
@@ -5033,7 +5039,7 @@ export const useStore = create<State>((set, get) => {
       await get().startDefaultSession();
     }
     trackEvent("automation_recipe_started", { action_count: skill.actions.length, runtime, has_profile: !!profile });
-    const result = await invoke<AutomationRecipeResult>("automation_recipe_execute", {
+    const executeRecipe = () => invoke<AutomationRecipeResult>("automation_recipe_execute", {
       executionId,
       recipe: { ...skill.recipe, actions: skill.actions },
       parameters: { task: skill.task, ...recipeParameters },
@@ -5042,6 +5048,28 @@ export const useStore = create<State>((set, get) => {
       workspaceId: get().activeWorkspaceId,
       backendRunId: typeof backendRunId === "string" ? backendRunId : undefined,
     });
+    let result = await executeRecipe();
+    // The user can close the browser window between status polls. In that
+    // short window the store still says "running", while its CDP endpoint is
+    // already dead. Recover the same selected profile exactly once and replay
+    // from step one; never guess another profile or enter a restart loop.
+    if (result.status === "failed" && (sessionLost(result.error ?? "") || proxyTunnelLost(result.error ?? ""))) {
+      trackEvent("automation_recipe_session_recovery", { runtime, has_profile: !!profile });
+      if (proxyTunnelLost(result.error ?? "")) {
+        const profileModel = profile ? get().profiles.find((item) => item.name === profile) : undefined;
+        if (profile && profileModel?.country && !profileModel.manual_proxy) {
+          await get().rotateProfile(profile);
+          result = await executeRecipe();
+          trackEvent(`automation_recipe_${result.status}`, { action_count: skill.actions.length, runtime, failed_step: result.failedStep });
+          return result;
+        }
+        if (profile) await get().stopProfile(profile).catch(() => undefined);
+        else await get().stopDefaultSession().catch(() => undefined);
+      }
+      if (profile) await get().startProfile(profile);
+      else await get().startDefaultSession();
+      result = await executeRecipe();
+    }
     trackEvent(`automation_recipe_${result.status}`, { action_count: skill.actions.length, runtime, failed_step: result.failedStep });
     return result;
   },

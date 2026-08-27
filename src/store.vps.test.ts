@@ -197,6 +197,169 @@ describe("deterministic automation replay", () => {
     expect(startProfile).not.toHaveBeenCalled();
     expect(bridge.invoke).toHaveBeenCalledWith("automation_recipe_execute", expect.objectContaining({ profile: "work" }));
   });
+
+  it("uses the sole profile in the active workspace when none is explicitly selected", async () => {
+    const startProfile = vi.fn();
+    useStore.setState({
+      activeWorkspaceId: "workspace",
+      selectedProfile: undefined,
+      statuses: { work: "running" },
+      startProfile,
+      workspaces: [{
+        id: "workspace",
+        name: "Workspace",
+        profileNames: ["work"],
+        profileToolsets: { work: "clawbrowser" },
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+    });
+    bridge.invoke.mockResolvedValueOnce({ status: "completed", results: [] });
+
+    await useStore.getState().runAutomationRecipe(workflowSkill(), "sole-workspace-profile");
+
+    expect(startProfile).not.toHaveBeenCalled();
+    expect(bridge.invoke).toHaveBeenCalledWith("automation_recipe_execute", expect.objectContaining({
+      profile: "work",
+      runtime: "clawbrowser",
+    }));
+  });
+
+  it("recovers the same profile once when its running status points to a dead browser", async () => {
+    const startProfile = vi.fn().mockImplementation(async () => {
+      useStore.setState((state) => ({ statuses: { ...state.statuses, work: "running" } }));
+    });
+    useStore.setState({
+      selectedProfile: "work",
+      statuses: { work: "running" },
+      startProfile,
+      workspaces: [{
+        id: "workspace",
+        name: "Workspace",
+        profileNames: ["work"],
+        profileToolsets: { work: "clawbrowser" },
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+    });
+    bridge.invoke
+      .mockResolvedValueOnce({
+        status: "failed",
+        results: [],
+        failedStep: 0,
+        error: 'open failed: dial tcp 127.0.0.1:59214: connect: connection refused',
+      })
+      .mockResolvedValueOnce({ status: "completed", results: [] });
+
+    await expect(useStore.getState().runAutomationRecipe(
+      workflowSkill(),
+      "stale-running-execution",
+    )).resolves.toMatchObject({ status: "completed" });
+
+    expect(startProfile).toHaveBeenCalledTimes(1);
+    expect(startProfile).toHaveBeenCalledWith("work");
+    expect(bridge.invoke).toHaveBeenCalledTimes(2);
+    expect(bridge.invoke).toHaveBeenNthCalledWith(2, "automation_recipe_execute", expect.objectContaining({
+      executionId: "stale-running-execution",
+      profile: "work",
+    }));
+  });
+
+  it("does not loop when the recovered profile still cannot serve the recipe", async () => {
+    const startProfile = vi.fn();
+    useStore.setState({
+      selectedProfile: "work",
+      statuses: { work: "running" },
+      startProfile,
+      workspaces: [{
+        id: "workspace",
+        name: "Workspace",
+        profileNames: ["work"],
+        profileToolsets: { work: "clawbrowser" },
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+    });
+    bridge.invoke.mockResolvedValue({
+      status: "failed",
+      results: [],
+      failedStep: 0,
+      error: "CDP endpoint is not reachable [CDP_UNREACHABLE]",
+    });
+
+    const result = await useStore.getState().runAutomationRecipe(workflowSkill(), "bounded-recovery");
+
+    expect(result.status).toBe("failed");
+    expect(startProfile).toHaveBeenCalledTimes(1);
+    expect(bridge.invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("restarts the same profile once after persistent proxy tunnel failure", async () => {
+    const stopProfile = vi.fn().mockResolvedValue(undefined);
+    const startProfile = vi.fn().mockResolvedValue(undefined);
+    useStore.setState({
+      activeWorkspaceId: "workspace",
+      selectedProfile: "work",
+      statuses: { work: "running" },
+      stopProfile,
+      startProfile,
+      workspaces: [{
+        id: "workspace",
+        name: "Workspace",
+        profileNames: ["work"],
+        profileToolsets: { work: "clawbrowser" },
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+    });
+    bridge.invoke
+      .mockResolvedValueOnce({ status: "failed", results: [], failedStep: 0, error: "navigation failed: net::ERR_TUNNEL_CONNECTION_FAILED" })
+      .mockResolvedValueOnce({ status: "completed", results: [] });
+
+    const result = await useStore.getState().runAutomationRecipe(workflowSkill(), "proxy-recovery");
+
+    expect(result.status).toBe("completed");
+    expect(stopProfile).toHaveBeenCalledTimes(1);
+    expect(stopProfile).toHaveBeenCalledWith("work");
+    expect(startProfile).toHaveBeenCalledTimes(1);
+    expect(startProfile).toHaveBeenCalledWith("work");
+    expect(bridge.invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("rotates a managed proxy profile once after persistent tunnel failure", async () => {
+    const rotateProfile = vi.fn().mockResolvedValue(undefined);
+    const stopProfile = vi.fn().mockResolvedValue(undefined);
+    const startProfile = vi.fn().mockResolvedValue(undefined);
+    useStore.setState({
+      activeWorkspaceId: "workspace",
+      selectedProfile: "work",
+      profiles: [{ name: "work", country: "US", manual_proxy: null }],
+      statuses: { work: "running" },
+      rotateProfile,
+      stopProfile,
+      startProfile,
+      workspaces: [{
+        id: "workspace",
+        name: "Workspace",
+        profileNames: ["work"],
+        profileToolsets: { work: "clawbrowser" },
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+    });
+    bridge.invoke
+      .mockResolvedValueOnce({ status: "failed", results: [], failedStep: 0, error: "navigation failed: net::ERR_TUNNEL_CONNECTION_FAILED" })
+      .mockResolvedValueOnce({ status: "completed", results: [] });
+
+    const result = await useStore.getState().runAutomationRecipe(workflowSkill(), "managed-proxy-recovery");
+
+    expect(result.status).toBe("completed");
+    expect(rotateProfile).toHaveBeenCalledTimes(1);
+    expect(rotateProfile).toHaveBeenCalledWith("work");
+    expect(stopProfile).not.toHaveBeenCalled();
+    expect(startProfile).not.toHaveBeenCalled();
+    expect(bridge.invoke).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("VPS execution target isolation", () => {

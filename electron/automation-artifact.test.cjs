@@ -4,11 +4,32 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { AGENT_ARTIFACT_BODY_LIMIT, normalizeAgentContent, saveAgentArtifact } = require("./agent-artifact.cjs");
-const { asCSV, saveAutomationArtifact } = require("./automation-artifact.cjs");
+const { asCSV, assertArtifactDataContract, buildArtifactDataContract, saveAutomationArtifact } = require("./automation-artifact.cjs");
 const { createLocalArtifactStore } = require("./local-artifacts.cjs");
 
 test("serializes extracted rows as a quoted CSV table", () => {
   assert.equal(asCSV({ rows: [{ title: "One, two", price: 12 }, { title: 'A "quote"', price: 15 }] }), 'title,price\n"One, two",12\n"A ""quote""",15\n');
+});
+
+test("captures and enforces the saved JSON dataset shape without retaining values", () => {
+  const contract = buildArtifactDataContract([
+    { rank: 1, name: "Solana", url: "https://coinmarketcap.com/currencies/solana/" },
+    { rank: 2, name: "VeChain", url: "https://coinmarketcap.com/currencies/vechain/" },
+  ], "json");
+  assert.deepEqual(contract, {
+    kind: "rows",
+    min_rows: 2,
+    fields: { rank: "number", name: "non_empty", url: "url" },
+  });
+  assert.doesNotThrow(() => assertArtifactDataContract({ rows: [
+    { rank: 1, name: "Bitcoin", url: "https://example.com/bitcoin" },
+    { rank: 2, name: "Ether", url: "https://example.com/ether" },
+  ] }, contract));
+  assert.throws(() => assertArtifactDataContract({ rows: [
+    { rank: 1, name: "Bitcoin", url: "1 Bitcoin BTC $1" },
+    { rank: 2, name: "Ether", url: "2 Ether ETH $2" },
+  ] }, contract), /valid HTTP or HTTPS URL/);
+  assert.equal(JSON.stringify(contract).includes("Solana"), false);
 });
 
 test("saves the previous result to the local artifact store", async () => {

@@ -42,7 +42,7 @@ const {
 } = require("./project-sync.cjs");
 const { defaultSSHConfigPath, discoverSSHHosts, isAllowedExplicitConfigPath } = require("./ssh-config.cjs");
 const { createLocalArtifactStore } = require("./local-artifacts.cjs");
-const { saveAutomationArtifact } = require("./automation-artifact.cjs");
+const { buildArtifactDataContract, saveAutomationArtifact } = require("./automation-artifact.cjs");
 const { AGENT_ARTIFACT_BODY_LIMIT, saveAgentArtifact } = require("./agent-artifact.cjs");
 const {
   createAutomationRun,
@@ -518,6 +518,7 @@ async function ensureAgentControlServer() {
           source: "last_result",
           format: String(payload.format || result.artifact?.extension || "json").replace(/^\./, ""),
           name: String(result.artifact?.name || payload.name || "workflow-result.json"),
+          contract: buildArtifactDataContract(payload.content, payload.format || result.artifact?.extension || "json"),
         });
         sendControlResponse(response, 200, { ok: true, artifact: result.artifact });
         return;

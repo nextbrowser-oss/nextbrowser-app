@@ -43,6 +43,33 @@ test("maps recorded navigation and accessible-name actions to deterministic MCP 
   assert.match(calls[0].arguments.expression, /aria-labelledby/);
 });
 
+test("normalizes a recorded URL field to a relative link attribute", () => {
+  const [call] = toolCalls({
+    tool: "paginate_extract",
+    arguments: {
+      container: "table tr",
+      fields: { name: { selector: "td:nth-child(3) span" }, url: { selector: "" } },
+      transform: { url: "url" },
+      scroll: true,
+    },
+  });
+  assert.deepEqual(call.arguments.fields.url, { selector: "a[href]", attribute: "href" });
+});
+
+test("keeps the local required row contract out of MCP arguments", () => {
+  const [call] = toolCalls({
+    tool: "extract",
+    arguments: {
+      container: ".row",
+      fields: { title: { selector: ".title" } },
+      limit: 10,
+      required_rows: 10,
+    },
+  });
+  assert.equal(call.arguments.limit, 10);
+  assert.equal(Object.hasOwn(call.arguments, "required_rows"), false);
+});
+
 test("clicks semantic form controls directly instead of relying on a stale state element id", () => {
   for (const role of ["button", "checkbox", "radio"]) {
     const calls = toolCalls({ tool: "click", arguments: { locator: { role, name: "Control" } } });
@@ -143,6 +170,24 @@ test("retries only transient navigation failures", async () => {
   assert.ok(progress.some((update) => /Retrying navigation/.test(update.detail)));
 });
 
+test("retries a temporary proxy tunnel navigation failure", async () => {
+  let opens = 0;
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    if (message.params.name === "open" && opens++ === 0) {
+      return { isError: true, content: [{ type: "text", text: "navigation failed: net::ERR_TUNNEL_CONNECTION_FAILED" }] };
+    }
+    return { content: [{ type: "text", text: JSON.stringify({ ok: true }) }] };
+  });
+  const result = await executeAutomationRecipe({
+    executionId: "retry-proxy-tunnel",
+    recipe: { version: 1, actions: [{ tool: "open", arguments: { url: "https://example.com" } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+
+  assert.equal(result.status, "completed");
+  assert.equal(opens, 2);
+});
+
 test("does not retry permanent navigation failures", async () => {
   let opens = 0;
   const server = fakeMCP((message) => {
@@ -192,6 +237,30 @@ test("rejects extraction rows that contain only empty field values", async () =>
   assert.match(result.error, /returned only empty rows/);
 });
 
+test("does not save a partial artifact when the workflow requires more rows", async () => {
+  const server = fakeMCP((message) => message.method === "initialize"
+    ? { protocolVersion: "2025-03-26", capabilities: {} }
+    : { content: [{ type: "text", text: JSON.stringify({ rows: [
+      { rank: "1", name: "One" },
+      { rank: "2", name: "Two" },
+    ], count: 2 }) }] });
+  const local = [];
+  const result = await executeAutomationRecipe({
+    executionId: "required-extraction-rows",
+    recipe: { version: 1, actions: [
+      { tool: "extract", arguments: { container: "tr", fields: { rank: { selector: ".rank" }, name: { selector: ".name" } }, limit: 5, required_rows: 5 } },
+      { tool: "save_artifact", arguments: { source: "last_result", format: "json", name: "rows.json" } },
+    ] },
+  }, {
+    binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {},
+    onLocalAction: async () => { local.push(true); return { saved: true }; },
+  });
+  assert.equal(result.status, "failed");
+  assert.equal(result.failedStep, 0);
+  assert.match(result.error, /returned 2 complete result rows.*requires 5/i);
+  assert.equal(local.length, 0);
+});
+
 test("does not treat rank-only evaluate rows as extracted data", async () => {
   const server = fakeMCP((message) => message.method === "initialize"
     ? { protocolVersion: "2025-03-26", capabilities: {} }
@@ -227,6 +296,30 @@ test("rejects partially empty evaluate row sets instead of saving incomplete dat
     onLocalAction: async () => { local.push(true); return { saved: true }; },
   });
   assert.equal(result.status, "failed");
+  assert.equal(local.length, 0);
+});
+
+test("rejects semantically invalid extracted URLs before saving an artifact", async () => {
+  const server = fakeMCP((message) => message.method === "initialize"
+    ? { protocolVersion: "2025-03-26", capabilities: {} }
+    : { content: [{ type: "text", text: JSON.stringify({ rows: [
+      { rank: "1", name: "Bitcoin", url: "1 Bitcoin BTC $1" },
+      { rank: "2", name: "Ether", url: "2 Ether ETH $2" },
+    ] }) }] });
+  const local = [];
+  const result = await executeAutomationRecipe({
+    executionId: "invalid-extracted-url",
+    recipe: { version: 1, actions: [
+      { tool: "extract", arguments: { container: "tr", fields: { rank: { selector: ".rank" }, name: { selector: ".name" }, url: { selector: "" } }, transform: { url: "url" } } },
+      { tool: "save_artifact", arguments: { source: "last_result", format: "json", name: "coins.json", contract: { kind: "rows", min_rows: 2, fields: { rank: "non_empty", name: "non_empty", url: "url" } } } },
+    ] },
+  }, {
+    binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {},
+    onLocalAction: async () => { local.push(true); return { saved: true }; },
+  });
+  assert.equal(result.status, "failed");
+  assert.equal(result.failedStep, 0);
+  assert.match(result.error, /invalid.*url/i);
   assert.equal(local.length, 0);
 });
 

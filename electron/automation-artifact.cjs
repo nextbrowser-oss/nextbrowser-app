@@ -28,6 +28,60 @@ function usefulValue(value) {
   return current;
 }
 
+function normalizedJSONContent(content, format = "json") {
+  if (String(format).toLowerCase() !== "json" || typeof content !== "string") return content;
+  try { return JSON.parse(content.trim()); }
+  catch { return content; }
+}
+
+function meaningfulContractValue(value) {
+  if (value == null) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value === "boolean") return true;
+  if (Array.isArray(value)) return value.length > 0;
+  return typeof value === "object" && Object.keys(value).length > 0;
+}
+
+function validHTTPURL(value) {
+  if (typeof value !== "string") return false;
+  try { return ["http:", "https:"].includes(new URL(value).protocol); }
+  catch { return false; }
+}
+
+function buildArtifactDataContract(content, format = "json") {
+  if (String(format).toLowerCase() !== "json") return undefined;
+  const rows = usefulValue(normalizedJSONContent(content, format));
+  if (!Array.isArray(rows) || !rows.length || !rows.every((row) => row && typeof row === "object" && !Array.isArray(row))) return undefined;
+  const commonFields = Object.keys(rows[0]).filter((field) => rows.every((row) => meaningfulContractValue(row[field])));
+  if (!commonFields.length) return undefined;
+  const fields = Object.fromEntries(commonFields.map((field) => [field,
+    rows.every((row) => validHTTPURL(row[field])) ? "url"
+      : rows.every((row) => typeof row[field] === "number" && Number.isFinite(row[field])) ? "number"
+        : "non_empty",
+  ]));
+  return { kind: "rows", min_rows: rows.length, fields };
+}
+
+function assertArtifactDataContract(value, contract) {
+  if (!contract || contract.kind !== "rows") return;
+  const rows = usefulValue(value);
+  if (!Array.isArray(rows) || rows.length < Number(contract.min_rows || 1)) {
+    throw new Error(`The replayed dataset must contain at least ${Number(contract.min_rows || 1)} rows before it can be saved.`);
+  }
+  for (const [field, rule] of Object.entries(contract.fields || {})) {
+    if (!rows.every((row) => row && meaningfulContractValue(row[field]))) {
+      throw new Error(`The replayed dataset is missing a populated “${field}” field.`);
+    }
+    if (rule === "url" && !rows.every((row) => validHTTPURL(row[field]))) {
+      throw new Error(`The replayed “${field}” field must contain a valid HTTP or HTTPS URL in every row.`);
+    }
+    if (rule === "number" && !rows.every((row) => typeof row[field] === "number" && Number.isFinite(row[field]))) {
+      throw new Error(`The replayed “${field}” field must contain a number in every row.`);
+    }
+  }
+}
+
 function csvCell(value) {
   const text = value == null ? "" : typeof value === "object" ? JSON.stringify(value) : String(value);
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -63,4 +117,4 @@ async function saveAutomationArtifact({ action, results, workspaceId, runId, sto
   return { saved: true, artifact };
 }
 
-module.exports = { asCSV, normalizeArtifactAction, saveAutomationArtifact, serializeArtifact, usefulValue };
+module.exports = { asCSV, assertArtifactDataContract, buildArtifactDataContract, normalizeArtifactAction, saveAutomationArtifact, serializeArtifact, usefulValue };
