@@ -377,13 +377,14 @@ export function AutomationStudio() {
       const startedAt = Date.now();
       const id = uid();
       if (source === "hybrid") {
-        if (s.selectedProfile) {
-          if (s.statuses[s.selectedProfile] !== "running") await s.startProfile(s.selectedProfile);
-        } else if (s.defaultSession?.status !== "running") await s.startDefaultSession();
+        const browserRunning = s.selectedProfile
+          ? s.statuses[s.selectedProfile] === "running"
+          : s.defaultSession?.status === "running";
         await invoke("automation_page_recording_start", {
           recordingId: id,
           profile: s.selectedProfile,
           runtime: selectedBrowserRuntime(),
+          attach: browserRunning,
         });
       }
       setActiveAutomationRecording({ id, workspaceId, agentId: s.agentId, startedAt, phase: "recording", destination, source });
@@ -395,6 +396,18 @@ export function AutomationStudio() {
       await invoke("app_focus");
     } catch (error) { reportError(error); }
   };
+
+  useEffect(() => {
+    const active = activeAutomationRecording();
+    if (!active || active.phase !== "recording" || !["manual", "hybrid"].includes(active.source || "agent")) return;
+    const browserRunning = s.selectedProfile
+      ? s.statuses[s.selectedProfile] === "running"
+      : s.defaultSession?.status === "running";
+    if (!browserRunning) return;
+    void invoke("automation_page_recording_attach", { recordingId: active.id }).catch((error) => {
+      console.warn("[AUTOMATION_RECORDER_ATTACH_FAILED]", error);
+    });
+  }, [recordingSince, s.selectedProfile, s.statuses, s.defaultSession?.status]);
 
   const stopRecording = async () => {
     const active = activeAutomationRecording();

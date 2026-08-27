@@ -3,7 +3,7 @@ const { EventEmitter } = require("node:events");
 const { PassThrough, Writable } = require("node:stream");
 const fs = require("node:fs/promises");
 const test = require("node:test");
-const { activeAutomationRecordingHasDataAction, activeAutomationTraceFile, recorderPageScript, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
+const { activeAutomationRecordingHasDataAction, activeAutomationTraceFile, attachAutomationPageRecording, recorderPageScript, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
 
 function fakeMCP(handler) {
   const calls = [];
@@ -70,6 +70,28 @@ test("manual recording returns an initial navigation and collected deterministic
     { tool: "input", arguments: { selector: "input[name=q]", text: "hello" } },
   ]);
   assert.ok(server.calls.some((call) => call.params?.name === "evaluate"));
+});
+
+test("recording can be armed before a stopped browser profile is launched", async () => {
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    if (message.params.name === "state") return toolResult({ page: { url: "https://example.com/" } });
+    const expression = message.params.arguments.expression;
+    if (expression.includes("function recorderPageScript")) return toolResult({ installed: true, url: "https://example.com/", title: "Example" });
+    if (expression.includes("state?.cleanup")) return toolResult(true);
+    return toolResult({ missing: false, url: "https://example.com/", title: "Example", actions: [] });
+  });
+
+  await startAutomationPageRecording({ recordingId: "armed-first", profile: "Stopped", runtime: "clawbrowser", attach: false }, {
+    binary: "nextctl", env: {}, spawnImpl: server.spawnImpl,
+  });
+  assert.equal(server.calls.length, 0);
+  assert.ok(activeAutomationTraceFile());
+
+  await attachAutomationPageRecording("armed-first");
+  assert.ok(server.calls.some((call) => call.method === "initialize"));
+  const result = await stopAutomationPageRecording("armed-first");
+  assert.equal(result.title, "Example");
 });
 
 test("recording merges successful nextctl MCP extraction calls from the local trace", async () => {

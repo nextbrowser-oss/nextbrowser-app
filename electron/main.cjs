@@ -58,7 +58,7 @@ const {
 } = require("./automation-sync.cjs");
 const { cancelAllAutomationRecipes, cancelAutomationRecipe, executeAutomationRecipe } = require("./automation-runner.cjs");
 const { cancelAllAutomationElementPicks, cancelAutomationElementPick, pickAutomationElement } = require("./automation-element-picker.cjs");
-const { activeAutomationRecordingHasDataAction, activeAutomationTraceFile, cancelAllAutomationPageRecordings, recordAutomationToolAction, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
+const { activeAutomationRecordingHasDataAction, activeAutomationTraceFile, attachAutomationPageRecording, cancelAllAutomationPageRecordings, recordAutomationToolAction, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
 const { parseMultiloginProfiles } = require("./multilogin-profiles.cjs");
@@ -1268,8 +1268,10 @@ async function invokeCommand(command, args = {}, sender) {
         profile: args.profile,
         runtime: requestedRuntime === "dasbrowser" ? "chromium" : requestedRuntime,
         runtimeBin,
+        attach: args.attach !== false,
       }, { binary, env: childEnv() });
     }
+    case "automation_page_recording_attach": return await attachAutomationPageRecording(String(args.recordingId || ""));
     case "automation_page_recording_stop": return await stopAutomationPageRecording(String(args.recordingId || ""));
     case "automation_element_pick": {
       const binary = await resolveOrInstallNextctl();

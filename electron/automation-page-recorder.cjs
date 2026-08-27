@@ -131,7 +131,7 @@ function addAction(state, action) {
 }
 
 async function collect(state) {
-  if (state.closed || state.polling) return;
+  if (state.closed || state.polling || !state.client) return;
   state.polling = true;
   try {
     let snapshot = resultFromMCP(await state.client.callTool("evaluate", {
@@ -166,25 +166,46 @@ async function startAutomationPageRecording(input, deps) {
   const profile = String(input.profile || "").trim();
   const runtime = ["clawbrowser", "camoufox", "chromium", "multilogin"].includes(input.runtime) ? input.runtime : "clawbrowser";
   const args = [...(profile ? ["--profile", profile] : []), "--runtime", runtime, ...(input.runtimeBin ? ["--runtime-bin", input.runtimeBin] : []), "mcp"];
-  const client = createMCPClient({ binary: deps.binary, args, env: deps.env, spawnImpl: deps.spawnImpl });
   const traceDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-recording-"));
   const traceFile = path.join(traceDir, "mcp-actions.jsonl");
   await fs.writeFile(traceFile, "", { mode: 0o600 });
-  const state = { client, actions: [], traceFile, traceDir, currentUrl: "", title: "", lastPageInteractionAt: 0, polling: false, stopping: false, closed: false, lastError: "" };
+  const state = { client: null, clientOptions: { binary: deps.binary, args, env: deps.env, spawnImpl: deps.spawnImpl }, actions: [], traceFile, traceDir, currentUrl: "", title: "", lastPageInteractionAt: 0, polling: false, stopping: false, closed: false, attaching: null, lastError: "" };
   activeRecorders.set(recordingId, state);
   try {
-    await client.initialize();
-    resultFromMCP(await client.callTool("state", {}));
-    await collect(state);
-    state.timer = setInterval(() => void collect(state), POLL_MS);
+    if (input.attach !== false) await attachAutomationPageRecording(recordingId);
     return { started: true, url: state.currentUrl, title: state.title };
   } catch (error) {
     state.closed = true;
-    client.close();
+    state.client?.close();
     activeRecorders.delete(recordingId);
     await fs.rm(traceDir, { recursive: true, force: true }).catch(() => undefined);
     throw error;
   }
+}
+
+async function attachAutomationPageRecording(recordingId) {
+  const id = cleanId(recordingId);
+  const state = activeRecorders.get(id);
+  if (!state || state.closed) throw new Error("This browser recording is no longer active. Start a new recording and try again.");
+  if (state.client) return { attached: true, url: state.currentUrl, title: state.title };
+  if (state.attaching) return await state.attaching;
+  state.attaching = (async () => {
+    const client = createMCPClient(state.clientOptions);
+    try {
+      await client.initialize();
+      resultFromMCP(await client.callTool("state", {}));
+      state.client = client;
+      await collect(state);
+      state.timer = setInterval(() => void collect(state), POLL_MS);
+      return { attached: true, url: state.currentUrl, title: state.title };
+    } catch (error) {
+      client.close();
+      throw error;
+    } finally {
+      state.attaching = null;
+    }
+  })();
+  return await state.attaching;
 }
 
 function activeAutomationTraceFile() {
@@ -228,10 +249,10 @@ async function stopAutomationPageRecording(recordingId) {
   state.stopping = true;
   clearInterval(state.timer);
   while (state.polling) await new Promise((resolve) => setTimeout(resolve, 20));
-  await collect(state);
+  if (state.client) await collect(state);
   state.closed = true;
-  await state.client.callTool("evaluate", { expression: `(() => { const state=window.__nextbrowserPageRecorder; state?.cleanup?.(); delete window.__nextbrowserPageRecorder; return true; })()` }).catch(() => undefined);
-  state.client.close();
+  await state.client?.callTool("evaluate", { expression: `(() => { const state=window.__nextbrowserPageRecorder; state?.cleanup?.(); delete window.__nextbrowserPageRecorder; return true; })()` }).catch(() => undefined);
+  state.client?.close();
   activeRecorders.delete(id);
   const pageActions = [...state.actions];
   const toolActions = (await tracedActions(state)).filter((action) => !pageActions.some((pageAction) =>
@@ -249,10 +270,10 @@ function cancelAllAutomationPageRecordings() {
   for (const [id, state] of activeRecorders) {
     clearInterval(state.timer);
     state.closed = true;
-    state.client.close();
+    state.client?.close();
     activeRecorders.delete(id);
     void fs.rm(state.traceDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
-module.exports = { activeAutomationRecordingHasDataAction, activeAutomationTraceFile, cancelAllAutomationPageRecordings, recordAutomationToolAction, recorderPageScript, startAutomationPageRecording, stopAutomationPageRecording };
+module.exports = { activeAutomationRecordingHasDataAction, activeAutomationTraceFile, attachAutomationPageRecording, cancelAllAutomationPageRecordings, recordAutomationToolAction, recorderPageScript, startAutomationPageRecording, stopAutomationPageRecording };
