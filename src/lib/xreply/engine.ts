@@ -30,6 +30,8 @@ import { DEFAULT_GIF_BLOCKLIST } from "./reaction";
 import {
   DEFAULT_REPLY_MAX_LENGTH,
   MAX_BELL_ATTEMPTS,
+  MAX_DRAFT_ATTEMPTS,
+  MAX_PASS_NOTES,
   addDraft,
   gifAllowed,
   handleState,
@@ -280,14 +282,20 @@ export async function runPass(deps: PassDeps): Promise<PassResult> {
   // of the pass before it.
   const finish = (): PassResult => {
     const took = Math.max(1, Math.round((deps.now() - passStartedAt) / 1000));
-    return { state: { ...state, lastPassAt: deps.now(), lastPassSummary: `${describe(summary)} · ${took}s` }, summary };
+    return {
+      state: {
+        ...state,
+        lastPassAt: deps.now(),
+        lastPassSummary: `${describe(summary)} · ${took}s`,
+        lastPassNotes: summary.notes.length ? summary.notes.slice(-MAX_PASS_NOTES) : undefined,
+      },
+      summary,
+    };
   };
   const stopIfAsked = () => {
     if (deps.shouldStop?.()) throw new StopRequested();
   };
-  const note = (text: string) => {
-    if (!summary.notes.includes(text)) summary.notes.push(text);
-  };
+  const note = (text: string) => addNote(summary, text);
 
   try {
     // The feed is both the identity check and the work surface, so the pass
@@ -398,8 +406,15 @@ export async function runPass(deps: PassDeps): Promise<PassResult> {
       // answers what was already there before it was added.
       fresh = fresh.filter((post) => !post.createdAt || post.createdAt >= since);
 
-      state = withHandleState(state, handle, { lastCheckedAt: deps.now(), noticeAt: consumedNoticeAt });
+      state = withHandleState(state, handle, { lastCheckedAt: deps.now() });
       state = await draftPosts(deps, state, handle, fresh, summary, stopIfAsked);
+      // The notice is what sends the pass to this profile, so it is consumed
+      // only once the posts it surfaced are settled. A post the agent failed to
+      // draft leaves it queued, which is what makes the held watermark reachable
+      // again — X notifies about a post once, and it already did.
+      if (!handleState(state, handle)?.draftFailPostId) {
+        state = withHandleState(state, handle, { noticeAt: consumedNoticeAt });
+      }
     }
 
     // Send whatever is approved, oldest first, under the account's limits.
@@ -445,6 +460,11 @@ export async function runPass(deps: PassDeps): Promise<PassResult> {
   return finish();
 }
 
+/** addNote records one reason on a summary, once. */
+function addNote(summary: PassSummary, text: string): void {
+  if (!summary.notes.includes(text)) summary.notes.push(text);
+}
+
 /** draftPosts writes one reply per new post and advances the watermark as it
  *  goes, so an interrupted pass resumes where it stopped. */
 async function draftPosts(
@@ -466,6 +486,7 @@ async function draftPosts(
       continue;
     }
     step(`Drafting a reply to @${handle}`);
+    let failure = "";
     try {
       const draft = await draftReply(deps.agentId, {
         author: post.author,
@@ -495,13 +516,31 @@ async function draftPosts(
         throw error;
       } else {
         summary.failed += 1;
-        const message = error instanceof Error ? error.message : String(error);
-        if (!summary.notes.includes(`@${handle}: ${message}`)) summary.notes.push(`@${handle}: ${message}`);
+        failure = error instanceof Error ? error.message : String(error);
+        addNote(summary, `@${handle}: ${failure}`);
       }
     }
-    // The watermark advances even for a post that was skipped or failed to
-    // draft: it was seen, and re-reading it every pass would stall the feed.
-    next = withHandleState(next, handle, { lastPostId: watermark });
+    if (failure) {
+      // A post the agent could not draft is not a post that was answered. The
+      // watermark stays behind it and the rest of the batch waits — posts come
+      // oldest first, so holding here keeps the author's order — and the next
+      // pass reads it again. Without this, one broken agent call loses a post
+      // permanently and the pass reports nothing but "checked".
+      const previous = handleState(next, handle);
+      const attempts = (previous?.draftFailPostId === post.id ? previous.draftFailAttempts ?? 0 : 0) + 1;
+      if (attempts < MAX_DRAFT_ATTEMPTS) {
+        return withHandleState(next, handle, { draftFailPostId: post.id, draftFailAttempts: attempts });
+      }
+      // Out of attempts: give this one post up rather than stall the account.
+      addNote(summary, `@${handle}: gave up on ${post.url} after ${attempts} attempts.`);
+    }
+    // Seen and settled — drafted, skipped, or given up on. The watermark moves
+    // so the feed does not re-read it every pass.
+    next = withHandleState(next, handle, {
+      lastPostId: watermark,
+      draftFailPostId: undefined,
+      draftFailAttempts: undefined,
+    });
   }
   return next;
 }

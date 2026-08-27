@@ -4370,7 +4370,12 @@ export const useStore = create<State>((set, get) => {
         auto_send: state.autoSend,
       });
     } catch (error) {
-      const state: XReplyState = { ...get().xReplyState, lastPassAt: now(), lastPassSummary: friendlyXReplyError(error) };
+      const state: XReplyState = {
+        ...get().xReplyState,
+        lastPassAt: now(),
+        lastPassSummary: friendlyXReplyError(error),
+        lastPassNotes: undefined,
+      };
       persistXReplyState(state);
       set({ xReplyState: state });
       trackEvent("x_reply_pass_failed", {});

@@ -368,6 +368,11 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                     ? `Next check ${until(run.nextRunAt)}${engineState.lastPassSummary ? ` · ${engineState.lastPassSummary}` : ""}`
                     : engineState.lastPassSummary || "Checks the list on a schedule while NextBrowser is open."}
               </div>
+              {/* The counted summary says a post failed; only these say why, and
+                  without them a broken pass is indistinguishable from a quiet one. */}
+              {!busy && engineState.lastPassNotes?.map((text) => (
+                <div key={text} className="small watchlist-pass-note">{text}</div>
+              ))}
             </div>
           </div>
           <div className="row watchlist-loop-controls">

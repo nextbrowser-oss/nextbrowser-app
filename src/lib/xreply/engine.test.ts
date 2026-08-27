@@ -200,6 +200,45 @@ describe("one watch pass", () => {
     expect(state.handles.author.lastPostId).toBe("20");
   });
 
+  it("holds a post the agent could not draft instead of losing it", async () => {
+    // What a mis-built CLI call looks like from here: an exit code and no answer.
+    const broken = { code: 1, stdout: "", stderr: "Input must be provided either through stdin" };
+    const failing = deps(seeded("10"), { triggers: NOTICE, posts: [{ id: "20" }] }, {
+      runAgent: vi.fn().mockResolvedValue(broken),
+    });
+    const first = await runPass(failing.args);
+    expect(first.summary.failed).toBe(1);
+    // Seen but never answered, so the watermark and the notice both wait for it.
+    expect(first.state.handles.author.lastPostId).toBe("10");
+    expect(first.state.handles.author.noticeAt).toBeUndefined();
+    expect(first.state.handles.author.draftFailAttempts).toBe(1);
+    expect(first.state.lastPassNotes?.join(" ")).toContain("Input must be provided");
+
+    const working = deps(first.state, { triggers: NOTICE, posts: [{ id: "20" }] });
+    const second = await runPass(working.args);
+    expect(second.summary.drafted).toBe(1);
+    expect(second.state.drafts[0].postId).toBe("20");
+    expect(second.state.handles.author.lastPostId).toBe("20");
+    expect(second.state.handles.author.draftFailPostId).toBeUndefined();
+    expect(second.state.lastPassNotes).toBeUndefined();
+  });
+
+  it("gives up on a post no pass can draft rather than stalling the account", async () => {
+    const broken = { code: 1, stdout: "", stderr: "the agent is down" };
+    let state = seeded("10");
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const { args } = deps(state, { triggers: NOTICE, posts: [{ id: "20" }] }, {
+        runAgent: vi.fn().mockResolvedValue(broken),
+      });
+      state = (await runPass(args)).state;
+    }
+    // Three failures is the budget: the watermark moves past the post and the
+    // feed is free again, with the reason on the record.
+    expect(state.handles.author.lastPostId).toBe("20");
+    expect(state.handles.author.draftFailPostId).toBeUndefined();
+    expect(state.lastPassNotes?.join(" ")).toContain("gave up on");
+  });
+
   it("sends immediately in auto-send mode and remembers the answered post", async () => {
     const { args } = deps(seeded("10", { autoSend: true }), { triggers: NOTICE, posts: [{ id: "20" }] });
     const { state, summary } = await runPass(args);

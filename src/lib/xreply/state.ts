@@ -25,6 +25,12 @@ export interface XReplyHandleState {
   /** When this account started being watched, the floor for a feed that carries
    *  days of history. */
   watchingSince?: number;
+  /** The post the drafting agent last failed on, and how many passes have tried
+   *  it. The watermark waits behind that post so a transient failure does not
+   *  drop it for good, and gives up after MAX_DRAFT_ATTEMPTS so one unanswerable
+   *  post cannot stall the account forever. */
+  draftFailPostId?: string;
+  draftFailAttempts?: number;
 }
 
 export type XReplyDraftStatus = "pending" | "approved" | "sent" | "failed" | "unverified" | "rejected";
@@ -100,6 +106,10 @@ export interface XReplyState {
   startedAt?: number;
   lastPassAt?: number;
   lastPassSummary?: string;
+  /** Why the last pass did what it did, in the engine's own words. The counted
+   *  summary says "1 failed"; this says which post and what went wrong, which is
+   *  the only place a broken agent call was ever explained. */
+  lastPassNotes?: string[];
 }
 
 /** Defaults ported from the Go service's flags. An account that answers more
@@ -113,6 +123,11 @@ export const DEFAULT_MAX_ATTEMPTS = 3;
 export const DEFAULT_REPLY_MAX_LENGTH = 280;
 /** Bounds how often one handle's bell is probed, ported from maxBellAttempts. */
 export const MAX_BELL_ATTEMPTS = 6;
+/** How many passes may fail to draft one post before it is given up on. Kept
+ *  apart from maxAttempts, which is the user's budget for retrying a send. */
+export const MAX_DRAFT_ATTEMPTS = 3;
+/** How many reasons from one pass are kept for the panel. */
+export const MAX_PASS_NOTES = 3;
 const MAX_DRAFTS_KEPT = 200;
 const MAX_REPLIES_KEPT = 500;
 const REPLY_HISTORY_MS = 30 * 24 * 60 * 60 * 1000;
@@ -194,6 +209,9 @@ export function normalizeXReplyState(raw: unknown): XReplyState {
       : undefined,
     rateAccruedAt: typeof record.rateAccruedAt === "number" && Number.isFinite(record.rateAccruedAt)
       ? record.rateAccruedAt
+      : undefined,
+    lastPassNotes: Array.isArray(record.lastPassNotes)
+      ? record.lastPassNotes.filter((text): text is string => typeof text === "string" && !!text.trim()).slice(-MAX_PASS_NOTES)
       : undefined,
   };
 }
