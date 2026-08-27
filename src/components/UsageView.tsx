@@ -13,8 +13,6 @@ import {
   proxyTrafficHistoryMaxDays,
   proxyTrafficHistoryPresetDays,
   proxyTrafficHistoryWindows,
-  proxyTrafficTopUpBytes,
-  proxyTrafficWarning,
   shouldShowProxyTrafficTopUp,
   proxyTrafficDomainsPageSize,
   type ProxyTrafficHistoryCoverage,
@@ -24,7 +22,6 @@ import { formatHistoryDateLabel } from "../lib/trafficChart";
 import {
   humanBytes,
   proxyFraction,
-  type ProxyTraffic,
   type ProxyTrafficHistory,
   type ProxyTrafficHistoryPoint,
 } from "../types";
@@ -178,7 +175,7 @@ export function UsageView() {
     await s.refreshProxyData();
     setHistoryReload((value) => value + 1);
   };
-  const topUpProxyTraffic = async () => {
+  const continueWithNodeMaven = async () => {
     if (!s.proxy || topUpLoading) return;
     const analyticsParams = {
       proxy_state: s.proxy.state,
@@ -192,24 +189,16 @@ export function UsageView() {
     setTopUpNotice(undefined);
     trackEvent("proxy_top_up_requested", analyticsParams);
     try {
-      const proxyTraffic = await invoke<ProxyTraffic>("proxy_traffic_top_up");
-      try {
-        await s.loadProxy();
-      } catch {
-        useStore.setState({
-          proxy: proxyTraffic,
-          proxyWarning: proxyTrafficWarning(proxyTraffic),
-        });
-      }
+      await invoke("open_external", { url: "https://nodemaven.com/pricing/" });
       setTopUpNotice({
         tone: "success",
-        message: `Added ${humanBytes(proxyTraffic.top_up_bytes ?? proxyTrafficTopUpBytes)} of proxy traffic.`,
+        message: "NodeMaven pricing opened. Return here and refresh after checkout. Existing NextBrowser traffic cannot be credited until NodeMaven links the purchase to this account.",
       });
       trackEvent("proxy_top_up_succeeded", analyticsParams);
     } catch {
       setTopUpNotice({
         tone: "error",
-        message: internalError("We couldn't add proxy traffic.", "PROXY_TRAFFIC_TOP_UP_FAILED"),
+        message: internalError("We couldn't open NodeMaven pricing.", "NODEMAVEN_PRICING_OPEN_FAILED"),
       });
       trackEvent("proxy_top_up_failed", analyticsParams);
     } finally {
@@ -302,10 +291,10 @@ export function UsageView() {
                   className="btn-bordered-prominent"
                   disabled={topUpLoading}
                   type="button"
-                  onClick={() => void topUpProxyTraffic()}
+                  onClick={() => void continueWithNodeMaven()}
                 >
                   {topUpLoading ? <Spinner size={13} /> : <Icon name="plus" size={13} />}
-                  {topUpLoading ? "Adding 1 GiB" : "Add 1 GiB"}
+                  {topUpLoading ? "Opening NodeMaven" : "Continue with NodeMaven"}
                 </button>
               </div>
             )}
