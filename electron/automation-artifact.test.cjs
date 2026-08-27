@@ -32,6 +32,21 @@ test("captures and enforces the saved JSON dataset shape without retaining value
   assert.equal(JSON.stringify(contract).includes("Solana"), false);
 });
 
+test("captures and enforces every named dataset in a combined JSON artifact", () => {
+  const contract = buildArtifactDataContract({
+    bitcoin: [{ price: "$80,000", url: "https://coinmarketcap.com/currencies/bitcoin/" }],
+    trending: [{ name: "Coin", price: "$1" }, { name: "Other", price: "$2" }],
+  }, "json");
+  assert.deepEqual(contract, {
+    kind: "object",
+    fields: {
+      bitcoin: { kind: "rows", min_rows: 1, fields: { price: "non_empty", url: "url" } },
+      trending: { kind: "rows", min_rows: 2, fields: { name: "non_empty", price: "non_empty" } },
+    },
+  });
+  assert.throws(() => assertArtifactDataContract({ bitcoin: [{ price: "$1", url: "https://example.com" }], trending: [] }, contract), /trending/i);
+});
+
 test("saves the previous result to the local artifact store", async () => {
   const calls = [];
   const artifact = await saveAutomationArtifact({

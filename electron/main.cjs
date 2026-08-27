@@ -26,7 +26,6 @@ const {
   cancelCommand,
   runCommand,
 } = require("./command-runner.cjs");
-const { topUpProxyTraffic } = require("./proxy-traffic.cjs");
 const { terminateProcessTree } = require("./process-tree.cjs");
 const {
   createPersonalProxy,
@@ -47,6 +46,7 @@ const { AGENT_ARTIFACT_BODY_LIMIT, saveAgentArtifact } = require("./agent-artifa
 const {
   acceptAutomationShare,
   createAutomationShare,
+  declineAutomationShare,
   createAutomationRun,
   deleteAutomationRecording,
   deleteAutomationWorkflow,
@@ -1084,7 +1084,6 @@ async function invokeCommand(command, args = {}, sender) {
       const r = await run(bin, ["version"]); return r.stdout.trim();
     }
     case "nextctl_supports_skill": { const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found"); return nextctlHasSkill(bin); }
-    case "proxy_traffic_top_up": return await topUpProxyTraffic({ env: childEnv() });
     case "projects_list": return await listProjects({ env: childEnv() });
     case "project_put": return await putProject(String(args.id || ""), args.project, { env: childEnv() });
     case "project_delete": return await deleteProject(String(args.id || ""), { env: childEnv() });
@@ -1280,6 +1279,7 @@ async function invokeCommand(command, args = {}, sender) {
     case "automation_shares_list": return await listAutomationShares(String(args.box || "inbox"), { env: childEnv() });
     case "automation_share_create": return await createAutomationShare(args.share || {}, { env: childEnv() });
     case "automation_share_accept": return await acceptAutomationShare(String(args.id || ""), String(args.workspaceId || ""), { env: childEnv() });
+    case "automation_share_decline": return await declineAutomationShare(String(args.id || ""), { env: childEnv() });
     case "automation_share_revoke": return await revokeAutomationShare(String(args.id || ""), { env: childEnv() });
     case "automation_runs_list": return await listAutomationRuns(String(args.workspaceId || ""), { env: childEnv() });
     case "automation_seed_examples": {

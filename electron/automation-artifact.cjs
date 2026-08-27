@@ -51,16 +51,30 @@ function validHTTPURL(value) {
 
 function buildArtifactDataContract(content, format = "json") {
   if (String(format).toLowerCase() !== "json") return undefined;
-  const rows = usefulValue(normalizedJSONContent(content, format));
-  if (!Array.isArray(rows) || !rows.length || !rows.every((row) => row && typeof row === "object" && !Array.isArray(row))) return undefined;
-  const commonFields = Object.keys(rows[0]).filter((field) => rows.every((row) => meaningfulContractValue(row[field])));
-  if (!commonFields.length) return undefined;
-  const fields = Object.fromEntries(commonFields.map((field) => [field,
-    rows.every((row) => validHTTPURL(row[field])) ? "url"
-      : rows.every((row) => typeof row[field] === "number" && Number.isFinite(row[field])) ? "number"
-        : "non_empty",
-  ]));
-  return { kind: "rows", min_rows: rows.length, fields };
+  return contractForArtifactValue(usefulValue(normalizedJSONContent(content, format)));
+}
+
+function contractForArtifactValue(value, depth = 0) {
+  if (depth > 4) return "non_empty";
+  if (Array.isArray(value)) {
+    if (!value.length || !value.every((row) => row && typeof row === "object" && !Array.isArray(row))) return undefined;
+    const commonFields = Object.keys(value[0]).filter((field) => value.every((row) => meaningfulContractValue(row[field])));
+    if (!commonFields.length) return undefined;
+    const fields = Object.fromEntries(commonFields.map((field) => [field,
+      value.every((row) => validHTTPURL(row[field])) ? "url"
+        : value.every((row) => typeof row[field] === "number" && Number.isFinite(row[field])) ? "number"
+          : "non_empty",
+    ]));
+    return { kind: "rows", min_rows: value.length, fields };
+  }
+  if (!value || typeof value !== "object") return undefined;
+  const entries = Object.entries(value).filter(([, item]) => meaningfulContractValue(item));
+  if (!entries.length) return undefined;
+  const fields = Object.fromEntries(entries.map(([field, item]) => {
+    const nested = item && typeof item === "object" ? contractForArtifactValue(usefulValue(item), depth + 1) : undefined;
+    return [field, nested || (validHTTPURL(item) ? "url" : typeof item === "number" && Number.isFinite(item) ? "number" : "non_empty")];
+  }));
+  return { kind: "object", fields };
 }
 
 function assertArtifactDataContract(value, contract) {

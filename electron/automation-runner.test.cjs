@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const { PassThrough, Writable } = require("node:stream");
 const test = require("node:test");
+require("./automation-qa-matrix.node.cjs");
 const { cancelAutomationRecipe, executeAutomationRecipe, expandTemplates, resolveSemanticAction, toolCalls, validateRecipe } = require("./automation-runner.cjs");
 
 function fakeMCP(handler) {
@@ -244,6 +245,43 @@ test("retries an aborted navigation from a page that was already loading", async
   }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
   assert.equal(result.status, "completed");
   assert.equal(opens, 2);
+});
+
+test("retries a navigation whose browser context temporarily reaches its deadline", async () => {
+  let opens = 0;
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    if (message.params.name === "open" && opens++ === 0) {
+      return { isError: true, content: [{ type: "text", text: "open failed: context deadline exceeded" }] };
+    }
+    return { content: [{ type: "text", text: JSON.stringify({ ok: true }) }] };
+  });
+  const result = await executeAutomationRecipe({
+    executionId: "retry-navigation-deadline",
+    recipe: { version: 1, actions: [{ tool: "open", arguments: { url: "https://example.com" } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+
+  assert.equal(result.status, "completed");
+  assert.equal(opens, 2);
+});
+
+test("continues to validated data when a wait races with a page navigation", async () => {
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    if (message.params.name === "wait") return { isError: true, content: [{ type: "text", text: "cdp Runtime.evaluate: Inspected target navigated or closed (-32000)" }] };
+    if (message.params.name === "evaluate") return { content: [{ type: "text", text: JSON.stringify({ result: [{ title: "Loaded" }] }) }] };
+    return { content: [{ type: "text", text: JSON.stringify({ ok: true }) }] };
+  });
+  const result = await executeAutomationRecipe({
+    executionId: "wait-navigation-race",
+    recipe: { version: 1, actions: [
+      { tool: "wait", arguments: { selector: ".ready" } },
+      { tool: "evaluate", arguments: { expression: "[...document.querySelectorAll('.row')]" } },
+    ] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.results[0].output.continued_to_validated_data_step, true);
 });
 
 test("does not retry permanent navigation failures", async () => {

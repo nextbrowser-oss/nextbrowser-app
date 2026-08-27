@@ -3,7 +3,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { acceptAutomationShare, createAutomationRun, createAutomationShare, deleteAutomationRecording, listAutomationShares, listAutomationWorkflows, putAutomationWorkflow, revokeAutomationShare, seedAutomationExamples, updateAutomationRunStep } = require("./automation-sync.cjs");
+const { acceptAutomationShare, createAutomationRun, createAutomationShare, declineAutomationShare, deleteAutomationRecording, listAutomationShares, listAutomationWorkflows, putAutomationWorkflow, revokeAutomationShare, seedAutomationExamples, updateAutomationRunStep } = require("./automation-sync.cjs");
 
 async function fixture(t, responder) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "automation-sync-"));
@@ -46,9 +46,10 @@ test("deletes a recording through the backend", async (t) => {
   assert.equal(f.calls[0].options.method, "DELETE");
 });
 
-test("shares and accepts an immutable automation copy by email", async (t) => {
+test("shares, accepts, declines, and revokes immutable automation copies by email", async (t) => {
   const f = await fixture(t, (url, options) => {
     if (url.includes("/accept")) return jsonResponse({ id: "copy-id", source_kind: "workflow", workspace_id: "recipient-space" }, 201);
+    if (url.includes("/decline")) return { ok: true, status: 204, text: async () => "" };
     if (options.method === "POST") return jsonResponse({ id: "share-id", ...JSON.parse(options.body), status: "pending" }, 201);
     if (options.method === "DELETE") return { ok: true, status: 204, text: async () => "" };
     return jsonResponse({ shares: [{ id: "share-id", title: "Daily prices", source_kind: "workflow" }] });
@@ -61,8 +62,11 @@ test("shares and accepts an immutable automation copy by email", async (t) => {
   assert.equal((await acceptAutomationShare("share/id", "recipient-space", f.deps)).id, "copy-id");
   assert.match(f.calls[2].url, /\/shares\/share%2Fid\/accept$/);
   assert.deepEqual(JSON.parse(f.calls[2].options.body), { workspace_id: "recipient-space" });
+  await declineAutomationShare("share/id", f.deps);
+  assert.match(f.calls[3].url, /\/shares\/share%2Fid\/decline$/);
+  assert.equal(f.calls[3].options.method, "POST");
   await revokeAutomationShare("share/id", f.deps);
-  assert.equal(f.calls[3].options.method, "DELETE");
+  assert.equal(f.calls[4].options.method, "DELETE");
 });
 
 test("seeds exactly two successful backend examples for recordings and workflows", async (t) => {

@@ -20,6 +20,8 @@ const RETRYABLE_NAVIGATION_ERRORS = [
   "ERR_TUNNEL_CONNECTION_FAILED",
   "ERR_TIMED_OUT",
   "ERR_ABORTED",
+  "context deadline exceeded",
+  "Inspected target navigated or closed",
 ];
 const RETRYABLE_DATA_ERROR = /(?:did not return exactly|expected\s+(?:at\s+least\s+)?\d+\s+(?:fully\s+)?populated|expected\s+(?:\w+\s+){0,4}complete(?:ly)?\s+(?:\w+\s+){0,3}rows|returned only empty|data (?:is )?not (?:ready|loaded)|incomplete (?:rows|data)|(?:table|list|results?|rows?) (?:was |were )?not found|no (?:rows|data) (?:yet|available))/i;
 const UNSAFE_EVALUATION = /(document\s*\.\s*cookie|localStorage|sessionStorage|indexedDB|caches\s*\.|navigator\s*\.\s*(clipboard|sendBeacon)|fetch\s*\(|XMLHttpRequest|WebSocket|EventSource|\.\s*(click|submit|remove)\s*\(|\.\s*(innerHTML|outerHTML|textContent|innerText|value)\s*=|eval\s*\(|new\s+Function|location\s*=|window\s*\.\s*open)/i;
@@ -551,7 +553,7 @@ async function executeAutomationRecipe(input, deps) {
         progress({ phase: "running", stepIndex: index + 1, tool: action.tool, detail: `Completed step ${index + 1} of ${actions.length}` });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (action.tool === "wait" && nextDataAction && /timed out/i.test(message) && !state.cancelled) {
+        if (action.tool === "wait" && nextDataAction && /timed out|context deadline exceeded|target navigated or closed/i.test(message) && !state.cancelled) {
           const output = { ready: false, continued_to_validated_data_step: true };
           localResults.push({ index, tool: action.tool, ok: true, output });
           results.push({ index, tool: action.tool, ok: true, output });

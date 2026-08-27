@@ -50,6 +50,7 @@ async function listAutomationShares(box, deps) {
 }
 const createAutomationShare = (share, deps) => projectRequest("/v1/automation/shares", { method: "POST", body: JSON.stringify(share) }, deps);
 const acceptAutomationShare = (id, workspaceId, deps) => projectRequest(`/v1/automation/shares/${encodeURIComponent(id)}/accept`, { method: "POST", body: JSON.stringify({ workspace_id: workspaceId }) }, deps);
+const declineAutomationShare = (id, deps) => projectRequest(`/v1/automation/shares/${encodeURIComponent(id)}/decline`, { method: "POST" }, deps);
 const revokeAutomationShare = (id, deps) => projectRequest(`/v1/automation/shares/${encodeURIComponent(id)}`, { method: "DELETE" }, deps);
 
 async function listAutomationRuns(workspaceId, deps) {
@@ -119,7 +120,7 @@ async function seedAutomationExamplesOnce(workspaceId, deps) {
 }
 
 module.exports = {
-  acceptAutomationShare, createAutomationShare,
+  acceptAutomationShare, createAutomationShare, declineAutomationShare,
   createAutomationRun, deleteAutomationRecording, deleteAutomationWorkflow,
   listAutomationRecordings, listAutomationRuns, listAutomationShares, listAutomationWorkflows,
   normalizeWorkflow, putAutomationRecording, putAutomationWorkflow, updateAutomationRun, updateAutomationRunStep,

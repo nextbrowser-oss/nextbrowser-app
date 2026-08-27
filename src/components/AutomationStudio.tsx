@@ -348,6 +348,16 @@ export function AutomationStudio() {
     finally { setShareBusy(false); }
   };
 
+  const declineShare = async (share: AutomationShare) => {
+    setShareBusy(true);
+    try {
+      await invoke("automation_share_decline", { id: share.id });
+      await loadIncomingShares();
+      setNotice("Shared copy declined.");
+    } catch (error) { reportError(error); }
+    finally { setShareBusy(false); }
+  };
+
   useEffect(() => {
     if (!workspaceId) return;
     const storageKey = defaultExamplesKey(workspaceId);
@@ -1149,7 +1159,7 @@ export function AutomationStudio() {
       </div>
       {studioError && <div className="error automation-global-message" role="alert"><strong>Automation couldn’t complete the action.</strong><span>{studioError}</span><button onClick={() => setStudioError(undefined)}>Dismiss</button></div>}
       {notice && <div className="automation-global-message success" role="status"><span>{notice}</span><button onClick={() => setNotice(undefined)}>Dismiss</button></div>}
-      {incomingShares.length > 0 && <section className="automation-share-inbox" aria-label="Shared with me"><div><Icon name="person.2.fill" size={15} /><span><strong>Shared with you</strong><small>{incomingShares.length} automation {incomingShares.length === 1 ? "copy is" : "copies are"} ready to add to this workspace.</small></span></div><div className="automation-share-inbox-items">{incomingShares.map((share) => <article key={share.id}><span><strong>{share.title}</strong><small>{share.source_kind === "workflow" ? "Workflow" : "Recording"}{share.sender_email ? ` · from ${share.sender_email}` : ""}</small></span><button className="secondary" disabled={shareBusy} onClick={() => void acceptShare(share)}>Add copy</button></article>)}</div></section>}
+      {incomingShares.length > 0 && <section className="automation-share-inbox" aria-label="Shared with me"><div><Icon name="person.2.fill" size={15} /><span><strong>Shared with you</strong><small>{incomingShares.length} automation {incomingShares.length === 1 ? "copy is" : "copies are"} ready to add to this workspace.</small></span></div><div className="automation-share-inbox-items">{incomingShares.map((share) => <article key={share.id}><span><strong>{share.title}</strong><small>{share.source_kind === "workflow" ? "Workflow" : "Recording"}{share.sender_email ? ` · from ${share.sender_email}` : ""}</small></span><div className="automation-inline-actions"><button className="secondary" disabled={shareBusy} onClick={() => void declineShare(share)}>Decline</button><button className="secondary" disabled={shareBusy} onClick={() => void acceptShare(share)}>Add copy</button></div></article>)}</div></section>}
       {playback && playbackView && <div className={`recording-progress-card ${playbackView.phase}`} role="status"><div className="recording-progress-head"><span><Icon name={playbackView.phase === "completed" ? "checkmark.circle.fill" : ["failed", "cancelled"].includes(playbackView.phase) ? "xmark.circle.fill" : playbackView.phase === "stopping" ? "stop.fill" : "play.fill"} size={14} /><strong>{playbackView.phase === "completed" ? "Execution completed" : playbackView.phase === "cancelled" ? "Execution stopped" : playbackView.phase === "failed" ? "Execution failed" : playbackView.phase === "stopping" ? "Stopping execution" : playback.engine === "agent" ? "AI is repairing the workflow" : playbackView.phase === "preparing" ? "Preparing execution" : "Running saved steps"}</strong></span><b>{playbackView.progress}%</b></div><div className="recording-progress-track"><i style={{ width: `${playbackView.progress}%` }} /></div><small>{playbackView.detail}</small><div className="row">{["completed", "failed", "cancelled"].includes(playbackView.phase) ? <button onClick={() => { setPlayback(undefined); clearActiveAutomationExecution(); }}>Dismiss</button> : <button className="secondary danger-text" disabled={playbackView.phase === "stopping"} onClick={() => void stopExecution()}><Icon name="stop.fill" size={12} /> {playbackView.phase === "stopping" ? "Stopping…" : "Stop"}</button>}</div></div>}
 
       {section === "recorder" && <section className="automation-panel">
