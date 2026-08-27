@@ -26,6 +26,7 @@ import {
   KeyRound,
   Layers,
   LayoutGrid,
+  List,
   Loader2,
   Lock,
   LockOpen,
@@ -159,6 +160,7 @@ const SF_MAP: Record<string, LucideIcon> = {
   doc: File,
   folder: FolderOpen,
   cursorarrow: MousePointer2,
+  "list.bullet": List,
 };
 
 export type SFSymbol = keyof typeof SF_MAP | string;

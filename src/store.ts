@@ -156,6 +156,11 @@ export interface ManualProxyProfileInput {
   password?: string;
 }
 
+export interface ManualProxyBatchSaveResult {
+  saved: Array<{ index: number; proxy: PersonalProxy }>;
+  failed: Array<{ index: number; message: string }>;
+}
+
 interface AgentRuntime {
   ready: boolean;
   authorizing: boolean;
@@ -471,6 +476,7 @@ interface State {
   createManualProxyProfile: (input: ManualProxyProfileInput) => Promise<void>;
   loadPersonalProxies: () => Promise<void>;
   savePersonalProxy: (input: ManualProxyProfileInput) => Promise<PersonalProxy>;
+  savePersonalProxies: (inputs: ManualProxyProfileInput[]) => Promise<ManualProxyBatchSaveResult>;
   deletePersonalProxy: (id: string) => Promise<void>;
   createPersonalProxyProfile: (
     name: string,
@@ -2760,6 +2766,28 @@ export const useStore = create<State>((set, get) => {
     const saved = await invoke<PersonalProxy>("manual_proxy_save", { proxy: input });
     await get().loadPersonalProxies();
     return saved;
+  },
+
+  savePersonalProxies: async (inputs) => {
+    const saved: ManualProxyBatchSaveResult["saved"] = [];
+    const failed: ManualProxyBatchSaveResult["failed"] = [];
+    const concurrency = 6;
+    for (let offset = 0; offset < inputs.length; offset += concurrency) {
+      const chunk = inputs.slice(offset, offset + concurrency);
+      const results = await Promise.allSettled(
+        chunk.map((proxy) => invoke<PersonalProxy>("manual_proxy_save", { proxy })),
+      );
+      results.forEach((result, chunkIndex) => {
+        const index = offset + chunkIndex;
+        if (result.status === "fulfilled") saved.push({ index, proxy: result.value });
+        else failed.push({
+          index,
+          message: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        });
+      });
+    }
+    await get().loadPersonalProxies();
+    return { saved, failed };
   },
 
   deletePersonalProxy: async (id) => {

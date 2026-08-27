@@ -4211,7 +4211,7 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .manual-proxy-modal { width: min(410px, calc(100vw - 32px)); }
 .manual-proxy-mode {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   margin-bottom: 12px;
   padding: 4px;
@@ -4268,6 +4268,65 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 }
 .password-visibility:hover { background: var(--surface-4); color: var(--text); }
 .manual-proxy-paste { width: 100%; justify-content: center; margin: 0 0 10px; }
+.manual-proxy-bulk-field textarea {
+  min-height: 152px;
+  max-height: min(34vh, 300px);
+  margin-bottom: 6px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
+}
+.manual-proxy-format-help {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.manual-proxy-format-help code {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+.manual-proxy-batch-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--success) 45%, var(--line));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--success) 8%, var(--surface-2));
+  color: var(--success);
+  font-size: 10px;
+}
+.manual-proxy-batch-status.has-errors {
+  border-color: color-mix(in srgb, var(--red) 45%, var(--line));
+  background: color-mix(in srgb, var(--red) 8%, var(--surface-2));
+  color: var(--red);
+}
+.manual-proxy-batch-status span { color: inherit; opacity: .82; }
+.manual-proxy-line-errors {
+  display: flex;
+  max-height: 112px;
+  flex-direction: column;
+  gap: 5px;
+  margin: -4px 0 10px;
+  overflow-y: auto;
+  color: var(--red);
+  font-size: 10px;
+}
+.manual-proxy-line-errors > div {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 7px;
+  line-height: 1.35;
+}
+.manual-proxy-line-errors strong { font-variant-numeric: tabular-nums; }
+.manual-proxy-line-errors span { color: var(--text-secondary); }
+.manual-proxy-line-errors small { color: var(--muted); }
 .modal-card .modal-field input,
 .modal-card .modal-field select {
   margin: 0 0 8px;

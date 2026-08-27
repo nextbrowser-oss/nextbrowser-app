@@ -1,4 +1,4 @@
-import { type DragEvent, type FormEvent, useEffect, useRef, useState } from "react";
+import { type DragEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore, type ManualProxyProfileInput } from "../store";
 import { agentById } from "../agents";
@@ -7,7 +7,7 @@ import { Icon, Spinner } from "./Icon";
 import { withLocalScripts } from "../skillsCatalog";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
 import { guideProfileTarget } from "../lib/guideQuickStart";
-import { manualProxyDefaultName, manualProxyLimits, parseManualProxyClipboard, parseManualProxyUrl, validateManualProxyFields, type ManualProxyScheme } from "../lib/manualProxy";
+import { manualProxyDefaultName, manualProxyLimits, parseManualProxyBatch, parseManualProxyClipboard, validateManualProxyFields, type ManualProxyScheme } from "../lib/manualProxy";
 import { internalError, needsSupportLink } from "../lib/userFacingError";
 import { entityNameLimits, validateEntityName } from "../lib/entityValidation";
 import { cancelNextctlRun } from "../nextctl";
@@ -20,7 +20,7 @@ import { invoke, listen } from "../electronBridge";
 import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, type ActiveAutomationRecording } from "../lib/automationRecording";
 import { activeAutomationExecution, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, executionWithRecipeProgress, setActiveAutomationExecution, type AutomationExecution, type AutomationRecipeProgress } from "../lib/automationExecution";
 
-type ManualProxyInputMode = "url" | "fields";
+type ManualProxyInputMode = "url" | "fields" | "bulk";
 const PROFILE_CREATE_TIMEOUT_MS = 120_000;
 
 function recordingDuration(startedAt: number, now = Date.now()) {
@@ -50,6 +50,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [manualProxyOpen, setManualProxyOpen] = useState(false);
   const [manualProxyMode, setManualProxyMode] = useState<ManualProxyInputMode>("url");
   const [manualProxyUrl, setManualProxyUrl] = useState("");
+  const [manualProxyBulk, setManualProxyBulk] = useState("");
   const [manualName, setManualName] = useState("");
   const [manualScheme, setManualScheme] = useState<ManualProxyScheme>("http");
   const [manualHost, setManualHost] = useState("");
@@ -118,6 +119,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const projects = s.conversationsForAgent(s.agentId);
   const activeProject = s.activeConversation();
   const activeWorkspace = s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId);
+  const manualProxyBatch = useMemo(() => parseManualProxyBatch(manualProxyBulk), [manualProxyBulk]);
   const profileWorkspaceEntries = (activeWorkspace?.profileNames ?? []).flatMap((name) => {
     const profile = profiles.find((item) => item.name === name);
     if (!profile) return [];
@@ -396,20 +398,23 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     return undefined;
   };
 
-  const uniqueManualProxyName = (baseName: string) => {
+  const uniqueManualProxyName = (baseName: string, reservedNames?: Set<string>) => {
     const base = baseName.trim() || "manual-proxy";
-    const existing = new Set(s.profiles.map((p) => p.name));
+    const existing = reservedNames ?? new Set(s.personalProxies.map((proxy) => proxy.name));
     if (!existing.has(base)) return base;
     for (let index = 2; index < 1000; index += 1) {
-      const candidate = `${base}-${index}`;
+      const suffix = `-${index}`;
+      const candidate = `${base.slice(0, manualProxyLimits.name - suffix.length)}${suffix}`;
       if (!existing.has(candidate)) return candidate;
     }
-    return `${base}-${Date.now()}`;
+    const suffix = `-${Date.now()}`;
+    return `${base.slice(0, manualProxyLimits.name - suffix.length)}${suffix}`;
   };
 
   const resetManualProxyForm = () => {
     setManualProxyMode("url");
     setManualProxyUrl("");
+    setManualProxyBulk("");
     setManualName("");
     setManualScheme("http");
     setManualHost("");
@@ -444,19 +449,73 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
   const submitManualProxy = async (event: FormEvent) => {
     event.preventDefault();
+    if (manualProxyMode === "bulk") {
+      if (manualProxyBatch.errors.length) {
+        const details = manualProxyBatch.errors.slice(0, 4)
+          .map((error) => `${error.lineNumber ? `Line ${error.lineNumber}: ` : ""}${error.message}`)
+          .join("\n");
+        const remaining = manualProxyBatch.errors.length - 4;
+        setManualError(`${details}${remaining > 0 ? `\n…and ${remaining} more.` : ""}`);
+        return;
+      }
+      if (!manualProxyBatch.items.length) {
+        setManualError("Enter at least one proxy, one per line.");
+        return;
+      }
+
+      const reservedNames = new Set(s.personalProxies.map((proxy) => proxy.name));
+      const inputs = manualProxyBatch.items.map(({ proxy }) => {
+        const name = uniqueManualProxyName(manualProxyDefaultName(proxy), reservedNames);
+        reservedNames.add(name);
+        return { name, ...proxy };
+      });
+      setManualSaving(true);
+      setManualError(null);
+      try {
+        const result = await s.savePersonalProxies(inputs);
+        const lastSaved = result.saved.at(-1)?.proxy;
+        if (lastSaved) setProfilePersonalProxyId(lastSaved.id);
+        if (!result.failed.length) {
+          resetManualProxyForm();
+          setManualProxyEditing(false);
+          return;
+        }
+
+        const failedItems = result.failed.map(({ index }) => manualProxyBatch.items[index]).filter(Boolean);
+        setManualProxyBulk(failedItems.map(({ raw }) => raw).join("\n"));
+        const firstFailures = result.failed.slice(0, 3).map(({ index, message }) => {
+          const detail = message.replace(/^Error invoking remote method '[^']+': Error:\s*/, "").trim();
+          return `Line ${manualProxyBatch.items[index]?.lineNumber ?? index + 1}: ${detail || "Could not save this proxy."}`;
+        });
+        setManualError(`${result.saved.length} saved; ${result.failed.length} failed. Only failed lines remain.\n${firstFailures.join("\n")}`);
+      } catch (error) {
+        const detail = (error instanceof Error ? error.message : String(error))
+          .replace(/^Error invoking remote method '[^']+': Error:\s*/, "")
+          .trim();
+        setManualError(detail || internalError("We couldn't save the proxy list. Try again.", "PERSONAL_PROXY_BULK_SAVE_FAILED"));
+      } finally {
+        setManualSaving(false);
+      }
+      return;
+    }
+
     const name = manualName.trim();
     let input: ManualProxyProfileInput;
     if (manualProxyMode === "url") {
       let parsed;
       try {
-        parsed = parseManualProxyUrl(manualProxyUrl);
+        parsed = parseManualProxyClipboard(manualProxyUrl);
       } catch (error) {
         setManualError(error instanceof Error ? error.message : String(error));
         return;
       }
       input = {
         name: name || uniqueManualProxyName(manualProxyDefaultName(parsed)),
-        ...parsed,
+        scheme: parsed.scheme,
+        host: parsed.host,
+        port: parsed.port,
+        username: parsed.username,
+        password: parsed.password,
       };
     } else {
       const port = Number(manualPort);
@@ -503,7 +562,12 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const importManualProxyFromClipboard = async () => {
     setManualError(null);
     try {
-      const parsed = parseManualProxyClipboard(await navigator.clipboard.readText());
+      const clipboard = await navigator.clipboard.readText();
+      if (manualProxyMode === "bulk") {
+        setManualProxyBulk(clipboard);
+        return;
+      }
+      const parsed = parseManualProxyClipboard(clipboard);
       setManualProxyMode(parsed.source === "fields" ? "fields" : "url");
       setManualScheme(parsed.scheme);
       setManualHost(parsed.host);
@@ -1413,7 +1477,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           <div className="modal-card manual-proxy-modal" onMouseDown={(e) => e.stopPropagation()}>
             <div className="profile-menu-head">
               <Icon name="network" size={16} className="accent-icon" />
-              <span className="profile-menu-name">{manualProxyEditing ? "Create proxy" : "Personal proxies"}</span>
+              <span className="profile-menu-name">{manualProxyEditing ? (manualProxyMode === "bulk" ? "Add proxies" : "Create proxy") : "Personal proxies"}</span>
               <span className="spacer" />
               <button
                 type="button"
@@ -1427,7 +1491,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             </div>
             {manualProxyEditing ? (
               <form className="personal-proxy-editor" onSubmit={submitManualProxy}>
-                <p className="muted personal-proxy-note">Save once, then select this proxy when you create a browser profile.</p>
+                <p className="muted personal-proxy-note">Save proxies here, then select one for any browser profile.</p>
                 <div className="manual-proxy-mode" role="tablist" aria-label="Manual proxy input mode">
                   <button
                     type="button"
@@ -1451,15 +1515,26 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   >
                     <Icon name="wrench" size={13} /> Fields
                   </button>
+                  <button
+                    type="button"
+                    className={manualProxyMode === "bulk" ? "active" : ""}
+                    aria-selected={manualProxyMode === "bulk"}
+                    onClick={() => {
+                      setManualProxyMode("bulk");
+                      setManualError(null);
+                    }}
+                  >
+                    <Icon name="list.bullet" size={13} /> Bulk
+                  </button>
                 </div>
                 {manualProxyMode === "url" ? (
                   <>
                     <label className="modal-field">
-                      <span className="modal-field-heading"><span>Proxy URL</span><small>Max {manualProxyLimits.url.toLocaleString("en-US")}</small></span>
+                      <span className="modal-field-heading"><span>Proxy</span><small>Max {manualProxyLimits.url.toLocaleString("en-US")}</small></span>
                       <input
                         value={manualProxyUrl}
                         onChange={(e) => setManualProxyUrl(e.target.value)}
-                        placeholder="http://user:pass@host:8080"
+                        placeholder="http://user:pass@host:8080 or host:port:user:pass"
                         maxLength={manualProxyLimits.url}
                         autoFocus
                       />
@@ -1474,7 +1549,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       />
                     </label>
                   </>
-                ) : (
+                ) : manualProxyMode === "fields" ? (
                   <>
                     <label className="modal-field">
                       <span className="modal-field-heading"><span>Name</span><small>Max {manualProxyLimits.name}</small></span>
@@ -1511,9 +1586,52 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       </span>
                     </label>
                   </>
+                ) : (
+                  <>
+                    <label className="modal-field manual-proxy-bulk-field">
+                      <span className="modal-field-heading">
+                        <span>Proxy list</span>
+                        <small>Up to {manualProxyLimits.batchLines}</small>
+                      </span>
+                      <textarea
+                        value={manualProxyBulk}
+                        onChange={(event) => {
+                          setManualProxyBulk(event.target.value);
+                          setManualError(null);
+                        }}
+                        placeholder={"http://user:pass@host:8080\nhost:8080:user:pass\nsocks5://host:1080"}
+                        maxLength={manualProxyLimits.batchText}
+                        spellCheck={false}
+                        autoFocus
+                      />
+                    </label>
+                    <p className="manual-proxy-format-help">
+                      One proxy per line. Supports <code>host:port</code>, <code>host:port:user:pass</code>, <code>user:pass@host:port</code>, and full <code>http://</code> or <code>socks5://</code> URLs.
+                      HTTP proxies also work for HTTPS websites through CONNECT; HTTPS and SOCKS4 proxy transports are not supported by the browser runtime.
+                    </p>
+                    {manualProxyBulk.trim() && (
+                      <>
+                        <div className={`manual-proxy-batch-status ${manualProxyBatch.errors.length ? "has-errors" : "is-valid"}`}>
+                          <strong>{manualProxyBatch.items.length} valid</strong>
+                          <span>{manualProxyBatch.errors.length ? `${manualProxyBatch.errors.length} need attention` : "Ready to add"}</span>
+                        </div>
+                        {manualProxyBatch.errors.length > 0 && (
+                          <div className="manual-proxy-line-errors" role="alert">
+                            {manualProxyBatch.errors.slice(0, 4).map((error) => (
+                              <div key={`${error.lineNumber}-${error.message}`}>
+                                <strong>{error.lineNumber ? `Line ${error.lineNumber}` : "List"}</strong>
+                                <span>{error.message}</span>
+                              </div>
+                            ))}
+                            {manualProxyBatch.errors.length > 4 && <small>And {manualProxyBatch.errors.length - 4} more…</small>}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </>
                 )}
                 <button type="button" className="secondary manual-proxy-paste" onClick={() => void importManualProxyFromClipboard()}>
-                  <Icon name="doc.on.doc" size={13} /> Paste proxy from clipboard
+                  <Icon name="doc.on.doc" size={13} /> {manualProxyMode === "bulk" ? "Paste list from clipboard" : "Paste proxy from clipboard"}
                 </button>
                 {manualError && (
                   <div className="error manual-proxy-error">
@@ -1527,9 +1645,13 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   }}>
                     Back
                   </button>
-                  <button type="submit" className="primary" disabled={manualSaving}>
+                  <button type="submit" className="primary" disabled={manualSaving || (manualProxyMode === "bulk" && (!manualProxyBatch.items.length || manualProxyBatch.errors.length > 0))}>
                     {manualSaving ? <Spinner size={13} /> : <Icon name="plus" size={13} />}
-                    {manualSaving ? "Saving…" : "Create proxy"}
+                    {manualSaving
+                      ? "Saving…"
+                      : manualProxyMode === "bulk" && manualProxyBatch.items.length
+                        ? `Add ${manualProxyBatch.items.length} ${manualProxyBatch.items.length === 1 ? "proxy" : "proxies"}`
+                        : "Create proxy"}
                   </button>
                 </div>
               </form>

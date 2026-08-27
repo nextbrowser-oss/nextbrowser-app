@@ -605,6 +605,32 @@ describe("VPS execution target isolation", () => {
 });
 
 describe("browser profile creation", () => {
+  it("bulk-saves personal proxies, reports individual failures, and refreshes the list once", async () => {
+    bridge.invoke.mockImplementation(async (command, args) => {
+      if (command === "manual_proxy_save") {
+        const proxy = args.proxy as { name: string };
+        if (proxy.name === "broken") throw new Error("Proxy rejected");
+        return { id: `${proxy.name}-id`, ...proxy, hasPassword: false };
+      }
+      if (command === "manual_proxies_list") return [];
+      return undefined;
+    });
+
+    const result = await useStore.getState().savePersonalProxies([
+      { name: "first", scheme: "http", host: "one.example", port: 8080 },
+      { name: "broken", scheme: "http", host: "two.example", port: 8080 },
+      { name: "third", scheme: "socks5", host: "three.example", port: 1080 },
+    ]);
+
+    expect(result.saved.map(({ index, proxy }) => [index, proxy.id])).toEqual([
+      [0, "first-id"],
+      [2, "third-id"],
+    ]);
+    expect(result.failed).toEqual([{ index: 1, message: "Proxy rejected" }]);
+    expect(bridge.invoke.mock.calls.filter(([command]) => command === "manual_proxy_save")).toHaveLength(3);
+    expect(bridge.invoke.mock.calls.filter(([command]) => command === "manual_proxies_list")).toHaveLength(1);
+  });
+
   it("creates a direct profile without assigning a proxy country", async () => {
     bridge.invoke.mockResolvedValue({
       stdout: JSON.stringify({ ok: true, data: { profiles: [] } }),
