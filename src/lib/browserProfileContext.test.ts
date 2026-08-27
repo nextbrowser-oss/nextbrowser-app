@@ -24,7 +24,11 @@ describe("browserProfileContext", () => {
     expect(result).toContain("session is missing");
     expect(result).toContain("retry the original page action once");
     expect(result).toContain(`--data '{"profile":"baka"}'`);
+    expect(result).toContain(`--data '{"profile":"HEY!"}'`);
     expect(result).not.toContain("PROFILE_NAME");
+    expect(result).toContain("available even when status says running because the user may close the browser manually");
+    expect(result).toContain("never invoke @- without stdin");
+    expect(result).toContain("NEXTBROWSER_ARTIFACT_JSON");
     expect(result).toContain("rejects profiles outside");
     expect(result).toContain("if it matches the requested country, do not rotate, restart, verify, or inspect");
     expect(result).toContain("short read-only top-N request");

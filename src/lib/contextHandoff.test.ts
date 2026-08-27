@@ -106,7 +106,11 @@ describe("chat context handoff", () => {
     expect(result).toContain("A runtime label such as ClawBrowser, Camoufox, or DasBrowser is not a profile name");
     expect(result).toContain("$NEXTBROWSER_CONTROL_URL/profile/start");
     expect(result).toContain(`--data '{"profile":"Wiki research"}'`);
+    expect(result).toContain(`--data '{"profile":"Fox profile"}'`);
     expect(result).not.toContain("PROFILE_NAME");
+    expect(result).toContain("available even when status says running because the user may close the browser manually");
+    expect(result).toContain("never use --data-binary @- without an attached heredoc");
+    expect(result).toContain("NEXTBROWSER_ARTIFACT_JSON");
     expect(result).toContain("retry the original page action once with that exact name");
     expect(result?.match(/Wiki research: ClawBrowser \(stopped\)/g)).toHaveLength(1);
     expect(result).not.toContain("Reddit scraper");

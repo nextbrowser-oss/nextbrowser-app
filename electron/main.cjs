@@ -485,6 +485,14 @@ async function ensureAgentControlServer() {
       }
       const payload = JSON.parse(raw || "{}");
       if (artifactSave) {
+        if (payload.content == null || (typeof payload.content === "string" && !payload.content.trim())) {
+          sendControlResponse(response, 400, {
+            ok: false,
+            error: "artifact_content_missing",
+            message: "No artifact content was received. If curl uses --data-binary @-, attach a heredoc or stdin body to the same command.",
+          });
+          return;
+        }
         const result = await saveAgentArtifact({
           workspaceId: artifactScope.workspaceId,
           payload,

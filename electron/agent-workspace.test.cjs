@@ -101,6 +101,8 @@ test("artifact saving remains local and independent from recorder trace support"
   assert.match(main, /saveAgentArtifact\(\{/);
   assert.doesNotMatch(main, /recording_requires_deterministic_data_action/);
   assert.doesNotMatch(main, /recorderTraceRequired/);
+  assert.match(main, /artifact_content_missing/);
+  assert.match(main, /attach a heredoc or stdin body to the same command/);
 });
 
 test("project chat receives scoped host control for stopped browser profiles", () => {
