@@ -70,13 +70,14 @@ test("active Recorder requires a replayable final data-collection call", () => {
   assert.match(store, /Do not finish with state as the only data-collection step/);
 });
 
-test("older nextctl builds do not break chat MCP or local artifact saving during recording", () => {
+test("artifact saving remains local and independent from recorder trace support", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   assert.match(main, /"--automation-trace-file", "nextbrowser-capability-probe"/);
   assert.match(main, /automation trace file must be an absolute path/);
   assert.match(main, /API_KEY_REQUIRED/);
-  assert.match(main, /artifactScope\.recorderTraceRequired = false/);
-  assert.match(main, /artifactScope\.recorderTraceRequired !== false/);
+  assert.match(main, /saveAgentArtifact\(\{/);
+  assert.doesNotMatch(main, /recording_requires_deterministic_data_action/);
+  assert.doesNotMatch(main, /recorderTraceRequired/);
 });
 
 test("project chat receives scoped host control for stopped browser profiles", () => {
