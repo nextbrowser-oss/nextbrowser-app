@@ -33,6 +33,9 @@ export interface XReplyHandleState {
   draftFailAttempts?: number;
 }
 
+/** "pending" and "rejected" are no longer written: replies go out on their own
+ *  and there is no review step to hold or refuse one. Both stay in the union
+ *  because a file written before that change can still carry them. */
 export type XReplyDraftStatus = "pending" | "approved" | "sent" | "failed" | "unverified" | "rejected";
 
 export interface XReplyDraft {
@@ -76,8 +79,6 @@ export interface XReplyState {
   replies: XReplyRecord[];
 
   // Settings, one per flag of the Go service.
-  /** Send a draft as soon as it is written, instead of waiting for approval. */
-  autoSend: boolean;
   includeReposts: boolean;
   includeReplies: boolean;
   includePinned: boolean;
@@ -138,7 +139,6 @@ export function emptyXReplyState(): XReplyState {
     handles: {},
     drafts: [],
     replies: [],
-    autoSend: false,
     includeReposts: false,
     includeReplies: false,
     includePinned: false,
@@ -173,7 +173,11 @@ export function normalizeXReplyState(raw: unknown): XReplyState {
     handles[handle.toLowerCase()] = { ...value, handle };
   }
   const drafts = Array.isArray(record.drafts)
-    ? record.drafts.filter((draft) => draft && typeof draft.id === "string" && typeof draft.replyText === "string")
+    ? record.drafts
+      .filter((draft) => draft && typeof draft.id === "string" && typeof draft.replyText === "string")
+      // Written by a build that still asked for approval. Nothing asks now, so
+      // a draft that was waiting for it goes out instead of sitting forever.
+      .map((draft) => (draft.status === "pending" ? { ...draft, status: "approved" as const } : draft))
     : [];
   const replies = Array.isArray(record.replies)
     ? record.replies.filter((reply) => reply && typeof reply.postId === "string")
@@ -185,7 +189,6 @@ export function normalizeXReplyState(raw: unknown): XReplyState {
     handles,
     drafts: drafts.slice(-MAX_DRAFTS_KEPT),
     replies: replies.slice(-MAX_REPLIES_KEPT),
-    autoSend: record.autoSend === true,
     includeReposts: record.includeReposts === true,
     includeReplies: record.includeReplies === true,
     includePinned: record.includePinned === true,
@@ -302,10 +305,6 @@ export function addDraft(state: XReplyState, draft: XReplyDraft): XReplyState {
 
 export function updateDraft(state: XReplyState, id: string, patch: Partial<XReplyDraft>): XReplyState {
   return { ...state, drafts: state.drafts.map((draft) => (draft.id === id ? { ...draft, ...patch } : draft)) };
-}
-
-export function pendingDrafts(state: XReplyState): XReplyDraft[] {
-  return state.drafts.filter((draft) => draft.status === "pending");
 }
 
 export function sendableDrafts(state: XReplyState): XReplyDraft[] {

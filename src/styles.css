@@ -3220,7 +3220,6 @@ body.is-resizing-sidebar {
 .watchlist-signin-actions button { white-space: nowrap; }
 .watchlist-drafts { display: flex; flex-direction: column; gap: 7px; flex: none; }
 .watchlist-drafts-head { align-items: center; gap: 7px; }
-.watchlist-autosend { display: inline-flex; align-items: center; gap: 6px; }
 .watchlist-draft {
   display: flex;
   flex-direction: column;

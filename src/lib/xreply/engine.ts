@@ -505,7 +505,8 @@ async function draftPosts(
         reaction: draft.reaction,
         gifQuery: draft.gifQuery || undefined,
         createdAt: deps.now(),
-        status: next.autoSend ? "approved" : "pending",
+        // Every draft is sendable the moment it exists: there is no review step.
+        status: "approved",
       };
       next = addDraft(next, record);
       summary.drafted += 1;

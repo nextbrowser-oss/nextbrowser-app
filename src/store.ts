@@ -26,15 +26,8 @@ import {
 } from "./skillsCatalog";
 import { REPOSITORY_SKILL_CATEGORIES, mergeSkillCategories } from "./repositorySkills";
 import { cliBrowser } from "./lib/xreply/browser";
-import { openNotifications, readPublisher, runPass, sendDraft, subscribeHandle } from "./lib/xreply/engine";
-import {
-  emptyXReplyState,
-  normalizeXReplyState,
-  updateDraft as updateXReplyDraft,
-  withinLimits as withinXReplyLimits,
-  type XReplyDraft,
-  type XReplyState,
-} from "./lib/xreply/state";
+import { openNotifications, readPublisher, runPass, subscribeHandle } from "./lib/xreply/engine";
+import { emptyXReplyState, normalizeXReplyState, type XReplyState } from "./lib/xreply/state";
 import { activityFromText, extractToolEvents } from "./lib/activityParser";
 import { composePrompt } from "./lib/composePrompt";
 import { executionTargetForTurn, type ExecutionTarget } from "./lib/executionTarget";
@@ -567,9 +560,6 @@ interface State {
   dismissXReplySignIn: () => void;
   subscribeXReplyHandle: (entry: SkillEntry, handle: string) => Promise<void>;
   updateXReplySettings: (patch: Partial<XReplyState>) => void;
-  setXReplyAutoSend: (autoSend: boolean) => void;
-  reviewXReplyDraft: (id: string, decision: "approve" | "reject") => void;
-  sendXReplyDraft: (entry: SkillEntry, id: string) => Promise<void>;
   stopWatchlistRun: (skillId: string) => void;
   tickWatchlistRuns: () => Promise<void>;
   startRemoteStream: (target?: LiveStreamTarget) => Promise<RemoteStreamInfo>;
@@ -4364,11 +4354,7 @@ export const useStore = create<State>((set, get) => {
       // A pass that found the profile signed out asks for a sign-in rather than
       // leaving the panel to guess why nothing happened.
       set({ xReplyState: state, xReplySignInNeeded: summary.loginRequired });
-      trackEvent("x_reply_pass_finished", {
-        watched_count: handles.length,
-        drafts: state.drafts.filter((draft) => draft.status === "pending").length,
-        auto_send: state.autoSend,
-      });
+      trackEvent("x_reply_pass_finished", { watched_count: handles.length, sent: summary.sent });
     } catch (error) {
       const state: XReplyState = {
         ...get().xReplyState,
@@ -4458,59 +4444,6 @@ export const useStore = create<State>((set, get) => {
     const xReplyState = normalizeXReplyState({ ...get().xReplyState, ...patch });
     persistXReplyState(xReplyState);
     set({ xReplyState });
-  },
-
-  setXReplyAutoSend: (autoSend) => {
-    const xReplyState = { ...get().xReplyState, autoSend };
-    persistXReplyState(xReplyState);
-    set({ xReplyState });
-    trackEvent("x_reply_auto_send_changed", { auto_send: autoSend });
-  },
-
-  reviewXReplyDraft: (id, decision) => {
-    const xReplyState = updateXReplyDraft(get().xReplyState, id, {
-      status: decision === "approve" ? "approved" : "rejected",
-    });
-    persistXReplyState(xReplyState);
-    set({ xReplyState });
-    trackEvent("x_reply_draft_reviewed", { decision });
-  },
-
-  // Sending one approved draft on demand runs the same gates as an automatic
-  // send, including the limits: an approval is not permission to exceed them.
-  sendXReplyDraft: async (entry, id) => {
-    if (get().xReplyBusy || !get().agentReady()) return;
-    const draft = get().xReplyState.drafts.find((item) => item.id === id);
-    if (!draft) return;
-    const verdict = withinXReplyLimits(get().xReplyState, now());
-    if (!verdict.allowed) {
-      const blocked = { ...get().xReplyState, lastPassSummary: verdict.reason };
-      persistXReplyState(blocked);
-      set({ xReplyState: blocked });
-      return;
-    }
-    set({ xReplyBusy: true, xReplyStep: `Publishing the reply to @${draft.handle}` });
-    try {
-      const profileArgs = await prepareXReplySession(
-        selectorTargetHost(entry.selector),
-        (step) => set({ xReplyStep: step }),
-      );
-      const approved: XReplyDraft = { ...draft, status: "approved" };
-      const result = await sendDraft(
-        { browser: cliBrowser(profileArgs), now },
-        updateXReplyDraft(get().xReplyState, id, { status: "approved" }),
-        approved,
-      );
-      persistXReplyState(result.state);
-      set({ xReplyState: result.state });
-      trackEvent("x_reply_draft_sent", { sent: result.sent });
-    } catch (error) {
-      const failed = updateXReplyDraft(get().xReplyState, id, { status: "failed", error: friendlyXReplyError(error) });
-      persistXReplyState(failed);
-      set({ xReplyState: failed });
-    } finally {
-      set({ xReplyBusy: false, xReplyStep: undefined });
-    }
   },
 
   watchlistRunFor: (skillId) => get().watchlistRuns.find((run) => run.skillId === skillId),

@@ -192,11 +192,12 @@ describe("one watch pass", () => {
     expect(second.state.handles.author.noticeAt).toBe(Date.parse("2026-08-25T10:00:00Z"));
   });
 
-  it("drafts only posts newer than the watermark and leaves them for approval", async () => {
+  it("answers only posts newer than the watermark", async () => {
     const { args } = deps(seeded("10"), { triggers: NOTICE, posts: [{ id: "10" }, { id: "20" }] });
     const { state, summary } = await runPass(args);
     expect(summary.drafted).toBe(1);
-    expect(state.drafts[0]).toMatchObject({ postId: "20", status: "pending", replyText: "drafted reply" });
+    // No review step exists, so a reply is written and published in one pass.
+    expect(state.drafts[0]).toMatchObject({ postId: "20", status: "sent", replyText: "drafted reply" });
     expect(state.handles.author.lastPostId).toBe("20");
   });
 
@@ -239,8 +240,8 @@ describe("one watch pass", () => {
     expect(state.lastPassNotes?.join(" ")).toContain("gave up on");
   });
 
-  it("sends immediately in auto-send mode and remembers the answered post", async () => {
-    const { args } = deps(seeded("10", { autoSend: true }), { triggers: NOTICE, posts: [{ id: "20" }] });
+  it("publishes without asking and remembers the answered post", async () => {
+    const { args } = deps(seeded("10"), { triggers: NOTICE, posts: [{ id: "20" }] });
     const { state, summary } = await runPass(args);
     expect(summary.sent).toBe(1);
     expect(state.drafts[0]).toMatchObject({ status: "sent", replyUrl: "https://x.com/me/status/99" });
@@ -249,7 +250,7 @@ describe("one watch pass", () => {
   });
 
   it("never resends a post that is already answered", async () => {
-    const answered = { ...seeded("10", { autoSend: true }), replies: [{ postId: "20", repliedAt: 1 }] };
+    const answered = { ...seeded("10"), replies: [{ postId: "20", repliedAt: 1 }] };
     const { args } = deps(answered, { triggers: NOTICE, posts: [{ id: "20" }] });
     const { state, summary } = await runPass(args);
     expect(summary.drafted).toBe(0);
@@ -257,14 +258,14 @@ describe("one watch pass", () => {
   });
 
   it("holds an unconfirmed submit out of the queue instead of retrying it", async () => {
-    const { args } = deps(seeded("10", { autoSend: true, autoRetry: true }), { triggers: NOTICE, posts: [{ id: "20" }], publishOutcome: "unverified" });
+    const { args } = deps(seeded("10", { autoRetry: true }), { triggers: NOTICE, posts: [{ id: "20" }], publishOutcome: "unverified" });
     const { state } = await runPass(args);
     expect(state.drafts[0].status).toBe("unverified");
     expect(hasReplied(state, "20")).toBe(true);
   });
 
   it("re-queues a refused attempt only while auto-retry has budget", async () => {
-    const { args } = deps(seeded("10", { autoSend: true, autoRetry: true, maxAttempts: 2 }), { triggers: NOTICE, posts: [{ id: "20" }], publishOutcome: "refused" });
+    const { args } = deps(seeded("10", { autoRetry: true, maxAttempts: 2 }), { triggers: NOTICE, posts: [{ id: "20" }], publishOutcome: "refused" });
     const first = await runPass(args);
     expect(first.state.drafts[0]).toMatchObject({ status: "approved", attempts: 1 });
 
@@ -275,7 +276,7 @@ describe("one watch pass", () => {
 
   it("stops sending at the hourly limit", async () => {
     const at = 1_800_000_000_000;
-    const spent = { ...seeded("10", { autoSend: true, hourlyMax: 1 }), replies: [{ postId: "old", repliedAt: at - 60_000 }] };
+    const spent = { ...seeded("10", { hourlyMax: 1 }), replies: [{ postId: "old", repliedAt: at - 60_000 }] };
     const { args } = deps(spent, { triggers: NOTICE, posts: [{ id: "20" }] });
     const { state, summary } = await runPass(args);
     expect(summary.sent).toBe(0);
@@ -373,7 +374,7 @@ describe("reaction GIFs", () => {
   const gifDraft = '{"reply":"drafted reply","reaction":"agree"}';
 
   it("attaches the curated GIF the mood resolved to", async () => {
-    const { args, clicks } = deps(seeded("10", { autoSend: true }), { triggers: NOTICE, posts: [{ id: "20" }], gif: { found: true } }, {
+    const { args, clicks } = deps(seeded("10"), { triggers: NOTICE, posts: [{ id: "20" }], gif: { found: true } }, {
       runAgent: vi.fn().mockResolvedValue({ code: 0, stdout: gifDraft, stderr: "" }),
     });
     const { state, summary } = await runPass(args);
@@ -385,7 +386,7 @@ describe("reaction GIFs", () => {
   });
 
   it("sends text only when every result was blocked", async () => {
-    const { args } = deps(seeded("10", { autoSend: true }), { triggers: NOTICE, posts: [{ id: "20" }], gif: { found: false } }, {
+    const { args } = deps(seeded("10"), { triggers: NOTICE, posts: [{ id: "20" }], gif: { found: false } }, {
       runAgent: vi.fn().mockResolvedValue({ code: 0, stdout: gifDraft, stderr: "" }),
     });
     const { state, summary } = await runPass(args);
@@ -395,7 +396,7 @@ describe("reaction GIFs", () => {
   });
 
   it("refuses to send at all when a GIF is required and the picker fails", async () => {
-    const { args } = deps(seeded("10", { autoSend: true, gifMode: "required" }), { triggers: NOTICE, posts: [{ id: "20" }], gif: { found: false } }, {
+    const { args } = deps(seeded("10", { gifMode: "required" }), { triggers: NOTICE, posts: [{ id: "20" }], gif: { found: false } }, {
       runAgent: vi.fn().mockResolvedValue({ code: 0, stdout: gifDraft, stderr: "" }),
     });
     const { state, summary } = await runPass(args);
@@ -404,7 +405,7 @@ describe("reaction GIFs", () => {
   });
 
   it("ignores the reaction entirely when GIFs are switched off", async () => {
-    const { args, clicks } = deps(seeded("10", { autoSend: true, gifMode: "off" }), { triggers: NOTICE, posts: [{ id: "20" }] }, {
+    const { args, clicks } = deps(seeded("10", { gifMode: "off" }), { triggers: NOTICE, posts: [{ id: "20" }] }, {
       runAgent: vi.fn().mockResolvedValue({ code: 0, stdout: gifDraft, stderr: "" }),
     });
     const { summary } = await runPass(args);
@@ -414,7 +415,7 @@ describe("reaction GIFs", () => {
 
   it("keeps GIFs inside their own hourly budget", async () => {
     const at = 1_800_000_000_000;
-    const spent = { ...seeded("10", { autoSend: true, gifHourlyMax: 1 }), replies: [{ postId: "old", repliedAt: at - 60_000, gif: true }] };
+    const spent = { ...seeded("10", { gifHourlyMax: 1 }), replies: [{ postId: "old", repliedAt: at - 60_000, gif: true }] };
     const { args, clicks } = deps(spent, { triggers: NOTICE, posts: [{ id: "20" }] }, {
       runAgent: vi.fn().mockResolvedValue({ code: 0, stdout: gifDraft, stderr: "" }),
     });
