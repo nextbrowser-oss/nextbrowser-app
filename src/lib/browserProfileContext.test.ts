@@ -23,6 +23,8 @@ describe("browserProfileContext", () => {
     expect(result).toContain("A runtime label such as ClawBrowser, Camoufox, or DasBrowser is not a profile name");
     expect(result).toContain("session is missing");
     expect(result).toContain("retry the original page action once");
+    expect(result).toContain(`--data '{"profile":"baka"}'`);
+    expect(result).not.toContain("PROFILE_NAME");
     expect(result).toContain("rejects profiles outside");
     expect(result).toContain("if it matches the requested country, do not rotate, restart, verify, or inspect");
     expect(result).toContain("short read-only top-N request");

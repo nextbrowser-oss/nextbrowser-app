@@ -8,6 +8,7 @@ const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const http = require("node:http");
 const { agentWorkspaceDir } = require("./agent-workspace.cjs");
+const { resolveScopedProfile } = require("./agent-control-scope.cjs");
 const {
   executableNames,
   expand,
@@ -497,7 +498,7 @@ async function ensureAgentControlServer() {
         sendControlResponse(response, 200, { ok: true, artifact: result.artifact });
         return;
       }
-      const profile = String(payload.profile || "");
+      const profile = resolveScopedProfile(profileScope, payload.profile);
       const profileAccess = profileScope.get(profile);
       if (!profileAccess) {
         sendControlResponse(response, 403, { ok: false, error: "profile_outside_workspace" });

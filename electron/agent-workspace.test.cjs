@@ -4,6 +4,19 @@ const path = require("node:path");
 const test = require("node:test");
 
 const { agentWorkspaceDir } = require("./agent-workspace.cjs");
+const { resolveScopedProfile } = require("./agent-control-scope.cjs");
+
+test("host control resolves only an authorized exact or sole profile", () => {
+  const sole = new Map([["Worker", { runtime: "clawbrowser" }]]);
+  assert.equal(resolveScopedProfile(sole, "Worker"), "Worker");
+  assert.equal(resolveScopedProfile(sole, "Automation Demo Workspace"), "Worker");
+  assert.equal(resolveScopedProfile(sole, ""), "Worker");
+
+  const multiple = new Map([["Worker", {}], ["Research", {}]]);
+  assert.equal(resolveScopedProfile(multiple, "Worker"), "Worker");
+  assert.equal(resolveScopedProfile(multiple, "Automation Demo Workspace"), "");
+  assert.equal(resolveScopedProfile(multiple, ""), "");
+});
 
 test("agent workspace stays outside macOS Library and protected user folders", () => {
   const workspace = agentWorkspaceDir("/Users/alice");

@@ -105,7 +105,9 @@ describe("chat context handoff", () => {
     expect(result).toContain("Never invent, clone, create, start, or substitute an unlisted profile");
     expect(result).toContain("A runtime label such as ClawBrowser, Camoufox, or DasBrowser is not a profile name");
     expect(result).toContain("$NEXTBROWSER_CONTROL_URL/profile/start");
-    expect(result).toContain("retry the original page action once with the exact listed profile name");
+    expect(result).toContain(`--data '{"profile":"Wiki research"}'`);
+    expect(result).not.toContain("PROFILE_NAME");
+    expect(result).toContain("retry the original page action once with that exact name");
     expect(result?.match(/Wiki research: ClawBrowser \(stopped\)/g)).toHaveLength(1);
     expect(result).not.toContain("Reddit scraper");
   });
