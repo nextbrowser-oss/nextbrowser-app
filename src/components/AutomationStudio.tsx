@@ -16,7 +16,7 @@ import { activeAutomationExecution, automationExecutionView, AUTOMATION_EXECUTIO
 import { userFacingBrowserError } from "../lib/userFacingBrowserError";
 import { agentById, agentInvocation } from "../agents";
 import { parseWorkflowAiEdit, workflowAiEditPrompt } from "../lib/workflowAiEdit";
-import { shouldAutoRepairAutomation } from "../lib/automationRepair";
+import { automationRepairTask, shouldAutoRepairAutomation } from "../lib/automationRepair";
 
 type StudioSection = "recorder" | "workflows" | "artifacts";
 type BackendRecording = { id: string; status: string; revision: number; document: { run?: CapturedRun }; created_at?: string; updated_at: string };
@@ -850,7 +850,7 @@ export function AutomationStudio() {
     if (executionBusy) return setStudioError(`“${playback?.workflowTitle || "Another workflow"}” is already running. Stop it before starting another automation.`);
     if (playback) clearActiveAutomationExecution();
     const runId = sourceKind === "workflow" ? uid() : undefined;
-    const next: AutomationExecution = { executionId: uid(), sourceId, sourceKind, backendRunId: runId, workspaceId, workflowTitle: workflow.title, task: workflow.task, startedAt: Date.now(), expectedActions: workflow.actions.length, actionTools: workflow.actions.map((action) => action.tool), engine: "deterministic", phase: "preparing", completedActions: 0, progress: 8, detail: "Preparing the browser session…" };
+    const next: AutomationExecution = { executionId: uid(), sourceId, sourceKind, backendRunId: runId, workspaceId, workflowTitle: workflow.title, task: workflow.task, startedAt: Date.now(), expectedActions: workflow.actions.length, actionTools: workflow.actions.map((action) => action.tool), engine: "deterministic", phase: "preparing", completedActions: 0, progress: 8, detail: "Preparing the browser session…", workflowSnapshot: workflow };
     try {
       if (runId) {
         await invoke("automation_run_create", { run: { id: runId, workspace_id: workspaceId, workflow_id: workflow.id, input: { task: workflow.task, engine: "deterministic" } } });
@@ -911,17 +911,17 @@ export function AutomationStudio() {
   const repairWithAgent = async (failedExecution = playback, automatic = false) => {
     if (!failedExecution || failedExecution.phase !== "failed") return;
     if (!s.agentReady()) return setStudioError("Connect an agent to repair this failed automation.");
-    const workflow = failedExecution.sourceKind === "workflow"
+    const workflow = failedExecution.workflowSnapshot || (failedExecution.sourceKind === "workflow"
       ? workflows.find((item) => item.id === failedExecution.sourceId)
-      : recordings.map((item) => item.document.run).filter((run): run is CapturedRun => !!run).find((run) => run.id === failedExecution.sourceId);
+      : recordings.map((item) => item.document.run).filter((run): run is CapturedRun => !!run).find((run) => run.id === failedExecution.sourceId));
     const repairWorkflow = workflow && "recipe" in workflow ? workflow : workflow ? skillFromRun(workflow) : undefined;
     if (!repairWorkflow) return setStudioError("The source automation is no longer available.");
     const expectedArtifactName = [...repairWorkflow.actions].reverse().find((action) => action.tool === "save_artifact")?.arguments.name;
-    const agentExecution: AutomationExecution = { ...failedExecution, executionId: uid(), engine: "agent", phase: "preparing", startedAt: Date.now(), progress: undefined, completedActions: undefined, detail: automatic ? "The saved page step changed. Starting automatic AI repair…" : "Preparing AI-assisted repair…", error: undefined, failedStep: undefined, backendRunId: undefined, autoRepairAttempted: true, expectedArtifactName: typeof expectedArtifactName === "string" ? expectedArtifactName : undefined, outputValidated: undefined, outputValidationError: undefined };
+    const agentExecution: AutomationExecution = { ...failedExecution, executionId: uid(), engine: "agent", phase: "preparing", startedAt: Date.now(), progress: undefined, completedActions: undefined, detail: automatic ? "The saved page step changed. Starting automatic AI repair…" : "Preparing AI-assisted repair…", error: undefined, failedStep: undefined, autoRepairAttempted: true, expectedArtifactName: typeof expectedArtifactName === "string" ? expectedArtifactName : undefined, outputValidated: undefined, outputValidationError: undefined, repairValidationRequired: true, repairPersisted: undefined, repairPersistenceError: undefined };
     setPlayback(agentExecution);
     setActiveAutomationExecution(agentExecution);
     try {
-      const repairTask = `${repairWorkflow.task}\n\nThe deterministic replay failed${failedExecution.failedStep != null ? ` at step ${failedExecution.failedStep + 1}` : ""}: ${failedExecution.error || failedExecution.detail || "unknown browser error"}. Inspect the current page, adapt the failed selector or action, complete the task, and explain the repair so the recording can be updated.`;
+      const repairTask = automationRepairTask(repairWorkflow.task, repairWorkflow.actions, failedExecution.failedStep, failedExecution.error || failedExecution.detail || "unknown browser error");
       const replyId = await s.runLocalSkill(repairWorkflow, repairTask);
       if (!replyId) throw new Error("The AI repair run could not be started.");
       const running = { ...agentExecution, replyId, phase: "running" as const };
@@ -1088,7 +1088,7 @@ export function AutomationStudio() {
           {draftValidationError && <div className="error automation-inline-error" role="alert">{draftValidationError}</div>}
           {workflowAiOpen && <section className="workflow-ai-editor" aria-label="Edit workflow with AI">
             <div className="workflow-ai-editor-copy"><span className="workflow-goal-icon"><Icon name="sparkles" size={14} /></span><span><strong>Describe the change</strong><small>AI updates the blocks for you. The saved workflow still replays deterministically.</small></span></div>
-            <textarea rows={3} autoFocus value={workflowAiRequest} placeholder="For example: Change the result limit from 5 to 10, then save it as cmc-trending-top-10.json." onChange={(event) => setWorkflowAiRequest(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void editWorkflowWithAi(); }} />
+            <textarea rows={3} autoFocus value={workflowAiRequest} placeholder="For example: Change the result limit from 5 to 10, then save it as research-results.json." onChange={(event) => setWorkflowAiRequest(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void editWorkflowWithAi(); }} />
             <div className="workflow-ai-editor-actions"><button className="secondary" disabled={workflowAiBusy} onClick={() => { setWorkflowAiOpen(false); setWorkflowAiRequest(""); }}>Cancel</button><button className="primary" disabled={workflowAiBusy || !workflowAiRequest.trim()} onClick={() => void editWorkflowWithAi()}>{workflowAiBusy ? <Spinner size={12} /> : <Icon name="sparkles" size={12} />} Update steps</button></div>
           </section>}
           <label className="workflow-goal-field">

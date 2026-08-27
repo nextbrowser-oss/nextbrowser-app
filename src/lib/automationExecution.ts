@@ -1,4 +1,4 @@
-import type { ChatMessage, Conversation } from "../types";
+import type { BrowserWorkflowSkill, ChatMessage, Conversation } from "../types";
 
 export type AutomationExecution = {
   executionId: string;
@@ -23,6 +23,10 @@ export type AutomationExecution = {
   expectedArtifactName?: string;
   outputValidated?: boolean;
   outputValidationError?: string;
+  repairValidationRequired?: boolean;
+  repairPersisted?: boolean;
+  repairPersistenceError?: string;
+  workflowSnapshot?: BrowserWorkflowSkill;
 };
 
 export type AutomationExecutionView = {
@@ -94,6 +98,10 @@ export function executionWithRecipeProgress(execution: AutomationExecution, upda
 export function automationAgentAnswer(execution: AutomationExecution, conversations: Conversation[]): ChatMessage | undefined {
   for (const conversation of conversations) {
     if (conversation.workspaceId && conversation.workspaceId !== execution.workspaceId) continue;
+    if (execution.replyId) {
+      const exact = conversation.messages.find((message) => message.role === "assistant" && message.id === execution.replyId);
+      if (exact) return exact;
+    }
     const taskIndex = conversation.messages.findIndex((message) => message.role === "user" && message.createdAt >= execution.startedAt && (message.commandChip?.title === execution.workflowTitle || message.text.includes(execution.task)));
     if (taskIndex >= 0) {
       const answer = conversation.messages.slice(taskIndex + 1).find((message) => message.role === "assistant");
@@ -114,8 +122,8 @@ export function automationExecutionView(execution: AutomationExecution, conversa
   if (["failed", "timedOut"].includes(answer?.status || "")) return { phase: "failed", progress: 100, detail: answer?.text || "The workflow could not complete." };
   if (answer?.status === "done") {
     if (execution.outputValidationError) return { phase: "failed", progress: 100, detail: execution.outputValidationError };
-    if (execution.expectedArtifactName && !execution.outputValidated) return { phase: "running", progress: 95, detail: "Validating the repaired Artifact Center output…" };
-    return { phase: "completed", progress: 100, detail: "Workflow completed successfully." };
+    if (execution.repairValidationRequired && !execution.outputValidated) return { phase: "running", progress: 95, detail: execution.expectedArtifactName ? "Validating the repaired Artifact Center output…" : "Validating and saving the repaired fast path…" };
+    return { phase: "completed", progress: 100, detail: execution.detail || "Workflow completed successfully." };
   }
   const expectedTools = execution.actionTools?.length ? new Set(execution.actionTools) : PROGRESS_TOOLS;
   const actions = (answer?.toolEvents || []).filter((event) => {

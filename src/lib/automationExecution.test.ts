@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  automationAgentAnswer,
   automationExecutionView,
   executionWithRecipeProgress,
   type AutomationExecution,
@@ -119,12 +120,20 @@ describe("automation execution indicator", () => {
     expect(automationExecutionView(execution, [conversation("done", 4)], 150)).toMatchObject({ phase: "completed", progress: 100 });
   });
 
+  it("binds AI repair progress to its exact reply even when the saved title changed", () => {
+    const renamed = conversation("done", 2);
+    renamed.messages[0].commandChip = { kind: "skill", title: "Stale server title" };
+    renamed.messages[1].id = "repair-reply";
+    expect(automationAgentAnswer({ ...execution, replyId: "repair-reply", workflowTitle: "Fresh edited title" }, [renamed])?.id).toBe("repair-reply");
+  });
+
   it("does not accept AI repair until its expected artifact is verified", () => {
-    const repair = { ...execution, engine: "agent" as const, expectedArtifactName: "expected.json" };
+    const repair = { ...execution, engine: "agent" as const, expectedArtifactName: "expected.json", repairValidationRequired: true };
     expect(automationExecutionView(repair, [conversation("done", 4)], 150)).toMatchObject({
       phase: "running", progress: 95, detail: "Validating the repaired Artifact Center output…",
     });
     expect(automationExecutionView({ ...repair, outputValidated: true }, [conversation("done", 4)], 150)).toMatchObject({ phase: "completed" });
+    expect(automationExecutionView({ ...repair, outputValidated: true, detail: "AI repaired the fast path." }, [conversation("done", 4)], 150)).toMatchObject({ phase: "completed", detail: "AI repaired the fast path." });
     expect(automationExecutionView({ ...repair, outputValidationError: "Expected artifact missing" }, [conversation("done", 4)], 150)).toMatchObject({ phase: "failed", detail: "Expected artifact missing" });
   });
 

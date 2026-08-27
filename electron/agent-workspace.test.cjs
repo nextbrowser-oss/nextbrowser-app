@@ -216,7 +216,8 @@ test("unfinished recording attempts are never persisted as library entities", ()
   assert.match(studio, /automation_page_recording_stop/);
   assert.match(sidebar, /nextbrowser:automation-stop-request/);
   assert.match(studio, /nextbrowser:request-stop-recording/);
-  assert.doesNotMatch(sidebar, /automation_recording_put/);
+  assert.doesNotMatch(sidebar, /status: "recording"/);
+  assert.match(sidebar, /automation_recording_put[\s\S]*status: "completed"/);
   assert.doesNotMatch(studio, /else \{\s*s\.setTab\("live"\)/);
   assert.match(studio, /if \(s\.terminalChat\) s\.setTerminalChat\(false\);\s*s\.setTab\("chat"\)/);
   assert.match(studio, /s\.setTab\("chat"\);\s*await invoke\("app_focus"\)/);
@@ -277,7 +278,12 @@ test("recordings and workflows replay deterministically with explicit AI repair"
   assert.match(studio, /phase: "cancelled", detail: "Execution stopped by user\."/);
   assert.match(studio, /Repair & run with AI/);
   assert.match(studio, /runLocalSkill\(repairWorkflow, repairTask\)/);
+  assert.match(studio, /workflowSnapshot: workflow/);
+  assert.match(studio, /failedExecution\.workflowSnapshot/);
   assert.match(sidebar, /artifact\.name === automationExecution\.expectedArtifactName/);
+  assert.match(sidebar, /automation_workflow_put/);
+  assert.match(sidebar, /AI repaired the fast path and saved it for future runs/);
+  assert.match(sidebar, /automation_run_update[\s\S]*engine: "hybrid"/);
   assert.match(sidebar, /The workflow result was not accepted\./);
   const deterministicRun = store.slice(store.indexOf("runAutomationRecipe: async"), store.indexOf("runLocalSkill: async"));
   assert.doesNotMatch(deterministicRun, /prepareLocalSession/);

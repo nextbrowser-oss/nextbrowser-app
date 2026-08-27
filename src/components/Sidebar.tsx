@@ -11,7 +11,7 @@ import { manualProxyDefaultName, manualProxyLimits, parseManualProxyBatch, parse
 import { internalError, needsSupportLink } from "../lib/userFacingError";
 import { entityNameLimits, validateEntityName } from "../lib/entityValidation";
 import { cancelNextctlRun } from "../nextctl";
-import { conversationPreview, type AppTab } from "../types";
+import { conversationPreview, type AppTab, type BrowserWorkflowAction, type BrowserWorkflowSkill } from "../types";
 import { CountrySelect } from "./CountrySelect";
 import { UserFacingError } from "./UserFacingError";
 import { VPSSetupModal } from "./VPSSetupModal";
@@ -19,6 +19,7 @@ import { CONNECTORS } from "../connectorsCatalog";
 import { invoke, listen } from "../electronBridge";
 import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, type ActiveAutomationRecording } from "../lib/automationRecording";
 import { activeAutomationExecution, automationAgentAnswer, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, executionWithRecipeProgress, setActiveAutomationExecution, type AutomationExecution, type AutomationRecipeProgress } from "../lib/automationExecution";
+import { parseAutomationRepairRecipe } from "../lib/automationRepair";
 
 type ManualProxyInputMode = "url" | "fields" | "bulk";
 const PROFILE_CREATE_TIMEOUT_MS = 120_000;
@@ -26,6 +27,10 @@ const PROFILE_CREATE_TIMEOUT_MS = 120_000;
 function recordingDuration(startedAt: number, now = Date.now()) {
   const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
   return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function repairedRecipeEvidence(actions: BrowserWorkflowAction[]) {
+  return actions.map((action) => `Called clawbrowser.${action.tool}(${JSON.stringify(action.arguments)})\n{"ok":true}`).join("\n");
 }
 
 interface SidebarProps {
@@ -213,28 +218,90 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   }, [automationExecution, automationExecutionState?.phase]);
 
   useEffect(() => {
-    if (!automationExecution || automationExecution.engine !== "agent" || !automationExecution.expectedArtifactName || automationExecution.outputValidated || automationExecution.outputValidationError) return;
+    if (!automationExecution || automationExecution.engine !== "agent" || !automationExecution.repairValidationRequired || automationExecution.outputValidated || automationExecution.outputValidationError) return;
     if (automationAgentStatus !== "done") return;
     let cancelled = false;
     void (async () => {
-      let found = false;
-      for (let attempt = 0; attempt < 4 && !found; attempt += 1) {
+      const answer = automationAgentAnswer(automationExecution, useStore.getState().conversations);
+      if (!answer || /(?:could not|couldn't|unable to|failed to|did not complete|was not completed)/i.test(answer.text)) {
+        throw new Error("AI repair did not complete the original workflow goal.");
+      }
+      let artifactVerified = !automationExecution.expectedArtifactName;
+      for (let attempt = 0; attempt < 4 && !artifactVerified; attempt += 1) {
         const items = await invoke<Array<{ name: string; createdAt: number }>>("artifact_list", { workspaceId: automationExecution.workspaceId });
-        found = items.some((artifact) => artifact.name === automationExecution.expectedArtifactName && artifact.createdAt >= automationExecution.startedAt);
-        if (!found && attempt < 3) await new Promise((resolve) => window.setTimeout(resolve, 400));
+        artifactVerified = items.some((artifact) => artifact.name === automationExecution.expectedArtifactName && artifact.createdAt >= automationExecution.startedAt);
+        if (!artifactVerified && attempt < 3) await new Promise((resolve) => window.setTimeout(resolve, 400));
+      }
+      if (!artifactVerified) throw new Error(`AI repair finished, but it did not create ${automationExecution.expectedArtifactName}. The workflow result was not accepted.`);
+
+      let persisted = false;
+      let persistenceError: string | undefined;
+      try {
+        if (automationExecution.sourceKind === "workflow") {
+          const workflows = await invoke<BrowserWorkflowSkill[]>("automation_workflows_list", { workspaceId: automationExecution.workspaceId });
+          const workflow = workflows.find((item) => item.id === automationExecution.sourceId);
+          if (!workflow) throw new Error("The repaired workflow no longer exists.");
+          const repaired = parseAutomationRepairRecipe(answer.text, automationExecution.workflowSnapshot?.actions || workflow.actions);
+          if (!repaired) throw new Error("AI completed the task but did not return a safe reusable recipe.");
+          await invoke("automation_workflow_put", {
+            workspaceId: automationExecution.workspaceId,
+            workflow: {
+              ...workflow,
+              actions: repaired.actions,
+              recipe: { ...workflow.recipe, actions: repaired.actions },
+              instructions: `${workflow.instructions.replace(/\n*Automatically repaired on .*$/s, "").trim()}\n\nAutomatically repaired on ${new Date().toISOString()}; future runs use the updated deterministic steps.`,
+            },
+          });
+          persisted = true;
+        } else {
+          type Recording = { id: string; revision: number; status: string; document: { run?: { evidence: string; captureSource?: string; answer: { text: string; toolEvents?: Array<{ id: string; name: string; detail?: string; createdAt: number }> } }; [key: string]: unknown } };
+          const recordings = await invoke<Recording[]>("automation_recordings_list", { workspaceId: automationExecution.workspaceId });
+          const recording = recordings.find((item) => item.id === automationExecution.sourceId);
+          const originalRun = recording?.document.run;
+          if (!recording || !originalRun) throw new Error("The repaired recording no longer exists.");
+          const originalActions = [...originalRun.evidence.matchAll(/Called (?:clawbrowser|nextbrowser)\.([a-z_]+)\((\{[^\n]*\})\)/g)].flatMap((match) => {
+            try { return [{ tool: match[1], arguments: JSON.parse(match[2]) as Record<string, unknown> }]; } catch { return []; }
+          });
+          const repaired = parseAutomationRepairRecipe(answer.text, originalActions);
+          if (!repaired) throw new Error("AI completed the task but did not return a safe reusable recipe.");
+          const now = Date.now();
+          await invoke("automation_recording_put", { recording: {
+            id: recording.id,
+            workspace_id: automationExecution.workspaceId,
+            status: "completed",
+            document: { ...recording.document, run: {
+              ...originalRun,
+              evidence: repairedRecipeEvidence(repaired.actions),
+              captureSource: "hybrid",
+              answer: {
+                ...originalRun.answer,
+                text: "Automatically repaired and verified against the original task.",
+                toolEvents: repaired.actions.map((action, index) => ({ id: `${recording.id}-repair-${index}`, name: `clawbrowser.${action.tool}`, detail: JSON.stringify(action.arguments), createdAt: now + index })),
+              },
+            } },
+            base_revision: recording.revision || 0,
+          } });
+          persisted = true;
+        }
+      } catch (error) {
+        persistenceError = error instanceof Error ? error.message : String(error);
       }
       if (cancelled) return;
-      const detail = found
-        ? "Workflow completed and the repaired artifact was verified."
-        : `AI repair finished, but it did not create ${automationExecution.expectedArtifactName}. The workflow result was not accepted.`;
-      setActiveAutomationExecution(found
-        ? { ...automationExecution, phase: "completed", outputValidated: true, progress: 100, detail }
-        : { ...automationExecution, phase: "failed", progress: 100, outputValidationError: detail, detail });
+      const detail = persisted
+        ? `${automationExecution.sourceKind === "workflow" ? "Workflow" : "Recording"} completed. AI repaired the fast path and saved it for future runs.`
+        : `The original task completed, but the repaired fast path was not saved: ${persistenceError}`;
+      if (automationExecution.backendRunId) {
+        await invoke("automation_run_update", { id: automationExecution.backendRunId, update: { status: "completed", output: { engine: "hybrid", repaired: true, fast_path_saved: persisted, detail } } }).catch(() => undefined);
+      }
+      setActiveAutomationExecution({ ...automationExecution, phase: "completed", outputValidated: true, repairPersisted: persisted, repairPersistenceError: persistenceError, progress: 100, detail });
     })().catch((error) => {
-      if (!cancelled) setAutomationExecutionError(error instanceof Error ? error.message : String(error));
+      if (cancelled) return;
+      const detail = error instanceof Error ? error.message : String(error);
+      if (automationExecution.backendRunId) void invoke("automation_run_update", { id: automationExecution.backendRunId, update: { status: "failed", output: { engine: "hybrid", repaired: false, detail } } }).catch(() => undefined);
+      setActiveAutomationExecution({ ...automationExecution, phase: "failed", progress: 100, outputValidationError: detail, detail });
     });
     return () => { cancelled = true; };
-  }, [automationExecution?.executionId, automationExecution?.expectedArtifactName, automationExecution?.outputValidated, automationExecution?.outputValidationError, automationExecution?.startedAt, automationAgentStatus]);
+  }, [automationExecution?.executionId, automationExecution?.expectedArtifactName, automationExecution?.outputValidated, automationExecution?.outputValidationError, automationExecution?.repairValidationRequired, automationExecution?.startedAt, automationAgentStatus]);
 
   const openRecorder = () => {
     if (activeRecording?.workspaceId && activeRecording.workspaceId !== s.activeWorkspaceId) s.selectWorkspace(activeRecording.workspaceId);
