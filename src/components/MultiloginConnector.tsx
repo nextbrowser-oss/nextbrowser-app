@@ -412,9 +412,15 @@ function errorMessage(error: unknown): string {
 export function MultiloginConnector({
   workspace,
   onSelectAsAgentDefault,
+  autoOpen,
+  onConnected,
+  onDismiss,
 }: {
   workspace?: { id: string; name: string };
   onSelectAsAgentDefault?: () => void;
+  autoOpen?: boolean;
+  onConnected?: () => void;
+  onDismiss?: () => void;
 }) {
   const preview = getPreviewMode();
   const previewWorkspace = preview ? { id: "preview", name: "Current workspace" } : undefined;
@@ -429,6 +435,11 @@ export function MultiloginConnector({
   const [profileKind, setProfileKind] = useState<MultiloginProfileKind>("browser");
   const [tokenSource, setTokenSource] = useState<MultiloginTokenSource>("app");
   const [selection, setSelection] = useState<MultiloginProfileSelection>();
+
+  // Another flow can send someone here purely to finish the one-time setup.
+  useEffect(() => {
+    if (autoOpen) setDialogOpen(true);
+  }, [autoOpen]);
 
   useEffect(() => {
     const nextSelection = multiloginSelectionForWorkspace(selectionWorkspace?.id);
@@ -462,6 +473,7 @@ export function MultiloginConnector({
     try {
       const nextStatus = await invoke<MultiloginConnectionStatus>("multilogin_connect", { bearerToken: copiedBearerToken });
       setStatus(nextStatus);
+      if (nextStatus.connected && nextStatus.valid) onConnected?.();
     } catch (connectError) {
       setError(errorMessage(connectError));
     } finally {
@@ -506,6 +518,7 @@ export function MultiloginConnector({
 
   const closeDialog = () => {
     if (busy) return;
+    onDismiss?.();
     setDialogOpen(false);
     setBearerToken("");
     setError(undefined);

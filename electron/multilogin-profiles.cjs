@@ -48,4 +48,36 @@ function parseMultiloginProfiles(stdout) {
   });
 }
 
-module.exports = { parseMultiloginProfiles };
+function createdProfileRecord(payload) {
+  const candidates = [payload?.data?.profile, payload?.profile, payload?.data];
+  const result = candidates.find((item) => item && typeof item === "object");
+  if (!result) return null;
+  const record = result.profile && typeof result.profile === "object" ? result.profile : result;
+  return { record, result };
+}
+
+// `nbc --runtime multilogin profiles create` answers with the created Mimic
+// record plus the proxy Multilogin attached to it. The renderer only needs the
+// identifiers required to bind the profile to a workspace.
+function parseMultiloginCreatedProfile(stdout) {
+  let payload;
+  try {
+    payload = JSON.parse(String(stdout || ""));
+  } catch {
+    throw new Error("nextctl returned an invalid Multilogin profile response.");
+  }
+  const found = createdProfileRecord(payload);
+  const record = found?.record;
+  const id = record ? boundedString(record.id ?? record.profile_id ?? record.profileId) : "";
+  if (!id) throw new Error("Multilogin did not return the created profile.");
+  const country = boundedString(found.result.country, 8).toUpperCase();
+  return {
+    id,
+    name: boundedString(record.name ?? record.profile_name ?? record.profileName) || id,
+    folderId: boundedString(record.folder_id ?? record.folderId) || undefined,
+    country: country || undefined,
+    storage: boundedString(found.result.storage, 20) || undefined,
+  };
+}
+
+module.exports = { parseMultiloginProfiles, parseMultiloginCreatedProfile };

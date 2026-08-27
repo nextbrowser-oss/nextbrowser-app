@@ -15,12 +15,40 @@ import { conversationPreview, type AppTab } from "../types";
 import { CountrySelect } from "./CountrySelect";
 import { UserFacingError } from "./UserFacingError";
 import { VPSSetupModal } from "./VPSSetupModal";
-import { CONNECTORS } from "../connectorsCatalog";
+import { CONNECTOR_PROMPT_RESUMED_EVENT, CONNECTORS } from "../connectorsCatalog";
 import { invoke, listen } from "../electronBridge";
+import { getPreviewMode } from "../preview";
+import {
+  clearMultiloginSelection,
+  multiloginSelectionForWorkspace,
+  setMultiloginSelection,
+  MULTILOGIN_SELECTION_EVENT,
+  type MultiloginProfileKind,
+  type MultiloginProfileSelection,
+} from "../lib/multiloginSelection";
+import {
+  filterMultiloginProfiles,
+  multiloginProfileSelected,
+  previewMultiloginConnectionStatus,
+  type MultiloginConnectionStatus,
+  type MultiloginProfileSummary,
+} from "../lib/multiloginProfiles";
+import {
+  multiloginConnected,
+  multiloginCreateCountry,
+  multiloginProfileSelection,
+  multiloginSubmitError,
+  multiloginSubmitLabel,
+  MULTILOGIN_OS_TYPES,
+  type MultiloginCreatedProfile,
+  type MultiloginCreateMode,
+  type MultiloginOSType,
+} from "../lib/multiloginProfileCreate";
 import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, type ActiveAutomationRecording } from "../lib/automationRecording";
 import { activeAutomationExecution, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, executionWithRecipeProgress, setActiveAutomationExecution, type AutomationExecution, type AutomationRecipeProgress } from "../lib/automationExecution";
 
 type ManualProxyInputMode = "url" | "fields";
+type ProfileToolsetOption = "clawbrowser" | "dasbrowser" | "camoufox" | "multilogin";
 const PROFILE_CREATE_TIMEOUT_MS = 120_000;
 
 function recordingDuration(startedAt: number, now = Date.now()) {
@@ -68,7 +96,16 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [profileCountry, setProfileCountry] = useState("US");
   const [profileConnection, setProfileConnection] = useState<"managed" | "direct" | "personal">("managed");
   const [profilePersonalProxyId, setProfilePersonalProxyId] = useState("");
-  const [profileToolset, setProfileToolset] = useState<"clawbrowser" | "dasbrowser" | "camoufox">("clawbrowser");
+  const [profileToolset, setProfileToolset] = useState<ProfileToolsetOption>("clawbrowser");
+  const [multiloginStatus, setMultiloginStatus] = useState<MultiloginConnectionStatus | null>(null);
+  const [multiloginChecking, setMultiloginChecking] = useState(false);
+  const [multiloginError, setMultiloginError] = useState<string>();
+  const [multiloginMode, setMultiloginMode] = useState<MultiloginCreateMode>("new");
+  const [multiloginKind, setMultiloginKind] = useState<MultiloginProfileKind>("browser");
+  const [multiloginQuery, setMultiloginQuery] = useState("");
+  const [multiloginDraft, setMultiloginDraft] = useState<MultiloginProfileSelection>();
+  const [multiloginOS, setMultiloginOS] = useState<MultiloginOSType>("windows");
+  const [workspaceMultilogin, setWorkspaceMultilogin] = useState<MultiloginProfileSelection>();
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileCreationStage, setProfileCreationStage] = useState<string>();
   const [profileError, setProfileError] = useState<string | null>(null);
@@ -167,6 +204,20 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     !defaultSessionDuplicate &&
     !s.profiles.some((p) => p.name === "default");
   const visibleProfileCount = profileWorkspaceEntries.length;
+  const multiloginRow = workspaceMultilogin
+    && (!normalizedSearch || workspaceMultilogin.name.toLowerCase().includes(normalizedSearch))
+    ? workspaceMultilogin
+    : undefined;
+  const workspaceProfileCount = visibleProfileCount + (workspaceMultilogin ? 1 : 0);
+  const multiloginBrowserProfiles = multiloginStatus?.browserProfiles ?? [];
+  const multiloginCloudPhones = multiloginStatus?.cloudPhones ?? [];
+  const multiloginKindProfiles = multiloginKind === "browser" ? multiloginBrowserProfiles : multiloginCloudPhones;
+  const multiloginVisibleProfiles = filterMultiloginProfiles(multiloginKindProfiles, multiloginQuery);
+  const multiloginKindError = multiloginKind === "browser"
+    ? multiloginStatus?.browserProfilesError
+    : multiloginStatus?.cloudPhonesError;
+  const multiloginReady = multiloginConnected(multiloginStatus);
+  const multiloginExisting = profileToolset === "multilogin" && multiloginMode === "existing";
   const runningCount = profileWorkspaceEntries.filter(({ profile }) => s.statuses[profile.name] === "running").length;
   const proxyCountries = s.proxyCountries.length ? s.proxyCountries : ROTATION_COUNTRIES;
   const recordingWorkspace = activeRecording ? s.workspaces.find((workspace) => workspace.id === activeRecording.workspaceId) : undefined;
@@ -257,23 +308,83 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     if (cancelledWhileQueued) window.setTimeout(clearActiveAutomationExecution, 600);
   };
 
-  const openProfileCreator = () => {
+  const refreshMultiloginStatus = async () => {
+    if (getPreviewMode()) {
+      setMultiloginStatus(previewMultiloginConnectionStatus());
+      return;
+    }
+    setMultiloginChecking(true);
+    setMultiloginError(undefined);
+    try {
+      setMultiloginStatus(await invoke<MultiloginConnectionStatus>("multilogin_status"));
+    } catch (error) {
+      // A failed check is an app problem, not a verdict on the connection, so
+      // it leaves the state unknown and never routes anyone to the connector.
+      setMultiloginStatus(null);
+      setMultiloginError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setMultiloginChecking(false);
+    }
+  };
+
+  const openProfileCreator = (options?: { toolset?: ProfileToolsetOption }) => {
     if (!s.authed) {
       s.setDashboardKeyPromptOpen(true);
       return;
     }
+    const toolset = options?.toolset ?? "clawbrowser";
     setProfileName("");
     setProfileCountry("US");
     setProfileConnection("managed");
     setProfilePersonalProxyId(s.personalProxies[0]?.id ?? "");
-    setProfileToolset("clawbrowser");
+    setProfileToolset(toolset);
+    setMultiloginMode("new");
+    setMultiloginKind("browser");
+    setMultiloginQuery("");
+    setMultiloginDraft(undefined);
     setProfileError(null);
     setCreateProfileOpen(true);
     void Promise.all([
       s.loadProxyCountries().catch(() => undefined),
       s.loadPersonalProxies().catch(() => undefined),
     ]);
+    if (toolset === "multilogin" || !multiloginStatus) void refreshMultiloginStatus();
   };
+
+  const openProfileCreatorRef = useRef(openProfileCreator);
+  useEffect(() => { openProfileCreatorRef.current = openProfileCreator; });
+
+  const routeToMultiloginConnector = () => {
+    setCreateProfileOpen(false);
+    setProfileToolset("clawbrowser");
+    s.openConnectorPrompt("multilogin", "profile-create");
+  };
+
+  // Selecting Multilogin without a connection is a setup request: hand the
+  // person to the connector and bring them back to profile creation after.
+  useEffect(() => {
+    if (!createProfileOpen || profileToolset !== "multilogin") return;
+    if (multiloginChecking || !multiloginStatus || multiloginConnected(multiloginStatus)) return;
+    routeToMultiloginConnector();
+  }, [createProfileOpen, profileToolset, multiloginChecking, multiloginStatus]);
+
+  useEffect(() => {
+    const resumeProfileCreation = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { connector?: string; resume?: string } | undefined;
+      if (detail?.connector !== "multilogin" || detail.resume !== "profile-create") return;
+      void refreshMultiloginStatus();
+      openProfileCreatorRef.current({ toolset: "multilogin" });
+    };
+    window.addEventListener(CONNECTOR_PROMPT_RESUMED_EVENT, resumeProfileCreation);
+    return () => window.removeEventListener(CONNECTOR_PROMPT_RESUMED_EVENT, resumeProfileCreation);
+  }, []);
+
+  useEffect(() => {
+    const refreshSelection = () => setWorkspaceMultilogin(multiloginSelectionForWorkspace(s.activeWorkspaceId));
+    refreshSelection();
+    window.addEventListener(MULTILOGIN_SELECTION_EVENT, refreshSelection);
+    return () => window.removeEventListener(MULTILOGIN_SELECTION_EVENT, refreshSelection);
+  }, [s.activeWorkspaceId]);
 
   useEffect(() => {
     if (s.authed) void s.loadPersonalProxies().catch(() => undefined);
@@ -519,8 +630,95 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     }
   };
 
+  const applyMultiloginSelection = (selection: MultiloginProfileSelection) => {
+    const workspaceId = s.activeWorkspaceId;
+    if (!workspaceId) return false;
+    // The Multilogin profile becomes this workspace's browser default, so the
+    // local profile selection has to step aside exactly as in the connector.
+    s.selectProfile(undefined);
+    setMultiloginSelection(workspaceId, selection);
+    return true;
+  };
+
+  const finishMultiloginProfile = () => {
+    setCreateProfileOpen(false);
+    setProfileName("");
+    setProfileCountry("US");
+    setProfileConnection("managed");
+    setProfileToolset("clawbrowser");
+    setMultiloginDraft(undefined);
+    setMultiloginQuery("");
+    s.resumeOnboardingAfterSetup();
+  };
+
+  const submitMultiloginProfile = async () => {
+    if (profileSaving) return;
+    if (!s.activeWorkspaceId) {
+      setProfileError("Create a workspace before adding a Multilogin profile.");
+      return;
+    }
+    const invalid = multiloginSubmitError(multiloginMode, profileConnection, profileCountry, multiloginDraft);
+    if (invalid) {
+      setProfileError(invalid);
+      return;
+    }
+    if (multiloginMode === "existing") {
+      if (!multiloginDraft || !applyMultiloginSelection(multiloginDraft)) return;
+      finishMultiloginProfile();
+      return;
+    }
+    let createdName: string;
+    try {
+      createdName = validateEntityName("profile", profileName);
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    const requestId = `profile-create-${crypto.randomUUID()}`;
+    profileCreateRequestRef.current = requestId;
+    setProfileSaving(true);
+    setProfileCreationStage("Creating Multilogin profile");
+    setProfileError(null);
+    const proxyStageTimer = window.setTimeout(() => setProfileCreationStage("Attaching Multilogin proxy"), 4_000);
+    try {
+      const created = await invoke<MultiloginCreatedProfile>("multilogin_profile_create", {
+        name: createdName,
+        country: multiloginCreateCountry(profileConnection, profileCountry),
+        osType: multiloginOS,
+        requestId,
+        timeoutMs: PROFILE_CREATE_TIMEOUT_MS,
+      });
+      if (profileCreateRequestRef.current !== requestId) return;
+      applyMultiloginSelection(multiloginProfileSelection("browser", created));
+      void refreshMultiloginStatus();
+      setProfileCreationStage("Ready");
+      await new Promise((resolve) => window.setTimeout(resolve, 450));
+      if (profileCreateRequestRef.current !== requestId) return;
+      finishMultiloginProfile();
+    } catch (error) {
+      if (profileCreateRequestRef.current !== requestId) return;
+      const message = error instanceof Error ? error.message : String(error);
+      setProfileError(
+        /timed out/i.test(message)
+          ? "Multilogin profile creation took too long and was stopped. Check your connection, then try again."
+          : message,
+      );
+    } finally {
+      window.clearTimeout(proxyStageTimer);
+      if (profileCreateRequestRef.current === requestId) {
+        profileCreateRequestRef.current = null;
+        setProfileSaving(false);
+        setProfileCreationStage(undefined);
+      }
+    }
+  };
+
   const submitManagedProfile = async (event: FormEvent) => {
     event.preventDefault();
+    if (profileToolset === "multilogin") {
+      await submitMultiloginProfile();
+      return;
+    }
     try {
       validateEntityName("profile", profileName);
     } catch (error) {
@@ -832,7 +1030,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   <Icon name="chevron.right" size={10} className={profilesOpen ? "section-chevron open" : "section-chevron"} />
                   <Icon name="person.2.fill" size={12} />
                   <span>Profiles</span>
-                  <span className="workspace-count">{visibleProfileCount}</span>
+                  <span className="workspace-count">{workspaceProfileCount}</span>
                 </button>
                 <span className="spacer" />
                 <button
@@ -840,7 +1038,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   title={activeProject ? "Create profile" : "Create a project first"}
                   aria-label="Create profile"
                   disabled={s.isRefreshing || !activeProject}
-                  onClick={openProfileCreator}
+                  onClick={() => openProfileCreator()}
                 >
                   <Icon name={s.authed ? "plus" : "lock"} size={12} />
                   <span>Create</span>
@@ -897,11 +1095,36 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                         />
                       );
                 })}
+                {multiloginRow && (
+                  <div className="workspace-multilogin-row">
+                    <button
+                      type="button"
+                      className="workspace-multilogin-open"
+                      title={`${multiloginRow.name} · Multilogin ${multiloginRow.kind === "mobile" ? "cloud phone" : "browser profile"} for this workspace`}
+                      onClick={() => s.setTab("live")}
+                    >
+                      <span className="profile-toolset-logo"><img src="./multilogin-icon.svg" alt="" /></span>
+                      <span>
+                        <strong>{multiloginRow.name}</strong>
+                        <small>Multilogin · {multiloginRow.kind === "mobile" ? "Cloud phone" : "Mimic browser"}</small>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="plain-icon-btn plain-icon-btn-compact"
+                      title="Remove this Multilogin profile from the workspace"
+                      aria-label={`Remove ${multiloginRow.name} from this workspace`}
+                      onClick={() => clearMultiloginSelection(s.activeWorkspaceId)}
+                    >
+                      <Icon name="xmark" size={12} />
+                    </button>
+                  </div>
+                )}
                 </div>
               </div>
-              {profilesOpen && visibleProfileCount === 0 && <div className="muted small workspace-empty">No profiles yet</div>}
+              {profilesOpen && workspaceProfileCount === 0 && <div className="muted small workspace-empty">No profiles yet</div>}
             </section>
-            {normalizedSearch && visibleChats.length === 0 && visibleWorkspaceProfiles.length === 0 && (
+            {normalizedSearch && visibleChats.length === 0 && visibleWorkspaceProfiles.length === 0 && !multiloginRow && (
               <div className="muted small">No matches for "{s.profileSearch}".</div>
             )}
             {profileActionError && (
@@ -1006,7 +1229,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               <span>Workspace</span>
               <strong>{activeWorkspace?.name ?? "Current workspace"}</strong>
             </div>
-            <label className="modal-field profile-name-primary">
+            {!multiloginExisting && <label className="modal-field profile-name-primary">
               <span className="modal-field-heading"><span>Profile name</span><small>Max {entityNameLimits.profile}</small></span>
               <input
                 value={profileName}
@@ -1019,8 +1242,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 placeholder="My profile"
                 autoFocus
               />
-            </label>
-            <fieldset className="project-mode-field profile-connection-field">
+            </label>}
+            {!multiloginExisting && <fieldset className="project-mode-field profile-connection-field">
               <legend>Connection</legend>
               <label className={"project-mode-option" + (profileConnection === "direct" ? " is-selected" : "")}>
                 <input type="radio" name="profile-connection" checked={profileConnection === "direct"} onChange={() => setProfileConnection("direct")} />
@@ -1030,9 +1253,12 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               <label className={"project-mode-option" + (profileConnection === "managed" ? " is-selected" : "")}>
                 <input type="radio" name="profile-connection" checked={profileConnection === "managed"} onChange={() => setProfileConnection("managed")} />
                 <Icon name="globe" size={16} />
-                <span><strong>Managed proxy</strong><small>Choose the proxy country</small></span>
+                <span>
+                  <strong>Managed proxy</strong>
+                  <small>{profileToolset === "multilogin" ? "Multilogin built-in proxy by country" : "Choose the proxy country"}</small>
+                </span>
               </label>
-              <label className={"project-mode-option" + (profileConnection === "personal" ? " is-selected" : "")}>
+              {profileToolset !== "multilogin" && <label className={"project-mode-option" + (profileConnection === "personal" ? " is-selected" : "")}>
                 <input
                   type="radio"
                   name="profile-connection"
@@ -1045,9 +1271,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 />
                 <Icon name="network" size={16} />
                 <span><strong>Personal proxy</strong><small>Use one of your saved proxies</small></span>
-              </label>
-            </fieldset>
-            {profileConnection === "managed" && <div className="modal-field profile-proxy-country-field">
+              </label>}
+            </fieldset>}
+            {profileConnection === "managed" && !multiloginExisting && <div className="modal-field profile-proxy-country-field">
               <span>Proxy country</span>
               <CountrySelect
                 countries={proxyCountries}
@@ -1057,7 +1283,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 onChange={setProfileCountry}
               />
             </div>}
-            {profileConnection === "personal" && (
+            {profileConnection === "personal" && profileToolset !== "multilogin" && (
               <div className="modal-field profile-personal-proxy-field">
                 <span className="profile-field-heading">
                   <span>Personal proxy</span>
@@ -1120,8 +1346,160 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 <Icon name="shield" size={16} />
                 <span><strong>Camoufox</strong><small>Firefox anti-detect browser</small></span>
               </label>
+              <label className={"project-mode-option profile-toolset-multilogin" + (profileToolset === "multilogin" ? " is-selected" : "")}>
+                <input
+                  type="radio"
+                  name="profile-toolset"
+                  checked={profileToolset === "multilogin"}
+                  onChange={() => {
+                    setProfileToolset("multilogin");
+                    setProfileError(null);
+                    if (profileConnection === "personal") setProfileConnection("managed");
+                    if (!multiloginStatus && !multiloginChecking) void refreshMultiloginStatus();
+                  }}
+                />
+                <span className="profile-toolset-mark"><img src="./multilogin-icon.svg" alt="" /></span>
+                <span><strong>Multilogin</strong><small>Mimic profiles from your Multilogin account</small></span>
+              </label>
             </fieldset>
-            <section className="profile-remote-section" aria-label="Remote execution">
+            {profileToolset === "multilogin" && (
+              <section className="profile-multilogin-panel" aria-label="Multilogin profile">
+                {!multiloginReady ? (
+                  <div className="profile-multilogin-pending">
+                    {multiloginChecking
+                      ? <><Spinner size={13} /><span>Checking Multilogin…</span></>
+                      : (
+                        <>
+                          <span>{multiloginError ?? "Multilogin is not connected yet."}</span>
+                          <button type="button" className="secondary" onClick={routeToMultiloginConnector}>
+                            Connect Multilogin
+                          </button>
+                        </>
+                      )}
+                  </div>
+                ) : (
+                  <>
+                    <div className="connector-profile-tabs profile-multilogin-modes" role="tablist" aria-label="Multilogin profile source">
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={multiloginMode === "new"}
+                        className={multiloginMode === "new" ? "active" : ""}
+                        onClick={() => { setMultiloginMode("new"); setProfileError(null); }}
+                      >
+                        <span>New profile</span>
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={multiloginMode === "existing"}
+                        className={multiloginMode === "existing" ? "active" : ""}
+                        onClick={() => { setMultiloginMode("existing"); setProfileError(null); }}
+                      >
+                        <span>Existing profile</span>
+                      </button>
+                    </div>
+                    {multiloginMode === "new" ? (
+                      <label className="modal-field profile-multilogin-os">
+                        <span>Fingerprint OS</span>
+                        <select
+                          value={multiloginOS}
+                          disabled={profileSaving}
+                          aria-label="Multilogin fingerprint OS"
+                          onChange={(event) => setMultiloginOS(event.target.value as MultiloginOSType)}
+                        >
+                          {MULTILOGIN_OS_TYPES.map((osType) => (
+                            <option key={osType} value={osType}>
+                              {osType === "macos" ? "macOS" : osType === "windows" ? "Windows" : "Linux"}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : (
+                      <div className="profile-multilogin-picker" role="tabpanel">
+                        <div className="profile-multilogin-picker-head">
+                        <div className="connector-profile-tabs" role="tablist" aria-label="Multilogin profile type">
+                          <button
+                            type="button"
+                            role="tab"
+                            aria-selected={multiloginKind === "browser"}
+                            className={multiloginKind === "browser" ? "active" : ""}
+                            onClick={() => { setMultiloginKind("browser"); setMultiloginQuery(""); }}
+                          >
+                            <span>Browsers</span>
+                            <strong>{multiloginBrowserProfiles.length}</strong>
+                          </button>
+                          <button
+                            type="button"
+                            role="tab"
+                            aria-selected={multiloginKind === "mobile"}
+                            className={multiloginKind === "mobile" ? "active" : ""}
+                            onClick={() => { setMultiloginKind("mobile"); setMultiloginQuery(""); }}
+                          >
+                            <span>Phones</span>
+                            <strong>{multiloginCloudPhones.length}</strong>
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          className="plain-icon-btn plain-icon-btn-compact"
+                          title="Refresh Multilogin profiles"
+                          aria-label="Refresh Multilogin profiles"
+                          disabled={multiloginChecking}
+                          onClick={() => void refreshMultiloginStatus()}
+                        >
+                          {multiloginChecking ? <Spinner size={12} /> : <Icon name="arrow.clockwise" size={12} />}
+                        </button>
+                        </div>
+                        <label className="profile-multilogin-search">
+                          <Icon name="magnifyingglass" size={13} />
+                          <input
+                            type="search"
+                            value={multiloginQuery}
+                            placeholder={multiloginKind === "browser" ? "Search browser profiles" : "Search cloud phones"}
+                            aria-label={multiloginKind === "browser" ? "Search browser profiles" : "Search cloud phones"}
+                            onChange={(event) => setMultiloginQuery(event.target.value)}
+                          />
+                        </label>
+                        <div className="connector-profile-list profile-multilogin-list" role="listbox" aria-label={multiloginKind === "browser" ? "Multilogin browser profiles" : "Multilogin cloud phones"}>
+                          {multiloginVisibleProfiles.map((profile: MultiloginProfileSummary) => {
+                            const selected = multiloginProfileSelected(multiloginDraft, multiloginKind, profile);
+                            return (
+                              <button
+                                type="button"
+                                role="option"
+                                aria-selected={selected}
+                                key={`${profile.folderId || ""}:${profile.id}`}
+                                className={`connector-profile-row${selected ? " selected" : ""}`}
+                                onClick={() => {
+                                  setMultiloginDraft(multiloginProfileSelection(multiloginKind, profile));
+                                  setProfileError(null);
+                                }}
+                              >
+                                <span className="connector-profile-radio">{selected && <Icon name="checkmark" size={11} />}</span>
+                                <span>
+                                  <strong>{profile.name}</strong>
+                                  <small>{profile.status || (multiloginKind === "browser" ? "Mimic browser" : "Cloud phone")}</small>
+                                </span>
+                              </button>
+                            );
+                          })}
+                          {!multiloginVisibleProfiles.length && !multiloginKindError && (
+                            <div className="connector-profile-empty">
+                              {multiloginQuery.trim()
+                                ? "No matching profiles"
+                                : `No ${multiloginKind === "browser" ? "browser profiles" : "cloud phones"} found.`}
+                            </div>
+                          )}
+                          {multiloginKindError && <div className="error small connector-profile-error">{multiloginKindError}</div>}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </section>
+            )}
+            {profileToolset !== "multilogin" && <section className="profile-remote-section" aria-label="Remote execution">
               <div className="profile-remote-heading">
                 <span>Remote execution</span>
                 <small>Optional</small>
@@ -1141,7 +1519,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 </span>
                 <Icon name="chevron.right" size={12} className="muted" />
               </button>
-            </section>
+            </section>}
             {profileError && <div className="error small profile-create-error">{profileError}</div>}
             {profileSaving && profileCreationStage && (
               <div className="profile-create-progress" role="status" aria-live="polite">
@@ -1156,10 +1534,14 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               <button
                 type="submit"
                 className="primary"
-                disabled={profileSaving || !profileName.trim() || (profileConnection === "personal" && !profilePersonalProxyId)}
+                disabled={profileSaving || (profileToolset === "multilogin"
+                  ? (multiloginExisting ? !multiloginDraft : !multiloginReady || !profileName.trim())
+                  : !profileName.trim() || (profileConnection === "personal" && !profilePersonalProxyId))}
               >
                 {profileSaving ? <Spinner size={13} /> : <Icon name="plus" size={13} />}
-                {profileSaving ? profileCreationStage ?? "Creating…" : "Create profile"}
+                {profileSaving
+                  ? profileCreationStage ?? "Creating…"
+                  : profileToolset === "multilogin" ? multiloginSubmitLabel(multiloginMode) : "Create profile"}
               </button>
             </div>
           </form>

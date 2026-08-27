@@ -5,6 +5,7 @@ import { CONNECTORS } from "../connectorsCatalog";
 export function ConnectorsView() {
   const s = useStore();
   const workspace = s.workspaces.find((item) => item.id === s.activeWorkspaceId);
+  const prompt = s.connectorPrompt;
 
   return (
     <div className="page connectors-page">
@@ -20,6 +21,9 @@ export function ConnectorsView() {
             key={connector.id}
             workspace={workspace && { id: workspace.id, name: workspace.name }}
             onSelectAsAgentDefault={() => s.selectProfile(undefined)}
+            autoOpen={prompt?.id === connector.id}
+            onConnected={() => s.completeConnectorPrompt()}
+            onDismiss={() => s.clearConnectorPrompt()}
           />
         ))}
       </div>

@@ -96,6 +96,7 @@ import {
 } from "./types";
 import type { RotationCountry } from "./lib/countryFlag";
 import { browserProfileContext } from "./lib/browserProfileContext";
+import { CONNECTOR_PROMPT_RESUMED_EVENT, type ConnectorPrompt } from "./connectorsCatalog";
 import { clearMultiloginSelection, multiloginSelectionForWorkspace } from "./lib/multiloginSelection";
 import { isMultiloginStartRequest, multiloginStartReply } from "./lib/multiloginChatCommand";
 import { multiloginSessionName, nextctlRemoteArgs, type LiveStreamTarget } from "./lib/liveStreamTarget";
@@ -410,6 +411,7 @@ interface State {
   chatListCollapsed: boolean;
   terminalChat: boolean;
   dashboardKeyPromptOpen: boolean;
+  connectorPrompt?: ConnectorPrompt;
   accountPairing?: AccountPairingState;
   nextctlVersion: string;
   nextctlUpdating: boolean;
@@ -490,6 +492,9 @@ interface State {
   setChatListCollapsed: (v: boolean) => void;
   setTerminalChat: (v: boolean) => void;
   setDashboardKeyPromptOpen: (v: boolean) => void;
+  openConnectorPrompt: (id: ConnectorPrompt["id"], resume?: ConnectorPrompt["resume"]) => void;
+  clearConnectorPrompt: () => void;
+  completeConnectorPrompt: () => void;
   setOnboardingStepIndex: (index: number) => void;
   suspendOnboardingForSetup: () => void;
   resumeOnboardingAfterSetup: () => void;
@@ -3221,6 +3226,23 @@ export const useStore = create<State>((set, get) => {
   setDashboardKeyPromptOpen: (v) => {
     trackEvent(v ? "dashboard_key_prompt_opened" : "dashboard_key_prompt_closed");
     set({ dashboardKeyPromptOpen: v, loginError: v ? undefined : get().loginError });
+  },
+  openConnectorPrompt: (id, resume) => {
+    const returnTab = get().tab;
+    trackEvent("connector_prompt_opened", { connector: id, resume: resume ?? "none" });
+    set({ tab: "connectors", connectorPrompt: { id, returnTab, resume } });
+  },
+  clearConnectorPrompt: () => set({ connectorPrompt: undefined }),
+  completeConnectorPrompt: () => {
+    const prompt = get().connectorPrompt;
+    set({ connectorPrompt: undefined });
+    if (!prompt?.resume) return;
+    // Hand the person back to the flow that sent them to the connector so a
+    // one-time setup never costs them the profile they were creating.
+    set({ tab: prompt.returnTab ?? "chat" });
+    window.dispatchEvent(new CustomEvent(CONNECTOR_PROMPT_RESUMED_EVENT, {
+      detail: { connector: prompt.id, resume: prompt.resume },
+    }));
   },
   setOnboardingStepIndex: (index) => set({ onboardingStepIndex: index }),
   suspendOnboardingForSetup: () => set({
