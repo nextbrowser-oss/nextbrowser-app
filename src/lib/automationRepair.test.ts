@@ -5,6 +5,7 @@ describe("automatic automation repair", () => {
   it("repairs saved page selectors and extraction scripts automatically", () => {
     expect(shouldAutoRepairAutomation("click", "No element matches the saved locator")).toBe(true);
     expect(shouldAutoRepairAutomation("evaluate", "Expected 5 populated trending rows")).toBe(true);
+    expect(shouldAutoRepairAutomation("evaluate", "runtime evaluation failed: Expected at least 5 populated trending rows")).toBe(true);
     expect(shouldAutoRepairAutomation("paginate_extract", "The saved extraction returned only empty rows")).toBe(true);
   });
 

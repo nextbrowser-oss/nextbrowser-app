@@ -4,7 +4,7 @@ const REPAIRABLE_STEP_TOOLS = new Set([
   "site_recipe_run", "act", "evaluate",
 ]);
 
-const INFRASTRUCTURE_FAILURE = /(?:\b401\b|\b403\b|unauthori[sz]ed|forbidden|account token|authentication|reconnect|backend|fetch failed|network|proxy|profile|session|runtime|launch|cdp|browser exited|cancelled|canceled|stopped by user)/i;
+const INFRASTRUCTURE_FAILURE = /(?:\b401\b|\b403\b|unauthori[sz]ed|forbidden|account token|authentication|reconnect|backend|fetch failed|network|proxy|profile|session|runtime (?:launch|startup|exited|unavailable)|launch failed|cdp|browser exited|cancelled|canceled|stopped by user)/i;
 
 export function shouldAutoRepairAutomation(tool: string | undefined, error: unknown): boolean {
   const normalizedTool = String(tool || "").replace(/^(?:clawbrowser|nextbrowser)\./, "");
