@@ -23,6 +23,11 @@ const RETRYABLE_NAVIGATION_ERRORS = [
 ];
 const RETRYABLE_DATA_ERROR = /(?:did not return exactly|expected\s+(?:at\s+least\s+)?\d+\s+(?:fully\s+)?populated|expected\s+(?:\w+\s+){0,4}complete(?:ly)?\s+(?:\w+\s+){0,3}rows|returned only empty|data (?:is )?not (?:ready|loaded)|incomplete (?:rows|data)|(?:table|list|results?|rows?) (?:was |were )?not found|no (?:rows|data) (?:yet|available))/i;
 const UNSAFE_EVALUATION = /(document\s*\.\s*cookie|localStorage|sessionStorage|indexedDB|caches\s*\.|navigator\s*\.\s*(clipboard|sendBeacon)|fetch\s*\(|XMLHttpRequest|WebSocket|EventSource|\.\s*(click|submit|remove)\s*\(|\.\s*(innerHTML|outerHTML|textContent|innerText|value)\s*=|eval\s*\(|new\s+Function|location\s*=|window\s*\.\s*open)/i;
+const SAME_PAGE_READONLY_FETCH = /fetch\s*\(\s*location\.href\s*(?:,\s*\{\s*cache\s*:\s*['"]no-store['"]\s*\})?\s*\)/gi;
+
+function unsafeEvaluation(expression) {
+  return UNSAFE_EVALUATION.test(String(expression).replace(SAME_PAGE_READONLY_FETCH, "samePageReadOnlyRequest()"));
+}
 
 function cleanExecutionId(value) {
   const id = String(value || "").trim();
@@ -173,7 +178,7 @@ function toolCalls(action) {
   if (!DIRECT_TOOLS.has(tool)) throw new Error(`The browser action “${tool}” is not supported by deterministic replay.`);
   if (tool === "evaluate") {
     const expression = String(args.expression || "").trim();
-    if (!expression || expression.length > 32 * 1024 || UNSAFE_EVALUATION.test(expression)) {
+    if (!expression || expression.length > 32 * 1024 || unsafeEvaluation(expression)) {
       throw new Error("The saved page data script is missing or uses browser data/actions that cannot be replayed safely.");
     }
   }

@@ -81,6 +81,7 @@ The repaired path must stay on the same website origins already present in the w
 After the task succeeds, include one final machine-readable line containing only this marker followed by the exact successful deterministic recipe:
 ${AUTOMATION_REPAIR_MARKER} {"version":1,"actions":[{"tool":"wait","arguments":{"selector":"body"}}]}
 Include the complete successful action list, not only the changed step. Use only browser actions and save_artifact; omit profile/session lifecycle, state inspection, shell, curl, credentials, result values, and failed attempts.
+Evaluate steps must remain read-only. For a JSON API already open in the browser, a GET of exactly fetch(location.href) is allowed; never fetch another URL or specify a method, body, headers, or credentials.
 
 Original recipe:
 ${JSON.stringify({ version: 1, actions }, null, 2)}${failedAction ? `\n\nFailed action:\n${JSON.stringify(failedAction, null, 2)}` : ""}`;

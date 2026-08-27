@@ -487,6 +487,19 @@ test("replays read-only page extraction scripts and rejects unsafe scripts", asy
   assert.equal(unsafe.status, "failed");
   assert.match(unsafe.error, /cannot be replayed safely/);
 
+  const samePageJSON = await executeAutomationRecipe({
+    executionId: "same-page-json",
+    recipe: { version: 1, actions: [{ tool: "evaluate", arguments: { expression: "(async()=>{const response=await fetch(location.href,{cache:'no-store'});return response.json()})()" } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl });
+  assert.notEqual(samePageJSON.error, "The saved page data script is missing or uses browser data/actions that cannot be replayed safely.");
+
+  const externalFetch = await executeAutomationRecipe({
+    executionId: "external-fetch",
+    recipe: { version: 1, actions: [{ tool: "evaluate", arguments: { expression: "fetch('https://example.com/data.json')" } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: fakeMCP(() => ({ protocolVersion: "2025-03-26", capabilities: {} })).spawnImpl });
+  assert.equal(externalFetch.status, "failed");
+  assert.match(externalFetch.error, /cannot be replayed safely/);
+
   const empty = await executeAutomationRecipe({
     executionId: "empty-page-script",
     recipe: { version: 1, actions: [{ tool: "evaluate", arguments: { expression: 'Array.from(document.querySelectorAll("tr")).map(() => ({ name: "", rank: 0 }))' } }] },

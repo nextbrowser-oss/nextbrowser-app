@@ -17,9 +17,10 @@ import { UserFacingError } from "./UserFacingError";
 import { VPSSetupModal } from "./VPSSetupModal";
 import { CONNECTORS } from "../connectorsCatalog";
 import { invoke, listen } from "../electronBridge";
+import { uid } from "../lib/ids";
 import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, type ActiveAutomationRecording } from "../lib/automationRecording";
-import { activeAutomationExecution, automationAgentAnswer, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, executionWithRecipeProgress, setActiveAutomationExecution, type AutomationExecution, type AutomationRecipeProgress } from "../lib/automationExecution";
-import { parseAutomationRepairRecipe } from "../lib/automationRepair";
+import { activeAutomationExecution, automationAgentAnswer, automationAgentBrowserActionCount, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, executionWithRecipeProgress, setActiveAutomationExecution, type AutomationExecution, type AutomationRecipeProgress } from "../lib/automationExecution";
+import { automationRepairTask, parseAutomationRepairRecipe } from "../lib/automationRepair";
 
 type ManualProxyInputMode = "url" | "fields" | "bulk";
 const PROFILE_CREATE_TIMEOUT_MS = 120_000;
@@ -216,6 +217,32 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     const timer = window.setInterval(() => setAutomationExecutionClock(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [automationExecution, automationExecutionState?.phase]);
+
+  useEffect(() => {
+    if (!automationExecution || automationExecution.engine !== "agent" || !automationExecution.replyId || !automationExecution.repairValidationRequired) return;
+    if (!["preparing", "running"].includes(automationExecution.phase) || automationExecutionClock - automationExecution.startedAt < 120_000) return;
+    const answer = automationAgentAnswer(automationExecution, s.conversations);
+    if (!answer || !["queued", "streaming"].includes(answer.status) || automationAgentBrowserActionCount(automationExecution, s.conversations) > 0) return;
+    const attempt = automationExecution.repairAttempt || 0;
+    if (s.cancelQueuedReply(automationExecution.replyId) === false) s.stopReply(automationExecution.replyId);
+    if (attempt >= 1 || !automationExecution.workflowSnapshot) {
+      setActiveAutomationExecution({ ...automationExecution, phase: "failed", progress: 100, detail: "AI repair made no browser progress after two attempts. Retry when the agent is available.", error: "AI repair stalled before its first browser action." });
+      return;
+    }
+    const retrying: AutomationExecution = { ...automationExecution, executionId: uid(), replyId: undefined, startedAt: Date.now(), phase: "preparing", progress: 8, detail: "The first AI repair stalled. Restarting it once automatically…", repairAttempt: 1 };
+    setActiveAutomationExecution(retrying);
+    void s.runLocalSkill(automationExecution.workflowSnapshot, automationRepairTask(
+      automationExecution.task,
+      automationExecution.workflowSnapshot.actions,
+      automationExecution.failedStep,
+      `${automationExecution.error || automationExecution.detail || "The deterministic step failed."} The previous AI repair stalled before its first browser action. Start with the browser action immediately.`,
+    )).then((replyId) => {
+      const current = activeAutomationExecution();
+      if (!current || current.executionId !== retrying.executionId) return;
+      if (!replyId) return setActiveAutomationExecution({ ...retrying, phase: "failed", progress: 100, detail: "The automatic AI retry could not be started." });
+      setActiveAutomationExecution({ ...retrying, replyId, phase: "running", detail: "AI repair restarted automatically…" });
+    }).catch((error) => setActiveAutomationExecution({ ...retrying, phase: "failed", progress: 100, detail: error instanceof Error ? error.message : String(error) }));
+  }, [automationExecution?.executionId, automationExecution?.phase, automationExecution?.replyId, automationExecution?.startedAt, automationExecutionClock, s]);
 
   useEffect(() => {
     if (!automationExecution || automationExecution.engine !== "agent" || !automationExecution.repairValidationRequired || automationExecution.outputValidated || automationExecution.outputValidationError) return;

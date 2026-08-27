@@ -35,6 +35,11 @@ const ACTION_OPTIONS = [
 ] as const;
 const DETERMINISTIC_ACTIONS = new Set(["navigate", "open", "input", "click", "press", "select", "wait", "scroll", "dismiss", "upload", "extract", "paginate_extract", "tabs_extract", "form_fill", "multi_action", "site_recipe_run", "act", "evaluate", "save_artifact"]);
 const UNSAFE_WORKFLOW_EVALUATION = /(document\s*\.\s*cookie|localStorage|sessionStorage|indexedDB|caches\s*\.|navigator\s*\.\s*(clipboard|sendBeacon)|fetch\s*\(|XMLHttpRequest|WebSocket|EventSource|\.\s*(click|submit|remove)\s*\(|\.\s*(innerHTML|outerHTML|textContent|innerText|value)\s*=|eval\s*\(|new\s+Function|location\s*=|window\s*\.\s*open)/i;
+const SAME_PAGE_READONLY_FETCH = /fetch\s*\(\s*location\.href\s*(?:,\s*\{\s*cache\s*:\s*['"]no-store['"]\s*\})?\s*\)/gi;
+
+function unsafeWorkflowEvaluation(expression: string) {
+  return UNSAFE_WORKFLOW_EVALUATION.test(expression.replace(SAME_PAGE_READONLY_FETCH, "samePageReadOnlyRequest()"));
+}
 const DEFAULT_EXAMPLES_VERSION = "5";
 
 function defaultExamplesKey(workspaceId: string) {
@@ -141,7 +146,7 @@ function workflowDraftError(workflow?: BrowserWorkflowSkill): string | undefined
     if (["extract", "paginate_extract", "tabs_extract"].includes(action.tool) && (!action.arguments.container || !action.arguments.fields || Array.isArray(action.arguments.fields))) return `Step ${index + 1} needs a results container and named field locators.`;
     if (action.tool === "evaluate") {
       const expression = String(action.arguments.expression || "").trim();
-      if (!expression || expression.length > 32 * 1024 || UNSAFE_WORKFLOW_EVALUATION.test(expression)) return `Step ${index + 1} needs a safe read-only page data script.`;
+      if (!expression || expression.length > 32 * 1024 || unsafeWorkflowEvaluation(expression)) return `Step ${index + 1} needs a safe read-only page data script.`;
     }
     if (action.tool === "paginate_extract" && !action.arguments.next_selector && action.arguments.scroll !== true) return `Step ${index + 1} needs a Next button selector or scrolling enabled.`;
     if (action.tool === "save_artifact") {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   automationAgentAnswer,
+  automationAgentBrowserActionCount,
   automationExecutionView,
   executionWithRecipeProgress,
   type AutomationExecution,
@@ -106,6 +107,7 @@ describe("automation execution indicator", () => {
       { id: "action", name: "clawbrowser.act", detail: "{}", createdAt: 122 },
     ];
     expect(automationExecutionView(execution, [noisy], 150)).toMatchObject({ phase: "running", progress: 38, detail: "1 browser action completed" });
+    expect(automationAgentBrowserActionCount(execution, [noisy])).toBe(1);
   });
 
   it("shows live agent activity and advances long-running indeterminate work", () => {
@@ -135,6 +137,21 @@ describe("automation execution indicator", () => {
     expect(automationExecutionView({ ...repair, outputValidated: true }, [conversation("done", 4)], 150)).toMatchObject({ phase: "completed" });
     expect(automationExecutionView({ ...repair, outputValidated: true, detail: "AI repaired the fast path." }, [conversation("done", 4)], 150)).toMatchObject({ phase: "completed", detail: "AI repaired the fast path." });
     expect(automationExecutionView({ ...repair, outputValidationError: "Expected artifact missing" }, [conversation("done", 4)], 150)).toMatchObject({ phase: "failed", detail: "Expected artifact missing" });
+  });
+
+  it("preserves an AI repair launch failure instead of saying the agent is still starting", () => {
+    const failed = {
+      ...execution,
+      engine: "agent" as const,
+      phase: "failed" as const,
+      detail: "The AI repair run could not be started.",
+      error: "The AI repair run could not be started.",
+    };
+    expect(automationExecutionView(failed, [], 500)).toEqual({
+      phase: "failed",
+      progress: 100,
+      detail: "The AI repair run could not be started.",
+    });
   });
 
   it("keeps a visible stopping state until the agent confirms cancellation", () => {

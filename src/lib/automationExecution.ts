@@ -26,8 +26,14 @@ export type AutomationExecution = {
   repairValidationRequired?: boolean;
   repairPersisted?: boolean;
   repairPersistenceError?: string;
+  repairAttempt?: number;
   workflowSnapshot?: BrowserWorkflowSkill;
 };
+
+export function automationAgentBrowserActionCount(execution: AutomationExecution, conversations: Conversation[]) {
+  const answer = automationAgentAnswer(execution, conversations);
+  return (answer?.toolEvents || []).filter((event) => /^(?:clawbrowser|nextbrowser)\.(?:open|wait|click|input|press|select|scroll|dismiss|upload|extract|paginate_extract|tabs_extract|form_fill|multi_action|site_recipe_run|act|evaluate|save_artifact)$/.test(event.name)).length;
+}
 
 export type AutomationExecutionView = {
   phase: "preparing" | "running" | "stopping" | "completed" | "failed" | "cancelled";
@@ -118,6 +124,12 @@ export function automationExecutionView(execution: AutomationExecution, conversa
     return { phase: execution.phase, progress, detail: execution.detail || (execution.phase === "preparing" ? "Preparing the browser session…" : "Running the saved browser steps…") };
   }
   const answer = automationAgentAnswer(execution, conversations);
+  if (!answer && execution.phase === "failed") {
+    return { phase: "failed", progress: 100, detail: execution.detail || execution.error || "The workflow could not start." };
+  }
+  if (!answer && execution.phase === "cancelled") {
+    return { phase: "cancelled", progress: 100, detail: execution.detail || "Execution stopped." };
+  }
   if (answer?.status === "cancelled") return { phase: "cancelled", progress: 100, detail: "Execution stopped." };
   if (["failed", "timedOut"].includes(answer?.status || "")) return { phase: "failed", progress: 100, detail: answer?.text || "The workflow could not complete." };
   if (answer?.status === "done") {
