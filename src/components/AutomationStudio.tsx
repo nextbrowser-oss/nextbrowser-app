@@ -195,6 +195,7 @@ export function AutomationStudio() {
   }).slice(0, 12) : [], [s.conversations, workspaceId, recordingAgentId, recordingSince]);
   const recordedRun = runs[0];
   const selectedWorkflow = workflows.find((workflow) => workflow.id === selectedWorkflowId);
+  const workflowLibraryEmpty = workflows.length === 0 && !draft;
   const draftDirty = !!draft && !!selectedWorkflow && JSON.stringify(draft) !== JSON.stringify(selectedWorkflow);
   const draftValidationError = workflowDraftError(draft);
   const selectedRuns = backendRuns.filter((run) => run.workflow_id === selectedWorkflowId).slice(0, 5);
@@ -998,8 +999,16 @@ export function AutomationStudio() {
         </div>
       </section>}
 
-      {section === "workflows" && <section className={`automation-panel workflow-builder${workflowListCollapsed ? " workflow-list-collapsed" : ""}`}>
-        <header className="workflow-builder-start"><div><h2>Workflow Builder</h2><p>Edit and replay reliable browser steps.</p></div><div className="row">{recordingSince > 0 && recordingDestination === "workflow" ? <button className="secondary danger-text" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={12} /> : <Icon name="stop.fill" size={12} />} Stop &amp; open workflow</button> : <button className="secondary" title="You can ask the agent: Save the result as products.csv in Artifact Center" onClick={() => void startRecording("workflow", "hybrid")}><Icon name="circle.fill" size={12} /> Capture from Project Chat</button>}<button className="secondary" onClick={() => void createWorkflow()}><Icon name="plus" size={12} /> New workflow</button></div></header>
+      {section === "workflows" && <section className={`automation-panel workflow-builder${workflowListCollapsed ? " workflow-list-collapsed" : ""}${workflowLibraryEmpty ? " workflow-builder-empty" : ""}`}>
+        <header className="workflow-builder-start"><div><h2>Workflow Builder</h2><p>Edit and replay reliable browser steps.</p></div>{recordingSince > 0 && recordingDestination === "workflow" ? <div className="row"><button className="secondary danger-text" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={12} /> : <Icon name="stop.fill" size={12} />} Stop &amp; open workflow</button></div> : !workflowLibraryEmpty ? <div className="row"><button className="secondary" title="You can ask the agent: Save the result as products.csv in Artifact Center" onClick={() => void startRecording("workflow", "hybrid")}><Icon name="circle.fill" size={12} /> Capture from Project Chat</button><button className="secondary" onClick={() => void createWorkflow()}><Icon name="plus" size={12} /> New workflow</button></div> : null}</header>
+        {workflowLibraryEmpty && <div className="workflow-first-run">
+          <span className="workflow-first-run-icon"><Icon name="arrow.triangle.branch" size={22} /></span>
+          <div className="workflow-first-run-copy"><h3>Create your first workflow</h3><p>Capture a browser task you already know works, or assemble the steps yourself.</p></div>
+          <div className="workflow-first-run-actions">
+            <button className="workflow-first-run-choice primary-choice" onClick={() => void startRecording("workflow", "hybrid")}><span><Icon name="sparkles" size={16} /></span><strong>Capture from Project Chat</strong><small>Ask the agent to complete a task, then edit the recorded steps.</small></button>
+            <button className="workflow-first-run-choice" onClick={() => void createWorkflow()}><span><Icon name="plus" size={16} /></span><strong>Build manually</strong><small>Start with an empty workflow and add visual blocks.</small></button>
+          </div>
+        </div>}
         <aside className="workflow-list" aria-hidden={workflowListCollapsed}><div className="workflow-list-title"><span>Workflows</span><div className="workflow-list-controls"><button className="mini" title="Create workflow" aria-label="Create workflow" onClick={() => void createWorkflow()}><Icon name="plus" size={12} /></button><button className="mini" title="Collapse workflow list" aria-label="Collapse workflow list" onClick={() => setWorkflowListCollapsed(true)}><Icon name="chevron.left" size={12} /></button></div></div>{workflows.map((skill) => {
             const running = playback?.sourceKind === "workflow" && playback?.sourceId === skill.id && playbackView && !["completed", "failed", "cancelled"].includes(playbackView.phase);
             return <button key={skill.id} className={skill.id === selectedWorkflowId ? "active" : ""} onClick={() => selectWorkflow(skill.id)} onContextMenu={(event) => openWorkflowContextMenu(event, skill.id)}>
