@@ -379,6 +379,13 @@ function boundedOutput(value, maxBytes = 1_500_000) {
 
 function createMCPClient({ binary, args, env, spawnImpl = spawn }) {
   const child = spawnImpl(binary, args, { env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+  const inheritedToolArguments = {};
+  for (const option of ["--profile", "--runtime", "--runtime-bin"]) {
+    const index = args.indexOf(option);
+    if (index >= 0 && typeof args[index + 1] === "string" && args[index + 1]) {
+      inheritedToolArguments[option === "--runtime-bin" ? "browser_bin" : option.slice(2)] = args[index + 1];
+    }
+  }
   const pending = new Map();
   let sequence = 0;
   let stdoutBuffer = "";
@@ -431,11 +438,11 @@ function createMCPClient({ binary, args, env, spawnImpl = spawn }) {
   });
 
   return {
-    async initialize() {
-      await request("initialize", { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "nextbrowser-automation", version: "1" } }, 30_000);
+    async initialize(timeoutMs = 30_000) {
+      await request("initialize", { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "nextbrowser-automation", version: "1" } }, timeoutMs);
       send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
     },
-    callTool: (name, arguments) => request("tools/call", { name, arguments }),
+    callTool: (name, arguments, timeoutMs) => request("tools/call", { name, arguments: { ...inheritedToolArguments, ...arguments } }, timeoutMs),
     close() {
       if (closed) return;
       closed = true;

@@ -70,6 +70,8 @@ test("manual recording returns an initial navigation and collected deterministic
     { tool: "input", arguments: { selector: "input[name=q]", text: "hello" } },
   ]);
   assert.ok(server.calls.some((call) => call.params?.name === "evaluate"));
+  assert.ok(server.calls.filter((call) => call.params?.name).every((call) => call.params.arguments.profile === "Work"));
+  assert.ok(server.calls.filter((call) => call.params?.name).every((call) => call.params.arguments.runtime === "clawbrowser"));
 });
 
 test("recording can be armed before a stopped browser profile is launched", async () => {

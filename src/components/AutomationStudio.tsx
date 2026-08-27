@@ -386,13 +386,18 @@ export function AutomationStudio() {
       const startedAt = Date.now();
       const id = uid();
       if (source === "hybrid") {
-        const browserRunning = s.selectedProfile
-          ? s.statuses[s.selectedProfile] === "running"
+        const workspaceProfiles = s.workspaces.find((workspace) => workspace.id === workspaceId)?.profileNames ?? [];
+        if (!s.selectedProfile && workspaceProfiles.length > 1) {
+          return setStudioError("Choose the browser profile you want to record before starting.");
+        }
+        const recordingProfile = s.selectedProfile || (workspaceProfiles.length === 1 ? workspaceProfiles[0] : undefined);
+        const browserRunning = recordingProfile
+          ? s.statuses[recordingProfile] === "running"
           : s.defaultSession?.status === "running";
         await invoke("automation_page_recording_start", {
           recordingId: id,
-          profile: s.selectedProfile,
-          runtime: selectedBrowserRuntime(),
+          profile: recordingProfile,
+          runtime: selectedBrowserRuntime(recordingProfile),
           attach: browserRunning,
         });
       }
@@ -627,10 +632,10 @@ export function AutomationStudio() {
     catch { return undefined; }
   };
 
-  const selectedBrowserRuntime = () => {
-    if (!s.selectedProfile) return "clawbrowser";
+  const selectedBrowserRuntime = (profile = s.selectedProfile) => {
+    if (!profile) return "clawbrowser";
     for (const workspace of s.workspaces) {
-      if (workspace.profileNames.includes(s.selectedProfile)) return workspace.profileToolsets[s.selectedProfile] || "clawbrowser";
+      if (workspace.profileNames.includes(profile)) return workspace.profileToolsets[profile] || "clawbrowser";
     }
     return "clawbrowser";
   };
