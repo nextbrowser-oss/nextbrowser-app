@@ -26,6 +26,8 @@ type ElementPickState = { pickId: string; actionIndex: number; mode: ElementPick
 type ElementPickResult = { cancelled?: boolean; selector?: string; locator?: { role?: string; name?: string; text?: string }; label?: string; tag?: string; attribute?: string; pageUrl?: string };
 type WorkflowContextMenu = { workflowId: string; x: number; y: number };
 type RecordingReview = { active: ActiveAutomationRecording; captured: CapturedRun; reason: string; actionCount: number; missingAgentTrace: boolean; saveError?: string };
+type AutomationShare = { id: string; source_kind: "recording" | "workflow"; source_id: string; title: string; sender_email?: string; recipient_email?: string; status: string; created_at: string };
+type ShareTarget = { kind: "recording" | "workflow"; id: string; title: string };
 
 const ACTION_OPTIONS = [
   ["navigate", "Open a web page"], ["open", "Open a URL"], ["input", "Enter text"], ["click", "Click something"],
@@ -39,6 +41,11 @@ const SAME_PAGE_READONLY_FETCH = /fetch\s*\(\s*location\.href\s*(?:,\s*\{\s*cach
 
 function unsafeWorkflowEvaluation(expression: string) {
   return UNSAFE_WORKFLOW_EVALUATION.test(expression.replace(SAME_PAGE_READONLY_FETCH, "samePageReadOnlyRequest()"));
+}
+
+function isUnavailableRecordingSession(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /(?:connection refused|session ["']?.+?["']? not found|state failed|list cdp targets|cdp became reachable|browser (?:is )?not running)/i.test(message);
 }
 const DEFAULT_EXAMPLES_VERSION = "5";
 
@@ -203,6 +210,10 @@ export function AutomationStudio() {
   const [workflowAiOpen, setWorkflowAiOpen] = useState(false);
   const [workflowAiRequest, setWorkflowAiRequest] = useState("");
   const [workflowAiBusy, setWorkflowAiBusy] = useState(false);
+  const [incomingShares, setIncomingShares] = useState<AutomationShare[]>([]);
+  const [shareTarget, setShareTarget] = useState<ShareTarget>();
+  const [shareEmail, setShareEmail] = useState("");
+  const [shareBusy, setShareBusy] = useState(false);
   const workspaceId = s.activeWorkspaceId || "";
   const activeWorkspace = s.workspaces.find((workspace) => workspace.id === workspaceId);
   const automationProfile = s.selectedProfile || (activeWorkspace?.profileNames.length === 1 ? activeWorkspace.profileNames[0] : undefined);
@@ -305,6 +316,37 @@ export function AutomationStudio() {
   };
 
   useEffect(() => { void loadRecordings(); }, [workspaceId]);
+
+  const loadIncomingShares = async () => {
+    try { setIncomingShares(await invoke<AutomationShare[]>("automation_shares_list", { box: "inbox" })); }
+    catch { setIncomingShares([]); }
+  };
+
+  useEffect(() => { void loadIncomingShares(); }, [workspaceId]);
+
+  const sendShare = async () => {
+    if (!shareTarget || !shareEmail.trim()) return;
+    setShareBusy(true);
+    try {
+      await invoke("automation_share_create", { share: { source_kind: shareTarget.kind, source_id: shareTarget.id, recipient_email: shareEmail.trim() } });
+      setShareTarget(undefined);
+      setShareEmail("");
+      setNotice("Shared. It will appear in Automation Studio when that email signs in.");
+    } catch (error) { reportError(error); }
+    finally { setShareBusy(false); }
+  };
+
+  const acceptShare = async (share: AutomationShare) => {
+    if (!workspaceId) return;
+    setShareBusy(true);
+    try {
+      await invoke("automation_share_accept", { id: share.id, workspaceId });
+      await Promise.all([loadIncomingShares(), loadRecordings(), loadWorkflows()]);
+      setSection(share.source_kind === "workflow" ? "workflows" : "recorder");
+      setNotice(`${share.source_kind === "workflow" ? "Workflow" : "Recording"} added to this workspace as your own editable copy.`);
+    } catch (error) { reportError(error); }
+    finally { setShareBusy(false); }
+  };
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -414,12 +456,23 @@ export function AutomationStudio() {
         const browserRunning = recordingProfile
           ? s.statuses[recordingProfile] === "running"
           : s.defaultSession?.status === "running";
-        await invoke("automation_page_recording_start", {
+        const armRecorder = (attach: boolean) => invoke("automation_page_recording_start", {
           recordingId: id,
           profile: recordingProfile,
           runtime: recordingRuntime,
-          attach: browserRunning,
+          attach,
         });
+        try {
+          await armRecorder(browserRunning);
+        } catch (error) {
+          // A user can close the browser window while its state file still says
+          // "running". Recover that exact profile once and arm the recorder
+          // again instead of exposing CDP/connection-refused internals.
+          if (!browserRunning || !isUnavailableRecordingSession(error)) throw error;
+          if (recordingProfile) await s.startProfile(recordingProfile);
+          else await s.startDefaultSession();
+          await armRecorder(true);
+        }
       }
       setActiveAutomationRecording({ id, workspaceId, agentId: s.agentId, startedAt, phase: "recording", destination, source, profile: recordingProfile, runtime: recordingRuntime });
       setRecordingSince(startedAt);
@@ -1096,6 +1149,7 @@ export function AutomationStudio() {
       </div>
       {studioError && <div className="error automation-global-message" role="alert"><strong>Automation couldn’t complete the action.</strong><span>{studioError}</span><button onClick={() => setStudioError(undefined)}>Dismiss</button></div>}
       {notice && <div className="automation-global-message success" role="status"><span>{notice}</span><button onClick={() => setNotice(undefined)}>Dismiss</button></div>}
+      {incomingShares.length > 0 && <section className="automation-share-inbox" aria-label="Shared with me"><div><Icon name="person.2.fill" size={15} /><span><strong>Shared with you</strong><small>{incomingShares.length} automation {incomingShares.length === 1 ? "copy is" : "copies are"} ready to add to this workspace.</small></span></div><div className="automation-share-inbox-items">{incomingShares.map((share) => <article key={share.id}><span><strong>{share.title}</strong><small>{share.source_kind === "workflow" ? "Workflow" : "Recording"}{share.sender_email ? ` · from ${share.sender_email}` : ""}</small></span><button className="secondary" disabled={shareBusy} onClick={() => void acceptShare(share)}>Add copy</button></article>)}</div></section>}
       {playback && playbackView && <div className={`recording-progress-card ${playbackView.phase}`} role="status"><div className="recording-progress-head"><span><Icon name={playbackView.phase === "completed" ? "checkmark.circle.fill" : ["failed", "cancelled"].includes(playbackView.phase) ? "xmark.circle.fill" : playbackView.phase === "stopping" ? "stop.fill" : "play.fill"} size={14} /><strong>{playbackView.phase === "completed" ? "Execution completed" : playbackView.phase === "cancelled" ? "Execution stopped" : playbackView.phase === "failed" ? "Execution failed" : playbackView.phase === "stopping" ? "Stopping execution" : playback.engine === "agent" ? "AI is repairing the workflow" : playbackView.phase === "preparing" ? "Preparing execution" : "Running saved steps"}</strong></span><b>{playbackView.progress}%</b></div><div className="recording-progress-track"><i style={{ width: `${playbackView.progress}%` }} /></div><small>{playbackView.detail}</small><div className="row">{["completed", "failed", "cancelled"].includes(playbackView.phase) ? <button onClick={() => { setPlayback(undefined); clearActiveAutomationExecution(); }}>Dismiss</button> : <button className="secondary danger-text" disabled={playbackView.phase === "stopping"} onClick={() => void stopExecution()}><Icon name="stop.fill" size={12} /> {playbackView.phase === "stopping" ? "Stopping…" : "Stop"}</button>}</div></div>}
 
       {section === "recorder" && <section className="automation-panel">
@@ -1121,7 +1175,7 @@ export function AutomationStudio() {
                 <small className={quality.reusable ? "ok" : "muted"}><strong>{quality.reusable ? "Reusable" : "Not reusable"}:</strong> {quality.reason}</small>
                 <details className="capture-steps"><summary>Show recorded steps</summary><ol>{actions.map((action, index) => <li key={`${index}-${action.tool}`}><b>{actionLabel(action.tool)}</b><code>{JSON.stringify(action.arguments)}</code></li>)}</ol></details>
               </div>
-              <div className="capture-card-actions">{playback?.sourceId === run.id && playbackView && !["completed", "failed", "cancelled"].includes(playbackView.phase) ? <div className="capture-running"><Spinner size={13} /><span>{playbackView.phase === "preparing" ? "Preparing…" : playbackView.phase === "stopping" ? "Stopping…" : `${playbackView.progress}% running`}</span></div> : <button className="secondary" disabled={(!quality.reusable && !canRepairMissingStart) || executionBusy} title={executionBusy ? "Stop the running automation first" : canRepairMissingStart ? "Add the missing starting page with AI, then run" : "Run recording"} onClick={() => void replayRecording(run)}><Icon name={canRepairMissingStart ? "sparkles" : "play.fill"} size={12} /> {canRepairMissingStart ? "Repair & run" : "Run again"}</button>}<button className="btn-bordered-prominent" disabled={!quality.reusable} onClick={() => void saveCapture(run)}>Turn into workflow</button><button className="mini danger-text" title="Delete recording" onClick={() => void deleteRecording(recording)}><Icon name="trash" size={12} /> Delete</button></div>
+              <div className="capture-card-actions">{playback?.sourceId === run.id && playbackView && !["completed", "failed", "cancelled"].includes(playbackView.phase) ? <div className="capture-running"><Spinner size={13} /><span>{playbackView.phase === "preparing" ? "Preparing…" : playbackView.phase === "stopping" ? "Stopping…" : `${playbackView.progress}% running`}</span></div> : <button className="secondary" disabled={(!quality.reusable && !canRepairMissingStart) || executionBusy} title={executionBusy ? "Stop the running automation first" : canRepairMissingStart ? "Add the missing starting page with AI, then run" : "Run recording"} onClick={() => void replayRecording(run)}><Icon name={canRepairMissingStart ? "sparkles" : "play.fill"} size={12} /> {canRepairMissingStart ? "Repair & run" : "Run again"}</button>}<button className="btn-bordered-prominent" disabled={!quality.reusable} onClick={() => void saveCapture(run)}>Turn into workflow</button><button className="mini" title="Share a safe copy" onClick={() => setShareTarget({ kind: "recording", id: recording.id, title: run.task })}><Icon name="square.and.arrow.up" size={12} /> Share</button><button className="mini danger-text" title="Delete recording" onClick={() => void deleteRecording(recording)}><Icon name="trash" size={12} /> Delete</button></div>
             </article>;
           })}
           {!recordings.length && <div className="automation-empty"><Icon name="play.rectangle.on.rectangle.fill" size={28} /><strong>No recordings yet</strong><span>Record and stop a successful browser task to save it here.</span></div>}
@@ -1150,12 +1204,13 @@ export function AutomationStudio() {
           if (!workflow) return null;
           const actionWorkflow = draft?.id === workflow.id ? draft : workflow;
           return <div ref={workflowContextMenuRef} className="workflow-context-menu" role="menu" aria-label={`Actions for ${workflow.title}`} style={{ left: workflowContextMenu.x, top: workflowContextMenu.y }} onContextMenu={(event) => event.preventDefault()}>
+            <button role="menuitem" onClick={() => { setWorkflowContextMenu(undefined); setShareTarget({ kind: "workflow", id: workflow.id, title: workflow.title }); }}>Share workflow</button>
             <button role="menuitem" onClick={() => { setWorkflowContextMenu(undefined); void duplicateWorkflow(actionWorkflow); }}>Duplicate workflow</button>
             <button role="menuitem" className="danger-text" onClick={() => { setWorkflowContextMenu(undefined); void deleteWorkflow(workflow); }}>Delete workflow</button>
           </div>;
         })()}
         <div className={`workflow-canvas${workflowListCollapsed ? " has-collapsed-list" : ""}`}>{workflowListCollapsed && <button className="workflow-list-restore" aria-expanded={false} aria-label="Open workflow sidebar" title="Open workflow sidebar" onClick={() => setWorkflowListCollapsed(false)}><Icon name="sidebar.leading" size={13} /><span>Workflows</span><Icon name="chevron.right" size={11} /></button>}{draft ? <>
-          <div className="workflow-editor-head"><div><input className="workflow-title-input" aria-label="Workflow name" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /><div className="workflow-editor-meta"><label className="workflow-domain-field"><Icon name="globe" size={13} /><span>Domain</span><input className="workflow-domain-input" aria-label="Website domain" value={draft.domain} placeholder="example.com" onChange={(event) => setDraft({ ...draft, domain: event.target.value })} /></label><span className="workflow-runtime-chip"><Icon name="play.rectangle.on.rectangle.fill" size={12} /> {automationProfile || "Default browser"}</span>{draftDirty ? <small className="workflow-unsaved">Unsaved</small> : <small className="workflow-saved"><Icon name="checkmark" size={10} /> Saved</small>}</div></div><div className="row workflow-editor-actions"><button className="secondary workflow-ai-toggle" aria-expanded={workflowAiOpen} disabled={workflowAiBusy} onClick={() => setWorkflowAiOpen((open) => !open)}><Icon name="sparkles" size={12} /> Edit with AI</button>{draftDirty && <button className="secondary workflow-save-button" disabled={saving || !!draftValidationError || !!Object.keys(actionErrors).length} title="Save changes without running" onClick={() => void saveDraft()}>Save</button>}<button className="primary" disabled={saving || executionBusy || !!draftValidationError || !!Object.keys(actionErrors).length} title={draftValidationError || (executionBusy ? "Stop the running automation first" : draftDirty ? "Save changes and run this workflow" : "Run workflow")} onClick={() => void runDraft()}>{saving && <Spinner size={12} />} {draftDirty ? "Save & run" : "Run"}</button><details className="workflow-more-menu"><summary aria-label="More workflow actions" title="More workflow actions"><Icon name="ellipsis.circle" size={16} /></summary><div><button onClick={() => void duplicateWorkflow(draft)}>Duplicate workflow</button><button className="danger-text" onClick={() => void deleteWorkflow(draft)}>Delete workflow</button></div></details></div></div>
+          <div className="workflow-editor-head"><div><input className="workflow-title-input" aria-label="Workflow name" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /><div className="workflow-editor-meta"><label className="workflow-domain-field"><Icon name="globe" size={13} /><span>Domain</span><input className="workflow-domain-input" aria-label="Website domain" value={draft.domain} placeholder="example.com" onChange={(event) => setDraft({ ...draft, domain: event.target.value })} /></label><span className="workflow-runtime-chip"><Icon name="play.rectangle.on.rectangle.fill" size={12} /> {automationProfile || "Default browser"}</span>{draftDirty ? <small className="workflow-unsaved">Unsaved</small> : <small className="workflow-saved"><Icon name="checkmark" size={10} /> Saved</small>}</div></div><div className="row workflow-editor-actions"><button className="secondary workflow-ai-toggle" aria-expanded={workflowAiOpen} disabled={workflowAiBusy} onClick={() => setWorkflowAiOpen((open) => !open)}><Icon name="sparkles" size={12} /> Edit with AI</button>{draftDirty && <button className="secondary workflow-save-button" disabled={saving || !!draftValidationError || !!Object.keys(actionErrors).length} title="Save changes without running" onClick={() => void saveDraft()}>Save</button>}<button className="primary" disabled={saving || executionBusy || !!draftValidationError || !!Object.keys(actionErrors).length} title={draftValidationError || (executionBusy ? "Stop the running automation first" : draftDirty ? "Save changes and run this workflow" : "Run workflow")} onClick={() => void runDraft()}>{saving && <Spinner size={12} />} {draftDirty ? "Save & run" : "Run"}</button><details className="workflow-more-menu"><summary aria-label="More workflow actions" title="More workflow actions"><Icon name="ellipsis.circle" size={16} /></summary><div><button onClick={() => setShareTarget({ kind: "workflow", id: draft.id, title: draft.title })}>Share workflow</button><button onClick={() => void duplicateWorkflow(draft)}>Duplicate workflow</button><button className="danger-text" onClick={() => void deleteWorkflow(draft)}>Delete workflow</button></div></details></div></div>
           {elementPick && <div className="workflow-picker-banner" role="status"><Spinner size={13} /><span><strong>Selecting an element for step {elementPick.actionIndex + 1}</strong><small>Click the highlighted element in the browser. Press Esc there to cancel.</small></span><button className="secondary" onClick={() => void cancelElementPick()}>Cancel</button></div>}
           {draftValidationError && <div className="error automation-inline-error" role="alert">{draftValidationError}</div>}
           {workflowAiOpen && <section className="workflow-ai-editor" aria-label="Edit workflow with AI">
@@ -1245,6 +1300,13 @@ export function AutomationStudio() {
             <button className="secondary danger-text" disabled={recordingStopping} onClick={() => { setRecordingReview(undefined); setNotice("Recording discarded."); }}>Discard</button>
             <button className="primary" disabled={recordingStopping} onClick={() => void saveRecordingReview()}>{recordingStopping && <Spinner size={12} />} {recordingReview.saveError ? "Retry save" : "Save anyway"}</button>
           </div>
+        </section>
+      </div>}
+      {shareTarget && <div className="modal-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !shareBusy) setShareTarget(undefined); }}>
+        <section className="modal-card automation-share-dialog" role="dialog" aria-modal="true" aria-labelledby="automation-share-title">
+          <div><span className="recording-review-icon"><Icon name="person.2.fill" size={18} /></span><h2 id="automation-share-title">Share a copy</h2><p><strong>{shareTarget.title}</strong></p><p>The recipient gets an independent editable copy. Browser profiles, sessions, credentials, run history, and local artifacts are never included.</p></div>
+          <label>Email address<input type="email" autoFocus maxLength={320} value={shareEmail} placeholder="teammate@example.com" onChange={(event) => setShareEmail(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void sendShare(); }} /></label>
+          <div className="recording-review-actions"><button className="secondary" disabled={shareBusy} onClick={() => { setShareTarget(undefined); setShareEmail(""); }}>Cancel</button><button className="primary" disabled={shareBusy || !shareEmail.trim()} onClick={() => void sendShare()}>{shareBusy && <Spinner size={12} />} Share copy</button></div>
         </section>
       </div>}
     </div>

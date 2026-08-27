@@ -123,6 +123,7 @@ const SF_MAP: Record<string, LucideIcon> = {
   "arrow.triangle.branch": GitBranch,
   "stop.circle.fill": Square,
   "arrow.up.circle.fill": ArrowUpCircle,
+  "square.and.arrow.up": ArrowUpCircle,
   scroll: ScrollText,
   "info.circle": Info,
   "doc.on.doc": Copy,

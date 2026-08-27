@@ -7658,6 +7658,18 @@ pre,
 .automation-global-message span { flex: 1; }
 .automation-global-message button { color: inherit; text-decoration: underline; }
 .automation-global-message.success { border-color: color-mix(in srgb, var(--green) 35%, var(--line)); background: color-mix(in srgb, var(--green) 8%, var(--panel)); color: var(--text); }
+.automation-share-inbox { display: grid; gap: 10px; margin: 0 0 14px; padding: 14px; border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line)); border-radius: 14px; background: color-mix(in srgb, var(--accent) 7%, var(--panel)); }
+.automation-share-inbox > div:first-child, .automation-share-inbox article { display: flex; align-items: center; gap: 10px; }
+.automation-share-inbox span { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.automation-share-inbox small { color: var(--muted); }
+.automation-share-inbox-items { display: grid; gap: 7px; }
+.automation-share-inbox article { padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.automation-share-inbox article strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.automation-share-dialog { width: min(500px, calc(100vw - 32px)); display: grid; gap: 16px; padding: 20px; }
+.automation-share-dialog h2 { display: inline; margin: 0 0 0 10px; font-size: 18px; }
+.automation-share-dialog p { margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.automation-share-dialog label { display: grid; gap: 7px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.automation-share-dialog input { width: 100%; min-height: 42px; padding: 9px 11px; border: 1px solid var(--input-border); border-radius: 10px; background: var(--bg-elevated); color: var(--text); font: inherit; letter-spacing: normal; text-transform: none; }
 .recording-progress-card { display: grid; gap: 7px; margin: 0 0 14px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); border-radius: 12px; background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
 .recording-progress-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; }
 .recording-progress-head span { display: flex; align-items: center; gap: 7px; }
