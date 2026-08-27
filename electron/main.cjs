@@ -59,7 +59,7 @@ const {
 } = require("./automation-sync.cjs");
 const { cancelAllAutomationRecipes, cancelAutomationRecipe, executeAutomationRecipe } = require("./automation-runner.cjs");
 const { cancelAllAutomationElementPicks, cancelAutomationElementPick, pickAutomationElement } = require("./automation-element-picker.cjs");
-const { activeAutomationTraceFile, attachAutomationPageRecording, cancelAllAutomationPageRecordings, recordAutomationToolAction, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
+const { activeAutomationRecordingHasDataAction, activeAutomationTraceFile, attachAutomationPageRecording, cancelAllAutomationPageRecordings, recordAutomationToolAction, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
 const { parseMultiloginProfiles } = require("./multilogin-profiles.cjs");
@@ -493,11 +493,27 @@ async function ensureAgentControlServer() {
           });
           return;
         }
-        const result = await saveAgentArtifact({
-          workspaceId: artifactScope.workspaceId,
-          payload,
-          store: localAutomationArtifacts(),
-        });
+        const recorderHasData = await activeAutomationRecordingHasDataAction();
+        let result = artifactScope.pendingArtifact;
+        if (!result) {
+          result = await saveAgentArtifact({
+            workspaceId: artifactScope.workspaceId,
+            payload,
+            store: localAutomationArtifacts(),
+          });
+        }
+        if (!recorderHasData) {
+          artifactScope.pendingArtifact = result;
+          sendControlResponse(response, 409, {
+            ok: false,
+            error: "artifact_saved_recording_incomplete",
+            artifactSaved: true,
+            artifact: result.artifact,
+            message: "The local artifact is saved, but Recorder has no deterministic data step. Call extract, paginate_extract, tabs_extract, or a read-only evaluate for the exact final dataset, then repeat this same artifact request once; it will confirm without creating a duplicate.",
+          });
+          return;
+        }
+        artifactScope.pendingArtifact = undefined;
         recordAutomationToolAction("save_artifact", {
           source: "last_result",
           format: String(payload.format || result.artifact?.extension || "json").replace(/^\./, ""),

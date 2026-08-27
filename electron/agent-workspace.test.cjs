@@ -86,11 +86,15 @@ test("Terminal Chat restarts onto the active Recorder trace", () => {
 });
 
 test("active Recorder requires a replayable final data-collection call", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const store = fs.readFileSync(path.join(__dirname, "..", "src", "store.ts"), "utf8");
   assert.match(store, /NextBrowser Recorder is active for this task/);
   assert.match(store, /call extract or paginate_extract/);
   assert.match(store, /call evaluate once with a read-only expression/);
   assert.match(store, /Do not finish with state as the only data-collection step/);
+  assert.match(main, /artifact_saved_recording_incomplete/);
+  assert.match(main, /artifactScope\.pendingArtifact/);
+  assert.match(main, /confirm without creating a duplicate/);
 });
 
 test("artifact saving remains local and independent from recorder trace support", () => {

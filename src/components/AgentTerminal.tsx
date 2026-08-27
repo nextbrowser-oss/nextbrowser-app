@@ -276,7 +276,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
       const attachmentContext = terminalAttachmentContext(attachmentsRef.current);
       const scopeContext = bufferedMessage.startsWith("/")
         ? undefined
-        : terminalBrowserScopeContext(browserProfilesRef.current ?? []);
+        : terminalBrowserScopeContext(browserProfilesRef.current ?? [], !!activeAutomationRecording());
       const combinedContext = [scopeContext, pending?.text, attachmentContext].filter(Boolean).join("\n\n") || undefined;
       const attachmentOnlyMessage = attachmentContext && data.includes("\r") && !currentLineInputRef.current
         ? "Please inspect the attached file(s)."

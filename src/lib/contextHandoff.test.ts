@@ -116,6 +116,17 @@ describe("chat context handoff", () => {
     expect(result).not.toContain("Reddit scraper");
   });
 
+  it("requires a deterministic final data action while Terminal Recorder is active", () => {
+    const result = terminalBrowserScopeContext([
+      { name: "Worker", runtime: "clawbrowser", running: true, selected: true },
+    ], true);
+    expect(result).toContain("Recorder is active");
+    expect(result).toContain("nextbrowser.extract");
+    expect(result).toContain("State is discovery only");
+    expect(result).toContain("before Artifact Center save");
+    expect(result).toContain("Do not finish with only open, state, and save_artifact");
+  });
+
   it("tracks the editable terminal line without losing unicode input", () => {
     expect(terminalLineBufferAfter("", "Berlin")).toBe("Berlin");
     expect(terminalLineBufferAfter("Berlin", "\x7f!")).toBe("Berli!");
