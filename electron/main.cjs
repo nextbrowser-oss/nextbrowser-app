@@ -160,9 +160,9 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
   ];
 }
 
-function codexClawbrowserArgs(nextctlBin) {
+function codexClawbrowserArgs(nextctlBin, automationTraceFile = "") {
   return [
-    ...codexClawbrowserMCPArgs(nextctlBin),
+    ...codexClawbrowserMCPArgs(nextctlBin, automationTraceFile),
     "--ask-for-approval", "never",
     "--sandbox", "workspace-write",
     "-c", "sandbox_workspace_write.network_access=true",
@@ -1547,7 +1547,11 @@ async function invokeCommand(command, args = {}, sender) {
         await ensureCodexTerminalProfile();
         const nextctlBin = await resolveOrInstallNextctl();
         if (!nextctlBin) throw new Error("nextctl is required for Clawbrowser MCP.");
-        agentArgs = codexClawbrowserArgs(nextctlBin);
+        const requestedTraceFile = activeAutomationTraceFile();
+        const supportedTraceFile = requestedTraceFile && await nextctlHasAutomationTrace(nextctlBin)
+          ? requestedTraceFile
+          : "";
+        agentArgs = codexClawbrowserArgs(nextctlBin, supportedTraceFile);
       }
       await Promise.all(writableDirs.map((dir) => fs.mkdir(dir, { recursive: true })));
       const terminalArgs = [

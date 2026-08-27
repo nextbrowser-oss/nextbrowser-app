@@ -75,6 +75,16 @@ test("Codex chat uses the managed Clawbrowser MCP configuration", () => {
   assert.match(main, /case "agent_run":[\s\S]*codexClawbrowserMCPArgs\(nextctlBin, supportedTraceFile\)/);
 });
 
+test("Terminal Chat restarts onto the active Recorder trace", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  const terminal = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AgentTerminal.tsx"), "utf8");
+  assert.match(main, /case "terminal_start":[\s\S]*activeAutomationTraceFile\(\)/);
+  assert.match(main, /case "terminal_start":[\s\S]*codexClawbrowserArgs\(nextctlBin, supportedTraceFile\)/);
+  assert.match(terminal, /AUTOMATION_RECORDING_EVENT/);
+  assert.match(terminal, /activeAutomationRecording\(\)\?\.id/);
+  assert.match(terminal, /setRestartNonce\(\(value\) => value \+ 1\)/);
+});
+
 test("active Recorder requires a replayable final data-collection call", () => {
   const store = fs.readFileSync(path.join(__dirname, "..", "src", "store.ts"), "utf8");
   assert.match(store, /NextBrowser Recorder is active for this task/);

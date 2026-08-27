@@ -9,6 +9,7 @@ import { terminalAttachmentContext } from "../lib/chatAttachments";
 import { terminalBrowserScopeContext, terminalInputWithDeferredContext, terminalLineBufferAfter } from "../lib/contextHandoff";
 import { terminalActivityPreview, terminalAgentReady, terminalInputShouldQueueBeforeReady } from "../lib/terminalReadiness";
 import { terminalBrowserSession } from "../lib/terminalBrowserSession";
+import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT } from "../lib/automationRecording";
 
 interface AgentTerminalProps {
   agentId: string;
@@ -100,6 +101,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
   const [status, setStatus] = useState<"starting" | "running" | "exited" | "failed">("starting");
   const [error, setError] = useState<string>();
   const [restartNonce, setRestartNonce] = useState(0);
+  const terminalRecordingIdRef = useRef(activeAutomationRecording()?.id || "");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string>();
   const onContinueInChatRef = useRef(onContinueInChat);
@@ -129,6 +131,20 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
   attachmentsRef.current = attachments;
   pendingHandoffRef.current = pendingHandoff;
   browserProfilesRef.current = browserProfiles;
+
+  useEffect(() => {
+    const syncRecorder = () => {
+      const recordingId = activeAutomationRecording()?.id || "";
+      if (!recordingId || recordingId === terminalRecordingIdRef.current) return;
+      terminalRecordingIdRef.current = recordingId;
+      // MCP environment is fixed when Codex starts. Restart an idle Terminal
+      // session as Recorder is armed so subsequent browser tools write to the
+      // new recording trace instead of silently bypassing it.
+      setRestartNonce((value) => value + 1);
+    };
+    window.addEventListener(AUTOMATION_RECORDING_EVENT, syncRecorder);
+    return () => window.removeEventListener(AUTOMATION_RECORDING_EVENT, syncRecorder);
+  }, []);
 
   const transcript = () => {
     const terminal = terminalRef.current;
