@@ -33,6 +33,21 @@ test("validates recipe bounds and expands parameters without evaluating code", (
   assert.deepEqual(expandTemplates({ text: "Find {{query}}", exact: "{{limit}}" }, { query: "books", limit: 5 }), { text: "Find books", exact: 5 });
 });
 
+test("rejects a missing workflow input before launching or changing the browser", async () => {
+  let launched = false;
+  const result = executeAutomationRecipe({
+    executionId: "missing-input",
+    parameters: {},
+    recipe: { version: 1, actions: [
+      { tool: "open", arguments: { url: "https://example.com" } },
+      { tool: "input", arguments: { selector: "input", text: "{{query}}" } },
+    ] },
+  }, { binary: "nbc", env: {}, spawnImpl: () => { launched = true; throw new Error("must not launch"); } });
+
+  await assert.rejects(result, /Step 2 needs a value for “query”/);
+  assert.equal(launched, false);
+});
+
 test("maps recorded navigation and accessible-name actions to deterministic MCP calls", () => {
   assert.deepEqual(toolCalls({ tool: "navigate", arguments: { url: "https://example.com", profile: "ignored" } }), [{ name: "open", arguments: { url: "https://example.com" } }]);
   const calls = toolCalls({ tool: "click", arguments: { locator: { role: "button", name: "Search" }, wait_for: { selector: ".results" } } });

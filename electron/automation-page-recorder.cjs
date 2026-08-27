@@ -76,7 +76,7 @@ function recorderPageScript() {
     if (["checkbox", "radio", "button", "submit", "file"].includes(element.type)) return;
     const sensitive = element instanceof HTMLInputElement && element.type === "password"
       || /password|passcode|security code|card number|cvv|cvc|token|secret/i.test(`${element.name} ${element.id} ${element.placeholder} ${element.getAttribute("aria-label")}`);
-    push("input", { ...targetArguments(element), text: sensitive ? "{{secret}}" : element.value });
+    push("input", { ...targetArguments(element), text: sensitive ? "{{redacted}}" : element.value });
   };
   const onKey = (event) => {
     if (!["Enter", "Escape"].includes(event.key) || event.repeat) return;

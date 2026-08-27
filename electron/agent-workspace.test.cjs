@@ -239,6 +239,7 @@ test("automation studio gives newcomers a complete path and runs unsaved edits s
   assert.match(studio, /min_rows: count/);
   assert.match(studio, /replaceTopCount\(artifactArguments\.name\)/);
   assert.match(studio, /const workflow = draftDirty \? await saveDraft\(\) : draft/);
+  assert.match(studio, /still contains “\{\{\$\{missingInput\}\}\}”/);
   assert.doesNotMatch(studio, /disabled=\{draftDirty \|\| executionBusy/);
   assert.doesNotMatch(studio, /className="automation-mode-note"/);
 });
@@ -275,18 +276,32 @@ test("recordings and workflows replay deterministically with explicit AI repair"
   assert.match(store, /runAutomationRecipe: async/);
   assert.match(store, /invoke<AutomationRecipeResult>\("automation_recipe_execute"/);
   assert.match(studio, /s\.runAutomationRecipe\(/);
+  assert.match(studio, /Choose the browser profile that should run this automation\./);
   assert.match(studio, /phase: "cancelled", detail: "Execution stopped by user\."/);
   assert.match(studio, /Repair & run with AI/);
+  assert.match(studio, /AI is adding the missing starting page before this automation runs/);
+  assert.match(studio, /Automatic repair could not start\. Original failure:/);
+  assert.match(studio, /canRepairMissingStart \? "Repair & run" : "Run again"/);
   assert.match(studio, /runLocalSkill\(repairWorkflow, repairTask\)/);
   assert.match(studio, /workflowSnapshot: workflow/);
   assert.match(studio, /failedExecution\.workflowSnapshot/);
-  assert.match(sidebar, /artifact\.name === automationExecution\.expectedArtifactName/);
+  assert.match(sidebar, /item\.name === automationExecution\.expectedArtifactName/);
+  assert.match(sidebar, /"artifact_validate"/);
   assert.match(sidebar, /automation_workflow_put/);
   assert.match(sidebar, /AI repaired the fast path and saved it for future runs/);
   assert.match(sidebar, /automation_run_update[\s\S]*engine: "hybrid"/);
   assert.match(sidebar, /The workflow result was not accepted\./);
   const deterministicRun = store.slice(store.indexOf("runAutomationRecipe: async"), store.indexOf("runLocalSkill: async"));
   assert.doesNotMatch(deterministicRun, /prepareLocalSession/);
+});
+
+test("a stopped recording remains recoverable when its backend save fails", () => {
+  const studio = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AutomationStudio.tsx"), "utf8");
+  assert.match(studio, /let capturedForRetry: CapturedRun \| undefined/);
+  assert.match(studio, /capturedForRetry = captured/);
+  assert.match(studio, /The recording stopped, but was not saved/);
+  assert.match(studio, /Retry save/);
+  assert.match(studio, /clearActiveAutomationRecording\(\);[\s\S]*setRecordingReview\(\{/);
 });
 
 test("workflow builder selects page elements visually without exposing CSS inputs", () => {

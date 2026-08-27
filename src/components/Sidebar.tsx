@@ -306,8 +306,13 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       }
       let artifactVerified = !automationExecution.expectedArtifactName;
       for (let attempt = 0; attempt < 4 && !artifactVerified; attempt += 1) {
-        const items = await invoke<Array<{ name: string; createdAt: number }>>("artifact_list", { workspaceId: automationExecution.workspaceId });
-        artifactVerified = items.some((artifact) => artifact.name === automationExecution.expectedArtifactName && artifact.createdAt >= automationExecution.startedAt);
+        const items = await invoke<Array<{ id: string; name: string; createdAt: number }>>("artifact_list", { workspaceId: automationExecution.workspaceId });
+        const artifact = items.find((item) => item.name === automationExecution.expectedArtifactName && item.createdAt >= automationExecution.startedAt);
+        if (artifact) {
+          const validation = await invoke<{ valid: boolean; reason?: string }>("artifact_validate", { workspaceId: automationExecution.workspaceId, id: artifact.id });
+          if (!validation.valid) throw new Error(validation.reason || `AI repair created ${automationExecution.expectedArtifactName}, but its data is incomplete.`);
+          artifactVerified = true;
+        }
         if (!artifactVerified && attempt < 3) await new Promise((resolve) => window.setTimeout(resolve, 400));
       }
       if (!artifactVerified) throw new Error(`AI repair finished, but it did not create ${automationExecution.expectedArtifactName}. The workflow result was not accepted.`);
@@ -319,7 +324,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           const workflows = await invoke<BrowserWorkflowSkill[]>("automation_workflows_list", { workspaceId: automationExecution.workspaceId });
           const workflow = workflows.find((item) => item.id === automationExecution.sourceId);
           if (!workflow) throw new Error("The repaired workflow no longer exists.");
-          const repaired = parseAutomationRepairRecipe(answer.text, automationExecution.workflowSnapshot?.actions || workflow.actions);
+          const repaired = parseAutomationRepairRecipe(answer.text, automationExecution.workflowSnapshot?.actions || workflow.actions, automationExecution.workflowSnapshot?.domain || workflow.domain);
           if (!repaired) throw new Error("AI completed the task but did not return a safe reusable recipe.");
           await invoke("automation_workflow_put", {
             workspaceId: automationExecution.workspaceId,
@@ -340,7 +345,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           const originalActions = [...originalRun.evidence.matchAll(/Called (?:clawbrowser|nextbrowser)\.([a-z_]+)\((\{[^\n]*\})\)/g)].flatMap((match) => {
             try { return [{ tool: match[1], arguments: JSON.parse(match[2]) as Record<string, unknown> }]; } catch { return []; }
           });
-          const repaired = parseAutomationRepairRecipe(answer.text, originalActions);
+          const repaired = parseAutomationRepairRecipe(answer.text, originalActions, automationExecution.workflowSnapshot?.domain);
           if (!repaired) throw new Error("AI completed the task but did not return a safe reusable recipe.");
           const now = Date.now();
           await invoke("automation_recording_put", { recording: {
@@ -365,6 +370,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         persistenceError = error instanceof Error ? error.message : String(error);
       }
       if (cancelled) return;
+      if (persisted) window.dispatchEvent(new CustomEvent("nextbrowser:automation-library-change", { detail: { sourceKind: automationExecution.sourceKind } }));
       const detail = persisted
         ? `${automationExecution.sourceKind === "workflow" ? "Workflow" : "Recording"} completed. AI repaired the fast path and saved it for future runs.`
         : `The original task completed, but the repaired fast path was not saved: ${persistenceError}`;

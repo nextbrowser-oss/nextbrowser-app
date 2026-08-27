@@ -60,6 +60,13 @@ function expandTemplates(value, parameters) {
   return value.replace(/\{\{([A-Za-z0-9_.-]+)\}\}/g, (match, key) => parameters[key] == null ? match : String(parameters[key]));
 }
 
+function unresolvedTemplate(value) {
+  if (Array.isArray(value)) return value.map(unresolvedTemplate).find(Boolean);
+  if (plainObject(value)) return Object.values(value).map(unresolvedTemplate).find(Boolean);
+  if (typeof value !== "string") return undefined;
+  return value.match(/\{\{([A-Za-z0-9_.-]+)\}\}/)?.[1];
+}
+
 function scrubSessionArguments(args) {
   const clean = { ...args };
   for (const key of ["profile", "cdp", "runtime", "remote", "required_rows"]) delete clean[key];
@@ -459,7 +466,14 @@ async function executeAutomationRecipe(input, deps) {
     return { status: "cancelled", results: [] };
   }
   if (activeExecutions.has(executionId)) throw new Error("This automation execution is already running.");
-  const actions = validateRecipe(input.recipe);
+  // Resolve every input before launching the browser. Discovering a missing
+  // value halfway through a workflow can leave forms or pages half-mutated.
+  const actions = validateRecipe(input.recipe).map((action, index) => {
+    const expanded = { ...action, arguments: expandTemplates(action.arguments, input.parameters || {}) };
+    const missing = unresolvedTemplate(expanded.arguments);
+    if (missing) throw new Error(`Step ${index + 1} needs a value for “${missing}” before this automation can run.`);
+    return expanded;
+  });
   const profile = String(input.profile || "").trim();
   const runtime = ["clawbrowser", "camoufox", "chromium", "multilogin"].includes(input.runtime) ? input.runtime : "clawbrowser";
   const mcpArgs = [...(profile ? ["--profile", profile] : []), "--runtime", runtime, ...(input.runtimeBin ? ["--runtime-bin", input.runtimeBin] : []), "mcp"];
@@ -474,7 +488,7 @@ async function executeAutomationRecipe(input, deps) {
     await client.initialize();
     for (let index = 0; index < actions.length; index += 1) {
       if (state.cancelled) throw new Error("Automation execution was cancelled.");
-      const action = { ...actions[index], arguments: expandTemplates(actions[index].arguments, input.parameters || {}) };
+      const action = actions[index];
       const nextDataAction = ["evaluate", "extract", "paginate_extract", "tabs_extract"].includes(actions[index + 1]?.tool);
       if (action.tool === "wait" && nextDataAction && typeof action.arguments.timeout === "number") {
         action.arguments.timeout = Math.min(8, action.arguments.timeout);

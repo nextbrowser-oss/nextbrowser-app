@@ -195,6 +195,30 @@ Called clawbrowser.extract({"container":"article.product","fields":["title","pri
     expect(workflowQuality(terminalBrowserTask(transcript), transcript).reusable).toBe(true);
   });
 
+  it("does not call an extraction-only trace reusable without a deterministic starting page", () => {
+    const content = 'Called clawbrowser.extract({"container":"tr.athing","fields":{"title":{"selector":"a"}}})\n{"ok":true,"count":5}';
+    expect(workflowQuality("Collect Hacker News stories", content, "news.ycombinator.com")).toEqual({
+      reusable: false,
+      reason: "The recording did not capture a starting page. Open the target page while recording so replay can start reliably.",
+    });
+  });
+
+  it("turns a fast navigate_extract call into self-contained replay steps", () => {
+    const content = [
+      'Called nextbrowser.navigate_extract({"profile":"Worker","runtime":"clawbrowser","url":"https://news.ycombinator.com/newest","ready_selector":"tr.athing","container":"tr.athing","fields":{"title":{"selector":".titleline > a"}},"limit":5,"timeout":30})',
+      '{"ok":true,"count":5}',
+      'Called nextbrowser.save_artifact({"source":"last_result","format":"json","name":"hn.json"})',
+      '{"ok":true}',
+    ].join("\n");
+    expect(workflowQuality("Collect Hacker News stories", content, "news.ycombinator.com").reusable).toBe(true);
+    expect(workflowRecipe("Collect Hacker News stories", content).actions).toEqual([
+      { tool: "open", arguments: { url: "https://news.ycombinator.com/newest" } },
+      { tool: "wait", arguments: { selector: "tr.athing", timeout: 30 } },
+      { tool: "extract", arguments: { container: "tr.athing", fields: { title: { selector: ".titleline > a" } }, limit: 5 } },
+      { tool: "save_artifact", arguments: { source: "last_result", format: "json", name: "hn.json" } },
+    ]);
+  });
+
   it("does not treat words inside extracted content as a tool failure", () => {
     const content = `Called clawbrowser.navigate({"url":"https://quotes.toscrape.com"})\n{"ok":true}\nCalled clawbrowser.extract({"container":"div.quote"})\n{"ok":true}\n${"A normal quote. ".repeat(40)}I have not failed; I found another way.`;
     expect(workflowQuality("Collect quotes from quotes.toscrape.com", content).reusable).toBe(true);

@@ -52,6 +52,7 @@ export type AutomationRecipeProgress = {
 };
 
 const STATE_KEY = "automationRecordingPlayback";
+const SESSION_KEY = "nextbrowser:automation-execution-session";
 export const AUTOMATION_EXECUTION_EVENT = "nextbrowser:automation-execution-change";
 const PROGRESS_TOOLS = new Set([
   "open", "navigate", "click", "input", "press", "select", "scroll", "dismiss", "wait", "act",
@@ -63,23 +64,38 @@ export function activeAutomationExecution(): AutomationExecution | undefined {
     const value = JSON.parse(localStorage.getItem(STATE_KEY) || "null");
     const sourceId = value?.sourceId || value?.recordingId;
     if (!sourceId || !value?.workspaceId || !value?.startedAt) return undefined;
-    return {
+    const execution = {
       ...value,
       executionId: value.executionId || `${sourceId}-${value.startedAt}`,
       sourceId,
       sourceKind: value.sourceKind === "workflow" ? "workflow" : "recording",
       phase: ["preparing", "running", "stopping", "completed", "failed", "cancelled"].includes(value.phase) ? value.phase : "running",
     } as AutomationExecution;
+    if (!["completed", "failed", "cancelled"].includes(execution.phase)
+      && sessionStorage.getItem(SESSION_KEY) !== execution.executionId) {
+      const interrupted: AutomationExecution = {
+        ...execution,
+        phase: "failed",
+        progress: 100,
+        detail: "This automation was interrupted when NextBrowser closed. Run it again to restart from the beginning.",
+        error: "The previous app session ended before automation completed.",
+      };
+      localStorage.setItem(STATE_KEY, JSON.stringify(interrupted));
+      return interrupted;
+    }
+    return execution;
   } catch { return undefined; }
 }
 
 export function setActiveAutomationExecution(execution: AutomationExecution) {
   localStorage.setItem(STATE_KEY, JSON.stringify(execution));
+  sessionStorage.setItem(SESSION_KEY, execution.executionId);
   window.dispatchEvent(new CustomEvent(AUTOMATION_EXECUTION_EVENT, { detail: execution }));
 }
 
 export function clearActiveAutomationExecution() {
   localStorage.removeItem(STATE_KEY);
+  sessionStorage.removeItem(SESSION_KEY);
   window.dispatchEvent(new CustomEvent(AUTOMATION_EXECUTION_EVENT));
 }
 

@@ -69,6 +69,16 @@ describe("hybrid browser recording", () => {
     expect(recordedBrowserActions(result?.evidence || "")).toEqual([{ tool: "open", arguments: { url: "https://example.com" } }]);
   });
 
+  it("redacts sensitive text again before a manual recording is persisted", () => {
+    const result = capturedRunFromManualRecording("manual-secret", { actions: [
+      { tool: "open", arguments: { url: "https://example.com/login" }, at: 1_000 },
+      { tool: "input", arguments: { selector: "input[type=password]", text: "actual-password" }, at: 2_000 },
+      { tool: "click", arguments: { locator: { role: "button", name: "Sign in" } }, at: 3_000 },
+    ] });
+    expect(result?.evidence).not.toContain("actual-password");
+    expect(result?.evidence).toContain("{{redacted}}");
+  });
+
   it("drops the previously open page from a stopped manual capture", () => {
     const result = capturedRunFromManualRecording("manual", { actions: [
       { tool: "open", arguments: { url: "https://arxiv.org/abs/1706.03762" }, at: 1_000 },

@@ -1238,6 +1238,9 @@ async function invokeCommand(command, args = {}, sender) {
     case "artifact_list": {
       return await localAutomationArtifacts().list(String(args.workspaceId || ""));
     }
+    case "artifact_validate": {
+      return await localAutomationArtifacts().validate(String(args.workspaceId || ""), String(args.id || ""));
+    }
     case "artifact_import": {
       const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
       const result = await dialog.showOpenDialog(owner, {

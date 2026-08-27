@@ -28,6 +28,44 @@ describe("automatic automation repair", () => {
     expect(prompt).toContain("Complete the original user goal");
     expect(prompt).toContain(AUTOMATION_REPAIR_MARKER);
     expect(prompt).toContain("complete successful action list");
+    expect(prompt).toContain("self-contained");
+  });
+
+  it("keeps repaired navigation on the workflow domain when the fast path has no open step", () => {
+    const safe = `${AUTOMATION_REPAIR_MARKER} {"version":1,"actions":[{"tool":"open","arguments":{"url":"https://news.ycombinator.com/newest"}},{"tool":"extract","arguments":{"container":"tr.athing","fields":{"title":{"selector":".titleline > a"}}}}]}`;
+    const unsafe = `${AUTOMATION_REPAIR_MARKER} {"version":1,"actions":[{"tool":"open","arguments":{"url":"https://evil.example/collect"}},{"tool":"extract","arguments":{"container":"div","fields":{"title":{"selector":"span"}}}}]}`;
+    expect(parseAutomationRepairRecipe(safe, [{ tool: "extract", arguments: { container: "tr.athing", fields: {} } }], "news.ycombinator.com")).toBeDefined();
+    expect(parseAutomationRepairRecipe(unsafe, [{ tool: "extract", arguments: { container: "tr.athing", fields: {} } }], "news.ycombinator.com")).toBeUndefined();
+    expect(parseAutomationRepairRecipe(`${AUTOMATION_REPAIR_MARKER} {"version":1,"actions":[{"tool":"extract","arguments":{"container":"tr.athing","fields":{"title":{"selector":"a"}}}}]}`, [{ tool: "extract", arguments: { container: "tr.athing", fields: {} } }], "news.ycombinator.com")).toBeUndefined();
+  });
+
+  it("keeps the original starting page when AI only returns repaired data steps", () => {
+    const original = [
+      { tool: "open", arguments: { url: "https://news.ycombinator.com/newest" } },
+      { tool: "extract", arguments: { container: ".old", fields: { title: { selector: "a" } } } },
+    ];
+    const raw = `${AUTOMATION_REPAIR_MARKER} {"version":1,"actions":[{"tool":"extract","arguments":{"container":"tr.athing","fields":{"title":{"selector":".titleline > a"}}}}]}`;
+    expect(parseAutomationRepairRecipe(raw, original)?.actions[0]).toEqual(original[0]);
+  });
+
+  it("normalizes an agent navigate_extract fast path into deterministic blocks", () => {
+    const raw = `${AUTOMATION_REPAIR_MARKER} ${JSON.stringify({ version: 1, actions: [
+      { tool: "navigate_extract", arguments: { profile: "Worker", runtime: "clawbrowser", url: "https://news.ycombinator.com/newest", ready_selector: "tr.athing", container: "tr.athing", fields: { title: { selector: ".titleline > a" } }, limit: 5, timeout: 30 } },
+      { tool: "save_artifact", arguments: { source: "last_result", format: "json", name: "hn.json" } },
+    ] })}`;
+    expect(parseAutomationRepairRecipe(raw, [
+      { tool: "extract", arguments: { container: "tr.athing", fields: {} } },
+      { tool: "save_artifact", arguments: { source: "last_result", format: "json", name: "hn.json" } },
+    ], "news.ycombinator.com")?.actions).toEqual([
+      { tool: "open", arguments: { url: "https://news.ycombinator.com/newest" } },
+      { tool: "wait", arguments: { selector: "tr.athing", timeout: 30 } },
+      { tool: "extract", arguments: { container: "tr.athing", fields: { title: { selector: ".titleline > a" } }, limit: 5 } },
+      { tool: "save_artifact", arguments: { source: "last_result", format: "json", name: "hn.json" } },
+    ]);
+    expect(parseAutomationRepairRecipe(raw, [
+      { tool: "extract", arguments: { container: "tr.athing", fields: {} } },
+      { tool: "save_artifact", arguments: { source: "last_result", format: "json", name: "hn.json" } },
+    ], "agent-hn-top-5.json")).toBeDefined();
   });
 
   it.each([

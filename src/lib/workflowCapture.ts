@@ -4,7 +4,7 @@ const MAX_RECORDED_ACTIONS = 100;
 const REPLAYABLE_TOOLS = new Set([
   "open", "navigate", "click", "input", "press", "select", "scroll", "dismiss", "wait",
   "act", "multi_action", "form_fill", "upload", "extract", "paginate_extract", "tabs_extract", "site_recipe_run",
-  "evaluate", "save_artifact",
+  "navigate_extract", "evaluate", "save_artifact",
 ]);
 
 export interface CapturedCall {
@@ -65,7 +65,7 @@ export type WorkflowCapability = "scrape" | "search" | "posting" | "form" | "nav
 export function workflowCapability(task: string, transcript: string): WorkflowCapability {
   const tools = capturedCalls(transcript).map((call) => call.name);
   if (/\b(post|publish|comment|reply|send)\b|опубли|отправ|коммент/i.test(task)) return "posting";
-  if (tools.some((tool) => ["paginate_extract", "extract", "evaluate"].includes(tool))) return /\b(find|search)\b|найди|поиск/i.test(task) ? "search" : "scrape";
+  if (tools.some((tool) => ["navigate_extract", "paginate_extract", "extract", "evaluate"].includes(tool))) return /\b(find|search)\b|найди|поиск/i.test(task) ? "search" : "scrape";
   if (tools.some((tool) => ["act", "input", "upload"].includes(tool))) return "form";
   if (tools.some((tool) => ["open", "navigate", "click", "press"].includes(tool))) return "navigation";
   return "other";
@@ -92,7 +92,7 @@ function replayableCalls(transcript: string): CapturedCall[] {
   return capturedCalls(transcript).filter((call) => REPLAYABLE_TOOLS.has(call.name) && call.score >= 0);
 }
 
-const DATA_TOOLS = new Set(["evaluate", "extract", "paginate_extract", "tabs_extract"]);
+const DATA_TOOLS = new Set(["navigate_extract", "evaluate", "extract", "paginate_extract", "tabs_extract"]);
 const TARGETED_TOOLS = new Set(["click", "input", "select"]);
 
 function hasStableTarget(args: Record<string, unknown>): boolean {
@@ -176,13 +176,26 @@ function selectorFromDataCall(call: CapturedCall): string | undefined {
 }
 
 function normalizedReplayArguments(call: CapturedCall): Record<string, unknown> {
-  if (!["extract", "paginate_extract", "tabs_extract"].includes(call.name)
+  if (!["navigate_extract", "extract", "paginate_extract", "tabs_extract"].includes(call.name)
     || !call.args.fields || typeof call.args.fields !== "object" || Array.isArray(call.args.fields)) return call.args;
   const fields = Object.fromEntries(Object.entries(call.args.fields as Record<string, unknown>).map(([name, value]) => {
     if (typeof value === "string") return [name, { selector: value }];
     return [name, value];
   }));
   return { ...call.args, fields };
+}
+
+function replayActionsForCall(call: CapturedCall): Array<{ tool: string; arguments: Record<string, unknown> }> {
+  const args = normalizedReplayArguments(call);
+  if (call.name !== "navigate_extract") return [{ tool: call.name, arguments: args }];
+  if (typeof args.url !== "string" || !args.url.trim()) return [];
+  const { url, ready_selector, profile: _profile, runtime: _runtime, cdp: _cdp, remote: _remote, ...extractArguments } = args;
+  const actions: Array<{ tool: string; arguments: Record<string, unknown> }> = [{ tool: "open", arguments: { url } }];
+  if (typeof ready_selector === "string" && ready_selector.trim()) {
+    actions.push({ tool: "wait", arguments: { selector: ready_selector.trim(), timeout: typeof args.timeout === "number" ? args.timeout : 30 } });
+  }
+  delete extractArguments.timeout;
+  return [...actions, { tool: "extract", arguments: extractArguments }];
 }
 
 /** Keep the result of selector discovery, not every exploratory probe the agent made. */
@@ -231,7 +244,7 @@ function optimizedReplayableActions(transcript: string, preserveAllData = false)
     }
     optimized.push(finalDataCall);
   }
-  return optimized.map((call) => ({ tool: call.name, arguments: normalizedReplayArguments(call) }));
+  return optimized.flatMap(replayActionsForCall);
 }
 
 function pick(source: Record<string, unknown>, keys: string[]): Record<string, unknown> {
@@ -334,10 +347,11 @@ export function workflowQuality(task: string, transcript: string, domain = captu
   if (dependsOnUncapturedJsonNavigation(calls)) {
     return { reusable: false, reason: "A data step depended on a JSON page that was not captured. Record the complete navigation before saving this workflow." };
   }
-  const successfulExtraction = calls.some((call) => ["extract", "paginate_extract", "evaluate"].includes(call.name) && call.score > 0);
+  const successfulExtraction = calls.some((call) => ["navigate_extract", "extract", "paginate_extract", "evaluate"].includes(call.name) && call.score > 0);
   const postingConfirmation = /\b(posted|published|submitted|saved draft|commented|sent successfully)\b|опубликован|отправлен|сохран[её]н\s+черновик/i.test(transcript);
   const interaction = calls.some((call) => ["act", "multi_action", "input", "click", "press", "upload"].includes(call.name));
-  const navigation = calls.some((call) => ["start", "prepare", "open", "navigate"].includes(call.name));
+  const navigation = calls.some((call) => ["start", "prepare", "open", "navigate", "navigate_extract"].includes(call.name));
+  if (!navigation) return { reusable: false, reason: "The recording did not capture a starting page. Open the target page while recording so replay can start reliably." };
   if (!successfulExtraction && !postingConfirmation && !(interaction && navigation)) {
     return { reusable: false, reason: "No successful extraction, posting confirmation, or complete browser interaction was captured." };
   }

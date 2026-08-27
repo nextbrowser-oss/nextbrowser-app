@@ -41,7 +41,7 @@ test("page recorder captures manual page interactions without blocking them", ()
   assert.match(source, /push\("select"/);
   assert.match(source, /push\("press"/);
   assert.doesNotMatch(source, /preventDefault/);
-  assert.match(source, /sensitive \? "\{\{secret\}\}"/);
+  assert.match(source, /sensitive \? "\{\{redacted\}\}"/);
   assert.match(source, /sessionStorage\.setItem\(storageKey/);
   assert.match(source, /sessionStorage\.removeItem\(storageKey/);
 });

@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  activeAutomationExecution,
   automationAgentAnswer,
   automationAgentBrowserActionCount,
   automationExecutionView,
@@ -163,5 +164,26 @@ describe("automation execution indicator", () => {
     const other = conversation("done", 4);
     other.workspaceId = "other-workspace";
     expect(automationExecutionView(execution, [other], 150)).toMatchObject({ phase: "running", progress: 15 });
+  });
+
+  it("turns a run left by a closed app session into a clear retryable failure", () => {
+    const local = new Map<string, string>([["automationRecordingPlayback", JSON.stringify({ ...execution, engine: "deterministic" })]]);
+    const session = new Map<string, string>();
+    const storage = (values: Map<string, string>) => ({
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    });
+    vi.stubGlobal("localStorage", storage(local));
+    vi.stubGlobal("sessionStorage", storage(session));
+    try {
+      expect(activeAutomationExecution()).toMatchObject({
+        phase: "failed",
+        progress: 100,
+        detail: expect.stringContaining("interrupted when NextBrowser closed"),
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

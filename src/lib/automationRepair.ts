@@ -1,7 +1,7 @@
 const REPAIRABLE_STEP_TOOLS = new Set([
   "open", "navigate", "click", "input", "press", "select", "wait", "scroll", "dismiss", "upload",
   "extract", "paginate_extract", "tabs_extract", "form_fill", "multi_action",
-  "site_recipe_run", "act", "evaluate", "save_artifact",
+  "site_recipe_run", "act", "navigate_extract", "evaluate", "save_artifact",
 ]);
 
 const INFRASTRUCTURE_FAILURE = /(?:\b401\b|\b403\b|unauthori[sz]ed|forbidden|account token|authentication|reconnect|backend|fetch failed|network|proxy|profile|session|runtime (?:launch|startup|exited|unavailable)|launch failed|cdp|browser exited|cancelled|canceled|stopped by user)/i;
@@ -45,7 +45,24 @@ function actionOrigins(actions: RepairedAutomationRecipe["actions"]): Set<string
   return origins;
 }
 
-export function parseAutomationRepairRecipe(raw: string, originalActions: RepairedAutomationRecipe["actions"] = []): RepairedAutomationRecipe | undefined {
+function normalizedRepairActions(tool: string, arguments_: Record<string, unknown>): RepairedAutomationRecipe["actions"] | undefined {
+  if (tool !== "navigate_extract") return [{ tool, arguments: structuredClone(arguments_) }];
+  const { url, ready_selector, profile: _profile, runtime: _runtime, cdp: _cdp, remote: _remote, ...extractArguments } = arguments_;
+  if (typeof url !== "string" || !url.trim() || !extractArguments.container || !extractArguments.fields) return undefined;
+  const actions: RepairedAutomationRecipe["actions"] = [{ tool: "open", arguments: { url } }];
+  if (typeof ready_selector === "string" && ready_selector.trim()) {
+    actions.push({ tool: "wait", arguments: { selector: ready_selector.trim(), timeout: typeof arguments_.timeout === "number" ? arguments_.timeout : 30 } });
+  }
+  delete extractArguments.timeout;
+  actions.push({ tool: "extract", arguments: extractArguments });
+  return actions;
+}
+
+export function parseAutomationRepairRecipe(raw: string, originalActions: RepairedAutomationRecipe["actions"] = [], allowedDomain = ""): RepairedAutomationRecipe | undefined {
+  // Older recordings could mistake an Artifact Center filename for a domain.
+  // Such a value is not a security boundary; the repaired explicit open step
+  // becomes the canonical domain once the verified recipe is persisted.
+  if (/\.(?:json|csv|txt|xml|pdf|xlsx?|zip)$/i.test(allowedDomain.trim())) allowedDomain = "";
   const value = firstJsonObject(raw);
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
@@ -56,12 +73,32 @@ export function parseAutomationRepairRecipe(raw: string, originalActions: Repair
     const action = item as Record<string, unknown>;
     const tool = typeof action.tool === "string" ? action.tool.replace(/^(?:clawbrowser|nextbrowser)\./, "") : "";
     if (!REPAIRABLE_TOOLS.has(tool) || !action.arguments || typeof action.arguments !== "object" || Array.isArray(action.arguments)) return undefined;
-    actions.push({ tool, arguments: structuredClone(action.arguments as Record<string, unknown>) });
+    const normalized = normalizedRepairActions(tool, action.arguments as Record<string, unknown>);
+    if (!normalized) return undefined;
+    actions.push(...normalized);
+  }
+  if (actions.length > 100) return undefined;
+  const originalNavigation = originalActions.find((action) => ["open", "navigate"].includes(action.tool) && typeof action.arguments.url === "string");
+  if (!actions.some((action) => ["open", "navigate"].includes(action.tool))) {
+    if (originalNavigation) actions.unshift(structuredClone(originalNavigation));
+    else if (allowedDomain.trim()) return undefined;
   }
   const originalOrigins = actionOrigins(originalActions);
   if (originalOrigins.size) {
     const repairedOrigins = actionOrigins(actions);
     if ([...repairedOrigins].some((origin) => !originalOrigins.has(origin))) return undefined;
+  } else if (allowedDomain.trim()) {
+    const domain = allowedDomain.trim().toLowerCase().replace(/^\.+|\.+$/g, "");
+    for (const origin of actionOrigins(actions)) {
+      try {
+        const hostname = new URL(origin).hostname.toLowerCase();
+        if (hostname !== domain && !hostname.endsWith(`.${domain}`)) return undefined;
+      } catch { return undefined; }
+    }
+  } else if (actionOrigins(actions).size !== 1) {
+    // A legacy recording with no trustworthy domain may be recovered onto one
+    // explicit site, but it must not silently become a cross-origin workflow.
+    return undefined;
   }
   const expectedArtifact = [...originalActions].reverse().find((action) => action.tool === "save_artifact")?.arguments.name;
   if (typeof expectedArtifact === "string" && !actions.some((action) => action.tool === "save_artifact" && action.arguments.name === expectedArtifact)) return undefined;
@@ -81,6 +118,7 @@ The repaired path must stay on the same website origins already present in the w
 After the task succeeds, include one final machine-readable line containing only this marker followed by the exact successful deterministic recipe:
 ${AUTOMATION_REPAIR_MARKER} {"version":1,"actions":[{"tool":"wait","arguments":{"selector":"body"}}]}
 Include the complete successful action list, not only the changed step. Use only browser actions and save_artifact; omit profile/session lifecycle, state inspection, shell, curl, credentials, result values, and failed attempts.
+The returned recipe must be self-contained and include an open or navigate action for the exact starting page, even when that page is already open during repair.
 Evaluate steps must remain read-only. For a JSON API already open in the browser, a GET of exactly fetch(location.href) is allowed; never fetch another URL or specify a method, body, headers, or credentials.
 
 Original recipe:

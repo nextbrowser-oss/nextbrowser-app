@@ -4990,6 +4990,9 @@ export const useStore = create<State>((set, get) => {
     // the selected profile without navigating; the saved recipe remains the
     // sole owner of page navigation.
     const activeWorkspace = get().workspaces.find((workspace) => workspace.id === get().activeWorkspaceId);
+    if (!get().selectedProfile && (activeWorkspace?.profileNames.length || 0) > 1) {
+      throw new Error("Choose the browser profile that should run this automation.");
+    }
     const soleWorkspaceProfile = activeWorkspace?.profileNames.length === 1 ? activeWorkspace.profileNames[0] : undefined;
     const profile = get().selectedProfile || soleWorkspaceProfile;
     const runtime = profile ? runtimeForProfile(get().workspaces, profile) : "clawbrowser";

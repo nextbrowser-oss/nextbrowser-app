@@ -28,7 +28,11 @@ export interface ManualBrowserRecording {
 
 export function capturedRunFromManualRecording(id: string, recording: ManualBrowserRecording): CapturedRun | undefined {
   if (!recording.actions.length) return undefined;
-  const actions = recording.actions.reduce<ManualBrowserRecording["actions"]>((kept, action) => {
+  const sanitizedActions = recording.actions.map((action) => ({
+    ...action,
+    arguments: redactValue(action.arguments) as Record<string, unknown>,
+  }));
+  const actions = sanitizedActions.reduce<ManualBrowserRecording["actions"]>((kept, action) => {
     const previous = kept.at(-1);
     // The page observer emits the tab that was already open when recording
     // starts. If the first real task action immediately navigates elsewhere,
