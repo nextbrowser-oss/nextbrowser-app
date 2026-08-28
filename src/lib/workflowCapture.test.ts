@@ -132,6 +132,24 @@ Called clawbrowser.extract({"container":"article.product","fields":["title","pri
     ]);
   });
 
+  it("compiles an exploratory dynamic-page run down to the final validated dataset", () => {
+    const finalExpression = `(() => { const table=[...document.querySelectorAll("table")].find(t=>t.querySelectorAll("tbody tr").length>=5); const coins=[...table.querySelectorAll("tbody tr")].slice(0,5).map(row=>({name:row.querySelector("a[href*='/currencies/']")?.textContent?.trim(),price:row.querySelector("td:nth-child(4)")?.textContent?.trim()})); if(coins.some(coin=>!coin.name||!coin.price)) throw new Error("Expected 5 populated rows"); return {coins}; })()`;
+    const transcript = [
+      'Called nextbrowser.open({"url":"https://coinmarketcap.com/trending-cryptocurrencies/"})\n{"ok":true}',
+      'Called nextbrowser.evaluate({"expression":"document.querySelector(\\"table\\")?.outerHTML"})\n{"ok":true,"result":"<table>...</table>"}',
+      'Called nextbrowser.evaluate({"expression":"(() => { throw new Error(\\"Expected 5 populated rows\\") })()"})\nError: Expected 5 populated rows',
+      `Called nextbrowser.evaluate(${JSON.stringify({ expression: finalExpression })})\n{"ok":true,"result":{"coins":[{"name":"Bitcoin","price":"$79,000"}]}}`,
+      'Called nextbrowser.save_artifact({"source":"last_result","format":"json","name":"cmc-top-5.json"})\n{"ok":true}',
+    ].join("\n");
+
+    expect(workflowRecipe("Collect CMC trending coins", transcript).actions).toEqual([
+      { tool: "open", arguments: { url: "https://coinmarketcap.com/trending-cryptocurrencies/" } },
+      { tool: "wait", arguments: { selector: "table tbody tr", timeout: 30 } },
+      { tool: "evaluate", arguments: { expression: finalExpression } },
+      { tool: "save_artifact", arguments: { source: "last_result", format: "json", name: "cmc-top-5.json" } },
+    ]);
+  });
+
   it("drops stale adjacent navigation and an ambiguous bare-tag click", () => {
     const noisy = [
       'Called clawbrowser.open({"url":"https://old.reddit.com/login"})\n{"ok":true}',
