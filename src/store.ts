@@ -223,6 +223,7 @@ function initRuntimes(): Record<string, AgentRuntime> {
 const STALL_MS = 120_000;
 const WATCHDOG_MS = 5_000;
 const PROXY_REFRESH_MS = 120_000;
+const PROFILE_STATUS_REFRESH_MS = 15_000;
 const SCHEDULE_TICK_MS = 30_000;
 const NEXTCTL_DAILY_UPDATE_MS = 20 * 60 * 1000;
 const NEXTCTL_DAILY_UPDATE_POLL_MS = 60 * 1000;
@@ -592,6 +593,7 @@ interface State {
   // Internal queue/runtime helpers
   reconcileQueues: () => void;
   startTimers: () => void;
+  refreshProfileStatuses: () => Promise<void>;
   tickScheduledRuns: () => Promise<void>;
   startConsumer: (agentId: string) => void;
   dequeue: (agentId: string) => QueuedItem | null;
@@ -608,6 +610,8 @@ interface State {
 }
 
 let proxyTimer: ReturnType<typeof setInterval> | null = null;
+let profileStatusTimer: ReturnType<typeof setInterval> | null = null;
+let profileStatusRefreshInFlight = false;
 let scheduleTimer: ReturnType<typeof setInterval> | null = null;
 let sessionPollTimer: ReturnType<typeof setInterval> | null = null;
 let sessionPollInFlight = false;
@@ -1558,6 +1562,10 @@ export const useStore = create<State>((set, get) => {
       get().loadProxy().catch(() => {});
       get().loadDefaultSession().catch(() => {});
     }, PROXY_REFRESH_MS);
+    if (profileStatusTimer) clearInterval(profileStatusTimer);
+    profileStatusTimer = setInterval(() => {
+      void get().refreshProfileStatuses();
+    }, PROFILE_STATUS_REFRESH_MS);
     if (scheduleTimer) clearInterval(scheduleTimer);
     scheduleTimer = setInterval(() => {
       void get().tickScheduledRuns();
@@ -1568,6 +1576,21 @@ export const useStore = create<State>((set, get) => {
       () => void get().tickNextctlDailyUpdate(),
       NEXTCTL_DAILY_UPDATE_POLL_MS,
     );
+  },
+
+  refreshProfileStatuses: async () => {
+    if (!get().appActive || !get().authed || !get().nextctlAvailable || pendingTarget(get(), "vps")) return;
+    if (profileStatusRefreshInFlight) return;
+    if (Object.values(get().statuses).some((status) => ["starting", "stopping", "rotating"].includes(status))) return;
+    profileStatusRefreshInFlight = true;
+    try {
+      await Promise.all([
+        get().loadProfiles(),
+        get().loadDefaultSession(),
+      ]);
+    } finally {
+      profileStatusRefreshInFlight = false;
+    }
   },
 
   tickNextctlDailyUpdate: async () => {
@@ -3230,7 +3253,11 @@ export const useStore = create<State>((set, get) => {
     trackScreenView(t, { source: "tab_opened", previous_tab: previousTab });
     set({ tab: t });
   },
-  setAppActive: (v) => set({ appActive: v }),
+  setAppActive: (v) => {
+    const wasActive = get().appActive;
+    set({ appActive: v });
+    if (v && !wasActive) void get().refreshProfileStatuses();
+  },
   setProfileSearch: (q) => set({ profileSearch: q }),
   setSidebarWidth: (w) => {
     localStorage.setItem("sidebarWidth", String(w));

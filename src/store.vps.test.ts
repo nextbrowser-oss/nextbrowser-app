@@ -134,6 +134,58 @@ beforeEach(() => {
   }, true);
 });
 
+describe("profile status synchronization", () => {
+  it("polls every 15 seconds, pauses while hidden, and refreshes immediately on return", async () => {
+    vi.useFakeTimers();
+    const loadProfiles = vi.fn().mockResolvedValue(undefined);
+    const loadDefaultSession = vi.fn().mockResolvedValue(undefined);
+    try {
+      useStore.setState({
+        authed: true,
+        nextctlAvailable: true,
+        appActive: true,
+        statuses: { Worker: "stopped" },
+        loadProfiles,
+        loadDefaultSession,
+      });
+      useStore.getState().startTimers();
+
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(loadProfiles).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(loadProfiles).toHaveBeenCalledTimes(1);
+      expect(loadDefaultSession).toHaveBeenCalledTimes(1);
+
+      useStore.getState().setAppActive(false);
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(loadProfiles).toHaveBeenCalledTimes(1);
+
+      useStore.getState().setAppActive(true);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(loadProfiles).toHaveBeenCalledTimes(2);
+      expect(loadDefaultSession).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not overwrite a profile while a lifecycle action is in progress", async () => {
+    const loadProfiles = vi.fn().mockResolvedValue(undefined);
+    useStore.setState({
+      authed: true,
+      nextctlAvailable: true,
+      appActive: true,
+      statuses: { Worker: "starting" },
+      loadProfiles,
+    });
+
+    await useStore.getState().refreshProfileStatuses();
+
+    expect(loadProfiles).not.toHaveBeenCalled();
+  });
+});
+
 describe("deterministic automation replay", () => {
   it("runs without an authenticated agent or conversational preflight and preserves profile runtime selection", async () => {
     const startProfile = vi.fn().mockImplementation(async () => {
