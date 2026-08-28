@@ -576,7 +576,11 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     };
     const openActions = () => {
       focusProfiles();
-      const profile = s.selectedProfile ?? s.profiles[0]?.name ?? (showDefaultProfile ? "__default" : null);
+      const profile = guideProfileTarget(
+        s.selectedProfile,
+        activeWorkspace?.profileNames ?? [],
+        !activeWorkspace && showDefaultProfile,
+      );
       if (profile) setMenuProfile(profile);
     };
     const startSelectedProfile = () => {
@@ -584,8 +588,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       s.setProfileSearch("");
       const profile = guideProfileTarget(
         s.selectedProfile,
-        s.profiles.map((item) => item.name),
-        showDefaultProfile,
+        activeWorkspace?.profileNames ?? [],
+        !activeWorkspace && showDefaultProfile,
       );
       if (!profile) return;
       if (profile === "__default") {
@@ -613,6 +617,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       window.removeEventListener("nextbrowser:start-selected-profile", startSelectedProfile);
     };
   }, [
+    activeWorkspace,
     defaultBusy,
     defaultRunning,
     s.authed,
