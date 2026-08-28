@@ -1280,7 +1280,7 @@ async function invokeCommand(command, args = {}, sender) {
     case "automation_recording_delete": return await deleteAutomationRecording(String(args.id || ""), { env: childEnv() });
     case "automation_shares_list": return await listAutomationShares(String(args.box || "inbox"), { env: childEnv() });
     case "automation_share_create": return await createAutomationShare(args.share || {}, { env: childEnv() });
-    case "automation_share_accept": return await acceptAutomationShare(String(args.id || ""), String(args.workspaceId || ""), { env: childEnv() });
+    case "automation_share_accept": return await acceptAutomationShare(String(args.id || ""), String(args.workspaceId || ""), args.workspace || {}, { env: childEnv() });
     case "automation_share_decline": return await declineAutomationShare(String(args.id || ""), { env: childEnv() });
     case "automation_share_revoke": return await revokeAutomationShare(String(args.id || ""), { env: childEnv() });
     case "automation_runs_list": return await listAutomationRuns(String(args.workspaceId || ""), { env: childEnv() });

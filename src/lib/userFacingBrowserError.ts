@@ -13,6 +13,10 @@ export function userFacingBrowserError(error: unknown): string {
   const raw = rawErrorMessage(error);
   if (!raw) return "The browser could not be prepared. Try again.";
 
+  if (/AUTOMATION_SHARE_WORKSPACE_UNAVAILABLE|workspace not found|workspace revision conflict/i.test(raw)) {
+    return "This workspace is not available for the signed-in account. Select or create a workspace for this account, then add the shared copy again.";
+  }
+
   if (REMOTE_BACKEND_CODE.test(raw) || REMOTE_CONTROL_FAILURE.test(raw)) {
     if (/\b404\b|not found/i.test(raw)) {
       return "Remote Control is not available on the connected NextBrowser service. Update NextBrowser and try again. If it continues, contact support.";
@@ -35,8 +39,8 @@ export function userFacingBrowserError(error: unknown): string {
 
   // Never expose private filesystem locations from host-process diagnostics.
   return raw
+    .replace(/^Error invoking remote method ['"][^'"]+['"]:\s*(?:Error:\s*)?/i, "")
     .replace(/;?\s*see log\s+[^\r\n]+/gi, "")
     .replace(/(?:\/Users|\/home)\/[^\s;]+/g, "the local diagnostic log")
     .trim();
 }
-

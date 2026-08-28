@@ -59,7 +59,7 @@ test("shares, accepts, declines, and revokes immutable automation copies by emai
   assert.match(f.calls[0].url, /\/v1\/automation\/shares\?box=inbox$/);
   await createAutomationShare({ source_kind: "workflow", source_id: "flow-id", recipient_email: "friend@example.com" }, f.deps);
   assert.deepEqual(JSON.parse(f.calls[1].options.body), { source_kind: "workflow", source_id: "flow-id", recipient_email: "friend@example.com" });
-  assert.equal((await acceptAutomationShare("share/id", "recipient-space", f.deps)).id, "copy-id");
+  assert.equal((await acceptAutomationShare("share/id", "recipient-space", {}, f.deps)).id, "copy-id");
   assert.match(f.calls[2].url, /\/shares\/share%2Fid\/accept$/);
   assert.deepEqual(JSON.parse(f.calls[2].options.body), { workspace_id: "recipient-space" });
   await declineAutomationShare("share/id", f.deps);
@@ -67,6 +67,48 @@ test("shares, accepts, declines, and revokes immutable automation copies by emai
   assert.equal(f.calls[3].options.method, "POST");
   await revokeAutomationShare("share/id", f.deps);
   assert.equal(f.calls[4].options.method, "DELETE");
+});
+
+test("creates a missing share destination workspace and retries acceptance once", async (t) => {
+  let attempts = 0;
+  const f = await fixture(t, (url, options) => {
+    if (url.includes("/accept")) {
+      attempts += 1;
+      return attempts === 1
+        ? jsonResponse({ error: "workspace not found" }, 404)
+        : jsonResponse({ id: "copy-id", source_kind: "workflow", workspace_id: "recipient-space" }, 201);
+    }
+    if (url.includes("/v1/workspaces/recipient-space")) return jsonResponse({ id: "recipient-space", revision: 1 });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  const result = await acceptAutomationShare("share-id", "recipient-space", {
+    name: "Recipient workspace",
+    document: { profileNames: ["Worker"], profileToolsets: { Worker: "clawbrowser" } },
+  }, f.deps);
+
+  assert.equal(result.id, "copy-id");
+  assert.equal(attempts, 2);
+  assert.match(f.calls[1].url, /\/v1\/workspaces\/recipient-space$/);
+  assert.deepEqual(JSON.parse(f.calls[1].options.body), {
+    name: "Recipient workspace",
+    document: { profileNames: ["Worker"], profileToolsets: { Worker: "clawbrowser" } },
+    base_revision: 0,
+  });
+});
+
+test("explains when a shared copy targets a workspace owned by another account", async (t) => {
+  const f = await fixture(t, (url) => {
+    if (url.includes("/accept")) return jsonResponse({ error: "workspace not found" }, 404);
+    if (url.includes("/v1/workspaces/recipient-space")) return jsonResponse({ error: "workspace revision conflict" }, 409);
+    if (url.endsWith("/v1/workspaces")) return jsonResponse({ workspaces: [] });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  await assert.rejects(
+    acceptAutomationShare("share-id", "recipient-space", { name: "Old account workspace", document: {} }, f.deps),
+    /not available for the signed-in account/i,
+  );
 });
 
 test("seeds exactly two successful backend examples for recordings and workflows", async (t) => {

@@ -49,7 +49,46 @@ async function listAutomationShares(box, deps) {
   return body?.shares || [];
 }
 const createAutomationShare = (share, deps) => projectRequest("/v1/automation/shares", { method: "POST", body: JSON.stringify(share) }, deps);
-const acceptAutomationShare = (id, workspaceId, deps) => projectRequest(`/v1/automation/shares/${encodeURIComponent(id)}/accept`, { method: "POST", body: JSON.stringify({ workspace_id: workspaceId }) }, deps);
+async function acceptAutomationShare(id, workspaceId, workspace, deps) {
+  const accept = () => projectRequest(`/v1/automation/shares/${encodeURIComponent(id)}/accept`, {
+    method: "POST", body: JSON.stringify({ workspace_id: workspaceId }),
+  }, deps);
+  try {
+    return await accept();
+  } catch (error) {
+    // A newly created/local workspace can be visible in the renderer before the
+    // best-effort project sync has created it for this account. Repair that race
+    // here so accepting an inbox item remains a single user action.
+    if (error?.status !== 404 || !/workspace not found/i.test(String(error?.message || ""))) throw error;
+  }
+  if (!workspaceId || !String(workspace?.name || "").trim()) {
+    const error = new Error("Select or create a workspace for this account, then add the shared copy again.");
+    error.code = "AUTOMATION_SHARE_WORKSPACE_UNAVAILABLE";
+    throw error;
+  }
+  try {
+    await projectRequest(`/v1/workspaces/${encodeURIComponent(workspaceId)}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        name: String(workspace.name).trim(),
+        document: workspace.document && typeof workspace.document === "object" ? workspace.document : {},
+        base_revision: 0,
+      }),
+    }, deps);
+  } catch (syncError) {
+    // A concurrent sync may have won after the first accept request. Only hide
+    // that conflict when the destination now belongs to this account.
+    if (syncError?.status === 409) {
+      const listed = await projectRequest("/v1/workspaces", {}, deps);
+      if ((listed?.workspaces || []).some((item) => String(item?.id || "") === workspaceId)) return await accept();
+    }
+    const error = new Error("This workspace is not available for the signed-in account. Select or create a workspace for this account, then add the shared copy again.");
+    error.code = "AUTOMATION_SHARE_WORKSPACE_UNAVAILABLE";
+    error.cause = syncError;
+    throw error;
+  }
+  return await accept();
+}
 const declineAutomationShare = (id, deps) => projectRequest(`/v1/automation/shares/${encodeURIComponent(id)}/decline`, { method: "POST" }, deps);
 const revokeAutomationShare = (id, deps) => projectRequest(`/v1/automation/shares/${encodeURIComponent(id)}`, { method: "DELETE" }, deps);
 

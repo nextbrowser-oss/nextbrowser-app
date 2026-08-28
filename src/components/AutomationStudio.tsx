@@ -337,10 +337,21 @@ export function AutomationStudio() {
   };
 
   const acceptShare = async (share: AutomationShare) => {
-    if (!workspaceId) return;
+    if (!workspaceId || !activeWorkspace) return setStudioError("Select or create a workspace before adding this copy.");
     setShareBusy(true);
     try {
-      await invoke("automation_share_accept", { id: share.id, workspaceId });
+      await invoke("automation_share_accept", {
+        id: share.id,
+        workspaceId,
+        workspace: {
+          name: activeWorkspace.name,
+          document: {
+            profileNames: activeWorkspace.profileNames,
+            profileToolsets: activeWorkspace.profileToolsets,
+            profileProxyIds: activeWorkspace.profileProxyIds ?? {},
+          },
+        },
+      });
       await Promise.all([loadIncomingShares(), loadRecordings(), loadWorkflows()]);
       setSection(share.source_kind === "workflow" ? "workflows" : "recorder");
       setNotice(`${share.source_kind === "workflow" ? "Workflow" : "Recording"} added to this workspace as your own editable copy.`);
