@@ -7697,7 +7697,7 @@ pre,
 .automation-mode-note strong { color: var(--text); font-size: 11px; }
 .recording-dot { width: 9px; height: 9px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 0 4px color-mix(in srgb, #ef4444 15%, transparent); }
 .capture-list { display: grid; gap: 0; }
-.capture-card { display: grid; grid-template-columns: 120px minmax(0,1fr) auto; align-items: center; gap: 18px; padding: 15px 20px; border-bottom: 1px solid var(--line); }
+.capture-card { display: grid; grid-template-columns: 120px minmax(0,1fr) minmax(190px, 220px); align-items: center; gap: 18px; padding: 15px 20px; border-bottom: 1px solid var(--line); }
 .capture-card:last-child { border-bottom: 0; }
 .capture-card.is-new { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .capture-card-copy { display: grid; gap: 4px; min-width: 0; flex: 1; }
@@ -7714,7 +7714,8 @@ pre,
 .capture-kind .ready { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
 .capture-kind small { color: var(--muted); font-size: 10px; text-transform: capitalize; }
 .capture-created-at { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.capture-card-actions { display: flex; gap: 7px; }
+.capture-card-actions { display: grid; grid-template-columns: 1fr; align-self: stretch; align-content: center; gap: 7px; }
+.capture-card-actions > button, .capture-card-actions > .capture-running { width: 100%; min-height: 36px; justify-content: center; }
 .recording-review-overlay { z-index: 1200; }
 .recording-review-dialog { width: min(480px, calc(100vw - 32px)); display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px 14px; padding: 20px; }
 .recording-review-dialog h2 { margin: 0 0 7px; font-size: 17px; }
@@ -7946,4 +7947,4 @@ pre,
 .run-status.failed, .run-status.cancelled { color: var(--red); }
 .run-status.running, .run-status.queued { color: var(--accent); }
 @media (max-width: 1100px) { .workflow-pipeline-layout { grid-template-columns: 1fr; } .workflow-step-inspector { position: static; } }
-@media (max-width: 900px) { .automation-studio { padding-inline: 16px; } .workflow-builder, .workflow-builder.workflow-list-collapsed { grid-template-columns: 1fr; } .workflow-builder-start { align-items: flex-start; flex-direction: column; } .workflow-first-run-actions { grid-template-columns: 1fr; } .workflow-list { border-right: 0; border-bottom: 1px solid var(--line); } .workflow-list-collapsed .workflow-list { border-bottom-color: transparent; } .automation-summary { display: none; } .automation-how-it-works i { display: none; } .automation-how-it-works { align-items: flex-start; flex-direction: column; } .capture-card { grid-template-columns: 1fr; } .capture-card-actions { justify-content: flex-start; } }
+@media (max-width: 900px) { .automation-studio { padding-inline: 16px; } .workflow-builder, .workflow-builder.workflow-list-collapsed { grid-template-columns: 1fr; } .workflow-builder-start { align-items: flex-start; flex-direction: column; } .workflow-first-run-actions { grid-template-columns: 1fr; } .workflow-list { border-right: 0; border-bottom: 1px solid var(--line); } .workflow-list-collapsed .workflow-list { border-bottom-color: transparent; } .automation-summary { display: none; } .automation-how-it-works i { display: none; } .automation-how-it-works { align-items: flex-start; flex-direction: column; } .capture-card { grid-template-columns: 1fr; } .capture-card-actions { width: min(100%, 260px); justify-self: start; } }
