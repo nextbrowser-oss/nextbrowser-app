@@ -74,16 +74,25 @@ async function topUpProxyTraffic(options = {}) {
   try {
     response = await fetchImpl(`${baseURL}${PROXY_TRAFFIC_TOP_UP_PATH}`, {
       method: "POST",
-      headers: { accept: "application/json", authorization: `Bearer ${apiKey}` },
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${apiKey}`,
+      },
       signal: AbortSignal.timeout(PROXY_TRAFFIC_REQUEST_TIMEOUT_MS),
     });
   } catch {
     throw new Error("NextBrowser proxy traffic service is unavailable.");
   }
-  if (!response.ok) throw new Error(`NextBrowser proxy traffic request failed (${response.status}).`);
+  if (!response.ok) {
+    throw new Error(`NextBrowser proxy traffic request failed (${response.status}).`);
+  }
+
   let payload;
-  try { payload = await response.json(); }
-  catch { throw new Error("NextBrowser proxy traffic response is invalid."); }
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error("NextBrowser proxy traffic response is invalid.");
+  }
   if (!payload || typeof payload !== "object" || typeof payload.used_bytes !== "number" || typeof payload.state !== "string") {
     throw new Error("NextBrowser proxy traffic response is incomplete.");
   }

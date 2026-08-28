@@ -196,7 +196,10 @@ export function UsageView() {
       try {
         await s.loadProxy();
       } catch {
-        useStore.setState({ proxy: proxyTraffic, proxyWarning: proxyTrafficWarning(proxyTraffic) });
+        useStore.setState({
+          proxy: proxyTraffic,
+          proxyWarning: proxyTrafficWarning(proxyTraffic),
+        });
       }
       setTopUpNotice({
         tone: "success",

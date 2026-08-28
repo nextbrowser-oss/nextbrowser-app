@@ -73,11 +73,21 @@ test("tops up proxy traffic through the authenticated backend endpoint", async (
     authorization = request.headers.authorization || "";
     requestPath = request.url || "";
     response.setHeader("content-type", "application/json");
-    response.end(JSON.stringify({ limited: true, used_bytes: 1_073_741_824, limit_bytes: 2_147_483_648, remaining_bytes: 1_073_741_824, percent_used: 50, state: "ok", top_up_bytes: 1_073_741_824 }));
+    response.end(JSON.stringify({
+      limited: true,
+      used_bytes: 1_073_741_824,
+      limit_bytes: 2_147_483_648,
+      remaining_bytes: 1_073_741_824,
+      percent_used: 50,
+      state: "ok",
+      top_up_bytes: 1_073_741_824,
+    }));
   });
   const homeDir = await tempHome(t);
   await writeConfig(homeDir, { api_key: "traffic-key", api_base_url: baseURL });
+
   const traffic = await topUpProxyTraffic({ homeDir, platform: "darwin", env: {} });
+
   assert.equal(requestPath, "/v1/proxy/traffic/top-up");
   assert.equal(authorization, "Bearer traffic-key");
   assert.equal(traffic.limit_bytes, 2_147_483_648);
@@ -90,5 +100,9 @@ test("does not expose backend error bodies", async (t) => {
   });
   const homeDir = await tempHome(t);
   await writeConfig(homeDir, { api_key: "traffic-key", api_base_url: baseURL });
-  await assert.rejects(topUpProxyTraffic({ homeDir, platform: "darwin", env: {} }), (error) => error.message === "NextBrowser proxy traffic request failed (503).");
+
+  await assert.rejects(
+    topUpProxyTraffic({ homeDir, platform: "darwin", env: {} }),
+    (error) => error.message === "NextBrowser proxy traffic request failed (503).",
+  );
 });
