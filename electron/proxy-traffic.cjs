@@ -83,6 +83,7 @@ async function topUpProxyTraffic(options = {}) {
   } catch {
     throw new Error("NextBrowser proxy traffic service is unavailable.");
   }
+
   if (!response.ok) {
     throw new Error(`NextBrowser proxy traffic request failed (${response.status}).`);
   }
