@@ -26,6 +26,7 @@ const {
   cancelCommand,
   runCommand,
 } = require("./command-runner.cjs");
+const { topUpProxyTraffic } = require("./proxy-traffic.cjs");
 const { terminateProcessTree } = require("./process-tree.cjs");
 const {
   createPersonalProxy,
@@ -1084,6 +1085,7 @@ async function invokeCommand(command, args = {}, sender) {
       const r = await run(bin, ["version"]); return r.stdout.trim();
     }
     case "nextctl_supports_skill": { const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found"); return nextctlHasSkill(bin); }
+    case "proxy_traffic_top_up": return await topUpProxyTraffic({ env: childEnv() });
     case "projects_list": return await listProjects({ env: childEnv() });
     case "project_put": return await putProject(String(args.id || ""), args.project, { env: childEnv() });
     case "project_delete": return await deleteProject(String(args.id || ""), { env: childEnv() });
