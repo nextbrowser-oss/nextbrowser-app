@@ -1,4 +1,5 @@
 const { spawn } = require("node:child_process");
+const { assertArtifactDataContract } = require("./automation-artifact.cjs");
 
 const MAX_ACTIONS = 100;
 const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
@@ -10,15 +11,25 @@ const DIRECT_TOOLS = new Set([
 ]);
 const LOCAL_TOOLS = new Set(["save_artifact"]);
 const activeExecutions = new Map();
+const cancelledBeforeStart = new Set();
 const RETRYABLE_NAVIGATION_ERRORS = [
   "ERR_SSL_PROTOCOL_ERROR",
   "ERR_NETWORK_CHANGED",
   "ERR_CONNECTION_RESET",
   "ERR_CONNECTION_CLOSED",
+  "ERR_TUNNEL_CONNECTION_FAILED",
   "ERR_TIMED_OUT",
+  "ERR_ABORTED",
+  "context deadline exceeded",
+  "Inspected target navigated or closed",
 ];
-const RETRYABLE_DATA_ERROR = /(?:did not return exactly|returned only empty|data (?:is )?not (?:ready|loaded)|incomplete (?:rows|data)|no (?:rows|data) (?:yet|available))/i;
+const RETRYABLE_DATA_ERROR = /(?:did not return exactly|expected\s+(?:at\s+least\s+)?\d+\s+(?:fully\s+)?populated|expected\s+(?:\w+\s+){0,4}complete(?:ly)?\s+(?:\w+\s+){0,3}rows|returned only empty|data (?:is )?not (?:ready|loaded)|incomplete (?:rows|data)|(?:table|list|results?|rows?) (?:was |were )?not found|no (?:rows|data) (?:yet|available))/i;
 const UNSAFE_EVALUATION = /(document\s*\.\s*cookie|localStorage|sessionStorage|indexedDB|caches\s*\.|navigator\s*\.\s*(clipboard|sendBeacon)|fetch\s*\(|XMLHttpRequest|WebSocket|EventSource|\.\s*(click|submit|remove)\s*\(|\.\s*(innerHTML|outerHTML|textContent|innerText|value)\s*=|eval\s*\(|new\s+Function|location\s*=|window\s*\.\s*open)/i;
+const SAME_PAGE_READONLY_FETCH = /fetch\s*\(\s*location\.href\s*(?:,\s*\{\s*cache\s*:\s*['"]no-store['"]\s*\})?\s*\)/gi;
+
+function unsafeEvaluation(expression) {
+  return UNSAFE_EVALUATION.test(String(expression).replace(SAME_PAGE_READONLY_FETCH, "samePageReadOnlyRequest()"));
+}
 
 function cleanExecutionId(value) {
   const id = String(value || "").trim();
@@ -51,9 +62,16 @@ function expandTemplates(value, parameters) {
   return value.replace(/\{\{([A-Za-z0-9_.-]+)\}\}/g, (match, key) => parameters[key] == null ? match : String(parameters[key]));
 }
 
+function unresolvedTemplate(value) {
+  if (Array.isArray(value)) return value.map(unresolvedTemplate).find(Boolean);
+  if (plainObject(value)) return Object.values(value).map(unresolvedTemplate).find(Boolean);
+  if (typeof value !== "string") return undefined;
+  return value.match(/\{\{([A-Za-z0-9_.-]+)\}\}/)?.[1];
+}
+
 function scrubSessionArguments(args) {
   const clean = { ...args };
-  for (const key of ["profile", "cdp", "runtime", "remote"]) delete clean[key];
+  for (const key of ["profile", "cdp", "runtime", "remote", "required_rows"]) delete clean[key];
   return clean;
 }
 
@@ -127,6 +145,27 @@ function postActionWait(args) {
   return undefined;
 }
 
+function normalizedExtractionArguments(tool, args) {
+  if (!["extract", "paginate_extract", "tabs_extract"].includes(tool) || !plainObject(args.fields)) return args;
+  const transforms = plainObject(args.transform) ? args.transform : {};
+  const containerIsLink = /(?:^|[\s>+~])a(?:$|[.#:]|\[)/i.test(String(args.container || ""));
+  let changed = false;
+  const fields = Object.fromEntries(Object.entries(args.fields).map(([name, value]) => {
+    if (!plainObject(value) || (transforms[name] !== "url" && !/(?:^|_)(?:url|href|link)(?:$|_)/i.test(name))) return [name, value];
+    const field = { ...value };
+    if (!String(field.selector || "").trim() && !containerIsLink) {
+      field.selector = "a[href]";
+      changed = true;
+    }
+    if (!String(field.attribute || "").trim()) {
+      field.attribute = "href";
+      changed = true;
+    }
+    return [name, field];
+  }));
+  return changed ? { ...args, fields } : args;
+}
+
 function toolCalls(action) {
   let tool = TOOL_ALIASES.get(action.tool) || action.tool;
   let args = scrubSessionArguments(action.arguments);
@@ -144,10 +183,11 @@ function toolCalls(action) {
     args = { ...args };
     delete args.wait_for;
   }
+  args = normalizedExtractionArguments(tool, args);
   if (!DIRECT_TOOLS.has(tool)) throw new Error(`The browser action “${tool}” is not supported by deterministic replay.`);
   if (tool === "evaluate") {
     const expression = String(args.expression || "").trim();
-    if (!expression || expression.length > 32 * 1024 || UNSAFE_EVALUATION.test(expression)) {
+    if (!expression || expression.length > 32 * 1024 || unsafeEvaluation(expression)) {
       throw new Error("The saved page data script is missing or uses browser data/actions that cannot be replayed safely.");
     }
   }
@@ -205,9 +245,26 @@ function meaningfulPageData(value) {
   return false;
 }
 
+const ORDINAL_DATA_KEYS = new Set(["rank", "index", "position", "order", "row_number", "rowNumber"]);
+
+function meaningfulDataRow(value) {
+  if (!plainObject(value)) return meaningfulPageData(value);
+  const entries = Object.entries(value);
+  const contentEntries = entries.filter(([key]) => !ORDINAL_DATA_KEYS.has(key));
+  // Rank-like values only describe where an item appeared. They must not make
+  // an otherwise empty extraction look successful.
+  return (contentEntries.length ? contentEntries : entries).some(([, item]) => meaningfulPageData(item));
+}
+
+function completeDataRows(value) {
+  const rows = extractionRows(value);
+  return Array.isArray(rows) && rows.length > 0 && rows.every(meaningfulDataRow);
+}
+
 function assertMeaningfulEvaluateOutput(output) {
   const data = plainObject(output) && Object.prototype.hasOwnProperty.call(output, "result") ? output.result : output;
-  if (!meaningfulPageData(data)) {
+  const rows = extractionRows(data);
+  if ((rows && !completeDataRows(data)) || (!rows && !meaningfulPageData(data))) {
     throw new Error("The page data script returned only empty values. Add a wait step or repair its page selectors before saving the result.");
   }
 }
@@ -223,20 +280,63 @@ function extractionRows(value) {
   return undefined;
 }
 
-function assertMeaningfulExtractionOutput(output) {
+function normalizeExtractionValues(action, output) {
   const rows = extractionRows(output);
-  if (!rows?.some(meaningfulPageData)) {
+  const transforms = plainObject(action?.arguments?.transform) ? action.arguments.transform : {};
+  if (!Array.isArray(rows)) return output;
+  rows.forEach((row, index) => {
+    if (!plainObject(row)) return;
+    for (const [field, transform] of Object.entries(transforms)) {
+      if (transform !== "number") continue;
+      const value = row[field];
+      const normalized = typeof value === "number"
+        ? value
+        : Number(String(value ?? "").replace(/[^0-9+.\-]/g, ""));
+      if (Number.isFinite(normalized) && String(value ?? "").trim()) row[field] = normalized;
+      else if (ORDINAL_DATA_KEYS.has(field)) row[field] = index + 1;
+    }
+  });
+  return output;
+}
+
+function assertMeaningfulExtractionOutput(output) {
+  if (!completeDataRows(output)) {
     throw new Error("The saved extraction returned only empty rows. Wait for the page data or repair its field selectors before saving the result.");
+  }
+}
+
+function assertExtractionFieldSemantics(action, output) {
+  const rows = extractionRows(output);
+  if (!Array.isArray(rows) || !plainObject(action?.arguments?.fields)) return;
+  const transforms = plainObject(action.arguments.transform) ? action.arguments.transform : {};
+  for (const field of Object.keys(action.arguments.fields)) {
+    if (transforms[field] !== "url" && !/(?:^|_)(?:url|href|link)(?:$|_)/i.test(field)) continue;
+    if (!rows.every((row) => {
+      const value = row?.[field];
+      if (typeof value !== "string") return false;
+      try { return ["http:", "https:"].includes(new URL(value).protocol); }
+      catch { return false; }
+    })) throw new Error(`The saved extraction returned an invalid “${field}” URL. Repair its link selector before saving the result.`);
+  }
+}
+
+function assertRequiredExtractionRows(action, output) {
+  const required = Number(action?.arguments?.required_rows);
+  if (!Number.isInteger(required) || required < 1) return;
+  const rows = extractionRows(output);
+  if (!Array.isArray(rows) || rows.length < required) {
+    throw new Error(`The page returned ${Array.isArray(rows) ? rows.length : 0} complete result rows, but this workflow requires ${required}. Repair the extraction before saving the artifact.`);
   }
 }
 
 function hasMeaningfulActionData(tool, output) {
   if (tool === "evaluate") {
     const data = plainObject(output) && Object.prototype.hasOwnProperty.call(output, "result") ? output.result : output;
-    return meaningfulPageData(data);
+    const rows = extractionRows(data);
+    return rows ? completeDataRows(data) : meaningfulPageData(data);
   }
   if (["extract", "paginate_extract", "tabs_extract"].includes(tool)) {
-    return !!extractionRows(output)?.some(meaningfulPageData);
+    return completeDataRows(output);
   }
   return true;
 }
@@ -288,6 +388,13 @@ function boundedOutput(value, maxBytes = 1_500_000) {
 
 function createMCPClient({ binary, args, env, spawnImpl = spawn }) {
   const child = spawnImpl(binary, args, { env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+  const inheritedToolArguments = {};
+  for (const option of ["--profile", "--runtime", "--runtime-bin"]) {
+    const index = args.indexOf(option);
+    if (index >= 0 && typeof args[index + 1] === "string" && args[index + 1]) {
+      inheritedToolArguments[option === "--runtime-bin" ? "browser_bin" : option.slice(2)] = args[index + 1];
+    }
+  }
   const pending = new Map();
   let sequence = 0;
   let stdoutBuffer = "";
@@ -340,11 +447,11 @@ function createMCPClient({ binary, args, env, spawnImpl = spawn }) {
   });
 
   return {
-    async initialize() {
-      await request("initialize", { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "nextbrowser-automation", version: "1" } }, 30_000);
+    async initialize(timeoutMs = 30_000) {
+      await request("initialize", { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "nextbrowser-automation", version: "1" } }, timeoutMs);
       send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
     },
-    callTool: (name, arguments) => request("tools/call", { name, arguments }),
+    callTool: (name, arguments, timeoutMs) => request("tools/call", { name, arguments: { ...inheritedToolArguments, ...arguments } }, timeoutMs),
     close() {
       if (closed) return;
       closed = true;
@@ -356,8 +463,19 @@ function createMCPClient({ binary, args, env, spawnImpl = spawn }) {
 
 async function executeAutomationRecipe(input, deps) {
   const executionId = cleanExecutionId(input.executionId);
+  if (cancelledBeforeStart.delete(executionId)) {
+    deps.onProgress?.({ executionId, total: Array.isArray(input.recipe?.actions) ? input.recipe.actions.length : 0, phase: "cancelled", stepIndex: 0, detail: "Execution stopped by user." });
+    return { status: "cancelled", results: [] };
+  }
   if (activeExecutions.has(executionId)) throw new Error("This automation execution is already running.");
-  const actions = validateRecipe(input.recipe);
+  // Resolve every input before launching the browser. Discovering a missing
+  // value halfway through a workflow can leave forms or pages half-mutated.
+  const actions = validateRecipe(input.recipe).map((action, index) => {
+    const expanded = { ...action, arguments: expandTemplates(action.arguments, input.parameters || {}) };
+    const missing = unresolvedTemplate(expanded.arguments);
+    if (missing) throw new Error(`Step ${index + 1} needs a value for “${missing}” before this automation can run.`);
+    return expanded;
+  });
   const profile = String(input.profile || "").trim();
   const runtime = ["clawbrowser", "camoufox", "chromium", "multilogin"].includes(input.runtime) ? input.runtime : "clawbrowser";
   const mcpArgs = [...(profile ? ["--profile", profile] : []), "--runtime", runtime, ...(input.runtimeBin ? ["--runtime-bin", input.runtimeBin] : []), "mcp"];
@@ -372,7 +490,11 @@ async function executeAutomationRecipe(input, deps) {
     await client.initialize();
     for (let index = 0; index < actions.length; index += 1) {
       if (state.cancelled) throw new Error("Automation execution was cancelled.");
-      const action = { ...actions[index], arguments: expandTemplates(actions[index].arguments, input.parameters || {}) };
+      const action = actions[index];
+      const nextDataAction = ["evaluate", "extract", "paginate_extract", "tabs_extract"].includes(actions[index + 1]?.tool);
+      if (action.tool === "wait" && nextDataAction && typeof action.arguments.timeout === "number") {
+        action.arguments.timeout = Math.min(8, action.arguments.timeout);
+      }
       progress({ phase: "running", stepIndex: index, tool: action.tool, detail: `Running step ${index + 1} of ${actions.length}: ${action.tool}` });
       try {
         await deps.onStep?.({ position: index, status: "running", output: {} });
@@ -413,15 +535,32 @@ async function executeAutomationRecipe(input, deps) {
             }
           }
         }
+        if (["extract", "paginate_extract", "tabs_extract"].includes(action.tool)) {
+          output = normalizeExtractionValues(action, output);
+        }
         if (action.tool === "evaluate") assertMeaningfulEvaluateOutput(output);
-        if (["extract", "paginate_extract", "tabs_extract"].includes(action.tool)) assertMeaningfulExtractionOutput(output);
-        localResults.push({ index, tool: action.tool, ok: true, output });
+        if (["extract", "paginate_extract", "tabs_extract"].includes(action.tool)) {
+          assertMeaningfulExtractionOutput(output);
+          assertExtractionFieldSemantics(action, output);
+          assertRequiredExtractionRows(action, output);
+          const nextAction = actions[index + 1];
+          if (nextAction?.tool === "save_artifact" && nextAction.arguments?.contract?.kind === "rows") assertArtifactDataContract(output, nextAction.arguments.contract);
+        }
+        localResults.push({ index, tool: action.tool, ok: true, output, resultKey: typeof action.arguments.result_key === "string" ? action.arguments.result_key.trim() : undefined });
         const displayOutput = boundedOutput(output);
         results.push({ index, tool: action.tool, ok: true, output: displayOutput });
         await deps.onStep?.({ position: index, status: "completed", output: displayOutput });
         progress({ phase: "running", stepIndex: index + 1, tool: action.tool, detail: `Completed step ${index + 1} of ${actions.length}` });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        if (action.tool === "wait" && nextDataAction && /timed out|context deadline exceeded|target navigated or closed/i.test(message) && !state.cancelled) {
+          const output = { ready: false, continued_to_validated_data_step: true };
+          localResults.push({ index, tool: action.tool, ok: true, output });
+          results.push({ index, tool: action.tool, ok: true, output });
+          await deps.onStep?.({ position: index, status: "completed", output });
+          progress({ phase: "running", stepIndex: index + 1, tool: action.tool, detail: "The page readiness hint timed out. Validating the requested data directly…" });
+          continue;
+        }
         results.push({ index, tool: action.tool, ok: false, error: message });
         await deps.onStep?.({ position: index, status: "failed", output: {}, error: message });
         progress({ phase: state.cancelled ? "cancelled" : "failed", stepIndex: index, tool: action.tool, detail: `Step ${index + 1} failed: ${message}`, error: message });
@@ -443,14 +582,19 @@ async function executeAutomationRecipe(input, deps) {
 }
 
 function cancelAutomationRecipe(executionId) {
-  const active = activeExecutions.get(cleanExecutionId(executionId));
-  if (!active) return false;
+  const id = cleanExecutionId(executionId);
+  const active = activeExecutions.get(id);
+  if (!active) {
+    cancelledBeforeStart.add(id);
+    return true;
+  }
   active.cancelled = true;
   active.client.close();
   return true;
 }
 
 function cancelAllAutomationRecipes() {
+  cancelledBeforeStart.clear();
   for (const [executionId, active] of activeExecutions) {
     active.cancelled = true;
     active.client.close();

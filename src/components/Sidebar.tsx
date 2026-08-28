@@ -1,4 +1,4 @@
-import { type DragEvent, type FormEvent, useEffect, useRef, useState } from "react";
+import { type DragEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore, type ManualProxyProfileInput } from "../store";
 import { agentById } from "../agents";
@@ -7,16 +7,17 @@ import { Icon, Spinner } from "./Icon";
 import { withLocalScripts } from "../skillsCatalog";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
 import { guideProfileTarget } from "../lib/guideQuickStart";
-import { manualProxyDefaultName, manualProxyLimits, parseManualProxyClipboard, parseManualProxyUrl, validateManualProxyFields, type ManualProxyScheme } from "../lib/manualProxy";
+import { manualProxyDefaultName, manualProxyLimits, parseManualProxyBatch, parseManualProxyClipboard, validateManualProxyFields, type ManualProxyScheme } from "../lib/manualProxy";
 import { internalError, needsSupportLink } from "../lib/userFacingError";
 import { entityNameLimits, validateEntityName } from "../lib/entityValidation";
 import { cancelNextctlRun } from "../nextctl";
-import { conversationPreview, type AppTab } from "../types";
+import { conversationPreview, type AppTab, type BrowserWorkflowAction, type BrowserWorkflowSkill } from "../types";
 import { CountrySelect } from "./CountrySelect";
 import { UserFacingError } from "./UserFacingError";
 import { VPSSetupModal } from "./VPSSetupModal";
 import { CONNECTOR_PROMPT_RESUMED_EVENT, CONNECTORS } from "../connectorsCatalog";
 import { invoke, listen } from "../electronBridge";
+import { uid } from "../lib/ids";
 import { getPreviewMode } from "../preview";
 import {
   clearMultiloginSelection,
@@ -45,15 +46,20 @@ import {
   type MultiloginOSType,
 } from "../lib/multiloginProfileCreate";
 import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, type ActiveAutomationRecording } from "../lib/automationRecording";
-import { activeAutomationExecution, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, executionWithRecipeProgress, setActiveAutomationExecution, type AutomationExecution, type AutomationRecipeProgress } from "../lib/automationExecution";
+import { activeAutomationExecution, automationAgentAnswer, automationAgentBrowserActionCount, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, executionWithRecipeProgress, setActiveAutomationExecution, type AutomationExecution, type AutomationRecipeProgress } from "../lib/automationExecution";
+import { automationRepairTask, parseAutomationRepairRecipe } from "../lib/automationRepair";
 
-type ManualProxyInputMode = "url" | "fields";
+type ManualProxyInputMode = "url" | "fields" | "bulk";
 type ProfileToolsetOption = "clawbrowser" | "dasbrowser" | "camoufox" | "multilogin";
 const PROFILE_CREATE_TIMEOUT_MS = 120_000;
 
 function recordingDuration(startedAt: number, now = Date.now()) {
   const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
   return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function repairedRecipeEvidence(actions: BrowserWorkflowAction[]) {
+  return actions.map((action) => `Called clawbrowser.${action.tool}(${JSON.stringify(action.arguments)})\n{"ok":true}`).join("\n");
 }
 
 interface SidebarProps {
@@ -78,6 +84,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [manualProxyOpen, setManualProxyOpen] = useState(false);
   const [manualProxyMode, setManualProxyMode] = useState<ManualProxyInputMode>("url");
   const [manualProxyUrl, setManualProxyUrl] = useState("");
+  const [manualProxyBulk, setManualProxyBulk] = useState("");
   const [manualName, setManualName] = useState("");
   const [manualScheme, setManualScheme] = useState<ManualProxyScheme>("http");
   const [manualHost, setManualHost] = useState("");
@@ -155,6 +162,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const projects = s.conversationsForAgent(s.agentId);
   const activeProject = s.activeConversation();
   const activeWorkspace = s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId);
+  const manualProxyBatch = useMemo(() => parseManualProxyBatch(manualProxyBulk), [manualProxyBulk]);
   const profileWorkspaceEntries = (activeWorkspace?.profileNames ?? []).flatMap((name) => {
     const profile = profiles.find((item) => item.name === name);
     if (!profile) return [];
@@ -223,6 +231,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const recordingWorkspace = activeRecording ? s.workspaces.find((workspace) => workspace.id === activeRecording.workspaceId) : undefined;
   const automationExecutionWorkspace = automationExecution ? s.workspaces.find((workspace) => workspace.id === automationExecution.workspaceId) : undefined;
   const automationExecutionState = automationExecution ? automationExecutionView(automationExecution, s.conversations, automationExecutionClock) : undefined;
+  const automationAgentStatus = automationExecution?.engine === "agent" ? automationAgentAnswer(automationExecution, s.conversations)?.status : undefined;
   const recordingDestinationLabel = activeRecording?.destination === "workflow" ? "Workflow Builder" : "Recorder";
   const recordingMiniLabel = activeRecording ? `${recordingDestinationLabel} ${recordingDuration(activeRecording.startedAt, recordingClock)}` : "Recording";
 
@@ -259,6 +268,124 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     const timer = window.setInterval(() => setAutomationExecutionClock(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [automationExecution, automationExecutionState?.phase]);
+
+  useEffect(() => {
+    if (!automationExecution || automationExecution.engine !== "agent" || !automationExecution.replyId || !automationExecution.repairValidationRequired) return;
+    if (!["preparing", "running"].includes(automationExecution.phase) || automationExecutionClock - automationExecution.startedAt < 120_000) return;
+    const answer = automationAgentAnswer(automationExecution, s.conversations);
+    if (!answer || !["queued", "streaming"].includes(answer.status) || automationAgentBrowserActionCount(automationExecution, s.conversations) > 0) return;
+    const attempt = automationExecution.repairAttempt || 0;
+    if (s.cancelQueuedReply(automationExecution.replyId) === false) s.stopReply(automationExecution.replyId);
+    if (attempt >= 1 || !automationExecution.workflowSnapshot) {
+      setActiveAutomationExecution({ ...automationExecution, phase: "failed", progress: 100, detail: "AI repair made no browser progress after two attempts. Retry when the agent is available.", error: "AI repair stalled before its first browser action." });
+      return;
+    }
+    const retrying: AutomationExecution = { ...automationExecution, executionId: uid(), replyId: undefined, startedAt: Date.now(), phase: "preparing", progress: 8, detail: "The first AI repair stalled. Restarting it once automatically…", repairAttempt: 1 };
+    setActiveAutomationExecution(retrying);
+    void s.runLocalSkill(automationExecution.workflowSnapshot, automationRepairTask(
+      automationExecution.task,
+      automationExecution.workflowSnapshot.actions,
+      automationExecution.failedStep,
+      `${automationExecution.error || automationExecution.detail || "The deterministic step failed."} The previous AI repair stalled before its first browser action. Start with the browser action immediately.`,
+    )).then((replyId) => {
+      const current = activeAutomationExecution();
+      if (!current || current.executionId !== retrying.executionId) return;
+      if (!replyId) return setActiveAutomationExecution({ ...retrying, phase: "failed", progress: 100, detail: "The automatic AI retry could not be started." });
+      setActiveAutomationExecution({ ...retrying, replyId, phase: "running", detail: "AI repair restarted automatically…" });
+    }).catch((error) => setActiveAutomationExecution({ ...retrying, phase: "failed", progress: 100, detail: error instanceof Error ? error.message : String(error) }));
+  }, [automationExecution?.executionId, automationExecution?.phase, automationExecution?.replyId, automationExecution?.startedAt, automationExecutionClock, s]);
+
+  useEffect(() => {
+    if (!automationExecution || automationExecution.engine !== "agent" || !automationExecution.repairValidationRequired || automationExecution.outputValidated || automationExecution.outputValidationError) return;
+    if (automationAgentStatus !== "done") return;
+    let cancelled = false;
+    void (async () => {
+      const answer = automationAgentAnswer(automationExecution, useStore.getState().conversations);
+      if (!answer || /(?:could not|couldn't|unable to|failed to|did not complete|was not completed)/i.test(answer.text)) {
+        throw new Error("AI repair did not complete the original workflow goal.");
+      }
+      let artifactVerified = !automationExecution.expectedArtifactName;
+      for (let attempt = 0; attempt < 4 && !artifactVerified; attempt += 1) {
+        const items = await invoke<Array<{ id: string; name: string; createdAt: number }>>("artifact_list", { workspaceId: automationExecution.workspaceId });
+        const artifact = items.find((item) => item.name === automationExecution.expectedArtifactName && item.createdAt >= automationExecution.startedAt);
+        if (artifact) {
+          const validation = await invoke<{ valid: boolean; reason?: string }>("artifact_validate", { workspaceId: automationExecution.workspaceId, id: artifact.id });
+          if (!validation.valid) throw new Error(validation.reason || `AI repair created ${automationExecution.expectedArtifactName}, but its data is incomplete.`);
+          artifactVerified = true;
+        }
+        if (!artifactVerified && attempt < 3) await new Promise((resolve) => window.setTimeout(resolve, 400));
+      }
+      if (!artifactVerified) throw new Error(`AI repair finished, but it did not create ${automationExecution.expectedArtifactName}. The workflow result was not accepted.`);
+
+      let persisted = false;
+      let persistenceError: string | undefined;
+      try {
+        if (automationExecution.sourceKind === "workflow") {
+          const workflows = await invoke<BrowserWorkflowSkill[]>("automation_workflows_list", { workspaceId: automationExecution.workspaceId });
+          const workflow = workflows.find((item) => item.id === automationExecution.sourceId);
+          if (!workflow) throw new Error("The repaired workflow no longer exists.");
+          const repaired = parseAutomationRepairRecipe(answer.text, automationExecution.workflowSnapshot?.actions || workflow.actions, automationExecution.workflowSnapshot?.domain || workflow.domain);
+          if (!repaired) throw new Error("AI completed the task but did not return a safe reusable recipe.");
+          await invoke("automation_workflow_put", {
+            workspaceId: automationExecution.workspaceId,
+            workflow: {
+              ...workflow,
+              actions: repaired.actions,
+              recipe: { ...workflow.recipe, actions: repaired.actions },
+              instructions: `${workflow.instructions.replace(/\n*Automatically repaired on .*$/s, "").trim()}\n\nAutomatically repaired on ${new Date().toISOString()}; future runs use the updated deterministic steps.`,
+            },
+          });
+          persisted = true;
+        } else {
+          type Recording = { id: string; revision: number; status: string; document: { run?: { evidence: string; captureSource?: string; answer: { text: string; toolEvents?: Array<{ id: string; name: string; detail?: string; createdAt: number }> } }; [key: string]: unknown } };
+          const recordings = await invoke<Recording[]>("automation_recordings_list", { workspaceId: automationExecution.workspaceId });
+          const recording = recordings.find((item) => item.id === automationExecution.sourceId);
+          const originalRun = recording?.document.run;
+          if (!recording || !originalRun) throw new Error("The repaired recording no longer exists.");
+          const originalActions = [...originalRun.evidence.matchAll(/Called (?:clawbrowser|nextbrowser)\.([a-z_]+)\((\{[^\n]*\})\)/g)].flatMap((match) => {
+            try { return [{ tool: match[1], arguments: JSON.parse(match[2]) as Record<string, unknown> }]; } catch { return []; }
+          });
+          const repaired = parseAutomationRepairRecipe(answer.text, originalActions, automationExecution.workflowSnapshot?.domain);
+          if (!repaired) throw new Error("AI completed the task but did not return a safe reusable recipe.");
+          const now = Date.now();
+          await invoke("automation_recording_put", { recording: {
+            id: recording.id,
+            workspace_id: automationExecution.workspaceId,
+            status: "completed",
+            document: { ...recording.document, run: {
+              ...originalRun,
+              evidence: repairedRecipeEvidence(repaired.actions),
+              captureSource: "hybrid",
+              answer: {
+                ...originalRun.answer,
+                text: "Automatically repaired and verified against the original task.",
+                toolEvents: repaired.actions.map((action, index) => ({ id: `${recording.id}-repair-${index}`, name: `clawbrowser.${action.tool}`, detail: JSON.stringify(action.arguments), createdAt: now + index })),
+              },
+            } },
+            base_revision: recording.revision || 0,
+          } });
+          persisted = true;
+        }
+      } catch (error) {
+        persistenceError = error instanceof Error ? error.message : String(error);
+      }
+      if (cancelled) return;
+      if (persisted) window.dispatchEvent(new CustomEvent("nextbrowser:automation-library-change", { detail: { sourceKind: automationExecution.sourceKind } }));
+      const detail = persisted
+        ? `${automationExecution.sourceKind === "workflow" ? "Workflow" : "Recording"} completed. AI repaired the fast path and saved it for future runs.`
+        : `The original task completed, but the repaired fast path was not saved: ${persistenceError}`;
+      if (automationExecution.backendRunId) {
+        await invoke("automation_run_update", { id: automationExecution.backendRunId, update: { status: "completed", output: { engine: "hybrid", repaired: true, fast_path_saved: persisted, detail } } }).catch(() => undefined);
+      }
+      setActiveAutomationExecution({ ...automationExecution, phase: "completed", outputValidated: true, repairPersisted: persisted, repairPersistenceError: persistenceError, progress: 100, detail });
+    })().catch((error) => {
+      if (cancelled) return;
+      const detail = error instanceof Error ? error.message : String(error);
+      if (automationExecution.backendRunId) void invoke("automation_run_update", { id: automationExecution.backendRunId, update: { status: "failed", output: { engine: "hybrid", repaired: false, detail } } }).catch(() => undefined);
+      setActiveAutomationExecution({ ...automationExecution, phase: "failed", progress: 100, outputValidationError: detail, detail });
+    });
+    return () => { cancelled = true; };
+  }, [automationExecution?.executionId, automationExecution?.expectedArtifactName, automationExecution?.outputValidated, automationExecution?.outputValidationError, automationExecution?.repairValidationRequired, automationExecution?.startedAt, automationAgentStatus]);
 
   const openRecorder = () => {
     if (activeRecording?.workspaceId && activeRecording.workspaceId !== s.activeWorkspaceId) s.selectWorkspace(activeRecording.workspaceId);
@@ -507,20 +634,23 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     return undefined;
   };
 
-  const uniqueManualProxyName = (baseName: string) => {
+  const uniqueManualProxyName = (baseName: string, reservedNames?: Set<string>) => {
     const base = baseName.trim() || "manual-proxy";
-    const existing = new Set(s.profiles.map((p) => p.name));
+    const existing = reservedNames ?? new Set(s.personalProxies.map((proxy) => proxy.name));
     if (!existing.has(base)) return base;
     for (let index = 2; index < 1000; index += 1) {
-      const candidate = `${base}-${index}`;
+      const suffix = `-${index}`;
+      const candidate = `${base.slice(0, manualProxyLimits.name - suffix.length)}${suffix}`;
       if (!existing.has(candidate)) return candidate;
     }
-    return `${base}-${Date.now()}`;
+    const suffix = `-${Date.now()}`;
+    return `${base.slice(0, manualProxyLimits.name - suffix.length)}${suffix}`;
   };
 
   const resetManualProxyForm = () => {
     setManualProxyMode("url");
     setManualProxyUrl("");
+    setManualProxyBulk("");
     setManualName("");
     setManualScheme("http");
     setManualHost("");
@@ -555,19 +685,73 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
   const submitManualProxy = async (event: FormEvent) => {
     event.preventDefault();
+    if (manualProxyMode === "bulk") {
+      if (manualProxyBatch.errors.length) {
+        const details = manualProxyBatch.errors.slice(0, 4)
+          .map((error) => `${error.lineNumber ? `Line ${error.lineNumber}: ` : ""}${error.message}`)
+          .join("\n");
+        const remaining = manualProxyBatch.errors.length - 4;
+        setManualError(`${details}${remaining > 0 ? `\n…and ${remaining} more.` : ""}`);
+        return;
+      }
+      if (!manualProxyBatch.items.length) {
+        setManualError("Enter at least one proxy, one per line.");
+        return;
+      }
+
+      const reservedNames = new Set(s.personalProxies.map((proxy) => proxy.name));
+      const inputs = manualProxyBatch.items.map(({ proxy }) => {
+        const name = uniqueManualProxyName(manualProxyDefaultName(proxy), reservedNames);
+        reservedNames.add(name);
+        return { name, ...proxy };
+      });
+      setManualSaving(true);
+      setManualError(null);
+      try {
+        const result = await s.savePersonalProxies(inputs);
+        const lastSaved = result.saved.at(-1)?.proxy;
+        if (lastSaved) setProfilePersonalProxyId(lastSaved.id);
+        if (!result.failed.length) {
+          resetManualProxyForm();
+          setManualProxyEditing(false);
+          return;
+        }
+
+        const failedItems = result.failed.map(({ index }) => manualProxyBatch.items[index]).filter(Boolean);
+        setManualProxyBulk(failedItems.map(({ raw }) => raw).join("\n"));
+        const firstFailures = result.failed.slice(0, 3).map(({ index, message }) => {
+          const detail = message.replace(/^Error invoking remote method '[^']+': Error:\s*/, "").trim();
+          return `Line ${manualProxyBatch.items[index]?.lineNumber ?? index + 1}: ${detail || "Could not save this proxy."}`;
+        });
+        setManualError(`${result.saved.length} saved; ${result.failed.length} failed. Only failed lines remain.\n${firstFailures.join("\n")}`);
+      } catch (error) {
+        const detail = (error instanceof Error ? error.message : String(error))
+          .replace(/^Error invoking remote method '[^']+': Error:\s*/, "")
+          .trim();
+        setManualError(detail || internalError("We couldn't save the proxy list. Try again.", "PERSONAL_PROXY_BULK_SAVE_FAILED"));
+      } finally {
+        setManualSaving(false);
+      }
+      return;
+    }
+
     const name = manualName.trim();
     let input: ManualProxyProfileInput;
     if (manualProxyMode === "url") {
       let parsed;
       try {
-        parsed = parseManualProxyUrl(manualProxyUrl);
+        parsed = parseManualProxyClipboard(manualProxyUrl);
       } catch (error) {
         setManualError(error instanceof Error ? error.message : String(error));
         return;
       }
       input = {
         name: name || uniqueManualProxyName(manualProxyDefaultName(parsed)),
-        ...parsed,
+        scheme: parsed.scheme,
+        host: parsed.host,
+        port: parsed.port,
+        username: parsed.username,
+        password: parsed.password,
       };
     } else {
       const port = Number(manualPort);
@@ -614,7 +798,12 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const importManualProxyFromClipboard = async () => {
     setManualError(null);
     try {
-      const parsed = parseManualProxyClipboard(await navigator.clipboard.readText());
+      const clipboard = await navigator.clipboard.readText();
+      if (manualProxyMode === "bulk") {
+        setManualProxyBulk(clipboard);
+        return;
+      }
+      const parsed = parseManualProxyClipboard(clipboard);
       setManualProxyMode(parsed.source === "fields" ? "fields" : "url");
       setManualScheme(parsed.scheme);
       setManualHost(parsed.host);
@@ -903,6 +1092,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                     <button
                       key={workspace.id}
                       className={workspace.id === s.activeWorkspaceId ? "active" : ""}
+                      title={workspace.name}
                       onClick={() => { s.selectWorkspace(workspace.id); setWorkspaceMenuOpen(false); }}
                     >
                       <Icon name={workspace.id === s.activeWorkspaceId ? "checkmark" : "square.grid.2x2"} size={11} />
@@ -1794,7 +1984,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           <div className="modal-card manual-proxy-modal" onMouseDown={(e) => e.stopPropagation()}>
             <div className="profile-menu-head">
               <Icon name="network" size={16} className="accent-icon" />
-              <span className="profile-menu-name">{manualProxyEditing ? "Create proxy" : "Personal proxies"}</span>
+              <span className="profile-menu-name">{manualProxyEditing ? (manualProxyMode === "bulk" ? "Add proxies" : "Create proxy") : "Personal proxies"}</span>
               <span className="spacer" />
               <button
                 type="button"
@@ -1808,7 +1998,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             </div>
             {manualProxyEditing ? (
               <form className="personal-proxy-editor" onSubmit={submitManualProxy}>
-                <p className="muted personal-proxy-note">Save once, then select this proxy when you create a browser profile.</p>
+                <p className="muted personal-proxy-note">Save proxies here, then select one for any browser profile.</p>
                 <div className="manual-proxy-mode" role="tablist" aria-label="Manual proxy input mode">
                   <button
                     type="button"
@@ -1832,15 +2022,26 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   >
                     <Icon name="wrench" size={13} /> Fields
                   </button>
+                  <button
+                    type="button"
+                    className={manualProxyMode === "bulk" ? "active" : ""}
+                    aria-selected={manualProxyMode === "bulk"}
+                    onClick={() => {
+                      setManualProxyMode("bulk");
+                      setManualError(null);
+                    }}
+                  >
+                    <Icon name="list.bullet" size={13} /> Bulk
+                  </button>
                 </div>
                 {manualProxyMode === "url" ? (
                   <>
                     <label className="modal-field">
-                      <span className="modal-field-heading"><span>Proxy URL</span><small>Max {manualProxyLimits.url.toLocaleString("en-US")}</small></span>
+                      <span className="modal-field-heading"><span>Proxy</span><small>Max {manualProxyLimits.url.toLocaleString("en-US")}</small></span>
                       <input
                         value={manualProxyUrl}
                         onChange={(e) => setManualProxyUrl(e.target.value)}
-                        placeholder="http://user:pass@host:8080"
+                        placeholder="http://user:pass@host:8080 or host:port:user:pass"
                         maxLength={manualProxyLimits.url}
                         autoFocus
                       />
@@ -1855,7 +2056,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       />
                     </label>
                   </>
-                ) : (
+                ) : manualProxyMode === "fields" ? (
                   <>
                     <label className="modal-field">
                       <span className="modal-field-heading"><span>Name</span><small>Max {manualProxyLimits.name}</small></span>
@@ -1892,9 +2093,52 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       </span>
                     </label>
                   </>
+                ) : (
+                  <>
+                    <label className="modal-field manual-proxy-bulk-field">
+                      <span className="modal-field-heading">
+                        <span>Proxy list</span>
+                        <small>Up to {manualProxyLimits.batchLines}</small>
+                      </span>
+                      <textarea
+                        value={manualProxyBulk}
+                        onChange={(event) => {
+                          setManualProxyBulk(event.target.value);
+                          setManualError(null);
+                        }}
+                        placeholder={"http://user:pass@host:8080\nhost:8080:user:pass\nsocks5://host:1080"}
+                        maxLength={manualProxyLimits.batchText}
+                        spellCheck={false}
+                        autoFocus
+                      />
+                    </label>
+                    <p className="manual-proxy-format-help">
+                      One proxy per line. Supports <code>host:port</code>, <code>host:port:user:pass</code>, <code>user:pass@host:port</code>, and full <code>http://</code> or <code>socks5://</code> URLs.
+                      HTTP proxies also work for HTTPS websites through CONNECT; HTTPS and SOCKS4 proxy transports are not supported by the browser runtime.
+                    </p>
+                    {manualProxyBulk.trim() && (
+                      <>
+                        <div className={`manual-proxy-batch-status ${manualProxyBatch.errors.length ? "has-errors" : "is-valid"}`}>
+                          <strong>{manualProxyBatch.items.length} valid</strong>
+                          <span>{manualProxyBatch.errors.length ? `${manualProxyBatch.errors.length} need attention` : "Ready to add"}</span>
+                        </div>
+                        {manualProxyBatch.errors.length > 0 && (
+                          <div className="manual-proxy-line-errors" role="alert">
+                            {manualProxyBatch.errors.slice(0, 4).map((error) => (
+                              <div key={`${error.lineNumber}-${error.message}`}>
+                                <strong>{error.lineNumber ? `Line ${error.lineNumber}` : "List"}</strong>
+                                <span>{error.message}</span>
+                              </div>
+                            ))}
+                            {manualProxyBatch.errors.length > 4 && <small>And {manualProxyBatch.errors.length - 4} more…</small>}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </>
                 )}
                 <button type="button" className="secondary manual-proxy-paste" onClick={() => void importManualProxyFromClipboard()}>
-                  <Icon name="doc.on.doc" size={13} /> Paste proxy from clipboard
+                  <Icon name="doc.on.doc" size={13} /> {manualProxyMode === "bulk" ? "Paste list from clipboard" : "Paste proxy from clipboard"}
                 </button>
                 {manualError && (
                   <div className="error manual-proxy-error">
@@ -1908,9 +2152,13 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   }}>
                     Back
                   </button>
-                  <button type="submit" className="primary" disabled={manualSaving}>
+                  <button type="submit" className="primary" disabled={manualSaving || (manualProxyMode === "bulk" && (!manualProxyBatch.items.length || manualProxyBatch.errors.length > 0))}>
                     {manualSaving ? <Spinner size={13} /> : <Icon name="plus" size={13} />}
-                    {manualSaving ? "Saving…" : "Create proxy"}
+                    {manualSaving
+                      ? "Saving…"
+                      : manualProxyMode === "bulk" && manualProxyBatch.items.length
+                        ? `Add ${manualProxyBatch.items.length} ${manualProxyBatch.items.length === 1 ? "proxy" : "proxies"}`
+                        : "Create proxy"}
                   </button>
                 </div>
               </form>

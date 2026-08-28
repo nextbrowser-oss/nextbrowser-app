@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { manualProxyDefaultName, manualProxyLimits, parseManualProxyClipboard, parseManualProxyUrl, validateManualProxyFields } from "./manualProxy";
+import { manualProxyDefaultName, manualProxyLimits, parseManualProxyBatch, parseManualProxyClipboard, parseManualProxyUrl, validateManualProxyFields } from "./manualProxy";
 
 describe("manual proxy URL parsing", () => {
   it("parses HTTP proxy URLs with credentials", () => {
@@ -100,5 +100,47 @@ describe("manual proxy URL parsing", () => {
       host: "proxy.example",
       port: 1080,
     });
+  });
+
+  it("parses common newline-separated proxy formats", () => {
+    const result = parseManualProxyBatch([
+      "http://alice:secret@proxy-one.example:8080",
+      "proxy-two.example:3128",
+      "proxy-three.example:9000:bob:p:a:ss",
+      "carol:pass@proxy-four.example:8000",
+      "socks5://dave:p%40ss@[2001:db8::1]:1080",
+    ].join("\n"));
+
+    expect(result.errors).toEqual([]);
+    expect(result.items.map(({ lineNumber, proxy }) => ({ lineNumber, ...proxy }))).toEqual([
+      { lineNumber: 1, scheme: "http", host: "proxy-one.example", port: 8080, username: "alice", password: "secret" },
+      { lineNumber: 2, scheme: "http", host: "proxy-two.example", port: 3128, username: "", password: "" },
+      { lineNumber: 3, scheme: "http", host: "proxy-three.example", port: 9000, username: "bob", password: "p:a:ss" },
+      { lineNumber: 4, scheme: "http", host: "proxy-four.example", port: 8000, username: "carol", password: "pass" },
+      { lineNumber: 5, scheme: "socks5", host: "[2001:db8::1]", port: 1080, username: "dave", password: "p@ss" },
+    ]);
+  });
+
+  it("reports invalid and duplicate batch lines without discarding valid proxies", () => {
+    const result = parseManualProxyBatch([
+      "proxy.example:8080",
+      "not a proxy",
+      "proxy.example:8080",
+      "https://secure-proxy.example:443",
+    ].join("\n"));
+
+    expect(result.items).toHaveLength(1);
+    expect(result.errors).toEqual([
+      { lineNumber: 2, message: expect.stringContaining("Enter host:port") },
+      { lineNumber: 3, message: "Duplicate of line 1." },
+      { lineNumber: 4, message: "Proxy URL must use http:// or socks5://." },
+    ]);
+  });
+
+  it("limits the number and total size of proxies in one batch", () => {
+    expect(parseManualProxyBatch("proxy.example:80\n".repeat(manualProxyLimits.batchLines + 1)).errors[0].message)
+      .toContain(`up to ${manualProxyLimits.batchLines}`);
+    expect(parseManualProxyBatch("x".repeat(manualProxyLimits.batchText + 1)).errors[0].message)
+      .toContain("too large");
   });
 });

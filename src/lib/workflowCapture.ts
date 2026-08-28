@@ -4,7 +4,7 @@ const MAX_RECORDED_ACTIONS = 100;
 const REPLAYABLE_TOOLS = new Set([
   "open", "navigate", "click", "input", "press", "select", "scroll", "dismiss", "wait",
   "act", "multi_action", "form_fill", "upload", "extract", "paginate_extract", "tabs_extract", "site_recipe_run",
-  "evaluate", "save_artifact",
+  "navigate_extract", "evaluate", "save_artifact",
 ]);
 
 export interface CapturedCall {
@@ -65,7 +65,7 @@ export type WorkflowCapability = "scrape" | "search" | "posting" | "form" | "nav
 export function workflowCapability(task: string, transcript: string): WorkflowCapability {
   const tools = capturedCalls(transcript).map((call) => call.name);
   if (/\b(post|publish|comment|reply|send)\b|опубли|отправ|коммент/i.test(task)) return "posting";
-  if (tools.some((tool) => ["paginate_extract", "extract", "evaluate"].includes(tool))) return /\b(find|search)\b|найди|поиск/i.test(task) ? "search" : "scrape";
+  if (tools.some((tool) => ["navigate_extract", "paginate_extract", "extract", "evaluate"].includes(tool))) return /\b(find|search)\b|найди|поиск/i.test(task) ? "search" : "scrape";
   if (tools.some((tool) => ["act", "input", "upload"].includes(tool))) return "form";
   if (tools.some((tool) => ["open", "navigate", "click", "press"].includes(tool))) return "navigation";
   return "other";
@@ -92,7 +92,7 @@ function replayableCalls(transcript: string): CapturedCall[] {
   return capturedCalls(transcript).filter((call) => REPLAYABLE_TOOLS.has(call.name) && call.score >= 0);
 }
 
-const DATA_TOOLS = new Set(["evaluate", "extract", "paginate_extract", "tabs_extract"]);
+const DATA_TOOLS = new Set(["navigate_extract", "evaluate", "extract", "paginate_extract", "tabs_extract"]);
 const TARGETED_TOOLS = new Set(["click", "input", "select"]);
 
 function hasStableTarget(args: Record<string, unknown>): boolean {
@@ -126,6 +126,23 @@ function hasSearchParameters(value: unknown): boolean {
   } catch { return false; }
 }
 
+function dependsOnUncapturedJsonNavigation(calls: CapturedCall[]): boolean {
+  for (let index = 0; index < calls.length; index += 1) {
+    const call = calls[index];
+    if (call.name !== "evaluate" || typeof call.args.expression !== "string"
+      || !/JSON\.parse\(\s*document\.body\.(?:innerText|textContent)\s*\)/.test(call.args.expression)) continue;
+    const navigation = calls.slice(0, index).reverse().find((candidate) => ["open", "navigate"].includes(candidate.name));
+    if (!navigation || typeof navigation.args.url !== "string") return true;
+    try {
+      const url = new URL(navigation.args.url);
+      const looksLikeJsonSource = /(?:^|\.)api\./i.test(url.hostname)
+        || /(?:^|\/)api(?:\/|$)|\.json$/i.test(url.pathname);
+      if (!looksLikeJsonSource) return true;
+    } catch { return true; }
+  }
+  return false;
+}
+
 /** Drop a failed form-search branch once the agent falls back to a complete results URL. */
 function collapseSearchFallback(calls: CapturedCall[]): CapturedCall[] {
   let finalNavigation = -1;
@@ -153,17 +170,32 @@ function collapseSearchFallback(calls: CapturedCall[]): CapturedCall[] {
 function selectorFromDataCall(call: CapturedCall): string | undefined {
   if (typeof call.args.container === "string" && call.args.container.trim()) return call.args.container.trim();
   if (call.name !== "evaluate" || typeof call.args.expression !== "string") return undefined;
+  if (/querySelectorAll\(\s*(['"`])table\1\s*\)/.test(call.args.expression)
+    && /querySelectorAll\(\s*(['"`])tbody\s+tr\1\s*\)/.test(call.args.expression)) return "table tbody tr";
   return call.args.expression.match(/querySelector(?:All)?\(\s*(['"`])([^'"`]+)\1\s*\)/)?.[2];
 }
 
 function normalizedReplayArguments(call: CapturedCall): Record<string, unknown> {
-  if (!["extract", "paginate_extract", "tabs_extract"].includes(call.name)
+  if (!["navigate_extract", "extract", "paginate_extract", "tabs_extract"].includes(call.name)
     || !call.args.fields || typeof call.args.fields !== "object" || Array.isArray(call.args.fields)) return call.args;
   const fields = Object.fromEntries(Object.entries(call.args.fields as Record<string, unknown>).map(([name, value]) => {
     if (typeof value === "string") return [name, { selector: value }];
     return [name, value];
   }));
   return { ...call.args, fields };
+}
+
+function replayActionsForCall(call: CapturedCall): Array<{ tool: string; arguments: Record<string, unknown> }> {
+  const args = normalizedReplayArguments(call);
+  if (call.name !== "navigate_extract") return [{ tool: call.name, arguments: args }];
+  if (typeof args.url !== "string" || !args.url.trim()) return [];
+  const { url, ready_selector, profile: _profile, runtime: _runtime, cdp: _cdp, remote: _remote, ...extractArguments } = args;
+  const actions: Array<{ tool: string; arguments: Record<string, unknown> }> = [{ tool: "open", arguments: { url } }];
+  if (typeof ready_selector === "string" && ready_selector.trim()) {
+    actions.push({ tool: "wait", arguments: { selector: ready_selector.trim(), timeout: typeof args.timeout === "number" ? args.timeout : 30 } });
+  }
+  delete extractArguments.timeout;
+  return [...actions, { tool: "extract", arguments: extractArguments }];
 }
 
 /** Keep the result of selector discovery, not every exploratory probe the agent made. */
@@ -212,7 +244,7 @@ function optimizedReplayableActions(transcript: string, preserveAllData = false)
     }
     optimized.push(finalDataCall);
   }
-  return optimized.map((call) => ({ tool: call.name, arguments: normalizedReplayArguments(call) }));
+  return optimized.flatMap(replayActionsForCall);
 }
 
 function pick(source: Record<string, unknown>, keys: string[]): Record<string, unknown> {
@@ -312,10 +344,14 @@ export function workflowQuality(task: string, transcript: string, domain = captu
   if (meaningful.length > MAX_RECORDED_ACTIONS) return { reusable: false, reason: `The run contains more than ${MAX_RECORDED_ACTIONS} browser actions. Split it into smaller workflows.` };
   const last = calls.at(-1);
   if (last && last.score < 0) return { reusable: false, reason: "The browser workflow ended with a failed action." };
-  const successfulExtraction = calls.some((call) => ["extract", "paginate_extract", "evaluate"].includes(call.name) && call.score > 0);
+  if (dependsOnUncapturedJsonNavigation(calls)) {
+    return { reusable: false, reason: "A data step depended on a JSON page that was not captured. Record the complete navigation before saving this workflow." };
+  }
+  const successfulExtraction = calls.some((call) => ["navigate_extract", "extract", "paginate_extract", "evaluate"].includes(call.name) && call.score > 0);
   const postingConfirmation = /\b(posted|published|submitted|saved draft|commented|sent successfully)\b|опубликован|отправлен|сохран[её]н\s+черновик/i.test(transcript);
   const interaction = calls.some((call) => ["act", "multi_action", "input", "click", "press", "upload"].includes(call.name));
-  const navigation = calls.some((call) => ["start", "prepare", "open", "navigate"].includes(call.name));
+  const navigation = calls.some((call) => ["start", "prepare", "open", "navigate", "navigate_extract"].includes(call.name));
+  if (!navigation) return { reusable: false, reason: "The recording did not capture a starting page. Open the target page while recording so replay can start reliably." };
   if (!successfulExtraction && !postingConfirmation && !(interaction && navigation)) {
     return { reusable: false, reason: "No successful extraction, posting confirmation, or complete browser interaction was captured." };
   }

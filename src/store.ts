@@ -150,6 +150,11 @@ export interface ManualProxyProfileInput {
   password?: string;
 }
 
+export interface ManualProxyBatchSaveResult {
+  saved: Array<{ index: number; proxy: PersonalProxy }>;
+  failed: Array<{ index: number; message: string }>;
+}
+
 interface AgentRuntime {
   ready: boolean;
   authorizing: boolean;
@@ -466,6 +471,7 @@ interface State {
   createManualProxyProfile: (input: ManualProxyProfileInput) => Promise<void>;
   loadPersonalProxies: () => Promise<void>;
   savePersonalProxy: (input: ManualProxyProfileInput) => Promise<PersonalProxy>;
+  savePersonalProxies: (inputs: ManualProxyProfileInput[]) => Promise<ManualProxyBatchSaveResult>;
   deletePersonalProxy: (id: string) => Promise<void>;
   createPersonalProxyProfile: (
     name: string,
@@ -852,6 +858,10 @@ const X_REPLY_STATE_FILE = "x-reply-state.json";
  *  against the same dead endpoint. */
 function sessionLost(message: string): boolean {
   return /SESSION_NOT_FOUND|CDP_UNREACHABLE|TAB_NOT_FOUND|connection refused|cdp targets/i.test(message);
+}
+
+function proxyTunnelLost(message: string): boolean {
+  return /ERR_TUNNEL_CONNECTION_FAILED/i.test(message);
 }
 
 /** friendlyXReplyError keeps a CDP transcript out of the panel. */
@@ -1907,7 +1917,7 @@ export const useStore = create<State>((set, get) => {
     const activeProfile = get().selectedProfile;
     const recording = activeAutomationRecording();
     const recorderContext = recording?.phase === "recording" && recording.workspaceId === conversationWorkspaceId
-      ? `\n\nNextBrowser Recorder is active for this task. The final reusable dataset must come from a deterministic browser tool call, not from reading state and transforming it only in your reasoning. After using state to discover the page, call extract or paginate_extract with the exact fields and limit. If the dynamic page cannot be represented by those tools, call evaluate once with a read-only expression that returns the exact structured dataset; it must not read cookies/storage, use network APIs, click/submit, or mutate the DOM. If the user requested an Artifact Center file, save that deterministic call's returned dataset. Do not finish with state as the only data-collection step.`
+      ? `\n\nNextBrowser Recorder is active for this task. The final reusable dataset must come from a deterministic browser tool call, not from reading state and transforming it only in your reasoning. After using state to discover the page, call extract or paginate_extract with the exact fields and limit. If the dynamic page cannot be represented by those tools, call evaluate once with a read-only expression that returns the exact structured dataset; it must not read cookies/storage, use network APIs, click/submit, or mutate the DOM. Select targets by stable content, attributes, or headers instead of a numeric querySelectorAll position, and make the expression throw unless the requested number of rows and requested fields are populated. If the final dataset comes from a public JSON endpoint, use its replayable GET form when available: open that exact API URL in the listed browser profile, then evaluate the JSON body. Never leave the final request hidden in curl, fetch, or an uncaptured shell action, because Recorder cannot replay it. If the user requested an Artifact Center file, save that deterministic call's returned dataset. Do not finish with state as the only data-collection step.`
       : "";
     const browserContext = browserProfileContext(
       get().workspaces,
@@ -2755,6 +2765,28 @@ export const useStore = create<State>((set, get) => {
     const saved = await invoke<PersonalProxy>("manual_proxy_save", { proxy: input });
     await get().loadPersonalProxies();
     return saved;
+  },
+
+  savePersonalProxies: async (inputs) => {
+    const saved: ManualProxyBatchSaveResult["saved"] = [];
+    const failed: ManualProxyBatchSaveResult["failed"] = [];
+    const concurrency = 6;
+    for (let offset = 0; offset < inputs.length; offset += concurrency) {
+      const chunk = inputs.slice(offset, offset + concurrency);
+      const results = await Promise.allSettled(
+        chunk.map((proxy) => invoke<PersonalProxy>("manual_proxy_save", { proxy })),
+      );
+      results.forEach((result, chunkIndex) => {
+        const index = offset + chunkIndex;
+        if (result.status === "fulfilled") saved.push({ index, proxy: result.value });
+        else failed.push({
+          index,
+          message: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        });
+      });
+    }
+    await get().loadPersonalProxies();
+    return { saved, failed };
   },
 
   deletePersonalProxy: async (id) => {
@@ -4957,7 +4989,12 @@ export const useStore = create<State>((set, get) => {
     // but MCP page actions still require a live CDP session. Start or reattach
     // the selected profile without navigating; the saved recipe remains the
     // sole owner of page navigation.
-    const profile = get().selectedProfile;
+    const activeWorkspace = get().workspaces.find((workspace) => workspace.id === get().activeWorkspaceId);
+    if (!get().selectedProfile && (activeWorkspace?.profileNames.length || 0) > 1) {
+      throw new Error("Choose the browser profile that should run this automation.");
+    }
+    const soleWorkspaceProfile = activeWorkspace?.profileNames.length === 1 ? activeWorkspace.profileNames[0] : undefined;
+    const profile = get().selectedProfile || soleWorkspaceProfile;
     const runtime = profile ? runtimeForProfile(get().workspaces, profile) : "clawbrowser";
     if (profile) {
       if (get().statuses[profile] !== "running") await get().startProfile(profile);
@@ -4965,7 +5002,7 @@ export const useStore = create<State>((set, get) => {
       await get().startDefaultSession();
     }
     trackEvent("automation_recipe_started", { action_count: skill.actions.length, runtime, has_profile: !!profile });
-    const result = await invoke<AutomationRecipeResult>("automation_recipe_execute", {
+    const executeRecipe = () => invoke<AutomationRecipeResult>("automation_recipe_execute", {
       executionId,
       recipe: { ...skill.recipe, actions: skill.actions },
       parameters: { task: skill.task, ...recipeParameters },
@@ -4974,6 +5011,28 @@ export const useStore = create<State>((set, get) => {
       workspaceId: get().activeWorkspaceId,
       backendRunId: typeof backendRunId === "string" ? backendRunId : undefined,
     });
+    let result = await executeRecipe();
+    // The user can close the browser window between status polls. In that
+    // short window the store still says "running", while its CDP endpoint is
+    // already dead. Recover the same selected profile exactly once and replay
+    // from step one; never guess another profile or enter a restart loop.
+    if (result.status === "failed" && (sessionLost(result.error ?? "") || proxyTunnelLost(result.error ?? ""))) {
+      trackEvent("automation_recipe_session_recovery", { runtime, has_profile: !!profile });
+      if (proxyTunnelLost(result.error ?? "")) {
+        const profileModel = profile ? get().profiles.find((item) => item.name === profile) : undefined;
+        if (profile && profileModel?.country && !profileModel.manual_proxy) {
+          await get().rotateProfile(profile);
+          result = await executeRecipe();
+          trackEvent(`automation_recipe_${result.status}`, { action_count: skill.actions.length, runtime, failed_step: result.failedStep });
+          return result;
+        }
+        if (profile) await get().stopProfile(profile).catch(() => undefined);
+        else await get().stopDefaultSession().catch(() => undefined);
+      }
+      if (profile) await get().startProfile(profile);
+      else await get().startDefaultSession();
+      result = await executeRecipe();
+    }
     trackEvent(`automation_recipe_${result.status}`, { action_count: skill.actions.length, runtime, failed_step: result.failedStep });
     return result;
   },

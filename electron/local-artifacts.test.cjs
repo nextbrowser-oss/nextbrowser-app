@@ -89,3 +89,26 @@ test("sanitizes names and does not expose workspace identifiers in directory nam
   assert.ok(resolved.startsWith(path.join(root, "store", workspaceKey("private/workspace"))));
   assert.equal(resolved.includes("private/workspace"), false);
 });
+
+test("validates saved JSON data instead of accepting null-only artifacts", async (t) => {
+  const { store } = await fixture(t);
+  const empty = await store.addBytes("workspace", "empty.json", JSON.stringify({ result: [
+    { name: null, price: null },
+    { name: null, price: null },
+  ], session: { name: "default" } }));
+  const complete = await store.addBytes("workspace", "complete.json", JSON.stringify([
+    { name: "Alpha", price: "$1" },
+    { name: "Beta", price: "$2" },
+  ]));
+  const malformed = await store.addBytes("workspace", "broken.json", "{not-json");
+
+  assert.deepEqual(await store.validate("workspace", empty.id), {
+    valid: false,
+    reason: "The JSON artifact contains only empty or null values.",
+  });
+  assert.deepEqual(await store.validate("workspace", complete.id), { valid: true });
+  assert.deepEqual(await store.validate("workspace", malformed.id), {
+    valid: false,
+    reason: "The artifact is not valid JSON.",
+  });
+});

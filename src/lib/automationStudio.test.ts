@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { artifactActionFromTask, capturedRunFromHybridRecording, capturedRunFromManualRecording, capturedTaskRunsForRecording, skillFromRun, type CapturedRun, type ManualBrowserRecording } from "./automationStudio";
+import { artifactActionFromTask, capturedRunFromHybridRecording, capturedRunFromManualRecording, capturedTaskRunsForRecording, hasPendingTaskRunForRecording, skillFromRun, type CapturedRun, type ManualBrowserRecording } from "./automationStudio";
 import { recordedBrowserActions } from "./workflowCapture";
+import type { Conversation } from "../types";
 
 function agentRun(): CapturedRun {
   return {
@@ -32,6 +33,22 @@ function agentRun(): CapturedRun {
 }
 
 describe("hybrid browser recording", () => {
+  it("recognizes the visible final answer while its completion status is still settling", () => {
+    const conversations: Conversation[] = [{
+      id: "conversation", title: "CMC research", agent: "codex", workspaceId: "workspace", createdAt: 900, updatedAt: 1_200,
+      messages: [
+        { id: "task", role: "user", text: "Collect the top five", status: "done", createdAt: 1_100 },
+        { id: "answer", role: "assistant", text: "Saved five results.", status: "streaming", createdAt: 1_200 },
+      ],
+    }];
+    const recording = { workspaceId: "workspace", agentId: "codex", startedAt: 1_000 };
+    expect(hasPendingTaskRunForRecording(conversations, recording)).toBe(true);
+    expect(capturedTaskRunsForRecording(conversations, recording)).toEqual([]);
+    conversations[0].messages[1].status = "done";
+    expect(hasPendingTaskRunForRecording(conversations, recording)).toBe(false);
+    expect(capturedTaskRunsForRecording(conversations, recording)).toHaveLength(1);
+  });
+
   it("retains the real chat task when structured agent tool telemetry is unavailable", () => {
     const runs = capturedTaskRunsForRecording([{
       id: "conversation", title: "CMC research", agent: "codex", workspaceId: "workspace", createdAt: 900, updatedAt: 1_200,
@@ -50,6 +67,16 @@ describe("hybrid browser recording", () => {
     const result = capturedRunFromHybridRecording("manual", recording);
     expect(result?.captureSource).toBe("manual");
     expect(recordedBrowserActions(result?.evidence || "")).toEqual([{ tool: "open", arguments: { url: "https://example.com" } }]);
+  });
+
+  it("redacts sensitive text again before a manual recording is persisted", () => {
+    const result = capturedRunFromManualRecording("manual-secret", { actions: [
+      { tool: "open", arguments: { url: "https://example.com/login" }, at: 1_000 },
+      { tool: "input", arguments: { selector: "input[type=password]", text: "actual-password" }, at: 2_000 },
+      { tool: "click", arguments: { locator: { role: "button", name: "Sign in" } }, at: 3_000 },
+    ] });
+    expect(result?.evidence).not.toContain("actual-password");
+    expect(result?.evidence).toContain("{{redacted}}");
   });
 
   it("drops the previously open page from a stopped manual capture", () => {

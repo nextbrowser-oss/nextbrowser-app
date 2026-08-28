@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const { PassThrough, Writable } = require("node:stream");
 const test = require("node:test");
+require("./automation-qa-matrix.node.cjs");
 const { cancelAutomationRecipe, executeAutomationRecipe, expandTemplates, resolveSemanticAction, toolCalls, validateRecipe } = require("./automation-runner.cjs");
 
 function fakeMCP(handler) {
@@ -33,6 +34,21 @@ test("validates recipe bounds and expands parameters without evaluating code", (
   assert.deepEqual(expandTemplates({ text: "Find {{query}}", exact: "{{limit}}" }, { query: "books", limit: 5 }), { text: "Find books", exact: 5 });
 });
 
+test("rejects a missing workflow input before launching or changing the browser", async () => {
+  let launched = false;
+  const result = executeAutomationRecipe({
+    executionId: "missing-input",
+    parameters: {},
+    recipe: { version: 1, actions: [
+      { tool: "open", arguments: { url: "https://example.com" } },
+      { tool: "input", arguments: { selector: "input", text: "{{query}}" } },
+    ] },
+  }, { binary: "nbc", env: {}, spawnImpl: () => { launched = true; throw new Error("must not launch"); } });
+
+  await assert.rejects(result, /Step 2 needs a value for “query”/);
+  assert.equal(launched, false);
+});
+
 test("maps recorded navigation and accessible-name actions to deterministic MCP calls", () => {
   assert.deepEqual(toolCalls({ tool: "navigate", arguments: { url: "https://example.com", profile: "ignored" } }), [{ name: "open", arguments: { url: "https://example.com" } }]);
   const calls = toolCalls({ tool: "click", arguments: { locator: { role: "button", name: "Search" }, wait_for: { selector: ".results" } } });
@@ -41,6 +57,59 @@ test("maps recorded navigation and accessible-name actions to deterministic MCP 
   assert.match(calls[0].arguments.expression, /element\.click\(\)/);
   assert.match(calls[0].arguments.expression, /element\.labels/);
   assert.match(calls[0].arguments.expression, /aria-labelledby/);
+});
+
+test("normalizes a recorded URL field to a relative link attribute", () => {
+  const [call] = toolCalls({
+    tool: "paginate_extract",
+    arguments: {
+      container: "table tr",
+      fields: { name: { selector: "td:nth-child(3) span" }, url: { selector: "" } },
+      transform: { url: "url" },
+      scroll: true,
+    },
+  });
+  assert.deepEqual(call.arguments.fields.url, { selector: "a[href]", attribute: "href" });
+});
+
+test("keeps the local required row contract out of MCP arguments", () => {
+  const [call] = toolCalls({
+    tool: "extract",
+    arguments: {
+      container: ".row",
+      fields: { title: { selector: ".title" } },
+      limit: 10,
+      required_rows: 10,
+    },
+  });
+  assert.equal(call.arguments.limit, 10);
+  assert.equal(Object.hasOwn(call.arguments, "required_rows"), false);
+});
+
+test("normalizes displayed or missing ordinal ranks before validating an extraction", async () => {
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    return { content: [{ type: "text", text: JSON.stringify({ rows: [
+      { rank: "1st", name: "Solana" },
+      { rank: null, name: "Ethereum" },
+    ] }) }] };
+  });
+  const result = await executeAutomationRecipe({
+    executionId: "normalize-ordinal-ranks",
+    recipe: { version: 1, actions: [{
+      tool: "extract",
+      arguments: {
+        container: "tr",
+        fields: { rank: { selector: ".rank" }, name: { selector: ".name" } },
+        transform: { rank: "number" },
+      },
+    }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl });
+  assert.equal(result.status, "completed");
+  assert.deepEqual(result.results[0].output.rows, [
+    { rank: 1, name: "Solana" },
+    { rank: 2, name: "Ethereum" },
+  ]);
 });
 
 test("clicks semantic form controls directly instead of relying on a stale state element id", () => {
@@ -143,6 +212,78 @@ test("retries only transient navigation failures", async () => {
   assert.ok(progress.some((update) => /Retrying navigation/.test(update.detail)));
 });
 
+test("retries a temporary proxy tunnel navigation failure", async () => {
+  let opens = 0;
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    if (message.params.name === "open" && opens++ === 0) {
+      return { isError: true, content: [{ type: "text", text: "navigation failed: net::ERR_TUNNEL_CONNECTION_FAILED" }] };
+    }
+    return { content: [{ type: "text", text: JSON.stringify({ ok: true }) }] };
+  });
+  const result = await executeAutomationRecipe({
+    executionId: "retry-proxy-tunnel",
+    recipe: { version: 1, actions: [{ tool: "open", arguments: { url: "https://example.com" } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+
+  assert.equal(result.status, "completed");
+  assert.equal(opens, 2);
+});
+
+test("retries an aborted navigation from a page that was already loading", async () => {
+  let opens = 0;
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    if (message.params.name === "open" && opens++ === 0) {
+      return { isError: true, content: [{ type: "text", text: "open failed: navigation failed: net::ERR_ABORTED" }] };
+    }
+    return { content: [{ type: "text", text: JSON.stringify({ ok: true }) }] };
+  });
+  const result = await executeAutomationRecipe({
+    executionId: "retry-aborted-navigation",
+    recipe: { version: 1, actions: [{ tool: "open", arguments: { url: "https://example.com" } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+  assert.equal(result.status, "completed");
+  assert.equal(opens, 2);
+});
+
+test("retries a navigation whose browser context temporarily reaches its deadline", async () => {
+  let opens = 0;
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    if (message.params.name === "open" && opens++ === 0) {
+      return { isError: true, content: [{ type: "text", text: "open failed: context deadline exceeded" }] };
+    }
+    return { content: [{ type: "text", text: JSON.stringify({ ok: true }) }] };
+  });
+  const result = await executeAutomationRecipe({
+    executionId: "retry-navigation-deadline",
+    recipe: { version: 1, actions: [{ tool: "open", arguments: { url: "https://example.com" } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+
+  assert.equal(result.status, "completed");
+  assert.equal(opens, 2);
+});
+
+test("continues to validated data when a wait races with a page navigation", async () => {
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    if (message.params.name === "wait") return { isError: true, content: [{ type: "text", text: "cdp Runtime.evaluate: Inspected target navigated or closed (-32000)" }] };
+    if (message.params.name === "evaluate") return { content: [{ type: "text", text: JSON.stringify({ result: [{ title: "Loaded" }] }) }] };
+    return { content: [{ type: "text", text: JSON.stringify({ ok: true }) }] };
+  });
+  const result = await executeAutomationRecipe({
+    executionId: "wait-navigation-race",
+    recipe: { version: 1, actions: [
+      { tool: "wait", arguments: { selector: ".ready" } },
+      { tool: "evaluate", arguments: { expression: "[...document.querySelectorAll('.row')]" } },
+    ] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.results[0].output.continued_to_validated_data_step, true);
+});
+
 test("does not retry permanent navigation failures", async () => {
   let opens = 0;
   const server = fakeMCP((message) => {
@@ -180,6 +321,25 @@ test("runs artifact steps locally with access to earlier results", async () => {
   assert.equal(result.results[1].output.artifact.name, "books.csv");
 });
 
+test("continues from a timed-out readiness hint into a validated data step", async () => {
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    if (message.params.name === "wait") return { isError: true, content: [{ type: "text", text: "wait failed: wait timed out" }] };
+    return { content: [{ type: "text", text: JSON.stringify({ rows: [{ name: "Bitcoin" }] }) }] };
+  });
+  const result = await executeAutomationRecipe({
+    executionId: "soft-readiness-wait",
+    recipe: { version: 1, actions: [
+      { tool: "wait", arguments: { selector: ".dynamic", timeout: 30 } },
+      { tool: "extract", arguments: { container: ".row", fields: { name: { selector: ".name" } }, result_key: "coins" } },
+    ] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+  assert.equal(result.status, "completed");
+  assert.equal(result.results[0].output.continued_to_validated_data_step, true);
+  const waitCall = server.calls.find((call) => call.params?.name === "wait");
+  assert.equal(waitCall.params.arguments.timeout, 8);
+});
+
 test("rejects extraction rows that contain only empty field values", async () => {
   const server = fakeMCP((message) => message.method === "initialize"
     ? { protocolVersion: "2025-03-26", capabilities: {} }
@@ -190,6 +350,92 @@ test("rejects extraction rows that contain only empty field values", async () =>
   }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
   assert.equal(result.status, "failed");
   assert.match(result.error, /returned only empty rows/);
+});
+
+test("does not save a partial artifact when the workflow requires more rows", async () => {
+  const server = fakeMCP((message) => message.method === "initialize"
+    ? { protocolVersion: "2025-03-26", capabilities: {} }
+    : { content: [{ type: "text", text: JSON.stringify({ rows: [
+      { rank: "1", name: "One" },
+      { rank: "2", name: "Two" },
+    ], count: 2 }) }] });
+  const local = [];
+  const result = await executeAutomationRecipe({
+    executionId: "required-extraction-rows",
+    recipe: { version: 1, actions: [
+      { tool: "extract", arguments: { container: "tr", fields: { rank: { selector: ".rank" }, name: { selector: ".name" } }, limit: 5, required_rows: 5 } },
+      { tool: "save_artifact", arguments: { source: "last_result", format: "json", name: "rows.json" } },
+    ] },
+  }, {
+    binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {},
+    onLocalAction: async () => { local.push(true); return { saved: true }; },
+  });
+  assert.equal(result.status, "failed");
+  assert.equal(result.failedStep, 0);
+  assert.match(result.error, /returned 2 complete result rows.*requires 5/i);
+  assert.equal(local.length, 0);
+});
+
+test("does not treat rank-only evaluate rows as extracted data", async () => {
+  const server = fakeMCP((message) => message.method === "initialize"
+    ? { protocolVersion: "2025-03-26", capabilities: {} }
+    : { content: [{ type: "text", text: JSON.stringify({
+      result: Array.from({ length: 5 }, (_, index) => ({ rank: index + 1, name: null, symbol: null, price: null })),
+      session: { name: "default" },
+    }) }] });
+  const result = await executeAutomationRecipe({
+    executionId: "rank-only-evaluate",
+    recipe: { version: 1, actions: [{ tool: "evaluate", arguments: { expression: 'Array.from(document.querySelectorAll("tr"))' } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+  assert.equal(result.status, "failed");
+  assert.match(result.error, /returned only empty values/);
+  assert.equal(server.calls.filter((call) => call.method === "tools/call").length, 21);
+});
+
+test("rejects partially empty evaluate row sets instead of saving incomplete data", async () => {
+  const server = fakeMCP((message) => message.method === "initialize"
+    ? { protocolVersion: "2025-03-26", capabilities: {} }
+    : { content: [{ type: "text", text: JSON.stringify({ result: [
+      { rank: 1, name: "Bitcoin", price: "$1" },
+      { rank: 2, name: null, price: null },
+    ] }) }] });
+  const local = [];
+  const result = await executeAutomationRecipe({
+    executionId: "partially-empty-evaluate",
+    recipe: { version: 1, actions: [
+      { tool: "evaluate", arguments: { expression: 'Array.from(document.querySelectorAll("tr"))' } },
+      { tool: "save_artifact", arguments: { source: "last_result", format: "json", name: "coins.json" } },
+    ] },
+  }, {
+    binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {},
+    onLocalAction: async () => { local.push(true); return { saved: true }; },
+  });
+  assert.equal(result.status, "failed");
+  assert.equal(local.length, 0);
+});
+
+test("rejects semantically invalid extracted URLs before saving an artifact", async () => {
+  const server = fakeMCP((message) => message.method === "initialize"
+    ? { protocolVersion: "2025-03-26", capabilities: {} }
+    : { content: [{ type: "text", text: JSON.stringify({ rows: [
+      { rank: "1", name: "Bitcoin", url: "1 Bitcoin BTC $1" },
+      { rank: "2", name: "Ether", url: "2 Ether ETH $2" },
+    ] }) }] });
+  const local = [];
+  const result = await executeAutomationRecipe({
+    executionId: "invalid-extracted-url",
+    recipe: { version: 1, actions: [
+      { tool: "extract", arguments: { container: "tr", fields: { rank: { selector: ".rank" }, name: { selector: ".name" }, url: { selector: "" } }, transform: { url: "url" } } },
+      { tool: "save_artifact", arguments: { source: "last_result", format: "json", name: "coins.json", contract: { kind: "rows", min_rows: 2, fields: { rank: "non_empty", name: "non_empty", url: "url" } } } },
+    ] },
+  }, {
+    binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {},
+    onLocalAction: async () => { local.push(true); return { saved: true }; },
+  });
+  assert.equal(result.status, "failed");
+  assert.equal(result.failedStep, 0);
+  assert.match(result.error, /invalid.*url/i);
+  assert.equal(local.length, 0);
 });
 
 test("waits for dynamic extraction rows to become populated", async () => {
@@ -227,6 +473,55 @@ test("retries a page script that reports temporarily incomplete dynamic data", a
   assert.equal(evaluations, 3);
 });
 
+test("retries a page script that expects a populated top-N result", async () => {
+  let evaluations = 0;
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    evaluations += 1;
+    return evaluations < 3
+      ? { isError: true, content: [{ type: "text", text: "Error: Expected 5 populated trending rows" }] }
+      : { content: [{ type: "text", text: JSON.stringify({ result: Array.from({ length: 5 }, (_, index) => ({ rank: index + 1, name: `Coin ${index + 1}`, price: "$1" })) }) }] };
+  });
+  const result = await executeAutomationRecipe({
+    executionId: "dynamic-populated-top-n",
+    recipe: { version: 1, actions: [{ tool: "evaluate", arguments: { expression: 'Array.from(document.querySelectorAll("tbody tr"))' } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+  assert.equal(result.status, "completed");
+  assert.equal(evaluations, 3);
+});
+
+test("retries a page script that expects at least a populated top-N result", async () => {
+  let evaluations = 0;
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    evaluations += 1;
+    return evaluations < 2
+      ? { isError: true, content: [{ type: "text", text: "runtime evaluation failed: Error: Expected at least 5 populated trending rows" }] }
+      : { content: [{ type: "text", text: JSON.stringify({ result: Array.from({ length: 5 }, (_, index) => ({ rank: index + 1, name: `Coin ${index + 1}`, price: "$1" })) }) }] };
+  });
+  const result = await executeAutomationRecipe({
+    executionId: "dynamic-at-least-top-n",
+    recipe: { version: 1, actions: [{ tool: "evaluate", arguments: { expression: 'Array.from(document.querySelectorAll("tbody tr"))' } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+  assert.equal(result.status, "completed");
+  assert.equal(evaluations, 2);
+});
+
+test("retries a recorded page script whose temporary row error spells out the count", async () => {
+  let attempts = 0;
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    if (attempts++ === 0) return { isError: true, content: [{ type: "text", text: "runtime evaluation failed: Expected five complete CMC trending rows" }] };
+    return { content: [{ type: "text", text: JSON.stringify({ result: [{ rank: 1, name: "Solana", symbol: "SOL", price: "$1", url: "https://coinmarketcap.com/currencies/solana/" }] }) }] };
+  });
+  const result = await executeAutomationRecipe({
+    executionId: "retry-spelled-row-count",
+    recipe: { version: 1, actions: [{ tool: "evaluate", arguments: { expression: "document.querySelectorAll('tr')" } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, sleep: async () => {} });
+  assert.equal(result.status, "completed");
+  assert.equal(attempts, 2);
+});
+
 test("replays read-only page extraction scripts and rejects unsafe scripts", async () => {
   const server = fakeMCP((message) => message.method === "initialize"
     ? { protocolVersion: "2025-03-26", capabilities: {} }
@@ -244,6 +539,19 @@ test("replays read-only page extraction scripts and rejects unsafe scripts", asy
   }, { binary: "nbc", env: {}, spawnImpl: fakeMCP(() => ({ protocolVersion: "2025-03-26", capabilities: {} })).spawnImpl });
   assert.equal(unsafe.status, "failed");
   assert.match(unsafe.error, /cannot be replayed safely/);
+
+  const samePageJSON = await executeAutomationRecipe({
+    executionId: "same-page-json",
+    recipe: { version: 1, actions: [{ tool: "evaluate", arguments: { expression: "(async()=>{const response=await fetch(location.href,{cache:'no-store'});return response.json()})()" } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl });
+  assert.notEqual(samePageJSON.error, "The saved page data script is missing or uses browser data/actions that cannot be replayed safely.");
+
+  const externalFetch = await executeAutomationRecipe({
+    executionId: "external-fetch",
+    recipe: { version: 1, actions: [{ tool: "evaluate", arguments: { expression: "fetch('https://example.com/data.json')" } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: fakeMCP(() => ({ protocolVersion: "2025-03-26", capabilities: {} })).spawnImpl });
+  assert.equal(externalFetch.status, "failed");
+  assert.match(externalFetch.error, /cannot be replayed safely/);
 
   const empty = await executeAutomationRecipe({
     executionId: "empty-page-script",
@@ -299,4 +607,18 @@ test("cancels an in-flight MCP action", async () => {
   const result = await execution;
   assert.equal(result.status, "cancelled");
   hold({ content: [] });
+});
+
+test("honors Stop pressed while the profile is still preparing", async () => {
+  const executionId = "cancel-before-runner-start";
+  assert.equal(cancelAutomationRecipe(executionId), true);
+  const server = fakeMCP(() => ({ content: [{ type: "text", text: JSON.stringify({ ok: true }) }] }));
+  const progress = [];
+  const result = await executeAutomationRecipe({
+    executionId,
+    recipe: { version: 1, actions: [{ tool: "open", arguments: { url: "https://example.com" } }] },
+  }, { binary: "nbc", env: {}, spawnImpl: server.spawnImpl, onProgress: (update) => progress.push(update) });
+  assert.equal(result.status, "cancelled");
+  assert.equal(server.calls.length, 0);
+  assert.equal(progress.at(-1).phase, "cancelled");
 });

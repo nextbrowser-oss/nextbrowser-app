@@ -12,12 +12,25 @@ export interface ParsedManualProxyClipboard extends ParsedManualProxyUrl {
   source: "url" | "fields";
 }
 
+export interface ParsedManualProxyBatchItem {
+  lineNumber: number;
+  raw: string;
+  proxy: ParsedManualProxyUrl;
+}
+
+export interface ManualProxyBatchError {
+  lineNumber: number;
+  message: string;
+}
+
 export const manualProxyLimits = {
   name: 120,
   host: 512,
   username: 512,
   password: 16_384,
   url: 17_500,
+  batchLines: 500,
+  batchText: 1_000_000,
 } as const;
 
 const defaultPorts: Record<ManualProxyScheme, number> = {
@@ -118,6 +131,68 @@ export function parseManualProxyClipboard(rawValue: string): ParsedManualProxyCl
   }
 
   return { source: "url", ...parseManualProxyUrl(raw) };
+}
+
+function proxyFingerprint(proxy: ParsedManualProxyUrl): string {
+  return [proxy.scheme, proxy.host.toLowerCase(), proxy.port, proxy.username, proxy.password].join("\u0000");
+}
+
+export function parseManualProxyBatch(rawValue: string): {
+  items: ParsedManualProxyBatchItem[];
+  errors: ManualProxyBatchError[];
+} {
+  if (rawValue.length > manualProxyLimits.batchText) {
+    return {
+      items: [],
+      errors: [{
+        lineNumber: 0,
+        message: `Proxy list is too large (maximum ${manualProxyLimits.batchText.toLocaleString("en-US")} characters).`,
+      }],
+    };
+  }
+
+  const lines = rawValue.split(/\r?\n/)
+    .map((raw, index) => ({ raw: raw.trim(), lineNumber: index + 1 }))
+    .filter(({ raw }) => raw.length > 0);
+  if (lines.length > manualProxyLimits.batchLines) {
+    return {
+      items: [],
+      errors: [{
+        lineNumber: 0,
+        message: `Add up to ${manualProxyLimits.batchLines.toLocaleString("en-US")} proxies at a time.`,
+      }],
+    };
+  }
+
+  const items: ParsedManualProxyBatchItem[] = [];
+  const errors: ManualProxyBatchError[] = [];
+  const firstLineByProxy = new Map<string, number>();
+  for (const line of lines) {
+    try {
+      const parsed = parseManualProxyClipboard(line.raw);
+      const proxy = {
+        scheme: parsed.scheme,
+        host: parsed.host,
+        port: parsed.port,
+        username: parsed.username,
+        password: parsed.password,
+      };
+      const fingerprint = proxyFingerprint(proxy);
+      const firstLine = firstLineByProxy.get(fingerprint);
+      if (firstLine) {
+        errors.push({ lineNumber: line.lineNumber, message: `Duplicate of line ${firstLine}.` });
+        continue;
+      }
+      firstLineByProxy.set(fingerprint, line.lineNumber);
+      items.push({ ...line, proxy });
+    } catch (error) {
+      errors.push({
+        lineNumber: line.lineNumber,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return { items, errors };
 }
 
 export function validateManualProxyFields(input: {

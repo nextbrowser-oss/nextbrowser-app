@@ -3,6 +3,19 @@ const path = require("node:path");
 const { createHash, randomUUID } = require("node:crypto");
 
 const MAX_ARTIFACT_BYTES = 1024 * 1024 * 1024;
+const MAX_VALIDATION_BYTES = 8 * 1024 * 1024;
+
+function hasMeaningfulJson(value) {
+  if (value == null) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value === "boolean") return true;
+  if (Array.isArray(value)) return value.length > 0 && value.every(hasMeaningfulJson);
+  if (typeof value !== "object") return false;
+  if (Object.prototype.hasOwnProperty.call(value, "result")) return hasMeaningfulJson(value.result);
+  const entries = Object.entries(value).filter(([key]) => key !== "session");
+  return entries.length > 0 && entries.some(([, item]) => hasMeaningfulJson(item));
+}
 
 function workspaceKey(workspaceId) {
   const value = String(workspaceId || "").trim();
@@ -159,6 +172,25 @@ function createLocalArtifactStore({ rootDir, now = () => Date.now(), makeId = ra
       return target;
     },
 
+    async validate(workspaceId, id) {
+      const item = (await readIndex(workspaceId)).find((candidate) => candidate.id === id);
+      if (!item) throw new Error("This local artifact no longer exists.");
+      const target = await this.resolvePath(workspaceId, id);
+      if (item.size <= 0) return { valid: false, reason: "The artifact is empty." };
+      if (item.size > MAX_VALIDATION_BYTES) return { valid: true };
+      const extension = path.extname(item.name).toLowerCase();
+      const content = await fs.readFile(target, "utf8");
+      if (!content.trim()) return { valid: false, reason: "The artifact is empty." };
+      if (extension !== ".json") return { valid: true };
+      try {
+        return hasMeaningfulJson(JSON.parse(content))
+          ? { valid: true }
+          : { valid: false, reason: "The JSON artifact contains only empty or null values." };
+      } catch {
+        return { valid: false, reason: "The artifact is not valid JSON." };
+      }
+    },
+
     delete(workspaceId, id) {
       return enqueue(workspaceId, async () => {
         const items = await readIndex(workspaceId);
@@ -189,4 +221,4 @@ function createLocalArtifactStore({ rootDir, now = () => Date.now(), makeId = ra
   };
 }
 
-module.exports = { MAX_ARTIFACT_BYTES, createLocalArtifactStore, safeFileName, workspaceKey };
+module.exports = { MAX_ARTIFACT_BYTES, createLocalArtifactStore, hasMeaningfulJson, safeFileName, workspaceKey };

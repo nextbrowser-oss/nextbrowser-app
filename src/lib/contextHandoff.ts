@@ -6,6 +6,10 @@ function clean(text: string): string {
   return text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/\r/g, "").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 function tailWithinLimit(lines: string[], limit = MAX_HANDOFF_CHARS): string {
   const kept: string[] = [];
   let size = 0;
@@ -94,7 +98,8 @@ export function terminalInputWithDeferredContext(
 }
 
 export function terminalBrowserScopeContext(
-  profiles: Array<{ name: string; runtime: "clawbrowser" | "dasbrowser" | "camoufox"; selected?: boolean }>,
+  profiles: Array<{ name: string; runtime: "clawbrowser" | "dasbrowser" | "camoufox"; running?: boolean; selected?: boolean }>,
+  recorderActive = false,
 ): string | undefined {
   if (!profiles.length) return undefined;
   const runtimeLabel = (runtime: string) => runtime === "camoufox"
@@ -106,9 +111,15 @@ export function terminalBrowserScopeContext(
     profiles.findIndex((candidate) => candidate.name === profile.name) === index
   );
   const rows = uniqueProfiles.map((profile) =>
-    `- ${profile.name}: ${runtimeLabel(profile.runtime)}${profile.selected ? " (selected)" : ""}`,
+    `- ${profile.name}: ${runtimeLabel(profile.runtime)} (${profile.running ? "running" : "stopped"}${profile.selected ? ", selected" : ""})`,
   );
-  return `NextBrowser workspace browser access (not project chat history):\n${rows.join("\n")}\nUse an explicit profile name exactly; otherwise use the selected or sole profile. If several profiles are plausible, ask which one to use. Ignore profile names from older turns. Never invent, clone, create, start, or substitute an unlisted profile, and do not use another browser-control integration.`;
+  const startCommands = uniqueProfiles.map((profile) =>
+    `- Start ${profile.name} exactly: curl -sS -X POST "$NEXTBROWSER_CONTROL_URL/profile/start" -H "Authorization: Bearer $NEXTBROWSER_CONTROL_TOKEN" -H "Content-Type: application/json" --data ${shellSingleQuote(JSON.stringify({ profile: profile.name }))}`,
+  );
+  const recorderContext = recorderActive
+    ? "\nRecorder is active. A reusable recording must contain a successful nextbrowser.extract, nextbrowser.paginate_extract, nextbrowser.tabs_extract, or read-only nextbrowser.evaluate call returning the exact final dataset. State is discovery only: never construct the artifact solely from state output or reasoning. Perform the final deterministic data call after state and before Artifact Center save. For evaluate, select the target by stable content, attributes, or headers rather than a numeric querySelectorAll position, and throw unless the requested row count and fields are populated. If the final dataset comes from a public JSON endpoint, use its replayable GET form when available: open that exact API URL in the listed browser profile, then evaluate the JSON body. Never leave the final request hidden in curl, fetch, or an uncaptured shell action, because Recorder cannot replay it. Do not finish with only open, state, and save_artifact."
+    : "";
+  return `NextBrowser workspace browser access (not project chat history):\n${rows.join("\n")}\nUse an explicit profile name exactly; otherwise use the selected or sole profile. If several profiles are plausible, ask which one to use. Ignore profile names from older turns. Never invent, clone, create, start, or substitute an unlisted profile, and do not use another browser-control integration. A runtime label such as ClawBrowser, Camoufox, or DasBrowser is not a profile name and must never be passed as one.${startCommands.length ? `\nAuthorized recovery commands (available even when status says running because the user may close the browser manually; copy only the matching command and never replace its profile value):\n${startCommands.join("\n")}` : ""}\nIf the chosen listed profile is stopped, or a page tool reports that its session is missing, closed, refused, or unreachable, run its exact authorized host start command once. On Windows use curl.exe. The successful response contains the canonical session name; retry the original page action once with that exact name. If either attempt fails, report that error without trying another name. For Artifact Center JSON, send one complete request; never use --data-binary @- without an attached heredoc and never create a temporary workspace file. Use: curl -sS -X POST "$NEXTBROWSER_CONTROL_URL/artifact/save" -H "Authorization: Bearer $NEXTBROWSER_CONTROL_TOKEN" -H "Content-Type: application/json" --data-binary @- <<'NEXTBROWSER_ARTIFACT_JSON', followed by one JSON object containing name, format, and non-empty content, then NEXTBROWSER_ARTIFACT_JSON on its own line.${recorderContext}`;
 }
 
 export function terminalLineBufferAfter(current: string, data: string): string {

@@ -28,6 +28,85 @@ function usefulValue(value) {
   return current;
 }
 
+function normalizedJSONContent(content, format = "json") {
+  if (String(format).toLowerCase() !== "json" || typeof content !== "string") return content;
+  try { return JSON.parse(content.trim()); }
+  catch { return content; }
+}
+
+function meaningfulContractValue(value) {
+  if (value == null) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value === "boolean") return true;
+  if (Array.isArray(value)) return value.length > 0;
+  return typeof value === "object" && Object.keys(value).length > 0;
+}
+
+function validHTTPURL(value) {
+  if (typeof value !== "string") return false;
+  try { return ["http:", "https:"].includes(new URL(value).protocol); }
+  catch { return false; }
+}
+
+function buildArtifactDataContract(content, format = "json") {
+  if (String(format).toLowerCase() !== "json") return undefined;
+  return contractForArtifactValue(usefulValue(normalizedJSONContent(content, format)));
+}
+
+function contractForArtifactValue(value, depth = 0) {
+  if (depth > 4) return "non_empty";
+  if (Array.isArray(value)) {
+    if (!value.length || !value.every((row) => row && typeof row === "object" && !Array.isArray(row))) return undefined;
+    const commonFields = Object.keys(value[0]).filter((field) => value.every((row) => meaningfulContractValue(row[field])));
+    if (!commonFields.length) return undefined;
+    const fields = Object.fromEntries(commonFields.map((field) => [field,
+      value.every((row) => validHTTPURL(row[field])) ? "url"
+        : value.every((row) => typeof row[field] === "number" && Number.isFinite(row[field])) ? "number"
+          : "non_empty",
+    ]));
+    return { kind: "rows", min_rows: value.length, fields };
+  }
+  if (!value || typeof value !== "object") return undefined;
+  const entries = Object.entries(value).filter(([, item]) => meaningfulContractValue(item));
+  if (!entries.length) return undefined;
+  const fields = Object.fromEntries(entries.map(([field, item]) => {
+    const nested = item && typeof item === "object" ? contractForArtifactValue(usefulValue(item), depth + 1) : undefined;
+    return [field, nested || (validHTTPURL(item) ? "url" : typeof item === "number" && Number.isFinite(item) ? "number" : "non_empty")];
+  }));
+  return { kind: "object", fields };
+}
+
+function assertArtifactDataContract(value, contract) {
+  if (contract?.kind === "object") {
+    const object = usefulValue(value);
+    if (!object || typeof object !== "object" || Array.isArray(object)) throw new Error("The replayed artifact must contain the requested named datasets.");
+    for (const [field, rule] of Object.entries(contract.fields || {})) {
+      if (!meaningfulContractValue(object[field])) throw new Error(`The replayed artifact is missing a populated “${field}” field.`);
+      if (rule && typeof rule === "object") assertArtifactDataContract(object[field], rule);
+      else if (rule === "url" && !validHTTPURL(object[field])) throw new Error(`The replayed “${field}” field must contain a valid HTTP or HTTPS URL.`);
+      else if (rule === "number" && (typeof object[field] !== "number" || !Number.isFinite(object[field]))) throw new Error(`The replayed “${field}” field must contain a number.`);
+    }
+    return;
+  }
+  if (!contract || contract.kind !== "rows") return;
+  const rows = usefulValue(value);
+  if (!Array.isArray(rows) || rows.length < Number(contract.min_rows || 1)) {
+    throw new Error(`The replayed dataset must contain at least ${Number(contract.min_rows || 1)} rows before it can be saved.`);
+  }
+  for (const [field, rule] of Object.entries(contract.fields || {})) {
+    if (!rows.every((row) => row && meaningfulContractValue(row[field]))) {
+      throw new Error(`The replayed dataset is missing a populated “${field}” field.`);
+    }
+    if (rule === "url" && !rows.every((row) => validHTTPURL(row[field]))) {
+      throw new Error(`The replayed “${field}” field must contain a valid HTTP or HTTPS URL in every row.`);
+    }
+    if (rule === "number" && !rows.every((row) => typeof row[field] === "number" && Number.isFinite(row[field]))) {
+      throw new Error(`The replayed “${field}” field must contain a number in every row.`);
+    }
+  }
+}
+
 function csvCell(value) {
   const text = value == null ? "" : typeof value === "object" ? JSON.stringify(value) : String(value);
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -53,14 +132,24 @@ async function saveAutomationArtifact({ action, results, workspaceId, runId, sto
   const spec = normalizeArtifactAction(action);
   const completed = results.filter((result) => result?.ok);
   if (!completed.length) throw new Error("There is no completed workflow result to save yet. Move this step after a data-producing step.");
+  const collected = completed.filter(({ tool }) => DATA_TOOLS.has(tool));
+  const keyedCollected = collected.length > 1 && collected.every(({ resultKey }) => typeof resultKey === "string" && resultKey.trim());
   const value = spec.source === "run_results"
     ? completed.map(({ index, tool, output }) => ({ step: index + 1, tool, output }))
     : spec.source === "data_results"
-      ? completed.filter(({ tool }) => DATA_TOOLS.has(tool)).map(({ output }) => usefulValue(output))
-      : completed.at(-1).output;
+      ? keyedCollected
+        ? Object.fromEntries(collected.map(({ output, resultKey }) => {
+          const useful = usefulValue(output);
+          const scalar = Array.isArray(useful) && useful.length === 1 && useful[0] && typeof useful[0] === "object" && Object.prototype.hasOwnProperty.call(useful[0], resultKey)
+            ? useful[0][resultKey] : useful;
+          return [resultKey, scalar];
+        }))
+        : collected.map(({ output }) => usefulValue(output))
+      : usefulValue(completed.at(-1).output);
+  assertArtifactDataContract(value, action.arguments?.contract);
   const serialized = serializeArtifact(value, spec.format);
   const artifact = await store.addBytes(workspaceId, spec.name, serialized.bytes, { contentType: serialized.contentType, runId });
   return { saved: true, artifact };
 }
 
-module.exports = { asCSV, normalizeArtifactAction, saveAutomationArtifact, serializeArtifact, usefulValue };
+module.exports = { asCSV, assertArtifactDataContract, buildArtifactDataContract, normalizeArtifactAction, saveAutomationArtifact, serializeArtifact, usefulValue };

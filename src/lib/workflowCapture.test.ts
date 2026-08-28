@@ -120,6 +120,18 @@ Called clawbrowser.extract({"container":"article.product","fields":["title","pri
     ]);
   });
 
+  it("waits for table body rows used by a dynamic evaluate script", () => {
+    const transcript = [
+      'Called nextbrowser.open({"url":"https://example.com/trending"})\n{"ok":true}',
+      'Called nextbrowser.evaluate({"expression":"(() => { const table=[...document.querySelectorAll(\\"table\\")].find(t=>t.querySelectorAll(\\"tbody tr\\").length>=5); return [...table.querySelectorAll(\\"tbody tr\\")]; })()"})\n{"ok":true}',
+    ].join("\n");
+    expect(workflowRecipe("Collect five rows", transcript).actions).toEqual([
+      { tool: "open", arguments: { url: "https://example.com/trending" } },
+      { tool: "wait", arguments: { selector: "table tbody tr", timeout: 30 } },
+      { tool: "evaluate", arguments: { expression: '(() => { const table=[...document.querySelectorAll("table")].find(t=>t.querySelectorAll("tbody tr").length>=5); return [...table.querySelectorAll("tbody tr")]; })()' } },
+    ]);
+  });
+
   it("drops stale adjacent navigation and an ambiguous bare-tag click", () => {
     const noisy = [
       'Called clawbrowser.open({"url":"https://old.reddit.com/login"})\n{"ok":true}',
@@ -183,8 +195,56 @@ Called clawbrowser.extract({"container":"article.product","fields":["title","pri
     expect(workflowQuality(terminalBrowserTask(transcript), transcript).reusable).toBe(true);
   });
 
+  it("does not call an extraction-only trace reusable without a deterministic starting page", () => {
+    const content = 'Called clawbrowser.extract({"container":"tr.athing","fields":{"title":{"selector":"a"}}})\n{"ok":true,"count":5}';
+    expect(workflowQuality("Collect Hacker News stories", content, "news.ycombinator.com")).toEqual({
+      reusable: false,
+      reason: "The recording did not capture a starting page. Open the target page while recording so replay can start reliably.",
+    });
+  });
+
+  it("turns a fast navigate_extract call into self-contained replay steps", () => {
+    const content = [
+      'Called nextbrowser.navigate_extract({"profile":"Worker","runtime":"clawbrowser","url":"https://news.ycombinator.com/newest","ready_selector":"tr.athing","container":"tr.athing","fields":{"title":{"selector":".titleline > a"}},"limit":5,"timeout":30})',
+      '{"ok":true,"count":5}',
+      'Called nextbrowser.save_artifact({"source":"last_result","format":"json","name":"hn.json"})',
+      '{"ok":true}',
+    ].join("\n");
+    expect(workflowQuality("Collect Hacker News stories", content, "news.ycombinator.com").reusable).toBe(true);
+    expect(workflowRecipe("Collect Hacker News stories", content).actions).toEqual([
+      { tool: "open", arguments: { url: "https://news.ycombinator.com/newest" } },
+      { tool: "wait", arguments: { selector: "tr.athing", timeout: 30 } },
+      { tool: "extract", arguments: { container: "tr.athing", fields: { title: { selector: ".titleline > a" } }, limit: 5 } },
+      { tool: "save_artifact", arguments: { source: "last_result", format: "json", name: "hn.json" } },
+    ]);
+  });
+
   it("does not treat words inside extracted content as a tool failure", () => {
     const content = `Called clawbrowser.navigate({"url":"https://quotes.toscrape.com"})\n{"ok":true}\nCalled clawbrowser.extract({"container":"div.quote"})\n{"ok":true}\n${"A normal quote. ".repeat(40)}I have not failed; I found another way.`;
     expect(workflowQuality("Collect quotes from quotes.toscrape.com", content).reusable).toBe(true);
+  });
+
+  it("rejects a JSON body parser when the trace only captured an ordinary HTML page", () => {
+    const jsonFromMissingPage = [
+      'Called clawbrowser.open({"url":"https://coinmarketcap.com/trending-cryptocurrencies/"})',
+      '{"ok":true}',
+      'Called clawbrowser.evaluate({"expression":"JSON.parse(document.body.innerText)"})',
+      '{"ok":true,"count":5}',
+      'Called clawbrowser.save_artifact({"source":"last_result","format":"json","name":"coins.json"})',
+      '{"ok":true}',
+    ].join("\n");
+    const quality = workflowQuality("Collect coins from coinmarketcap.com", jsonFromMissingPage);
+    expect(quality.reusable).toBe(false);
+    expect(quality.reason).toMatch(/JSON page.*not captured/i);
+  });
+
+  it("accepts a JSON body parser when the API navigation is present", () => {
+    const jsonApi = [
+      'Called clawbrowser.open({"url":"https://api.example.com/data/list.json"})',
+      '{"ok":true}',
+      'Called clawbrowser.evaluate({"expression":"JSON.parse(document.body.innerText)"})',
+      '{"ok":true,"count":5}',
+    ].join("\n");
+    expect(workflowQuality("Collect data from example.com", jsonApi).reusable).toBe(true);
   });
 });

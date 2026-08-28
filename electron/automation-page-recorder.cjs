@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const POLL_MS = 250;
+const RECORDER_CALL_TIMEOUT_MS = 10_000;
 const MAX_ACTIONS = 100;
 const activeRecorders = new Map();
 const completedRecorders = new Map();
@@ -57,7 +58,9 @@ function recorderPageScript() {
     return role && name ? { locator: { role, name } } : { selector: selectorFor(element) };
   };
   const push = (tool, arguments_) => {
-    queue.push({ tool, arguments: arguments_, at: Date.now() });
+    const action = { tool, arguments: arguments_, at: Date.now(), eventId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` };
+    queue.push(action);
+    try { window.__nextbrowserRecorderEmit?.(JSON.stringify(action)); } catch { /* the queue remains the fallback */ }
     try { sessionStorage.setItem(storageKey, JSON.stringify(queue)); } catch { /* the in-memory queue still records the action */ }
   };
   const onClick = (event) => {
@@ -73,7 +76,7 @@ function recorderPageScript() {
     if (["checkbox", "radio", "button", "submit", "file"].includes(element.type)) return;
     const sensitive = element instanceof HTMLInputElement && element.type === "password"
       || /password|passcode|security code|card number|cvv|cvc|token|secret/i.test(`${element.name} ${element.id} ${element.placeholder} ${element.getAttribute("aria-label")}`);
-    push("input", { ...targetArguments(element), text: sensitive ? "{{secret}}" : element.value });
+    push("input", { ...targetArguments(element), text: sensitive ? "{{redacted}}" : element.value });
   };
   const onKey = (event) => {
     if (!["Enter", "Escape"].includes(event.key) || event.repeat) return;
@@ -112,6 +115,105 @@ function resultFromMCP(result) {
   } catch { return text; }
 }
 
+function resultEnvelopeFromMCP(result) {
+  const text = (result?.content || []).filter((item) => item?.type === "text").map((item) => item.text).join("\n").trim();
+  if (result?.isError) throw new Error(text || "The browser recorder could not access the page.");
+  if (!text) return { value: null, session: undefined };
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === "object" && Object.prototype.hasOwnProperty.call(parsed, "result") && parsed.session) {
+      return { value: parsed.result, session: parsed.session };
+    }
+    return { value: parsed, session: undefined };
+  } catch { return { value: text, session: undefined }; }
+}
+
+function localCDPEndpoint(value) {
+  try {
+    const url = new URL(String(value || ""));
+    if (!['http:', 'https:'].includes(url.protocol) || !['127.0.0.1', 'localhost', '::1'].includes(url.hostname)) return "";
+    return url.href.replace(/\/$/, "");
+  } catch { return ""; }
+}
+
+function createCDPTargetClient(target, onAction) {
+  const socket = new WebSocket(target.webSocketDebuggerUrl);
+  const pending = new Map();
+  let sequence = 0;
+  const opened = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("CDP target connection timed out.")), 3_000);
+    socket.addEventListener("open", () => { clearTimeout(timer); resolve(); }, { once: true });
+    socket.addEventListener("error", () => { clearTimeout(timer); reject(new Error("CDP target connection failed.")); }, { once: true });
+  });
+  socket.addEventListener("message", (event) => {
+    let message;
+    try { message = JSON.parse(String(event.data)); } catch { return; }
+    if (message.id && pending.has(message.id)) {
+      const request = pending.get(message.id);
+      pending.delete(message.id);
+      clearTimeout(request.timer);
+      if (message.error) request.reject(new Error(message.error.message || "CDP request failed."));
+      else request.resolve(message.result);
+      return;
+    }
+    if (message.method === "Runtime.bindingCalled" && message.params?.name === "__nextbrowserRecorderEmit") {
+      try { onAction(JSON.parse(message.params.payload)); } catch { /* ignore malformed page payloads */ }
+    }
+  });
+  const call = async (method, params = {}) => {
+    await opened;
+    return await new Promise((resolve, reject) => {
+      const id = ++sequence;
+      const timer = setTimeout(() => { pending.delete(id); reject(new Error(`${method} timed out.`)); }, 3_000);
+      pending.set(id, { resolve, reject, timer });
+      socket.send(JSON.stringify({ id, method, params }));
+    });
+  };
+  return { call, close: () => { try { socket.close(); } catch { /* no-op */ } } };
+}
+
+async function syncCDPTargets(state) {
+  if (!state.cdpEndpoint) return false;
+  const response = await fetch(`${state.cdpEndpoint}/json/list`, { signal: AbortSignal.timeout(3_000) });
+  if (!response.ok) throw new Error(`CDP target discovery failed (${response.status}).`);
+  const targets = (await response.json()).filter((target) => target?.type === "page" && target?.id && target?.webSocketDebuggerUrl);
+  const liveIds = new Set(targets.map((target) => String(target.id)));
+  for (const [id, tracked] of state.cdpTargets) {
+    if (!liveIds.has(id)) { tracked.client.close(); state.cdpTargets.delete(id); }
+  }
+  for (const target of targets) {
+    const id = String(target.id);
+    const url = String(target.url || "");
+    const tracked = state.cdpTargets.get(id);
+    if (!tracked) {
+      const entry = { client: null, url, title: String(target.title || "") };
+      const client = createCDPTargetClient(target, (action) => {
+        state.currentUrl = entry.url || state.currentUrl;
+        state.title = entry.title || state.title;
+        addAction(state, action);
+      });
+      entry.client = client;
+      await client.call("Runtime.addBinding", { name: "__nextbrowserRecorderEmit" });
+      await client.call("Runtime.evaluate", { expression: `(${recorderPageScript.toString()})()`, returnByValue: true, awaitPromise: true });
+      state.cdpTargets.set(id, entry);
+      if (state.cdpInitialized && /^https?:\/\//.test(url)) {
+        addAction(state, { tool: "open", arguments: { url }, at: Date.now() });
+        state.currentUrl = url;
+        state.title = String(target.title || state.title);
+      }
+    } else if (tracked.url !== url) {
+      tracked.url = url;
+      tracked.title = String(target.title || tracked.title);
+      await tracked.client.call("Runtime.evaluate", { expression: `(${recorderPageScript.toString()})()`, returnByValue: true, awaitPromise: true }).catch(() => undefined);
+      if (/^https?:\/\//.test(url) && Date.now() - state.lastPageInteractionAt >= 10_000) addAction(state, { tool: "open", arguments: { url }, at: Date.now() });
+      state.currentUrl = url;
+      state.title = String(target.title || state.title);
+    }
+  }
+  state.cdpInitialized = true;
+  return true;
+}
+
 function cleanId(value) {
   const id = String(value || "").trim();
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) throw new Error("Invalid browser recording ID.");
@@ -120,6 +222,8 @@ function cleanId(value) {
 
 function addAction(state, action) {
   if (!action || typeof action.tool !== "string" || !action.arguments || state.actions.length >= MAX_ACTIONS) return;
+  if (action.eventId && state.seenEventIds.has(action.eventId)) return;
+  if (action.eventId) state.seenEventIds.add(action.eventId);
   const previous = state.actions[state.actions.length - 1];
   if (action.tool === "input" && previous?.tool === "input" && JSON.stringify({ ...previous.arguments, text: undefined }) === JSON.stringify({ ...action.arguments, text: undefined })) {
     state.actions[state.actions.length - 1] = { tool: action.tool, arguments: action.arguments, at: Number(action.at) || Date.now() };
@@ -131,14 +235,20 @@ function addAction(state, action) {
 }
 
 async function collect(state) {
-  if (state.closed || state.polling) return;
+  if (state.closed || state.polling || !state.client) return;
   state.polling = true;
   try {
-    let snapshot = resultFromMCP(await state.client.callTool("evaluate", {
+    if (state.cdpEndpoint) {
+      await syncCDPTargets(state);
+      return;
+    }
+    const evaluated = resultEnvelopeFromMCP(await state.client.callTool("evaluate", {
       expression: `(() => { const state=window.__nextbrowserPageRecorder; return {missing:!state?.drain,url:location.href,title:document.title,actions:state?.drain?.()||[]}; })()`,
-    }));
+    }, RECORDER_CALL_TIMEOUT_MS));
+    let snapshot = evaluated.value;
+    state.cdpEndpoint = localCDPEndpoint(evaluated.session?.endpoint);
     if (snapshot?.missing) {
-      snapshot = resultFromMCP(await state.client.callTool("evaluate", { expression: `(${recorderPageScript.toString()})()` })) || snapshot;
+      snapshot = resultFromMCP(await state.client.callTool("evaluate", { expression: `(${recorderPageScript.toString()})()` }, RECORDER_CALL_TIMEOUT_MS)) || snapshot;
       snapshot.actions = [];
     }
     const url = String(snapshot?.url || "");
@@ -154,6 +264,7 @@ async function collect(state) {
     if (snapshot?.title) state.title = String(snapshot.title);
     for (const action of snapshot?.actions || []) addAction(state, action);
   } catch (error) {
+    console.error("[AUTOMATION_PAGE_RECORDER_COLLECT_FAILED]", error);
     if (!state.stopping) state.lastError = error instanceof Error ? error.message : String(error);
   } finally {
     state.polling = false;
@@ -166,25 +277,47 @@ async function startAutomationPageRecording(input, deps) {
   const profile = String(input.profile || "").trim();
   const runtime = ["clawbrowser", "camoufox", "chromium", "multilogin"].includes(input.runtime) ? input.runtime : "clawbrowser";
   const args = [...(profile ? ["--profile", profile] : []), "--runtime", runtime, ...(input.runtimeBin ? ["--runtime-bin", input.runtimeBin] : []), "mcp"];
-  const client = createMCPClient({ binary: deps.binary, args, env: deps.env, spawnImpl: deps.spawnImpl });
   const traceDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-recording-"));
   const traceFile = path.join(traceDir, "mcp-actions.jsonl");
   await fs.writeFile(traceFile, "", { mode: 0o600 });
-  const state = { client, actions: [], traceFile, traceDir, currentUrl: "", title: "", lastPageInteractionAt: 0, polling: false, stopping: false, closed: false, lastError: "" };
+  const state = { client: null, clientOptions: { binary: deps.binary, args, env: deps.env, spawnImpl: deps.spawnImpl }, profile, actions: [], seenEventIds: new Set(), traceFile, traceDir, currentUrl: "", currentPageId: "", title: "", lastPageInteractionAt: 0, polling: false, stopping: false, closed: false, attaching: null, lastError: "", cdpEndpoint: "", cdpInitialized: false, cdpTargets: new Map() };
   activeRecorders.set(recordingId, state);
   try {
-    await client.initialize();
-    resultFromMCP(await client.callTool("state", {}));
-    await collect(state);
-    state.timer = setInterval(() => void collect(state), POLL_MS);
+    if (input.attach !== false) await attachAutomationPageRecording(recordingId);
     return { started: true, url: state.currentUrl, title: state.title };
   } catch (error) {
     state.closed = true;
-    client.close();
+    state.client?.close();
     activeRecorders.delete(recordingId);
     await fs.rm(traceDir, { recursive: true, force: true }).catch(() => undefined);
     throw error;
   }
+}
+
+async function attachAutomationPageRecording(recordingId) {
+  const id = cleanId(recordingId);
+  const state = activeRecorders.get(id);
+  if (!state || state.closed) throw new Error("This browser recording is no longer active. Start a new recording and try again.");
+  if (state.client) return { attached: true, url: state.currentUrl, title: state.title };
+  if (state.attaching) return await state.attaching;
+  state.attaching = (async () => {
+    const client = createMCPClient(state.clientOptions);
+    try {
+      await client.initialize();
+      const initialState = resultFromMCP(await client.callTool("state", {}, RECORDER_CALL_TIMEOUT_MS));
+      state.currentPageId = String(initialState?.page?.id || "");
+      state.client = client;
+      await collect(state);
+      state.timer = setInterval(() => void collect(state), POLL_MS);
+      return { attached: true, url: state.currentUrl, title: state.title };
+    } catch (error) {
+      client.close();
+      throw error;
+    } finally {
+      state.attaching = null;
+    }
+  })();
+  return await state.attaching;
 }
 
 function activeAutomationTraceFile() {
@@ -228,10 +361,12 @@ async function stopAutomationPageRecording(recordingId) {
   state.stopping = true;
   clearInterval(state.timer);
   while (state.polling) await new Promise((resolve) => setTimeout(resolve, 20));
-  await collect(state);
+  if (state.client) await collect(state);
   state.closed = true;
-  await state.client.callTool("evaluate", { expression: `(() => { const state=window.__nextbrowserPageRecorder; state?.cleanup?.(); delete window.__nextbrowserPageRecorder; return true; })()` }).catch(() => undefined);
-  state.client.close();
+  for (const tracked of state.cdpTargets.values()) tracked.client.close();
+  state.cdpTargets.clear();
+  await state.client?.callTool("evaluate", { expression: `(() => { const state=window.__nextbrowserPageRecorder; state?.cleanup?.(); delete window.__nextbrowserPageRecorder; return true; })()` }).catch(() => undefined);
+  state.client?.close();
   activeRecorders.delete(id);
   const pageActions = [...state.actions];
   const toolActions = (await tracedActions(state)).filter((action) => !pageActions.some((pageAction) =>
@@ -239,7 +374,7 @@ async function stopAutomationPageRecording(recordingId) {
   ));
   const actions = [...pageActions, ...toolActions].sort((left, right) => left.at - right.at).slice(0, MAX_ACTIONS);
   await fs.rm(state.traceDir, { recursive: true, force: true }).catch(() => undefined);
-  const result = { actions, url: state.currentUrl, title: state.title, error: state.lastError || undefined, stoppedAt: Date.now() };
+  const result = { actions: actions.map(({ eventId: _eventId, ...action }) => action), url: state.currentUrl, title: state.title, error: state.lastError || undefined, stoppedAt: Date.now() };
   completedRecorders.set(id, result);
   setTimeout(() => completedRecorders.delete(id), 5 * 60_000).unref?.();
   return structuredClone(result);
@@ -249,10 +384,11 @@ function cancelAllAutomationPageRecordings() {
   for (const [id, state] of activeRecorders) {
     clearInterval(state.timer);
     state.closed = true;
-    state.client.close();
+    for (const tracked of state.cdpTargets.values()) tracked.client.close();
+    state.client?.close();
     activeRecorders.delete(id);
     void fs.rm(state.traceDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
-module.exports = { activeAutomationRecordingHasDataAction, activeAutomationTraceFile, cancelAllAutomationPageRecordings, recordAutomationToolAction, recorderPageScript, startAutomationPageRecording, stopAutomationPageRecording };
+module.exports = { activeAutomationRecordingHasDataAction, activeAutomationTraceFile, attachAutomationPageRecording, cancelAllAutomationPageRecordings, recordAutomationToolAction, recorderPageScript, startAutomationPageRecording, stopAutomationPageRecording };

@@ -4,6 +4,19 @@ const path = require("node:path");
 const test = require("node:test");
 
 const { agentWorkspaceDir } = require("./agent-workspace.cjs");
+const { resolveScopedProfile } = require("./agent-control-scope.cjs");
+
+test("host control resolves only an authorized exact or sole profile", () => {
+  const sole = new Map([["Worker", { runtime: "clawbrowser" }]]);
+  assert.equal(resolveScopedProfile(sole, "Worker"), "Worker");
+  assert.equal(resolveScopedProfile(sole, "Automation Demo Workspace"), "Worker");
+  assert.equal(resolveScopedProfile(sole, ""), "Worker");
+
+  const multiple = new Map([["Worker", {}], ["Research", {}]]);
+  assert.equal(resolveScopedProfile(multiple, "Worker"), "Worker");
+  assert.equal(resolveScopedProfile(multiple, "Automation Demo Workspace"), "");
+  assert.equal(resolveScopedProfile(multiple, ""), "");
+});
 
 test("agent workspace stays outside macOS Library and protected user folders", () => {
   const workspace = agentWorkspaceDir("/Users/alice");
@@ -62,21 +75,40 @@ test("Codex chat uses the managed Clawbrowser MCP configuration", () => {
   assert.match(main, /case "agent_run":[\s\S]*codexClawbrowserMCPArgs\(nextctlBin, supportedTraceFile\)/);
 });
 
+test("Terminal Chat restarts onto the active Recorder trace", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  const terminal = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AgentTerminal.tsx"), "utf8");
+  assert.match(main, /case "terminal_start":[\s\S]*activeAutomationTraceFile\(\)/);
+  assert.match(main, /case "terminal_start":[\s\S]*codexClawbrowserArgs\(nextctlBin, supportedTraceFile\)/);
+  assert.match(terminal, /AUTOMATION_RECORDING_EVENT/);
+  assert.match(terminal, /activeAutomationRecording\(\)\?\.id/);
+  assert.match(terminal, /setRestartNonce\(\(value\) => value \+ 1\)/);
+});
+
 test("active Recorder requires a replayable final data-collection call", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const store = fs.readFileSync(path.join(__dirname, "..", "src", "store.ts"), "utf8");
   assert.match(store, /NextBrowser Recorder is active for this task/);
   assert.match(store, /call extract or paginate_extract/);
   assert.match(store, /call evaluate once with a read-only expression/);
+  assert.match(store, /open that exact API URL in the listed browser profile/);
+  assert.match(store, /Never leave the final request hidden in curl, fetch, or an uncaptured shell action/);
   assert.match(store, /Do not finish with state as the only data-collection step/);
+  assert.match(main, /artifact_saved_recording_incomplete/);
+  assert.match(main, /artifactScope\.pendingArtifact/);
+  assert.match(main, /confirm without creating a duplicate/);
 });
 
-test("older nextctl builds do not break chat MCP or local artifact saving during recording", () => {
+test("artifact saving remains local and independent from recorder trace support", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   assert.match(main, /"--automation-trace-file", "nextbrowser-capability-probe"/);
   assert.match(main, /automation trace file must be an absolute path/);
   assert.match(main, /API_KEY_REQUIRED/);
-  assert.match(main, /artifactScope\.recorderTraceRequired = false/);
-  assert.match(main, /artifactScope\.recorderTraceRequired !== false/);
+  assert.match(main, /saveAgentArtifact\(\{/);
+  assert.doesNotMatch(main, /recording_requires_deterministic_data_action/);
+  assert.doesNotMatch(main, /recorderTraceRequired/);
+  assert.match(main, /artifact_content_missing/);
+  assert.match(main, /attach a heredoc or stdin body to the same command/);
 });
 
 test("project chat receives scoped host control for stopped browser profiles", () => {
@@ -145,6 +177,7 @@ test("ordinary app startup does not unlock the optional Multilogin credential", 
 test("automation artifacts are persisted only in local app storage", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const studio = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AutomationStudio.tsx"), "utf8");
+  const sidebar = fs.readFileSync(path.join(__dirname, "..", "src", "components", "Sidebar.tsx"), "utf8");
   assert.match(main, /case "artifact_list"/);
   assert.match(main, /localAutomationArtifacts\(\)\.list/);
   assert.match(main, /case "artifact_import"/);
@@ -183,7 +216,8 @@ test("unfinished recording attempts are never persisted as library entities", ()
   assert.match(studio, /automation_page_recording_stop/);
   assert.match(sidebar, /nextbrowser:automation-stop-request/);
   assert.match(studio, /nextbrowser:request-stop-recording/);
-  assert.doesNotMatch(sidebar, /automation_recording_put/);
+  assert.doesNotMatch(sidebar, /status: "recording"/);
+  assert.match(sidebar, /automation_recording_put[\s\S]*status: "completed"/);
   assert.doesNotMatch(studio, /else \{\s*s\.setTab\("live"\)/);
   assert.match(studio, /if \(s\.terminalChat\) s\.setTerminalChat\(false\);\s*s\.setTab\("chat"\)/);
   assert.match(studio, /s\.setTab\("chat"\);\s*await invoke\("app_focus"\)/);
@@ -202,7 +236,10 @@ test("automation studio gives newcomers a complete path and runs unsaved edits s
   assert.match(studio, /Build an editable, predictable automation/);
   assert.match(studio, /Keep automation files on this computer/);
   assert.match(studio, /Save &amp; run/);
+  assert.match(studio, /min_rows: count/);
+  assert.match(studio, /replaceTopCount\(artifactArguments\.name\)/);
   assert.match(studio, /const workflow = draftDirty \? await saveDraft\(\) : draft/);
+  assert.match(studio, /still contains “\{\{\$\{missingInput\}\}\}”/);
   assert.doesNotMatch(studio, /disabled=\{draftDirty \|\| executionBusy/);
   assert.doesNotMatch(studio, /className="automation-mode-note"/);
 });
@@ -231,6 +268,7 @@ test("workflow list exposes the same actions from a right-click menu", () => {
 test("recordings and workflows replay deterministically with explicit AI repair", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const studio = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AutomationStudio.tsx"), "utf8");
+  const sidebar = fs.readFileSync(path.join(__dirname, "..", "src", "components", "Sidebar.tsx"), "utf8");
   const store = fs.readFileSync(path.join(__dirname, "..", "src", "store.ts"), "utf8");
 
   assert.match(main, /case "automation_recipe_execute"/);
@@ -238,10 +276,32 @@ test("recordings and workflows replay deterministically with explicit AI repair"
   assert.match(store, /runAutomationRecipe: async/);
   assert.match(store, /invoke<AutomationRecipeResult>\("automation_recipe_execute"/);
   assert.match(studio, /s\.runAutomationRecipe\(/);
+  assert.match(studio, /Choose the browser profile that should run this automation\./);
+  assert.match(studio, /phase: "cancelled", detail: "Execution stopped by user\."/);
   assert.match(studio, /Repair & run with AI/);
+  assert.match(studio, /AI is adding the missing starting page before this automation runs/);
+  assert.match(studio, /Automatic repair could not start\. Original failure:/);
+  assert.match(studio, /canRepairMissingStart \? "Repair & run" : "Run again"/);
   assert.match(studio, /runLocalSkill\(repairWorkflow, repairTask\)/);
+  assert.match(studio, /workflowSnapshot: workflow/);
+  assert.match(studio, /failedExecution\.workflowSnapshot/);
+  assert.match(sidebar, /item\.name === automationExecution\.expectedArtifactName/);
+  assert.match(sidebar, /"artifact_validate"/);
+  assert.match(sidebar, /automation_workflow_put/);
+  assert.match(sidebar, /AI repaired the fast path and saved it for future runs/);
+  assert.match(sidebar, /automation_run_update[\s\S]*engine: "hybrid"/);
+  assert.match(sidebar, /The workflow result was not accepted\./);
   const deterministicRun = store.slice(store.indexOf("runAutomationRecipe: async"), store.indexOf("runLocalSkill: async"));
   assert.doesNotMatch(deterministicRun, /prepareLocalSession/);
+});
+
+test("a stopped recording remains recoverable when its backend save fails", () => {
+  const studio = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AutomationStudio.tsx"), "utf8");
+  assert.match(studio, /let capturedForRetry: CapturedRun \| undefined/);
+  assert.match(studio, /capturedForRetry = captured/);
+  assert.match(studio, /The recording stopped, but was not saved/);
+  assert.match(studio, /Retry save/);
+  assert.match(studio, /clearActiveAutomationRecording\(\);[\s\S]*setRecordingReview\(\{/);
 });
 
 test("workflow builder selects page elements visually without exposing CSS inputs", () => {

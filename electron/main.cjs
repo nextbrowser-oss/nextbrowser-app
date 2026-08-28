@@ -8,6 +8,7 @@ const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const http = require("node:http");
 const { agentWorkspaceDir } = require("./agent-workspace.cjs");
+const { resolveScopedProfile } = require("./agent-control-scope.cjs");
 const {
   executableNames,
   expand,
@@ -41,24 +42,29 @@ const {
 } = require("./project-sync.cjs");
 const { defaultSSHConfigPath, discoverSSHHosts, isAllowedExplicitConfigPath } = require("./ssh-config.cjs");
 const { createLocalArtifactStore } = require("./local-artifacts.cjs");
-const { saveAutomationArtifact } = require("./automation-artifact.cjs");
+const { buildArtifactDataContract, saveAutomationArtifact } = require("./automation-artifact.cjs");
 const { AGENT_ARTIFACT_BODY_LIMIT, saveAgentArtifact } = require("./agent-artifact.cjs");
 const {
+  acceptAutomationShare,
+  createAutomationShare,
+  declineAutomationShare,
   createAutomationRun,
   deleteAutomationRecording,
   deleteAutomationWorkflow,
   listAutomationRecordings,
   listAutomationRuns,
+  listAutomationShares,
   listAutomationWorkflows,
   putAutomationRecording,
   putAutomationWorkflow,
+  revokeAutomationShare,
   seedAutomationExamples,
   updateAutomationRun,
   updateAutomationRunStep,
 } = require("./automation-sync.cjs");
 const { cancelAllAutomationRecipes, cancelAutomationRecipe, executeAutomationRecipe } = require("./automation-runner.cjs");
 const { cancelAllAutomationElementPicks, cancelAutomationElementPick, pickAutomationElement } = require("./automation-element-picker.cjs");
-const { activeAutomationRecordingHasDataAction, activeAutomationTraceFile, cancelAllAutomationPageRecordings, recordAutomationToolAction, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
+const { activeAutomationRecordingHasDataAction, activeAutomationTraceFile, attachAutomationPageRecording, cancelAllAutomationPageRecordings, recordAutomationToolAction, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
 const { parseMultiloginProfiles, parseMultiloginCreatedProfile } = require("./multilogin-profiles.cjs");
@@ -159,9 +165,9 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
   ];
 }
 
-function codexClawbrowserArgs(nextctlBin) {
+function codexClawbrowserArgs(nextctlBin, automationTraceFile = "") {
   return [
-    ...codexClawbrowserMCPArgs(nextctlBin),
+    ...codexClawbrowserMCPArgs(nextctlBin, automationTraceFile),
     "--ask-for-approval", "never",
     "--sandbox", "workspace-write",
     "-c", "sandbox_workspace_write.network_access=true",
@@ -484,24 +490,45 @@ async function ensureAgentControlServer() {
       }
       const payload = JSON.parse(raw || "{}");
       if (artifactSave) {
-        if (artifactScope.recorderTraceRequired !== false && !await activeAutomationRecordingHasDataAction()) {
-          sendControlResponse(response, 409, { ok: false, error: "recording_requires_deterministic_data_action", message: "Recorder needs a successful extract, paginate_extract, tabs_extract, or read-only evaluate call before this result can be saved." });
+        if (payload.content == null || (typeof payload.content === "string" && !payload.content.trim())) {
+          sendControlResponse(response, 400, {
+            ok: false,
+            error: "artifact_content_missing",
+            message: "No artifact content was received. If curl uses --data-binary @-, attach a heredoc or stdin body to the same command.",
+          });
           return;
         }
-        const result = await saveAgentArtifact({
-          workspaceId: artifactScope.workspaceId,
-          payload,
-          store: localAutomationArtifacts(),
-        });
+        const recorderHasData = await activeAutomationRecordingHasDataAction();
+        let result = artifactScope.pendingArtifact;
+        if (!result) {
+          result = await saveAgentArtifact({
+            workspaceId: artifactScope.workspaceId,
+            payload,
+            store: localAutomationArtifacts(),
+          });
+        }
+        if (!recorderHasData) {
+          artifactScope.pendingArtifact = result;
+          sendControlResponse(response, 409, {
+            ok: false,
+            error: "artifact_saved_recording_incomplete",
+            artifactSaved: true,
+            artifact: result.artifact,
+            message: "The local artifact is saved, but Recorder has no deterministic data step. Call extract, paginate_extract, tabs_extract, or a read-only evaluate for the exact final dataset, then repeat this same artifact request once; it will confirm without creating a duplicate.",
+          });
+          return;
+        }
+        artifactScope.pendingArtifact = undefined;
         recordAutomationToolAction("save_artifact", {
           source: "last_result",
           format: String(payload.format || result.artifact?.extension || "json").replace(/^\./, ""),
           name: String(result.artifact?.name || payload.name || "workflow-result.json"),
+          contract: buildArtifactDataContract(payload.content, payload.format || result.artifact?.extension || "json"),
         });
         sendControlResponse(response, 200, { ok: true, artifact: result.artifact });
         return;
       }
-      const profile = String(payload.profile || "");
+      const profile = resolveScopedProfile(profileScope, payload.profile);
       const profileAccess = profileScope.get(profile);
       if (!profileAccess) {
         sendControlResponse(response, 403, { ok: false, error: "profile_outside_workspace" });
@@ -1216,6 +1243,9 @@ async function invokeCommand(command, args = {}, sender) {
     case "artifact_list": {
       return await localAutomationArtifacts().list(String(args.workspaceId || ""));
     }
+    case "artifact_validate": {
+      return await localAutomationArtifacts().validate(String(args.workspaceId || ""), String(args.id || ""));
+    }
     case "artifact_import": {
       const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
       const result = await dialog.showOpenDialog(owner, {
@@ -1248,6 +1278,11 @@ async function invokeCommand(command, args = {}, sender) {
     case "automation_recordings_list": return await listAutomationRecordings(String(args.workspaceId || ""), { env: childEnv() });
     case "automation_recording_put": return await putAutomationRecording(args.recording || {}, { env: childEnv() });
     case "automation_recording_delete": return await deleteAutomationRecording(String(args.id || ""), { env: childEnv() });
+    case "automation_shares_list": return await listAutomationShares(String(args.box || "inbox"), { env: childEnv() });
+    case "automation_share_create": return await createAutomationShare(args.share || {}, { env: childEnv() });
+    case "automation_share_accept": return await acceptAutomationShare(String(args.id || ""), String(args.workspaceId || ""), { env: childEnv() });
+    case "automation_share_decline": return await declineAutomationShare(String(args.id || ""), { env: childEnv() });
+    case "automation_share_revoke": return await revokeAutomationShare(String(args.id || ""), { env: childEnv() });
     case "automation_runs_list": return await listAutomationRuns(String(args.workspaceId || ""), { env: childEnv() });
     case "automation_seed_examples": {
       const workspaceId = String(args.workspaceId || "");
@@ -1298,8 +1333,10 @@ async function invokeCommand(command, args = {}, sender) {
         profile: args.profile,
         runtime: requestedRuntime === "dasbrowser" ? "chromium" : requestedRuntime,
         runtimeBin,
+        attach: args.attach !== false,
       }, { binary, env: childEnv() });
     }
+    case "automation_page_recording_attach": return await attachAutomationPageRecording(String(args.recordingId || ""));
     case "automation_page_recording_stop": return await stopAutomationPageRecording(String(args.recordingId || ""));
     case "automation_element_pick": {
       const binary = await resolveOrInstallNextctl();
@@ -1457,7 +1494,7 @@ async function invokeCommand(command, args = {}, sender) {
       }
       agentControlScopes.set(controlToken, profileScope);
       const artifactScope = args.workspaceId
-        ? { workspaceId: String(args.workspaceId), conversationId, recorderTraceRequired: true }
+        ? { workspaceId: String(args.workspaceId), conversationId }
         : null;
       if (artifactScope) agentControlArtifactScopes.set(controlToken, artifactScope);
       const profileScopeDir = path.join(nextbrowserRuntimeRoot(), "chat-scopes");
@@ -1476,7 +1513,6 @@ async function invokeCommand(command, args = {}, sender) {
         const supportedTraceFile = requestedTraceFile && await nextctlHasAutomationTrace(nextctlBin)
           ? requestedTraceFile
           : "";
-        if (artifactScope && requestedTraceFile && !supportedTraceFile) artifactScope.recorderTraceRequired = false;
         agentArgs = [...codexClawbrowserMCPArgs(nextctlBin, supportedTraceFile), ...agentArgs];
       }
       const spec = commandSpec(bin, agentArgs);
@@ -1579,7 +1615,11 @@ async function invokeCommand(command, args = {}, sender) {
         await ensureCodexTerminalProfile();
         const nextctlBin = await resolveOrInstallNextctl();
         if (!nextctlBin) throw new Error("nextctl is required for Clawbrowser MCP.");
-        agentArgs = codexClawbrowserArgs(nextctlBin);
+        const requestedTraceFile = activeAutomationTraceFile();
+        const supportedTraceFile = requestedTraceFile && await nextctlHasAutomationTrace(nextctlBin)
+          ? requestedTraceFile
+          : "";
+        agentArgs = codexClawbrowserArgs(nextctlBin, supportedTraceFile);
       }
       await Promise.all(writableDirs.map((dir) => fs.mkdir(dir, { recursive: true })));
       const terminalArgs = [
