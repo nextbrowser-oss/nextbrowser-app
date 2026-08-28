@@ -109,8 +109,8 @@ describe("chat context handoff", () => {
     expect(result).toContain(`--data '{"profile":"Fox profile"}'`);
     expect(result).not.toContain("PROFILE_NAME");
     expect(result).toContain("available even when status says running because the user may close the browser manually");
-    expect(result).toContain("never use --data-binary @- without an attached heredoc");
-    expect(result).toContain("NEXTBROWSER_ARTIFACT_JSON");
+    expect(result).toContain("Save requested files with nextbrowser.save_artifact");
+    expect(result).toContain("do not use shell, curl, or temporary files for artifacts");
     expect(result).toContain("retry the original page action once with that exact name");
     expect(result?.match(/Wiki research: ClawBrowser \(stopped\)/g)).toHaveLength(1);
     expect(result).not.toContain("Reddit scraper");
@@ -121,12 +121,15 @@ describe("chat context handoff", () => {
       { name: "Worker", runtime: "clawbrowser", running: true, selected: true },
     ], true);
     expect(result).toContain("Recorder is active");
+    expect(result).toContain("nextbrowser.navigate_extract");
     expect(result).toContain("nextbrowser.extract");
     expect(result).toContain("State is discovery only");
     expect(result).toContain("before Artifact Center save");
+    expect(result).toContain("do not use evaluate for selector or HTML diagnostics");
     expect(result).toContain("rather than a numeric querySelectorAll position");
     expect(result).toContain("open that exact API URL");
     expect(result).toContain("uncaptured shell action");
+    expect(result).toContain("nextbrowser.save_artifact");
     expect(result).toContain("Do not finish with only open, state, and save_artifact");
   });
 

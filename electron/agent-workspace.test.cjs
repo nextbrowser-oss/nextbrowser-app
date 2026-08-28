@@ -48,6 +48,8 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   assert.match(main, /mcp_servers\.nextbrowser\.env=/);
   assert.match(main, /mcp_servers\.nextbrowser\.env_vars=.*MULTILOGIN_TOKEN/);
   assert.match(main, /mcp_servers\.nextbrowser\.env_vars=.*NEXTBROWSER_AUTOMATION_TRACE_FILE/);
+  assert.match(main, /mcp_servers\.nextbrowser\.env_vars=.*NEXTBROWSER_CONTROL_URL/);
+  assert.match(main, /mcp_servers\.nextbrowser\.env_vars=.*NEXTBROWSER_CONTROL_TOKEN/);
   assert.match(main, /nextctlHasAutomationTrace\(nextctlBin\)/);
   assert.match(main, /codexClawbrowserMCPArgs\(nextctlBin, supportedTraceFile\)/);
   assert.match(main, /automationTraceFile \? \["NEXTBROWSER_AUTOMATION_TRACE_FILE"\] : \[\]/);
@@ -89,6 +91,7 @@ test("active Recorder requires a replayable final data-collection call", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const store = fs.readFileSync(path.join(__dirname, "..", "src", "store.ts"), "utf8");
   assert.match(store, /NextBrowser Recorder is active for this task/);
+  assert.match(store, /Prefer navigate_extract/);
   assert.match(store, /call extract or paginate_extract/);
   assert.match(store, /call evaluate once with a read-only expression/);
   assert.match(store, /open that exact API URL in the listed browser profile/);

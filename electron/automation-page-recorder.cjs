@@ -350,7 +350,7 @@ async function activeAutomationRecordingHasDataAction() {
   const state = activeRecorders.values().next().value;
   if (!state || state.closed) return true;
   const actions = await tracedActions(state);
-  return actions.some((action) => ["extract", "paginate_extract", "tabs_extract", "evaluate"].includes(action.tool));
+  return actions.some((action) => ["navigate_extract", "extract", "paginate_extract", "tabs_extract", "evaluate"].includes(action.tool));
 }
 
 async function stopAutomationPageRecording(recordingId) {

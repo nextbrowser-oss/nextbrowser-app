@@ -159,7 +159,7 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
     // Codex starts the MCP server itself. Forward the Recorder's ephemeral
     // trace path from the agent process; putting it only in the parent env is
     // not enough when an explicit MCP env allow-list is configured.
-    "-c", `mcp_servers.nextbrowser.env_vars=${JSON.stringify(["MULTILOGIN_TOKEN", "NEXTBROWSER_AUTOMATION_TRACE_FILE"])}`,
+    "-c", `mcp_servers.nextbrowser.env_vars=${JSON.stringify(["MULTILOGIN_TOKEN", "NEXTBROWSER_AUTOMATION_TRACE_FILE", "NEXTBROWSER_CONTROL_URL", "NEXTBROWSER_CONTROL_TOKEN"])}`,
     "-c", "mcp_servers.nextbrowser.startup_timeout_sec=30",
     "-c", "mcp_servers.nextbrowser.default_tools_approval_mode=approve",
   ];

@@ -123,3 +123,27 @@ test("recording merges successful nextctl MCP extraction calls from the local tr
   assert.deepEqual(result.actions.map(({ tool }) => tool), ["open", "extract"]);
   await assert.rejects(fs.stat(traceFile), { code: "ENOENT" });
 });
+
+test("a successful one-shot navigate and extract call satisfies Recorder data capture", async () => {
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    if (message.params.name === "state") return toolResult({ page: { url: "https://example.com/results" } });
+    const expression = message.params.arguments.expression;
+    if (expression.includes("function recorderPageScript")) return toolResult({ installed: true, url: "https://example.com/results", title: "Results" });
+    if (expression.includes("state?.cleanup")) return toolResult(true);
+    return toolResult({ missing: false, url: "https://example.com/results", title: "Results", actions: [] });
+  });
+
+  await startAutomationPageRecording({ recordingId: "navigate-extract", profile: "Work", runtime: "clawbrowser" }, {
+    binary: "nextctl", env: {}, spawnImpl: server.spawnImpl,
+  });
+  await fs.appendFile(activeAutomationTraceFile(), `${JSON.stringify({
+    tool: "navigate_extract",
+    arguments: { url: "https://example.com/results", container: "article", fields: { title: { selector: "h2" } } },
+    at: Date.now(),
+  })}\n`);
+
+  assert.equal(await activeAutomationRecordingHasDataAction(), true);
+  const result = await stopAutomationPageRecording("navigate-extract");
+  assert.ok(result.actions.some(({ tool }) => tool === "navigate_extract"));
+});
