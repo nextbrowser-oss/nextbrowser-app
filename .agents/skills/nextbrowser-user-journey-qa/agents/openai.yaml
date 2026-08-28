@@ -1,0 +1,4 @@
+interface:
+  display_name: "NextBrowser User Journey QA"
+  short_description: "Test automation through real user journeys"
+  default_prompt: "Use $nextbrowser-user-journey-qa to test Automation Studio through the visible app UI."
