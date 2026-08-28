@@ -7,7 +7,7 @@ import {
   type GuideAction,
   type GuideFeature,
 } from "../lib/guideFeatures";
-import { guideSessionSetupEvent } from "../lib/guideQuickStart";
+import { guideSessionSetupEvent, guideWorkspaceProfileNames } from "../lib/guideQuickStart";
 import { sequentialProgress } from "../lib/sequentialProgress";
 import { useStore } from "../store";
 import { BrandLogo } from "./BrandLogo";
@@ -58,21 +58,26 @@ export function GuideFeatureCard({
 export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => void }) {
   const showTour = useStore((s) => s.showOnboardingAgain);
   const setTab = useStore((s) => s.setTab);
+  const setTerminalChat = useStore((s) => s.setTerminalChat);
   const setDashboardKeyPromptOpen = useStore((s) => s.setDashboardKeyPromptOpen);
   const setSidebarCollapsed = useStore((s) => s.setSidebarCollapsed);
   const authed = useStore((s) => s.authed);
   const agentId = useStore((s) => s.agentId);
   const agentReady = useStore((s) => s.agentReady());
-  const profileCount = useStore((s) => {
-    const defaultKnown = !!s.defaultSession?.session?.name ||
-      (s.defaultSession?.status ?? "unknown") !== "unknown";
-    const hasListedDefault = s.profiles.some((profile) => profile.name === "default");
-    return s.profiles.length + (defaultKnown && !hasListedDefault ? 1 : 0);
-  });
-  const selectedSessionStatus = useStore((s) => s.selectedProfile
-    ? s.statuses[s.selectedProfile] ?? s.profileSessions[s.selectedProfile]?.status ?? "unknown"
-    : s.defaultSession?.status ?? "unknown"
-  );
+  const profiles = useStore((s) => s.profiles);
+  const workspaces = useStore((s) => s.workspaces);
+  const activeWorkspaceId = useStore((s) => s.activeWorkspaceId);
+  const selectedProfile = useStore((s) => s.selectedProfile);
+  const statuses = useStore((s) => s.statuses);
+  const profileSessions = useStore((s) => s.profileSessions);
+  const workspaceProfileNames = guideWorkspaceProfileNames(activeWorkspaceId, workspaces, profiles);
+  const profileCount = workspaceProfileNames.length;
+  const selectedWorkspaceProfile = selectedProfile && workspaceProfileNames.includes(selectedProfile)
+    ? selectedProfile
+    : workspaceProfileNames.length === 1 ? workspaceProfileNames[0] : undefined;
+  const selectedSessionStatus = selectedWorkspaceProfile
+    ? statuses[selectedWorkspaceProfile] ?? profileSessions[selectedWorkspaceProfile]?.status ?? "unknown"
+    : "unknown";
   const selectedSessionRunning = selectedSessionStatus === "running";
   const selectedSessionStarting = selectedSessionStatus === "starting";
   const conversationCount = useStore((s) =>
@@ -129,6 +134,7 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
       );
       return;
     }
+    if (action === "chat") setTerminalChat(false);
     setTab(action);
   };
 

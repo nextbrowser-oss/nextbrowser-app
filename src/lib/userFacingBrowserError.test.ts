@@ -32,6 +32,12 @@ describe("userFacingBrowserError", () => {
       .toBe("The selected workspace is no longer available. Select or create a workspace, then try again.");
   });
 
+  it("turns a backend fetch failure into a user action without IPC or service internals", () => {
+    const message = userFacingBrowserError("Error invoking remote method 'nextbrowser:invoke': Error: Cannot reach the NextBrowser backend at https://core.nextbrowser.com. Check that the backend is running and try again.");
+    expect(message).toBe("NextBrowser couldn’t connect to the service. Check your internet connection and try again.");
+    expect(message).not.toMatch(/nextbrowser:invoke|core\.nextbrowser\.com|backend is running/i);
+  });
+
   it("removes the Electron IPC prefix from ordinary errors", () => {
     expect(userFacingBrowserError("Error invoking remote method 'nextbrowser:invoke': Error: The shared workflow is invalid"))
       .toBe("The shared workflow is invalid");

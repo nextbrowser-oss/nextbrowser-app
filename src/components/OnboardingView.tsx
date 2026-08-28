@@ -6,7 +6,8 @@ import {
   ONBOARDING_STEPS,
   onboardingProfileSummary,
 } from "../lib/onboarding";
-import { saveGuideDraft } from "../lib/guideDraft";
+import { openGuideChatDraft } from "../lib/guideDraft";
+import { guideWorkspaceProfileNames } from "../lib/guideQuickStart";
 import { useStore } from "../store";
 import type { AppTab } from "../types";
 import { AgentInstallLink } from "./AgentInstallLink";
@@ -20,6 +21,7 @@ export function OnboardingView() {
   const authorize = useStore((s) => s.authorizeAgent);
   const loginAgent = useStore((s) => s.loginAgent);
   const setTab = useStore((s) => s.setTab);
+  const setTerminalChat = useStore((s) => s.setTerminalChat);
   const setSidebarCollapsed = useStore((s) => s.setSidebarCollapsed);
   const agentId = useStore((s) => s.agentId);
   const switchAgent = useStore((s) => s.switchAgent);
@@ -29,30 +31,19 @@ export function OnboardingView() {
   const agentError = useStore((s) => s.agentError());
   const authorizing = useStore((s) => s.runtime[s.agentId]?.authorizing ?? false);
   const authed = useStore((s) => s.authed);
-  const profileCount = useStore((s) => {
-    const defaultKnown = !!s.defaultSession?.session?.name
-      || (s.defaultSession?.status ?? "unknown") !== "unknown";
-    const listedDefault = s.profiles.some((profile) => profile.name === "default");
-    return s.profiles.length + (defaultKnown && !listedDefault ? 1 : 0);
-  });
-  const runningProfileCount = useStore((s) => {
-    const listedDefault = s.profiles.some((profile) => profile.name === "default");
-    const listedRunning = s.profiles.filter(
-      (profile) => s.statuses[profile.name] === "running",
-    ).length;
-    return listedRunning
-      + (!listedDefault && s.defaultSession?.status === "running" ? 1 : 0);
-  });
-  const selectedSessionRunning = useStore((s) =>
-    s.selectedProfile
-      ? s.statuses[s.selectedProfile] === "running"
-      : s.defaultSession?.status === "running"
-  );
-  const selectedSessionStarting = useStore((s) =>
-    s.selectedProfile
-      ? s.statuses[s.selectedProfile] === "starting"
-      : s.defaultSession?.status === "starting"
-  );
+  const profiles = useStore((s) => s.profiles);
+  const workspaces = useStore((s) => s.workspaces);
+  const activeWorkspaceId = useStore((s) => s.activeWorkspaceId);
+  const statuses = useStore((s) => s.statuses);
+  const selectedProfile = useStore((s) => s.selectedProfile);
+  const workspaceProfileNames = guideWorkspaceProfileNames(activeWorkspaceId, workspaces, profiles);
+  const profileCount = workspaceProfileNames.length;
+  const runningProfileCount = workspaceProfileNames.filter((name) => statuses[name] === "running").length;
+  const selectedWorkspaceProfile = selectedProfile && workspaceProfileNames.includes(selectedProfile)
+    ? selectedProfile
+    : workspaceProfileNames.length === 1 ? workspaceProfileNames[0] : undefined;
+  const selectedSessionRunning = !!selectedWorkspaceProfile && statuses[selectedWorkspaceProfile] === "running";
+  const selectedSessionStarting = !!selectedWorkspaceProfile && statuses[selectedWorkspaceProfile] === "starting";
   const setDashboardKeyPromptOpen = useStore((s) => s.setDashboardKeyPromptOpen);
   const stepIndex = useStore((s) => s.onboardingStepIndex);
   const setStepIndex = useStore((s) => s.setOnboardingStepIndex);
@@ -182,12 +173,17 @@ export function OnboardingView() {
   };
 
   const confirmTryChat = () => {
-    const prompt = saveGuideDraft(localStorage, FIRST_TASK_EXAMPLE);
+    const prompt = openGuideChatDraft(localStorage, FIRST_TASK_EXAMPLE, {
+      setTerminalChat,
+      setTab,
+      dispatch: (value) => window.dispatchEvent(
+        new CustomEvent("nextbrowser:guide-draft", { detail: value }),
+      ),
+    });
     if (!prompt) return;
     trackEvent("onboarding_try_chat_confirmed");
     setTryChatConfirmOpen(false);
-    window.dispatchEvent(new CustomEvent("nextbrowser:guide-draft", { detail: prompt }));
-    closeTutorial("completed", "chat");
+    closeTutorial("completed");
   };
 
   return (

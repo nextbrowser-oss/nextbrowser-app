@@ -6,6 +6,7 @@ import { GUIDE_USAGE_DEMOS, GuideUsageSection } from "./GuideUsageDemos";
 vi.mock("../store", () => ({
   useStore: (selector: (state: unknown) => unknown) => selector({
     setTab: vi.fn(),
+    setTerminalChat: vi.fn(),
     skillCategories: [],
   }),
 }));

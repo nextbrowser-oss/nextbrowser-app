@@ -1,5 +1,5 @@
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
-import { saveGuideDraft } from "../lib/guideDraft";
+import { openGuideChatDraft } from "../lib/guideDraft";
 import { useStore } from "../store";
 import { GuideActionModal } from "./GuideActionModal";
 import { Icon } from "./Icon";
@@ -244,14 +244,18 @@ export const GUIDE_USAGE_DEMOS: Array<{
 
 export function GuideUsageSection() {
   const setTab = useStore((s) => s.setTab);
+  const setTerminalChat = useStore((s) => s.setTerminalChat);
   const [pendingDemo, setPendingDemo] = useState<(typeof GUIDE_USAGE_DEMOS)[number]>();
 
   const openDemo = (demo: (typeof GUIDE_USAGE_DEMOS)[number]) => {
     if (demo.action.kind === "chat") {
-      const prompt = saveGuideDraft(localStorage, demo.action.prompt);
-      if (!prompt) return;
-      window.dispatchEvent(new CustomEvent("nextbrowser:guide-draft", { detail: prompt }));
-      setTab("chat");
+      openGuideChatDraft(localStorage, demo.action.prompt, {
+        setTerminalChat,
+        setTab,
+        dispatch: (prompt) => window.dispatchEvent(
+          new CustomEvent("nextbrowser:guide-draft", { detail: prompt }),
+        ),
+      });
       return;
     }
 

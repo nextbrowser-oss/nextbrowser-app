@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { GUIDE_DRAFT_KEY, saveGuideDraft, takeGuideDraft } from "./guideDraft";
+import { describe, expect, it, vi } from "vitest";
+import { GUIDE_DRAFT_KEY, openGuideChatDraft, saveGuideDraft, takeGuideDraft } from "./guideDraft";
 
 function memoryStorage() {
   const values = new Map<string, string>();
@@ -25,5 +25,21 @@ describe("Guide chat drafts", () => {
 
     expect(takeGuideDraft(storage)).toBe("Check the page");
     expect(takeGuideDraft(storage)).toBeUndefined();
+  });
+
+  it("switches a Terminal project to visible Chat before opening a guided draft", () => {
+    const storage = memoryStorage();
+    const setTerminalChat = vi.fn();
+    const setTab = vi.fn();
+    const dispatch = vi.fn();
+
+    expect(openGuideChatDraft(storage, "  Open example.com  ", {
+      setTerminalChat,
+      setTab,
+      dispatch,
+    })).toBe("Open example.com");
+    expect(setTerminalChat).toHaveBeenCalledWith(false);
+    expect(dispatch).toHaveBeenCalledWith("Open example.com");
+    expect(setTab).toHaveBeenCalledWith("chat");
   });
 });

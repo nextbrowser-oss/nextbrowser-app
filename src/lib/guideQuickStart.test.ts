@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   guideProfileTarget,
   guideSessionSetupEvent,
+  guideWorkspaceProfileNames,
 } from "./guideQuickStart";
 
 describe("Guide session quick start", () => {
@@ -11,9 +12,24 @@ describe("Guide session quick start", () => {
   });
 
   it("starts the selected profile before falling back to the first saved profile", () => {
-    expect(guideProfileTarget("selected", ["first"], true)).toBe("selected");
+    expect(guideProfileTarget("selected", ["selected", "first"], true)).toBe("selected");
     expect(guideProfileTarget(undefined, ["first", "second"], true)).toBe("first");
     expect(guideProfileTarget(undefined, [], true)).toBe("__default");
     expect(guideProfileTarget(undefined, [], false)).toBeNull();
+  });
+
+  it("never targets a selected profile from another workspace", () => {
+    expect(guideProfileTarget("hidden", ["visible"], false)).toBe("visible");
+  });
+
+  it("limits Guide status and actions to profiles in the active workspace", () => {
+    expect(guideWorkspaceProfileNames(
+      "current",
+      [
+        { id: "current", profileNames: ["visible", "missing"] },
+        { id: "other", profileNames: ["hidden"] },
+      ],
+      [{ name: "visible" }, { name: "hidden" }],
+    )).toEqual(["visible"]);
   });
 });
