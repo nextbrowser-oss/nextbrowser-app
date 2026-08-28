@@ -37,7 +37,7 @@ It does not currently support:
 | 7 | Isolation | Competing workspace, agent, and pre-start runs | Pass; only the owning workspace, agent, and time window are captured |
 | 8 | Security | Password, bearer token, API key, card/security-code contexts | Pass; values redacted client-side and raw secrets rejected by workflow API |
 | 9 | Builder lifecycle | Duplicate, invalidate domain, block Save/Run, save revision, delete | Pass; inline validation and optimistic revisions work |
-| 10 | Persistence lifecycle | PostgreSQL CRUD for recordings/workflows/runs; local CRUD for artifacts | Pass; terminal run states cannot revert, steps close with the run, and artifacts remain in per-workspace app storage until the user deletes them |
+| 10 | Persistence lifecycle | PostgreSQL CRUD for account recordings/workflows and workspace runs; local CRUD for artifacts | Pass; reusable automations follow the signed-in account, terminal run states cannot revert, steps close with the run, and artifacts remain in per-workspace app storage until the user deletes them |
 | 11 | Visual workflow authoring | Select a Books result row, title, price, and URL, then run the generated recipe | Pass; 20 rows collected with generated relative selectors and automatic `href` extraction |
 
 ## Defects found and corrected

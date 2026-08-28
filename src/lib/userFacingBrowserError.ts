@@ -13,8 +13,8 @@ export function userFacingBrowserError(error: unknown): string {
   const raw = rawErrorMessage(error);
   if (!raw) return "The browser could not be prepared. Try again.";
 
-  if (/AUTOMATION_SHARE_WORKSPACE_UNAVAILABLE|workspace not found|workspace revision conflict/i.test(raw)) {
-    return "This workspace is not available for the signed-in account. Select or create a workspace for this account, then add the shared copy again.";
+  if (/workspace not found|workspace revision conflict/i.test(raw)) {
+    return "The selected workspace is no longer available. Select or create a workspace, then try again.";
   }
 
   if (REMOTE_BACKEND_CODE.test(raw) || REMOTE_CONTROL_FAILURE.test(raw)) {

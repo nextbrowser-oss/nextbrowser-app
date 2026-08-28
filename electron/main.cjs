@@ -1272,22 +1272,22 @@ async function invokeCommand(command, args = {}, sender) {
     case "artifact_delete": {
       return await localAutomationArtifacts().delete(String(args.workspaceId || ""), String(args.id || ""));
     }
-    case "automation_workflows_list": return await listAutomationWorkflows(String(args.workspaceId || ""), { env: childEnv() });
-    case "automation_workflow_put": return await putAutomationWorkflow(String(args.workspaceId || ""), args.workflow || {}, { env: childEnv() });
+    case "automation_workflows_list": return await listAutomationWorkflows({ env: childEnv() });
+    case "automation_workflow_put": return await putAutomationWorkflow(args.workflow || {}, { env: childEnv() });
     case "automation_workflow_delete": return await deleteAutomationWorkflow(String(args.id || ""), { env: childEnv() });
-    case "automation_recordings_list": return await listAutomationRecordings(String(args.workspaceId || ""), { env: childEnv() });
+    case "automation_recordings_list": return await listAutomationRecordings({ env: childEnv() });
     case "automation_recording_put": return await putAutomationRecording(args.recording || {}, { env: childEnv() });
     case "automation_recording_delete": return await deleteAutomationRecording(String(args.id || ""), { env: childEnv() });
     case "automation_shares_list": return await listAutomationShares(String(args.box || "inbox"), { env: childEnv() });
     case "automation_share_create": return await createAutomationShare(args.share || {}, { env: childEnv() });
-    case "automation_share_accept": return await acceptAutomationShare(String(args.id || ""), String(args.workspaceId || ""), args.workspace || {}, { env: childEnv() });
+    case "automation_share_accept": return await acceptAutomationShare(String(args.id || ""), { env: childEnv() });
     case "automation_share_decline": return await declineAutomationShare(String(args.id || ""), { env: childEnv() });
     case "automation_share_revoke": return await revokeAutomationShare(String(args.id || ""), { env: childEnv() });
     case "automation_runs_list": return await listAutomationRuns(String(args.workspaceId || ""), { env: childEnv() });
     case "automation_seed_examples": {
       const workspaceId = String(args.workspaceId || "");
       const [backend, artifacts] = await Promise.all([
-        seedAutomationExamples(workspaceId, { env: childEnv() }),
+        seedAutomationExamples({ env: childEnv() }),
         localAutomationArtifacts().seedExamples(workspaceId),
       ]);
       return { seeded: { ...backend.seeded, artifacts } };

@@ -27,9 +27,9 @@ describe("userFacingBrowserError", () => {
       .toBe("Could not open page");
   });
 
-  it("turns an unavailable share destination into a clear recovery action", () => {
+  it("turns an unavailable workspace into a clear recovery action", () => {
     expect(userFacingBrowserError("Error invoking remote method 'nextbrowser:invoke': Error: workspace not found"))
-      .toBe("This workspace is not available for the signed-in account. Select or create a workspace for this account, then add the shared copy again.");
+      .toBe("The selected workspace is no longer available. Select or create a workspace, then try again.");
   });
 
   it("removes the Electron IPC prefix from ordinary errors", () => {

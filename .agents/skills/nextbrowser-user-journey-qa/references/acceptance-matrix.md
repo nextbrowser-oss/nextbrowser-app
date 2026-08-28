@@ -102,7 +102,7 @@ Avoid destructive posting, purchases, account creation, or messages unless the u
 
 ### Persistence and sharing
 
-- Recordings/workflows survive app restart and appear in the correct workspace.
+- Recordings/workflows survive app restart and appear in the account automation library from every workspace; run history and local artifacts remain in the workspace where execution occurred.
 - Unsaved/in-progress attempts do not reappear as completed entities.
 - Shared entities exclude credentials, transient profile identifiers, and local artifact contents unless explicitly part of the sharing design.
 
