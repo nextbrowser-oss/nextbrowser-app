@@ -7665,6 +7665,10 @@ pre,
 .automation-share-inbox-items { display: grid; gap: 7px; }
 .automation-share-inbox article { padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
 .automation-share-inbox article strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.automation-share-sent { border-color: var(--line); background: color-mix(in srgb, var(--panel) 92%, var(--accent)); }
+.automation-share-status { padding: 5px 8px; border-radius: 999px; background: var(--bg-elevated); color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .035em; }
+.automation-share-status.accepted { background: color-mix(in srgb, var(--success) 13%, var(--panel)); color: var(--success); }
+.automation-share-status.declined { background: color-mix(in srgb, var(--red) 10%, var(--panel)); color: var(--red); }
 .automation-share-dialog { width: min(500px, calc(100vw - 32px)); display: grid; gap: 16px; padding: 20px; }
 .automation-share-dialog h2 { display: inline; margin: 0 0 0 10px; font-size: 18px; }
 .automation-share-dialog p { margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.45; }

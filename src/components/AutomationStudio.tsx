@@ -26,7 +26,7 @@ type ElementPickState = { pickId: string; actionIndex: number; mode: ElementPick
 type ElementPickResult = { cancelled?: boolean; selector?: string; locator?: { role?: string; name?: string; text?: string }; label?: string; tag?: string; attribute?: string; pageUrl?: string };
 type WorkflowContextMenu = { workflowId: string; x: number; y: number };
 type RecordingReview = { active: ActiveAutomationRecording; captured: CapturedRun; reason: string; actionCount: number; missingAgentTrace: boolean; saveError?: string };
-type AutomationShare = { id: string; source_kind: "recording" | "workflow"; source_id: string; title: string; sender_email?: string; recipient_email?: string; status: string; created_at: string };
+type AutomationShare = { id: string; source_kind: "recording" | "workflow"; source_id: string; title: string; sender_email?: string; recipient_email?: string; status: "pending" | "accepted" | "declined" | "revoked"; accepted_copy_id?: string; created_at: string; accepted_at?: string };
 type ShareTarget = { kind: "recording" | "workflow"; id: string; title: string };
 
 const ACTION_OPTIONS = [
@@ -47,12 +47,6 @@ function isUnavailableRecordingSession(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return /(?:connection refused|session ["']?.+?["']? not found|state failed|list cdp targets|cdp became reachable|browser (?:is )?not running)/i.test(message);
 }
-const DEFAULT_EXAMPLES_VERSION = "5";
-
-function defaultExamplesKey(workspaceId: string) {
-  return `nextbrowser:automation-default-examples:${workspaceId}`;
-}
-
 function actionLabel(tool: string) {
   return ACTION_OPTIONS.find(([value]) => value === tool)?.[1] || `Advanced: ${tool}`;
 }
@@ -211,6 +205,7 @@ export function AutomationStudio() {
   const [workflowAiRequest, setWorkflowAiRequest] = useState("");
   const [workflowAiBusy, setWorkflowAiBusy] = useState(false);
   const [incomingShares, setIncomingShares] = useState<AutomationShare[]>([]);
+  const [sentShares, setSentShares] = useState<AutomationShare[]>([]);
   const [shareTarget, setShareTarget] = useState<ShareTarget>();
   const [shareEmail, setShareEmail] = useState("");
   const [shareBusy, setShareBusy] = useState(false);
@@ -288,12 +283,11 @@ export function AutomationStudio() {
   }, [selectedWorkflowId, workflows]);
 
   const loadWorkflows = async () => {
-    if (!workspaceId) return setWorkflows([]);
-    try { setWorkflows(await invoke<BrowserWorkflowSkill[]>("automation_workflows_list", { workspaceId })); setStudioError(undefined); }
+    try { setWorkflows(await invoke<BrowserWorkflowSkill[]>("automation_workflows_list")); setStudioError(undefined); }
     catch (error) { setStudioError(error instanceof Error ? error.message : String(error)); }
   };
 
-  useEffect(() => { void loadWorkflows(); }, [workspaceId]);
+  useEffect(() => { if (s.authed) void loadWorkflows(); }, [s.authed]);
 
   const loadRuns = async () => {
     if (!workspaceId) return setBackendRuns([]);
@@ -304,9 +298,8 @@ export function AutomationStudio() {
   useEffect(() => { void loadRuns(); }, [workspaceId]);
 
   const loadRecordings = async () => {
-    if (!workspaceId) return setRecordings([]);
     try {
-      const items = await invoke<BackendRecording[]>("automation_recordings_list", { workspaceId });
+      const items = await invoke<BackendRecording[]>("automation_recordings_list");
       const completed = items.filter((item) => !!item.document.run);
       const unfinished = items.filter((item) => !item.document.run);
       setRecordings(completed);
@@ -315,20 +308,26 @@ export function AutomationStudio() {
     catch (error) { setStudioError(error instanceof Error ? error.message : String(error)); }
   };
 
-  useEffect(() => { void loadRecordings(); }, [workspaceId]);
+  useEffect(() => { if (s.authed) void loadRecordings(); }, [s.authed]);
 
   const loadIncomingShares = async () => {
     try { setIncomingShares(await invoke<AutomationShare[]>("automation_shares_list", { box: "inbox" })); }
     catch { setIncomingShares([]); }
   };
 
-  useEffect(() => { void loadIncomingShares(); }, [workspaceId]);
+  const loadSentShares = async () => {
+    try { setSentShares(await invoke<AutomationShare[]>("automation_shares_list", { box: "sent" })); }
+    catch { setSentShares([]); }
+  };
+
+  useEffect(() => { if (s.authed) void Promise.all([loadIncomingShares(), loadSentShares()]); }, [s.authed]);
 
   const sendShare = async () => {
     if (!shareTarget || !shareEmail.trim()) return;
     setShareBusy(true);
     try {
       await invoke("automation_share_create", { share: { source_kind: shareTarget.kind, source_id: shareTarget.id, recipient_email: shareEmail.trim() } });
+      await loadSentShares();
       setShareTarget(undefined);
       setShareEmail("");
       setNotice("Shared. It will appear in Automation Studio when that email signs in.");
@@ -337,13 +336,12 @@ export function AutomationStudio() {
   };
 
   const acceptShare = async (share: AutomationShare) => {
-    if (!workspaceId) return;
     setShareBusy(true);
     try {
-      await invoke("automation_share_accept", { id: share.id, workspaceId });
+      await invoke("automation_share_accept", { id: share.id });
       await Promise.all([loadIncomingShares(), loadRecordings(), loadWorkflows()]);
       setSection(share.source_kind === "workflow" ? "workflows" : "recorder");
-      setNotice(`${share.source_kind === "workflow" ? "Workflow" : "Recording"} added to this workspace as your own editable copy.`);
+      setNotice(`${share.source_kind === "workflow" ? "Workflow" : "Recording"} added to your automation library as your own editable copy.`);
     } catch (error) { reportError(error); }
     finally { setShareBusy(false); }
   };
@@ -358,13 +356,20 @@ export function AutomationStudio() {
     finally { setShareBusy(false); }
   };
 
+  const revokeShare = async (share: AutomationShare) => {
+    setShareBusy(true);
+    try {
+      await invoke("automation_share_revoke", { id: share.id });
+      await loadSentShares();
+      setNotice("Pending shared copy revoked.");
+    } catch (error) { reportError(error); }
+    finally { setShareBusy(false); }
+  };
+
   useEffect(() => {
     if (!workspaceId) return;
-    const storageKey = defaultExamplesKey(workspaceId);
-    if (window.localStorage.getItem(storageKey) === DEFAULT_EXAMPLES_VERSION) return;
     void invoke("automation_seed_examples", { workspaceId })
       .then(() => {
-        window.localStorage.setItem(storageKey, DEFAULT_EXAMPLES_VERSION);
         return Promise.all([loadWorkflows(), loadRecordings(), loadRuns(), loadArtifacts()]);
       })
       .catch((error) => setStudioError(error instanceof Error ? error.message : String(error)));
@@ -574,13 +579,13 @@ export function AutomationStudio() {
   };
 
   const saveCompletedRecording = async (active: ActiveAutomationRecording, captured: CapturedRun) => {
-        await invoke("automation_recording_put", { recording: { id: active.id, workspace_id: workspaceId, status: "completed", document: { run: captured }, base_revision: 0 } });
+        await invoke("automation_recording_put", { recording: { id: active.id, status: "completed", document: { run: captured }, base_revision: 0 } });
         let savedWorkflow: BrowserWorkflowSkill | undefined;
         if (active.destination === "workflow") {
           const domain = capturedWorkflowDomain(captured.task, captured.evidence);
           const quality = workflowQuality(captured.task, captured.evidence, domain);
           if (quality.reusable) {
-            savedWorkflow = await invoke<BrowserWorkflowSkill>("automation_workflow_put", { workspaceId, workflow: skillFromRun(captured) });
+            savedWorkflow = await invoke<BrowserWorkflowSkill>("automation_workflow_put", { workflow: skillFromRun(captured) });
           }
         }
         clearActiveAutomationRecording();
@@ -634,7 +639,7 @@ export function AutomationStudio() {
 
   const saveCapture = async (run: CapturedRun) => {
     try {
-      const saved = await invoke<BrowserWorkflowSkill>("automation_workflow_put", { workspaceId, workflow: skillFromRun(run) });
+      const saved = await invoke<BrowserWorkflowSkill>("automation_workflow_put", { workflow: skillFromRun(run) });
       clearActiveAutomationRecording();
       setRecordingSince(0);
       await loadWorkflows();
@@ -847,7 +852,7 @@ export function AutomationStudio() {
     if (!draft || draftValidationError || Object.keys(actionErrors).length) return undefined;
     setSaving(true);
     try {
-      const saved = await invoke<BrowserWorkflowSkill>("automation_workflow_put", { workspaceId, workflow: { ...draft, recipe: { ...draft.recipe, actions: draft.actions } } });
+      const saved = await invoke<BrowserWorkflowSkill>("automation_workflow_put", { workflow: { ...draft, recipe: { ...draft.recipe, actions: draft.actions } } });
       setWorkflows((current) => current.some((item) => item.id === saved.id) ? current.map((item) => item.id === saved.id ? saved : item) : [saved, ...current]);
       setDraft(saved);
       setStudioError(undefined);
@@ -914,7 +919,7 @@ export function AutomationStudio() {
       recipe: { version: 1, capability: "other", actions: [action] }, createdAt, updatedAt: createdAt,
     };
     try {
-      const saved = await invoke<BrowserWorkflowSkill>("automation_workflow_put", { workspaceId, workflow });
+      const saved = await invoke<BrowserWorkflowSkill>("automation_workflow_put", { workflow });
       setWorkflows((current) => [saved, ...current]);
       setSelectedWorkflowId(saved.id);
       setWorkflowListCollapsed(true);
@@ -938,7 +943,7 @@ export function AutomationStudio() {
   const duplicateWorkflow = async (workflow: BrowserWorkflowSkill) => {
     const now = Date.now();
     try {
-      const copy = await invoke<BrowserWorkflowSkill>("automation_workflow_put", { workspaceId, workflow: { ...structuredClone(workflow), id: uid(), title: `${workflow.title} copy`, revision: 0, createdAt: now, updatedAt: now, recipe: { ...workflow.recipe, example_key: undefined, example_version: undefined, demo_key: undefined, demo_version: undefined } } });
+      const copy = await invoke<BrowserWorkflowSkill>("automation_workflow_put", { workflow: { ...structuredClone(workflow), id: uid(), title: `${workflow.title} copy`, revision: 0, createdAt: now, updatedAt: now, recipe: { ...workflow.recipe, example_key: undefined, example_version: undefined, demo_key: undefined, demo_version: undefined } } });
       setWorkflows((current) => [copy, ...current]);
       setSelectedWorkflowId(copy.id);
       setWorkflowListCollapsed(true);
@@ -1141,7 +1146,7 @@ export function AutomationStudio() {
   return (
     <div ref={studioRef} className="automation-studio page">
       <header className="automation-hero">
-        <div><span className="eyebrow">Automation Studio</span><h1>Record, build, and collect</h1><p>Turn successful browser runs into repeatable workflows and keep their files with the workspace.</p></div>
+        <div><span className="eyebrow">Automation Studio</span><h1>Record, build, and collect</h1><p>Keep recordings and workflows in your automation library. Run outputs stay local to the active workspace.</p></div>
         <div className="automation-summary"><strong>{recordings.length}</strong><span>recordings</span><strong>{workflows.length}</strong><span>workflows</span><strong>{artifacts.length}</strong><span>artifacts</span></div>
       </header>
       <div className="automation-sections" role="tablist">
@@ -1159,7 +1164,8 @@ export function AutomationStudio() {
       </div>
       {studioError && <div className="error automation-global-message" role="alert"><strong>Automation couldn’t complete the action.</strong><span>{studioError}</span><button onClick={() => setStudioError(undefined)}>Dismiss</button></div>}
       {notice && <div className="automation-global-message success" role="status"><span>{notice}</span><button onClick={() => setNotice(undefined)}>Dismiss</button></div>}
-      {incomingShares.length > 0 && <section className="automation-share-inbox" aria-label="Shared with me"><div><Icon name="person.2.fill" size={15} /><span><strong>Shared with you</strong><small>{incomingShares.length} automation {incomingShares.length === 1 ? "copy is" : "copies are"} ready to add to this workspace.</small></span></div><div className="automation-share-inbox-items">{incomingShares.map((share) => <article key={share.id}><span><strong>{share.title}</strong><small>{share.source_kind === "workflow" ? "Workflow" : "Recording"}{share.sender_email ? ` · from ${share.sender_email}` : ""}</small></span><div className="automation-inline-actions"><button className="secondary" disabled={shareBusy} onClick={() => void declineShare(share)}>Decline</button><button className="secondary" disabled={shareBusy} onClick={() => void acceptShare(share)}>Add copy</button></div></article>)}</div></section>}
+      {incomingShares.length > 0 && <section className="automation-share-inbox" aria-label="Shared with me"><div><Icon name="person.2.fill" size={15} /><span><strong>Shared with you</strong><small>{incomingShares.length} automation {incomingShares.length === 1 ? "copy is" : "copies are"} ready to add to your library.</small></span></div><div className="automation-share-inbox-items">{incomingShares.map((share) => <article key={share.id}><span><strong>{share.title}</strong><small>{share.source_kind === "workflow" ? "Workflow" : "Recording"}{share.sender_email ? ` · from ${share.sender_email}` : ""}</small></span><div className="automation-inline-actions"><button className="secondary" disabled={shareBusy} onClick={() => void declineShare(share)}>Decline</button><button className="secondary" disabled={shareBusy} onClick={() => void acceptShare(share)}>Add to my automations</button></div></article>)}</div></section>}
+      {sentShares.length > 0 && <section className="automation-share-inbox automation-share-sent" aria-label="Shared by me"><div><Icon name="paperplane.fill" size={15} /><span><strong>Shared by you</strong><small>Track copies sent to other NextBrowser users.</small></span></div><div className="automation-share-inbox-items">{sentShares.map((share) => <article key={share.id}><span><strong>{share.title}</strong><small>{share.source_kind === "workflow" ? "Workflow" : "Recording"}{share.recipient_email ? ` · to ${share.recipient_email}` : ""}</small></span><div className="automation-inline-actions"><span className={`automation-share-status ${share.status}`}>{share.status === "pending" ? "Waiting" : share.status === "accepted" ? "Added" : "Declined"}</span>{share.status === "pending" && <button className="secondary" disabled={shareBusy} onClick={() => void revokeShare(share)}>Revoke</button>}</div></article>)}</div></section>}
       {playback && playbackView && <div className={`recording-progress-card ${playbackView.phase}`} role="status"><div className="recording-progress-head"><span><Icon name={playbackView.phase === "completed" ? "checkmark.circle.fill" : ["failed", "cancelled"].includes(playbackView.phase) ? "xmark.circle.fill" : playbackView.phase === "stopping" ? "stop.fill" : "play.fill"} size={14} /><strong>{playbackView.phase === "completed" ? "Execution completed" : playbackView.phase === "cancelled" ? "Execution stopped" : playbackView.phase === "failed" ? "Execution failed" : playbackView.phase === "stopping" ? "Stopping execution" : playback.engine === "agent" ? "AI is repairing the workflow" : playbackView.phase === "preparing" ? "Preparing execution" : "Running saved steps"}</strong></span><b>{playbackView.progress}%</b></div><div className="recording-progress-track"><i style={{ width: `${playbackView.progress}%` }} /></div><small>{playbackView.detail}</small><div className="row">{["completed", "failed", "cancelled"].includes(playbackView.phase) ? <button onClick={() => { setPlayback(undefined); clearActiveAutomationExecution(); }}>Dismiss</button> : <button className="secondary danger-text" disabled={playbackView.phase === "stopping"} onClick={() => void stopExecution()}><Icon name="stop.fill" size={12} /> {playbackView.phase === "stopping" ? "Stopping…" : "Stop"}</button>}</div></div>}
 
       {section === "recorder" && <section className="automation-panel">

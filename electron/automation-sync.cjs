@@ -14,16 +14,16 @@ function normalizeWorkflow(item) {
   };
 }
 
-async function listAutomationWorkflows(workspaceId, deps) {
-  const body = await projectRequest(`/v1/automation/workflows${query(workspaceId)}`, {}, deps);
+async function listAutomationWorkflows(deps) {
+  const body = await projectRequest("/v1/automation/workflows", {}, deps);
   return (body?.workflows || []).map(normalizeWorkflow);
 }
 
-async function putAutomationWorkflow(workspaceId, workflow, deps) {
+async function putAutomationWorkflow(workflow, deps) {
   const body = await projectRequest(`/v1/automation/workflows/${encodeURIComponent(workflow.id)}`, {
     method: "PUT",
     body: JSON.stringify({
-      workspace_id: workspaceId, title: workflow.title, domain: workflow.domain, task: workflow.task,
+      title: workflow.title, domain: workflow.domain, task: workflow.task,
       instructions: workflow.instructions, capability: workflow.capability,
       parameters_schema: workflow.parametersSchema || {}, output_schema: workflow.outputSchema || {},
       recipe: { ...workflow.recipe, actions: workflow.actions }, base_revision: workflow.revision || 0,
@@ -34,8 +34,8 @@ async function putAutomationWorkflow(workspaceId, workflow, deps) {
 
 const deleteAutomationWorkflow = (id, deps) => projectRequest(`/v1/automation/workflows/${encodeURIComponent(id)}`, { method: "DELETE" }, deps);
 
-async function listAutomationRecordings(workspaceId, deps) {
-  const body = await projectRequest(`/v1/automation/recordings${query(workspaceId)}`, {}, deps);
+async function listAutomationRecordings(deps) {
+  const body = await projectRequest("/v1/automation/recordings", {}, deps);
   return body?.recordings || [];
 }
 
@@ -49,7 +49,7 @@ async function listAutomationShares(box, deps) {
   return body?.shares || [];
 }
 const createAutomationShare = (share, deps) => projectRequest("/v1/automation/shares", { method: "POST", body: JSON.stringify(share) }, deps);
-const acceptAutomationShare = (id, workspaceId, deps) => projectRequest(`/v1/automation/shares/${encodeURIComponent(id)}/accept`, { method: "POST", body: JSON.stringify({ workspace_id: workspaceId }) }, deps);
+const acceptAutomationShare = (id, deps) => projectRequest(`/v1/automation/shares/${encodeURIComponent(id)}/accept`, { method: "POST" }, deps);
 const declineAutomationShare = (id, deps) => projectRequest(`/v1/automation/shares/${encodeURIComponent(id)}/decline`, { method: "POST" }, deps);
 const revokeAutomationShare = (id, deps) => projectRequest(`/v1/automation/shares/${encodeURIComponent(id)}`, { method: "DELETE" }, deps);
 
@@ -71,18 +71,18 @@ function exampleRun(id, task, title, evidence, createdAt) {
 
 const seedAutomationPromises = new Map();
 
-function seedAutomationExamples(workspaceId, deps) {
-  if (!workspaceId) throw new Error("A workspace is required for Automation Studio examples.");
-  const current = seedAutomationPromises.get(workspaceId);
+function seedAutomationExamples(deps) {
+  const key = "account";
+  const current = seedAutomationPromises.get(key);
   if (current) return current;
-  const promise = seedAutomationExamplesOnce(workspaceId, deps).finally(() => seedAutomationPromises.delete(workspaceId));
-  seedAutomationPromises.set(workspaceId, promise);
+  const promise = seedAutomationExamplesOnce(deps).finally(() => seedAutomationPromises.delete(key));
+  seedAutomationPromises.set(key, promise);
   return promise;
 }
 
-async function seedAutomationExamplesOnce(workspaceId, deps) {
+async function seedAutomationExamplesOnce(deps) {
   const [workflows, recordings] = await Promise.all([
-    listAutomationWorkflows(workspaceId, deps), listAutomationRecordings(workspaceId, deps),
+    listAutomationWorkflows(deps), listAutomationRecordings(deps),
   ]);
   const now = Date.now();
   const exampleVersion = 5;
@@ -96,7 +96,7 @@ async function seedAutomationExamplesOnce(workspaceId, deps) {
   for (const example of workflowExamples) {
     const existing = workflows.find((item) => item.recipe?.example_key === example.key || item.recipe?.demo_key === example.key || item.title === example.title);
     if (existing && Number(existing.recipe?.example_version || 0) >= exampleVersion) continue;
-    await putAutomationWorkflow(workspaceId, {
+    await putAutomationWorkflow({
       id: existing?.id || randomUUID(), ...example,
       instructions: "Execute the structured recipe first. Inspect the page and adapt selectors if its layout changed.",
       parametersSchema: { type: "object", properties: { task: { type: "string" } } },
@@ -113,7 +113,7 @@ async function seedAutomationExamplesOnce(workspaceId, deps) {
   for (const example of recordingExamples) {
     const existing = recordings.find((item) => item.document?.example_key === example.key || item.document?.demo_key === example.key);
     if (existing && Number(existing.document?.example_version || 0) >= exampleVersion) continue;
-    await putAutomationRecording({ id: existing?.id || randomUUID(), workspace_id: workspaceId, status: "completed", document: { run: example.run, example_key: example.key, example_version: exampleVersion }, base_revision: existing?.revision || 0 }, deps);
+    await putAutomationRecording({ id: existing?.id || randomUUID(), status: "completed", document: { run: example.run, example_key: example.key, example_version: exampleVersion }, base_revision: existing?.revision || 0 }, deps);
     seededRecordings += 1;
   }
   return { seeded: { workflows: seededWorkflows, recordings: seededRecordings } };

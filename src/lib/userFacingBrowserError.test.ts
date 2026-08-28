@@ -26,4 +26,14 @@ describe("userFacingBrowserError", () => {
     expect(userFacingBrowserError("Could not open page; see log /Users/person/private/child.log"))
       .toBe("Could not open page");
   });
+
+  it("turns an unavailable workspace into a clear recovery action", () => {
+    expect(userFacingBrowserError("Error invoking remote method 'nextbrowser:invoke': Error: workspace not found"))
+      .toBe("The selected workspace is no longer available. Select or create a workspace, then try again.");
+  });
+
+  it("removes the Electron IPC prefix from ordinary errors", () => {
+    expect(userFacingBrowserError("Error invoking remote method 'nextbrowser:invoke': Error: The shared workflow is invalid"))
+      .toBe("The shared workflow is invalid");
+  });
 });
