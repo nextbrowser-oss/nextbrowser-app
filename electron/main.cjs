@@ -2187,9 +2187,13 @@ if (!gotLock) {
     return migrateLegacyRuntimeConfig();
   }).then(() => {
     applyAppIcon();
-    if (process.defaultApp) {
-      const script = process.argv[1];
-      if (script) app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [script]);
+    // `npx electron .` is not consistently reported as `process.defaultApp`
+    // on macOS. Without an explicit app path LaunchServices registers the bare
+    // Electron.app as the `nextbrowser://` handler, so an OAuth callback opens
+    // Electron's generic welcome window instead of this running dev app.
+    if (process.defaultApp || process.env.VITE_DEV_SERVER_URL) {
+      const script = process.defaultApp ? process.argv[1] : path.resolve(__dirname, "..");
+      if (script) app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [path.resolve(script)]);
     } else {
       app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
     }
