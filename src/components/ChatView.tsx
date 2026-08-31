@@ -14,6 +14,7 @@ import { UserFacingError } from "./UserFacingError";
 import { AgentInstallLink } from "./AgentInstallLink";
 import { takeGuideDraft } from "../lib/guideDraft";
 import { entityNameLimits } from "../lib/entityValidation";
+import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { AgentTerminal } from "./AgentTerminal";
 import { uid } from "../lib/ids";
 import {
@@ -143,6 +144,16 @@ export function ChatView() {
     window.addEventListener("nextbrowser:create-project", openProjectCreator);
     return () => window.removeEventListener("nextbrowser:create-project", openProjectCreator);
   }, []);
+  useEffect(() => {
+    if (!projectCreatorOpen) return;
+    const dismissProjectCreator = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setProjectCreatorOpen(false);
+    };
+    window.addEventListener("keydown", dismissProjectCreator);
+    return () => window.removeEventListener("keydown", dismissProjectCreator);
+  }, [projectCreatorOpen]);
   const previousTerminalChat = useRef(s.terminalChat);
   const chatMessagesSharedWithTerminal = useRef(new Map<string, number>());
   const bottomRef = useRef<HTMLDivElement>(null);
