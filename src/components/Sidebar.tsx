@@ -198,6 +198,17 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     return () => window.removeEventListener("keydown", dismissWorkspaceCreator);
   }, [workspaceCreatorOpen]);
 
+  useEffect(() => {
+    if (!manualProxyOpen || manualSaving || manualProxyDeletePending) return;
+    const dismissManualProxy = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setManualProxyOpen(false);
+    };
+    window.addEventListener("keydown", dismissManualProxy);
+    return () => window.removeEventListener("keydown", dismissManualProxy);
+  }, [manualProxyOpen, manualSaving, manualProxyDeletePending]);
+
   const agentName = agentById(s.agentId).name;
   const ready = s.agentReady();
   const searchQuery = s.profileSearch.trim();
