@@ -2,7 +2,7 @@ import { type DragEvent, type FormEvent, useEffect, useMemo, useRef, useState } 
 import { createPortal } from "react-dom";
 import { useStore, type ManualProxyProfileInput } from "../store";
 import { agentById } from "../agents";
-import { shouldDismissProfileActionsMenu } from "../lib/profileActionsMenu";
+import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { BrandHeader, BrandLogo } from "./BrandLogo";
 import { Icon, Spinner } from "./Icon";
 import { withLocalScripts } from "../skillsCatalog";
@@ -179,13 +179,24 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   useEffect(() => {
     if (!menuProfile) return;
     const dismissProfileMenu = (event: KeyboardEvent) => {
-      if (!shouldDismissProfileActionsMenu(event)) return;
+      if (!shouldDismissModalWithEscape(event)) return;
       event.preventDefault();
       setMenuProfile(null);
     };
     window.addEventListener("keydown", dismissProfileMenu);
     return () => window.removeEventListener("keydown", dismissProfileMenu);
   }, [menuProfile]);
+
+  useEffect(() => {
+    if (!workspaceCreatorOpen) return;
+    const dismissWorkspaceCreator = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setWorkspaceCreatorOpen(false);
+    };
+    window.addEventListener("keydown", dismissWorkspaceCreator);
+    return () => window.removeEventListener("keydown", dismissWorkspaceCreator);
+  }, [workspaceCreatorOpen]);
 
   const agentName = agentById(s.agentId).name;
   const ready = s.agentReady();

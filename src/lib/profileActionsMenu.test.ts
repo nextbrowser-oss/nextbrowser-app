@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { shouldDismissProfileActionsMenu } from "./profileActionsMenu";
+import { shouldDismissModalWithEscape } from "./modalKeyboard";
 
-describe("profile actions menu keyboard behavior", () => {
-  it("dismisses only on Escape", () => {
-    expect(shouldDismissProfileActionsMenu({ key: "Escape" })).toBe(true);
-    expect(shouldDismissProfileActionsMenu({ key: "Enter" })).toBe(false);
+describe("modal keyboard behavior", () => {
+  it("dismisses profile and creator dialogs only on Escape", () => {
+    expect(shouldDismissModalWithEscape({ key: "Escape" })).toBe(true);
+    expect(shouldDismissModalWithEscape({ key: "Enter" })).toBe(false);
   });
 });
