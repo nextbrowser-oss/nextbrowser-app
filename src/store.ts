@@ -51,6 +51,7 @@ import { accountLoginURL } from "./lib/accountAuth";
 import { requiresWorkspaceSetup } from "./lib/workspaceSetup";
 import { validateEntityName } from "./lib/entityValidation";
 import { moveProfileToWorkspace as moveProfileBetweenWorkspaces } from "./lib/workspaceProfiles";
+import { isWorkspaceRevisionConflict, mergeWorkspaceAfterRevisionConflict } from "./lib/workspaceConflict";
 import {
   normalizeConversation,
   normalizeWorkflowSkill,
@@ -3429,18 +3430,46 @@ export const useStore = create<State>((set, get) => {
       for (const workspace of workspaces) {
         const cloud = remoteWorkspaceById.get(workspace.id);
         if (cloud && workspace.updatedAt <= Date.parse(cloud.updated_at)) continue;
-        const saved = await invoke<{ revision: number }>("workspace_put", {
-          id: workspace.id,
+        const saveWorkspace = (candidate: Workspace, baseRevision: number) => invoke<{ revision: number }>("workspace_put", {
+          id: candidate.id,
           workspace: {
-            name: workspace.name,
+            name: candidate.name,
             document: {
-              profileNames: workspace.profileNames,
-              profileToolsets: workspace.profileToolsets,
-              profileProxyIds: workspace.profileProxyIds ?? {},
+              profileNames: candidate.profileNames,
+              profileToolsets: candidate.profileToolsets,
+              profileProxyIds: candidate.profileProxyIds ?? {},
             },
-            base_revision: workspaceRevisions[workspace.id] ?? 0,
+            base_revision: baseRevision,
           },
         });
+        let candidate = workspace;
+        let saved: { revision: number };
+        try {
+          saved = await saveWorkspace(candidate, workspaceRevisions[workspace.id] ?? 0);
+        } catch (error) {
+          if (!isWorkspaceRevisionConflict(error)) throw error;
+          // A second device changed the same workspace after our initial list.
+          // Refresh once, merge profile associations, and retry against its
+          // revision instead of surfacing a background 409 to the user.
+          const refreshed = await invoke<{ workspaces?: Array<{
+            id: string; name: string; document: Partial<Workspace>; revision: number; updated_at: string; created_at: string;
+          }> }>("workspaces_list");
+          const latest = refreshed.workspaces?.find((item) => item.id === workspace.id);
+          if (!latest) throw error;
+          const remote: Workspace = {
+            id: latest.id,
+            name: latest.name,
+            profileNames: Array.isArray(latest.document?.profileNames) ? latest.document.profileNames : [],
+            profileToolsets: latest.document?.profileToolsets ?? {},
+            profileProxyIds: latest.document?.profileProxyIds ?? {},
+            createdAt: Date.parse(latest.created_at),
+            updatedAt: Date.parse(latest.updated_at),
+          };
+          candidate = mergeWorkspaceAfterRevisionConflict(workspace, remote);
+          const index = workspaces.findIndex((item) => item.id === candidate.id);
+          if (index >= 0) workspaces[index] = candidate;
+          saved = await saveWorkspace(candidate, latest.revision);
+        }
         workspaceRevisions[workspace.id] = saved.revision;
       }
       let activeWorkspaceId = get().activeWorkspaceId;
