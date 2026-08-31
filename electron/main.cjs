@@ -2187,13 +2187,16 @@ if (!gotLock) {
     return migrateLegacyRuntimeConfig();
   }).then(() => {
     applyAppIcon();
-    // `npx electron .` is not consistently reported as `process.defaultApp`
-    // on macOS. Without an explicit app path LaunchServices registers the bare
-    // Electron.app as the `nextbrowser://` handler, so an OAuth callback opens
-    // Electron's generic welcome window instead of this running dev app.
-    if (process.defaultApp || process.env.VITE_DEV_SERVER_URL) {
-      const script = process.defaultApp ? process.argv[1] : path.resolve(__dirname, "..");
-      if (script) app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [path.resolve(script)]);
+    // The account-pairing flow is completed by polling, so a development build
+    // never needs to own `nextbrowser://`. On macOS LaunchServices associates a
+    // dev registration with Electron.app itself and silently drops the script
+    // argument; a browser callback then opens Electron's generic welcome window
+    // instead of the running NextBrowser app. Clean up only that stale dev
+    // handler. Packaged builds keep the normal protocol registration.
+    if (!app.isPackaged) {
+      if (app.getApplicationNameForProtocol(`${DEEP_LINK_PROTOCOL}://`) === "Electron") {
+        app.removeAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
+      }
     } else {
       app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
     }
