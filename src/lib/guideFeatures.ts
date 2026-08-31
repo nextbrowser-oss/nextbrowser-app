@@ -36,7 +36,7 @@ export const GUIDE_FEATURE_GROUPS: GuideFeatureGroup[] = [
         caption: "Create, select, start, or stop profiles.",
         tint: "#5856d6",
         action: "profiles",
-        actionLabel: "Open profiles",
+        actionLabel: "Show profiles",
       },
       {
         id: "identity",

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { invoke, listen } from "../electronBridge";
 import { Icon, Spinner } from "./Icon";
@@ -10,6 +11,7 @@ import { terminalBrowserScopeContext, terminalInputWithDeferredContext, terminal
 import { terminalActivityPreview, terminalAgentReady, terminalInputShouldQueueBeforeReady } from "../lib/terminalReadiness";
 import { terminalBrowserSession } from "../lib/terminalBrowserSession";
 import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT } from "../lib/automationRecording";
+import { openTerminalWebLink } from "../lib/terminalWebLinks";
 
 interface AgentTerminalProps {
   agentId: string;
@@ -185,6 +187,12 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
     let readinessTimer: ReturnType<typeof setTimeout> | undefined;
     let previewTimer: ReturnType<typeof setTimeout> | undefined;
 
+    const openLink = (uri: string) => {
+      void openTerminalWebLink(uri, (url) => invoke("open_external", { url })).catch((reason) => {
+        const message = reason instanceof Error ? reason.message : String(reason);
+        terminal.write(`\r\n\x1b[31mCould not open link: ${message}\x1b[0m\r\n`);
+      });
+    };
     const terminal = new Terminal({
       cursorBlink: true,
       convertEol: true,
@@ -196,9 +204,17 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
       lineHeight: 1.25,
       scrollback: 10_000,
       theme: activeTerminalTheme(),
+      // Agent CLIs commonly emit OSC 8 hyperlinks. Without an explicit
+      // handler xterm falls back to a browser confirm() prompt, which is not
+      // usable inside Electron. Plain-text URLs are handled by WebLinksAddon
+      // below; both paths use the same scheme allowlist.
+      linkHandler: {
+        activate: (_event, uri) => openLink(uri),
+      },
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);
+    terminal.loadAddon(new WebLinksAddon((_event, uri) => openLink(uri)));
     terminal.open(host);
     terminalRef.current = terminal;
     const showContextMenu = (event: MouseEvent) => {

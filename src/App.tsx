@@ -663,21 +663,6 @@ function AppUpdatePrompt({
   );
 }
 
-function useButtonTooltips() {
-  useEffect(() => {
-    const apply = () => {
-      document.querySelectorAll<HTMLButtonElement>("button:not([title])").forEach((button) => {
-        const label = button.getAttribute("aria-label") || button.textContent?.replace(/\s+/g, " ").trim();
-        if (label) button.title = label;
-      });
-    };
-    apply();
-    const observer = new MutationObserver(apply);
-    observer.observe(document.body, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, []);
-}
-
 export function App() {
   const [theme, setTheme] = useState<Theme>(() => resolveTheme(
     localStorage.getItem("nextbrowser.theme"),
@@ -713,8 +698,6 @@ export function App() {
   const observedTab = useRef(tab);
   const pendingBackTarget = useRef<AppTab | null>(null);
   const [backTarget, setBackTarget] = useState<AppTab>();
-  useButtonTooltips();
-
   useEffect(() => {
     const showUnexpectedError = (event: ErrorEvent | PromiseRejectionEvent) => {
       const detail = event instanceof PromiseRejectionEvent
@@ -1218,7 +1201,6 @@ export function App() {
                 key={t.id}
                 className={"tab-hit" + (tab === t.id ? " tab-hit-active" : "")}
                 onClick={() => setTab(t.id)}
-                data-tooltip={t.label}
                 aria-label={`Open ${t.label}`}
               >
                 <span className={"tab-pill" + (tab === t.id ? " tab-pill-active" : "")}>

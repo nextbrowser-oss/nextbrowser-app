@@ -562,9 +562,14 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   useEffect(() => {
     let focusTimer = 0;
     const focusProfiles = () => {
+      setProfilesOpen(true);
+      s.setProfileSearch("");
       setProfileGuideFocus(true);
       window.clearTimeout(focusTimer);
-      focusTimer = window.setTimeout(() => setProfileGuideFocus(false), 1_400);
+      window.requestAnimationFrame(() => {
+        profileListRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      });
+      focusTimer = window.setTimeout(() => setProfileGuideFocus(false), 1_800);
     };
     const openCreator = () => {
       focusProfiles();

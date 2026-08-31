@@ -6115,6 +6115,10 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 }
 .quick-step-copy strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .quick-step-copy span { margin-top: 3px; color: var(--muted); font-size: 11px; }
+.quick-step-copy .quick-step-action {
+  color: var(--accent-text);
+  font-weight: 700;
+}
 .quick-step-chevron {
   flex: none;
   color: var(--muted);
@@ -6144,6 +6148,8 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 }
 .quick-step.is-locked {
   color: var(--muted);
+  cursor: not-allowed;
+  opacity: .66;
 }
 .quick-step.is-locked .step-num {
   border: 1px solid var(--line-strong);
@@ -6153,7 +6159,7 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .quick-step.is-locked .quick-step-copy strong {
   color: var(--muted);
 }
-.quick-step:hover .quick-step-chevron { color: var(--text); transform: translateX(2px); }
+.quick-step:not(:disabled):hover .quick-step-chevron { color: var(--text); transform: translateX(2px); }
 .demo-grid, .feature-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));

@@ -113,6 +113,10 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
       return;
     }
     if (action === "profiles") {
+      if (!authed) {
+        setDashboardKeyPromptOpen(true);
+        return;
+      }
       setSidebarCollapsed(false);
       dispatchGuideEvent("nextbrowser:focus-profiles");
       if (profileCount === 0) dispatchGuideEvent("nextbrowser:open-profile-creator");
@@ -157,7 +161,7 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
     {
       label: agentReady ? `${agentName} connected` : "Connect agent",
       detail: progress.states[1] === "locked"
-        ? `Finish step ${progress.currentIndex + 1} first`
+        ? `Complete step ${progress.currentIndex + 1} first`
         : agentReady ? "Ready" : "Claude Code or Codex",
       action: "agent",
       actionLabel: "Open agent settings",
@@ -173,7 +177,7 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
           ? "Start session"
           : "Create profile",
       detail: progress.states[2] === "locked"
-        ? `Finish step ${progress.currentIndex + 1} first`
+        ? `Complete step ${progress.currentIndex + 1} first`
         : selectedSessionRunning
         ? "Ready"
         : selectedSessionStarting
@@ -189,7 +193,7 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
     {
       label: conversationCount > 0 ? "Continue in Chat" : "Start a chat",
       detail: progress.states[3] === "locked"
-        ? `Finish step ${progress.currentIndex + 1} first`
+        ? `Complete step ${progress.currentIndex + 1} first`
         : conversationCount > 0 ? "Ready" : `Chat with ${agentName}`,
       action: "chat",
       actionLabel: "Open Chat",
@@ -215,6 +219,10 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
 
   const featureActionLabel = (feature: GuideFeature) => {
     if (feature.action === "account") return authed ? "View usage" : "Connect account";
+    if (feature.id === "profiles") {
+      if (!authed) return "Connect account";
+      return profileCount === 0 ? "Create profile" : "Show profiles";
+    }
     if (feature.id === "identity" && profileCount === 0) return "Create profile";
     return feature.actionLabel;
   };
@@ -246,22 +254,21 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
         <div className="quick-start claw-card">
           {quickSteps.map((step, index) => {
             const state = progress.states[index];
-            const destinationIndex = state === "locked" ? progress.currentIndex : index;
-            const destination = quickSteps[destinationIndex];
             return (
               <button
                 key={step.action}
                 type="button"
                 className={`quick-step is-${state}`}
                 data-step-state={state}
+                disabled={state === "locked"}
                 onClick={() => requestAction(
-                  destination.action,
+                  step.action,
                   `quick_step_${index + 1}`,
                   {
-                    title: `${destination.actionLabel}?`,
-                    confirmLabel: destination.actionLabel,
-                    icon: destination.icon,
-                    tint: destination.tint,
+                    title: `${step.actionLabel}?`,
+                    confirmLabel: step.actionLabel,
+                    icon: step.icon,
+                    tint: step.tint,
                   },
                 )}
                 aria-label={`${step.label}. ${step.detail}`}
@@ -272,8 +279,9 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
                 <span className="quick-step-copy">
                   <strong>{step.label}</strong>
                   <span>{step.detail}</span>
+                  {state !== "locked" && <span className="quick-step-action">{step.actionLabel}</span>}
                 </span>
-                <Icon name="chevron.right" size={13} className="quick-step-chevron" />
+                <Icon name={state === "locked" ? "lock.fill" : "chevron.right"} size={13} className="quick-step-chevron" />
               </button>
             );
           })}
