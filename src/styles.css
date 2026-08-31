@@ -6950,6 +6950,7 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   backdrop-filter: blur(14px);
 }
 .agent-gate-card {
+  position: relative;
   width: min(480px, 100%);
   display: flex;
   flex-direction: column;
@@ -6967,6 +6968,22 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .agent-gate-option.is-selected { border-color: var(--accent); }
 .agent-gate-option .ok { margin-left: auto; }
 .agent-gate-connect { justify-content: center; min-height: 42px; }
+.agent-gate-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+}
+.agent-gate-close:hover { color: var(--text); border-color: var(--line); background: var(--surface-2); }
+.agent-gate-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* --------------------------------------------------------------------------
    Theme direction: Obsidian Violet across dark and light modes

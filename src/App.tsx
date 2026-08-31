@@ -690,6 +690,7 @@ export function App() {
   const [runtimeUpdateProgressHidden, setRuntimeUpdateProgressHidden] = useState(false);
   const [unexpectedError, setUnexpectedError] = useState<{ reference: string; detail: string }>();
   const [browserRuntimeInstall, setBrowserRuntimeInstall] = useState<BrowserRuntimeInstallStatus>();
+  const [agentGateDismissed, setAgentGateDismissed] = useState(false);
   const preview = getPreviewMode();
   const checking = useStore((s) => s.checking);
   const tab = useStore((s) => s.tab);
@@ -1282,7 +1283,9 @@ export function App() {
         />
       )}
       <DashboardKeyModal />
-      {!checking && !agentReady && preview !== "main" && <AgentConnectionGate />}
+      {!checking && !agentReady && !agentGateDismissed && preview !== "main" && (
+        <AgentConnectionGate onDismiss={() => setAgentGateDismissed(true)} />
+      )}
       {showOnboarding && agentReady && !workspaceSetupRequired && <OnboardingView />}
       {!checking && agentReady && workspaceSetupRequired && <WorkspaceSetupGate />}
       {browserRuntimeInstall && <BrowserRuntimeInstallModal status={browserRuntimeInstall} onCancel={() => {
