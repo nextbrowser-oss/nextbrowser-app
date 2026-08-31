@@ -26,11 +26,10 @@ jobs:
       - name: Generate release notes
         if: github.ref_type == 'tag'
         run: node scripts/generate-release-notes.mjs ${{ github.ref_name }} release-notes.md
-      - name: Configure macOS signing
-        # Only export CSC_*/APPLE_* when a certificate secret is actually set.
-        # An empty CSC_LINK still counts as "defined" and makes electron-builder
-        # try to read a cert from an empty path, which fails the build — so we
-        # must leave it unset for unsigned builds rather than pass empty strings.
+      - name: Configure notarized macOS release signing
+        # A public macOS release must pass Gatekeeper. Never publish an ad-hoc
+        # artifact: users cannot open it without bypassing a security warning.
+        # Required repository secrets:
         #   MAC_CSC_LINK                 base64 of the Developer ID .p12
         #   MAC_CSC_KEY_PASSWORD         password for that .p12
         #   MAC_IDENTITY                 "Developer ID Application: NAME (TEAMID)"
@@ -43,30 +42,28 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ -n "${MAC_CSC_LINK:-}" ]; then
-            echo "Signing certificate present — signing + notarization enabled."
-            {
-              echo "CSC_LINK=$MAC_CSC_LINK"
-              echo "CSC_KEY_PASSWORD=$MAC_CSC_KEY_PASSWORD"
-              echo "APPLE_ID=$APPLE_ID"
-              echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_APP_SPECIFIC_PASSWORD"
-              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
-              echo "CSC_IDENTITY_AUTO_DISCOVERY=true"
-            } >> "$GITHUB_ENV"
-          else
-            echo "::warning::No Developer ID certificate — publishing an ad-hoc signed macOS artifact."
-            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+          missing=()
+          for secret in MAC_CSC_LINK MAC_CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!secret:-}" ]; then missing+=("$secret"); fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Refusing to publish an unsigned macOS release. Configure: ${missing[*]}" >&2
+            exit 1
           fi
+          {
+            echo "CSC_LINK=$MAC_CSC_LINK"
+            echo "CSC_KEY_PASSWORD=$MAC_CSC_KEY_PASSWORD"
+            echo "APPLE_ID=$APPLE_ID"
+            echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_APP_SPECIFIC_PASSWORD"
+            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=true"
+          } >> "$GITHUB_ENV"
       - run: npm test
       - name: Build macOS app
         env:
           MAC_IDENTITY: ${{ secrets.MAC_IDENTITY }}
         run: |
-          if [ -n "${CSC_LINK:-}" ]; then
-            npm run dist:mac -- -c.mac.identity="$MAC_IDENTITY"
-          else
-            npm run dist:mac -- -c.mac.identity="-"
-          fi
+          npm run dist:mac -- -c.mac.identity="$MAC_IDENTITY"
       - name: Verify macOS package
         if: github.ref_type == 'tag'
         run: |
@@ -81,29 +78,21 @@ jobs:
           signature_info="$(codesign -dv --verbose=4 "$app_path" 2>&1)"
           printf '%s\n' "$signature_info"
 
-          if [ -n "${CSC_LINK:-}" ]; then
-            if ! grep -q '^Authority=Developer ID Application:' <<<"$signature_info"; then
-              echo "App is not signed with a Developer ID Application certificate." >&2
-              exit 1
-            fi
-            if grep -q '^Signature=adhoc$' <<<"$signature_info"; then
-              echo "Expected a Developer ID signature, but found an ad-hoc signature." >&2
-              exit 1
-            fi
-            if grep -q '^TeamIdentifier=not set$' <<<"$signature_info"; then
-              echo "Signed app does not have an Apple team identifier." >&2
-              exit 1
-            fi
-
-            xcrun stapler validate "$app_path"
-            spctl --assess --type execute --verbose=4 "$app_path"
-          else
-            if ! grep -q '^Signature=adhoc$' <<<"$signature_info"; then
-              echo "Expected an ad-hoc signature for the unsigned release." >&2
-              exit 1
-            fi
-            echo "::warning::Publishing an ad-hoc signed app without notarization. macOS will show an unidentified developer warning."
+          if ! grep -q '^Authority=Developer ID Application:' <<<"$signature_info"; then
+            echo "App is not signed with a Developer ID Application certificate." >&2
+            exit 1
           fi
+          if grep -q '^Signature=adhoc$' <<<"$signature_info"; then
+            echo "Expected a Developer ID signature, but found an ad-hoc signature." >&2
+            exit 1
+          fi
+          if grep -q '^TeamIdentifier=not set$' <<<"$signature_info"; then
+            echo "Signed app does not have an Apple team identifier." >&2
+            exit 1
+          fi
+
+          xcrun stapler validate "$app_path"
+          spctl --assess --type execute --verbose=4 "$app_path"
       - name: Publish macOS build
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
