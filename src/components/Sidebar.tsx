@@ -2,6 +2,7 @@ import { type DragEvent, type FormEvent, useEffect, useMemo, useRef, useState } 
 import { createPortal } from "react-dom";
 import { useStore, type ManualProxyProfileInput } from "../store";
 import { agentById } from "../agents";
+import { shouldDismissProfileActionsMenu } from "../lib/profileActionsMenu";
 import { BrandHeader, BrandLogo } from "./BrandLogo";
 import { Icon, Spinner } from "./Icon";
 import { withLocalScripts } from "../skillsCatalog";
@@ -174,6 +175,17 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     setProfileMoveError(null);
     setProfileConnectionError(null);
   }, [s.activeWorkspaceId]);
+
+  useEffect(() => {
+    if (!menuProfile) return;
+    const dismissProfileMenu = (event: KeyboardEvent) => {
+      if (!shouldDismissProfileActionsMenu(event)) return;
+      event.preventDefault();
+      setMenuProfile(null);
+    };
+    window.addEventListener("keydown", dismissProfileMenu);
+    return () => window.removeEventListener("keydown", dismissProfileMenu);
+  }, [menuProfile]);
 
   const agentName = agentById(s.agentId).name;
   const ready = s.agentReady();
@@ -1840,8 +1852,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         const profileWorkspace = s.workspaces.find((workspace) => workspace.profileNames.includes(menuProfile));
         const profileBusy = ["running", "starting", "stopping", "rotating"].includes(status);
         return (
-          <div className="modal-overlay" onClick={() => setMenuProfile(null)}>
-            <div className="modal-card profile-menu" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-overlay" role="presentation" onClick={() => setMenuProfile(null)}>
+            <div className="modal-card profile-menu" role="dialog" aria-modal="true" aria-label={`Profile actions for ${isDefaultProfile ? "default" : menuProfile}`} onClick={(e) => e.stopPropagation()}>
               <div className="profile-menu-head">
                 <span
                   className={"dot " + (status === "running" ? "green" : status === "unknown" ? "gray" : "orange")}
