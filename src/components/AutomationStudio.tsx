@@ -292,13 +292,13 @@ export function AutomationStudio() {
 
   const loadWorkflows = async () => {
     try { setWorkflows(await invoke<BrowserWorkflowSkill[]>("automation_workflows_list")); }
-    catch (error) { setStudioError(userFacingBrowserError(error)); }
+    catch (error) { if (useStore.getState().authed) setStudioError(userFacingBrowserError(error)); }
   };
 
   const loadRuns = async () => {
     if (!workspaceId) return setBackendRuns([]);
     try { setBackendRuns(await invoke<BackendRun[]>("automation_runs_list", { workspaceId })); }
-    catch (error) { setStudioError(userFacingBrowserError(error)); }
+    catch (error) { if (useStore.getState().authed) setStudioError(userFacingBrowserError(error)); }
   };
 
   const loadRecordings = async () => {
@@ -309,17 +309,17 @@ export function AutomationStudio() {
       setRecordings(completed);
       if (unfinished.length) await Promise.allSettled(unfinished.map((item) => invoke("automation_recording_delete", { id: item.id })));
     }
-    catch (error) { setStudioError(userFacingBrowserError(error)); }
+    catch (error) { if (useStore.getState().authed) setStudioError(userFacingBrowserError(error)); }
   };
 
   const loadIncomingShares = async () => {
     try { setIncomingShares(await invoke<AutomationShare[]>("automation_shares_list", { box: "inbox" })); }
-    catch (error) { setIncomingShares([]); setStudioError(userFacingBrowserError(error)); }
+    catch (error) { setIncomingShares([]); if (useStore.getState().authed) setStudioError(userFacingBrowserError(error)); }
   };
 
   const loadSentShares = async () => {
     try { setSentShares(await invoke<AutomationShare[]>("automation_shares_list", { box: "sent" })); }
-    catch (error) { setSentShares([]); setStudioError(userFacingBrowserError(error)); }
+    catch (error) { setSentShares([]); if (useStore.getState().authed) setStudioError(userFacingBrowserError(error)); }
   };
 
   const sendShare = async () => {
@@ -373,6 +373,10 @@ export function AutomationStudio() {
 
   useEffect(() => {
     if (!s.authed) {
+      // Signing out, or opening Automation Studio before an account is
+      // connected, is a prerequisite state rather than a failed automation.
+      // Never leave an old backend error visible in that state.
+      setStudioError(undefined);
       setWorkflows([]);
       setRecordings([]);
       setIncomingShares([]);
@@ -476,6 +480,7 @@ export function AutomationStudio() {
   };
 
   const startRecording = async (destination: "recording" | "workflow" = "recording", source: "hybrid" | "agent" = "hybrid") => {
+    if (!s.authed) return setNotice("Connect your NextBrowser account before recording browser actions.");
     if (!workspaceId) return setStudioError("Create or select a workspace before recording.");
     try {
       const existing = activeAutomationRecording();
@@ -1199,7 +1204,7 @@ export function AutomationStudio() {
 
       {section === "recorder" && <section className="automation-panel">
         <div className="automation-panel-head"><div><h2>Recordings</h2><p>Perform a task in the browser once, then replay the captured actions.</p></div>
-          <div className="row">{recordingSince > 0 ? <button className="secondary danger-text" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={12} /> : <Icon name="stop.fill" size={12} />} {recordingModeButtonLabel}</button> : <button className="primary" onClick={() => void startRecording()}><Icon name="circle.fill" size={12} /> Start recording</button>}</div>
+          <div className="row">{recordingSince > 0 ? <button className="secondary danger-text" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={12} /> : <Icon name="stop.fill" size={12} />} {recordingModeButtonLabel}</button> : <button className="primary" disabled={!s.authed} title={!s.authed ? "Connect your NextBrowser account to record browser actions." : undefined} onClick={() => void startRecording()}><Icon name="circle.fill" size={12} /> {s.authed ? "Start recording" : "Connect account to record"}</button>}</div>
         </div>
         {recordingSince > 0 && <div className="recording-banner"><span className="recording-dot" /><span className="recording-banner-copy">{["manual", "hybrid"].includes(activeAutomationRecording()?.source || "agent") ? `Recording your actions and agent browser actions in ${activeAutomationRecording()?.profile || "the default browser"}. Press Stop when finished.` : recordedRun ? "Browser task captured — press Stop to save it." : `Recording is armed in ${recordingModeLabel}. Complete one browser task in Project Chat, then press Stop.`}</span>{["manual", "hybrid"].includes(activeAutomationRecording()?.source || "agent") && <span className="recording-banner-actions"><button className="secondary" onClick={() => s.setTab("live")}><Icon name="play.rectangle.on.rectangle.fill" size={12} /> Open browser</button><button className="secondary" onClick={() => { if (s.terminalChat) s.setTerminalChat(false); s.setTab("chat"); }}><Icon name="bubble.left.and.bubble.right.fill" size={12} /> Open Project Chat</button></span>}</div>}
         <div className="capture-list">
