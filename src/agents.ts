@@ -69,6 +69,10 @@ export const AGENTS: AgentSpec[] = [
   spec("cline", "Cline", "cline", "promptArg", { loginArgs: ["auth"] }),
   spec("pi", "pi", "pi", "promptFlag"),
   spec("gemini", "Gemini CLI", "gemini", "promptFlag"),
+  // Antigravity's documented non-interactive mode is `agy -p <prompt>`.
+  // Authentication happens when its interactive terminal opens (keyring first,
+  // then Google Sign-In), so it intentionally has no status or logout command.
+  spec("antigravity", "Antigravity CLI", "agy", "promptFlag", { installUrl: "https://www.antigravity.google/docs/cli/install/" }),
   spec("qwen", "Qwen Code", "qwen", "promptFlag"),
   spec("opencode", "OpenCode", "opencode", "runSubcommand"),
   spec("cursor", "Cursor Agent", "cursor-agent", "promptFlag"),
