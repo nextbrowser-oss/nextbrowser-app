@@ -76,9 +76,9 @@ function LaunchBrowserDemo({ phase }: { phase: number }) {
           <span className="spacer" />
           <span className="ok small">Agent</span>
         </div>
-        <DemoChatBubble text="Open the selected profile and go to amazon.com/deals" opacity={chatOpacity} />
+        <DemoChatBubble text="Save the 5 newest Hacker News stories as JSON" opacity={chatOpacity} />
         <DemoChatBubble
-          text="Plan: start the session, then open the page"
+          text="Opening the page and collecting title + URL"
           side="assistant"
           opacity={replyOpacity}
         />
@@ -89,7 +89,7 @@ function LaunchBrowserDemo({ phase }: { phase: number }) {
             transform: `translateY(${browserSlide * 36}px) scale(${pulse})`,
           }}
         >
-          <DemoBrowserChrome url="amazon.com/deals" />
+          <DemoBrowserChrome url="news.ycombinator.com/newest" />
           <div className="demo-page-mock">
             <div className="demo-banner" />
             <div className="demo-cards-row">
@@ -209,32 +209,32 @@ export const GUIDE_USAGE_DEMOS: Array<{
   Demo: ComponentType<{ phase: number }>;
 }> = [
   {
-    title: "Open a page",
-    caption: "Open a ready-made browser task in Chat.",
+    title: "Collect a live list",
+    caption: "Prepare a Chat task that saves five live results as JSON.",
     tint: "#5ac8fa",
     action: {
       kind: "chat",
       prompt:
-        "Using the selected NextBrowser profile, start its browser session if needed and navigate to https://amazon.com/deals. Stop and report if the session cannot start or navigation fails.",
+        "Using the selected NextBrowser profile, open https://news.ycombinator.com/newest, collect the first 5 story titles and URLs, and save them as hn-newest.json in Artifact Center. Verify that all 5 rows contain a title and an absolute URL.",
     },
-    actionLabel: "Open Chat",
+    actionLabel: "Prepare in Chat",
     Demo: LaunchBrowserDemo,
   },
   {
     title: "Change proxy country",
-    caption: "Draft a task to rotate and verify the proxy.",
+    caption: "Prepare a Chat task that changes country and verifies the result.",
     tint: "#ff9500",
     action: {
       kind: "chat",
       prompt:
         "For the selected NextBrowser profile, rotate its proxy country to ES, start the session if needed, verify the resulting proxy country and IP, then report the result. Stop and report if rotation or verification fails.",
     },
-    actionLabel: "Open Chat",
+    actionLabel: "Prepare in Chat",
     Demo: SpanishProxyDemo,
   },
   {
-    title: "Use a skill",
-    caption: "Browse available browser skills.",
+    title: "Run a reusable skill",
+    caption: "Open Skills to choose a saved browser workflow.",
     tint: "#63e6e2",
     action: { kind: "skills" },
     actionLabel: "Browse skills",
@@ -278,7 +278,7 @@ export function GuideUsageSection() {
           <Icon name="play.rectangle.on.rectangle.fill" size={20} />
           Examples
         </h3>
-        <p className="muted">Examples only. Chat tasks open as drafts.</p>
+        <p className="muted">Choose an example to see the next step. Chat examples open a ready-to-review draft and do not run until you press Send.</p>
         <div className="usage-grid">
           {GUIDE_USAGE_DEMOS.map((demo) => {
             const actionLabel = actionLabelFor(demo);

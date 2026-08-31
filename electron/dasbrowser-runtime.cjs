@@ -6,6 +6,23 @@ const DASBROWSER_DOWNLOADS = {
   win32: "https://cdn.dasbrowser.com/144.31/DasbrowserSetup.exe",
 };
 
+function dasbrowserReleaseVersion(url) {
+  return String(url || "").match(/cdn\.dasbrowser\.com\/(\d+(?:\.\d+)+)\//i)?.[1] || "";
+}
+
+function officialDasbrowserURLFromHTML(html, platform, fallback = DASBROWSER_DOWNLOADS[platform]) {
+  const directPattern = platform === "darwin"
+    ? /https:\/\/cdn\.dasbrowser\.com\/[^"']+\.dmg/i
+    : /https:\/\/cdn\.dasbrowser\.com\/[^"']+\.exe/i;
+  const direct = String(html || "").match(directPattern)?.[0];
+  if (direct) return direct;
+  const version = String(html || "").match(/https:\/\/cdn\.dasbrowser\.com\/(\d+(?:\.\d+)+)\//i)?.[1];
+  if (!version) return fallback;
+  if (platform === "darwin") return `https://cdn.dasbrowser.com/${version}/dasbrowser.dmg`;
+  if (platform === "win32") return `https://cdn.dasbrowser.com/${version}/DasbrowserSetup.exe`;
+  return fallback;
+}
+
 function dasbrowserRuntimeCandidates({ platform, homeDir, env = {}, runtimeRoot }) {
   const candidates = [];
   if (env.DASBROWSER_BIN) candidates.push(env.DASBROWSER_BIN);
@@ -73,7 +90,9 @@ module.exports = {
   DASBROWSER_DOWNLOADS,
   adaptDasbrowserArgs,
   dasbrowserAppCopyOptions,
+  dasbrowserReleaseVersion,
   dasbrowserRuntimeCandidates,
+  officialDasbrowserURLFromHTML,
   requestedBrowserRuntime,
   resolveDasbrowserRuntime,
 };

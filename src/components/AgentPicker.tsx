@@ -40,15 +40,30 @@ export function AgentPicker({ compact = false, createChatOnSwitch = false, label
   const menuStyle = (() => {
     const rect = buttonRef.current?.getBoundingClientRect();
     if (!rect) return undefined;
-    const width = Math.min(300, window.innerWidth - 24);
-    const left = Math.min(Math.max(12, rect.right - width), window.innerWidth - width - 12);
-    const maxHeight = Math.max(180, window.innerHeight - rect.bottom - 20);
-    return {
+    // A picker inside Settings is rendered in a portal so it is not clipped by
+    // the card's scroll area. Keep its fixed coordinates inside that card,
+    // though: the old below-only placement could spill out of the modal.
+    const owner = buttonRef.current?.closest(".modal-card")?.getBoundingClientRect();
+    const bounds = owner ?? { left: 0, right: window.innerWidth, top: 0, bottom: window.innerHeight };
+    const inset = 12;
+    const gap = 8;
+    const maxWidth = Math.max(160, Math.min(300, bounds.right - bounds.left - inset * 2, window.innerWidth - inset * 2));
+    const left = Math.min(
+      Math.max(bounds.left + inset, rect.right - maxWidth),
+      Math.min(bounds.right - inset - maxWidth, window.innerWidth - inset - maxWidth),
+    );
+    const below = bounds.bottom - rect.bottom - gap;
+    const above = rect.top - bounds.top - gap;
+    const openAbove = below < 220 && above > below;
+    const maxHeight = Math.max(120, Math.min(420, openAbove ? above : below));
+    const placement = {
       left,
-      top: rect.bottom + 8,
-      width,
+      width: maxWidth,
       maxHeight: Math.min(420, maxHeight),
     };
+    return openAbove
+      ? { ...placement, top: "auto", bottom: window.innerHeight - rect.top + gap }
+      : { ...placement, top: rect.bottom + gap, bottom: "auto" };
   })();
 
   return (

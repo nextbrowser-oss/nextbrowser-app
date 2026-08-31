@@ -2,6 +2,7 @@ import { type DragEvent, type FormEvent, useEffect, useMemo, useRef, useState } 
 import { createPortal } from "react-dom";
 import { useStore, type ManualProxyProfileInput } from "../store";
 import { agentById } from "../agents";
+import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { BrandHeader, BrandLogo } from "./BrandLogo";
 import { Icon, Spinner } from "./Icon";
 import { withLocalScripts } from "../skillsCatalog";
@@ -117,6 +118,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [profileCreationStage, setProfileCreationStage] = useState<string>();
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileActionError, setProfileActionError] = useState<string | null>(null);
+  const [pendingRuntimeInstall, setPendingRuntimeInstall] = useState<{ profile: string; runtime: Exclude<ProfileToolsetOption, "multilogin"> }>();
   const [profileMoveError, setProfileMoveError] = useState<string | null>(null);
   const [profileConnectionEditor, setProfileConnectionEditor] = useState<{ name: string; connection: "managed" | "direct" | "personal"; country: string; proxyId: string } | null>(null);
   const [profileConnectionSaving, setProfileConnectionSaving] = useState(false);
@@ -153,6 +155,59 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       setProfileActionError(internalError(label, code));
     });
   };
+
+  const startProfileWithConfirmation = async (profile: string, runtime: Exclude<ProfileToolsetOption, "multilogin">) => {
+    setProfileActionError(null);
+    try {
+      const available = await invoke<boolean>("browser_runtime_available", { runtime });
+      if (!available) {
+        setPendingRuntimeInstall({ profile, runtime });
+        return;
+      }
+      runProfileAction(`We couldn't start “${profile}”.`, "PROFILE_START_FAILED", () => s.startProfile(profile));
+    } catch (error) {
+      setProfileActionError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  useEffect(() => {
+    setProfileActionError(null);
+    setProfileMoveError(null);
+    setProfileConnectionError(null);
+  }, [s.activeWorkspaceId]);
+
+  useEffect(() => {
+    if (!menuProfile) return;
+    const dismissProfileMenu = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setMenuProfile(null);
+    };
+    window.addEventListener("keydown", dismissProfileMenu);
+    return () => window.removeEventListener("keydown", dismissProfileMenu);
+  }, [menuProfile]);
+
+  useEffect(() => {
+    if (!workspaceCreatorOpen) return;
+    const dismissWorkspaceCreator = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setWorkspaceCreatorOpen(false);
+    };
+    window.addEventListener("keydown", dismissWorkspaceCreator);
+    return () => window.removeEventListener("keydown", dismissWorkspaceCreator);
+  }, [workspaceCreatorOpen]);
+
+  useEffect(() => {
+    if (!manualProxyOpen || manualSaving || manualProxyDeletePending) return;
+    const dismissManualProxy = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setManualProxyOpen(false);
+    };
+    window.addEventListener("keydown", dismissManualProxy);
+    return () => window.removeEventListener("keydown", dismissManualProxy);
+  }, [manualProxyOpen, manualSaving, manualProxyDeletePending]);
 
   const agentName = agentById(s.agentId).name;
   const ready = s.agentReady();
@@ -562,9 +617,14 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   useEffect(() => {
     let focusTimer = 0;
     const focusProfiles = () => {
+      setProfilesOpen(true);
+      s.setProfileSearch("");
       setProfileGuideFocus(true);
       window.clearTimeout(focusTimer);
-      focusTimer = window.setTimeout(() => setProfileGuideFocus(false), 1_400);
+      window.requestAnimationFrame(() => {
+        profileListRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      });
+      focusTimer = window.setTimeout(() => setProfileGuideFocus(false), 1_800);
     };
     const openCreator = () => {
       focusProfiles();
@@ -602,7 +662,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       s.selectProfile(profile);
       const status = s.statuses[profile] ?? s.profileSessions[profile]?.status ?? "unknown";
       if (status !== "running" && !["starting", "stopping", "rotating"].includes(status)) {
-        runProfileAction(`We couldn't start “${profile}”.`, "PROFILE_START_FAILED", () => s.startProfile(profile));
+        const runtime = activeWorkspace?.profileToolsets[profile] ?? "clawbrowser";
+        void startProfileWithConfirmation(profile, runtime);
       }
     };
     window.addEventListener("nextbrowser:focus-profiles", focusProfiles);
@@ -1063,7 +1124,6 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             <button
               key={item.id}
               className={"claw-card sidebar-link-card sidebar-page-link" + (s.tab === item.id ? " active" : "")}
-              title={`Open ${item.label}`}
               aria-current={s.tab === item.id ? "page" : undefined}
               onClick={() => s.setTab(item.id)}
             >
@@ -1098,7 +1158,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       key={workspace.id}
                       className={workspace.id === s.activeWorkspaceId ? "active" : ""}
                       title={workspace.name}
-                      onClick={() => { s.selectWorkspace(workspace.id); setWorkspaceMenuOpen(false); }}
+                      onClick={() => { setProfileActionError(null); s.selectWorkspace(workspace.id); setWorkspaceMenuOpen(false); }}
                     >
                       <Icon name={workspace.id === s.activeWorkspaceId ? "checkmark" : "square.grid.2x2"} size={11} />
                       <span>{workspace.name}</span>
@@ -1282,7 +1342,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                             s.assignProfileToProject(p.name, toolset, s.activeWorkspaceId);
                             s.selectProfile(p.name);
                             s.setTab("chat");
-                            runProfileAction(`We couldn't start “${p.name}”.`, "PROFILE_START_FAILED", () => s.startProfile(p.name));
+                            void startProfileWithConfirmation(p.name, toolset);
                           }}
                           onStop={() => runProfileAction(`We couldn't stop “${p.name}”.`, "PROFILE_STOP_FAILED", () => s.stopProfile(p.name))}
                           onLive={() => { s.selectProfile(p.name); s.setTab("live"); }}
@@ -1323,7 +1383,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               <div className="muted small">No matches for "{s.profileSearch}".</div>
             )}
             {profileActionError && (
-              <div className="error small profile-action-error" role="alert">{profileActionError}</div>
+              <div className="error small profile-action-error" role="alert"><span>{profileActionError}</span><button type="button" onClick={() => setProfileActionError(null)}>Dismiss</button></div>
             )}
           </div>
         </div>
@@ -1793,6 +1853,16 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         </div>
       ), document.body)}
 
+      {pendingRuntimeInstall && createPortal((
+        <div className="modal-overlay" role="presentation" onMouseDown={() => setPendingRuntimeInstall(undefined)}>
+          <section className="modal-card runtime-install-confirm" role="dialog" aria-modal="true" aria-labelledby="runtime-install-confirm-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="profile-menu-head"><Icon name="arrow.down.circle.fill" size={17} /><strong id="runtime-install-confirm-title">Download {pendingRuntimeInstall.runtime === "camoufox" ? "Camoufox" : pendingRuntimeInstall.runtime === "dasbrowser" ? "DasBrowser" : "ClawBrowser"}?</strong></div>
+            <p className="muted small">This browser toolset is required to start “{pendingRuntimeInstall.profile}”. NextBrowser will download it in the background and show progress. You can stop the download at any time.</p>
+            <div className="modal-actions"><button className="secondary" type="button" onClick={() => setPendingRuntimeInstall(undefined)}>Cancel</button><button className="primary" type="button" onClick={() => { const request = pendingRuntimeInstall; setPendingRuntimeInstall(undefined); runProfileAction(`We couldn't start “${request.profile}”.`, "PROFILE_START_FAILED", () => s.startProfile(request.profile)); }}><Icon name="arrow.down.circle.fill" size={13} /> Download &amp; start</button></div>
+          </section>
+        </div>
+      ), document.body)}
+
       {menuProfile && createPortal((() => {
         const isDefaultProfile = menuProfile === "__default";
         const prof = s.profiles.find((p) => p.name === menuProfile);
@@ -1804,8 +1874,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         const profileWorkspace = s.workspaces.find((workspace) => workspace.profileNames.includes(menuProfile));
         const profileBusy = ["running", "starting", "stopping", "rotating"].includes(status);
         return (
-          <div className="modal-overlay" onClick={() => setMenuProfile(null)}>
-            <div className="modal-card profile-menu" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-overlay" role="presentation" onClick={() => setMenuProfile(null)}>
+            <div className="modal-card profile-menu" role="dialog" aria-modal="true" aria-label={`Profile actions for ${isDefaultProfile ? "default" : menuProfile}`} onClick={(e) => e.stopPropagation()}>
               <div className="profile-menu-head">
                 <span
                   className={"dot " + (status === "running" ? "green" : status === "unknown" ? "gray" : "orange")}

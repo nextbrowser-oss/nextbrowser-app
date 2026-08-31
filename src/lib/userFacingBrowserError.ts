@@ -17,7 +17,7 @@ export function userFacingBrowserError(error: unknown): string {
     return "The selected workspace is no longer available. Select or create a workspace, then try again.";
   }
 
-  if (/Cannot reach the NextBrowser backend|NEXTBROWSER_BACKEND_UNAVAILABLE/i.test(raw)) {
+  if (/Cannot reach the NextBrowser backend|NextBrowser could not connect to the service|NEXTBROWSER_BACKEND_UNAVAILABLE/i.test(raw)) {
     return "NextBrowser couldn’t connect to the service. Check your internet connection and try again.";
   }
 

@@ -6,9 +6,17 @@ const test = require("node:test");
 const {
   adaptDasbrowserArgs,
   dasbrowserAppCopyOptions,
+  dasbrowserReleaseVersion,
+  officialDasbrowserURLFromHTML,
   requestedBrowserRuntime,
   resolveDasbrowserRuntime,
 } = require("./dasbrowser-runtime.cjs");
+
+test("derives the macOS download from the official Windows release channel", () => {
+  const html = '<a href="https://cdn.dasbrowser.com/144.32/DasbrowserSetup.exe">Download</a>';
+  assert.equal(officialDasbrowserURLFromHTML(html, "darwin"), "https://cdn.dasbrowser.com/144.32/dasbrowser.dmg");
+  assert.equal(dasbrowserReleaseVersion(officialDasbrowserURLFromHTML(html, "darwin")), "144.32");
+});
 
 test("detects the managed macOS DasBrowser executable", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "nextbrowser-dasbrowser-"));

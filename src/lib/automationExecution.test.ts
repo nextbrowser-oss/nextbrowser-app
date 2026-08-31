@@ -4,6 +4,7 @@ import {
   automationAgentAnswer,
   automationAgentBrowserActionCount,
   automationExecutionView,
+  canContinueWithoutRemoteRunHistory,
   executionWithRecipeProgress,
   type AutomationExecution,
 } from "./automationExecution";
@@ -32,6 +33,13 @@ function conversation(status: "streaming" | "done" | "cancelled", toolEvents = 0
 }
 
 describe("automation execution indicator", () => {
+  it("keeps a local workflow runnable when only remote run history lacks its workspace", () => {
+    expect(canContinueWithoutRemoteRunHistory(new Error("workspace not found"))).toBe(true);
+    expect(canContinueWithoutRemoteRunHistory(new Error("workspace revision conflict"))).toBe(true);
+    expect(canContinueWithoutRemoteRunHistory(new Error("Project sync failed (401)"))).toBe(false);
+    expect(canContinueWithoutRemoteRunHistory(new Error("fetch failed"))).toBe(false);
+  });
+
   it("maps deterministic runner events to exact step progress", () => {
     const deterministic = { ...execution, engine: "deterministic" as const };
     const updated = executionWithRecipeProgress(deterministic, {

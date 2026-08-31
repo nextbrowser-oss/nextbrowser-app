@@ -1,5 +1,15 @@
 import type { BrowserWorkflowSkill, ChatMessage, Conversation } from "../types";
 
+/**
+ * A workflow and its local Artifact Center output must not be blocked just
+ * because an old local workspace has no remote run-history row yet. Keep all
+ * other backend failures visible instead of treating them as recoverable.
+ */
+export function canContinueWithoutRemoteRunHistory(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /workspace not found|workspace revision conflict/i.test(message);
+}
+
 export type AutomationExecution = {
   executionId: string;
   sourceId: string;
