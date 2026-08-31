@@ -3637,6 +3637,73 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   font-size: 11px;
   text-align: center;
 }
+.runtime-update-prompt { width: min(440px, calc(100vw - 32px)); }
+.runtime-update-prompt-list {
+  display: flex;
+  flex-direction: column;
+  margin: 16px 0 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+.runtime-update-prompt-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 44px;
+  padding: 8px 11px;
+}
+.runtime-update-prompt-row + .runtime-update-prompt-row { border-top: 1px solid var(--line); }
+.runtime-update-progress-card {
+  position: fixed;
+  top: 74px;
+  right: 18px;
+  z-index: 1001;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 11px;
+  width: min(390px, calc(100vw - 36px));
+  padding: 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  box-shadow: 0 14px 42px color-mix(in srgb, var(--shadow) 65%, transparent);
+  animation: browser-install-enter 180ms ease-out both;
+}
+:root:not([data-theme="light"]) .runtime-update-progress-card {
+  background: linear-gradient(180deg, #252529 0%, #202024 100%);
+  border-color: rgba(255, 255, 255, 0.10);
+}
+.runtime-update-progress-mark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.runtime-update-progress-mark.is-ready { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
+.runtime-update-progress-mark.is-error { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
+.runtime-update-progress-copy { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.runtime-update-progress-copy strong { font-size: 14px; }
+.runtime-update-progress-track {
+  height: 4px;
+  margin-top: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-4);
+}
+.runtime-update-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 180ms ease;
+}
 @keyframes browser-install-progress {
   from { transform: translateX(-120%); }
   to { transform: translateX(340%); }
@@ -3647,6 +3714,12 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 }
 @media (max-width: 560px) {
   .browser-install-overlay {
+    top: auto;
+    right: 12px;
+    bottom: 12px;
+    width: calc(100vw - 24px);
+  }
+  .runtime-update-progress-card {
     top: auto;
     right: 12px;
     bottom: 12px;
@@ -3697,6 +3770,57 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   font-weight: 600;
   text-align: right;
 }
+.settings-runtime-section { padding: 12px 0; }
+.settings-runtime-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.settings-runtime-heading > div { display: flex; flex-direction: column; gap: 2px; }
+.settings-runtime-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.settings-runtime-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 7px 10px;
+}
+.settings-runtime-row + .settings-runtime-row { border-top: 1px solid var(--line); }
+.settings-runtime-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0.55;
+}
+.settings-runtime-dot.is-ready { background: var(--green); opacity: 1; }
+.settings-runtime-dot.is-update { background: var(--accent); opacity: 1; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
+.settings-runtime-dot.is-error { background: var(--red); opacity: 0.85; }
+.settings-runtime-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.settings-runtime-copy strong { font-size: 13px; }
+.settings-runtime-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-runtime-empty { padding: 12px; }
+.settings-runtime-note { margin-top: 7px; line-height: 1.35; }
 .settings-link {
   width: 100%;
   min-height: 34px;

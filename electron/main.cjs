@@ -7,6 +7,8 @@ const os = require("node:os");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const http = require("node:http");
+const { Readable } = require("node:stream");
+const { pipeline } = require("node:stream/promises");
 const { agentWorkspaceDir } = require("./agent-workspace.cjs");
 const { resolveScopedProfile } = require("./agent-control-scope.cjs");
 const {
@@ -66,6 +68,16 @@ const { cancelAllAutomationRecipes, cancelAutomationRecipe, executeAutomationRec
 const { cancelAllAutomationElementPicks, cancelAutomationElementPick, pickAutomationElement } = require("./automation-element-picker.cjs");
 const { activeAutomationRecordingHasDataAction, activeAutomationTraceFile, attachAutomationPageRecording, cancelAllAutomationPageRecordings, recordAutomationToolAction, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
+const {
+  assertRuntimeReleaseVersion,
+  checkBrowserRuntimeUpdates,
+  clawbrowserReleaseAsset,
+  compareVersions,
+  installedCamoufoxVersion,
+  installedClawbrowserVersion,
+  installRuntimeUpdateWithVerification,
+  selectAvailableRuntimeUpdates,
+} = require("./browser-runtime-updates.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
 const { parseMultiloginProfiles, parseMultiloginCreatedProfile } = require("./multilogin-profiles.cjs");
 const { runAgentProcess } = require("./agent-process.cjs");
@@ -73,6 +85,8 @@ const {
   DASBROWSER_DOWNLOADS,
   adaptDasbrowserArgs,
   dasbrowserAppCopyOptions,
+  dasbrowserReleaseVersion,
+  officialDasbrowserURLFromHTML,
   requestedBrowserRuntime,
   resolveDasbrowserRuntime,
 } = require("./dasbrowser-runtime.cjs");
@@ -92,6 +106,7 @@ function killTerminalsForWebContents(webContentsId) {
 }
 const remoteSignalSockets = new Map();
 const APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const BROWSER_RUNTIME_UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const NEXTCTL_RELEASE_BASE = "https://github.com/nextbrowser-oss/nbc_releases/releases/latest/download";
 // A workspace state file is read for display only, so it is truncated rather
 // than streamed: a runaway file must not be pulled into the renderer whole.
@@ -105,6 +120,11 @@ let appUpdateStatus = { status: "idle" };
 let appUpdateTimer = null;
 let nextctlInstallStatus = { status: "idle" };
 let browserRuntimeInstallStatus = { status: "idle" };
+let browserRuntimeUpdateStatus = { status: "idle", runtimes: [] };
+let browserRuntimeUpdateCheckPromise = null;
+let browserRuntimeUpdateTimer = null;
+let browserRuntimeUpdateInstallStatus = { status: "idle", runtimes: [] };
+let browserRuntimeUpdateInstallPromise = null;
 let nextctlInstallPromise = null;
 let browserInstallPromise = null;
 let dasbrowserInstallPromise = null;
@@ -325,6 +345,19 @@ function setNextctlInstallStatus(status, patch = {}) {
 function setBrowserRuntimeInstallStatus(runtime, status, patch = {}) {
   browserRuntimeInstallStatus = { runtime, status, ...patch, updatedAt: Date.now() };
   emit("browser-runtime:install", browserRuntimeInstallStatus);
+}
+function setBrowserRuntimeUpdateStatus(status) {
+  browserRuntimeUpdateStatus = status;
+  emit("browser-runtime:update", browserRuntimeUpdateStatus);
+}
+function setBrowserRuntimeUpdateInstallStatus(status, patch = {}) {
+  browserRuntimeUpdateInstallStatus = {
+    ...browserRuntimeUpdateInstallStatus,
+    status,
+    ...patch,
+    updatedAt: Date.now(),
+  };
+  emit("browser-runtime:update-install", browserRuntimeUpdateInstallStatus);
 }
 function legacyManagedNextctlRoot() { return path.join(app.getPath("userData"), "managed-nextctl"); }
 function managedNextctlRoot() {
@@ -613,18 +646,15 @@ async function officialDasbrowserDownloadUrl() {
     const response = await fetch("https://www.dasbrowser.com/download");
     if (!response.ok) return fallback;
     const html = await response.text();
-    const pattern = process.platform === "darwin"
-      ? /https:\/\/cdn\.dasbrowser\.com\/[^"']+\.dmg/i
-      : /https:\/\/cdn\.dasbrowser\.com\/[^"']+\.exe/i;
-    return html.match(pattern)?.[0] ?? fallback;
+    return officialDasbrowserURLFromHTML(html, process.platform, fallback);
   } catch {
     return fallback;
   }
 }
-async function ensureDasbrowserRuntime() {
+async function ensureDasbrowserRuntime({ force = false, reportStatus = true } = {}) {
   const options = dasbrowserRuntimeOptions();
   const existing = resolveDasbrowserRuntime(options);
-  if (existing) return existing;
+  if (existing && !force) return existing;
   if (dasbrowserInstallPromise) return dasbrowserInstallPromise;
 
   dasbrowserInstallPromise = (async () => {
@@ -637,13 +667,13 @@ async function ensureDasbrowserRuntime() {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-dasbrowser-"));
     try {
       const url = await officialDasbrowserDownloadUrl();
-      setBrowserRuntimeInstallStatus("dasbrowser", "downloading");
+      if (reportStatus) setBrowserRuntimeInstallStatus("dasbrowser", "downloading");
       if (process.platform === "darwin") {
         const image = path.join(tempDir, "dasbrowser.dmg");
         const mount = path.join(tempDir, "mount");
         await fs.mkdir(mount, { recursive: true });
         await downloadFile(url, image);
-        setBrowserRuntimeInstallStatus("dasbrowser", "installing");
+        if (reportStatus) setBrowserRuntimeInstallStatus("dasbrowser", "installing");
         const attached = await run("hdiutil", ["attach", "-readonly", "-nobrowse", "-mountpoint", mount, image], {}, { timeoutMs: 120_000 });
         if (attached.code !== 0) throw new Error((attached.stderr || attached.stdout || "Could not mount DasBrowser installer.").trim());
         try {
@@ -663,7 +693,7 @@ async function ensureDasbrowserRuntime() {
       } else {
         const installer = path.join(tempDir, "DasbrowserSetup.exe");
         await downloadFile(url, installer);
-        setBrowserRuntimeInstallStatus("dasbrowser", "installing");
+        if (reportStatus) setBrowserRuntimeInstallStatus("dasbrowser", "installing");
         const installed = await run(installer, ["--silent", "--install"], {}, { timeoutMs: 10 * 60 * 1000 });
         if (installed.code !== 0) throw new Error((installed.stderr || installed.stdout || "DasBrowser installation failed.").trim());
         for (let attempt = 0; attempt < 30 && !resolveDasbrowserRuntime(options); attempt += 1) {
@@ -672,13 +702,21 @@ async function ensureDasbrowserRuntime() {
       }
       const executable = resolveDasbrowserRuntime(options);
       if (!executable) throw new Error("DasBrowser installed, but its browser executable could not be found.");
-      setBrowserRuntimeInstallStatus("dasbrowser", "ready");
+      const releaseVersion = dasbrowserReleaseVersion(url);
+      if (releaseVersion) {
+        await fs.writeFile(
+          path.join(nextbrowserRuntimeRoot(), "data", ".dasbrowser-browser-release.json"),
+          JSON.stringify({ version: releaseVersion, download_url: url, updated_at: new Date().toISOString() }, null, 2),
+          "utf8",
+        );
+      }
+      if (reportStatus) setBrowserRuntimeInstallStatus("dasbrowser", "ready");
       return executable;
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
     }
   })().catch((error) => {
-    setBrowserRuntimeInstallStatus("dasbrowser", "failed");
+    if (reportStatus) setBrowserRuntimeInstallStatus("dasbrowser", "failed");
     throw error;
   }).finally(() => {
     dasbrowserInstallPromise = null;
@@ -936,6 +974,246 @@ function startAutoUpdater() {
   if (appUpdateTimer) clearInterval(appUpdateTimer);
   appUpdateTimer = setInterval(() => { void checkForAppUpdate(); }, APP_UPDATE_CHECK_INTERVAL_MS);
 }
+async function installedDasbrowserVersion() {
+  const executable = resolveDasbrowserRuntime(dasbrowserRuntimeOptions());
+  if (!executable) return "";
+  try {
+    const metadata = JSON.parse(await fs.readFile(path.join(nextbrowserRuntimeRoot(), "data", ".dasbrowser-browser-release.json"), "utf8"));
+    return String(metadata?.version || "").trim();
+  } catch {
+    // DasBrowser's internal Chromium version is not the public download
+    // channel version, so it must not be compared with e.g. 144.32.
+    const managed = path.join(nextbrowserRuntimeRoot(), "data", "Dasbrowser.app", "Contents", "MacOS", "Dasbrowser");
+    return process.platform === "darwin" && path.resolve(executable) === path.resolve(managed)
+      ? dasbrowserReleaseVersion(DASBROWSER_DOWNLOADS.darwin)
+      : "";
+  }
+}
+async function checkForBrowserRuntimeUpdates() {
+  if (browserRuntimeUpdateCheckPromise) return browserRuntimeUpdateCheckPromise;
+  setBrowserRuntimeUpdateStatus({
+    ...browserRuntimeUpdateStatus,
+    status: "checking",
+  });
+  browserRuntimeUpdateCheckPromise = checkBrowserRuntimeUpdates({
+    fetchImpl: fetch,
+    runtimeRoot: nextbrowserRuntimeRoot(),
+    readDasbrowserVersion: installedDasbrowserVersion,
+    isRuntimeInstalled: {
+      clawbrowser: !!resolveBrowserRuntime({ platform: process.platform, homeDir: home(), env: process.env, runtimeRoot: nextbrowserRuntimeRoot() }),
+      dasbrowser: !!resolveDasbrowserRuntime(dasbrowserRuntimeOptions()),
+    },
+  }).then((status) => {
+    setBrowserRuntimeUpdateStatus(status);
+    return status;
+  }).catch((error) => {
+    const status = {
+      status: "error",
+      checkedAt: Date.now(),
+      message: error?.message || String(error),
+      runtimes: browserRuntimeUpdateStatus.runtimes || [],
+    };
+    setBrowserRuntimeUpdateStatus(status);
+    return status;
+  }).finally(() => {
+    browserRuntimeUpdateCheckPromise = null;
+  });
+  return browserRuntimeUpdateCheckPromise;
+}
+function camoufoxVenvPython() {
+  const venv = path.join(nextbrowserRuntimeRoot(), "sessions", "_camoufox", "venv");
+  return process.platform === "win32"
+    ? path.join(venv, "Scripts", "python.exe")
+    : path.join(venv, "bin", "python");
+}
+async function downloadFileStreaming(url, target) {
+  const response = await fetch(url, {
+    headers: { "User-Agent": "NextBrowser-runtime-updater" },
+    signal: AbortSignal.timeout(60 * 60 * 1000),
+  });
+  if (!response.ok || !response.body) throw new Error(`ClawBrowser download failed (${response.status}).`);
+  await pipeline(Readable.fromWeb(response.body), fsSync.createWriteStream(target, { mode: 0o600 }));
+}
+async function findClawbrowserReleaseAsset(root) {
+  const expected = process.platform === "darwin" ? "Clawbrowser.app" : process.platform === "win32" ? "clawbrowser.exe" : "clawbrowser";
+  const queue = [root];
+  while (queue.length) {
+    const current = queue.shift();
+    const entries = await fs.readdir(current, { withFileTypes: true });
+    for (const entry of entries) {
+      const candidate = path.join(current, entry.name);
+      if (entry.name.toLowerCase() === expected.toLowerCase() && (entry.isFile() || entry.isDirectory())) return candidate;
+      if (entry.isDirectory() && !entry.isSymbolicLink()) queue.push(candidate);
+    }
+  }
+  return "";
+}
+async function replaceClawbrowserRelease(source, release) {
+  const dataDir = path.join(nextbrowserRuntimeRoot(), "data");
+  await fs.mkdir(dataDir, { recursive: true });
+  const isBundle = process.platform === "darwin";
+  const target = isBundle
+    ? path.join(dataDir, "Clawbrowser.app")
+    : path.join(dataDir, process.platform === "win32" ? "clawbrowser.exe" : "clawbrowser");
+  const staged = `${target}.update-${randomUUID()}`;
+  const backup = `${target}.previous-${randomUUID()}`;
+  let backedUp = false;
+  try {
+    if (isBundle) {
+      await fs.cp(source, staged, dasbrowserAppCopyOptions());
+      const signature = await run("codesign", ["--verify", "--deep", "--strict", staged], {}, { timeoutMs: 120_000 });
+      if (signature.code !== 0) throw new Error("The downloaded ClawBrowser app failed macOS signature verification.");
+    } else {
+      await fs.copyFile(source, staged);
+      if (process.platform !== "win32") await fs.chmod(staged, 0o755);
+    }
+    try {
+      await fs.rename(target, backup);
+      backedUp = true;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    await fs.rename(staged, target);
+    await fs.writeFile(
+      path.join(dataDir, ".clawbrowser-browser-release.json"),
+      JSON.stringify({
+        repository: "clawbrowser/clawbrowser",
+        version: release.version,
+        asset_name: release.assetName,
+        archive_url: release.url,
+        browser_path: target,
+        source: "release-archive",
+        updated_at: new Date().toISOString(),
+      }, null, 2),
+      "utf8",
+    );
+    if (backedUp) await fs.rm(backup, { recursive: true, force: true });
+  } catch (error) {
+    await fs.rm(staged, { recursive: true, force: true }).catch(() => undefined);
+    if (backedUp) {
+      await fs.rm(target, { recursive: true, force: true }).catch(() => undefined);
+      await fs.rename(backup, target).catch(() => undefined);
+    }
+    throw error;
+  }
+}
+async function updateClawbrowserRuntime(latestVersion) {
+  const runtimeRoot = nextbrowserRuntimeRoot();
+  const release = clawbrowserReleaseAsset(process.platform, process.arch, latestVersion);
+  return installRuntimeUpdateWithVerification({
+    label: "ClawBrowser",
+    expectedVersion: latestVersion,
+    install: async () => {
+      const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-clawbrowser-update-"));
+      try {
+        const archive = path.join(tempDir, release.assetName);
+        const extracted = path.join(tempDir, "extract");
+        await downloadFileStreaming(release.url, archive);
+        await extractArchive(archive, release.kind, extracted);
+        const source = await findClawbrowserReleaseAsset(extracted);
+        if (!source) throw new Error("The ClawBrowser release did not contain a browser executable.");
+        await replaceClawbrowserRelease(source, release);
+      } finally {
+        await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+      }
+    },
+    readInstalledVersion: () => installedClawbrowserVersion(runtimeRoot),
+  });
+}
+async function updateCamoufoxRuntime(latestVersion) {
+  const python = camoufoxVenvPython();
+  if (!launchable(python)) throw new Error("Camoufox is not installed on this device.");
+  const version = assertRuntimeReleaseVersion(latestVersion);
+  const install = await run(python, [
+    "-m", "pip", "install", "--disable-pip-version-check", "--upgrade", `camoufox[geoip]==${version}`,
+  ], {}, { timeoutMs: 30 * 60 * 1000 });
+  if (install.code !== 0) throw new Error((install.stderr || install.stdout || "Camoufox package update failed.").trim());
+  const browser = await run(python, ["-m", "camoufox", "fetch"], {}, { timeoutMs: 30 * 60 * 1000 });
+  if (browser.code !== 0) throw new Error((browser.stderr || browser.stdout || "Camoufox browser download failed.").trim());
+}
+async function installedBrowserRuntimeVersion(runtime) {
+  if (runtime === "clawbrowser") return installedClawbrowserVersion(nextbrowserRuntimeRoot());
+  if (runtime === "camoufox") return installedCamoufoxVersion(nextbrowserRuntimeRoot());
+  if (runtime === "dasbrowser") return installedDasbrowserVersion();
+  return "";
+}
+async function installBrowserRuntimeUpdates(requestedRuntimes = []) {
+  if (browserRuntimeUpdateInstallPromise) return browserRuntimeUpdateInstallPromise;
+  browserRuntimeUpdateInstallPromise = (async () => {
+    const fresh = await checkForBrowserRuntimeUpdates();
+    const updates = selectAvailableRuntimeUpdates(fresh, requestedRuntimes);
+    if (!updates.length) {
+      setBrowserRuntimeUpdateInstallStatus("failed", {
+        runtimes: [],
+        message: "The selected browser toolsets are already up to date.",
+      });
+      return browserRuntimeUpdateInstallStatus;
+    }
+    const completed = [];
+    const errors = [];
+    setBrowserRuntimeUpdateInstallStatus("installing", {
+      runtimes: updates.map((runtime) => runtime.runtime),
+      completed,
+      errors: [],
+      currentRuntime: updates[0].runtime,
+      currentName: updates[0].name,
+      currentVersion: updates[0].latestVersion,
+      total: updates.length,
+      progress: 0,
+      message: "Downloading the confirmed updates in the background.",
+    });
+    for (let index = 0; index < updates.length; index += 1) {
+      const update = updates[index];
+      setBrowserRuntimeUpdateInstallStatus("installing", {
+        currentRuntime: update.runtime,
+        currentName: update.name,
+        currentVersion: update.latestVersion,
+        completed: [...completed],
+        progress: Math.round((index / updates.length) * 100),
+        message: `Installing ${update.name} ${update.latestVersion || "update"} in the background.`,
+      });
+      try {
+        if (update.runtime === "clawbrowser") await updateClawbrowserRuntime(update.latestVersion);
+        else if (update.runtime === "camoufox") await updateCamoufoxRuntime(update.latestVersion);
+        else if (update.runtime === "dasbrowser") await ensureDasbrowserRuntime({ force: true, reportStatus: false });
+        const expected = assertRuntimeReleaseVersion(update.latestVersion);
+        const installed = await installedBrowserRuntimeVersion(update.runtime);
+        if (!installed || compareVersions(installed, expected) < 0) {
+          throw new Error(`${update.name} ${expected} was downloaded, but the installed version is still ${installed || "unknown"}.`);
+        }
+        completed.push(update.runtime);
+      } catch (error) {
+        errors.push({ runtime: update.runtime, name: update.name, message: error?.message || String(error) });
+      }
+    }
+    await checkForBrowserRuntimeUpdates();
+    const status = errors.length ? (completed.length ? "partial" : "failed") : "ready";
+    setBrowserRuntimeUpdateInstallStatus(status, {
+      currentRuntime: undefined,
+      currentName: undefined,
+      currentVersion: undefined,
+      completed,
+      errors,
+      progress: 100,
+      message: errors.length
+        ? completed.length
+          ? "Some browser toolsets were updated, but others need attention."
+          : "The browser toolset updates could not be installed."
+        : `${completed.length === 1 ? "The browser toolset is" : "Browser toolsets are"} ready to use.`,
+    });
+    return browserRuntimeUpdateInstallStatus;
+  })().finally(() => {
+    browserRuntimeUpdateInstallPromise = null;
+  });
+  return browserRuntimeUpdateInstallPromise;
+}
+function startBrowserRuntimeUpdateChecks() {
+  setTimeout(() => { void checkForBrowserRuntimeUpdates(); }, 5_000);
+  if (browserRuntimeUpdateTimer) clearInterval(browserRuntimeUpdateTimer);
+  browserRuntimeUpdateTimer = setInterval(() => {
+    void checkForBrowserRuntimeUpdates();
+  }, BROWSER_RUNTIME_UPDATE_CHECK_INTERVAL_MS);
+}
 function apiBaseURL(raw) {
   return String(
     raw
@@ -987,6 +1265,10 @@ async function invokeCommand(command, args = {}, sender) {
       }
     }
     case "app_update_status": return appUpdateStatus;
+    case "browser_runtime_update_status": return browserRuntimeUpdateStatus;
+    case "browser_runtime_check_for_updates": return checkForBrowserRuntimeUpdates();
+    case "browser_runtime_update_install_status": return browserRuntimeUpdateInstallStatus;
+    case "browser_runtime_install_updates": return installBrowserRuntimeUpdates(args.runtimes || []);
     case "app_check_for_update": {
       await checkForAppUpdate();
       return appUpdateStatus;
@@ -1909,6 +2191,7 @@ if (!gotLock) {
     createWindow();
     for (const arg of process.argv) handleDeepLink(arg);
     startAutoUpdater();
+    startBrowserRuntimeUpdateChecks();
     app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
   });
 }
@@ -1918,6 +2201,7 @@ app.on("open-url", (event, url) => {
 });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 app.on("before-quit", () => {
+  if (browserRuntimeUpdateTimer) clearInterval(browserRuntimeUpdateTimer);
   if (appUpdateTimer) clearInterval(appUpdateTimer);
   for (const socket of remoteSignalSockets.values()) socket.close();
   remoteSignalSockets.clear();

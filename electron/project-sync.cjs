@@ -1,6 +1,6 @@
 const { loadBackendConfig } = require("./proxy-traffic.cjs");
 
-const REQUEST_TIMEOUT_MS = 30_000;
+const REQUEST_TIMEOUT_MS = 8_000;
 // Workspaces and projects live in the same service as the cloud skill registry.
 // Keep the same override and default used by nextctl's skill commands.
 const DEFAULT_SKILL_SERVICE_URL = "https://core.nextbrowser.com";
@@ -31,22 +31,36 @@ async function projectRequest(route, options = {}, deps = {}) {
   const { apiKey } = await loadBackendConfig(deps);
   const baseURL = entityBackendURL(deps.env);
   const { responseType = "json", jsonBody = true, timeoutMs = REQUEST_TIMEOUT_MS, ...fetchOptions } = options;
+  const method = String(fetchOptions.method || "GET").toUpperCase();
+  // A transient connection timeout must not turn a read or idempotent write
+  // into a broken user journey. Never retry POST here: callers may create a
+  // second server-side object unless that endpoint provides an idempotency key.
+  // DELETE is excluded as well: a lost response after a successful deletion
+  // would make the retry return a misleading 404 to the user.
+  const attempts = ["GET", "HEAD", "PUT"].includes(method) ? 2 : 1;
   let response;
-  try {
-    response = await fetchImpl(`${baseURL}${route}`, {
-      ...fetchOptions,
-      headers: {
-        accept: "application/json",
-        authorization: `Bearer ${apiKey}`,
-        ...(fetchOptions.body && jsonBody ? { "content-type": "application/json" } : {}),
-        ...(fetchOptions.headers || {}),
-      },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (cause) {
-    const error = new Error(`Cannot reach the NextBrowser backend at ${baseURL}. Check that the backend is running and try again.`);
+  let lastCause;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      response = await fetchImpl(`${baseURL}${route}`, {
+        ...fetchOptions,
+        headers: {
+          accept: "application/json",
+          authorization: `Bearer ${apiKey}`,
+          ...(fetchOptions.body && jsonBody ? { "content-type": "application/json" } : {}),
+          ...(fetchOptions.headers || {}),
+        },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      break;
+    } catch (cause) {
+      lastCause = cause;
+    }
+  }
+  if (!response) {
+    const error = new Error("NextBrowser could not connect to the service. Check your internet connection and try again.");
     error.code = "NEXTBROWSER_BACKEND_UNAVAILABLE";
-    error.cause = cause;
+    error.cause = lastCause;
     throw error;
   }
   if (response.ok && responseType === "stream") return response.body;

@@ -133,15 +133,50 @@ test("explains when the entity backend cannot be reached", async (t) => {
   const configDir = path.join(root, "config");
   await fs.mkdir(configDir, { recursive: true });
   await fs.writeFile(path.join(configDir, "config.json"), JSON.stringify({ api_key: "secret" }));
+  let calls = 0;
   const deps = {
     env: { NEXTBROWSER_CONFIG_DIR: configDir, NEXTBROWSER_DEV_API_BASE_URL: "http://127.0.0.1:18098" },
-    fetchImpl: async () => { throw new TypeError("fetch failed"); },
+    fetchImpl: async () => { calls += 1; throw new TypeError("fetch failed"); },
   };
 
   await assert.rejects(
     listProjects(deps),
     (error) => error.code === "NEXTBROWSER_BACKEND_UNAVAILABLE"
-      && error.message === "Cannot reach the NextBrowser backend at http://127.0.0.1:18098. Check that the backend is running and try again."
+      && error.message === "NextBrowser could not connect to the service. Check your internet connection and try again."
       && error.cause?.message === "fetch failed",
   );
+  assert.equal(calls, 2);
+});
+
+test("retries an idempotent entity request after one transport failure", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "project-sync-retry-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const configDir = path.join(root, "config");
+  await fs.mkdir(configDir, { recursive: true });
+  await fs.writeFile(path.join(configDir, "config.json"), JSON.stringify({ api_key: "secret" }));
+  let calls = 0;
+  const result = await listProjects({
+    env: { NEXTBROWSER_CONFIG_DIR: configDir, CLAWCTL_SKILL_SERVICE: "https://core.test" },
+    fetchImpl: async () => {
+      calls += 1;
+      if (calls === 1) throw new TypeError("temporary timeout");
+      return { ok: true, text: async () => JSON.stringify({ projects: [] }) };
+    },
+  });
+  assert.deepEqual(result, { projects: [] });
+  assert.equal(calls, 2);
+});
+
+test("does not blindly retry a non-idempotent entity request", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "project-sync-no-post-retry-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const configDir = path.join(root, "config");
+  await fs.mkdir(configDir, { recursive: true });
+  await fs.writeFile(path.join(configDir, "config.json"), JSON.stringify({ api_key: "secret" }));
+  let calls = 0;
+  await assert.rejects(createPersonalProxy({ name: "Proxy", scheme: "http", host: "proxy.test", port: 8080 }, {
+    env: { NEXTBROWSER_CONFIG_DIR: configDir, CLAWCTL_SKILL_SERVICE: "https://core.test" },
+    fetchImpl: async () => { calls += 1; throw new TypeError("request may have reached the server"); },
+  }));
+  assert.equal(calls, 1);
 });
