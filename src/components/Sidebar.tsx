@@ -1090,7 +1090,6 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             <button
               key={item.id}
               className={"claw-card sidebar-link-card sidebar-page-link" + (s.tab === item.id ? " active" : "")}
-              title={`Open ${item.label}`}
               aria-current={s.tab === item.id ? "page" : undefined}
               onClick={() => s.setTab(item.id)}
             >
