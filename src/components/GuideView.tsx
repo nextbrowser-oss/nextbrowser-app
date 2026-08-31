@@ -7,7 +7,7 @@ import {
   type GuideAction,
   type GuideFeature,
 } from "../lib/guideFeatures";
-import { guideSessionSetupEvent, guideWorkspaceProfileNames } from "../lib/guideQuickStart";
+import { guideSessionSetupEvent, guideSessionState, guideWorkspaceProfileNames } from "../lib/guideQuickStart";
 import { sequentialProgress } from "../lib/sequentialProgress";
 import { useStore } from "../store";
 import { BrandLogo } from "./BrandLogo";
@@ -76,8 +76,8 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
     ? selectedProfile
     : workspaceProfileNames.length === 1 ? workspaceProfileNames[0] : undefined;
   const selectedSessionStatus = selectedWorkspaceProfile
-    ? statuses[selectedWorkspaceProfile] ?? profileSessions[selectedWorkspaceProfile]?.status ?? "unknown"
-    : "unknown";
+    ? guideSessionState(statuses[selectedWorkspaceProfile], profileSessions[selectedWorkspaceProfile]?.status)
+    : "stopped";
   const selectedSessionRunning = selectedSessionStatus === "running";
   const selectedSessionStarting = selectedSessionStatus === "starting";
   const conversationCount = useStore((s) =>
@@ -123,6 +123,10 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
       return;
     }
     if (action === "start_session") {
+      if (selectedSessionRunning) {
+        setTab("live");
+        return;
+      }
       setSidebarCollapsed(false);
       dispatchGuideEvent("nextbrowser:focus-profiles");
       dispatchGuideEvent(guideSessionSetupEvent(profileCount));
@@ -186,7 +190,7 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
           ? "Start a browser profile"
           : "Create a browser profile",
       action: "start_session",
-      actionLabel: profileCount > 0 ? "Open session setup" : "Create profile",
+      actionLabel: selectedSessionRunning ? "Open Live" : profileCount > 0 ? "Start profile" : "Create profile",
       icon: "play.circle",
       tint: "#34c759",
     },
@@ -260,7 +264,7 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
                 type="button"
                 className={`quick-step is-${state}`}
                 data-step-state={state}
-                disabled={state === "locked"}
+                disabled={state === "locked" || (step.action === "start_session" && selectedSessionStarting)}
                 onClick={() => requestAction(
                   step.action,
                   `quick_step_${index + 1}`,

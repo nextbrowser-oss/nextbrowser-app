@@ -54,6 +54,7 @@ interface AppUpdateStatus {
 interface BrowserRuntimeInstallStatus {
   runtime?: "clawbrowser" | "dasbrowser" | "camoufox";
   status?: "idle" | "downloading" | "installing" | "ready" | "failed";
+  requestId?: string;
 }
 
 interface BrowserRuntimeUpdateEntry {
@@ -88,7 +89,7 @@ interface BrowserRuntimeUpdateInstallStatus {
 
 const APP_UPDATE_ERROR = "We couldn't update NextBrowser. Please retry again.";
 
-function BrowserRuntimeInstallModal({ status }: { status: BrowserRuntimeInstallStatus }) {
+function BrowserRuntimeInstallModal({ status, onCancel }: { status: BrowserRuntimeInstallStatus; onCancel: () => void }) {
   const name = status.runtime === "dasbrowser" ? "DasBrowser" : status.runtime === "camoufox" ? "Camoufox" : "ClawBrowser";
   const installing = status.status === "installing";
   return (
@@ -105,6 +106,7 @@ function BrowserRuntimeInstallModal({ status }: { status: BrowserRuntimeInstallS
         </div>
         <div className="browser-install-progress" aria-hidden="true"><span /></div>
         <p className="muted browser-install-note">Keep NextBrowser open until setup is complete.</p>
+        {status.requestId && <div className="modal-actions"><button className="secondary danger-text" type="button" onClick={onCancel}><Icon name="stop.fill" size={12} /> Stop download</button></div>}
       </div>
     </div>
   );
@@ -274,7 +276,13 @@ function formatStars(count?: number | null): string {
 
 // GitHub's API is unavailable in some regions. Prefer a slightly stale count
 // over rendering a broken-looking dash; a successful request replaces it.
-const GITHUB_STARS_FALLBACK = 11;
+const GITHUB_STARS_FALLBACK = 16;
+const GITHUB_STARS_CACHE_KEY = "nextbrowser.github-stars";
+
+function cachedGithubStars(): number {
+  const cached = Number(localStorage.getItem(GITHUB_STARS_CACHE_KEY));
+  return Number.isFinite(cached) && cached >= 0 ? cached : GITHUB_STARS_FALLBACK;
+}
 
 function GithubStarButton({ stars }: { stars?: number | null }) {
   const label = "Star NextBrowser on GitHub";
@@ -308,13 +316,16 @@ function DiscordButton() {
 }
 
 function SocialButtons() {
-  const [stars, setStars] = useState<number>(GITHUB_STARS_FALLBACK);
+  const [stars, setStars] = useState<number>(cachedGithubStars);
 
   useEffect(() => {
     let cancelled = false;
     invoke<number | null>("github_stars")
       .then((count) => {
-        if (!cancelled && typeof count === "number") setStars(count);
+        if (!cancelled && typeof count === "number") {
+          setStars(count);
+          localStorage.setItem(GITHUB_STARS_CACHE_KEY, String(count));
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -1274,7 +1285,10 @@ export function App() {
       {!checking && !agentReady && preview !== "main" && <AgentConnectionGate />}
       {showOnboarding && agentReady && !workspaceSetupRequired && <OnboardingView />}
       {!checking && agentReady && workspaceSetupRequired && <WorkspaceSetupGate />}
-      {browserRuntimeInstall && <BrowserRuntimeInstallModal status={browserRuntimeInstall} />}
+      {browserRuntimeInstall && <BrowserRuntimeInstallModal status={browserRuntimeInstall} onCancel={() => {
+        if (browserRuntimeInstall.requestId) void invoke("nextctl_cancel", { requestId: browserRuntimeInstall.requestId });
+        setBrowserRuntimeInstall(undefined);
+      }} />}
       {runtimeUpdateInstall.status !== "idle" && !runtimeUpdateProgressHidden && (
         <BrowserRuntimeUpdateProgress status={runtimeUpdateInstall} onClose={() => setRuntimeUpdateProgressHidden(true)} />
       )}

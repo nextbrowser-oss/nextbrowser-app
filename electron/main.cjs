@@ -477,7 +477,7 @@ async function executeNextctl(commandArgs, options = {}) {
   } else if (browserRuntime === "clawbrowser" && requiresBrowserRuntime(adaptedArgs)) {
     await ensureClawbrowserRuntime(bin);
   } else if (browserRuntime === "camoufox" && requiresBrowserRuntime(adaptedArgs)) {
-    setBrowserRuntimeInstallStatus("camoufox", "installing", { message: "Preparing the Camoufox browser runtime…" });
+    setBrowserRuntimeInstallStatus("camoufox", "installing", { message: "Preparing the Camoufox browser runtime…", requestId: options.requestId });
     try {
       const result = await run(bin, adaptedArgs, options.extraEnv || {}, options);
       if (result.code === 0) {
@@ -1354,6 +1354,12 @@ async function invokeCommand(command, args = {}, sender) {
     case "nextctl_resolve": return await resolveOrInstallNextctl();
     case "nextctl_install_status": return nextctlInstallStatus;
     case "browser_runtime_install_status": return browserRuntimeInstallStatus;
+    case "browser_runtime_available": {
+      const runtime = ["clawbrowser", "dasbrowser", "camoufox"].includes(args.runtime) ? args.runtime : "clawbrowser";
+      if (runtime === "camoufox") return !!(await installedCamoufoxVersion(nextbrowserRuntimeRoot()));
+      if (runtime === "dasbrowser") return !!resolveDasbrowserRuntime(dasbrowserRuntimeOptions());
+      return !!resolveBrowserRuntime({ platform: process.platform, homeDir: home(), env: process.env, runtimeRoot: nextbrowserRuntimeRoot() });
+    }
     case "nextctl_run": {
       return executeNextctl(args.args || [], {
         extraEnv: args.extraEnv || {},
@@ -1667,7 +1673,7 @@ async function invokeCommand(command, args = {}, sender) {
         const source = await fs.realpath(selected);
         const stat = await fs.stat(source);
         if (!stat.isFile()) throw new Error(`${path.basename(source)} is not a regular file.`);
-        if (stat.size > 30 * 1024 * 1024) throw new Error(`${path.basename(source)} is larger than 30 MB.`);
+        if (stat.size > 30 * 1024 * 1024) throw new Error(`${path.basename(source)} is larger than the 30 MB per-file limit used for reliable Claude Code and Codex attachments.`);
         totalSize += stat.size;
         if (totalSize > 600 * 1024 * 1024) throw new Error("Terminal attachments are limited to 600 MB per selection.");
         const safeName = path.basename(source).replace(/[\\/:*?"<>|\x00-\x1f]/g, "-").slice(0, 180) || "file";

@@ -134,6 +134,19 @@ test("project chat receives scoped host control for stopped browser profiles", (
   assert.match(main, /case "agent_run":[\s\S]*fs\.unlink\(profileScopeFile\)/);
 });
 
+test("profile starts require visible first-install consent and Camoufox downloads remain cancellable", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  const sidebar = fs.readFileSync(path.join(__dirname, "..", "src", "components", "Sidebar.tsx"), "utf8");
+  const app = fs.readFileSync(path.join(__dirname, "..", "src", "App.tsx"), "utf8");
+
+  assert.match(main, /case "browser_runtime_available"/);
+  assert.match(main, /requestId: options\.requestId/);
+  assert.match(sidebar, /Download &amp; start/);
+  assert.match(sidebar, /browser_runtime_available/);
+  assert.match(app, /Stop download/);
+  assert.match(app, /nextctl_cancel/);
+});
+
 test("terminal chat is isolated by conversation", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const terminal = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AgentTerminal.tsx"), "utf8");

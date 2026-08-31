@@ -117,6 +117,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [profileCreationStage, setProfileCreationStage] = useState<string>();
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileActionError, setProfileActionError] = useState<string | null>(null);
+  const [pendingRuntimeInstall, setPendingRuntimeInstall] = useState<{ profile: string; runtime: Exclude<ProfileToolsetOption, "multilogin"> }>();
   const [profileMoveError, setProfileMoveError] = useState<string | null>(null);
   const [profileConnectionEditor, setProfileConnectionEditor] = useState<{ name: string; connection: "managed" | "direct" | "personal"; country: string; proxyId: string } | null>(null);
   const [profileConnectionSaving, setProfileConnectionSaving] = useState(false);
@@ -153,6 +154,26 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       setProfileActionError(internalError(label, code));
     });
   };
+
+  const startProfileWithConfirmation = async (profile: string, runtime: Exclude<ProfileToolsetOption, "multilogin">) => {
+    setProfileActionError(null);
+    try {
+      const available = await invoke<boolean>("browser_runtime_available", { runtime });
+      if (!available) {
+        setPendingRuntimeInstall({ profile, runtime });
+        return;
+      }
+      runProfileAction(`We couldn't start “${profile}”.`, "PROFILE_START_FAILED", () => s.startProfile(profile));
+    } catch (error) {
+      setProfileActionError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  useEffect(() => {
+    setProfileActionError(null);
+    setProfileMoveError(null);
+    setProfileConnectionError(null);
+  }, [s.activeWorkspaceId]);
 
   const agentName = agentById(s.agentId).name;
   const ready = s.agentReady();
@@ -607,7 +628,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       s.selectProfile(profile);
       const status = s.statuses[profile] ?? s.profileSessions[profile]?.status ?? "unknown";
       if (status !== "running" && !["starting", "stopping", "rotating"].includes(status)) {
-        runProfileAction(`We couldn't start “${profile}”.`, "PROFILE_START_FAILED", () => s.startProfile(profile));
+        const runtime = activeWorkspace?.profileToolsets[profile] ?? "clawbrowser";
+        void startProfileWithConfirmation(profile, runtime);
       }
     };
     window.addEventListener("nextbrowser:focus-profiles", focusProfiles);
@@ -1103,7 +1125,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       key={workspace.id}
                       className={workspace.id === s.activeWorkspaceId ? "active" : ""}
                       title={workspace.name}
-                      onClick={() => { s.selectWorkspace(workspace.id); setWorkspaceMenuOpen(false); }}
+                      onClick={() => { setProfileActionError(null); s.selectWorkspace(workspace.id); setWorkspaceMenuOpen(false); }}
                     >
                       <Icon name={workspace.id === s.activeWorkspaceId ? "checkmark" : "square.grid.2x2"} size={11} />
                       <span>{workspace.name}</span>
@@ -1287,7 +1309,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                             s.assignProfileToProject(p.name, toolset, s.activeWorkspaceId);
                             s.selectProfile(p.name);
                             s.setTab("chat");
-                            runProfileAction(`We couldn't start “${p.name}”.`, "PROFILE_START_FAILED", () => s.startProfile(p.name));
+                            void startProfileWithConfirmation(p.name, toolset);
                           }}
                           onStop={() => runProfileAction(`We couldn't stop “${p.name}”.`, "PROFILE_STOP_FAILED", () => s.stopProfile(p.name))}
                           onLive={() => { s.selectProfile(p.name); s.setTab("live"); }}
@@ -1328,7 +1350,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               <div className="muted small">No matches for "{s.profileSearch}".</div>
             )}
             {profileActionError && (
-              <div className="error small profile-action-error" role="alert">{profileActionError}</div>
+              <div className="error small profile-action-error" role="alert"><span>{profileActionError}</span><button type="button" onClick={() => setProfileActionError(null)}>Dismiss</button></div>
             )}
           </div>
         </div>
@@ -1795,6 +1817,16 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               </button>
             </div>
           </form>
+        </div>
+      ), document.body)}
+
+      {pendingRuntimeInstall && createPortal((
+        <div className="modal-overlay" role="presentation" onMouseDown={() => setPendingRuntimeInstall(undefined)}>
+          <section className="modal-card runtime-install-confirm" role="dialog" aria-modal="true" aria-labelledby="runtime-install-confirm-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="profile-menu-head"><Icon name="arrow.down.circle.fill" size={17} /><strong id="runtime-install-confirm-title">Download {pendingRuntimeInstall.runtime === "camoufox" ? "Camoufox" : pendingRuntimeInstall.runtime === "dasbrowser" ? "DasBrowser" : "ClawBrowser"}?</strong></div>
+            <p className="muted small">This browser toolset is required to start “{pendingRuntimeInstall.profile}”. NextBrowser will download it in the background and show progress. You can stop the download at any time.</p>
+            <div className="modal-actions"><button className="secondary" type="button" onClick={() => setPendingRuntimeInstall(undefined)}>Cancel</button><button className="primary" type="button" onClick={() => { const request = pendingRuntimeInstall; setPendingRuntimeInstall(undefined); runProfileAction(`We couldn't start “${request.profile}”.`, "PROFILE_START_FAILED", () => s.startProfile(request.profile)); }}><Icon name="arrow.down.circle.fill" size={13} /> Download &amp; start</button></div>
+          </section>
         </div>
       ), document.body)}
 

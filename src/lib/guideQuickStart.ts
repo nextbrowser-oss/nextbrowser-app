@@ -1,4 +1,11 @@
 export type GuideProfileTarget = string | "__default" | null;
+export type GuideSessionState = "running" | "starting" | "stopped";
+
+export function guideSessionState(...states: Array<string | undefined>): GuideSessionState {
+  if (states.includes("running")) return "running";
+  if (states.some((state) => ["starting", "rotating"].includes(state || ""))) return "starting";
+  return "stopped";
+}
 
 export function guideWorkspaceProfileNames(
   activeWorkspaceId: string | undefined,

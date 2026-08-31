@@ -7895,6 +7895,8 @@ pre,
 .workflow-list > button small { color: var(--muted); font-size: 10px; }
 .workflow-context-menu { position: fixed; z-index: 1000; width: 180px; display: grid; gap: 2px; padding: 5px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg-elevated); box-shadow: 0 12px 32px color-mix(in srgb, #000 28%, transparent); }
 .workflow-context-menu > button { width: 100%; padding: 8px 9px; border-radius: 6px; text-align: left; font-size: 11px; }
+.workflow-context-menu > button, .workflow-more-menu > div button { border: 0; background: transparent; color: var(--text); }
+.workflow-context-menu > button:hover, .workflow-more-menu > div button:hover { background: var(--surface-3); }
 .workflow-run-live-tag { display: inline-flex; align-items: center; width: fit-content; margin-top: 3px; padding: 3px 6px; border-radius: 999px; color: var(--green); background: color-mix(in srgb, var(--green) 15%, transparent); font-size: 9px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
 .workflow-canvas { position: relative; padding: 12px 14px 16px; overflow: auto; }
 .workflow-canvas.has-collapsed-list .workflow-editor-head { padding-left: 112px; }
@@ -8053,6 +8055,13 @@ pre,
 .workflow-step-body summary { cursor: pointer; color: var(--muted); font-size: 11px; }
 .workflow-step-body input { font-family: var(--font-mono); font-weight: 500; }
 .workflow-step-body textarea { min-height: 88px; font-family: var(--font-mono); font-size: 11px; }
+.workflow-step-body .workflow-checkbox { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-1); color: var(--text); cursor: pointer; }
+.workflow-step-body .workflow-checkbox input { width: 16px; height: 16px; flex: none; margin: 0; accent-color: var(--accent); }
+.profile-action-error { display: flex; align-items: center; gap: 8px; }
+.profile-action-error > span { min-width: 0; flex: 1; }
+.profile-action-error > button { flex: none; padding: 3px 6px; }
+.runtime-install-confirm { width: min(460px, calc(100vw - 32px)); }
+.runtime-install-confirm > p { margin: 14px 0 4px; line-height: 1.5; }
 .workflow-step-body .workflow-page-script { min-height: 150px; resize: vertical; font-family: var(--font-mono); font-size: 10px; line-height: 1.45; }
 .workflow-visual-target { min-height: 38px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 6px 5px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-1); }
 .workflow-visual-target > span { min-width: 0; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font: 600 11px/1.35 var(--font-ui); }
