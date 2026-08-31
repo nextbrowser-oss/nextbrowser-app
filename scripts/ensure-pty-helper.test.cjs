@@ -5,7 +5,9 @@ const path = require("node:path");
 const test = require("node:test");
 const { ensurePtyHelpersExecutable } = require("./ensure-pty-helper.cjs");
 
-test("restores execute permissions for packaged macOS PTY helpers", () => {
+test("restores execute permissions for packaged macOS PTY helpers", {
+  skip: process.platform === "win32" && "Windows filesystems cannot emulate POSIX execute bits",
+}, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "nextbrowser-pty-"));
   const helper = path.join(root, "node_modules", "node-pty", "prebuilds", "darwin-arm64", "spawn-helper");
   fs.mkdirSync(path.dirname(helper), { recursive: true });
