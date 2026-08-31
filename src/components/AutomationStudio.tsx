@@ -12,7 +12,7 @@ import { capturedRunFromHybridRecording, capturedRunsForRecording, capturedTaskR
 import type { AutomationArtifact, BrowserWorkflowAction, BrowserWorkflowSkill } from "../types";
 import { humanBytes } from "../types";
 import { Icon, Spinner } from "./Icon";
-import { activeAutomationExecution, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, setActiveAutomationExecution, type AutomationExecution } from "../lib/automationExecution";
+import { activeAutomationExecution, automationExecutionView, canContinueWithoutRemoteRunHistory, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, setActiveAutomationExecution, type AutomationExecution } from "../lib/automationExecution";
 import { userFacingBrowserError } from "../lib/userFacingBrowserError";
 import { agentById, agentInvocation } from "../agents";
 import { parseWorkflowAiEdit, workflowAiEditPrompt } from "../lib/workflowAiEdit";
@@ -1009,7 +1009,8 @@ export function AutomationStudio() {
     if (!s.selectedProfile && workspaceProfiles.length > 1) return setStudioError("Choose the browser profile that should run this automation.");
     if (playback) clearActiveAutomationExecution();
     const runId = sourceKind === "workflow" ? uid() : undefined;
-    const next: AutomationExecution = { executionId: uid(), sourceId, sourceKind, backendRunId: runId, workspaceId, workflowTitle: workflow.title, task: workflow.task, startedAt: Date.now(), expectedActions: workflow.actions.length, actionTools: workflow.actions.map((action) => action.tool), engine: "deterministic", phase: "preparing", completedActions: 0, progress: 8, detail: "Preparing the browser session…", workflowSnapshot: workflow };
+    let backendRunId = runId;
+    let next: AutomationExecution = { executionId: uid(), sourceId, sourceKind, backendRunId, workspaceId, workflowTitle: workflow.title, task: workflow.task, startedAt: Date.now(), expectedActions: workflow.actions.length, actionTools: workflow.actions.map((action) => action.tool), engine: "deterministic", phase: "preparing", completedActions: 0, progress: 8, detail: "Preparing the browser session…", workflowSnapshot: workflow };
     if (!workflow.actions.some((action) => ["open", "navigate"].includes(action.tool.replace(/^(?:clawbrowser|nextbrowser)\./, "")))) {
       const failed: AutomationExecution = { ...next, backendRunId: undefined, phase: "failed", progress: 100, failedStep: 0, detail: "The saved automation has no starting page.", error: "The saved automation has no starting page. Add an open step before replay." };
       setPlayback(failed);
@@ -1022,14 +1023,21 @@ export function AutomationStudio() {
     }
     try {
       if (runId) {
-        await invoke("automation_run_create", { run: { id: runId, workspace_id: workspaceId, workflow_id: workflow.id, input: { task: workflow.task, engine: "deterministic" } } });
-        await invoke("automation_run_update", { id: runId, update: { status: "running", output: { engine: "deterministic" } } });
+        try {
+          await invoke("automation_run_create", { run: { id: runId, workspace_id: workspaceId, workflow_id: workflow.id, input: { task: workflow.task, engine: "deterministic" } } });
+          await invoke("automation_run_update", { id: runId, update: { status: "running", output: { engine: "deterministic" } } });
+        } catch (error) {
+          if (!canContinueWithoutRemoteRunHistory(error)) throw error;
+          console.warn("[AUTOMATION_RUN_HISTORY_UNAVAILABLE] continuing with local execution", error);
+          backendRunId = undefined;
+          next = { ...next, backendRunId: undefined };
+        }
       }
       setPlayback(next);
       setActiveAutomationExecution(next);
       setNotice(`${sourceKind === "workflow" ? "Workflow" : "Recording"} is running. Progress and Stop remain visible in the main menu.`);
       setStudioError(undefined);
-      const result = await s.runAutomationRecipe(workflow, next.executionId, { task: workflow.task, ...(runId ? { backendRunId: runId } : {}) });
+      const result = await s.runAutomationRecipe(workflow, next.executionId, { task: workflow.task, ...(backendRunId ? { backendRunId } : {}) });
       const completedActions = result.results.filter((step) => step.ok).length;
       const displayError = result.error ? userFacingBrowserError(result.error) : undefined;
       const detail = result.status === "completed"
@@ -1041,7 +1049,7 @@ export function AutomationStudio() {
       setPlayback(finished);
       setActiveAutomationExecution(finished);
       setNotice(undefined);
-      if (runId) await invoke("automation_run_update", { id: runId, update: { status: result.status, output: { engine: "deterministic", steps: result.results.map(({ index, tool, ok, error }) => ({ index, tool, ok, error })), detail } } });
+      if (backendRunId) await invoke("automation_run_update", { id: backendRunId, update: { status: result.status, output: { engine: "deterministic", steps: result.results.map(({ index, tool, ok, error }) => ({ index, tool, ok, error })), detail } } });
       await Promise.all([loadRuns(), loadArtifacts()]);
       if (result.status === "completed") setNotice("Replay completed successfully.");
       else if (result.status === "failed") {
@@ -1059,7 +1067,7 @@ export function AutomationStudio() {
       setPlayback(failed);
       setActiveAutomationExecution(failed);
       setNotice(undefined);
-      if (runId) await invoke("automation_run_update", { id: runId, update: { status: "failed", output: { engine: "deterministic", error: technicalMessage } } }).catch(() => undefined);
+      if (backendRunId) await invoke("automation_run_update", { id: backendRunId, update: { status: "failed", output: { engine: "deterministic", error: technicalMessage } } }).catch(() => undefined);
       setStudioError("The deterministic browser runner could not complete this automation. You can retry or use Repair & run with AI.");
     }
   };
