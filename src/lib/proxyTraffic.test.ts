@@ -10,9 +10,7 @@ import {
   proxyTrafficHistoryPresetDays,
   proxyTrafficHistoryRequestDays,
   proxyTrafficHistoryWindows,
-  proxyTrafficTopUpBytes,
-  proxyTrafficTopUpThresholdBytes,
-  shouldShowProxyTrafficTopUp,
+  proxyTrafficWarning,
   sortDomainsByTraffic,
 } from "./proxyTraffic";
 
@@ -164,36 +162,45 @@ describe("proxy traffic domain sorting", () => {
   });
 });
 
-describe("proxy traffic top-up", () => {
-  it("matches the dashboard top-up cycle at 3 GiB boundaries", () => {
-    expect(shouldShowProxyTrafficTopUp({
+describe("proxy traffic warning", () => {
+  it("asks a blocked account to reach out in Discord", () => {
+    expect(proxyTrafficWarning({
       limited: true,
-      used_bytes: 3 * proxyTrafficTopUpBytes - proxyTrafficTopUpThresholdBytes - 1,
-      limit_bytes: 3 * proxyTrafficTopUpBytes,
-      remaining_bytes: proxyTrafficTopUpThresholdBytes + 1,
-      state: "ok",
-    })).toBe(false);
-    expect(shouldShowProxyTrafficTopUp({
-      limited: true,
-      used_bytes: 3 * proxyTrafficTopUpBytes - proxyTrafficTopUpThresholdBytes,
-      limit_bytes: 3 * proxyTrafficTopUpBytes,
-      remaining_bytes: proxyTrafficTopUpThresholdBytes,
-      state: "near_limit",
-    })).toBe(true);
-    expect(shouldShowProxyTrafficTopUp({
-      limited: true,
-      used_bytes: proxyTrafficTopUpBytes,
-      limit_bytes: 4 * proxyTrafficTopUpBytes,
-      remaining_bytes: 3 * proxyTrafficTopUpBytes,
-      state: "ok",
-    })).toBe(true);
+      used_bytes: 37 * 1024 * 1024,
+      limit_bytes: 37 * 1024 * 1024,
+      remaining_bytes: 0,
+      percent_used: 100,
+      state: "exhausted",
+    })).toBe("Free traffic is paused. Ask in Discord to unlock the rest.");
   });
 
-  it("hides top-up for unlimited traffic", () => {
-    expect(shouldShowProxyTrafficTopUp({
-      limited: false,
-      used_bytes: proxyTrafficTopUpBytes,
-      state: "ok",
-    })).toBe(false);
+  it("stays quiet while a gated account still has traffic", () => {
+    expect(proxyTrafficWarning({
+      limited: true,
+      used_bytes: 12 * 1024 * 1024,
+      limit_bytes: 37 * 1024 * 1024,
+      remaining_bytes: 25 * 1024 * 1024,
+      percent_used: 32,
+      state: "near_limit",
+    })).toBeUndefined();
+  });
+
+  it("keeps the plain warnings for accounts that hold the full allowance", () => {
+    expect(proxyTrafficWarning({
+      limited: true,
+      used_bytes: 2.9 * 1024 * 1024 * 1024,
+      limit_bytes: 3 * 1024 * 1024 * 1024,
+      remaining_bytes: 0.1 * 1024 * 1024 * 1024,
+      percent_used: 96,
+      state: "near_limit",
+    })).toBe("Proxy traffic almost exhausted.");
+    expect(proxyTrafficWarning({
+      limited: true,
+      used_bytes: 3 * 1024 * 1024 * 1024,
+      limit_bytes: 3 * 1024 * 1024 * 1024,
+      remaining_bytes: 0,
+      percent_used: 100,
+      state: "exhausted",
+    })).toBe("Proxy traffic limit reached.");
   });
 });

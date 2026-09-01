@@ -939,26 +939,25 @@ body.is-resizing-sidebar {
 }
 .proxy-usage-allocation-meta { margin-top: 8px; }
 .proxy-usage-card .warning-banner { margin-top: 12px; }
-.proxy-usage-top-up-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
+.proxy-traffic-gate {
   margin-top: 13px;
+  padding: 13px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
 }
-.proxy-usage-top-up-notice {
+.proxy-traffic-gate-heading {
   display: flex;
   align-items: center;
-  gap: 7px;
-  margin-top: 10px;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
+  gap: 8px;
+  font-size: 14px;
 }
-.proxy-usage-top-up-notice.success { background: var(--green-soft); color: var(--green); }
-.proxy-usage-top-up-notice.error { background: var(--red-soft); color: var(--red); }
-.user-facing-error a,
-.proxy-usage-top-up-notice a {
+.proxy-traffic-gate p {
+  margin: 7px 0 12px;
+  max-width: 62ch;
+  line-height: 1.5;
+}
+.user-facing-error a {
   color: inherit;
   font-weight: 600;
   text-decoration: underline;
@@ -1487,6 +1486,10 @@ body.is-resizing-sidebar {
 .status-pill.is-ready {
   background: var(--green-soft);
   color: var(--green);
+}
+.status-pill.proxy-state.paused {
+  background: var(--red-soft);
+  color: var(--red);
 }
 .agent-primary { display: flex; gap: 8px; margin: 8px 0; }
 .chip {

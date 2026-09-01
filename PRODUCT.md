@@ -16,7 +16,7 @@ It is not a marketing site, a decorative dashboard, or a consumer chat toy. The 
 
 - Connect a local agent and keep its state understandable.
 - Create, start, stop, inspect, rotate, and delete browser profiles.
-- Understand proxy traffic usage and top up when needed.
+- Understand proxy traffic usage and how to unlock more of the free allowance.
 - Send chat requests to the active agent with the right profile/session context.
 - Apply skills and scripts without losing trust in what will run.
 - Observe a live browser session and recover when local components are missing.

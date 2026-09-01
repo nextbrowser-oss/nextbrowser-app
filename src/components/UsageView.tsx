@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { nextctlJson } from "../nextctl";
-import { invoke } from "../electronBridge";
 import { useStore } from "../store";
+import { discordUrl } from "../constants";
 import { trackEvent } from "../lib/analytics";
-import { internalError } from "../lib/userFacingError";
 import {
   domainPaginationItems,
   domainsPageByTraffic,
@@ -13,27 +12,28 @@ import {
   proxyTrafficHistoryMaxDays,
   proxyTrafficHistoryPresetDays,
   proxyTrafficHistoryWindows,
-  proxyTrafficTopUpBytes,
-  proxyTrafficWarning,
-  shouldShowProxyTrafficTopUp,
   proxyTrafficDomainsPageSize,
   type ProxyTrafficHistoryCoverage,
   type ProxyTrafficHistoryPreset,
 } from "../lib/proxyTraffic";
+import {
+  freeTrafficAllowanceBytes,
+  trafficAllowanceBytes,
+  trafficAllowanceFraction,
+  trafficAllowanceRemainingBytes,
+  trafficGateState,
+  trafficGateStateLabel,
+} from "../lib/trafficGate";
 import { formatHistoryDateLabel } from "../lib/trafficChart";
 import {
   humanBytes,
-  proxyFraction,
-  type ProxyTraffic,
   type ProxyTrafficHistory,
   type ProxyTrafficHistoryPoint,
 } from "../types";
 import { Icon, Spinner } from "./Icon";
 import { TrafficChart } from "./TrafficChart";
-import { UserFacingError } from "./UserFacingError";
 
 type RangePreset = ProxyTrafficHistoryPreset | "custom";
-type TopUpNotice = { tone: "success" | "error"; message: string };
 
 const numberFormatter = new Intl.NumberFormat();
 const historyRequestConcurrency = 3;
@@ -118,9 +118,10 @@ export function UsageView() {
   const [historyNotice, setHistoryNotice] = useState<string>();
   const [historyReload, setHistoryReload] = useState(0);
   const [domainsPage, setDomainsPage] = useState(1);
-  const [topUpLoading, setTopUpLoading] = useState(false);
-  const [topUpNotice, setTopUpNotice] = useState<TopUpNotice>();
-  const fraction = proxyFraction(s.proxy);
+  const gateState = trafficGateState(s.proxy);
+  const allowanceBytes = trafficAllowanceBytes(s.proxy);
+  const allowanceRemainingBytes = trafficAllowanceRemainingBytes(s.proxy);
+  const fraction = trafficAllowanceFraction(s.proxy);
 
   useEffect(() => {
     setDomainsPage(1);
@@ -178,48 +179,16 @@ export function UsageView() {
     await s.refreshProxyData();
     setHistoryReload((value) => value + 1);
   };
-  const topUpProxyTraffic = async () => {
-    if (!s.proxy || topUpLoading) return;
-    const analyticsParams = {
-      proxy_state: s.proxy.state,
-      limited: s.proxy.limited,
-      percent_used_bucket:
-        s.proxy.percent_used == null
-          ? "unknown"
-          : Math.min(100, Math.floor(s.proxy.percent_used / 10) * 10),
-    };
-    setTopUpLoading(true);
-    setTopUpNotice(undefined);
-    trackEvent("proxy_top_up_requested", analyticsParams);
-    try {
-      const proxyTraffic = await invoke<ProxyTraffic>("proxy_traffic_top_up");
-      try {
-        await s.loadProxy();
-      } catch {
-        useStore.setState({
-          proxy: proxyTraffic,
-          proxyWarning: proxyTrafficWarning(proxyTraffic),
-        });
-      }
-      setTopUpNotice({
-        tone: "success",
-        message: `Added ${humanBytes(proxyTraffic.top_up_bytes ?? proxyTrafficTopUpBytes)} of proxy traffic.`,
-      });
-      trackEvent("proxy_top_up_succeeded", analyticsParams);
-    } catch {
-      setTopUpNotice({
-        tone: "error",
-        message: internalError("We couldn't add proxy traffic.", "PROXY_TRAFFIC_TOP_UP_FAILED"),
-      });
-      trackEvent("proxy_top_up_failed", analyticsParams);
-    } finally {
-      setTopUpLoading(false);
-    }
+  const openTrafficGateDiscord = () => {
+    trackEvent("proxy_traffic_gate_discord_opened", {
+      proxy_state: s.proxy?.state ?? "unknown",
+      used_bytes_bucket: s.proxy ? Math.floor(s.proxy.used_bytes / (10 * 1024 * 1024)) * 10 : "unknown",
+    });
+    window.open(discordUrl, "_blank", "noopener,noreferrer");
   };
   const points = history?.data_points ?? [];
   const topDomains = history?.top_domains ?? [];
   const domainPage = domainsPageByTraffic(topDomains, domainsPage);
-  const showProxyTrafficTopUp = shouldShowProxyTrafficTopUp(s.proxy);
   const peak = peakPoint(points);
   const averageBytes = points.length ? (history?.total_bytes ?? 0) / points.length : 0;
 
@@ -251,15 +220,19 @@ export function UsageView() {
                 <span className="muted">
                   {" / "}
                   {s.proxy.limited
-                    ? s.proxy.limit_bytes != null
-                      ? humanBytes(s.proxy.limit_bytes)
+                    ? allowanceBytes != null
+                      ? humanBytes(allowanceBytes)
                       : "limit unavailable"
                     : "no fixed limit"}
                 </span>
               )}
             </div>
           </div>
-          {s.proxy && <span className="status-pill proxy-state">{s.proxy.state}</span>}
+          {s.proxy && (
+            <span className={`status-pill proxy-state${gateState === "blocked" ? " paused" : ""}`}>
+              {trafficGateStateLabel(s.proxy)}
+            </span>
+          )}
         </div>
         {s.proxy ? (
           <>
@@ -282,13 +255,15 @@ export function UsageView() {
             <div className="row small proxy-usage-allocation-meta">
               <span>
                 {s.proxy.limited
-                  ? s.proxy.percent_used == null
+                  ? allowanceBytes == null
                     ? "Usage percentage unavailable"
-                    : `${Math.round(s.proxy.percent_used)}% used`
+                    : `${Math.round(fraction * 100)}% used`
                   : "No fixed traffic limit"}
               </span>
               <span className="spacer" />
-              {s.proxy.remaining_bytes != null && <span>{humanBytes(s.proxy.remaining_bytes)} remaining</span>}
+              {allowanceRemainingBytes != null && (
+                <span>{humanBytes(allowanceRemainingBytes)} remaining</span>
+              )}
             </div>
             {s.proxyWarning && (
               <div className="warning-banner">
@@ -296,29 +271,25 @@ export function UsageView() {
                 {s.proxyWarning}
               </div>
             )}
-            {showProxyTrafficTopUp && (
-              <div className="proxy-usage-top-up-actions">
+            {gateState === "blocked" && (
+              <div className="proxy-traffic-gate" role="status">
+                <div className="proxy-traffic-gate-heading">
+                  <Icon name="lock.fill" size={16} />
+                  <strong>Your free {humanBytes(freeTrafficAllowanceBytes)} is yours</strong>
+                </div>
+                <p className="muted small">
+                  New accounts pause after the first few dozen megabytes so we can meet the
+                  people using NextBrowser. Say hi in Discord and we unlock the rest of your
+                  allowance by hand — feedback, repo stars, and pull requests earn more.
+                </p>
                 <button
                   className="btn-bordered-prominent"
-                  disabled={topUpLoading}
                   type="button"
-                  onClick={() => void topUpProxyTraffic()}
+                  onClick={openTrafficGateDiscord}
                 >
-                  {topUpLoading ? <Spinner size={13} /> : <Icon name="plus" size={13} />}
-                  {topUpLoading ? "Adding 1 GiB" : "Add 1 GiB"}
+                  <Icon name="bubble.left.and.bubble.right.fill" size={13} />
+                  Ask in Discord
                 </button>
-              </div>
-            )}
-            {topUpNotice && (
-              <div
-                className={`proxy-usage-top-up-notice ${topUpNotice.tone}`}
-                role={topUpNotice.tone === "error" ? "alert" : "status"}
-              >
-                <Icon
-                  name={topUpNotice.tone === "error" ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"}
-                  size={14}
-                />
-                <UserFacingError message={topUpNotice.message} surface="proxy_top_up" />
               </div>
             )}
           </>
