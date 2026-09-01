@@ -146,9 +146,10 @@ function BrowserRuntimeUpdatePrompt({ runtimes, onLater, onConfirm }: {
   );
 }
 
-function BrowserRuntimeUpdateProgress({ status, onClose }: {
+function BrowserRuntimeUpdateProgress({ status, onClose, onRetry }: {
   status: BrowserRuntimeUpdateInstallStatus;
   onClose: () => void;
+  onRetry: (runtimes: BrowserRuntimeUpdateEntry["runtime"][]) => void;
 }) {
   const installing = status.status === "installing";
   const failed = status.status === "failed";
@@ -163,6 +164,7 @@ function BrowserRuntimeUpdateProgress({ status, onClose }: {
         <span className="muted small">{status.message}</span>
         {installing && <div className="runtime-update-progress-track"><span style={{ width: `${Math.max(4, status.progress ?? 0)}%` }} /></div>}
         {!!status.errors?.length && <span className="error small" title={status.errors.map((error) => `${error.name}: ${error.message}`).join("\n")}>{status.errors.map((error) => error.name).join(", ")} could not be updated.</span>}
+        {partial && !!status.errors?.length && <button className="secondary small runtime-update-retry" onClick={() => onRetry(status.errors!.map((error) => error.runtime))}>Retry failed toolsets</button>}
       </div>
       {!installing && (
         <button className="plain-icon-btn plain-icon-btn-compact" onClick={onClose} aria-label="Dismiss update status">
@@ -796,8 +798,8 @@ export function App() {
     if (runtimeUpdatePrompt) setRuntimeUpdatePromptDismissed(browserRuntimeUpdateSignature(runtimeUpdatePrompt));
     setRuntimeUpdatePrompt(undefined);
   };
-  const installBrowserRuntimeUpdates = () => {
-    const runtimes = runtimeUpdatePrompt?.map((runtime) => runtime.runtime) ?? [];
+  const installBrowserRuntimeUpdates = (requestedRuntimes?: BrowserRuntimeUpdateEntry["runtime"][]) => {
+    const runtimes = requestedRuntimes ?? runtimeUpdatePrompt?.map((runtime) => runtime.runtime) ?? [];
     if (!runtimes.length) return;
     setRuntimeUpdatePromptDismissed(browserRuntimeUpdateSignature(browserRuntimeUpdates.runtimes));
     setRuntimeUpdatePrompt(undefined);
@@ -1178,7 +1180,7 @@ export function App() {
           />
         )}
         {runtimeUpdateInstall.status !== "idle" && !runtimeUpdateProgressHidden && (
-          <BrowserRuntimeUpdateProgress status={runtimeUpdateInstall} onClose={() => setRuntimeUpdateProgressHidden(true)} />
+          <BrowserRuntimeUpdateProgress status={runtimeUpdateInstall} onClose={() => setRuntimeUpdateProgressHidden(true)} onRetry={installBrowserRuntimeUpdates} />
         )}
         {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
       </>
@@ -1293,7 +1295,7 @@ export function App() {
         setBrowserRuntimeInstall(undefined);
       }} />}
       {runtimeUpdateInstall.status !== "idle" && !runtimeUpdateProgressHidden && (
-        <BrowserRuntimeUpdateProgress status={runtimeUpdateInstall} onClose={() => setRuntimeUpdateProgressHidden(true)} />
+        <BrowserRuntimeUpdateProgress status={runtimeUpdateInstall} onClose={() => setRuntimeUpdateProgressHidden(true)} onRetry={installBrowserRuntimeUpdates} />
       )}
       {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
     </div>

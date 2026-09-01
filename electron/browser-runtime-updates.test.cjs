@@ -10,6 +10,7 @@ const {
   clawbrowserReleaseAsset,
   compareVersions,
   installedCamoufoxVersion,
+  installSelectedRuntimeUpdates,
   installRuntimeUpdateWithVerification,
   runtimeResult,
   selectAvailableRuntimeUpdates,
@@ -57,6 +58,36 @@ test("installs only explicitly confirmed updates that are still available", () =
   };
   assert.deepEqual(selectAvailableRuntimeUpdates(status, ["clawbrowser", "camoufox", "invented"]), [status.runtimes[0]]);
   assert.deepEqual(selectAvailableRuntimeUpdates(status, []), []);
+});
+
+test("continues all confirmed toolset updates when one of three fails", async () => {
+  const available = {
+    runtimes: [
+      { runtime: "clawbrowser", name: "ClawBrowser", latestVersion: "1.0.4", status: "available" },
+      { runtime: "camoufox", name: "Camoufox", latestVersion: "0.5.5", status: "available" },
+      { runtime: "dasbrowser", name: "DasBrowser", latestVersion: "144.32", status: "available" },
+    ],
+  };
+  const calls = [];
+  const statuses = [];
+  let checks = 0;
+  const result = await installSelectedRuntimeUpdates({
+    requestedRuntimes: ["clawbrowser", "camoufox", "dasbrowser"],
+    checkForUpdates: async () => { checks += 1; return available; },
+    installRuntime: async (runtime) => {
+      calls.push(runtime.runtime);
+      if (runtime.runtime === "camoufox") throw new Error("Package mirror timed out");
+    },
+    onStatus: (status) => statuses.push(status),
+  });
+
+  assert.deepEqual(calls, ["clawbrowser", "camoufox", "dasbrowser"]);
+  assert.equal(checks, 2);
+  assert.equal(result.status, "partial");
+  assert.deepEqual(result.completed, ["clawbrowser", "dasbrowser"]);
+  assert.deepEqual(result.errors, [{ runtime: "camoufox", name: "Camoufox", message: "Package mirror timed out" }]);
+  assert.equal(result.progress, 100);
+  assert.equal(statuses.at(-1).message, "Some browser toolsets were updated, but others need attention.");
 });
 
 test("retries once when a CLI self-update completes before the browser runtime changes", async () => {

@@ -75,8 +75,8 @@ const {
   compareVersions,
   installedCamoufoxVersion,
   installedClawbrowserVersion,
+  installSelectedRuntimeUpdates,
   installRuntimeUpdateWithVerification,
-  selectAvailableRuntimeUpdates,
 } = require("./browser-runtime-updates.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
 const { parseMultiloginProfiles, parseMultiloginCreatedProfile } = require("./multilogin-profiles.cjs");
@@ -1140,39 +1140,10 @@ async function installedBrowserRuntimeVersion(runtime) {
 async function installBrowserRuntimeUpdates(requestedRuntimes = []) {
   if (browserRuntimeUpdateInstallPromise) return browserRuntimeUpdateInstallPromise;
   browserRuntimeUpdateInstallPromise = (async () => {
-    const fresh = await checkForBrowserRuntimeUpdates();
-    const updates = selectAvailableRuntimeUpdates(fresh, requestedRuntimes);
-    if (!updates.length) {
-      setBrowserRuntimeUpdateInstallStatus("failed", {
-        runtimes: [],
-        message: "The selected browser toolsets are already up to date.",
-      });
-      return browserRuntimeUpdateInstallStatus;
-    }
-    const completed = [];
-    const errors = [];
-    setBrowserRuntimeUpdateInstallStatus("installing", {
-      runtimes: updates.map((runtime) => runtime.runtime),
-      completed,
-      errors: [],
-      currentRuntime: updates[0].runtime,
-      currentName: updates[0].name,
-      currentVersion: updates[0].latestVersion,
-      total: updates.length,
-      progress: 0,
-      message: "Downloading the confirmed updates in the background.",
-    });
-    for (let index = 0; index < updates.length; index += 1) {
-      const update = updates[index];
-      setBrowserRuntimeUpdateInstallStatus("installing", {
-        currentRuntime: update.runtime,
-        currentName: update.name,
-        currentVersion: update.latestVersion,
-        completed: [...completed],
-        progress: Math.round((index / updates.length) * 100),
-        message: `Installing ${update.name} ${update.latestVersion || "update"} in the background.`,
-      });
-      try {
+    return installSelectedRuntimeUpdates({
+      requestedRuntimes,
+      checkForUpdates: checkForBrowserRuntimeUpdates,
+      installRuntime: async (update) => {
         if (update.runtime === "clawbrowser") await updateClawbrowserRuntime(update.latestVersion);
         else if (update.runtime === "camoufox") await updateCamoufoxRuntime(update.latestVersion);
         else if (update.runtime === "dasbrowser") await ensureDasbrowserRuntime({ force: true, reportStatus: false });
@@ -1181,27 +1152,9 @@ async function installBrowserRuntimeUpdates(requestedRuntimes = []) {
         if (!installed || compareVersions(installed, expected) < 0) {
           throw new Error(`${update.name} ${expected} was downloaded, but the installed version is still ${installed || "unknown"}.`);
         }
-        completed.push(update.runtime);
-      } catch (error) {
-        errors.push({ runtime: update.runtime, name: update.name, message: error?.message || String(error) });
-      }
-    }
-    await checkForBrowserRuntimeUpdates();
-    const status = errors.length ? (completed.length ? "partial" : "failed") : "ready";
-    setBrowserRuntimeUpdateInstallStatus(status, {
-      currentRuntime: undefined,
-      currentName: undefined,
-      currentVersion: undefined,
-      completed,
-      errors,
-      progress: 100,
-      message: errors.length
-        ? completed.length
-          ? "Some browser toolsets were updated, but others need attention."
-          : "The browser toolset updates could not be installed."
-        : `${completed.length === 1 ? "The browser toolset is" : "Browser toolsets are"} ready to use.`,
+      },
+      onStatus: ({ status, ...patch }) => setBrowserRuntimeUpdateInstallStatus(status, patch),
     });
-    return browserRuntimeUpdateInstallStatus;
   })().finally(() => {
     browserRuntimeUpdateInstallPromise = null;
   });
