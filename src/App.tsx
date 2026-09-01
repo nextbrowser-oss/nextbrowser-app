@@ -274,15 +274,8 @@ function formatStars(count?: number | null): string {
   return `${rounded}k`;
 }
 
-// GitHub's API is unavailable in some regions. Prefer a slightly stale count
-// over rendering a broken-looking dash; a successful request replaces it.
-const GITHUB_STARS_FALLBACK = 16;
-const GITHUB_STARS_CACHE_KEY = "nextbrowser.github-stars";
-
-function cachedGithubStars(): number {
-  const cached = Number(localStorage.getItem(GITHUB_STARS_CACHE_KEY));
-  return Number.isFinite(cached) && cached >= 0 ? cached : GITHUB_STARS_FALLBACK;
-}
+// The Electron host resolves GitHub → local on-disk cache → this fallback.
+const GITHUB_STARS_FALLBACK = 17;
 
 function GithubStarButton({ stars }: { stars?: number | null }) {
   const label = "Star NextBrowser on GitHub";
@@ -316,7 +309,7 @@ function DiscordButton() {
 }
 
 function SocialButtons() {
-  const [stars, setStars] = useState<number>(cachedGithubStars);
+  const [stars, setStars] = useState<number>(GITHUB_STARS_FALLBACK);
 
   useEffect(() => {
     let cancelled = false;
@@ -324,7 +317,6 @@ function SocialButtons() {
       .then((count) => {
         if (!cancelled && typeof count === "number") {
           setStars(count);
-          localStorage.setItem(GITHUB_STARS_CACHE_KEY, String(count));
         }
       })
       .catch(() => undefined);

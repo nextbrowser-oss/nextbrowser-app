@@ -20,7 +20,7 @@ const {
   searchDirs,
 } = require("./binary-resolver.cjs");
 const { applyLegacyRuntimeMigration, applyRuntimeRootMigration, clearRuntimeCredential, runtimeAPIBaseURL } = require("./runtime-config.cjs");
-const { fetchGitHubStars } = require("./github-stars.cjs");
+const { fetchGitHubStars, readLocalGitHubStars, writeLocalGitHubStars } = require("./github-stars.cjs");
 const { ensureWorkspaceInstructions } = require("./workspace-instructions.cjs");
 const pty = require("node-pty");
 const {
@@ -754,6 +754,7 @@ async function ensureDasbrowserRuntime({ force = false, reportStatus = true, req
   return dasbrowserInstallPromise;
 }
 function dataDir() { return path.join(app.getPath("userData")); }
+function githubStarsCachePath() { return path.join(dataDir(), "github-stars.json"); }
 function localAutomationArtifacts() {
   if (!automationArtifactStore) {
     automationArtifactStore = createLocalArtifactStore({ rootDir: path.join(dataDir(), "automation-artifacts") });
@@ -1288,11 +1289,17 @@ async function apiFetchJSON(baseURL, route, options = {}) {
 async function invokeCommand(command, args = {}, sender) {
   switch (command) {
     case "github_stars": {
+      let count = null;
       try {
-        return await fetchGitHubStars(fetch, { signal: AbortSignal.timeout(5000) });
+        count = await fetchGitHubStars(fetch, { signal: AbortSignal.timeout(5000) });
       } catch {
-        return null;
+        // A local result is still useful when GitHub is unavailable.
       }
+      if (typeof count === "number") {
+        await writeLocalGitHubStars(githubStarsCachePath(), count);
+        return count;
+      }
+      return (await readLocalGitHubStars(githubStarsCachePath())) ?? 17;
     }
     case "app_update_status": return appUpdateStatus;
     case "browser_runtime_update_status": return browserRuntimeUpdateStatus;
