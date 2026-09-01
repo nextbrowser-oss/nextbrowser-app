@@ -33,7 +33,7 @@ reports and explorations.
   `nextctl_missing`, `nextctl_update_started`, `nextctl_update_completed`,
   `nextctl_update_failed`.
 - Proxy/session/profile: `proxy_loaded`, `proxy_refresh_started`,
-  `proxy_refresh_succeeded`, `proxy_top_up_requested`,
+  `proxy_refresh_succeeded`, `proxy_traffic_gate_discord_opened`,
   `session_start_requested`, `session_stop_requested`,
   `session_rotate_requested`, `profile_start_requested`,
   `profile_stop_requested`, `profile_rotate_requested`,

@@ -3,8 +3,6 @@ const os = require("node:os");
 const path = require("node:path");
 
 const DEFAULT_API_BASE_URL = "https://api.nextbrowser.com";
-const PROXY_TRAFFIC_TOP_UP_PATH = "/v1/proxy/traffic/top-up";
-const PROXY_TRAFFIC_REQUEST_TIMEOUT_MS = 30_000;
 
 function configPath({
   env = process.env,
@@ -67,37 +65,4 @@ async function loadBackendConfig({
   return { apiKey, baseURL: normalizeAPIBaseURL(configuredBaseURL) };
 }
 
-async function topUpProxyTraffic(options = {}) {
-  const fetchImpl = options.fetchImpl || fetch;
-  const { apiKey, baseURL } = await loadBackendConfig(options);
-  let response;
-  try {
-    response = await fetchImpl(`${baseURL}${PROXY_TRAFFIC_TOP_UP_PATH}`, {
-      method: "POST",
-      headers: {
-        accept: "application/json",
-        authorization: `Bearer ${apiKey}`,
-      },
-      signal: AbortSignal.timeout(PROXY_TRAFFIC_REQUEST_TIMEOUT_MS),
-    });
-  } catch {
-    throw new Error("NextBrowser proxy traffic service is unavailable.");
-  }
-
-  if (!response.ok) {
-    throw new Error(`NextBrowser proxy traffic request failed (${response.status}).`);
-  }
-
-  let payload;
-  try {
-    payload = await response.json();
-  } catch {
-    throw new Error("NextBrowser proxy traffic response is invalid.");
-  }
-  if (!payload || typeof payload !== "object" || typeof payload.used_bytes !== "number" || typeof payload.state !== "string") {
-    throw new Error("NextBrowser proxy traffic response is incomplete.");
-  }
-  return payload;
-}
-
-module.exports = { configPath, loadBackendConfig, normalizeAPIBaseURL, topUpProxyTraffic };
+module.exports = { configPath, loadBackendConfig, normalizeAPIBaseURL };

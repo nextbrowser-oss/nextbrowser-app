@@ -35,6 +35,18 @@ A profile may exist while its browser session is stopped. Selecting a profile do
 
 A session is the running browser context for a profile. The session must be running before an agent can work with its pages. Session diagnostics include status, open tabs, page state, screenshots, and identity verification.
 
+### Free traffic allowance
+
+New accounts are shown a 1 GiB free proxy allowance, but they are provisioned with a
+smaller starting limit — somewhere between 10 MiB and 70 MiB. When that starting limit
+is reached, proxy traffic pauses and **Proxy usage** explains how to unlock the rest:
+ask in the NextBrowser Discord. The remaining allowance is then released by hand, one
+1 GiB grant at a time, up to a 3 GiB ceiling. Feedback, repository stars, and pull
+requests are what earn the larger grants.
+
+Accounts created before this gate keep their existing allocation and are never paused
+by it.
+
 ### Proxy and fingerprint rotation
 
 Rotation requests a refreshed browser identity, optionally with a country. Verification should follow rotation when a workflow depends on geography or identity consistency.
