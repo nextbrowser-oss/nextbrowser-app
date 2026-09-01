@@ -2631,6 +2631,7 @@ export const useStore = create<State>((set, get) => {
         delete profileChatOwners[n];
         return { statuses: { ...s.statuses, [n]: previousStatus }, profileChatOwners };
       });
+      if (/command cancelled/i.test(error instanceof Error ? error.message : String(error))) return;
       requestAccountSignIn(set, error);
       throw error;
     }

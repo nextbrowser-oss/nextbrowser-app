@@ -128,6 +128,7 @@ let browserRuntimeUpdateInstallPromise = null;
 let nextctlInstallPromise = null;
 let browserInstallPromise = null;
 let dasbrowserInstallPromise = null;
+const browserRuntimeInstallAbortControllers = new Map();
 let agentControlServer = null;
 let agentControlURL = "";
 const agentControlScopes = new Map();
@@ -346,6 +347,27 @@ function setBrowserRuntimeInstallStatus(runtime, status, patch = {}) {
   browserRuntimeInstallStatus = { runtime, status, ...patch, updatedAt: Date.now() };
   emit("browser-runtime:install", browserRuntimeInstallStatus);
 }
+function runtimeInstallRequestId(value) {
+  const requestId = String(value || "").trim();
+  return requestId ? requestId.slice(0, 128) : "";
+}
+function beginBrowserRuntimeInstall(requestId) {
+  const id = runtimeInstallRequestId(requestId);
+  if (!id) return { id: "", controller: undefined };
+  const controller = new AbortController();
+  browserRuntimeInstallAbortControllers.set(id, controller);
+  return { id, controller };
+}
+function finishBrowserRuntimeInstall(requestId, controller) {
+  const id = runtimeInstallRequestId(requestId);
+  if (id && browserRuntimeInstallAbortControllers.get(id) === controller) browserRuntimeInstallAbortControllers.delete(id);
+}
+function cancelBrowserRuntimeInstall(requestId) {
+  const controller = browserRuntimeInstallAbortControllers.get(runtimeInstallRequestId(requestId));
+  if (!controller) return false;
+  controller.abort();
+  return true;
+}
 function setBrowserRuntimeUpdateStatus(status) {
   browserRuntimeUpdateStatus = status;
   emit("browser-runtime:update", browserRuntimeUpdateStatus);
@@ -386,8 +408,8 @@ function nextctlPlatformArchive() {
 function findNextctlInTree(root) {
   return findBinaryUnderRoots("nextctl", [root]) || findBinaryUnderRoots("nbc", [root]);
 }
-async function downloadFile(url, target) {
-  const response = await fetch(url);
+async function downloadFile(url, target, options = {}) {
+  const response = await fetch(url, { signal: options.signal });
   if (!response.ok) throw new Error(`Download failed (${response.status})`);
   const buffer = Buffer.from(await response.arrayBuffer());
   await fs.writeFile(target, buffer);
@@ -472,10 +494,10 @@ async function executeNextctl(commandArgs, options = {}) {
   const browserRuntime = requestedBrowserRuntime(adaptedArgs);
   if (browserRuntime === "multilogin") await initializeMultiloginCredential();
   if (browserRuntime === "dasbrowser") {
-    const executable = await ensureDasbrowserRuntime();
+    const executable = await ensureDasbrowserRuntime({ requestId: options.requestId });
     adaptedArgs = adaptDasbrowserArgs(adaptedArgs, executable);
   } else if (browserRuntime === "clawbrowser" && requiresBrowserRuntime(adaptedArgs)) {
-    await ensureClawbrowserRuntime(bin);
+    await ensureClawbrowserRuntime(bin, { requestId: options.requestId });
   } else if (browserRuntime === "camoufox" && requiresBrowserRuntime(adaptedArgs)) {
     setBrowserRuntimeInstallStatus("camoufox", "installing", { message: "Preparing the Camoufox browser runtime…", requestId: options.requestId });
     try {
@@ -598,25 +620,28 @@ async function ensureAgentControlServer() {
   agentControlURL = `http://127.0.0.1:${address.port}`;
   return agentControlURL;
 }
-async function ensureClawbrowserRuntime(nextctlBin) {
-  const options = {
+async function ensureClawbrowserRuntime(nextctlBin, options = {}) {
+  const runtimeOptions = {
     platform: process.platform,
     homeDir: home(),
     env: process.env,
     runtimeRoot: nextbrowserRuntimeRoot(),
   };
-  const existing = resolveBrowserRuntime(options);
+  const existing = resolveBrowserRuntime(runtimeOptions);
   if (existing) return existing;
   if (browserInstallPromise) return browserInstallPromise;
 
   browserInstallPromise = (async () => {
-    setBrowserRuntimeInstallStatus("clawbrowser", "downloading");
+    setBrowserRuntimeInstallStatus("clawbrowser", "downloading", { requestId: options.requestId });
     const runtimeRoot = nextbrowserRuntimeRoot();
     await Promise.all([
       "data", "cache", "installer-bin", "agent-plugins",
     ].map((dir) => fs.mkdir(path.join(runtimeRoot, dir), { recursive: true })));
-    const result = await run(nextctlBin, browserInstallArgs(runtimeRoot), {}, { timeoutMs: 60 * 60 * 1000 });
-    const installed = resolveBrowserRuntime(options);
+    const result = await run(nextctlBin, browserInstallArgs(runtimeRoot), {}, {
+      requestId: options.requestId,
+      timeoutMs: 60 * 60 * 1000,
+    });
+    const installed = resolveBrowserRuntime(runtimeOptions);
     if (!installed) {
       const detail = (result.stderr || result.stdout || "Clawbrowser installation failed").trim();
       throw new Error(detail);
@@ -639,11 +664,11 @@ function dasbrowserRuntimeOptions() {
     runtimeRoot: nextbrowserRuntimeRoot(),
   };
 }
-async function officialDasbrowserDownloadUrl() {
+async function officialDasbrowserDownloadUrl(options = {}) {
   const fallback = DASBROWSER_DOWNLOADS[process.platform];
   if (!fallback) throw new Error(`DasBrowser is not available for ${process.platform}.`);
   try {
-    const response = await fetch("https://www.dasbrowser.com/download");
+    const response = await fetch("https://www.dasbrowser.com/download", { signal: options.signal });
     if (!response.ok) return fallback;
     const html = await response.text();
     return officialDasbrowserURLFromHTML(html, process.platform, fallback);
@@ -651,13 +676,14 @@ async function officialDasbrowserDownloadUrl() {
     return fallback;
   }
 }
-async function ensureDasbrowserRuntime({ force = false, reportStatus = true } = {}) {
+async function ensureDasbrowserRuntime({ force = false, reportStatus = true, requestId } = {}) {
   const options = dasbrowserRuntimeOptions();
   const existing = resolveDasbrowserRuntime(options);
   if (existing && !force) return existing;
   if (dasbrowserInstallPromise) return dasbrowserInstallPromise;
 
   dasbrowserInstallPromise = (async () => {
+    const install = beginBrowserRuntimeInstall(requestId);
     if (process.platform === "darwin" && process.arch !== "arm64") {
       throw new Error("The official DasBrowser download currently supports Apple Silicon Macs only.");
     }
@@ -666,15 +692,15 @@ async function ensureDasbrowserRuntime({ force = false, reportStatus = true } = 
     }
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-dasbrowser-"));
     try {
-      const url = await officialDasbrowserDownloadUrl();
-      if (reportStatus) setBrowserRuntimeInstallStatus("dasbrowser", "downloading");
+      const url = await officialDasbrowserDownloadUrl({ signal: install.controller?.signal });
+      if (reportStatus) setBrowserRuntimeInstallStatus("dasbrowser", "downloading", { requestId: install.id });
       if (process.platform === "darwin") {
         const image = path.join(tempDir, "dasbrowser.dmg");
         const mount = path.join(tempDir, "mount");
         await fs.mkdir(mount, { recursive: true });
-        await downloadFile(url, image);
-        if (reportStatus) setBrowserRuntimeInstallStatus("dasbrowser", "installing");
-        const attached = await run("hdiutil", ["attach", "-readonly", "-nobrowse", "-mountpoint", mount, image], {}, { timeoutMs: 120_000 });
+        await downloadFile(url, image, { signal: install.controller?.signal });
+        if (reportStatus) setBrowserRuntimeInstallStatus("dasbrowser", "installing", { requestId: install.id });
+        const attached = await run("hdiutil", ["attach", "-readonly", "-nobrowse", "-mountpoint", mount, image], {}, { requestId: install.id, timeoutMs: 120_000 });
         if (attached.code !== 0) throw new Error((attached.stderr || attached.stdout || "Could not mount DasBrowser installer.").trim());
         try {
           const source = path.join(mount, "Dasbrowser.app");
@@ -682,19 +708,19 @@ async function ensureDasbrowserRuntime({ force = false, reportStatus = true } = 
           await fs.mkdir(path.dirname(target), { recursive: true });
           await fs.rm(target, { recursive: true, force: true });
           await fs.cp(source, target, dasbrowserAppCopyOptions());
-          const signature = await run("codesign", ["--verify", "--deep", "--strict", target], {}, { timeoutMs: 120_000 });
+          const signature = await run("codesign", ["--verify", "--deep", "--strict", target], {}, { requestId: install.id, timeoutMs: 120_000 });
           if (signature.code !== 0) {
             await fs.rm(target, { recursive: true, force: true });
             throw new Error("The downloaded DasBrowser app failed macOS signature verification.");
           }
         } finally {
-          await run("hdiutil", ["detach", mount, "-force"], {}, { timeoutMs: 30_000 }).catch(() => undefined);
+          await run("hdiutil", ["detach", mount, "-force"], {}, { requestId: install.id, timeoutMs: 30_000 }).catch(() => undefined);
         }
       } else {
         const installer = path.join(tempDir, "DasbrowserSetup.exe");
-        await downloadFile(url, installer);
-        if (reportStatus) setBrowserRuntimeInstallStatus("dasbrowser", "installing");
-        const installed = await run(installer, ["--silent", "--install"], {}, { timeoutMs: 10 * 60 * 1000 });
+        await downloadFile(url, installer, { signal: install.controller?.signal });
+        if (reportStatus) setBrowserRuntimeInstallStatus("dasbrowser", "installing", { requestId: install.id });
+        const installed = await run(installer, ["--silent", "--install"], {}, { requestId: install.id, timeoutMs: 10 * 60 * 1000 });
         if (installed.code !== 0) throw new Error((installed.stderr || installed.stdout || "DasBrowser installation failed.").trim());
         for (let attempt = 0; attempt < 30 && !resolveDasbrowserRuntime(options); attempt += 1) {
           await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -712,7 +738,11 @@ async function ensureDasbrowserRuntime({ force = false, reportStatus = true } = 
       }
       if (reportStatus) setBrowserRuntimeInstallStatus("dasbrowser", "ready");
       return executable;
+    } catch (error) {
+      if (install.controller?.signal.aborted) throw new Error("Command cancelled.");
+      throw error;
     } finally {
+      finishBrowserRuntimeInstall(install.id, install.controller);
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
     }
   })().catch((error) => {
@@ -1367,7 +1397,7 @@ async function invokeCommand(command, args = {}, sender) {
         timeoutMs: args.timeoutMs,
       });
     }
-    case "nextctl_cancel": return cancelCommand(args.requestId);
+    case "nextctl_cancel": return cancelCommand(args.requestId) || cancelBrowserRuntimeInstall(args.requestId);
     case "nextctl_version": {
       const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found");
       const r = await run(bin, ["version"]); return r.stdout.trim();
