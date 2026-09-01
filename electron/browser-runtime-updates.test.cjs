@@ -8,6 +8,7 @@ const {
   assertRuntimeReleaseVersion,
   checkBrowserRuntimeUpdates,
   clawbrowserReleaseAsset,
+  classifyRuntimeUpdateFailure,
   compareVersions,
   installedCamoufoxVersion,
   installSelectedRuntimeUpdates,
@@ -85,9 +86,26 @@ test("continues all confirmed toolset updates when one of three fails", async ()
   assert.equal(checks, 2);
   assert.equal(result.status, "partial");
   assert.deepEqual(result.completed, ["clawbrowser", "dasbrowser"]);
-  assert.deepEqual(result.errors, [{ runtime: "camoufox", name: "Camoufox", message: "Package mirror timed out" }]);
+  assert.deepEqual(result.errors, [{
+    runtime: "camoufox",
+    name: "Camoufox",
+    releasePage: undefined,
+    code: "UPDATE_NETWORK",
+    category: "Connection problem",
+    retryable: true,
+    message: "Package mirror timed out",
+    recovery: "Keep NextBrowser open and check your internet connection, then retry.",
+  }]);
   assert.equal(result.progress, 100);
   assert.equal(statuses.at(-1).message, "Some browser toolsets were updated, but others need attention.");
+});
+
+test("classifies recovery guidance without exposing an opaque raw failure", () => {
+  assert.equal(classifyRuntimeUpdateFailure(new Error("ENOSPC: no space left on device")).code, "UPDATE_DISK_SPACE");
+  assert.equal(classifyRuntimeUpdateFailure(new Error("EACCES permission denied")).code, "UPDATE_PERMISSION");
+  assert.equal(classifyRuntimeUpdateFailure(new Error("runtime is locked by a running browser")).code, "UPDATE_RUNTIME_IN_USE");
+  assert.equal(classifyRuntimeUpdateFailure(new Error("fetch failed: ETIMEDOUT")).code, "UPDATE_NETWORK");
+  assert.equal(classifyRuntimeUpdateFailure(new Error("bad release payload")).code, "UPDATE_UNKNOWN");
 });
 
 test("retries once when a CLI self-update completes before the browser runtime changes", async () => {

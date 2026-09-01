@@ -84,7 +84,16 @@ interface BrowserRuntimeUpdateInstallStatus {
   total?: number;
   progress?: number;
   message?: string;
-  errors?: { runtime: BrowserRuntimeUpdateEntry["runtime"]; name: string; message: string }[];
+  errors?: {
+    runtime: BrowserRuntimeUpdateEntry["runtime"];
+    name: string;
+    releasePage?: string;
+    code?: string;
+    category?: string;
+    retryable?: boolean;
+    message: string;
+    recovery?: string;
+  }[];
 }
 
 const APP_UPDATE_ERROR = "We couldn't update NextBrowser. Please retry again.";
@@ -146,10 +155,11 @@ function BrowserRuntimeUpdatePrompt({ runtimes, onLater, onConfirm }: {
   );
 }
 
-function BrowserRuntimeUpdateProgress({ status, onClose, onRetry }: {
+function BrowserRuntimeUpdateProgress({ status, onClose, onRetry, onOpenManualGuide }: {
   status: BrowserRuntimeUpdateInstallStatus;
   onClose: () => void;
   onRetry: (runtimes: BrowserRuntimeUpdateEntry["runtime"][]) => void;
+  onOpenManualGuide: (url?: string) => void;
 }) {
   const installing = status.status === "installing";
   const failed = status.status === "failed";
@@ -163,8 +173,26 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onRetry }: {
         <strong>{installing ? `Updating ${status.currentName ?? "browser toolsets"}` : failed ? "Update failed" : partial ? "Update partly complete" : "Browser toolsets updated"}</strong>
         <span className="muted small">{status.message}</span>
         {installing && <div className="runtime-update-progress-track"><span style={{ width: `${Math.max(4, status.progress ?? 0)}%` }} /></div>}
-        {!!status.errors?.length && <span className="error small" title={status.errors.map((error) => `${error.name}: ${error.message}`).join("\n")}>{status.errors.map((error) => error.name).join(", ")} could not be updated.</span>}
-        {partial && !!status.errors?.length && <button className="secondary small runtime-update-retry" onClick={() => onRetry(status.errors!.map((error) => error.runtime))}>Retry failed toolsets</button>}
+        {!!status.errors?.length && (
+          <div className="runtime-update-errors">
+            {status.errors.map((error) => (
+              <section className="runtime-update-error" key={error.runtime}>
+                <div className="runtime-update-error-heading">
+                  <strong>{error.name} couldn’t update</strong>
+                  {error.code && <code>{error.code}</code>}
+                </div>
+                <span className="error small">{error.category ?? "Update could not finish"}</span>
+                <p className="muted small">{error.message}</p>
+                <p className="runtime-update-recovery">{error.recovery ?? "Keep NextBrowser open, then try again."}</p>
+                <div className="row runtime-update-error-actions">
+                  {error.retryable !== false && <button className="secondary small" onClick={() => onRetry([error.runtime])}>Retry {error.name}</button>}
+                  <button className="secondary small" onClick={() => onOpenManualGuide(error.releasePage)}>Update manually</button>
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
+        {(failed || partial) && <p className="runtime-update-requirements">Before retrying: keep NextBrowser open, use a stable connection, make sure there is free disk space, and close any running browser toolset.</p>}
       </div>
       {!installing && (
         <button className="plain-icon-btn plain-icon-btn-compact" onClick={onClose} aria-label="Dismiss update status">
@@ -794,6 +822,12 @@ export function App() {
   const requestBrowserRuntimeUpdate = (runtime: BrowserRuntimeUpdateEntry) => {
     setRuntimeUpdatePrompt([runtime]);
   };
+  const openBrowserRuntimeManualGuide = (url?: string) => {
+    const destination = url || "https://github.com/clawbrowser/clawbrowser/releases/latest";
+    void invoke("open_external", { url: destination }).catch(() => {
+      window.open(destination, "_blank", "noopener,noreferrer");
+    });
+  };
   const dismissBrowserRuntimeUpdatePrompt = () => {
     if (runtimeUpdatePrompt) setRuntimeUpdatePromptDismissed(browserRuntimeUpdateSignature(runtimeUpdatePrompt));
     setRuntimeUpdatePrompt(undefined);
@@ -1180,7 +1214,7 @@ export function App() {
           />
         )}
         {runtimeUpdateInstall.status !== "idle" && !runtimeUpdateProgressHidden && (
-          <BrowserRuntimeUpdateProgress status={runtimeUpdateInstall} onClose={() => setRuntimeUpdateProgressHidden(true)} onRetry={installBrowserRuntimeUpdates} />
+          <BrowserRuntimeUpdateProgress status={runtimeUpdateInstall} onClose={() => setRuntimeUpdateProgressHidden(true)} onRetry={installBrowserRuntimeUpdates} onOpenManualGuide={openBrowserRuntimeManualGuide} />
         )}
         {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
       </>
@@ -1295,7 +1329,7 @@ export function App() {
         setBrowserRuntimeInstall(undefined);
       }} />}
       {runtimeUpdateInstall.status !== "idle" && !runtimeUpdateProgressHidden && (
-        <BrowserRuntimeUpdateProgress status={runtimeUpdateInstall} onClose={() => setRuntimeUpdateProgressHidden(true)} onRetry={installBrowserRuntimeUpdates} />
+        <BrowserRuntimeUpdateProgress status={runtimeUpdateInstall} onClose={() => setRuntimeUpdateProgressHidden(true)} onRetry={installBrowserRuntimeUpdates} onOpenManualGuide={openBrowserRuntimeManualGuide} />
       )}
       {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
     </div>
