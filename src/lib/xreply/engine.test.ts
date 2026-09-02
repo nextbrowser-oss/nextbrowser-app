@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { runPass } from "./engine";
+import { runPass, subscribeHandle } from "./engine";
 import {
   accruedTokens,
   emptyXReplyState,
@@ -12,7 +12,7 @@ import {
 } from "./state";
 import type { XBrowser } from "./browser";
 
-interface PostFixture { id: string; text?: string; author?: string; promoted?: boolean; createdAt?: string }
+interface PostFixture { id: string; text?: string; author?: string; promoted?: boolean; pinned?: boolean; repost?: boolean; createdAt?: string }
 
 interface PageFixture {
   signedIn?: boolean;
@@ -24,6 +24,8 @@ interface PageFixture {
   /** Post notices: the feed saying an account has posted. */
   triggers?: { handle: string; notified_at: string }[];
   bell?: { found?: boolean; enabled?: boolean; following?: boolean; unfollowed?: boolean; header?: boolean };
+  /** The feed hides everything behind a "See new posts" control until pressed. */
+  pill?: boolean;
   publishOutcome?: "published" | "unverified" | "refused";
   gif?: { found?: boolean; settles?: boolean };
 }
@@ -37,7 +39,7 @@ function rawPost(post: PostFixture) {
     text: post.text ?? `post ${post.id}`,
     created_at: post.createdAt ?? "2026-08-25T09:00:00Z",
     social_context: "", reply_context: "",
-    pinned: false, repost: false, reply: false, promoted: !!post.promoted,
+    pinned: !!post.pinned, repost: !!post.repost, reply: false, promoted: !!post.promoted,
   };
 }
 
@@ -51,6 +53,8 @@ function fakeBrowser(fixture: PageFixture) {
   const clicks: string[] = [];
   let inspected = 0;
   let bellReads = 0;
+  let pillPressed = false;
+  const hidden = () => !!fixture.pill && !pillPressed;
   const browser: XBrowser = {
     open: vi.fn(async (url: string) => { opened.push(url); }),
     waitForLoad: vi.fn(async () => undefined),
@@ -69,11 +73,18 @@ function fakeBrowser(fixture: PageFixture) {
           identity: { present: signedIn, session: signedIn, handle: signedIn ? publisher : "", matches: false },
         } as never;
       }
+      if (script.includes("no new-posts control")) {
+        // The control is pressed in-page, so the fake records the press itself.
+        if (!hidden()) return { found: false, pressed: false, reason: "no new-posts control" } as never;
+        pillPressed = true;
+        clicks.push("pill");
+        return { found: true, pressed: true, reason: "" } as never;
+      }
       if (script.includes("snapshot.triggers")) {
         return {
           url: "https://x.com/notifications", login_wall: !signedIn, empty: false,
-          posts: (fixture.feedPosts ?? []).map(rawPost),
-          triggers: fixture.triggers ?? [],
+          posts: hidden() ? [] : (fixture.feedPosts ?? []).map(rawPost),
+          triggers: hidden() ? [] : (fixture.triggers ?? []),
         } as never;
       }
       if (script.includes("empty_timeline")) {
@@ -145,12 +156,16 @@ function deps(state: XReplyState, fixture: PageFixture, overrides: Record<string
   };
 }
 
-/** Detection is always the notifications feed, so a test that wants a profile
- *  read supplies the notice that sends the pass there. */
+/** These passes watch through the notifications feed, so a test that wants a
+ *  profile read supplies the notice that sends the pass there. */
 const NOTICE = [{ handle: "author", notified_at: "2026-08-25T10:00:00Z" }];
 
+function feedOnly(patch: Partial<XReplyState> = {}): XReplyState {
+  return { ...emptyXReplyState(), watchSource: "notifications", ...patch };
+}
+
 function watching(patch: Partial<XReplyState> = {}): XReplyState {
-  return withHandleState({ ...emptyXReplyState(), ...patch }, "author", { bellDone: true, watchingSince: 1 });
+  return withHandleState(feedOnly(patch), "author", { bellDone: true, watchingSince: 1 });
 }
 
 function seeded(lastPostId: string, patch: Partial<XReplyState> = {}): XReplyState {
@@ -334,6 +349,14 @@ describe("watching through the notifications feed", () => {
     expect(second.state.handles.author.noticeAt).toBe(Date.parse("2026-08-25T10:00:00Z"));
   });
 
+  it("presses the control the feed hides new entries behind before reading", async () => {
+    const { args, clicks } = deps(seeded("10"), { pill: true, triggers: NOTICE, posts: [{ id: "20" }] });
+    const { summary, state } = await runPass(args);
+    expect(clicks[0]).toBe("pill");
+    expect(summary.drafted).toBe(1);
+    expect(state.handles.author.noticeAt).toBe(Date.parse("2026-08-25T10:00:00Z"));
+  });
+
   it("answers a mention rendered in the feed without opening a profile", async () => {
     const { args, opened } = deps(seeded("10"), { feedPosts: [{ id: "25", text: "hey @me look at this" }] });
     const { summary, state } = await runPass(args);
@@ -350,7 +373,7 @@ describe("watching through the notifications feed", () => {
   });
 
   it("turns the bell on once and does not probe a settled account again", async () => {
-    const { args, clicks } = deps(emptyXReplyState(), { bell: { enabled: false }, triggers: [] });
+    const { args, clicks } = deps(feedOnly(), { bell: { enabled: false }, triggers: [] });
     const { state } = await runPass(args);
     expect(clicks).toContain("bell");
     expect(state.handles.author).toMatchObject({ notifications: true, bellDone: true });
@@ -361,13 +384,100 @@ describe("watching through the notifications feed", () => {
   });
 
   it("reports an account this profile does not follow instead of following it", async () => {
-    const { args, clicks } = deps(emptyXReplyState(), { bell: { found: false, following: false, unfollowed: true }, triggers: [] });
+    const { args, clicks } = deps(feedOnly(), { bell: { found: false, following: false, unfollowed: true }, triggers: [] });
     const { state, summary } = await runPass(args);
     expect(clicks).not.toContain("bell");
     expect(state.handles.author.following).toBe(false);
     expect(summary.notes.join(" ")).toContain("Follow @author first");
   });
 
+});
+
+describe("watching through profile timelines", () => {
+  /** The default source: no notice, no bell, one profile read per account. */
+  function profiles(patch: Partial<XReplyState> = {}): XReplyState {
+    return withHandleState({ ...emptyXReplyState(), ...patch }, "author", { watchingSince: 1 });
+  }
+
+  it("is the default for a fresh state", () => {
+    expect(emptyXReplyState().watchSource).toBe("profile");
+  });
+
+  it("opens every watched profile and never needs the feed", async () => {
+    const base = withHandleState(profiles(), "author", { lastPostId: "10" });
+    const { args, opened } = deps(base, { triggers: [], posts: [{ id: "10" }, { id: "20" }] }, { handles: ["author", "other"] });
+    const { state, summary } = await runPass(args);
+    // Two profile reads, then the post page the reply went out on — and never
+    // the feed.
+    expect(opened.slice(0, 2)).toEqual(["https://x.com/author", "https://x.com/other"]);
+    expect(opened.some((url) => url.endsWith("/notifications"))).toBe(false);
+    expect(summary.checked).toBe(2);
+    expect(summary.drafted).toBe(1);
+    expect(state.drafts[0]).toMatchObject({ postId: "20", status: "sent" });
+    expect(state.handles.author.lastPostId).toBe("20");
+  });
+
+  it("baselines an account on first sight and answers what comes after", async () => {
+    const late = withHandleState(profiles(), "author", { watchingSince: Date.parse("2026-08-25T12:00:00Z") });
+    const first = deps(late, { posts: [{ id: "10" }, { id: "20" }] });
+    const one = await runPass(first.args);
+    expect(one.summary.baselined).toBe(1);
+    expect(one.summary.drafted).toBe(0);
+    expect(one.state.handles.author.lastPostId).toBe("20");
+
+    const second = deps(one.state, { posts: [{ id: "30", createdAt: "2026-08-25T13:00:00Z" }, { id: "20" }] });
+    const two = await runPass(second.args);
+    expect(two.summary.drafted).toBe(1);
+    expect(two.state.drafts[0].postId).toBe("30");
+    expect(two.state.handles.author.lastPostId).toBe("30");
+  });
+
+  it("leaves an account untouched when its page rendered nothing", async () => {
+    const base = withHandleState(profiles(), "author", { lastPostId: "10" });
+    const { args } = deps(base, { posts: [] });
+    const { state, summary } = await runPass(args);
+    expect(summary.checked).toBe(1);
+    expect(summary.baselined).toBe(0);
+    expect(state.handles.author.lastPostId).toBe("10");
+  });
+
+  it("skips the pinned post and reposts, and leaves the bell alone", async () => {
+    const base = withHandleState(profiles(), "author", { lastPostId: "10" });
+    const { args, clicks } = deps(base, {
+      bell: { enabled: false },
+      posts: [{ id: "40", pinned: true }, { id: "30", repost: true }, { id: "20" }],
+    });
+    const { state, summary } = await runPass(args);
+    expect(summary.drafted).toBe(1);
+    expect(state.drafts[0].postId).toBe("20");
+    expect(clicks).not.toContain("bell");
+    expect(state.handles.author.bellAttempts).toBeUndefined();
+  });
+
+  it("stops at a signed-out profile before reading any timeline", async () => {
+    const { args } = deps(profiles(), { signedIn: false, posts: [{ id: "20" }] });
+    const { state, summary } = await runPass(args);
+    expect(summary.loginRequired).toBe(true);
+    expect(summary.checked).toBe(0);
+    expect(state.publisher?.signedIn).toBe(false);
+  });
+
+  it("refuses to run as an account other than the pinned publisher", async () => {
+    const { args } = deps(profiles({ publisherHandle: "someone_else" }), { posts: [{ id: "20" }] });
+    const { summary } = await runPass(args);
+    expect(summary.checked).toBe(0);
+    expect(summary.notes.join(" ")).toContain("pinned to @someone_else");
+  });
+
+  it("subscribing records the baseline without touching the bell", async () => {
+    const { args, clicks, opened } = deps(profiles(), { bell: { enabled: false }, posts: [{ id: "10" }, { id: "20" }] });
+    const result = await subscribeHandle({ browser: args.browser, handle: "author", state: args.state, now: args.now });
+    expect(result.signedIn).toBe(true);
+    expect(result.state.handles.author.lastPostId).toBe("20");
+    expect(result.state.handles.author.notifications).toBeUndefined();
+    expect(clicks).not.toContain("bell");
+    expect(opened).toEqual(["https://x.com/author"]);
+  });
 });
 
 describe("reaction GIFs", () => {

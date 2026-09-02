@@ -17,7 +17,7 @@ const TWEET_SELECTOR = `article[data-testid="tweet"], [itemtype="https://schema.
  *  X renders posts asynchronously, so a read right after load sees nothing. */
 export const TIMELINE_READY_SELECTOR = `article[data-testid="tweet"], [data-testid="emptyState"]`;
 /** The notifications feed's own rendered markers. */
-export const FEED_READY_SELECTOR = `article[data-testid="notification"], article[data-testid="tweet"], [data-testid="emptyState"]`;
+export const FEED_READY_SELECTOR = `article[data-testid="notification"], article[data-testid="tweet"], [data-testid="cellInnerDiv"], [data-testid="emptyState"]`;
 const ARTICLE_SELECTOR = `article[data-testid="tweet"]`;
 /** The DraftJS editor itself. Wrappers share the testid prefix, so the
  *  contenteditable attribute is what separates the editor from its label. */
@@ -282,6 +282,49 @@ export function notificationsScript(limit: number): string {
       !!document.querySelector('div[data-testid="primaryColumn"]');
   }
   return snapshot;
+})()`;
+}
+
+/** What pressing the feed's "See new posts" control came to. */
+export interface FeedPillResult {
+  found: boolean;
+  pressed: boolean;
+  reason: string;
+}
+
+/** feedPillScript presses the control the feed hides new entries behind. X
+ *  draws the notifications timeline from cache and shows "See new posts" above
+ *  it instead of inserting what arrived since; nothing behind it exists in the
+ *  DOM until it is pressed. The label is matched first, then the shape: a lone
+ *  text button above the first cell of the primary column that belongs to
+ *  neither the tab bar nor the heading. It is pressed in-page rather than with
+ *  a mouse event: the control sits under the sticky tab bar, so a click at any
+ *  of its points lands on a tab instead, while its own handler runs fine. */
+export function feedPillScript(): string {
+  return `(() => {
+  const column = document.querySelector('[data-testid="primaryColumn"]') || document;
+  const buttons = Array.from(column.querySelectorAll("button, [role=button]"))
+    .filter((node) => !node.closest('[data-testid="cellInnerDiv"], [role="tablist"], [role="tab"], h1, h2, nav, header, article'));
+  const describe = (node) => ((node.getAttribute("aria-label") || "") + " " + (node.innerText || "")).replace(/\\s+/g, " ");
+  let pill = buttons.find((node) => /new posts? (are|is) available|see new posts|show new posts/i.test(describe(node))) || null;
+  if (!pill) {
+    const firstCell = column.querySelector('[data-testid="cellInnerDiv"]');
+    const cellTop = firstCell ? firstCell.getBoundingClientRect().top : Infinity;
+    const above = buttons.filter((node) => {
+      const rect = node.getBoundingClientRect();
+      const text = (node.innerText || "").trim();
+      return rect.width > 0 && rect.height > 0 && rect.top < cellTop && text.length > 0 && text.length < 40 && !node.querySelector("svg");
+    });
+    if (above.length > 1) return { found: false, pressed: false, reason: "several candidate controls" };
+    pill = above[0] || null;
+  }
+  if (!pill) return { found: false, pressed: false, reason: "no new-posts control" };
+  try {
+    pill.click();
+  } catch (error) {
+    return { found: true, pressed: false, reason: String(error && error.message || error) };
+  }
+  return { found: true, pressed: true, reason: "" };
 })()`;
 }
 

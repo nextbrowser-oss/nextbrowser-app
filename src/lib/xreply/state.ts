@@ -7,6 +7,9 @@
 
 import type { GifMode } from "./publish";
 
+/** Where new posts are detected, as with the Go service's --watch-source. */
+export type WatchSource = "profile" | "notifications";
+
 export interface XReplyHandleState {
   handle: string;
   following?: boolean;
@@ -84,6 +87,9 @@ export interface XReplyState {
   includePinned: boolean;
   /** How many entries one read of the feed inspects. */
   watchLimit: number;
+  /** Where new posts are detected: each watched profile's own timeline, or the
+   *  signed-in account's notifications feed. */
+  watchSource: WatchSource;
   hourlyMax: number;
   dailyMax: number;
   gifMode: GifMode;
@@ -120,6 +126,10 @@ export const DEFAULT_DAILY_MAX = 20;
 export const DEFAULT_GIF_HOURLY_MAX = 1;
 export const DEFAULT_GIF_DAILY_MAX = 4;
 export const DEFAULT_WATCH_LIMIT = 20;
+/** Profile timelines are the default: the notifications feed renders new
+ *  entries only behind a "See new posts" control, which a page nobody is
+ *  looking at never presses, so an unattended feed can stay blank for good. */
+export const DEFAULT_WATCH_SOURCE: WatchSource = "profile";
 export const DEFAULT_MAX_ATTEMPTS = 3;
 export const DEFAULT_REPLY_MAX_LENGTH = 280;
 /** Bounds how often one handle's bell is probed, ported from maxBellAttempts. */
@@ -143,6 +153,7 @@ export function emptyXReplyState(): XReplyState {
     includeReplies: false,
     includePinned: false,
     watchLimit: DEFAULT_WATCH_LIMIT,
+    watchSource: DEFAULT_WATCH_SOURCE,
     hourlyMax: DEFAULT_HOURLY_MAX,
     dailyMax: DEFAULT_DAILY_MAX,
     gifMode: "optional",
@@ -198,6 +209,7 @@ export function normalizeXReplyState(raw: unknown): XReplyState {
     includeReplies: record.includeReplies === true,
     includePinned: record.includePinned === true,
     watchLimit: positive(record.watchLimit, DEFAULT_WATCH_LIMIT),
+    watchSource: record.watchSource === "notifications" ? "notifications" : DEFAULT_WATCH_SOURCE,
     hourlyMax: positive(record.hourlyMax, DEFAULT_HOURLY_MAX),
     dailyMax: positive(record.dailyMax, DEFAULT_DAILY_MAX),
     gifMode: record.gifMode === "required" || record.gifMode === "off" ? record.gifMode : "optional",

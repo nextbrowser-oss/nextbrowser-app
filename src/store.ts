@@ -8,7 +8,7 @@ import {
   type NextctlRunOptions,
   type RunResult,
 } from "./nextctl";
-import { prepareSession, type VerificationFailureChoice } from "./preflight";
+import { prepareSession, type VerificationFailureChoice, tidyEngineTabs } from "./preflight";
 import {
   AGENTS,
   agentById,
@@ -857,6 +857,14 @@ function watchReportKey(skillId: string, handle: string): string {
 }
 
 const X_REPLY_STATE_FILE = "x-reply-state.json";
+/** How long one draft may take before the agent is killed, ported from the Go
+ *  service's DefaultCommandTimeout. A CLI that hangs otherwise holds the panel
+ *  busy until the app restarts, and Stop cannot reach it. */
+const X_REPLY_DRAFT_TIMEOUT_MS = 3 * 60_000;
+/** How long a green browser verification stays trusted between passes. Every
+ *  pass used to verify anew, and verification borrows the current tab for its
+ *  own page, which is how the engine's profile filled up with orphaned tabs. */
+const X_REPLY_VERIFY_EVERY_MS = 15 * 60_000;
 
 /** Errors that mean the browser session behind the profile is gone. Ported from
  *  the Go client's SessionUnavailable: the cure is a fresh start, not a retry
@@ -887,6 +895,9 @@ function persistXReplyState(state: XReplyState) {
 /// Set while a pass should wind down. The engine checks it between steps, so
 /// Stop ends the current pass instead of the app waiting it out.
 let xReplyStopRequested = false;
+/// The draft the engine is waiting on right now, so Stop can end the CLI
+/// process instead of waiting for it to finish on its own.
+let xReplyDraftReplyId: string | undefined;
 
 /// prepareXReplySession opens the profile this skill runs in. A session the
 /// runtime lost is restarted once: the app's cached status can say running long
@@ -897,15 +908,22 @@ async function prepareXReplySession(
 ): Promise<string[]> {
   const state = useStore.getState();
   const profile = state.xReplyState.profileName ?? state.selectedProfile;
-  const prepare = () => prepareLocalSession({
-    host,
-    selectedProfile: profile,
-    statuses: useStore.getState().statuses,
-    defaultSession: useStore.getState().defaultSession,
-    onStep,
-  });
+  const prepare = async () => {
+    const { profileArgs } = await prepareLocalSession({
+      host,
+      selectedProfile: profile,
+      statuses: useStore.getState().statuses,
+      defaultSession: useStore.getState().defaultSession,
+      onStep,
+      verifyEvery: X_REPLY_VERIFY_EVERY_MS,
+    });
+    // The engine navigates one tab. Pages verification or an earlier session
+    // left behind are closed, so every nbc call stops dialing all of them.
+    await tidyEngineTabs(profileArgs).catch(() => undefined);
+    return profileArgs;
+  };
   try {
-    return (await prepare()).profileArgs;
+    return await prepare();
   } catch (error) {
     if (!sessionLost(error instanceof Error ? error.message : String(error))) throw error;
     onStep("Reopening the browser session");
@@ -913,13 +931,16 @@ async function prepareXReplySession(
       useStore.getState().loadProfiles().catch(() => {}),
       useStore.getState().loadDefaultSession().catch(() => {}),
     ]);
-    return (await prepare()).profileArgs;
+    return prepare();
   }
 }
 
 /// runDraftAgent runs the connected agent once, outside the chat queue. The
 /// drafting call is not a conversation turn: it writes no message, holds no
-/// chat slot, and its tools are switched off by draftInvocation.
+/// chat slot, and its tools are switched off by draftInvocation. It runs plain
+/// — no workspace instructions, no Clawbrowser MCP, a working directory of its
+/// own — because the text it hands the model is a stranger's post. A call that
+/// outlives the timeout is killed rather than left to hold the panel busy.
 async function runDraftAgent(options: {
   agentId: string;
   binary: string;
@@ -927,15 +948,32 @@ async function runDraftAgent(options: {
   args: string[];
   stdinText?: string;
 }): Promise<AgentDone> {
-  return invoke<AgentDone>("agent_run", {
-    replyId: `xreply-${uid()}`,
-    agentId: options.agentId,
-    binary: options.binary,
-    envVar: options.envVar,
-    args: options.args,
-    stdinText: options.stdinText ?? null,
-    workingDir: useStore.getState().workingDir || null,
-  });
+  const replyId = `xreply-${uid()}`;
+  xReplyDraftReplyId = replyId;
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    void invoke("agent_terminate", { replyId }).catch(() => undefined);
+  }, X_REPLY_DRAFT_TIMEOUT_MS);
+  try {
+    const result = await invoke<AgentDone>("agent_run", {
+      replyId,
+      agentId: options.agentId,
+      binary: options.binary,
+      envVar: options.envVar,
+      args: options.args,
+      stdinText: options.stdinText ?? null,
+      workingDir: null,
+      plain: true,
+    });
+    if (timedOut) {
+      throw new Error(`The agent did not answer within ${Math.round(X_REPLY_DRAFT_TIMEOUT_MS / 60_000)} minutes.`);
+    }
+    return result;
+  } finally {
+    clearTimeout(timer);
+    if (xReplyDraftReplyId === replyId) xReplyDraftReplyId = undefined;
+  }
 }
 
 interface VerifyCheck {
@@ -4595,8 +4633,11 @@ export const useStore = create<State>((set, get) => {
     persistWatchlistRuns(watchlistRuns);
     set({ watchlistRuns });
     trackEvent("watchlist_run_stopped", { skill: skillId });
-    // An engine pass checks this between steps and stops there.
+    // An engine pass checks this between steps and stops there. A draft in
+    // flight is a CLI process the pass is awaiting, which the flag alone cannot
+    // interrupt, so it is ended here.
     xReplyStopRequested = true;
+    if (xReplyDraftReplyId) void invoke("agent_terminate", { replyId: xReplyDraftReplyId }).catch(() => undefined);
 
     // Stop also ends the pass that is already out: a loop the user switched off
     // must not keep driving the browser for another few minutes.

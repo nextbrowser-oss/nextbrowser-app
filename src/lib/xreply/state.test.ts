@@ -33,3 +33,12 @@ describe("settings that no longer exist", () => {
     expect(state.hourlyMax).toBe(7);
   });
 });
+
+describe("where new posts are detected", () => {
+  it("reads profile timelines unless the file asks for the notifications feed", () => {
+    const { watchSource: _dropped, ...older } = emptyXReplyState();
+    expect(normalizeXReplyState(older).watchSource).toBe("profile");
+    expect(normalizeXReplyState({ ...older, watchSource: "notifications" }).watchSource).toBe("notifications");
+    expect(normalizeXReplyState({ ...older, watchSource: "feed" }).watchSource).toBe("profile");
+  });
+});

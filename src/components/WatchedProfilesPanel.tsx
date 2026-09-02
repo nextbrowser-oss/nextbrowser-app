@@ -206,6 +206,25 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
           </div>
         )}
 
+        {engine && (
+          <div className="row watchlist-profile">
+            <label className="muted small">Source</label>
+            <select
+              value={engineState.watchSource}
+              title="Where new posts are found: each watched profile's own timeline, or the signed-in account's notifications feed"
+              onChange={(event) => updateSettings({ watchSource: event.target.value === "notifications" ? "notifications" : "profile" })}
+            >
+              <option value="profile">Profile timelines</option>
+              <option value="notifications">Notifications feed</option>
+            </select>
+            <span className="muted small">
+              {engineState.watchSource === "notifications"
+                ? "One feed read per pass; needs the Notify bell on every account."
+                : "Opens every watched profile on each pass; no bell needed."}
+            </span>
+          </div>
+        )}
+
         <div className="row watchlist-add">
           <div className="watchlist-input">
             {prefix && <span className="watchlist-prefix">{prefix}</span>}
@@ -229,7 +248,11 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
             <span className="scheduled-empty-icon"><Icon name="person.crop.circle" size={22} /></span>
             <strong>Nothing watched yet</strong>
             <span className="muted small">
-              {engine ? `Add an account — its ${site} post notifications get switched on.` : "Add an account to watch."}
+              {!engine
+                ? "Add an account to watch."
+                : engineState.watchSource === "notifications"
+                  ? `Add an account — its ${site} post notifications get switched on.`
+                  : `Add an account — its ${site} profile is read on every pass.`}
             </span>
           </div>
         ) : (
@@ -274,7 +297,11 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                     <button
                       className="mini"
                       disabled={!ready || busy}
-                      title={engine ? "Open this profile and turn on post notifications" : "Ask the agent to subscribe"}
+                      title={!engine
+                        ? "Ask the agent to subscribe"
+                        : engineState.watchSource === "notifications"
+                          ? "Open this profile and turn on post notifications"
+                          : "Open this profile and record where it stands now"}
                       onClick={() => void (engine
                         ? withSignIn({ kind: "add", handle: profile.handle })
                         : subscribeWatchedProfile(entry, profile.id))}

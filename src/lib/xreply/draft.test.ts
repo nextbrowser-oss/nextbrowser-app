@@ -21,7 +21,7 @@ describe("the drafting prompt", () => {
     const invocation = draftInvocation("claude", "prompt");
     expect(invocation.args).toEqual([
       "-p", "--output-format", "text",
-      "--disallowed-tools", "Bash,Edit,Write,Read,WebFetch,WebSearch,NotebookEdit",
+      "--strict-mcp-config", "--disallowed-tools", "Bash,Edit,Write,Read,WebFetch,WebSearch,NotebookEdit",
     ]);
     expect(invocation.stdin).toBe("prompt");
     // --disallowed-tools is variadic: a prompt in argv after it is parsed as a

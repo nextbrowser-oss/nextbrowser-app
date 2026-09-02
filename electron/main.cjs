@@ -267,6 +267,13 @@ function nextbrowserRuntimeRoot() {
     ? path.join(home(), ".nextbrowser", "runtime")
     : legacyAppRuntimeRoot();
 }
+// plainRunDir is the working directory of a one-shot agent call that must meet
+// no project settings: no CLAUDE.md, no .mcp.json, nothing a workspace carries.
+async function plainRunDir() {
+  const dir = path.join(nextbrowserRuntimeRoot(), "plain-runs");
+  await fs.mkdir(dir, { recursive: true });
+  return dir;
+}
 function childEnv(extra = {}) {
   const runtimeRoot = nextbrowserRuntimeRoot();
   const commandPaths = [managedNextctlRoot(), ...searchDirs()];
@@ -1826,9 +1833,15 @@ async function invokeCommand(command, args = {}, sender) {
       await fs.writeFile(profileScopeFile, JSON.stringify(Object.fromEntries(
         [...profileScope.entries()].map(([name, access]) => [name, access.runtime]),
       )), "utf8");
-      if (args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
+      // A plain run is a one-shot call with nothing of the chat around it: no
+      // workspace instructions, no Clawbrowser MCP, and a working directory of
+      // its own. The X reply engine drafts this way — what it hands the model
+      // is a stranger's post, and that post must not reach a browser tool.
+      const plain = args.plain === true;
+      const cwd = plain ? await plainRunDir() : args.workingDir;
+      if (!plain && args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
       let agentArgs = args.args || [];
-      if (args.agentId === "codex") {
+      if (!plain && args.agentId === "codex") {
         await ensureCodexTerminalProfile();
         const nextctlBin = await resolveOrInstallNextctl();
         if (!nextctlBin) throw new Error("nextctl is required for Clawbrowser MCP.");
@@ -1844,7 +1857,7 @@ async function invokeCommand(command, args = {}, sender) {
           spawnProcess: spawn,
           file: spec.file,
           args: spec.args,
-          cwd: args.workingDir,
+          cwd,
           env: childEnv({
             NEXTBROWSER_CONTROL_URL: controlURL,
             NEXTBROWSER_CONTROL_TOKEN: controlToken,

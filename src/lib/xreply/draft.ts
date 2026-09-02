@@ -75,9 +75,12 @@ export function draftInvocation(agentId: string, prompt: string): { args: string
     // list of tool names and the run dies with "Input must be provided either
     // through stdin or as a prompt argument" — an exit code, no output, and a
     // post that was seen but never answered. Stdin also keeps a long post out
-    // of the process argument limit.
+    // of the process argument limit. --strict-mcp-config with no config leaves
+    // the run without MCP servers: the built-in tools are denied by name, and
+    // a browser server from the user's own setup must not be reachable from a
+    // prompt that quotes a stranger's post.
     return {
-      args: ["-p", "--output-format", "text", "--disallowed-tools", CLAUDE_DISALLOWED_TOOLS],
+      args: ["-p", "--output-format", "text", "--strict-mcp-config", "--disallowed-tools", CLAUDE_DISALLOWED_TOOLS],
       stdin: prompt,
     };
   }

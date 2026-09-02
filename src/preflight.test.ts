@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RunResult } from "./nextctl";
-import { prepareSession } from "./preflight";
+import { prepareSession, tidyEngineTabs } from "./preflight";
 
 const nextctl = vi.hoisted(() => ({
   json: vi.fn(),
@@ -201,5 +201,73 @@ describe("prepareSession command reporting", () => {
     expect(result.directFallback).toBe(true);
     expect(onStep).toHaveBeenCalledWith("Continuing without proxy");
     expect(nextctl.run).not.toHaveBeenCalled();
+  });
+});
+
+describe("verification cadence", () => {
+  const listing = { tabs: [{ id: "page", url: "https://x.com/notifications" }] };
+
+  it("trusts a recent green verification of a running session", async () => {
+    nextctl.json.mockImplementation(async (args: string[]) => (args.includes("verify") ? greenVerification : listing));
+    const opts = { selectedProfile: "cadence-running", statuses: { "cadence-running": "running" }, verifyEvery: 60_000 };
+    await prepareSession(opts);
+    const second = await prepareSession(opts);
+    const verifies = nextctl.json.mock.calls.filter(([args]) => (args as string[]).includes("verify"));
+    expect(verifies).toHaveLength(1);
+    expect(second.steps).toContain("Browser verified recently");
+  });
+
+  it("verifies again once the session had to be started", async () => {
+    nextctl.json.mockImplementation(async (args: string[]) => (args.includes("verify") ? greenVerification : listing));
+    await prepareSession({ selectedProfile: "cadence-restart", statuses: { "cadence-restart": "running" }, verifyEvery: 60_000 });
+    await prepareSession({ selectedProfile: "cadence-restart", statuses: {}, verifyEvery: 60_000 });
+    const verifies = nextctl.json.mock.calls.filter(([args]) => (args as string[]).includes("verify"));
+    expect(verifies).toHaveLength(2);
+  });
+
+  it("verifies every time when no cadence is asked for", async () => {
+    nextctl.json.mockImplementation(async (args: string[]) => (args.includes("verify") ? greenVerification : listing));
+    const opts = { selectedProfile: "cadence-none", statuses: { "cadence-none": "running" } };
+    await prepareSession(opts);
+    await prepareSession(opts);
+    const verifies = nextctl.json.mock.calls.filter(([args]) => (args as string[]).includes("verify"));
+    expect(verifies).toHaveLength(2);
+  });
+});
+
+describe("tidyEngineTabs", () => {
+  it("closes verification pages and duplicate x.com tabs, keeping one", async () => {
+    nextctl.json.mockImplementation(async (args: string[]) => (args.includes("list")
+      ? {
+        tabs: [
+          { id: "a", url: "chrome://newtab/" },
+          { id: "b", url: "clawbrowser://verify/" },
+          { id: "c", url: "https://x.com/notifications" },
+          { id: "d", url: "https://x.com/notifications" },
+          { id: "e", url: "https://x.com/author" },
+          { id: "f", url: "https://example.com/" },
+        ],
+      }
+      : {}));
+    const closed = await tidyEngineTabs(["--profile", "p"]);
+    expect(closed).toBe(3);
+    const closedIds = nextctl.json.mock.calls
+      .filter(([args]) => (args as string[]).includes("close"))
+      .map(([args]) => (args as string[]).at(-1));
+    expect(closedIds.sort()).toEqual(["b", "d", "e"]);
+  });
+
+  it("prefers the active x.com tab and never closes the last page", async () => {
+    nextctl.json.mockImplementation(async (args: string[]) => (args.includes("list")
+      ? { tabs: [{ id: "old", url: "https://x.com/notifications" }, { id: "live", url: "https://x.com/notifications", active: true }] }
+      : {}));
+    expect(await tidyEngineTabs([])).toBe(1);
+    expect(nextctl.json).toHaveBeenCalledWith(["tabs", "close", "old"]);
+
+    nextctl.json.mockReset();
+    nextctl.json.mockImplementation(async (args: string[]) => (args.includes("list")
+      ? { tabs: [{ id: "only", url: "clawbrowser://verify/" }] }
+      : {}));
+    expect(await tidyEngineTabs([])).toBe(0);
   });
 });

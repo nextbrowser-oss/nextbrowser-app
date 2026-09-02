@@ -142,6 +142,44 @@ export interface PrepareResult {
   directFallback?: boolean;
 }
 
+/** When each profile was last verified green, by its command-line identity.
+ *  Verification borrows the current tab for clawbrowser://verify, so a caller
+ *  that prepares the same running session every minute may ask to trust a
+ *  recent result instead of paying for a new one on every pass. */
+const verifiedAt = new Map<string, number>();
+
+/** tidyEngineTabs closes what an unattended loop leaves behind in its profile:
+ *  the clawbrowser://verify pages verification opens, and duplicate x.com tabs.
+ *  One x.com tab is kept, and pages on any other site are left alone. Every
+ *  nbc call dials every open page to pick the current one, so a profile with a
+ *  dozen orphans slows each step and multiplies X's own polling. Returns how
+ *  many tabs were closed. */
+export async function tidyEngineTabs(args: string[]): Promise<number> {
+  let list: TabsList;
+  try {
+    list = await nextctlJson<TabsList>([...args, "tabs", "list"]);
+  } catch {
+    return 0;
+  }
+  const tabs = (list.tabs ?? []).filter((tab) => !!tab.id);
+  const onX = (url?: string) => ["x.com", "twitter.com"].includes(hostOf(url));
+  const verifying = (url?: string) => (url ?? "").toLowerCase().startsWith("clawbrowser://verify");
+  const keep = tabs.find((tab) => onX(tab.url) && (tab.active || tab.current)) ?? tabs.find((tab) => onX(tab.url));
+  const doomed = tabs.filter((tab) => verifying(tab.url) || (onX(tab.url) && tab.id !== keep?.id));
+  // Never close the last page: a profile with no page has nothing to navigate.
+  if (doomed.length >= tabs.length) doomed.pop();
+  let closed = 0;
+  for (const tab of doomed) {
+    try {
+      await nextctlJson<unknown>([...args, "tabs", "close", tab.id]);
+      closed += 1;
+    } catch {
+      /* a tab that vanished on its own is already what was wanted */
+    }
+  }
+  return closed;
+}
+
 export async function prepareSession(opts: {
   host?: string;
   selectedProfile?: string;
@@ -150,6 +188,10 @@ export async function prepareSession(opts: {
   defaultSession?: SessionStatus;
   onStep?: (step: string) => void;
   onVerificationFailure?: (failure: VerificationFailure) => Promise<VerificationFailureChoice>;
+  /** Trust a green verification of this still-running session for this many
+   *  milliseconds instead of verifying again. A session that had to be started
+   *  is always verified. */
+  verifyEvery?: number;
 }): Promise<PrepareResult> {
   let args = profileArgs(opts.selectedProfile, opts.runtime);
   const steps: string[] = [];
@@ -171,9 +213,17 @@ export async function prepareSession(opts: {
     step("Started NextBrowser");
   }
 
+  const verifyKey = args.join(" ");
+  const recentlyVerified = running && opts.verifyEvery != null
+    && Date.now() - (verifiedAt.get(verifyKey) ?? 0) < opts.verifyEvery;
   while (true) {
+    if (recentlyVerified) {
+      step("Browser verified recently");
+      break;
+    }
     try {
       await requireGreenVerification(args);
+      verifiedAt.set(verifyKey, Date.now());
       step("Browser verified");
       break;
     } catch (error) {

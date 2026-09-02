@@ -3,6 +3,10 @@
 // (the poll), internal/xnotify (the notifications feed and the Notify bell) and
 // internal/xtimeline (profile timelines).
 //
+// New posts are detected from one of two sources, as with the Go service's
+// --watch-source: each watched profile's own timeline (the default), or the
+// signed-in account's notifications feed.
+//
 // The pass is a state machine over an explicit XReplyState: it takes the state
 // in, returns the next state out, and never mutates what it was given. The
 // caller persists the result, which is what makes a pass interrupted halfway
@@ -14,10 +18,12 @@ import {
   IDENTITY_READY_SELECTOR,
   TIMELINE_READY_SELECTOR,
   bellScript,
+  feedPillScript,
   identityScript,
   notificationsScript,
   timelineScript,
   type BellState,
+  type FeedPillResult,
   type IdentitySnapshot,
   type NotificationsSnapshot,
   type RawPost,
@@ -43,6 +49,7 @@ import {
   withHandleState,
   withinLimits,
   type XReplyDraft,
+  type XReplyHandleState,
   type XReplyState,
 } from "./state";
 
@@ -148,13 +155,18 @@ export async function ensureNotifications(
   return { settled: false, notifications: false, note: "Post notifications could not be confirmed." };
 }
 
-async function readTimeline(browser: XBrowser, handle: string, limit: number): Promise<TimelineSnapshot> {
+/** openProfile lands on one account's timeline and waits for it to render. */
+async function openProfile(browser: XBrowser, handle: string): Promise<void> {
   await browser.open(`https://x.com/${handle}`);
   await browser.waitForLoad(15).catch(() => undefined);
   // Posts render after the page load event. Reading before a tweet or the
   // explicit empty state exists sees a blank timeline and mistakes it for an
   // account that never posted — which is how a notified post got lost.
   await browser.waitForSelector(TIMELINE_READY_SELECTOR, 10).catch(() => undefined);
+}
+
+async function readTimeline(browser: XBrowser, handle: string, limit: number): Promise<TimelineSnapshot> {
+  await openProfile(browser, handle);
   return browser.evaluate<TimelineSnapshot>(timelineScript(limit));
 }
 
@@ -168,7 +180,18 @@ async function readNotifications(
     await browser.waitForLoad(15).catch(() => undefined);
   }
   await browser.waitForSelector(FEED_READY_SELECTOR, 10).catch(() => undefined);
+  if (await pressFeedPill(browser)) await browser.waitForSelector(FEED_READY_SELECTOR, 8).catch(() => undefined);
   return browser.evaluate<NotificationsSnapshot>(notificationsScript(limit));
+}
+
+/** pressFeedPill reveals what the feed holds back. X draws the notifications
+ *  timeline from cache and parks everything that arrived since behind a "See
+ *  new posts" control; a page nobody is looking at never presses it, so the
+ *  rows behind it never reach the DOM and an unattended loop reads a feed that
+ *  is blank for good. Reports whether anything was pressed. */
+async function pressFeedPill(browser: XBrowser): Promise<boolean> {
+  const pill = await browser.evaluate<FeedPillResult>(feedPillScript()).catch(() => undefined);
+  return pill?.pressed === true;
 }
 
 /** openNotifications lands the browser on the feed, which is both where the
@@ -231,8 +254,13 @@ export async function subscribeHandle(deps: {
   await deps.browser.waitForLoad(15).catch(() => undefined);
 
   const previous = handleState(state, deps.handle);
-  step(`Turning on post notifications for @${deps.handle}`);
-  const bell = await ensureNotifications(deps.browser, deps.handle, { alreadyOnProfile: true });
+  // The bell only matters to the feed: a timeline is read whether or not X
+  // would have sent a notice, so a profile-watching account never touches it.
+  let bell: Awaited<ReturnType<typeof ensureNotifications>> | undefined;
+  if (state.watchSource === "notifications") {
+    step(`Turning on post notifications for @${deps.handle}`);
+    bell = await ensureNotifications(deps.browser, deps.handle, { alreadyOnProfile: true });
+  }
 
   step(`Recording where @${deps.handle} stands now`);
   await deps.browser.waitForSelector(TIMELINE_READY_SELECTOR, 10).catch(() => undefined);
@@ -251,19 +279,26 @@ export async function subscribeHandle(deps: {
     includePinned: state.includePinned,
   });
   state = withHandleState(state, deps.handle, {
-    following: bell.following,
-    notifications: bell.notifications,
-    note: bell.note,
-    bellAttempts: (previous?.bellAttempts ?? 0) + 1,
-    bellDone: bell.settled || undefined,
+    ...(bell
+      ? {
+        following: bell.following,
+        notifications: bell.notifications,
+        note: bell.note,
+        bellAttempts: (previous?.bellAttempts ?? 0) + 1,
+        bellDone: bell.settled || undefined,
+      }
+      : {}),
     lastPostId: previous?.lastPostId ?? newestId(eligible) ?? undefined,
     watchingSince: previous?.watchingSince ?? deps.now(),
     lastCheckedAt: deps.now(),
   });
-  // Leave the browser where the watching happens.
-  step("Opening the notifications feed");
-  await openNotifications(deps.browser).catch(() => undefined);
-  return { state, signedIn: true, note: bell.note };
+  // Leave the browser where the watching happens: on the feed for that source,
+  // on the profile just read for the other.
+  if (state.watchSource === "notifications") {
+    step("Opening the notifications feed");
+    await openNotifications(deps.browser).catch(() => undefined);
+  }
+  return { state, signedIn: true, note: bell?.note };
 }
 
 /** runPass performs one full cycle over the watched accounts. */
@@ -298,122 +333,106 @@ export async function runPass(deps: PassDeps): Promise<PassResult> {
   const note = (text: string) => addNote(summary, text);
 
   try {
-    // The feed is both the identity check and the work surface, so the pass
-    // goes straight there instead of visiting x.com first.
-    step("Opening the notifications feed");
-    await openNotifications(deps.browser);
-    const publisher = await readPublisher(deps.browser);
-    state = { ...state, publisher: { ...publisher, checkedAt: deps.now() } };
-    if (!publisher.signedIn) {
-      summary.loginRequired = true;
-      note("The browser profile is not signed in to x.com.");
-      return finish();
-    }
-    if (!publisher.handle) {
-      // Signed in, but the page never named the account. Asking for a sign-in
-      // here is the one thing that cannot help, so the pass says what it saw
-      // and stops instead.
-      summary.blocked = "Signed in, but x.com did not name the account";
-      note("Signed in to x.com, but the page did not say which account. Open x.com in this profile and reload it.");
-      return finish();
-    }
-    if (state.publisherHandle && state.publisherHandle.toLowerCase() !== publisher.handle.toLowerCase()) {
-      summary.blocked = `Signed in as @${publisher.handle}, replies pinned to @${state.publisherHandle}`;
-      note(`Signed in as @${publisher.handle}, but replies are pinned to @${state.publisherHandle}.`);
-      return finish();
-    }
-
-    stopIfAsked();
-    step("Reading the notifications feed");
-    const feed = await readNotifications(deps.browser, state.watchLimit, { alreadyThere: true });
-    if (feed.login_wall) {
-      summary.loginRequired = true;
-      note("x.com signed the profile out during the pass.");
-      state = { ...state, publisher: { ...state.publisher, signedIn: false, checkedAt: deps.now() } };
-      return finish();
-    }
-
-    for (const handle of deps.handles) {
-      stopIfAsked();
-      const previous = handleState(state, handle);
-      // Mentions and replies render in full in the feed and are read straight
-      // from it; a post notice only says an account posted, so it sends the pass
-      // to that profile. While the feed is quiet, no profile is opened at all.
-      let posts = normalizePosts(ownPosts(feed.posts, handle), handle);
-      const noticeAt = newestNotice(feed, handle);
-      // A notice is consumed only by a profile read that actually saw posts.
-      // Consuming it on an empty read is how a notified post got lost for good:
-      // the page had not rendered yet, and nothing ever came back for it.
-      let consumedNoticeAt = previous?.noticeAt;
-      if (noticeAt !== undefined && noticeAt > (previous?.noticeAt ?? 0)) {
-        step(`Reading @${handle} — X notified about a new post`);
-        const snapshot = await readTimeline(deps.browser, handle, NOTICE_READ_LIMIT);
+    if (state.watchSource !== "notifications") {
+      // Profile timelines: every watched account is read from its own page, so
+      // detection depends on nothing the feed chooses to render — not the bell,
+      // not a notice, and not the "See new posts" control that an unattended
+      // feed never presses. The first profile doubles as the identity check:
+      // every x.com page carries the same account chrome.
+      let verified = false;
+      for (const handle of deps.handles) {
+        stopIfAsked();
+        step(`Reading @${handle}`);
+        await openProfile(deps.browser, handle);
+        if (!verified) {
+          const verdict = await verifyPublisher(deps, state, summary, note);
+          state = verdict.state;
+          if (!verdict.ok) return finish();
+          verified = true;
+        }
+        const snapshot = await deps.browser.evaluate<TimelineSnapshot>(timelineScript(state.watchLimit));
         if (snapshot.login_wall) {
           summary.loginRequired = true;
           note("x.com signed the profile out during the pass.");
           state = { ...state, publisher: { ...state.publisher, signedIn: false, checkedAt: deps.now() } };
           return finish();
         }
-        const fromProfile = normalizePosts(snapshot.posts, handle);
-        if (fromProfile.length > 0) consumedNoticeAt = noticeAt;
-        else note(`@${handle}: the profile page showed no posts yet; the notice stays queued.`);
-        posts = mergePosts(posts, fromProfile);
-      } else if (!posts.length) {
-        state = withHandleState(state, handle, { lastCheckedAt: deps.now() });
         summary.checked += 1;
-        continue;
-      }
-      summary.checked += 1;
-
-      const eligible = selectEligible(posts, {
-        handle,
-        includeReposts: state.includeReposts,
-        includeReplies: state.includeReplies,
-        includePinned: state.includePinned,
-      });
-
-      if (!posts.length) {
-        // Nothing rendered at all. Leave the account untouched so the next pass
-        // tries again, instead of recording an empty baseline.
-        state = withHandleState(state, handle, { lastCheckedAt: deps.now(), noticeAt: consumedNoticeAt });
-        continue;
-      }
-
-      const since = previous?.watchingSince ?? deps.now();
-      if (!previous?.lastPostId) {
-        // First sight of an account: everything older than the moment it was
-        // added is history and is never answered — a burst of replies to old
-        // posts is what a bot does. What was posted after the add is exactly
-        // what the user is waiting on, so it is drafted right away.
-        state = withHandleState(state, handle, {
-          lastPostId: newestId(posts) || undefined,
-          lastCheckedAt: deps.now(),
-          watchingSince: since,
-          noticeAt: consumedNoticeAt,
-        });
-        const fresh = eligible.filter((post) => post.createdAt && post.createdAt >= since);
-        if (fresh.length) {
-          state = await draftPosts(deps, state, handle, fresh, summary, stopIfAsked);
-        } else {
-          summary.baselined += 1;
-          step(`@${handle}: baseline recorded`);
+        const posts = normalizePosts(snapshot.posts, handle);
+        if (!posts.length) {
+          // Nothing rendered, or nothing posted yet. The account stays as it was
+          // so the next pass looks again instead of recording an empty baseline.
+          state = withHandleState(state, handle, { lastCheckedAt: deps.now() });
+          continue;
         }
-        continue;
+        state = await settleHandle(deps, state, handle, posts, summary, stopIfAsked);
+      }
+    } else {
+      // The feed is both the identity check and the work surface, so the pass
+      // goes straight there instead of visiting x.com first.
+      step("Opening the notifications feed");
+      await openNotifications(deps.browser);
+      const verdict = await verifyPublisher(deps, state, summary, note);
+      state = verdict.state;
+      if (!verdict.ok) return finish();
+
+      stopIfAsked();
+      step("Reading the notifications feed");
+      const feed = await readNotifications(deps.browser, state.watchLimit, { alreadyThere: true });
+      if (feed.login_wall) {
+        summary.loginRequired = true;
+        note("x.com signed the profile out during the pass.");
+        state = { ...state, publisher: { ...state.publisher, signedIn: false, checkedAt: deps.now() } };
+        return finish();
       }
 
-      let fresh = newerThan(eligible, previous.lastPostId);
-      // The feed carries days of history, so an account watched from today never
-      // answers what was already there before it was added.
-      fresh = fresh.filter((post) => !post.createdAt || post.createdAt >= since);
+      for (const handle of deps.handles) {
+        stopIfAsked();
+        const previous = handleState(state, handle);
+        // Mentions and replies render in full in the feed and are read straight
+        // from it; a post notice only says an account posted, so it sends the pass
+        // to that profile. While the feed is quiet, no profile is opened at all.
+        let posts = normalizePosts(ownPosts(feed.posts, handle), handle);
+        const noticeAt = newestNotice(feed, handle);
+        // A notice is consumed only by a profile read that actually saw posts.
+        // Consuming it on an empty read is how a notified post got lost for good:
+        // the page had not rendered yet, and nothing ever came back for it.
+        let consumedNoticeAt = previous?.noticeAt;
+        if (noticeAt !== undefined && noticeAt > (previous?.noticeAt ?? 0)) {
+          step(`Reading @${handle} — X notified about a new post`);
+          const snapshot = await readTimeline(deps.browser, handle, NOTICE_READ_LIMIT);
+          if (snapshot.login_wall) {
+            summary.loginRequired = true;
+            note("x.com signed the profile out during the pass.");
+            state = { ...state, publisher: { ...state.publisher, signedIn: false, checkedAt: deps.now() } };
+            return finish();
+          }
+          const fromProfile = normalizePosts(snapshot.posts, handle);
+          if (fromProfile.length > 0) consumedNoticeAt = noticeAt;
+          else note(`@${handle}: the profile page showed no posts yet; the notice stays queued.`);
+          posts = mergePosts(posts, fromProfile);
+        } else if (!posts.length) {
+          state = withHandleState(state, handle, { lastCheckedAt: deps.now() });
+          summary.checked += 1;
+          continue;
+        }
+        summary.checked += 1;
 
-      state = withHandleState(state, handle, { lastCheckedAt: deps.now() });
-      state = await draftPosts(deps, state, handle, fresh, summary, stopIfAsked);
-      // The notice is what sends the pass to this profile, so it is consumed
-      // only once the posts it surfaced are settled. A post the agent failed to
-      // draft leaves it queued, which is what makes the held watermark reachable
-      // again — X notifies about a post once, and it already did.
-      if (!handleState(state, handle)?.draftFailPostId) {
-        state = withHandleState(state, handle, { noticeAt: consumedNoticeAt });
+        if (!posts.length) {
+          // Nothing rendered at all. Leave the account untouched so the next pass
+          // tries again, instead of recording an empty baseline.
+          state = withHandleState(state, handle, { lastCheckedAt: deps.now(), noticeAt: consumedNoticeAt });
+          continue;
+        }
+
+        state = await settleHandle(deps, state, handle, posts, summary, stopIfAsked, { noticeAt: consumedNoticeAt });
+        // The notice is what sends the pass to this profile, so it is consumed
+        // only once the posts it surfaced are settled. A post the agent failed to
+        // draft leaves it queued, which is what makes the held watermark reachable
+        // again — X notifies about a post once, and it already did.
+        if (!handleState(state, handle)?.draftFailPostId) {
+          state = withHandleState(state, handle, { noticeAt: consumedNoticeAt });
+        }
       }
     }
 
@@ -432,8 +451,10 @@ export async function runPass(deps: PassDeps): Promise<PassResult> {
     }
 
     // The Notify bell is settled once per account, after the user-visible work:
-    // a probe reloads that profile, and Start should reach the feed first.
-    for (const handle of deps.handles) {
+    // a probe reloads that profile, and Start should reach the feed first. It
+    // only matters to the feed: a timeline is read whether or not X notifies.
+    const bellHandles = state.watchSource === "notifications" ? deps.handles : [];
+    for (const handle of bellHandles) {
       stopIfAsked();
       const current = handleState(state, handle);
       if (current?.bellDone || (current?.bellAttempts ?? 0) >= MAX_BELL_ATTEMPTS) continue;
@@ -458,6 +479,85 @@ export async function runPass(deps: PassDeps): Promise<PassResult> {
   }
 
   return finish();
+}
+
+/** verifyPublisher reads who the page is signed in as and decides whether the
+ *  pass may go on. Every x.com page carries the account chrome, so this runs on
+ *  whatever page the source opened first. */
+async function verifyPublisher(
+  deps: PassDeps,
+  state: XReplyState,
+  summary: PassSummary,
+  note: (text: string) => void,
+): Promise<{ state: XReplyState; ok: boolean }> {
+  const publisher = await readPublisher(deps.browser);
+  state = { ...state, publisher: { ...publisher, checkedAt: deps.now() } };
+  if (!publisher.signedIn) {
+    summary.loginRequired = true;
+    note("The browser profile is not signed in to x.com.");
+    return { state, ok: false };
+  }
+  if (!publisher.handle) {
+    // Signed in, but the page never named the account. Asking for a sign-in
+    // here is the one thing that cannot help, so the pass says what it saw
+    // and stops instead.
+    summary.blocked = "Signed in, but x.com did not name the account";
+    note("Signed in to x.com, but the page did not say which account. Open x.com in this profile and reload it.");
+    return { state, ok: false };
+  }
+  if (state.publisherHandle && state.publisherHandle.toLowerCase() !== publisher.handle.toLowerCase()) {
+    summary.blocked = `Signed in as @${publisher.handle}, replies pinned to @${state.publisherHandle}`;
+    note(`Signed in as @${publisher.handle}, but replies are pinned to @${state.publisherHandle}.`);
+    return { state, ok: false };
+  }
+  return { state, ok: true };
+}
+
+/** settleHandle moves one account forward from what its page showed. A first
+ *  sight records a baseline and answers only what arrived after the account was
+ *  added; a known account answers what is newer than its watermark. Both
+ *  sources end here — they differ only in how the posts were found. */
+async function settleHandle(
+  deps: PassDeps,
+  state: XReplyState,
+  handle: string,
+  posts: XPost[],
+  summary: PassSummary,
+  stopIfAsked: () => void,
+  baseline: Partial<XReplyHandleState> = {},
+): Promise<XReplyState> {
+  const step = deps.onStep ?? (() => undefined);
+  const previous = handleState(state, handle);
+  const eligible = selectEligible(posts, {
+    handle,
+    includeReposts: state.includeReposts,
+    includeReplies: state.includeReplies,
+    includePinned: state.includePinned,
+  });
+  const since = previous?.watchingSince ?? deps.now();
+  if (!previous?.lastPostId) {
+    // First sight of an account: everything older than the moment it was added
+    // is history and is never answered — a burst of replies to old posts is
+    // what a bot does. What was posted after the add is exactly what the user
+    // is waiting on, so it is drafted right away.
+    state = withHandleState(state, handle, {
+      lastPostId: newestId(posts) || undefined,
+      lastCheckedAt: deps.now(),
+      watchingSince: since,
+      ...baseline,
+    });
+    const fresh = eligible.filter((post) => post.createdAt && post.createdAt >= since);
+    if (fresh.length) return draftPosts(deps, state, handle, fresh, summary, stopIfAsked);
+    summary.baselined += 1;
+    step(`@${handle}: baseline recorded`);
+    return state;
+  }
+  let fresh = newerThan(eligible, previous.lastPostId);
+  // A page carries days of history, so an account watched from today never
+  // answers what was already there before it was added.
+  fresh = fresh.filter((post) => !post.createdAt || post.createdAt >= since);
+  state = withHandleState(state, handle, { lastCheckedAt: deps.now() });
+  return draftPosts(deps, state, handle, fresh, summary, stopIfAsked);
 }
 
 /** addNote records one reason on a summary, once. */
