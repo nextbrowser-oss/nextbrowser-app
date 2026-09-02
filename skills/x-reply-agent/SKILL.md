@@ -117,7 +117,7 @@ Write one reply that:
 - has no greeting, no preamble, no surrounding quotation marks, and no commentary about the task;
 - follows the account voice the user supplied.
 
-Skip the post when it is spam, unintelligible, purely promotional, or would need facts you do not have. Record a skip with its reason; do not invent facts to fill a reply.
+Every post gets a reply; there is no declining one. When a post is short, vague, joking, or would need facts you do not have, answer what is actually there — one specific question about it, or one observation about the point it makes. Never invent facts, numbers, events, or claims about the author to fill a reply.
 
 ## Step 4 — Approval gate
 
@@ -158,4 +158,4 @@ Open the picker from `[data-testid="gifSearchButton"]`, type into `[data-testid=
 
 ## Completion
 
-Report per handle: posts inspected, drafts written, replies sent with their URLs, items skipped with reasons, items left unverified, and the watermark now stored. Never claim a reply was published without the verification in Step 5.
+Report per handle: posts inspected, drafts written, replies sent with their URLs, items that could not be drafted with the reason, items left unverified, and the watermark now stored. Never claim a reply was published without the verification in Step 5.

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { SkippedPost, clamp, draftInvocation, draftReply, parseDraft, systemPrompt } from "./draft";
+import { clamp, draftInvocation, draftReply, formatPost, parseDraft, postedAt, systemPrompt } from "./draft";
 
 const request = {
   author: "author",
@@ -15,6 +15,20 @@ describe("the drafting prompt", () => {
     expect(prompt).toContain("none, agree, celebrate");
     expect(prompt).toContain("at most 280 characters");
     expect(prompt).toContain("Write like an engineer.");
+  });
+
+  it("names the weekday so a reply does not have to guess it", () => {
+    expect(postedAt(Date.parse("2026-09-02T09:15:04Z"))).toBe("2026-09-02T09:15:04.000Z (Wednesday, UTC)");
+    expect(postedAt(undefined)).toBe("unknown");
+    expect(formatPost({ ...request, createdAt: Date.parse("2026-09-02T09:15:04Z") })).toContain("(Wednesday, UTC)");
+  });
+
+  it("leaves the model no way to decline a post, and no licence to invent", () => {
+    const prompt = systemPrompt(280);
+    expect(prompt).toContain("Every post gets a reply and there is no way to decline");
+    expect(prompt).toContain("Never invent facts");
+    // The old escape hatch is gone: a thin post is answered, not passed over.
+    expect(prompt).not.toContain("SKIP");
   });
 
   it("runs Claude Code with its tools switched off and the prompt on stdin", () => {
@@ -53,8 +67,10 @@ describe("reading the agent's answer", () => {
     expect(() => parseDraft("   ", 280)).toThrow(/returned nothing/);
   });
 
-  it("reports the model's own decision to skip a post", () => {
-    expect(() => parseDraft('{"reply":"SKIP"}', 280)).toThrow(SkippedPost);
+  it("fails the draft rather than posting a model that answered with nothing", () => {
+    // No prompt offers this any more; a model that produces it wrote no reply,
+    // and the post is retried instead of having the bare word posted.
+    expect(() => parseDraft('{"reply":"SKIP"}', 280)).toThrow(/no reply text/);
   });
 
   it("clamps an overshooting draft on a word boundary", () => {
@@ -62,6 +78,22 @@ describe("reading the agent's answer", () => {
     const clamped = clamp(long, 280);
     expect(clamped.length).toBeLessThanOrEqual(280);
     expect(clamped.endsWith("word")).toBe(true);
+  });
+
+  it("prefers the last whole sentence over a dangling half of one", () => {
+    // What a real overshoot looks like: 295 characters ending mid-question.
+    const overshoot = 'The tell will be when nobody writes "AI-powered" on the landing page anymore. '
+      + 'Same thing happened with "cloud" and "mobile-first" — the label disappears once the capability is assumed. '
+      + "What's the last workflow you touched where the intelligence was invisible enough that you forgot it was there?";
+    const clamped = clamp(overshoot, 280);
+    expect(clamped.length).toBeLessThanOrEqual(280);
+    expect(clamped.endsWith("assumed.")).toBe(true);
+
+    // A decimal point ends no sentence, so this still cuts on a word boundary.
+    const version = `Shipped v1.2 today and ${"the same thing again ".repeat(20)}tail`;
+    expect(clamp(version, 280).endsWith("v1.")).toBe(false);
+    // Nothing to cut at all leaves a short reply alone.
+    expect(clamp("Short one.", 280)).toBe("Short one.");
   });
 });
 

@@ -30,7 +30,7 @@ import {
   type TimelineSnapshot,
 } from "./scripts";
 import { compareIds, newerThan, newestId, normalizePosts, selectEligible, type XPost } from "./posts";
-import { SkippedPost, draftReply, type AgentRunner } from "./draft";
+import { draftReply, type AgentRunner } from "./draft";
 import { publishReply, type GifOptions } from "./publish";
 import { DEFAULT_GIF_BLOCKLIST } from "./reaction";
 import {
@@ -81,7 +81,6 @@ export interface PassSummary {
   checked: number;
   drafted: number;
   sent: number;
-  skipped: number;
   failed: number;
   baselined: number;
   stopped: boolean;
@@ -306,7 +305,7 @@ export async function runPass(deps: PassDeps): Promise<PassResult> {
   const step = deps.onStep ?? (() => undefined);
   const sleep = deps.sleep;
   const summary: PassSummary = {
-    checked: 0, drafted: 0, sent: 0, skipped: 0, failed: 0, baselined: 0,
+    checked: 0, drafted: 0, sent: 0, failed: 0, baselined: 0,
     stopped: false, loginRequired: false, notes: [],
   };
   const passStartedAt = deps.now();
@@ -611,15 +610,13 @@ async function draftPosts(
       next = addDraft(next, record);
       summary.drafted += 1;
     } catch (error) {
-      if (error instanceof SkippedPost) {
-        summary.skipped += 1;
-      } else if (error instanceof Error && error.name === "StopRequested") {
-        throw error;
-      } else {
-        summary.failed += 1;
-        failure = error instanceof Error ? error.message : String(error);
-        addNote(summary, `@${handle}: ${failure}`);
-      }
+      // Every post is answered, so there is no such thing as a post the model
+      // declined: anything that comes back here is a failure to draft, and the
+      // post is retried rather than passed over.
+      if (error instanceof Error && error.name === "StopRequested") throw error;
+      summary.failed += 1;
+      failure = error instanceof Error ? error.message : String(error);
+      addNote(summary, `@${handle}: ${failure}`);
     }
     if (failure) {
       // A post the agent could not draft is not a post that was answered. The
@@ -635,8 +632,8 @@ async function draftPosts(
       // Out of attempts: give this one post up rather than stall the account.
       addNote(summary, `@${handle}: gave up on ${post.url} after ${attempts} attempts.`);
     }
-    // Seen and settled — drafted, skipped, or given up on. The watermark moves
-    // so the feed does not re-read it every pass.
+    // Seen and settled — drafted, or given up on. The watermark moves so the
+    // feed does not re-read it every pass.
     next = withHandleState(next, handle, {
       lastPostId: watermark,
       draftFailPostId: undefined,
@@ -718,7 +715,6 @@ function describe(summary: PassSummary): string {
   if (summary.baselined) parts.push(`${summary.baselined} baselined`);
   if (summary.drafted) parts.push(`${summary.drafted} drafted`);
   if (summary.sent) parts.push(`${summary.sent} sent`);
-  if (summary.skipped) parts.push(`${summary.skipped} skipped`);
   if (summary.failed) parts.push(`${summary.failed} failed`);
   if (summary.stopped) parts.push("stopped");
   return parts.join(" · ");

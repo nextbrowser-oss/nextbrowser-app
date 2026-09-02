@@ -10,16 +10,12 @@ import { agentById, agentInvocation } from "../../agents";
 import { REACTION_NONE, normalizeReaction, reactionQuery, reactions } from "./reaction";
 
 export const DEFAULT_MAX_LENGTH = 280;
+/** The word an older prompt let the model answer instead of writing a reply.
+ *  Nothing asks for it now, but a model that produces it anyway has written no
+ *  reply, and posting the bare word would be worse than failing the draft. */
 const SKIP_SENTINEL = "SKIP";
 /** Tool names Claude Code understands. Drafting needs none of them. */
 const CLAUDE_DISALLOWED_TOOLS = "Bash,Edit,Write,Read,WebFetch,WebSearch,NotebookEdit";
-
-export class SkippedPost extends Error {
-  constructor(reason = "The model judged the post unsuitable for a reply.") {
-    super(reason);
-    this.name = "SkippedPost";
-  }
-}
 
 export interface DraftRequest {
   author: string;
@@ -56,14 +52,23 @@ Write one reply to the post the user provides:
 - Return only one JSON object: {"reply":"the reply text","reaction":"none"}.
 - Set reaction to exactly one of: ${reactions().join(", ")}. Choose anything other than none only when the post carries that mood unmistakably and a reaction GIF would not undercut the reply. The account attaches a GIF at most once in several replies, so none is the normal answer.
 
-If the post cannot be answered usefully — it is spam, unintelligible, purely promotional, or would require facts you do not have — return {"reply":"${SKIP_SENTINEL}","reaction":"none"}.`;
+Every post gets a reply and there is no way to decline. When the post is short, vague, joking, or would take facts you do not have, answer what is actually in front of you — one specific question about it, or one observation about the point it makes. Never invent facts, numbers, events, or claims about the author to fill a reply.`;
   const voice = instructions?.trim();
   return voice ? `${prompt}\n\nAccount voice and constraints:\n${voice}` : prompt;
 }
 
+/** postedAt spells the weekday out next to the timestamp. A model asked to
+ *  reply to every post reaches for the day of the week on a thin one, and
+ *  deriving it from an ISO string is exactly the kind of detail it gets wrong
+ *  — in public, from the account. */
+export function postedAt(createdAt?: number): string {
+  if (!createdAt) return "unknown";
+  const at = new Date(createdAt);
+  return `${at.toISOString()} (${at.toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" })}, UTC)`;
+}
+
 export function formatPost(request: DraftRequest): string {
-  const timestamp = request.createdAt ? new Date(request.createdAt).toISOString() : "unknown";
-  return `Post author: @${request.author}\nPost URL: ${request.url}\nPosted at: ${timestamp}\nPost text:\n${request.text}`;
+  return `Post author: @${request.author}\nPost URL: ${request.url}\nPosted at: ${postedAt(request.createdAt)}\nPost text:\n${request.text}`;
 }
 
 /** draftInvocation builds a one-shot, tool-free invocation for one agent. */
@@ -125,11 +130,27 @@ function unquote(text: string): string {
   return value;
 }
 
-/** clamp trims an overshooting draft on a word boundary. */
+const SENTENCE_ENDS = new Set([".", "!", "?", "…"]);
+const CLOSERS = new Set(["\"", "'", ")", "]", "\u201d", "\u2019", "\u00bb"]);
+
+/** clamp trims an overshooting draft, preferring the last whole sentence and
+ *  falling back to a word boundary. A model asked to keep a reply under a limit
+ *  overshoots it often enough that this runs on real drafts, and a reply cut
+ *  mid-sentence goes out of the account looking broken. */
 export function clamp(text: string, maxLength: number): string {
   const runes = [...text];
   if (maxLength <= 0 || runes.length <= maxLength) return text;
   const head = runes.slice(0, maxLength);
+  for (let index = head.length - 1; index > maxLength / 2; index -= 1) {
+    if (!SENTENCE_ENDS.has(head[index])) continue;
+    // Keep a quote or bracket the sentence closed with, and require whitespace
+    // or the cut itself after it: "v1.2" and "3.5" end no sentence.
+    let end = index + 1;
+    while (end < head.length && CLOSERS.has(head[end])) end += 1;
+    const next = head[end];
+    if (next !== undefined && next !== " " && next !== "\n") continue;
+    return head.slice(0, end).join("").trim();
+  }
   for (let index = head.length - 1; index > maxLength / 2; index -= 1) {
     if (head[index] === " " || head[index] === "\n") return head.slice(0, index).join("").trim();
   }
@@ -165,7 +186,10 @@ export function parseDraft(output: string, maxLength: number, seed = ""): Draft 
     }
     reply = unquote(stripCodeFence(trimmed));
   }
-  if (reply === SKIP_SENTINEL) throw new SkippedPost();
+  // No prompt offers this any more, so a model that still answers it has
+  // written nothing. Failing the draft retries it; posting it would put the
+  // bare word on the account.
+  if (reply === SKIP_SENTINEL) throw new Error("The agent answered with no reply text.");
   if (!reply) throw new Error("The agent returned an empty reply.");
   return { text: clamp(reply, maxLength), reaction, gifQuery: reactionQuery(reaction, seed) };
 }
