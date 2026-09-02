@@ -134,7 +134,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
   };
 
   const add = () => {
-    const handle = normalizeWatchHandle(draft);
+    const handle = normalizeWatchHandle(draft, { maxLength: watchlist.handleMaxLength });
     if (!handle) {
       setError(`Enter one ${watchlist.placeholder}.`);
       return;
@@ -249,7 +249,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
             <strong>Nothing watched yet</strong>
             <span className="muted small">
               {!engine
-                ? "Add an account to watch."
+                ? (watchlist.blurb ?? "Add an account to watch.")
                 : engineState.watchSource === "notifications"
                   ? `Add an account — its ${site} post notifications get switched on.`
                   : `Add an account — its ${site} profile is read on every pass.`}

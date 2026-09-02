@@ -14,6 +14,8 @@ export interface SkillWatchlist {
   placeholder: string;
   /// Rendered before a handle, for example "@".
   prefix?: string;
+  /// Longest handle the list accepts; X handles stop at 15, subreddits at 21.
+  handleMaxLength?: number;
   /// Profile URL template containing `{handle}`.
   profileUrl?: string;
   /// File in the agent workspace where the skill records what it observed.
@@ -29,11 +31,16 @@ export interface SkillWatchlist {
   engine?: "x-reply";
 }
 
+/// Where a skill runs. A cloud-phone skill drives the site's Android app on a
+/// Multilogin phone, so the app prepares no browser profile for it.
+export type SkillRuntime = "browser" | "cloud-phone";
+
 export interface SkillEntry {
   id: string;
   title: string;
   subtitle: string;
   selector: Selector;
+  runtime?: SkillRuntime;
   description?: string;
   category: string;
   categoryTitle: string;

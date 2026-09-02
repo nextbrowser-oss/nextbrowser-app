@@ -326,17 +326,24 @@ export interface WatchedProfileReport {
   note?: string;
 }
 
-const WATCH_HANDLE_PATTERN = /^[A-Za-z0-9_]{1,15}$/;
+/// X handles stop at 15 characters; a skill that watches something else, such
+/// as subreddits (21), says so in its watchlist.
+export const DEFAULT_WATCH_HANDLE_MAX_LENGTH = 15;
+
+export interface WatchHandleOptions {
+  maxLength?: number;
+}
 
 /// normalizeWatchHandle accepts what a user actually pastes — `@handle`, a
-/// profile URL, or the bare handle — and returns the bare handle, or an empty
-/// string when the value cannot be one.
-export function normalizeWatchHandle(value: string): string {
+/// profile URL, `r/community`, or the bare name — and returns the bare handle,
+/// or an empty string when the value cannot be one.
+export function normalizeWatchHandle(value: string, options: WatchHandleOptions = {}): string {
+  const maxLength = options.maxLength && options.maxLength > 0 ? Math.floor(options.maxLength) : DEFAULT_WATCH_HANDLE_MAX_LENGTH;
   let handle = value.trim();
-  const url = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)*[a-z0-9-]+\.[a-z]{2,}\/(@?[A-Za-z0-9_]+)/i.exec(handle);
+  const url = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)*[a-z0-9-]+\.[a-z]{2,}\/(?:(?:r|u|user)\/)?(@?[A-Za-z0-9_]+)/i.exec(handle);
   if (url) handle = url[1];
-  handle = handle.replace(/^@+/, "").split(/[/?#]/)[0].trim();
-  return WATCH_HANDLE_PATTERN.test(handle) ? handle : "";
+  handle = handle.replace(/^\/?(?:r|u|user)\//i, "").replace(/^@+/, "").split(/[/?#]/)[0].trim();
+  return new RegExp(`^[A-Za-z0-9_]{1,${maxLength}}$`).test(handle) ? handle : "";
 }
 
 export function sameWatchHandle(left: string, right: string): boolean {
@@ -376,7 +383,7 @@ export interface WatchState {
 /// or shaped differently than the skill asked for, and none of that may break
 /// the panel. Unknown handles are kept — the list the user sees is filtered
 /// against their own records.
-export function parseWatchState(raw: string | null | undefined): WatchState {
+export function parseWatchState(raw: string | null | undefined, options: WatchHandleOptions = {}): WatchState {
   if (!raw) return { reports: {} };
   let parsed: unknown;
   try { parsed = JSON.parse(raw); } catch { return { reports: {} }; }
@@ -386,7 +393,7 @@ export function parseWatchState(raw: string | null | undefined): WatchState {
     : undefined;
   const publisher: WatchedPublisher | undefined = rawPublisher
     ? {
-      handle: normalizeWatchHandle(typeof rawPublisher.handle === "string" ? rawPublisher.handle : "") || undefined,
+      handle: normalizeWatchHandle(typeof rawPublisher.handle === "string" ? rawPublisher.handle : "", options) || undefined,
       signedIn: typeof rawPublisher.signed_in === "boolean" ? rawPublisher.signed_in : undefined,
       checkedAt: reportNumber(rawPublisher.checked_at),
     }
@@ -402,7 +409,7 @@ export function parseWatchState(raw: string | null | undefined): WatchState {
   for (const row of rows) {
     if (!row || typeof row !== "object") continue;
     const record = row as Record<string, unknown>;
-    const handle = normalizeWatchHandle(typeof record.handle === "string" ? record.handle : "");
+    const handle = normalizeWatchHandle(typeof record.handle === "string" ? record.handle : "", options);
     if (!handle) continue;
     reports[handle.toLowerCase()] = {
       handle,

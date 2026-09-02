@@ -1,0 +1,31 @@
+{
+  "id": "reddit-cloud-phone",
+  "name": "Reddit on a Cloud Phone",
+  "description": "Watch communities in the Reddit Android app on a Multilogin cloud phone: read what is new, upvote what fits the account, comment where asked, with every write verified on screen.",
+  "author": "nextbrowser-oss",
+  "domains": [
+    "reddit.com"
+  ],
+  "operations": [
+    "scrape",
+    "comment"
+  ],
+  "runtime": "cloud-phone",
+  "category": {
+    "id": "social",
+    "title": "Social",
+    "icon": "bubble.left.and.bubble.right.fill",
+    "order": 40
+  },
+  "watchlist": {
+    "title": "Watched subreddits",
+    "blurb": "Communities the agent visits on your cloud phone. Each pass opens the community in the Reddit app, reads what is new since the last visit, upvotes what fits the account, and comments only where you asked it to.",
+    "placeholder": "community without r/",
+    "prefix": "r/",
+    "profileUrl": "https://www.reddit.com/r/{handle}",
+    "stateFile": "reddit-cloud-phone-state.json",
+    "handleMaxLength": 21,
+    "subscribeTask": "Subscribe to r/{handle}: open the community feed on the phone, confirm it exists, record its newest post as the baseline in the state file, and engage with nothing in this run. Report whether the account has joined the community.",
+    "checkTask": "Run one engagement pass over these communities: {handles}. Only these communities are watched right now. For each one open its feed on the phone, read what is newer than the recorded baseline, upvote what fits the account, comment only where the task or the account voice asks for it, keep to a few actions per community, and update the state file."
+  }
+}

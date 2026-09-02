@@ -62,6 +62,17 @@ describe("watched profile handles", () => {
     expect(normalizeWatchHandle("has spaces")).toBe("");
     expect(normalizeWatchHandle("")).toBe("");
   });
+
+  it("reads subreddit names the way a skill that watches them asks", () => {
+    const subreddit = { maxLength: 21 };
+    expect(normalizeWatchHandle("r/golang", subreddit)).toBe("golang");
+    expect(normalizeWatchHandle("/r/learnprogramming/", subreddit)).toBe("learnprogramming");
+    expect(normalizeWatchHandle("https://www.reddit.com/r/learnprogramming/?sort=new", subreddit)).toBe("learnprogramming");
+    expect(normalizeWatchHandle("https://old.reddit.com/r/ExperiencedDevs", subreddit)).toBe("ExperiencedDevs");
+    // The X limit still holds where no other limit was declared.
+    expect(normalizeWatchHandle("learnprogramming")).toBe("");
+    expect(normalizeWatchHandle("twenty_two_characters_x", subreddit)).toBe("");
+  });
 });
 
 describe("watchlist intervals", () => {

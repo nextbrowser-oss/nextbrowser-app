@@ -8,6 +8,8 @@ import {
 import type { BrowserWorkflowSkill, CustomScript } from "../types";
 import { uid } from "../lib/ids";
 import { internalError } from "../lib/userFacingError";
+import { cloudPhoneFromSelection, cloudPhoneRunsIn } from "../lib/cloudPhoneSkill";
+import { multiloginSelectionForWorkspace } from "../lib/multiloginSelection";
 import { Icon } from "./Icon";
 import { UserFacingError } from "./UserFacingError";
 import { WatchedProfilesPanel } from "./WatchedProfilesPanel";
@@ -76,7 +78,9 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
     }
   };
 
+  const cloudPhone = cloudPhoneFromSelection(multiloginSelectionForWorkspace(s.activeWorkspaceId));
   const targetText = (e: SkillEntry) => {
+    if (e.runtime === "cloud-phone") return cloudPhoneRunsIn(cloudPhone);
     const host = selectorTargetHost(e.selector);
     if (host) return `Runs in ${sessionName} → ${host}`;
     if (e.selector.kind === "captcha") return `Runs in ${sessionName} · current tab`;

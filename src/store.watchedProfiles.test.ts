@@ -291,3 +291,78 @@ describe("watchlist loop", () => {
     expect(useStore.getState().watchlistRunFor("repository:x-reply-agent")?.enabled).toBe(true);
   });
 });
+
+describe("cloud-phone skills", () => {
+  const redditSkill: SkillEntry = {
+    id: "repository:reddit-cloud-phone",
+    title: "Reddit on a Cloud Phone",
+    subtitle: "reddit.com",
+    selector: { kind: "domain", value: "reddit.com" },
+    runtime: "cloud-phone",
+    category: "social",
+    categoryTitle: "Social",
+    categoryIcon: "bubble.left.and.bubble.right.fill",
+    categoryOrder: 40,
+    source: "repository",
+    instructions: "# Reddit on a cloud phone",
+    watchlist: {
+      title: "Watched subreddits",
+      placeholder: "community without r/",
+      prefix: "r/",
+      profileUrl: "https://www.reddit.com/r/{handle}",
+      stateFile: "reddit-cloud-phone-state.json",
+      handleMaxLength: 21,
+      subscribeTask: "Subscribe to r/{handle}.",
+      checkTask: "Run one engagement pass over these communities: {handles}.",
+    },
+  };
+
+  it("runs a pass on the workspace's cloud phone without preparing a browser", async () => {
+    const { useStore } = await import("./store");
+    const { setMultiloginSelection } = await import("./lib/multiloginSelection");
+    const agentId = useStore.getState().agentId;
+    useStore.setState((state) => ({
+      runtime: { ...state.runtime, [agentId]: { ...state.runtime[agentId], ready: true, queue: [] } },
+      applySkill: vi.fn().mockResolvedValue(undefined),
+      skillCategories: [{ id: "social", title: "Social", blurb: "", icon: "sparkles", entries: [redditSkill] }],
+    }));
+    const cid = useStore.getState().newChat();
+    useStore.setState((state) => ({
+      conversations: state.conversations.map((conversation) =>
+        conversation.id === cid ? { ...conversation, workspaceId: "ws-phone" } : conversation),
+    }));
+    setMultiloginSelection("ws-phone", { kind: "mobile", id: "phone-1", name: "Reddit-test" });
+    // The skill's own handle limit applies: a 16-character subreddit is a fine name here.
+    expect(useStore.getState().addWatchedProfile(redditSkill.id, "https://www.reddit.com/r/learnprogramming/")?.handle)
+      .toBe("learnprogramming");
+
+    await useStore.getState().runWatchlistPass(redditSkill);
+
+    const prompt = useStore.getState().conversations.find((conversation) => conversation.id === cid)
+      ?.messages.filter((message) => message.role === "user").at(-1)?.text ?? "";
+    expect(prompt).toContain("cloud phone “Reddit-test” (id phone-1)");
+    expect(prompt).toContain("Run one engagement pass over these communities: r/learnprogramming.");
+    expect(prompt).toContain("# Reddit on a cloud phone");
+    expect(prompt).toContain("Do not start, open, inspect, or change any NextBrowser browser profile");
+    // No browser session was prepared or touched on the way.
+    expect(bridge.invoke.mock.calls.filter(([channel]) => channel === "nextctl_run")).toHaveLength(0);
+  });
+
+  it("asks which phone to use when the workspace has none selected", async () => {
+    const { useStore } = await import("./store");
+    const agentId = useStore.getState().agentId;
+    useStore.setState((state) => ({
+      runtime: { ...state.runtime, [agentId]: { ...state.runtime[agentId], ready: true, queue: [] } },
+      applySkill: vi.fn().mockResolvedValue(undefined),
+    }));
+    const cid = useStore.getState().newChat();
+
+    await useStore.getState().useSkillInChat(redditSkill);
+
+    const prompt = useStore.getState().conversations.find((conversation) => conversation.id === cid)
+      ?.messages.filter((message) => message.role === "user").at(-1)?.text ?? "";
+    expect(prompt).toContain("No cloud phone is selected for this workspace");
+    expect(prompt).toContain("mobile profiles list --json");
+    expect(bridge.invoke.mock.calls.filter(([channel]) => channel === "nextctl_run")).toHaveLength(0);
+  });
+});

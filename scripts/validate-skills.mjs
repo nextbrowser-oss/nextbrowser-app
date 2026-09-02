@@ -30,6 +30,12 @@ for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
   if (!manifest.category || !slugPattern.test(manifest.category.id ?? "") || typeof manifest.category.title !== "string" || typeof manifest.category.icon !== "string" || !Number.isInteger(manifest.category.order)) {
     failures.push(`${entry.name}: category must include id, title, icon, and integer order`);
   }
+  // Where the skill runs. A cloud-phone skill drives the site's Android app on
+  // a Multilogin phone, and the app prepares no browser profile for it, so an
+  // unknown value would silently get the wrong device.
+  if (manifest.runtime != null && !["browser", "cloud-phone"].includes(manifest.runtime)) {
+    failures.push(`${entry.name}: runtime must be browser or cloud-phone`);
+  }
   // A watchlist is optional, but a half-declared one renders a manager the app
   // cannot run, so every field it needs is required once the block exists.
   if (manifest.watchlist != null) {
@@ -51,6 +57,9 @@ for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
       }
       if (watchlist.stateFile != null && (typeof watchlist.stateFile !== "string" || !/^[A-Za-z0-9._-]+$/.test(watchlist.stateFile))) {
         failures.push(`${entry.name}: watchlist.stateFile must be a plain file name`);
+      }
+      if (watchlist.handleMaxLength != null && (!Number.isInteger(watchlist.handleMaxLength) || watchlist.handleMaxLength < 1 || watchlist.handleMaxLength > 64)) {
+        failures.push(`${entry.name}: watchlist.handleMaxLength must be an integer between 1 and 64`);
       }
       // An engine name the app does not implement would silently fall back to
       // the chat path, which is a different product than the manifest promises.

@@ -20,6 +20,21 @@ describe("repository skills", () => {
     expect(skill?.watchlist?.checkTask).toContain("{handles}");
   });
 
+  it("carries a cloud-phone runtime and its subreddit watchlist into the catalog entry", () => {
+    const skill = repositorySkillCategories().flatMap((category) => category.entries)
+      .find((entry) => entry.id === "repository:reddit-cloud-phone");
+    expect(skill?.runtime).toBe("cloud-phone");
+    expect(skill?.selector).toEqual({ kind: "domain", value: "reddit.com" });
+    expect(skill?.watchlist?.prefix).toBe("r/");
+    expect(skill?.watchlist?.handleMaxLength).toBe(21);
+    expect(skill?.watchlist?.engine).toBeUndefined();
+    expect(skill?.instructions).toContain("reddit-cloud-phone-state.json");
+    // Browser skills declare no runtime, so the app keeps preparing a profile for them.
+    const car = repositorySkillCategories().flatMap((category) => category.entries)
+      .find((entry) => entry.id === "repository:999-car-search");
+    expect(car?.runtime).toBeUndefined();
+  });
+
   it("merges repository and backend skills in the same category", () => {
     const merged = mergeSkillCategories([{
       id: "marketplaces",

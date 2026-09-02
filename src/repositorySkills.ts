@@ -1,4 +1,4 @@
-import type { SkillCategory, SkillEntry, SkillWatchlist } from "./skillsCatalog";
+import type { SkillCategory, SkillEntry, SkillRuntime, SkillWatchlist } from "./skillsCatalog";
 
 interface RepositorySkillManifest {
   id: string;
@@ -8,6 +8,7 @@ interface RepositorySkillManifest {
   domains: string[];
   operations: string[];
   category: { id: string; title: string; icon: string; order: number };
+  runtime?: SkillRuntime;
   watchlist?: SkillWatchlist;
 }
 
@@ -49,6 +50,7 @@ export function repositorySkillCategories(): SkillCategory[] {
       categoryIcon: manifest.category.icon,
       categoryOrder: manifest.category.order,
       selector: { kind: "domain", value: manifest.domains[0] },
+      runtime: manifest.runtime === "cloud-phone" ? "cloud-phone" : undefined,
       source: "repository",
       instructions: skillInstructions,
       author: manifest.author,

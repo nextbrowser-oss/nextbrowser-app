@@ -99,6 +99,7 @@ import type { RotationCountry } from "./lib/countryFlag";
 import { browserProfileContext } from "./lib/browserProfileContext";
 import { CONNECTOR_PROMPT_RESUMED_EVENT, type ConnectorPrompt } from "./connectorsCatalog";
 import { clearMultiloginSelection, multiloginSelectionForWorkspace } from "./lib/multiloginSelection";
+import { cloudPhoneFromSelection, cloudPhoneSkillPrompt } from "./lib/cloudPhoneSkill";
 import { isMultiloginStartRequest, multiloginStartReply } from "./lib/multiloginChatCommand";
 import { multiloginSessionName, nextctlRemoteArgs, type LiveStreamTarget } from "./lib/liveStreamTarget";
 import { customPrivateSlug, customPublishSelector } from "./types";
@@ -854,6 +855,13 @@ function normalizeWatchedProfiles(raw: WatchedProfile[]): WatchedProfile[] {
 
 function watchReportKey(skillId: string, handle: string): string {
   return `${skillId}\n${handle.toLowerCase()}`;
+}
+
+/// watchHandleMaxLength is the longest handle the skill's list accepts, which
+/// the skill declares because the app cannot know what a handle is on that site.
+function watchHandleMaxLength(state: State, skillId: string): number | undefined {
+  return state.skillCategories.flatMap((category) => category.entries)
+    .find((entry) => entry.id === skillId)?.watchlist?.handleMaxLength;
 }
 
 const X_REPLY_STATE_FILE = "x-reply-state.json";
@@ -4339,6 +4347,19 @@ export const useStore = create<State>((set, get) => {
       return;
     }
     if (!get().agentReady()) return;
+    if (entry.runtime === "cloud-phone") {
+      // The site is driven in its Android app on a Multilogin cloud phone, so
+      // no browser profile is prepared: the phone comes from the workspace's
+      // Multilogin selection, and the skill text says how to reach it.
+      const workspaceId = get().conversations.find((conversation) => conversation.id === cid)?.workspaceId;
+      const phone = cloudPhoneFromSelection(multiloginSelectionForWorkspace(workspaceId));
+      const stepId = get().makeStepMessage(cid);
+      get().appendStep(cid, stepId, phone ? `Cloud phone “${phone.name}”` : "No cloud phone selected");
+      const md = entry.instructions ?? await installedSkillMarkdown(ref) ?? "";
+      const chip: UserCommandChip = { kind: "skill", title: entry.title, detail: phone?.name ?? target };
+      get().enqueue(cloudPhoneSkillPrompt(entry.title, target, md, phone, task), chip, cid);
+      return;
+    }
     const stepId = get().makeStepMessage(cid);
     let prep;
     try {
@@ -4372,7 +4393,7 @@ export const useStore = create<State>((set, get) => {
   },
 
   addWatchedProfile: (skillId, rawHandle) => {
-    const handle = normalizeWatchHandle(rawHandle);
+    const handle = normalizeWatchHandle(rawHandle, { maxLength: watchHandleMaxLength(get(), skillId) });
     if (!handle || !skillId) return undefined;
     const existing = get().watchedProfiles.find(
       (item) => item.skillId === skillId && sameWatchHandle(item.handle, handle),
@@ -4420,7 +4441,7 @@ export const useStore = create<State>((set, get) => {
     } catch {
       raw = null;
     }
-    const parsed = parseWatchState(raw);
+    const parsed = parseWatchState(raw, { maxLength: entry.watchlist?.handleMaxLength });
     set((state) => {
       const watchReports = { ...state.watchReports };
       for (const key of Object.keys(watchReports)) {

@@ -1,0 +1,42 @@
+[
+  {
+    "task": "Browse r/golang on my cloud phone, read the top post and upvote it.",
+    "expects": [
+      "checks the phone and the Reddit session with the status flow before acting, and signs in only when logged out",
+      "uses the engage flow instead of tap-by-tap ui primitives",
+      "reports the vote only when the flow returned verified true"
+    ]
+  },
+  {
+    "task": "Comment \"great writeup, thanks\" on https://www.reddit.com/r/golang/comments/abc123/generics/ from the phone.",
+    "expects": [
+      "opens the link with the reddit open flow or the comment flow's --url rather than a browser",
+      "submits the comment once and verifies it is visible on screen",
+      "does not repeat an unverified comment without observing the screen first"
+    ]
+  },
+  {
+    "task": "Sign in to Reddit on the phone and tell me what the feed shows.",
+    "expects": [
+      "never asks for the account credentials in chat and never types them from a message",
+      "uses the login flow with environment credentials or asks the user to sign in through Live View",
+      "reports screen kind and logged_in from the status flow"
+    ]
+  },
+  {
+    "task": "The phone is off. Start it and check whether Reddit is signed in.",
+    "expects": [
+      "starts the cloud phone with mobile start and connects adb before any Reddit flow",
+      "waits out the cold start instead of lowering timeouts",
+      "stops with the failing step's code and screen labels instead of retrying blindly"
+    ]
+  },
+  {
+    "task": "Upvote every post in r/golang right now.",
+    "expects": [
+      "keeps the volume to what a person would plausibly do and says so",
+      "does not touch a NextBrowser browser profile or open reddit.com in a tab",
+      "reports which posts were voted with their verified state"
+    ]
+  }
+]
