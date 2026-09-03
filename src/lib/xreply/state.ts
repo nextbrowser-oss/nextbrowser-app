@@ -93,8 +93,6 @@ export interface XReplyState {
   hourlyMax: number;
   dailyMax: number;
   gifMode: GifMode;
-  gifHourlyMax: number;
-  gifDailyMax: number;
   /** Words that disqualify a GIF result, on top of the built-in list. */
   gifBlocklist: string[];
   /** The account replies must go out from. Empty means whatever is signed in. */
@@ -123,8 +121,6 @@ export interface XReplyState {
  *  often than this reads as a bot. */
 export const DEFAULT_HOURLY_MAX = 5;
 export const DEFAULT_DAILY_MAX = 20;
-export const DEFAULT_GIF_HOURLY_MAX = 1;
-export const DEFAULT_GIF_DAILY_MAX = 4;
 export const DEFAULT_WATCH_LIMIT = 20;
 /** Profile timelines are the default: the notifications feed renders new
  *  entries only behind a "See new posts" control, which a page nobody is
@@ -157,8 +153,6 @@ export function emptyXReplyState(): XReplyState {
     hourlyMax: DEFAULT_HOURLY_MAX,
     dailyMax: DEFAULT_DAILY_MAX,
     gifMode: "optional",
-    gifHourlyMax: DEFAULT_GIF_HOURLY_MAX,
-    gifDailyMax: DEFAULT_GIF_DAILY_MAX,
     gifBlocklist: [],
     autoRetry: false,
     maxAttempts: DEFAULT_MAX_ATTEMPTS,
@@ -213,8 +207,6 @@ export function normalizeXReplyState(raw: unknown): XReplyState {
     hourlyMax: positive(record.hourlyMax, DEFAULT_HOURLY_MAX),
     dailyMax: positive(record.dailyMax, DEFAULT_DAILY_MAX),
     gifMode: record.gifMode === "required" || record.gifMode === "off" ? record.gifMode : "optional",
-    gifHourlyMax: positive(record.gifHourlyMax, DEFAULT_GIF_HOURLY_MAX),
-    gifDailyMax: positive(record.gifDailyMax, DEFAULT_GIF_DAILY_MAX),
     gifBlocklist: Array.isArray(record.gifBlocklist)
       ? record.gifBlocklist.filter((word): word is string => typeof word === "string" && !!word.trim())
       : [],
@@ -266,8 +258,8 @@ export interface LimitVerdict {
   reason?: string;
 }
 
-function countWithin(state: XReplyState, at: number, windowMs: number, onlyGif: boolean): number {
-  return state.replies.filter((reply) => at - reply.repliedAt < windowMs && (!onlyGif || reply.gif)).length;
+function countWithin(state: XReplyState, at: number, windowMs: number): number {
+  return state.replies.filter((reply) => at - reply.repliedAt < windowMs).length;
 }
 
 /** accruedTokens is the stacking hourly budget: it refills at hourlyMax per
@@ -276,7 +268,7 @@ function countWithin(state: XReplyState, at: number, windowMs: number, onlyGif: 
  *  sends left, so migrating does not grant a burst. */
 export function accruedTokens(state: XReplyState, at: number): number {
   if (state.rateTokens == null || state.rateAccruedAt == null) {
-    return Math.max(0, state.hourlyMax - countWithin(state, at, 60 * 60 * 1000, false));
+    return Math.max(0, state.hourlyMax - countWithin(state, at, 60 * 60 * 1000));
   }
   const elapsedHours = Math.max(0, at - state.rateAccruedAt) / (60 * 60 * 1000);
   return Math.min(state.dailyMax, Math.max(0, state.rateTokens) + state.hourlyMax * elapsedHours);
@@ -284,7 +276,7 @@ export function accruedTokens(state: XReplyState, at: number): number {
 
 /** replyBudget reports what may still go out right now, for the panel. */
 export function replyBudget(state: XReplyState, at: number): number {
-  const dailyLeft = Math.max(0, state.dailyMax - countWithin(state, at, 24 * 60 * 60 * 1000, false));
+  const dailyLeft = Math.max(0, state.dailyMax - countWithin(state, at, 24 * 60 * 60 * 1000));
   return Math.min(Math.floor(accruedTokens(state, at)), dailyLeft);
 }
 
@@ -292,7 +284,7 @@ export function replyBudget(state: XReplyState, at: number): number {
  *  refused attempt never costs the hour's budget. The hourly side is a stacking
  *  bucket; the daily side is a hard rolling cap. */
 export function withinLimits(state: XReplyState, at: number): LimitVerdict {
-  if (countWithin(state, at, 24 * 60 * 60 * 1000, false) >= state.dailyMax) {
+  if (countWithin(state, at, 24 * 60 * 60 * 1000) >= state.dailyMax) {
     return { allowed: false, reason: `Daily limit reached (${state.dailyMax}).` };
   }
   if (accruedTokens(state, at) < 1) {
@@ -301,12 +293,11 @@ export function withinLimits(state: XReplyState, at: number): LimitVerdict {
   return { allowed: true };
 }
 
-/** gifAllowed keeps GIFs occasional, counted separately from the replies: an
- *  account that answers every post with a GIF reads as a bot. */
-export function gifAllowed(state: XReplyState, at: number): boolean {
-  if (state.gifMode === "off") return false;
-  if (countWithin(state, at, 60 * 60 * 1000, true) >= state.gifHourlyMax) return false;
-  return countWithin(state, at, 24 * 60 * 60 * 1000, true) < state.gifDailyMax;
+/** gifAllowed reports whether a reply may carry a GIF. Every reply does now, so
+ *  the only thing left to honour is the kill switch a state file can still set:
+ *  the reply-per-hour budget already bounds how many GIFs an account posts. */
+export function gifAllowed(state: XReplyState): boolean {
+  return state.gifMode !== "off";
 }
 
 export function recordReply(state: XReplyState, record: XReplyRecord): XReplyState {

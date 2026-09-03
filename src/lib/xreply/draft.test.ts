@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { clamp, draftInvocation, draftReply, formatPost, parseDraft, postedAt, systemPrompt } from "./draft";
+import { moods } from "./reaction";
 
 const request = {
   author: "author",
@@ -11,8 +12,8 @@ describe("the drafting prompt", () => {
   it("quarantines the post text and asks for one JSON object", () => {
     const prompt = systemPrompt(280, "Write like an engineer.");
     expect(prompt).toContain("untrusted quoted content");
-    expect(prompt).toContain('{"reply":"the reply text","reaction":"none"}');
-    expect(prompt).toContain("none, agree, celebrate");
+    expect(prompt).toContain('{"reply":"the reply text","reaction":"agree"}');
+    expect(prompt).toContain("agree, celebrate");
     expect(prompt).toContain("at most 280 characters");
     expect(prompt).toContain("Write like an engineer.");
   });
@@ -105,16 +106,21 @@ describe("reaction moods", () => {
     // The same post always resolves to the same phrase.
     expect(parseDraft('{"reply":"Yes.","reaction":"agree"}', 280, "https://x.com/a/status/1").gifQuery).toBe(agree.gifQuery);
 
+    // An invented mood is not in the vocabulary, so the post decides instead.
     const invented = parseDraft('{"reply":"Yes.","reaction":"dancing pineapple"}', 280, "seed");
-    expect(invented.reaction).toBe("none");
-    expect(invented.gifQuery).toBe("");
+    expect(moods()).toContain(invented.reaction);
+    expect(invented.gifQuery).toBeTruthy();
   });
 });
 
 describe("drafting one reply", () => {
   it("passes the post to the agent and returns its reply", async () => {
     const run = vi.fn().mockResolvedValue({ code: 0, stdout: '{"reply":"Tail latency is the tell."}', stderr: "" });
-    await expect(draftReply("claude", request, run)).resolves.toMatchObject({ text: "Tail latency is the tell.", reaction: "none", gifQuery: "" });
+    const draft = await draftReply("claude", request, run);
+    expect(draft.text).toBe("Tail latency is the tell.");
+    // The model named no mood, so one came from the post — and a GIF with it.
+    expect(moods()).toContain(draft.reaction);
+    expect(draft.gifQuery).toBeTruthy();
     const call = run.mock.calls[0][0];
     expect(call.binary).toBe("claude");
     expect(call.stdinText).toContain("Post author: @author");
@@ -124,5 +130,38 @@ describe("drafting one reply", () => {
   it("surfaces a failed agent run instead of inventing a reply", async () => {
     const run = vi.fn().mockResolvedValue({ code: 1, stdout: "", stderr: "not logged in" });
     await expect(draftReply("claude", request, run)).rejects.toThrow(/not logged in/);
+  });
+});
+
+describe("every reply carries a reaction GIF", () => {
+  it("resolves a mood the model named", () => {
+    const draft = parseDraft('{"reply":"a reply","reaction":"laughing"}', 280, "https://x.com/a/status/1");
+    expect(draft.reaction).toBe("laughing");
+    expect(draft.gifQuery).toBeTruthy();
+  });
+
+  it("falls back to a mood drawn from the post when the model names none", () => {
+    for (const answer of ['{"reply":"a reply","reaction":"none"}', '{"reply":"a reply","reaction":"grumpy"}', '{"reply":"a reply"}']) {
+      const draft = parseDraft(answer, 280, "https://x.com/a/status/1");
+      expect(draft.reaction).not.toBe("none");
+      expect(moods()).toContain(draft.reaction);
+      expect(draft.gifQuery).toBeTruthy();
+    }
+  });
+
+  it("keeps one post on one mood and spreads different posts across the vocabulary", () => {
+    const bare = '{"reply":"a reply","reaction":"none"}';
+    const seeds = Array.from({ length: 40 }, (_, index) => `https://x.com/a/status/${index}`);
+    const first = seeds.map((seed) => parseDraft(bare, 280, seed).reaction);
+    // Same post, same mood — a retry must not change the GIF that goes out.
+    expect(seeds.map((seed) => parseDraft(bare, 280, seed).reaction)).toEqual(first);
+    expect(new Set(first).size).toBeGreaterThan(1);
+  });
+
+  it("offers the model no way to decline a reaction", () => {
+    const prompt = systemPrompt(280);
+    expect(prompt).not.toContain("none is the normal answer");
+    expect(prompt).toContain("there is no way to decline one");
+    for (const mood of moods()) expect(prompt).toContain(mood);
   });
 });

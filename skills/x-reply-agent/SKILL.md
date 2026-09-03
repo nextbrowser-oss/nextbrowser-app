@@ -141,11 +141,23 @@ Do these in order, one post at a time, and stop at the first gate that fails.
 
 If the outcome cannot be verified, report the item as unverified and stop that item. Never click submit a second time and never retype the same reply without first reloading the post page and looking for it.
 
-## Optional reaction GIF
+## Reaction GIF
 
-Only when the user asked for GIFs. Pick one mood from this closed list — `agree`, `celebrate`, `shipping`, `mind_blown`, `laughing`, `skeptical`, `waiting` — and search the picker with the phrase mapped to it, for example `nodding in agreement`, `cheers celebration`, `rocket launch liftoff`, `mind blown`, `laughing out loud`, `raised eyebrow skeptical`, `still waiting patiently`. Never invent a search phrase: the account attaches whatever the picker returns first, so the reachable set has to stay small enough to review.
+Every reply goes out with one. Pick the mood from this closed list — `agree`,
+`celebrate`, `shipping`, `mind_blown`, `laughing`, `skeptical`, `waiting` — and
+search the picker with the phrase mapped to it, for example `nodding in
+agreement`, `cheers celebration`, `rocket launch liftoff`, `mind blown`,
+`laughing out loud`, `raised eyebrow skeptical`, `still waiting patiently`.
+Never invent a search phrase: the account attaches whatever the picker returns
+first, so the reachable set has to stay small enough to review. When no mood
+stands out, take the one closest to the tone of your own reply.
 
-Open the picker from `[data-testid="gifSearchButton"]`, type into `[data-testid="gifSearchSearchInput"]`, and read the description of each `[data-testid="gifSearchGifImage"]` before choosing. Skip any result whose description is off-brand for the account. Keep GIFs rare — at most one per hour and four per day. If the picker fails, send the reply as text, and close the picker with Escape rather than leaving a half-filled composer. Media that nobody chose on purpose must never go out.
+Open the picker from `[data-testid="gifSearchButton"]`, type into
+`[data-testid="gifSearchSearchInput"]`, and read the description of each
+`[data-testid="gifSearchGifImage"]` before choosing. Skip any result whose
+description is off-brand for the account. If the picker fails, send the reply as
+text rather than losing it, and close the picker with Escape rather than leaving
+a half-filled composer. Media that nobody chose on purpose must never go out.
 
 ## Limits and recovery
 

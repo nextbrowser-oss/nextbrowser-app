@@ -6,6 +6,9 @@
 // reachable set is a handful of curated searches an operator can audit, and the
 // model only has to recognize a mood instead of inventing a search phrase.
 
+/// The answer an older prompt accepted instead of a mood. Nothing asks for it
+/// now — every reply carries a GIF — but a model that answers it anyway must
+/// still resolve to something, so it falls back to a mood picked from the post.
 export const REACTION_NONE = "none";
 
 /** Several phrases per reaction keep the account from attaching the same GIF
@@ -45,6 +48,23 @@ export function validReaction(value: string): boolean {
 export function normalizeReaction(value: string | undefined): string {
   const normalized = (value ?? "").trim().toLowerCase();
   return validReaction(normalized) ? normalized : REACTION_NONE;
+}
+
+/** moods lists the reactions that resolve to a GIF, none excluded. */
+export function moods(): string[] {
+  return Object.keys(REACTION_QUERIES).sort();
+}
+
+/** resolveReaction is what the account actually reacts with. Every reply
+ *  carries a GIF, so a model that named no mood — or named one the vocabulary
+ *  does not have — still gets one, chosen from the post rather than at random:
+ *  the same post keeps the same reaction across retries, and different posts
+ *  spread across the vocabulary instead of all landing on one mood. */
+export function resolveReaction(value: string | undefined, seed: string): string {
+  const named = normalizeReaction(value);
+  if (named !== REACTION_NONE) return named;
+  const list = moods();
+  return list[fnv1a(`mood:${seed}`) % list.length];
 }
 
 /** fnv1a matches Go's hash/fnv 32-bit variant, so the same post resolves to the

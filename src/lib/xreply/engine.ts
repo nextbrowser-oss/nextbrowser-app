@@ -656,9 +656,7 @@ export async function sendDraft(
       query: draft.gifQuery,
       mode: state.gifMode,
       blocklist: [...DEFAULT_GIF_BLOCKLIST, ...state.gifBlocklist],
-      // The budget is spent by a GIF that actually reached the composer, not by
-      // an attempt, so it is only checked here and recorded after a send.
-      allowed: () => gifAllowed(state, deps.now()),
+      allowed: () => gifAllowed(state),
     }
     : undefined;
   const outcome = await publishReply(

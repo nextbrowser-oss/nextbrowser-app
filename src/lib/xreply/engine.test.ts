@@ -49,6 +49,8 @@ function fakeBrowser(fixture: PageFixture) {
   const signedIn = fixture.signedIn !== false;
   const publisher = fixture.publisher ?? "me";
   const bell = { found: true, enabled: true, following: true, unfollowed: false, header: true, ...(fixture.bell ?? {}) };
+  // Every reply carries a GIF now, so a working picker is the fixture default.
+  const gif = { found: true, settles: true, ...(fixture.gif ?? {}) };
   const opened: string[] = [];
   const clicks: string[] = [];
   let inspected = 0;
@@ -105,7 +107,7 @@ function fakeBrowser(fixture: PageFixture) {
           on_post: true, reply_composer_route: false, login_wall: false,
           composer: { present: true, text: inspected > 1 ? "drafted reply" : "" },
           submit: { present: true, disabled: fixture.publishOutcome === "refused" },
-          media: { present: !!fixture.gif && fixture.gif.found !== false && fixture.gif.settles !== false && inspected > 1, uploading: false },
+          media: { present: clicks.includes("gif-result") && gif.settles, uploading: false },
           identity: { present: true, session: true, handle: publisher, matches: true },
           reply_control: true, existing_reply_url: "",
         } as never;
@@ -121,12 +123,12 @@ function fakeBrowser(fixture: PageFixture) {
         return { inserted: true, value: "q", reason: "" } as never;
       }
       if (script.includes("gifSearchGifImage") && script.includes("blocked")) {
-        return fixture.gif?.found === false
+        return gif.found === false
           ? { found: false, x: 0, y: 0, alt: "", considered: 3, skipped: ["a [blocked: nsfw]"], reason: "every result was skipped" } as never
           : { found: true, x: 60, y: 60, alt: "nodding yes", considered: 3, skipped: [], reason: "" } as never;
       }
       if (script.includes("submit_enabled")) {
-        return { present: fixture.gif?.settles !== false, uploading: false, submit_enabled: true } as never;
+        return { present: clicks.includes("gif-result") && gif.settles, uploading: false, submit_enabled: true } as never;
       }
       if (script.includes("gifSearchButton")) return { found: true, x: 50, y: 50, reason: "" } as never;
       return { found: true, x: 30, y: 40, reason: "" } as never;
@@ -514,7 +516,7 @@ describe("reaction GIFs", () => {
     expect(state.drafts[0].status).toBe("failed");
   });
 
-  it("ignores the reaction entirely when GIFs are switched off", async () => {
+  it("sends text only when the off switch is set in the state file", async () => {
     const { args, clicks } = deps(seeded("10", { gifMode: "off" }), { triggers: NOTICE, posts: [{ id: "20" }] }, {
       runAgent: vi.fn().mockResolvedValue({ code: 0, stdout: gifDraft, stderr: "" }),
     });
@@ -523,15 +525,27 @@ describe("reaction GIFs", () => {
     expect(clicks).not.toContain("gif-button");
   });
 
-  it("keeps GIFs inside their own hourly budget", async () => {
+  it("attaches a GIF to every reply, with no budget of its own", async () => {
     const at = 1_800_000_000_000;
-    const spent = { ...seeded("10", { gifHourlyMax: 1 }), replies: [{ postId: "old", repliedAt: at - 60_000, gif: true }] };
-    const { args, clicks } = deps(spent, { triggers: NOTICE, posts: [{ id: "20" }] }, {
+    // An hour that already sent a GIF used to block the next one.
+    const spent = { ...seeded("10"), replies: [{ postId: "old", repliedAt: at - 60_000, gif: true }] };
+    const { args, clicks } = deps(spent, { triggers: NOTICE, posts: [{ id: "20" }], gif: { found: true } }, {
       runAgent: vi.fn().mockResolvedValue({ code: 0, stdout: gifDraft, stderr: "" }),
     });
-    const { summary } = await runPass(args);
-    expect(summary.sent).toBe(1);
-    expect(clicks).not.toContain("gif-button");
+    const { state } = await runPass(args);
+    expect(clicks).toContain("gif-button");
+    expect(state.replies.at(-1)?.gif).toBe(true);
+  });
+
+  it("attaches a GIF even when the model named no mood", async () => {
+    const { args, clicks } = deps(seeded("10"), { triggers: NOTICE, posts: [{ id: "20" }], gif: { found: true } }, {
+      runAgent: vi.fn().mockResolvedValue({ code: 0, stdout: '{"reply":"drafted reply","reaction":"none"}', stderr: "" }),
+    });
+    const { state } = await runPass(args);
+    expect(clicks).toContain("gif-button");
+    expect(state.drafts[0].reaction).not.toBe("none");
+    expect(state.drafts[0].gifQuery).toBeTruthy();
+    expect(state.replies[0].gif).toBe(true);
   });
 });
 

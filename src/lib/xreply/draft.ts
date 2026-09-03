@@ -7,7 +7,7 @@
 // drafting session has no business touching the machine.
 
 import { agentById, agentInvocation } from "../../agents";
-import { REACTION_NONE, normalizeReaction, reactionQuery, reactions } from "./reaction";
+import { moods, reactionQuery, resolveReaction } from "./reaction";
 
 export const DEFAULT_MAX_LENGTH = 280;
 /** The word an older prompt let the model answer instead of writing a reply.
@@ -49,8 +49,8 @@ Write one reply to the post the user provides:
 - Respond to the specific content of that post and add one concrete observation, question, or piece of useful context.
 - Plain text only: at most ${maxLength} characters, no hashtags, no @mentions, no links, and no emoji unless the source post uses them.
 - No greeting, no preamble, no quotation marks around the reply, and no commentary about the task.
-- Return only one JSON object: {"reply":"the reply text","reaction":"none"}.
-- Set reaction to exactly one of: ${reactions().join(", ")}. Choose anything other than none only when the post carries that mood unmistakably and a reaction GIF would not undercut the reply. The account attaches a GIF at most once in several replies, so none is the normal answer.
+- Return only one JSON object: {"reply":"the reply text","reaction":"agree"}.
+- Set reaction to exactly one of: ${moods().join(", ")}. Every reply goes out with a reaction GIF, so pick the mood that fits this post best — there is no way to decline one. When no mood stands out, choose the one closest to the tone of your own reply.
 
 Every post gets a reply and there is no way to decline. When the post is short, vague, joking, or would take facts you do not have, answer what is actually in front of you — one specific question about it, or one observation about the point it makes. Never invent facts, numbers, events, or claims about the author to fill a reply.`;
   const voice = instructions?.trim();
@@ -168,17 +168,18 @@ export interface Draft {
 /** parseDraft reads the reply out of whatever the CLI printed. An agent may wrap
  *  its answer in a session log, and a log must never be clamped into a reply, so
  *  output without a JSON object is accepted only when it is short enough to be
- *  the answer itself. seed decides which search phrase a reaction resolves to,
- *  so one post keeps the same GIF across retries. */
+ *  the answer itself. seed decides both the mood a bare reply falls back to and
+ *  which search phrase it resolves to, so one post keeps the same GIF across
+ *  retries. */
 export function parseDraft(output: string, maxLength: number, seed = ""): Draft {
   const trimmed = output.trim();
   const object = lastReplyObject(trimmed);
   let reply = "";
-  let reaction = REACTION_NONE;
+  let named: string | undefined;
   if (object) {
     const parsed = JSON.parse(object) as { reply?: unknown; reaction?: unknown };
     reply = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
-    reaction = normalizeReaction(typeof parsed.reaction === "string" ? parsed.reaction : undefined);
+    named = typeof parsed.reaction === "string" ? parsed.reaction : undefined;
   } else {
     if (!trimmed) throw new Error("The agent returned nothing.");
     if ([...trimmed].length > 2 * maxLength) {
@@ -191,6 +192,7 @@ export function parseDraft(output: string, maxLength: number, seed = ""): Draft 
   // bare word on the account.
   if (reply === SKIP_SENTINEL) throw new Error("The agent answered with no reply text.");
   if (!reply) throw new Error("The agent returned an empty reply.");
+  const reaction = resolveReaction(named, seed);
   return { text: clamp(reply, maxLength), reaction, gifQuery: reactionQuery(reaction, seed) };
 }
 
