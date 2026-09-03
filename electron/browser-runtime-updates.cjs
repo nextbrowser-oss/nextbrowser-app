@@ -36,6 +36,124 @@ function selectAvailableRuntimeUpdates(status, requestedRuntimes) {
   return (status?.runtimes || []).filter((runtime) => runtime.status === "available" && requested.has(runtime.runtime));
 }
 
+function conciseFailureMessage(error) {
+  const message = String(error?.message || error || "The update process stopped unexpectedly.")
+    .replace(/\s+/g, " ")
+    .trim();
+  return message.length > 240 ? `${message.slice(0, 237)}…` : message;
+}
+
+function classifyRuntimeUpdateFailure(error) {
+  const message = conciseFailureMessage(error);
+  const normalized = message.toLowerCase();
+  if (/enospc|no space|disk full|not enough space/.test(normalized)) {
+    return { code: "UPDATE_DISK_SPACE", category: "Not enough disk space", retryable: false, message, recovery: "Free up disk space, then try again." };
+  }
+  if (/eacces|eperm|permission denied|operation not permitted|administrator/.test(normalized)) {
+    return { code: "UPDATE_PERMISSION", category: "Permission required", retryable: false, message, recovery: "Check that NextBrowser can write to its application data, then try again." };
+  }
+  if (/ebusy|locked|in use|already running|running browser|process.*running/.test(normalized)) {
+    return { code: "UPDATE_RUNTIME_IN_USE", category: "Browser is still running", retryable: true, message, recovery: "Close this browser toolset completely, then retry." };
+  }
+  if (/timeout|timed out|fetch failed|network|econn|enotfound|eai_again|http\s*[45]\d\d|update source returned/.test(normalized)) {
+    return { code: "UPDATE_NETWORK", category: "Connection problem", retryable: true, message, recovery: "Keep NextBrowser open and check your internet connection, then retry." };
+  }
+  if (/invalid version|signature verification|release did not contain|installed version is still|not available for/.test(normalized)) {
+    return { code: "UPDATE_RELEASE_VALIDATION", category: "Release verification failed", retryable: false, message, recovery: "Use the official manual update page below, or try again after a newer release is published." };
+  }
+  return { code: "UPDATE_UNKNOWN", category: "Update could not finish", retryable: true, message, recovery: "Keep NextBrowser open, check disk space and your connection, then retry." };
+}
+
+function updateInstallMessage(completed, errors) {
+  if (errors.length) {
+    return completed.length
+      ? "Some browser toolsets were updated, but others need attention."
+      : "The browser toolset updates could not be installed.";
+  }
+  return `${completed.length === 1 ? "The browser toolset is" : "Browser toolsets are"} ready to use.`;
+}
+
+// Keep the multi-toolset update policy independent from Electron. This makes
+// the important guarantee explicit: a failed runtime never prevents later,
+// confirmed runtimes from being attempted.
+async function installSelectedRuntimeUpdates({ requestedRuntimes, checkForUpdates, installRuntime, onStatus = () => {} }) {
+  const fresh = await checkForUpdates();
+  const updates = selectAvailableRuntimeUpdates(fresh, requestedRuntimes);
+  if (!updates.length) {
+    const result = {
+      status: "failed",
+      runtimes: [],
+      completed: [],
+      errors: [],
+      progress: 100,
+      message: "The selected browser toolsets are already up to date.",
+    };
+    onStatus(result);
+    return result;
+  }
+
+  const runtimes = updates.map((runtime) => runtime.runtime);
+  const completed = [];
+  const errors = [];
+  onStatus({
+    status: "installing",
+    runtimes,
+    completed: [],
+    errors: [],
+    currentRuntime: updates[0].runtime,
+    currentName: updates[0].name,
+    currentVersion: updates[0].latestVersion,
+    total: updates.length,
+    progress: 0,
+    message: "Downloading the confirmed updates in the background.",
+  });
+
+  for (let index = 0; index < updates.length; index += 1) {
+    const update = updates[index];
+    onStatus({
+      status: "installing",
+      runtimes,
+      completed: [...completed],
+      errors: [...errors],
+      currentRuntime: update.runtime,
+      currentName: update.name,
+      currentVersion: update.latestVersion,
+      total: updates.length,
+      progress: Math.round((index / updates.length) * 100),
+      message: `Installing ${update.name} ${update.latestVersion || "update"} in the background.`,
+    });
+    try {
+      await installRuntime(update);
+      completed.push(update.runtime);
+    } catch (error) {
+      errors.push({
+        runtime: update.runtime,
+        name: update.name,
+        releasePage: update.releasePage,
+        ...classifyRuntimeUpdateFailure(error),
+      });
+    }
+  }
+
+  // A transient refresh failure must not turn completed updates into a failed
+  // operation. The next hourly check will refresh the available versions.
+  await checkForUpdates().catch(() => undefined);
+  const result = {
+    status: errors.length ? (completed.length ? "partial" : "failed") : "ready",
+    runtimes,
+    completed,
+    errors,
+    currentRuntime: undefined,
+    currentName: undefined,
+    currentVersion: undefined,
+    total: updates.length,
+    progress: 100,
+    message: updateInstallMessage(completed, errors),
+  };
+  onStatus(result);
+  return result;
+}
+
 function clawbrowserReleaseAsset(platform, arch, version) {
   const release = assertRuntimeReleaseVersion(version);
   let assetName = "";
@@ -246,9 +364,11 @@ module.exports = {
   assertRuntimeReleaseVersion,
   checkBrowserRuntimeUpdates,
   clawbrowserReleaseAsset,
+  classifyRuntimeUpdateFailure,
   compareVersions,
   installedCamoufoxVersion,
   installedClawbrowserVersion,
+  installSelectedRuntimeUpdates,
   installRuntimeUpdateWithVerification,
   normalizeVersion,
   runtimeResult,

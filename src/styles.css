@@ -3668,7 +3668,7 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: start;
   gap: 11px;
-  width: min(390px, calc(100vw - 36px));
+  width: min(480px, calc(100vw - 36px));
   padding: 13px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-lg);
@@ -3693,6 +3693,32 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .runtime-update-progress-mark.is-error { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
 .runtime-update-progress-copy { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .runtime-update-progress-copy strong { font-size: 14px; }
+.runtime-update-errors {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+}
+.runtime-update-error {
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, var(--red) 36%, var(--line));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--red) 6%, var(--surface-2));
+}
+.runtime-update-error-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.runtime-update-error-heading code {
+  flex: none;
+  color: var(--muted);
+  font-size: 10px;
+}
+.runtime-update-error p { margin: 4px 0 0; }
+.runtime-update-recovery { color: var(--text); font-size: 12px; }
+.runtime-update-error-actions { gap: 6px; margin-top: 8px; }
+.runtime-update-requirements { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
 .runtime-update-progress-track {
   height: 4px;
   margin-top: 3px;
