@@ -14,6 +14,7 @@ import {
   COMPOSER_TESTID_PREFIX,
   GIF_INPUT_SELECTOR,
   GIF_RESULT_SELECTOR,
+  POST_READY_SELECTOR,
   composerGifRectScript,
   composerSubmitRectScript,
   focusedReplyRectScript,
@@ -30,6 +31,7 @@ import {
   type VerifyState,
 } from "./scripts";
 import { postIdFromUrl } from "./posts";
+import { loadPage } from "./page";
 
 /** What a drafted reaction is worth. Ported from the Go service's GIF modes. */
 export type GifMode = "optional" | "required" | "off";
@@ -98,8 +100,18 @@ export async function publishReply(
   const inspect = () =>
     browser.evaluate<PageState>(inspectScript(postId, request.replyText, request.publisherHandle));
 
-  await browser.open(request.postUrl);
-  await browser.waitForLoad(15).catch(() => undefined);
+  // The post and the account chrome render after the load event, and a tab
+  // where x.com's app has failed renders neither on any reload, so the landing
+  // goes through loadPage: it waits, and reopens the post in a fresh tab when
+  // nothing came. A page x.com never drew is refused as such — it is not a
+  // sign-out, and calling it one sent the user to sign in again and again.
+  const page = await loadPage(browser, request.postUrl, POST_READY_SELECTOR);
+  if (!page.rendered && !page.login_wall) {
+    return {
+      status: "refused",
+      reason: `x.com did not render the post page (${page.error_screen ? "its error screen" : "a blank page"}), even in a fresh tab.`,
+    };
+  }
   let state = await inspect();
 
   if (state.login_wall || !state.identity.session) {

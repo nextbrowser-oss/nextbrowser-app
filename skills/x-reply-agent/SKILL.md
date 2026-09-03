@@ -166,6 +166,7 @@ a half-filled composer. Media that nobody chose on purpose must never go out.
 - Selectors here are starting points, not identities. Re-resolve controls by role, label, visible text, or selector after any navigation, and treat captured element ids as valid only within the current page state.
 - A lost session or a detached tab is reattached once with the same profile before anything is submitted; nothing is reattached after a submit click.
 - If a step inside the reply modal fails, press Escape to close it, so the next item starts from a clean page.
+- If x.com shows "Something went wrong" with a Try again button and no account chrome, do not reload that tab and do not read it as a sign-out: open the same URL in a new tab and close the old one. A tab where the app has failed keeps failing on every reload; a fresh tab loads at once.
 - Stop and report the real blocker after two failures of the same step. Do not restart the browser, the profile, or the run to work around it.
 
 ## Completion

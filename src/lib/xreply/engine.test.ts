@@ -26,6 +26,8 @@ interface PageFixture {
   bell?: { found?: boolean; enabled?: boolean; following?: boolean; unfollowed?: boolean; header?: boolean };
   /** The feed hides everything behind a "See new posts" control until pressed. */
   pill?: boolean;
+  /** How many page loads x.com answers with its error screen before drawing. */
+  errorScreens?: number;
   publishOutcome?: "published" | "unverified" | "refused";
   gif?: { found?: boolean; settles?: boolean };
 }
@@ -57,8 +59,10 @@ function fakeBrowser(fixture: PageFixture) {
   let bellReads = 0;
   let pillPressed = false;
   const hidden = () => !!fixture.pill && !pillPressed;
+  let loads = 0;
   const browser: XBrowser = {
-    open: vi.fn(async (url: string) => { opened.push(url); }),
+    open: vi.fn(async (url: string) => { opened.push(url); loads += 1; }),
+    reopen: vi.fn(async (url: string) => { opened.push(`reopen:${url}`); loads += 1; }),
     waitForLoad: vi.fn(async () => undefined),
     waitForSelector: vi.fn(async () => undefined),
     clickAt: vi.fn(async (x: number) => {
@@ -67,6 +71,12 @@ function fakeBrowser(fixture: PageFixture) {
     inputByTestIdPrefix: vi.fn(async () => undefined),
     press: vi.fn(async () => { clicks.push("escape"); }),
     evaluate: vi.fn(async (script: string) => {
+      if (script.includes("error_screen")) {
+        // The error screen shows for the first `errorScreens` loads, then the
+        // page draws; a signed-out page draws its login wall instead.
+        const broken = loads <= (fixture.errorScreens ?? 0);
+        return { url: "", rendered: signedIn && !broken, error_screen: broken, login_wall: !signedIn && !broken } as never;
+      }
       if (script.includes('identity: publisherIdentity("")')) {
         return {
           url: "https://x.com/home", login_wall: !signedIn,
@@ -479,6 +489,49 @@ describe("watching through profile timelines", () => {
     expect(result.state.handles.author.notifications).toBeUndefined();
     expect(clicks).not.toContain("bell");
     expect(opened).toEqual(["https://x.com/author"]);
+  });
+});
+
+describe("a page x.com did not draw", () => {
+  function profiles(): XReplyState {
+    return withHandleState({ ...emptyXReplyState() }, "author", { watchingSince: 1, lastPostId: "10" });
+  }
+
+  it("reopens a profile that shows the error screen in a fresh tab and reads it", async () => {
+    const { args, opened } = deps(profiles(), { errorScreens: 1, posts: [{ id: "10" }, { id: "20" }] });
+    const { state, summary } = await runPass(args);
+    expect(opened).toContain("reopen:https://x.com/author");
+    expect(summary.loginRequired).toBe(false);
+    expect(summary.drafted).toBe(1);
+    expect(state.drafts[0]).toMatchObject({ postId: "20", status: "sent" });
+  });
+
+  it("reports a profile that never renders instead of asking for a sign-in", async () => {
+    const { args, opened } = deps(profiles(), { errorScreens: 99, posts: [{ id: "20" }] });
+    const { state, summary } = await runPass(args);
+    // One fresh tab is tried, not a loop of them.
+    expect(opened.filter((url) => url.startsWith("reopen:"))).toHaveLength(1);
+    expect(summary.loginRequired).toBe(false);
+    expect(summary.failed).toBe(1);
+    expect(summary.drafted).toBe(0);
+    expect(summary.notes.join(" ")).toContain("did not render the profile");
+    expect(state.publisher?.signedIn).not.toBe(false);
+    expect(state.handles.author.lastPostId).toBe("10");
+  });
+
+  it("names an unrendered feed as such in notifications mode", async () => {
+    const { args, summary: _ } = { ...deps(watching(), { errorScreens: 99, triggers: NOTICE, posts: [{ id: "20" }] }), summary: undefined };
+    const { summary } = await runPass(args);
+    expect(summary.loginRequired).toBe(false);
+    expect(summary.blocked).toContain("did not render the notifications feed");
+    expect(summary.checked).toBe(0);
+  });
+
+  it("still treats a signed-out page as a sign-out, not as a page failure", async () => {
+    const { args, opened } = deps(profiles(), { signedIn: false, posts: [{ id: "20" }] });
+    const { summary } = await runPass(args);
+    expect(summary.loginRequired).toBe(true);
+    expect(opened.some((url) => url.startsWith("reopen:"))).toBe(false);
   });
 });
 

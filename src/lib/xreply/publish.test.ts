@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { publishReply } from "./publish";
 import type { XBrowser } from "./browser";
-import type { PageState, VerifyState } from "./scripts";
+import type { PageHealth, PageState, VerifyState } from "./scripts";
 
 const POST_URL = "https://x.com/author/status/1899000000000000000";
 
@@ -37,21 +37,29 @@ function verifyState(patch: Partial<VerifyState> = {}): VerifyState {
  *  what the page looks like instead of what the engine asks for. */
 function fakeBrowser(responses: {
   inspect: PageState[] | PageState;
+  /** What each page load reported, in order; a drawn page when exhausted. */
+  health?: PageHealth[];
   verify?: VerifyState;
   submitPoint?: { found: boolean; x: number; y: number; reason: string };
   replyPoint?: { found: boolean; x: number; y: number; reason: string };
   composerText?: string;
 }) {
   const inspects = Array.isArray(responses.inspect) ? [...responses.inspect] : [responses.inspect];
+  const healths = [...(responses.health ?? [])];
   const calls: string[] = [];
   const browser: XBrowser = {
     open: vi.fn(async () => { calls.push("open"); }),
+    reopen: vi.fn(async () => { calls.push("reopen"); }),
     waitForLoad: vi.fn(async () => { calls.push("waitForLoad"); }),
     waitForSelector: vi.fn(async () => { calls.push("waitForSelector"); }),
     clickAt: vi.fn(async (x: number, y: number) => { calls.push(`clickAt:${x},${y}`); }),
     inputByTestIdPrefix: vi.fn(async (_prefix: string, text: string) => { calls.push(`input:${text}`); }),
     press: vi.fn(async (key: string) => { calls.push(`press:${key}`); }),
     evaluate: vi.fn(async (script: string) => {
+      if (script.includes("error_screen")) {
+        calls.push("health");
+        return (healths.shift() ?? drawn()) as never;
+      }
       if (script.includes("existing_reply_url")) {
         calls.push("inspect");
         return (inspects.length > 1 ? inspects.shift() : inspects[0]) as never;
@@ -68,8 +76,34 @@ function fakeBrowser(responses: {
   return { browser, calls };
 }
 
+const drawn = (): PageHealth => ({ url: POST_URL, rendered: true, error_screen: false, login_wall: false });
+const errorScreen = (): PageHealth => ({ url: POST_URL, rendered: false, error_screen: true, login_wall: false });
+
 const request = { postUrl: POST_URL, replyText: "A concrete note about the post.", publisherHandle: "me" };
 const noSleep = { sleep: async () => undefined };
+
+describe("a post page x.com did not draw", () => {
+  it("reopens the post in a fresh tab when the first load is the error screen", async () => {
+    const { browser, calls } = fakeBrowser({
+      inspect: [pageState(), pageState({ composer: { present: true, text: request.replyText } })],
+      health: [errorScreen(), drawn()],
+    });
+    const outcome = await publishReply(browser, request, noSleep);
+    expect(outcome.status).toBe("published");
+    expect(calls.filter((call) => call === "reopen")).toHaveLength(1);
+  });
+
+  it("refuses a page that never renders without calling it a sign-out", async () => {
+    const { browser, calls } = fakeBrowser({ inspect: pageState(), health: [errorScreen(), errorScreen()] });
+    const outcome = await publishReply(browser, request, noSleep);
+    expect(outcome).toMatchObject({ status: "refused" });
+    const reason = outcome.status === "refused" ? outcome.reason : "";
+    expect(reason).toContain("did not render the post page");
+    expect(reason).not.toContain("not signed in");
+    expect(calls.filter((call) => call === "reopen")).toHaveLength(1);
+    expect(calls.some((call) => call.startsWith("clickAt") || call.startsWith("input:"))).toBe(false);
+  });
+});
 
 describe("publishing one reply", () => {
   it("types the draft and clicks the reply button exactly once", async () => {

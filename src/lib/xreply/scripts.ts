@@ -16,6 +16,9 @@ const TWEET_SELECTOR = `article[data-testid="tweet"], [itemtype="https://schema.
 /** What a rendered timeline looks like: a post, or the explicit empty state.
  *  X renders posts asynchronously, so a read right after load sees nothing. */
 export const TIMELINE_READY_SELECTOR = `article[data-testid="tweet"], [data-testid="emptyState"]`;
+/** A post page is ready once the focused post is there; a signed-out one ends
+ *  the wait on the login markers instead of running the clock out. */
+export const POST_READY_SELECTOR = `article[data-testid="tweet"], a[href="/i/flow/login"], input[autocomplete="username"]`;
 /** The notifications feed's own rendered markers. */
 export const FEED_READY_SELECTOR = `article[data-testid="notification"], article[data-testid="tweet"], [data-testid="cellInnerDiv"], [data-testid="emptyState"]`;
 const ARTICLE_SELECTOR = `article[data-testid="tweet"]`;
@@ -459,6 +462,31 @@ const HIT_TEST_HELPER = `
     }
     return { found: true, x: x, y: y, reason: "" };
   };`;
+
+/** What a page did after load: whether x.com drew anything at all, whether the
+ *  whole page is its own error screen, and whether it is the sign-in wall. */
+export interface PageHealth {
+  url: string;
+  rendered: boolean;
+  error_screen: boolean;
+  login_wall: boolean;
+}
+
+/** pageHealthScript tells a page x.com drew from one it gave up on. The error
+ *  screen — "Something went wrong … Try again" — carries no account chrome and
+ *  no timeline, so on its own it reads exactly like a signed-out profile; which
+ *  of the two it is decides whether the cure is a sign-in or a fresh tab. An
+ *  error module next to a drawn timeline is not the error screen. */
+export function pageHealthScript(): string {
+  return `(() => {${LOGIN_WALL_CHECK}
+  const drew = (selector) => !!document.querySelector(selector);
+  const rendered = drew('${IDENTITY_ANCHOR_SELECTOR}') || drew('${TWEET_SELECTOR}')
+    || drew('[data-testid="cellInnerDiv"], [data-testid="emptyState"]');
+  const text = (document.body.innerText || "").replace(/\\s+/g, " ");
+  const errorText = /something went wrong/i.test(text) && /try again|retry/i.test(text);
+  return { url: location.href, rendered: rendered, error_screen: errorText && !rendered, login_wall: atLoginWall() };
+})()`;
+}
 
 /** identityScript reads only who is signed in, which is what the panel shows
  *  before anything is watched. */

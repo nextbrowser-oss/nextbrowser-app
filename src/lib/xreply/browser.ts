@@ -4,6 +4,7 @@
 // prepared and never a stray session.
 
 import { nextctlJson, nextctlRun, nextctlErrorMessage } from "../../nextctl";
+import type { TabsList } from "../../types";
 
 export interface XBrowser {
   /** Navigate the active tab. */
@@ -21,6 +22,18 @@ export interface XBrowser {
   inputByTestIdPrefix(prefix: string, text: string): Promise<void>;
   /** Send one key event, which is how a modal left open is closed again. */
   press(key: string): Promise<void>;
+  /** Load the URL in a fresh tab and close the tabs this site was in. A tab
+   *  where x.com's app has failed keeps failing on every reload of the same
+   *  URL; a new tab loads it at once. */
+  reopen(url: string): Promise<void>;
+}
+
+function hostOf(url?: string): string {
+  try {
+    return new URL(url ?? "").hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return "";
+  }
 }
 
 interface BrowserState {
@@ -67,6 +80,20 @@ export function cliBrowser(profileArgs: string[]): XBrowser {
     },
     async press(key) {
       await nextctlJson<unknown>(args("press", key));
+    },
+    async reopen(url) {
+      const host = hostOf(url);
+      const before = await nextctlJson<TabsList>(args("tabs", "list")).catch(() => ({ tabs: [] }) as TabsList);
+      const stale = (before.tabs ?? []).filter((tab) => hostOf(tab.url) === host).map((tab) => tab.id);
+      const opened = await nextctlJson<{ tab?: { id?: string } }>(args("open", url, "--force-new-tab"));
+      const id = opened.tab?.id;
+      if (!id) throw new Error("Could not open a fresh tab: nextctl returned no tab.");
+      await nextctlJson<unknown>(args("tabs", "activate", id));
+      // The old tabs go only once the new one is up, so the site is never left
+      // without a page — and never with the failed one as the current page.
+      for (const tabId of stale) {
+        if (tabId !== id) await nextctlJson<unknown>(args("tabs", "close", tabId)).catch(() => undefined);
+      }
     },
   };
 }

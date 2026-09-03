@@ -30,6 +30,7 @@ import {
   type TimelineSnapshot,
 } from "./scripts";
 import { compareIds, newerThan, newestId, normalizePosts, selectEligible, type XPost } from "./posts";
+import { loadPage, type LoadedPage } from "./page";
 import { draftReply, type AgentRunner } from "./draft";
 import { publishReply, type GifOptions } from "./publish";
 import { DEFAULT_GIF_BLOCKLIST } from "./reaction";
@@ -154,14 +155,17 @@ export async function ensureNotifications(
   return { settled: false, notifications: false, note: "Post notifications could not be confirmed." };
 }
 
-/** openProfile lands on one account's timeline and waits for it to render. */
-async function openProfile(browser: XBrowser, handle: string): Promise<void> {
-  await browser.open(`https://x.com/${handle}`);
-  await browser.waitForLoad(15).catch(() => undefined);
-  // Posts render after the page load event. Reading before a tweet or the
-  // explicit empty state exists sees a blank timeline and mistakes it for an
-  // account that never posted — which is how a notified post got lost.
-  await browser.waitForSelector(TIMELINE_READY_SELECTOR, 10).catch(() => undefined);
+/** openProfile lands on one account's timeline and reports whether x.com drew
+ *  it. Posts render after the page load event, and a tab where x.com's app has
+ *  failed never renders them on any reload, so the landing goes through
+ *  loadPage: it waits, and reopens the profile in a fresh tab when nothing came. */
+async function openProfile(browser: XBrowser, handle: string): Promise<LoadedPage> {
+  return loadPage(browser, `https://x.com/${handle}`, TIMELINE_READY_SELECTOR);
+}
+
+/** unrendered describes a page x.com never drew, for a note the user reads. */
+function unrendered(page: LoadedPage, what: string): string {
+  return `x.com did not render ${what} (${page.error_screen ? "its error screen" : "a blank page"}), even in a fresh tab.`;
 }
 
 async function readTimeline(browser: XBrowser, handle: string, limit: number): Promise<TimelineSnapshot> {
@@ -195,9 +199,8 @@ async function pressFeedPill(browser: XBrowser): Promise<boolean> {
 
 /** openNotifications lands the browser on the feed, which is both where the
  *  pass works and where the user expects to find the tab afterwards. */
-export async function openNotifications(browser: XBrowser): Promise<void> {
-  await browser.open(NOTIFICATIONS_URL);
-  await browser.waitForLoad(15).catch(() => undefined);
+export async function openNotifications(browser: XBrowser): Promise<LoadedPage> {
+  return loadPage(browser, NOTIFICATIONS_URL, FEED_READY_SELECTOR);
 }
 
 /** newestNotice returns the delivery time of the newest post notice for one
@@ -249,10 +252,15 @@ export async function subscribeHandle(deps: {
     return { state, signedIn: false, note: "The browser profile is not signed in to x.com." };
   }
 
-  await deps.browser.open(`https://x.com/${deps.handle}`);
-  await deps.browser.waitForLoad(15).catch(() => undefined);
-
+  const page = await openProfile(deps.browser, deps.handle);
   const previous = handleState(state, deps.handle);
+  if (!page.rendered && !page.login_wall) {
+    // Not a sign-out: the page never came. Say so under the account instead of
+    // guessing at its state, and leave it for the next attempt.
+    const reason = unrendered(page, "the profile");
+    state = withHandleState(state, deps.handle, { note: reason, lastCheckedAt: deps.now() });
+    return { state, signedIn: true, note: reason };
+  }
   // The bell only matters to the feed: a timeline is read whether or not X
   // would have sent a notice, so a profile-watching account never touches it.
   let bell: Awaited<ReturnType<typeof ensureNotifications>> | undefined;
@@ -342,7 +350,16 @@ export async function runPass(deps: PassDeps): Promise<PassResult> {
       for (const handle of deps.handles) {
         stopIfAsked();
         step(`Reading @${handle}`);
-        await openProfile(deps.browser, handle);
+        const page = await openProfile(deps.browser, handle);
+        if (!page.rendered && !page.login_wall) {
+          // x.com drew nothing for this profile even after a fresh tab. That is
+          // a page failure, not a sign-out: the account is reported and left
+          // for the next pass rather than sending the user to sign in again.
+          summary.failed += 1;
+          note(`@${handle}: ${unrendered(page, "the profile")}`);
+          state = withHandleState(state, handle, { lastCheckedAt: deps.now() });
+          continue;
+        }
         if (!verified) {
           const verdict = await verifyPublisher(deps, state, summary, note);
           state = verdict.state;
@@ -370,7 +387,12 @@ export async function runPass(deps: PassDeps): Promise<PassResult> {
       // The feed is both the identity check and the work surface, so the pass
       // goes straight there instead of visiting x.com first.
       step("Opening the notifications feed");
-      await openNotifications(deps.browser);
+      const feedPage = await openNotifications(deps.browser);
+      if (!feedPage.rendered && !feedPage.login_wall) {
+        summary.blocked = "x.com did not render the notifications feed";
+        note(unrendered(feedPage, "the notifications feed"));
+        return finish();
+      }
       const verdict = await verifyPublisher(deps, state, summary, note);
       state = verdict.state;
       if (!verdict.ok) return finish();
