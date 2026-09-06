@@ -17,6 +17,7 @@ describe("agent invocation parity", () => {
     expect(agentById("claude").installUrl).toBe("https://code.claude.com/docs/en/installation");
     expect(agentById("codex").installUrl).toBe("https://chatgpt.com/download/");
     expect(agentById("antigravity").installUrl).toBe("https://www.antigravity.google/docs/cli/install/");
+    expect(agentById("copilot").installUrl).toBe("https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli");
     expect(agentInstallName(agentById("claude"))).toBe("Claude Code CLI");
     expect(agentInstallName(agentById("codex"))).toBe("ChatGPT desktop app with Codex");
   });
@@ -56,6 +57,7 @@ describe("agent invocation parity", () => {
     ["cline", ["hello"], undefined],
     ["pi", ["-p", "hello"], undefined],
     ["antigravity", ["-p", "hello"], undefined],
+    ["copilot", ["-p", "hello"], undefined],
   ])("builds the exact %s command", (id, args, stdin) => {
     expect(agentInvocation(agentById(id as string), "hello")).toEqual({
       args,
