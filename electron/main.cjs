@@ -239,6 +239,9 @@ const TERMINAL_AGENTS = {
   cline: { binary: "cline", envVar: "CLINE_BIN" },
   pi: { binary: "pi", envVar: "PI_BIN" },
   gemini: { binary: "gemini", envVar: "GEMINI_BIN" },
+  // The visible agent catalog and Terminal registry must stay in sync.
+  antigravity: { binary: "agy", envVar: "AGY_BIN" },
+  copilot: { binary: "copilot", envVar: "COPILOT_BIN" },
   qwen: { binary: "qwen", envVar: "QWEN_BIN" },
   opencode: { binary: "opencode", envVar: "OPENCODE_BIN" },
   cursor: { binary: "cursor-agent", envVar: "CURSOR_AGENT_BIN" },

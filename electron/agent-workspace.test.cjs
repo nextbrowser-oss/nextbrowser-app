@@ -69,6 +69,14 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   assert.doesNotMatch(main, /dangerously-bypass-approvals-and-sandbox/);
 });
 
+test("every officially free-capable agent shown in the catalog can start in Terminal mode", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  assert.match(main, /antigravity: \{ binary: "agy", envVar: "AGY_BIN" \}/);
+  assert.match(main, /copilot: \{ binary: "copilot", envVar: "COPILOT_BIN" \}/);
+  assert.match(main, /kilo: \{ binary: "kilo", envVar: "KILO_BIN" \}/);
+  assert.match(main, /amazonq: \{ binary: "q", envVar: "Q_BIN" \}/);
+});
+
 test("Codex chat uses the managed Clawbrowser MCP configuration", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   assert.match(main, /case "agent_run":[\s\S]*args\.agentId === "codex"/);

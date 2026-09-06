@@ -73,6 +73,9 @@ export const AGENTS: AgentSpec[] = [
   // Authentication happens when its interactive terminal opens (keyring first,
   // then Google Sign-In), so it intentionally has no status or logout command.
   spec("antigravity", "Antigravity CLI", "agy", "promptFlag", { installUrl: "https://www.antigravity.google/docs/cli/install/" }),
+  // Copilot Free includes a monthly AI-credit allowance. Its documented
+  // programmatic mode is `copilot -p <prompt>`.
+  spec("copilot", "GitHub Copilot CLI", "copilot", "promptFlag", { loginArgs: ["login"], installUrl: "https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli" }),
   spec("qwen", "Qwen Code", "qwen", "promptFlag"),
   spec("opencode", "OpenCode", "opencode", "runSubcommand"),
   spec("cursor", "Cursor Agent", "cursor-agent", "promptFlag"),
