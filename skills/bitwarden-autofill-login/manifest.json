@@ -1,0 +1,14 @@
+{
+  "id": "bitwarden-autofill-login",
+  "name": "Bitwarden Autofill Login",
+  "description": "Autofill a saved Bitwarden login into a website's sign-in form using the extension's native shortcut, reporting locked-vault or MFA states instead of guessing.",
+  "author": "Yas1nY1lmaz",
+  "domains": ["github.com", "accounts.google.com", "login.microsoftonline.com"],
+  "operations": ["form"],
+  "category": {
+    "id": "utilities",
+    "title": "Utilities",
+    "icon": "wrench",
+    "order": 10
+  }
+}
