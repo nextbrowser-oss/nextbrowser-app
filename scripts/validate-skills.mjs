@@ -74,6 +74,24 @@ for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
             failures.push(`${entry.name}: ${where}.runtime must be browser or cloud-phone`);
           }
         }
+        // A half-declared sign-in renders a button that cannot work, so the
+        // page and the probe are required together once the block exists.
+        if (holder.signIn != null) {
+          const signIn = holder.signIn;
+          if (typeof signIn !== "object" || Array.isArray(signIn)) {
+            failures.push(`${entry.name}: ${where}.signIn must be an object`);
+          } else {
+            if (typeof signIn.url !== "string" || !signIn.url.startsWith("https://")) {
+              failures.push(`${entry.name}: ${where}.signIn.url must be an https page`);
+            }
+            if (typeof signIn.probe !== "string" || !signIn.probe.trim()) {
+              failures.push(`${entry.name}: ${where}.signIn.probe is required`);
+            }
+            if (signIn.handlePrefix != null && typeof signIn.handlePrefix !== "string") {
+              failures.push(`${entry.name}: ${where}.signIn.handlePrefix must be a string`);
+            }
+          }
+        }
         for (const field of ["subscribeTask", "checkTask"]) {
           if (typeof holder[field] !== "string" || !holder[field].trim()) failures.push(`${entry.name}: ${where}.${field} is required`);
         }

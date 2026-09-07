@@ -65,6 +65,13 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
   const startWatchlistRun = useStore((s) => s.startWatchlistRun);
   const transport = useStore((s) => (entry.watchlist ? s.watchlistTransportFor(entry) : undefined));
   const setWatchlistTransport = useStore((s) => s.setWatchlistTransport);
+  const watchlistProfile = useStore((s) => s.watchlistProfiles[entry.id]);
+  const setWatchlistProfile = useStore((s) => s.setWatchlistProfile);
+  const openWatchlistSite = useStore((s) => s.openWatchlistSite);
+  const checkWatchlistSignIn = useStore((s) => s.checkWatchlistSignIn);
+  const watchlistBusy = useStore((s) => s.watchlistBusy === entry.id);
+  const watchlistSignIn = useStore((s) => s.watchlistSignIns[entry.id]);
+  const watchlistStep = useStore((s) => (s.watchlistBusy === entry.id ? s.watchlistStep : undefined));
   const stopWatchlistRun = useStore((s) => s.stopWatchlistRun);
 
   const engine = watchlist?.engine === "x-reply";
@@ -89,9 +96,14 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
   const prefix = watchlist.prefix ?? "";
   const transports = watchlistTransports(watchlist, entry.runtime);
   const blurb = transport?.blurb ?? watchlist.blurb;
+  // Only a transport that reaches the site through a browser can be signed in
+  // from here; a phone signs in inside its own app.
+  const signInConfig = transport?.signIn ?? watchlist.signIn;
   const site = entry.selector.value;
   const activeCount = profiles.filter((item) => item.enabled).length;
-  const publisher = engine ? engineState.publisher : watchPublishers[entry.id];
+  // The panel's own check is fresher than whatever a pass recorded, so it
+  // wins; the agent's record still answers before anyone has checked.
+  const publisher = engine ? engineState.publisher : (watchlistSignIn ?? watchPublishers[entry.id]);
   const signedIn = publisher?.signedIn === true;
   const recentDrafts = engine
     ? engineState.drafts.filter((item) => item.status !== "rejected").slice(-3).reverse()
@@ -101,6 +113,13 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
     if (engine) return engineState.handles[profile.handle.toLowerCase()];
     return reports[`${entry.id}\n${profile.handle.toLowerCase()}`];
   };
+
+  // An engine skill signs in through its own code; every other watchlist uses
+  // the generic probe its manifest declares. Both reach the same gate below.
+  const openSite = engine ? openSkillSite : openWatchlistSite;
+  const ensureSignedIn = engine ? checkSignIn : checkWatchlistSignIn;
+  const signInBusy = engine ? busy : watchlistBusy;
+  const gated = engine || !!signInConfig;
 
   const perform = (action: PendingAction) => {
     setPending(null);
@@ -112,11 +131,11 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
    *  for it at the moment it is needed and then resumes what the user pressed,
    *  instead of standing in front of the list from the start. */
   const withSignIn = async (action: PendingAction) => {
-    if (!engine || signedIn) {
+    if (!gated || signedIn) {
       perform(action);
       return;
     }
-    if (await checkSignIn(entry)) {
+    if (await ensureSignedIn(entry)) {
       perform(action);
       return;
     }
@@ -125,7 +144,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
   };
 
   const confirmSignedIn = async () => {
-    const ok = await checkSignIn(entry);
+    const ok = await ensureSignedIn(entry);
     setSignInTried(true);
     if (!ok) return;
     if (pending) perform(pending);
@@ -199,6 +218,52 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {!engine && signInConfig && (
+          <div className="row watchlist-profile">
+            <label className="muted small">Profile</label>
+            <select
+              value={watchlistProfile ?? ""}
+              disabled={watchlistBusy}
+              title="The browser profile this skill signs in and runs its passes with"
+              onChange={(event) => setWatchlistProfile(entry, event.target.value || undefined)}
+            >
+              <option value="">{selectedProfile ? `Selected · ${selectedProfile}` : "Default session"}</option>
+              {browserProfiles.map((profile) => (
+                <option key={profile.name} value={profile.name}>
+                  {profile.name}{profile.country ? ` · ${profile.country.toUpperCase()}` : ""}
+                </option>
+              ))}
+            </select>
+            <span className="spacer" />
+            <button className="mini" disabled={watchlistBusy}
+              title={`Open ${site} in this profile to sign in or switch account`}
+              onClick={() => void openSite(entry)}>
+              Open {site}
+            </button>
+          </div>
+        )}
+
+        {!engine && signInConfig && (
+          <div className="row watchlist-profile">
+            <span className={"status-dot " + (signedIn ? "ok-dot" : "muted-dot")} />
+            <span className="muted small">
+              {watchlistStep
+                ? watchlistStep
+                : signedIn
+                  ? `Signed in as ${signInConfig.handlePrefix ?? ""}${publisher?.handle ?? "this account"}`
+                  : publisher
+                    ? `Not signed in to ${site}`
+                    : `Sign-in to ${site} not checked yet`}
+            </span>
+            <span className="spacer" />
+            <button className="mini" disabled={watchlistBusy}
+              title={`Read which account is signed in to ${site} in this profile`}
+              onClick={() => void checkWatchlistSignIn(entry)}>
+              {watchlistBusy ? "Checking…" : "Check"}
+            </button>
           </div>
         )}
 
@@ -359,12 +424,12 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
               </div>
             </div>
             <div className="row watchlist-signin-actions">
-              <button className="mini" disabled={busy} onClick={cancelSignIn}>Cancel</button>
+              <button className="mini" disabled={signInBusy} onClick={cancelSignIn}>Cancel</button>
               <span className="spacer" />
-              <button className="btn-bordered" disabled={busy} onClick={() => void openSkillSite(entry)}>
+              <button className="btn-bordered" disabled={signInBusy} onClick={() => void openSite(entry)}>
                 <Icon name="arrow.up.right.square" size={13} /> Sign in
               </button>
-              <button className="btn-bordered-prominent" disabled={busy} onClick={() => void confirmSignedIn()}>
+              <button className="btn-bordered-prominent" disabled={signInBusy} onClick={() => void confirmSignedIn()}>
                 I'm signed in
               </button>
             </div>

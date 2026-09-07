@@ -414,6 +414,35 @@ describe("cloud-phone skills", () => {
     expect(chosen.checkTask).toContain("in the browser");
   });
 
+  it("keeps a signed-in account only while its own profile is selected", async () => {
+    const { useStore } = await import("./store");
+    const signInSkill: SkillEntry = {
+      ...redditSkill,
+      id: "repository:reddit",
+      runtime: undefined,
+      watchlist: {
+        ...redditSkill.watchlist!,
+        signIn: { url: "https://old.reddit.com/", probe: "1", handlePrefix: "u/" },
+      },
+    };
+    useStore.setState({
+      watchlistSignIns: { "repository:reddit": { handle: "someone", signedIn: true, checkedAt: 1 } },
+    });
+
+    useStore.getState().setWatchlistProfile(signInSkill, "reddit-us");
+    expect(useStore.getState().watchlistProfileFor(signInSkill.id)).toBe("reddit-us");
+    // Another profile is another browser with its own cookies, so the account
+    // read from the last one says nothing and must not be shown as current.
+    expect(useStore.getState().watchlistSignIns[signInSkill.id]).toBeUndefined();
+
+    const write = bridge.invoke.mock.calls.find(([command, args]) =>
+      command === "app_data_write" && (args as { name: string }).name === "watchlist-profiles.json");
+    expect(write).toBeTruthy();
+
+    useStore.getState().setWatchlistProfile(signInSkill, undefined);
+    expect(useStore.getState().watchlistProfileFor(signInSkill.id)).toBeUndefined();
+  });
+
   it("asks which phone to use when the workspace has none selected", async () => {
     const { useStore } = await import("./store");
     const agentId = useStore.getState().agentId;

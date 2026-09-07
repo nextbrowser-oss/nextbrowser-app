@@ -435,6 +435,15 @@ interface State {
   watchlistRuns: WatchlistRun[];
   /** Which device each watchlist skill runs on, keyed by skill id. */
   watchlistTransports: Record<string, string>;
+  /** Which browser profile each watchlist skill signs in and runs with. */
+  watchlistProfiles: Record<string, string>;
+  /** What the panel's own sign-in check last read, per skill. It is kept
+   *  apart from watchPublishers because that map mirrors the agent's state
+   *  file and is rewritten whenever the reports reload. */
+  watchlistSignIns: Record<string, WatchedPublisher>;
+  /** Skill id currently doing browser work from its panel, if any. */
+  watchlistBusy?: string;
+  watchlistStep?: string;
   xReplyState: XReplyState;
   xReplyBusy: boolean;
   xReplyStep?: string;
@@ -573,6 +582,10 @@ interface State {
   watchlistRunFor: (skillId: string) => WatchlistRun | undefined;
   watchlistTransportFor: (entry: SkillEntry) => SkillWatchlistTransport;
   setWatchlistTransport: (entry: SkillEntry, transportId: string) => void;
+  watchlistProfileFor: (skillId: string) => string | undefined;
+  setWatchlistProfile: (entry: SkillEntry, profileName?: string) => void;
+  openWatchlistSite: (entry: SkillEntry) => Promise<void>;
+  checkWatchlistSignIn: (entry: SkillEntry) => Promise<boolean>;
   startWatchlistRun: (entry: SkillEntry, intervalMinutes?: number) => Promise<void>;
   runXReplyPass: (entry: SkillEntry) => Promise<void>;
   openSkillSite: (entry: SkillEntry) => Promise<void>;
@@ -816,6 +829,10 @@ function persistWatchlistTransports(transports: Record<string, string>) {
   void saveJson("watchlist-transports.json", transports);
 }
 
+function persistWatchlistProfiles(profiles: Record<string, string>) {
+  void saveJson("watchlist-profiles.json", profiles);
+}
+
 /// transportEntry runs the skill on the device the user picked. useSkillInChat
 /// reads `runtime` to decide whether to prepare a browser profile at all, so
 /// the choice has to reach it as the entry's own runtime rather than as another
@@ -928,6 +945,21 @@ let xReplyDraftReplyId: string | undefined;
 /// prepareXReplySession opens the profile this skill runs in. A session the
 /// runtime lost is restarted once: the app's cached status can say running long
 /// after the browser is gone, and the first call then fails on a dead endpoint.
+/** watchlistBrowser binds the CLI to the profile this skill was given, so a
+ *  panel action drives the same browser its passes will, not whichever profile
+ *  happens to be selected in the sidebar. */
+async function watchlistBrowser(entry: SkillEntry, onStep: (step: string) => void) {
+  const state = useStore.getState();
+  const { profileArgs } = await prepareLocalSession({
+    host: selectorTargetHost(entry.selector),
+    selectedProfile: state.watchlistProfiles[entry.id] ?? state.selectedProfile,
+    statuses: state.statuses,
+    defaultSession: state.defaultSession,
+    onStep,
+  });
+  return cliBrowser(profileArgs);
+}
+
 async function prepareXReplySession(
   host: string | undefined,
   onStep: (step: string) => void,
@@ -1362,6 +1394,8 @@ export const useStore = create<State>((set, get) => {
   watchPublishers: {},
   watchlistRuns: [],
   watchlistTransports: {},
+  watchlistProfiles: {},
+  watchlistSignIns: {},
   xReplyState: emptyXReplyState(),
   xReplyBusy: false,
   xReplySignInNeeded: false,
@@ -1449,7 +1483,7 @@ export const useStore = create<State>((set, get) => {
     didBootstrap = true;
     const startedAt = performance.now();
     trackEvent("bootstrap_started");
-    const [rawConvs, rawWorkspaces, rawSchedules, rawScripts, rawLocalSkills, rawAppliedScripts, rawHistory, rawWatched, rawWatchlistRuns, rawWatchlistTransports, rawXReply, wd] = await Promise.all([
+    const [rawConvs, rawWorkspaces, rawSchedules, rawScripts, rawLocalSkills, rawAppliedScripts, rawHistory, rawWatched, rawWatchlistRuns, rawWatchlistTransports, rawWatchlistProfiles, rawXReply, wd] = await Promise.all([
       loadJson<Conversation[]>("conversations.json", []),
       loadJson<Workspace[]>("workspaces.json", []),
       loadJson<ScheduledRun[]>("scheduled-runs.json", []),
@@ -1460,6 +1494,7 @@ export const useStore = create<State>((set, get) => {
       loadJson<WatchedProfile[]>("watched-profiles.json", []),
       loadJson<WatchlistRun[]>("watchlist-runs.json", []),
       loadJson<Record<string, string>>("watchlist-transports.json", {}),
+      loadJson<Record<string, string>>("watchlist-profiles.json", {}),
       loadJson<unknown>(X_REPLY_STATE_FILE, null),
       invoke<string>("working_directory").catch(() => ""),
     ]);
@@ -1499,6 +1534,7 @@ export const useStore = create<State>((set, get) => {
       watchedProfiles: normalizeWatchedProfiles(rawWatched),
       watchlistRuns: normalizeWatchlistRuns(rawWatchlistRuns),
       watchlistTransports: rawWatchlistTransports ?? {},
+      watchlistProfiles: rawWatchlistProfiles ?? {},
       xReplyState: normalizeXReplyState(rawXReply),
       workingDir: wd,
     });
@@ -4386,7 +4422,9 @@ export const useStore = create<State>((set, get) => {
     try {
       prep = await prepareLocalSession({
         host: selectorTargetHost(entry.selector),
-        selectedProfile: get().selectedProfile,
+        // A watchlist skill signs in with its own profile in the panel, so its
+        // passes have to run in that one rather than the sidebar's selection.
+        selectedProfile: get().watchlistProfiles[entry.id] ?? get().selectedProfile,
         statuses: get().statuses,
         defaultSession: get().defaultSession,
         onStep: (step) => get().appendStep(cid, stepId, step),
@@ -4647,6 +4685,72 @@ export const useStore = create<State>((set, get) => {
 
   watchlistTransportFor: (entry) =>
     resolveWatchlistTransport(entry.watchlist!, get().watchlistTransports[entry.id], entry.runtime),
+
+  watchlistProfileFor: (skillId) => get().watchlistProfiles[skillId],
+
+  setWatchlistProfile: (entry, profileName) => {
+    const watchlistProfiles = { ...get().watchlistProfiles };
+    if (profileName) watchlistProfiles[entry.id] = profileName;
+    else delete watchlistProfiles[entry.id];
+    persistWatchlistProfiles(watchlistProfiles);
+    // A different profile is a different browser with its own cookies, so who
+    // was signed in no longer says anything about this one.
+    const watchlistSignIns = { ...get().watchlistSignIns };
+    delete watchlistSignIns[entry.id];
+    set({ watchlistProfiles, watchlistSignIns });
+  },
+
+  /** openWatchlistSite puts the skill's own profile on the page that names the
+   *  signed-in account, which is where a user signs in by hand. The app never
+   *  types the credentials: it opens the window and gets out of the way. */
+  openWatchlistSite: async (entry) => {
+    const transport = get().watchlistTransportFor(entry);
+    const signIn = transport.signIn ?? entry.watchlist?.signIn;
+    const url = signIn?.url;
+    if (!url || get().watchlistBusy) return;
+    set({ watchlistBusy: entry.id, watchlistStep: `Opening ${selectorTargetHost(entry.selector) || url}` });
+    try {
+      const browser = await watchlistBrowser(entry, (step) => set({ watchlistStep: step }));
+      await browser.open(url);
+    } catch (error) {
+      set({ watchlistStep: friendlyXReplyError(error) });
+      return;
+    } finally {
+      set({ watchlistBusy: undefined });
+      setTimeout(() => set({ watchlistStep: undefined }), 4000);
+    }
+    await get().checkWatchlistSignIn(entry);
+  },
+
+  /** checkWatchlistSignIn reads the account off the site itself rather than
+   *  trusting what a previous pass recorded, because the usual reason a pass
+   *  does nothing is that the profile quietly signed out since. */
+  checkWatchlistSignIn: async (entry) => {
+    const transport = get().watchlistTransportFor(entry);
+    const signIn = transport.signIn ?? entry.watchlist?.signIn;
+    if (!signIn) return true;
+    if (get().watchlistBusy) return get().watchlistSignIns[entry.id]?.signedIn === true;
+    set({ watchlistBusy: entry.id, watchlistStep: "Checking the signed-in account" });
+    try {
+      const browser = await watchlistBrowser(entry, (step) => set({ watchlistStep: step }));
+      await browser.open(signIn.url);
+      const probed = await browser.evaluate<{ signed_in?: boolean; handle?: string }>(signIn.probe);
+      const publisher: WatchedPublisher = {
+        handle: probed?.handle || undefined,
+        signedIn: probed?.signed_in === true,
+        checkedAt: now(),
+      };
+      set({ watchlistSignIns: { ...get().watchlistSignIns, [entry.id]: publisher } });
+      trackEvent("watchlist_sign_in_checked", { skill: entry.id, signed_in: publisher.signedIn === true });
+      return publisher.signedIn === true;
+    } catch (error) {
+      set({ watchlistStep: friendlyXReplyError(error) });
+      return false;
+    } finally {
+      set({ watchlistBusy: undefined });
+      setTimeout(() => set({ watchlistStep: undefined }), 4000);
+    }
+  },
 
   setWatchlistTransport: (entry, transportId) => {
     if (!entry.watchlist) return;

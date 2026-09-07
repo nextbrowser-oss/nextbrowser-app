@@ -30,10 +30,26 @@ export interface SkillWatchlist {
   /// and in its Android app declares one per device, and the panel offers the
   /// choice instead of shipping the same list twice as two skills.
   transports?: SkillWatchlistTransport[];
+  /// How the app reads which account is signed in, so the panel can offer a
+  /// sign-in instead of letting a pass fail on a logged-out profile.
+  signIn?: SkillWatchlistSignIn;
   /// Built-in engine that performs the run in app code instead of handing the
   /// whole workflow to the agent. The agent is then called only where a model
   /// is genuinely needed — writing the reply.
   engine?: "x-reply";
+}
+
+/// Reading the signed-in account is site knowledge, so the skill carries it and
+/// the app stays a shell: it opens the page and evaluates the probe.
+export interface SkillWatchlistSignIn {
+  /// Page whose chrome names the signed-in account. It is also where the user
+  /// lands when they sign in from the panel, so it should be worth arriving at.
+  url: string;
+  /// Expression returning `{ signed_in: boolean, handle?: string }`.
+  probe: string;
+  /// Rendered before the signed-in handle. It is not the watchlist prefix: a
+  /// skill can watch `r/` communities while the account itself is a `u/`.
+  handlePrefix?: string;
 }
 
 /// One device a watchlist can run on. The tasks live here because reaching an
@@ -49,6 +65,9 @@ export interface SkillWatchlistTransport {
   runtime?: SkillRuntime;
   /// Replaces the watchlist blurb while this transport is selected.
   blurb?: string;
+  /// Overrides the watchlist sign-in for this device. A phone signs in inside
+  /// its own app, so a transport that drives one simply declares none.
+  signIn?: SkillWatchlistSignIn;
   subscribeTask: string;
   checkTask: string;
 }
@@ -67,6 +86,7 @@ export function watchlistTransports(
     id: "default",
     label: "Default",
     runtime: fallbackRuntime,
+    signIn: watchlist.signIn,
     subscribeTask: watchlist.subscribeTask ?? "",
     checkTask: watchlist.checkTask ?? "",
   }];
