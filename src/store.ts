@@ -22,9 +22,11 @@ import {
   type SkillCategory,
   type SkillWatchlistTransport,
   fillTemplate,
+  readPath,
   resolveWatchlistTransport,
   selectorFlags,
   selectorTargetHost,
+  signInIsForDevice,
 } from "./skillsCatalog";
 import { REPOSITORY_SKILL_CATEGORIES, mergeSkillCategories } from "./repositorySkills";
 import { cliBrowser } from "./lib/xreply/browser";
@@ -100,7 +102,7 @@ import {
 import type { RotationCountry } from "./lib/countryFlag";
 import { browserProfileContext } from "./lib/browserProfileContext";
 import { CONNECTOR_PROMPT_RESUMED_EVENT, type ConnectorPrompt } from "./connectorsCatalog";
-import { clearMultiloginSelection, multiloginSelectionForWorkspace } from "./lib/multiloginSelection";
+import { clearMultiloginSelection, multiloginSelectionForWorkspace, type MultiloginProfileSelection } from "./lib/multiloginSelection";
 import { cloudPhoneFromSelection, cloudPhoneSkillPrompt } from "./lib/cloudPhoneSkill";
 import { isMultiloginStartRequest, multiloginStartReply } from "./lib/multiloginChatCommand";
 import { multiloginSessionName, nextctlRemoteArgs, type LiveStreamTarget } from "./lib/liveStreamTarget";
@@ -437,6 +439,8 @@ interface State {
   watchlistTransports: Record<string, string>;
   /** Which browser profile each watchlist skill signs in and runs with. */
   watchlistProfiles: Record<string, string>;
+  /** Which cloud phone each watchlist skill uses on its phone transport. */
+  watchlistDevices: Record<string, MultiloginProfileSelection>;
   /** What the panel's own sign-in check last read, per skill. It is kept
    *  apart from watchPublishers because that map mirrors the agent's state
    *  file and is rewritten whenever the reports reload. */
@@ -584,6 +588,8 @@ interface State {
   setWatchlistTransport: (entry: SkillEntry, transportId: string) => void;
   watchlistProfileFor: (skillId: string) => string | undefined;
   setWatchlistProfile: (entry: SkillEntry, profileName?: string) => void;
+  watchlistDeviceFor: (skillId: string) => MultiloginProfileSelection | undefined;
+  setWatchlistDevice: (entry: SkillEntry, device?: MultiloginProfileSelection) => void;
   openWatchlistSite: (entry: SkillEntry) => Promise<void>;
   checkWatchlistSignIn: (entry: SkillEntry) => Promise<boolean>;
   startWatchlistRun: (entry: SkillEntry, intervalMinutes?: number) => Promise<void>;
@@ -833,6 +839,10 @@ function persistWatchlistProfiles(profiles: Record<string, string>) {
   void saveJson("watchlist-profiles.json", profiles);
 }
 
+function persistWatchlistDevices(devices: Record<string, MultiloginProfileSelection>) {
+  void saveJson("watchlist-devices.json", devices);
+}
+
 /// transportEntry runs the skill on the device the user picked. useSkillInChat
 /// reads `runtime` to decide whether to prepare a browser profile at all, so
 /// the choice has to reach it as the entry's own runtime rather than as another
@@ -945,6 +955,13 @@ let xReplyDraftReplyId: string | undefined;
 /// prepareXReplySession opens the profile this skill runs in. A session the
 /// runtime lost is restarted once: the app's cached status can say running long
 /// after the browser is gone, and the first call then fails on a dead endpoint.
+/** watchlistSignInFor resolves the sign-in for the device the panel is showing,
+ *  falling back to the watchlist's own so a skill without transports keeps it. */
+function watchlistSignInFor(state: State, entry: SkillEntry) {
+  const transport = state.watchlistTransportFor(entry);
+  return transport.signIn ?? entry.watchlist?.signIn;
+}
+
 /** watchlistBrowser binds the CLI to the profile this skill was given, so a
  *  panel action drives the same browser its passes will, not whichever profile
  *  happens to be selected in the sidebar. */
@@ -1395,6 +1412,7 @@ export const useStore = create<State>((set, get) => {
   watchlistRuns: [],
   watchlistTransports: {},
   watchlistProfiles: {},
+  watchlistDevices: {},
   watchlistSignIns: {},
   xReplyState: emptyXReplyState(),
   xReplyBusy: false,
@@ -1483,7 +1501,7 @@ export const useStore = create<State>((set, get) => {
     didBootstrap = true;
     const startedAt = performance.now();
     trackEvent("bootstrap_started");
-    const [rawConvs, rawWorkspaces, rawSchedules, rawScripts, rawLocalSkills, rawAppliedScripts, rawHistory, rawWatched, rawWatchlistRuns, rawWatchlistTransports, rawWatchlistProfiles, rawXReply, wd] = await Promise.all([
+    const [rawConvs, rawWorkspaces, rawSchedules, rawScripts, rawLocalSkills, rawAppliedScripts, rawHistory, rawWatched, rawWatchlistRuns, rawWatchlistTransports, rawWatchlistProfiles, rawWatchlistDevices, rawXReply, wd] = await Promise.all([
       loadJson<Conversation[]>("conversations.json", []),
       loadJson<Workspace[]>("workspaces.json", []),
       loadJson<ScheduledRun[]>("scheduled-runs.json", []),
@@ -1495,6 +1513,7 @@ export const useStore = create<State>((set, get) => {
       loadJson<WatchlistRun[]>("watchlist-runs.json", []),
       loadJson<Record<string, string>>("watchlist-transports.json", {}),
       loadJson<Record<string, string>>("watchlist-profiles.json", {}),
+      loadJson<Record<string, MultiloginProfileSelection>>("watchlist-devices.json", {}),
       loadJson<unknown>(X_REPLY_STATE_FILE, null),
       invoke<string>("working_directory").catch(() => ""),
     ]);
@@ -1535,6 +1554,7 @@ export const useStore = create<State>((set, get) => {
       watchlistRuns: normalizeWatchlistRuns(rawWatchlistRuns),
       watchlistTransports: rawWatchlistTransports ?? {},
       watchlistProfiles: rawWatchlistProfiles ?? {},
+      watchlistDevices: rawWatchlistDevices ?? {},
       xReplyState: normalizeXReplyState(rawXReply),
       workingDir: wd,
     });
@@ -4409,7 +4429,11 @@ export const useStore = create<State>((set, get) => {
       // no browser profile is prepared: the phone comes from the workspace's
       // Multilogin selection, and the skill text says how to reach it.
       const workspaceId = get().conversations.find((conversation) => conversation.id === cid)?.workspaceId;
-      const phone = cloudPhoneFromSelection(multiloginSelectionForWorkspace(workspaceId));
+      // A watchlist skill picks its phone in its own panel, so that choice wins
+      // over the workspace's; a skill without one still follows the workspace.
+      const phone = cloudPhoneFromSelection(
+        get().watchlistDevices[entry.id] ?? multiloginSelectionForWorkspace(workspaceId),
+      );
       const stepId = get().makeStepMessage(cid);
       get().appendStep(cid, stepId, phone ? `Cloud phone “${phone.name}”` : "No cloud phone selected");
       const md = entry.instructions ?? await installedSkillMarkdown(ref) ?? "";
@@ -4688,6 +4712,19 @@ export const useStore = create<State>((set, get) => {
 
   watchlistProfileFor: (skillId) => get().watchlistProfiles[skillId],
 
+  watchlistDeviceFor: (skillId) => get().watchlistDevices[skillId],
+
+  setWatchlistDevice: (entry, device) => {
+    const watchlistDevices = { ...get().watchlistDevices };
+    if (device) watchlistDevices[entry.id] = device;
+    else delete watchlistDevices[entry.id];
+    persistWatchlistDevices(watchlistDevices);
+    // Another phone is another Reddit install with its own session.
+    const watchlistSignIns = { ...get().watchlistSignIns };
+    delete watchlistSignIns[entry.id];
+    set({ watchlistDevices, watchlistSignIns });
+  },
+
   setWatchlistProfile: (entry, profileName) => {
     const watchlistProfiles = { ...get().watchlistProfiles };
     if (profileName) watchlistProfiles[entry.id] = profileName;
@@ -4704,14 +4741,32 @@ export const useStore = create<State>((set, get) => {
    *  signed-in account, which is where a user signs in by hand. The app never
    *  types the credentials: it opens the window and gets out of the way. */
   openWatchlistSite: async (entry) => {
-    const transport = get().watchlistTransportFor(entry);
-    const signIn = transport.signIn ?? entry.watchlist?.signIn;
-    const url = signIn?.url;
-    if (!url || get().watchlistBusy) return;
-    set({ watchlistBusy: entry.id, watchlistStep: `Opening ${selectorTargetHost(entry.selector) || url}` });
+    const signIn = watchlistSignInFor(get(), entry);
+    if (!signIn || get().watchlistBusy) return;
+    const device = get().watchlistDevices[entry.id];
+    if (signInIsForDevice(signIn)) {
+      // A phone has no page to open: the way in is the screen itself, so this
+      // starts Live View and the user signs in on the phone with their hands.
+      if (!device) {
+        set({ watchlistStep: "Pick a cloud phone first" });
+        setTimeout(() => set({ watchlistStep: undefined }), 4000);
+        return;
+      }
+      set({ watchlistBusy: entry.id, watchlistStep: `Opening ${device.name}` });
+      try {
+        await get().startRemoteStream({ runtime: "multilogin", selection: device });
+      } catch (error) {
+        set({ watchlistStep: friendlyXReplyError(error) });
+      } finally {
+        set({ watchlistBusy: undefined });
+        setTimeout(() => set({ watchlistStep: undefined }), 4000);
+      }
+      return;
+    }
+    set({ watchlistBusy: entry.id, watchlistStep: `Opening ${selectorTargetHost(entry.selector) || signIn.url}` });
     try {
       const browser = await watchlistBrowser(entry, (step) => set({ watchlistStep: step }));
-      await browser.open(url);
+      await browser.open(signIn.url);
     } catch (error) {
       set({ watchlistStep: friendlyXReplyError(error) });
       return;
@@ -4726,15 +4781,31 @@ export const useStore = create<State>((set, get) => {
    *  trusting what a previous pass recorded, because the usual reason a pass
    *  does nothing is that the profile quietly signed out since. */
   checkWatchlistSignIn: async (entry) => {
-    const transport = get().watchlistTransportFor(entry);
-    const signIn = transport.signIn ?? entry.watchlist?.signIn;
+    const signIn = watchlistSignInFor(get(), entry);
     if (!signIn) return true;
     if (get().watchlistBusy) return get().watchlistSignIns[entry.id]?.signedIn === true;
+    const device = get().watchlistDevices[entry.id];
+    if (signInIsForDevice(signIn) && !device) {
+      set({ watchlistStep: "Pick a cloud phone first" });
+      setTimeout(() => set({ watchlistStep: undefined }), 4000);
+      return false;
+    }
     set({ watchlistBusy: entry.id, watchlistStep: "Checking the signed-in account" });
     try {
-      const browser = await watchlistBrowser(entry, (step) => set({ watchlistStep: step }));
-      await browser.open(signIn.url);
-      const probed = await browser.evaluate<{ signed_in?: boolean; handle?: string }>(signIn.probe);
+      let probed: { signed_in?: boolean; handle?: string };
+      if (signInIsForDevice(signIn)) {
+        const args = signIn.command.map((arg) => arg.replace("{device}", device!.name));
+        const data = await nextctlJson<unknown>(args);
+        const handle = signIn.handlePath ? readPath(data, signIn.handlePath) : undefined;
+        probed = {
+          signed_in: readPath(data, signIn.signedInPath) === true,
+          handle: typeof handle === "string" ? handle : undefined,
+        };
+      } else {
+        const browser = await watchlistBrowser(entry, (step) => set({ watchlistStep: step }));
+        await browser.open(signIn.url);
+        probed = await browser.evaluate<{ signed_in?: boolean; handle?: string }>(signIn.probe);
+      }
       const publisher: WatchedPublisher = {
         handle: probed?.handle || undefined,
         signedIn: probed?.signed_in === true,

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../store";
 import { invoke } from "../electronBridge";
-import { fillTemplate, watchlistTransports, type SkillEntry } from "../skillsCatalog";
+import type { MultiloginConnectionStatus } from "../lib/multiloginProfiles";
+import { fillTemplate, signInIsForDevice, watchlistTransports, type SkillEntry } from "../skillsCatalog";
 import {
   DEFAULT_WATCHLIST_INTERVAL_MINUTES,
   WATCHLIST_INTERVAL_CHOICES,
@@ -71,10 +72,17 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
   const checkWatchlistSignIn = useStore((s) => s.checkWatchlistSignIn);
   const watchlistBusy = useStore((s) => s.watchlistBusy === entry.id);
   const watchlistSignIn = useStore((s) => s.watchlistSignIns[entry.id]);
+  const watchlistDevice = useStore((s) => s.watchlistDevices[entry.id]);
+  const setWatchlistDevice = useStore((s) => s.setWatchlistDevice);
+  const [cloudPhones, setCloudPhones] = useState<{ id: string; name: string; folderId?: string }[]>([]);
   const watchlistStep = useStore((s) => (s.watchlistBusy === entry.id ? s.watchlistStep : undefined));
   const stopWatchlistRun = useStore((s) => s.stopWatchlistRun);
 
   const engine = watchlist?.engine === "x-reply";
+  // Derived before the effects below, because a hook cannot sit behind the
+  // early return that the rest of the render is allowed to use.
+  const signInConfig = watchlist ? (transport?.signIn ?? watchlist.signIn) : undefined;
+  const onDevice = signInIsForDevice(signInConfig);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const [interval, setInterval] = useState(run?.intervalMinutes ?? DEFAULT_WATCHLIST_INTERVAL_MINUTES);
@@ -87,6 +95,15 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
   }, [engine, entry, loadWatchReports]);
 
   useEffect(() => {
+    if (!onDevice) return;
+    let cancelled = false;
+    void invoke<MultiloginConnectionStatus>("multilogin_status")
+      .then((status) => { if (!cancelled) setCloudPhones(status?.cloudPhones ?? []); })
+      .catch(() => { if (!cancelled) setCloudPhones([]); });
+    return () => { cancelled = true; };
+  }, [onDevice]);
+
+  useEffect(() => {
     if (!run?.enabled && !busy) return;
     const timer = window.setInterval(() => setNowTick((value) => value + 1), 20_000);
     return () => window.clearInterval(timer);
@@ -96,9 +113,6 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
   const prefix = watchlist.prefix ?? "";
   const transports = watchlistTransports(watchlist, entry.runtime);
   const blurb = transport?.blurb ?? watchlist.blurb;
-  // Only a transport that reaches the site through a browser can be signed in
-  // from here; a phone signs in inside its own app.
-  const signInConfig = transport?.signIn ?? watchlist.signIn;
   const site = entry.selector.value;
   const activeCount = profiles.filter((item) => item.enabled).length;
   // The panel's own check is fresher than whatever a pass recorded, so it
@@ -221,7 +235,35 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
           </div>
         )}
 
-        {!engine && signInConfig && (
+        {!engine && onDevice && (
+          <div className="row watchlist-profile">
+            <label className="muted small">Phone</label>
+            <select
+              value={watchlistDevice?.id ?? ""}
+              disabled={watchlistBusy}
+              title="The cloud phone this skill runs its passes on"
+              onChange={(event) => {
+                const phone = cloudPhones.find((item) => item.id === event.target.value);
+                setWatchlistDevice(entry, phone ? { kind: "mobile", ...phone } : undefined);
+              }}
+            >
+              <option value="">{cloudPhones.length ? "Pick a cloud phone" : "Connect Multilogin first"}</option>
+              {cloudPhones.map((phone) => (
+                <option key={phone.id} value={phone.id}>{phone.name}</option>
+              ))}
+            </select>
+            <span className="spacer" />
+            {/* There is no page to open and no password to type: the way into a
+                phone is its own screen, so this hands the user the screen. */}
+            <button className="mini" disabled={watchlistBusy || !watchlistDevice}
+              title="Open the phone screen and sign in to the Reddit app yourself"
+              onClick={() => void openSite(entry)}>
+              Open phone
+            </button>
+          </div>
+        )}
+
+        {!engine && signInConfig && !onDevice && (
           <div className="row watchlist-profile">
             <label className="muted small">Profile</label>
             <select
@@ -253,7 +295,9 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
               {watchlistStep
                 ? watchlistStep
                 : signedIn
-                  ? `Signed in as ${signInConfig.handlePrefix ?? ""}${publisher?.handle ?? "this account"}`
+                  ? (publisher?.handle
+                    ? `Signed in as ${signInConfig.handlePrefix ?? ""}${publisher.handle}`
+                    : `Signed in to ${site}`)
                   : publisher
                     ? `Not signed in to ${site}`
                     : `Sign-in to ${site} not checked yet`}

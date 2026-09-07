@@ -80,6 +80,23 @@ for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
           const signIn = holder.signIn;
           if (typeof signIn !== "object" || Array.isArray(signIn)) {
             failures.push(`${entry.name}: ${where}.signIn must be an object`);
+          } else if (signIn.kind === "cloud-phone") {
+            // A phone is reached through a flow, not a page: the command that
+            // reports the session and where its answer lives are both required.
+            if (!Array.isArray(signIn.command) || !signIn.command.length
+              || signIn.command.some((arg) => typeof arg !== "string")) {
+              failures.push(`${entry.name}: ${where}.signIn.command must be a non-empty argument list`);
+            } else if (!signIn.command.some((arg) => arg.includes("{device}"))) {
+              failures.push(`${entry.name}: ${where}.signIn.command must contain {device}`);
+            }
+            if (typeof signIn.signedInPath !== "string" || !signIn.signedInPath.trim()) {
+              failures.push(`${entry.name}: ${where}.signIn.signedInPath is required`);
+            }
+            for (const field of ["handlePath", "handlePrefix"]) {
+              if (signIn[field] != null && typeof signIn[field] !== "string") {
+                failures.push(`${entry.name}: ${where}.signIn.${field} must be a string`);
+              }
+            }
           } else {
             if (typeof signIn.url !== "string" || !signIn.url.startsWith("https://")) {
               failures.push(`${entry.name}: ${where}.signIn.url must be an https page`);

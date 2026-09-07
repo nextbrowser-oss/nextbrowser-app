@@ -396,12 +396,16 @@ describe("cloud-phone skills", () => {
     expect(useStore.getState().watchlistTransportFor(dualSkill).id).toBe("browser");
 
     useStore.getState().setWatchlistTransport(dualSkill, "cloud-phone");
+    // The panel's own phone wins over the workspace's, so two skills can run on
+    // two phones without either of them changing the workspace for everything.
+    useStore.getState().setWatchlistDevice(dualSkill, { kind: "mobile", id: "phone-2", name: "Reddit-panel" });
     await useStore.getState().runWatchlistPass(dualSkill);
 
     const lastPrompt = () => useStore.getState().conversations.find((conversation) => conversation.id === cid)
       ?.messages.filter((message) => message.role === "user").at(-1)?.text ?? "";
     expect(lastPrompt()).toContain("Run one engagement pass on the phone over these communities: r/golang.");
-    expect(lastPrompt()).toContain("cloud phone “Reddit-test” (id phone-1)");
+    expect(lastPrompt()).toContain("cloud phone “Reddit-panel” (id phone-2)");
+    expect(lastPrompt()).not.toContain("Reddit-test");
     // The phone pass must not have prepared a browser profile on the way.
     expect(bridge.invoke.mock.calls.filter(([channel]) => channel === "nextctl_run")).toHaveLength(0);
 

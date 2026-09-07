@@ -41,9 +41,22 @@
         "id": "cloud-phone",
         "label": "Cloud phone",
         "runtime": "cloud-phone",
-        "blurb": "Communities the agent visits in the Reddit app on your cloud phone. Each pass opens the community, reads what is new since the last visit, upvotes what fits the account, and comments only where you asked it to. The inbox and the auto-replier are browser-only.",
+        "blurb": "Communities the agent visits in the Reddit app on your cloud phone. Each pass opens the community, reads what is new since the last visit, upvotes what fits the account, and comments only where you asked it to. Sign in on the phone screen itself; the inbox and the auto-replier are browser-only.",
         "subscribeTask": "Subscribe to r/{handle} on the cloud phone: connect adb, run the Reddit status flow, and sign in only if it reports logged_in false. Then open the community feed with `mobile reddit feed`, confirm it exists, and record r/{handle} in the state file with its newest post as the baseline. Engage with nothing in this run. Report whether the account has joined the community.",
-        "checkTask": "Run one engagement pass on the cloud phone over these communities: {handles}. Only these communities are watched right now. For each one open its feed with `mobile reddit feed` or `mobile reddit engage`, read what is newer than the recorded baseline, upvote what fits the account, and comment only where the task or the account voice asks for it. Show me any comment before it goes out. Use the ready flows rather than tap-by-tap ui primitives, keep to a few actions per community, report every write with the flow's own verified value, and update the state file."
+        "checkTask": "Run one engagement pass on the cloud phone over these communities: {handles}. Only these communities are watched right now. For each one open its feed with `mobile reddit feed` or `mobile reddit engage`, read what is newer than the recorded baseline, upvote what fits the account, and comment only where the task or the account voice asks for it. Show me any comment before it goes out. Use the ready flows rather than tap-by-tap ui primitives, keep to a few actions per community, report every write with the flow's own verified value, and update the state file.",
+        "signIn": {
+          "kind": "cloud-phone",
+          "command": [
+            "--runtime",
+            "multilogin",
+            "mobile",
+            "reddit",
+            "status",
+            "{device}",
+            "--json"
+          ],
+          "signedInPath": "mobile_reddit.result.logged_in"
+        }
       }
     ]
   }

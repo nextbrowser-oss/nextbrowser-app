@@ -40,8 +40,13 @@ export interface SkillWatchlist {
 }
 
 /// Reading the signed-in account is site knowledge, so the skill carries it and
-/// the app stays a shell: it opens the page and evaluates the probe.
-export interface SkillWatchlistSignIn {
+/// the app stays a shell: it opens the page or runs the command and reads back
+/// the answer. Signing in is always the user's own doing — neither variant
+/// carries a credential, and neither one types one.
+export type SkillWatchlistSignIn = SkillWatchlistBrowserSignIn | SkillWatchlistDeviceSignIn;
+
+export interface SkillWatchlistBrowserSignIn {
+  kind?: "browser";
   /// Page whose chrome names the signed-in account. It is also where the user
   /// lands when they sign in from the panel, so it should be worth arriving at.
   url: string;
@@ -50,6 +55,38 @@ export interface SkillWatchlistSignIn {
   /// Rendered before the signed-in handle. It is not the watchlist prefix: a
   /// skill can watch `r/` communities while the account itself is a `u/`.
   handlePrefix?: string;
+}
+
+/// A phone has no page to evaluate, so its state comes from a flow that already
+/// classifies the app's screen. The user still signs in by hand on the phone.
+export interface SkillWatchlistDeviceSignIn {
+  kind: "cloud-phone";
+  /// nbc arguments. `{device}` is replaced with the selected phone's name.
+  command: string[];
+  /// Dotted path into the returned data for the signed-in boolean.
+  signedInPath: string;
+  /// Dotted path to the account name, when the app exposes one at all.
+  handlePath?: string;
+  handlePrefix?: string;
+}
+
+/// signInIsForDevice narrows the union at the one place both variants meet.
+export function signInIsForDevice(
+  signIn: SkillWatchlistSignIn | undefined,
+): signIn is SkillWatchlistDeviceSignIn {
+  return signIn?.kind === "cloud-phone";
+}
+
+/// readPath walks a dotted path through what a command returned. A missing
+/// step yields undefined rather than throwing, because the answer comes from a
+/// CLI whose shape can change between releases.
+export function readPath(source: unknown, path: string): unknown {
+  let value: unknown = source;
+  for (const step of path.split(".")) {
+    if (value == null || typeof value !== "object") return undefined;
+    value = (value as Record<string, unknown>)[step];
+  }
+  return value;
 }
 
 /// One device a watchlist can run on. The tasks live here because reaching an
