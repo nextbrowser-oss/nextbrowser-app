@@ -348,6 +348,72 @@ describe("cloud-phone skills", () => {
     expect(bridge.invoke.mock.calls.filter(([channel]) => channel === "nextctl_run")).toHaveLength(0);
   });
 
+  it("sends a pass to the device the transport toggle selected", async () => {
+    const { useStore } = await import("./store");
+    const { setMultiloginSelection } = await import("./lib/multiloginSelection");
+    // One skill, two devices: the browser is the default and the phone is one
+    // toggle away, which is what replaced shipping the same list as two skills.
+    const dualSkill: SkillEntry = {
+      ...redditSkill,
+      id: "repository:reddit",
+      runtime: undefined,
+      watchlist: {
+        ...redditSkill.watchlist!,
+        subscribeTask: undefined,
+        checkTask: undefined,
+        transports: [
+          {
+            id: "browser",
+            label: "Browser",
+            subscribeTask: "Subscribe to r/{handle} in the browser.",
+            checkTask: "Run one reply pass in the browser over these communities: {handles}.",
+          },
+          {
+            id: "cloud-phone",
+            label: "Cloud phone",
+            runtime: "cloud-phone",
+            subscribeTask: "Subscribe to r/{handle} on the phone.",
+            checkTask: "Run one engagement pass on the phone over these communities: {handles}.",
+          },
+        ],
+      },
+    };
+    const agentId = useStore.getState().agentId;
+    useStore.setState((state) => ({
+      runtime: { ...state.runtime, [agentId]: { ...state.runtime[agentId], ready: true, queue: [] } },
+      applySkill: vi.fn().mockResolvedValue(undefined),
+      skillCategories: [{ id: "social", title: "Social", blurb: "", icon: "sparkles", entries: [dualSkill] }],
+    }));
+    const cid = useStore.getState().newChat();
+    useStore.setState((state) => ({
+      conversations: state.conversations.map((conversation) =>
+        conversation.id === cid ? { ...conversation, workspaceId: "ws-phone" } : conversation),
+    }));
+    setMultiloginSelection("ws-phone", { kind: "mobile", id: "phone-1", name: "Reddit-test" });
+    useStore.getState().addWatchedProfile(dualSkill.id, "golang");
+
+    // Nothing chosen yet: the first transport is the default, and it is the browser.
+    expect(useStore.getState().watchlistTransportFor(dualSkill).id).toBe("browser");
+
+    useStore.getState().setWatchlistTransport(dualSkill, "cloud-phone");
+    await useStore.getState().runWatchlistPass(dualSkill);
+
+    const lastPrompt = () => useStore.getState().conversations.find((conversation) => conversation.id === cid)
+      ?.messages.filter((message) => message.role === "user").at(-1)?.text ?? "";
+    expect(lastPrompt()).toContain("Run one engagement pass on the phone over these communities: r/golang.");
+    expect(lastPrompt()).toContain("cloud phone “Reddit-test” (id phone-1)");
+    // The phone pass must not have prepared a browser profile on the way.
+    expect(bridge.invoke.mock.calls.filter(([channel]) => channel === "nextctl_run")).toHaveLength(0);
+
+    // Switching back points the next pass at the browser. The browser path
+    // prepares a real session, which this suite does not stand up, so the
+    // assertion is on what the pass would run rather than on the enqueued text.
+    useStore.getState().setWatchlistTransport(dualSkill, "browser");
+    const chosen = useStore.getState().watchlistTransportFor(dualSkill);
+    expect(chosen.runtime).toBeUndefined();
+    expect(chosen.checkTask).toContain("in the browser");
+  });
+
   it("asks which phone to use when the workspace has none selected", async () => {
     const { useStore } = await import("./store");
     const agentId = useStore.getState().agentId;

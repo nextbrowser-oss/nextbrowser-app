@@ -80,7 +80,11 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
 
   const cloudPhone = cloudPhoneFromSelection(multiloginSelectionForWorkspace(s.activeWorkspaceId));
   const targetText = (e: SkillEntry) => {
-    if (e.runtime === "cloud-phone") return cloudPhoneRunsIn(cloudPhone);
+    // A watchlist skill that offers both devices runs on whichever the user
+    // picked in its panel, so the card has to read that rather than the entry's
+    // own runtime, which only describes its default.
+    const runtime = e.watchlist ? s.watchlistTransportFor(e).runtime : e.runtime;
+    if (runtime === "cloud-phone") return cloudPhoneRunsIn(cloudPhone);
     const host = selectorTargetHost(e.selector);
     if (host) return `Runs in ${sessionName} → ${host}`;
     if (e.selector.kind === "captcha") return `Runs in ${sessionName} · current tab`;

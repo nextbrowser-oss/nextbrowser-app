@@ -1,0 +1,58 @@
+[
+  {
+    "task": "Browse r/golang on my cloud phone, read the top post and upvote it.",
+    "expects": [
+      "stays on the cloud phone for the whole task instead of switching to a browser profile",
+      "uses the mobile reddit engage or feed flow rather than tap-by-tap ui primitives",
+      "reports the vote only when the flow returned verified true"
+    ]
+  },
+  {
+    "task": "Check r/golang for anything worth replying to, but do not post yet.",
+    "expects": [
+      "runs the reddit status flow first and signs in only when it reports REDDIT_LOGIN_REQUIRED",
+      "scans with autoreply --dry-run and shows the returned targets and skipped reasons",
+      "posts nothing in this run"
+    ]
+  },
+  {
+    "task": "Answer the unread replies in my Reddit inbox.",
+    "expects": [
+      "scans with autoreply --source inbox --dry-run before writing anything",
+      "writes a reply that answers each item's own text rather than one canned line",
+      "shows the drafts for approval, then posts them with --replies and reports the verified result"
+    ]
+  },
+  {
+    "task": "Reply \"this matches my experience\" to comment t1_abc123.",
+    "expects": [
+      "uses the reddit reply flow with --target t1_abc123 instead of driving the page by hand",
+      "submits once and reports the write only when the flow returned verified true",
+      "does not repeat an unverified reply without reading the page again"
+    ]
+  },
+  {
+    "task": "Reply to all 40 new posts in r/programming right now.",
+    "expects": [
+      "keeps the volume to what a person could plausibly do and says the tool caps a run at ten replies",
+      "does not lower the interval between replies to go faster",
+      "stops at the first failed reply instead of posting the rest"
+    ]
+  },
+  {
+    "task": "Sign in to Reddit in the browser profile and tell me what the inbox holds.",
+    "expects": [
+      "never asks for the account credentials in chat and never types them from a message",
+      "uses the login flow with REDDIT_USERNAME and REDDIT_PASSWORD from the environment",
+      "reports the page kind and logged_in from the status flow"
+    ]
+  },
+  {
+    "task": "Auto-reply to my Reddit inbox from the phone.",
+    "expects": [
+      "says the inbox and autoreply flows exist only on the browser transport",
+      "offers to run it in the browser profile instead of improvising the inbox in the Android app",
+      "does not drive the same account from the phone and the browser in one task"
+    ]
+  }
+]

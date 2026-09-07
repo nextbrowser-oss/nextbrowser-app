@@ -20,7 +20,9 @@ import {
 import {
   type SkillEntry,
   type SkillCategory,
+  type SkillWatchlistTransport,
   fillTemplate,
+  resolveWatchlistTransport,
   selectorFlags,
   selectorTargetHost,
 } from "./skillsCatalog";
@@ -431,6 +433,8 @@ interface State {
   watchReports: Record<string, WatchedProfileReport>;
   watchPublishers: Record<string, WatchedPublisher>;
   watchlistRuns: WatchlistRun[];
+  /** Which device each watchlist skill runs on, keyed by skill id. */
+  watchlistTransports: Record<string, string>;
   xReplyState: XReplyState;
   xReplyBusy: boolean;
   xReplyStep?: string;
@@ -567,6 +571,8 @@ interface State {
   subscribeWatchedProfile: (entry: SkillEntry, profileId: string) => Promise<void>;
   runWatchlistPass: (entry: SkillEntry, options?: SkillRunOptions) => Promise<void>;
   watchlistRunFor: (skillId: string) => WatchlistRun | undefined;
+  watchlistTransportFor: (entry: SkillEntry) => SkillWatchlistTransport;
+  setWatchlistTransport: (entry: SkillEntry, transportId: string) => void;
   startWatchlistRun: (entry: SkillEntry, intervalMinutes?: number) => Promise<void>;
   runXReplyPass: (entry: SkillEntry) => Promise<void>;
   openSkillSite: (entry: SkillEntry) => Promise<void>;
@@ -804,6 +810,18 @@ function persistWatchedProfiles(profiles: WatchedProfile[]) {
 
 function persistWatchlistRuns(runs: WatchlistRun[]) {
   void saveJson("watchlist-runs.json", runs);
+}
+
+function persistWatchlistTransports(transports: Record<string, string>) {
+  void saveJson("watchlist-transports.json", transports);
+}
+
+/// transportEntry runs the skill on the device the user picked. useSkillInChat
+/// reads `runtime` to decide whether to prepare a browser profile at all, so
+/// the choice has to reach it as the entry's own runtime rather than as another
+/// argument threaded through every caller.
+function transportEntry(entry: SkillEntry, transport: SkillWatchlistTransport): SkillEntry {
+  return transport.runtime === entry.runtime ? entry : { ...entry, runtime: transport.runtime };
 }
 
 function normalizeWatchlistRuns(raw: WatchlistRun[]): WatchlistRun[] {
@@ -1343,6 +1361,7 @@ export const useStore = create<State>((set, get) => {
   watchReports: {},
   watchPublishers: {},
   watchlistRuns: [],
+  watchlistTransports: {},
   xReplyState: emptyXReplyState(),
   xReplyBusy: false,
   xReplySignInNeeded: false,
@@ -1430,7 +1449,7 @@ export const useStore = create<State>((set, get) => {
     didBootstrap = true;
     const startedAt = performance.now();
     trackEvent("bootstrap_started");
-    const [rawConvs, rawWorkspaces, rawSchedules, rawScripts, rawLocalSkills, rawAppliedScripts, rawHistory, rawWatched, rawWatchlistRuns, rawXReply, wd] = await Promise.all([
+    const [rawConvs, rawWorkspaces, rawSchedules, rawScripts, rawLocalSkills, rawAppliedScripts, rawHistory, rawWatched, rawWatchlistRuns, rawWatchlistTransports, rawXReply, wd] = await Promise.all([
       loadJson<Conversation[]>("conversations.json", []),
       loadJson<Workspace[]>("workspaces.json", []),
       loadJson<ScheduledRun[]>("scheduled-runs.json", []),
@@ -1440,6 +1459,7 @@ export const useStore = create<State>((set, get) => {
       loadJson<UsageSnapshot[]>("usage-history.json", []),
       loadJson<WatchedProfile[]>("watched-profiles.json", []),
       loadJson<WatchlistRun[]>("watchlist-runs.json", []),
+      loadJson<Record<string, string>>("watchlist-transports.json", {}),
       loadJson<unknown>(X_REPLY_STATE_FILE, null),
       invoke<string>("working_directory").catch(() => ""),
     ]);
@@ -1478,6 +1498,7 @@ export const useStore = create<State>((set, get) => {
       usageHistory: history,
       watchedProfiles: normalizeWatchedProfiles(rawWatched),
       watchlistRuns: normalizeWatchlistRuns(rawWatchlistRuns),
+      watchlistTransports: rawWatchlistTransports ?? {},
       xReplyState: normalizeXReplyState(rawXReply),
       workingDir: wd,
     });
@@ -4466,7 +4487,11 @@ export const useStore = create<State>((set, get) => {
     persistWatchedProfiles(watchedProfiles);
     set({ watchedProfiles });
     trackEvent("watched_profile_subscribe_queued", { skill: entry.id });
-    await get().useSkillInChat(entry, fillTemplate(entry.watchlist.subscribeTask, { handle: profile.handle }));
+    const transport = get().watchlistTransportFor(entry);
+    await get().useSkillInChat(
+      transportEntry(entry, transport),
+      fillTemplate(transport.subscribeTask, { handle: profile.handle }),
+    );
   },
 
   runWatchlistPass: async (entry, options) => {
@@ -4479,9 +4504,11 @@ export const useStore = create<State>((set, get) => {
       return;
     }
     const prefix = watchlist.prefix ?? "";
+    const transport = get().watchlistTransportFor(entry);
+    const runOn = transportEntry(entry, transport);
     const active = get().watchedProfilesFor(entry.id).filter((item) => item.enabled);
     if (!active.length) {
-      await get().useSkillInChat(entry, undefined, options);
+      await get().useSkillInChat(runOn, undefined, options);
       return;
     }
     const startedAt = now();
@@ -4492,7 +4519,7 @@ export const useStore = create<State>((set, get) => {
     set({ watchedProfiles });
     trackEvent("watchlist_pass_queued", { skill: entry.id, watched_count: active.length });
     const handles = active.map((item) => `${prefix}${item.handle}`).join(", ");
-    await get().useSkillInChat(entry, fillTemplate(watchlist.checkTask, { handles }), options);
+    await get().useSkillInChat(runOn, fillTemplate(transport.checkTask, { handles }), options);
   },
 
   // The engine, not the agent, performs a pass: detection, the publish gates,
@@ -4617,6 +4644,20 @@ export const useStore = create<State>((set, get) => {
   },
 
   watchlistRunFor: (skillId) => get().watchlistRuns.find((run) => run.skillId === skillId),
+
+  watchlistTransportFor: (entry) =>
+    resolveWatchlistTransport(entry.watchlist!, get().watchlistTransports[entry.id], entry.runtime),
+
+  setWatchlistTransport: (entry, transportId) => {
+    if (!entry.watchlist) return;
+    // Switching device mid-loop would run the next pass somewhere the user did
+    // not choose it, so the loop stops and they start it again deliberately.
+    if (get().watchlistRunFor(entry.id)?.enabled) get().stopWatchlistRun(entry.id);
+    const watchlistTransports = { ...get().watchlistTransports, [entry.id]: transportId };
+    persistWatchlistTransports(watchlistTransports);
+    set({ watchlistTransports });
+    trackEvent("watchlist_transport_selected", { skill: entry.id, transport: transportId });
+  },
 
   startWatchlistRun: async (entry, intervalMinutes) => {
     if (!entry.watchlist) return;

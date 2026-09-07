@@ -20,15 +20,24 @@ describe("repository skills", () => {
     expect(skill?.watchlist?.checkTask).toContain("{handles}");
   });
 
-  it("carries a cloud-phone runtime and its subreddit watchlist into the catalog entry", () => {
+  it("carries a two-device subreddit watchlist into the catalog entry", () => {
     const skill = repositorySkillCategories().flatMap((category) => category.entries)
-      .find((entry) => entry.id === "repository:reddit-cloud-phone");
-    expect(skill?.runtime).toBe("cloud-phone");
+      .find((entry) => entry.id === "repository:reddit");
     expect(skill?.selector).toEqual({ kind: "domain", value: "reddit.com" });
     expect(skill?.watchlist?.prefix).toBe("r/");
     expect(skill?.watchlist?.handleMaxLength).toBe(21);
     expect(skill?.watchlist?.engine).toBeUndefined();
-    expect(skill?.instructions).toContain("reddit-cloud-phone-state.json");
+    // The device is the transport's, not the entry's: the card and the pass
+    // follow whichever one the user picked in the panel.
+    expect(skill?.runtime).toBeUndefined();
+    const transports = skill?.watchlist?.transports ?? [];
+    expect(transports.map((transport) => transport.id)).toEqual(["browser", "cloud-phone"]);
+    expect(transports.find((transport) => transport.id === "browser")?.runtime).toBeUndefined();
+    expect(transports.find((transport) => transport.id === "cloud-phone")?.runtime).toBe("cloud-phone");
+    for (const transport of transports) {
+      expect(transport.subscribeTask).toContain("{handle}");
+      expect(transport.checkTask).toContain("{handles}");
+    }
     // Browser skills declare no runtime, so the app keeps preparing a profile for them.
     const car = repositorySkillCategories().flatMap((category) => category.entries)
       .find((entry) => entry.id === "repository:999-car-search");

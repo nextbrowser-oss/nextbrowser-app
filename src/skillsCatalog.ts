@@ -22,13 +22,67 @@ export interface SkillWatchlist {
   /// Only the chat-driven fallback uses it; an engine keeps its own state.
   stateFile?: string;
   /// Task template for subscribing to one account; contains `{handle}`.
-  subscribeTask: string;
+  /// A watchlist that declares transports carries these per transport instead.
+  subscribeTask?: string;
   /// Task template for one pass over the list; contains `{handles}`.
-  checkTask: string;
+  checkTask?: string;
+  /// The devices this watchlist can run on. A site reachable both in a browser
+  /// and in its Android app declares one per device, and the panel offers the
+  /// choice instead of shipping the same list twice as two skills.
+  transports?: SkillWatchlistTransport[];
   /// Built-in engine that performs the run in app code instead of handing the
   /// whole workflow to the agent. The agent is then called only where a model
   /// is genuinely needed — writing the reply.
   engine?: "x-reply";
+}
+
+/// One device a watchlist can run on. The tasks live here because reaching an
+/// account through a browser and through its Android app are different jobs,
+/// not the same job with a flag.
+export interface SkillWatchlistTransport {
+  /// Stable id persisted with the user's choice, for example "browser".
+  id: string;
+  /// Toggle label, for example "Browser".
+  label: string;
+  /// Where a pass on this transport runs. Absent means an ordinary browser
+  /// profile; "cloud-phone" prepares no browser and uses the Multilogin phone.
+  runtime?: SkillRuntime;
+  /// Replaces the watchlist blurb while this transport is selected.
+  blurb?: string;
+  subscribeTask: string;
+  checkTask: string;
+}
+
+/// watchlistTransports always returns at least one transport, so a caller never
+/// has to branch on whether a watchlist declared them. A watchlist without them
+/// is one implicit transport built from its own tasks.
+export function watchlistTransports(
+  watchlist: SkillWatchlist,
+  fallbackRuntime?: SkillRuntime,
+): SkillWatchlistTransport[] {
+  if (watchlist.transports?.length) return watchlist.transports;
+  // The implicit transport keeps the skill's own runtime. Without that a
+  // cloud-phone skill that never declared transports would be run in a browser.
+  return [{
+    id: "default",
+    label: "Default",
+    runtime: fallbackRuntime,
+    subscribeTask: watchlist.subscribeTask ?? "",
+    checkTask: watchlist.checkTask ?? "",
+  }];
+}
+
+/// resolveWatchlistTransport picks the selected transport, falling back to the
+/// first one. A stored id that no longer exists — the skill was updated, or the
+/// choice was made against an older build — resolves to the first rather than
+/// leaving the panel with no tasks to run.
+export function resolveWatchlistTransport(
+  watchlist: SkillWatchlist,
+  selected?: string,
+  fallbackRuntime?: SkillRuntime,
+): SkillWatchlistTransport {
+  const transports = watchlistTransports(watchlist, fallbackRuntime);
+  return transports.find((transport) => transport.id === selected) ?? transports[0];
 }
 
 /// Where a skill runs. A cloud-phone skill drives the site's Android app on a

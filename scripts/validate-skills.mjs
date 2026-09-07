@@ -43,14 +43,46 @@ for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
     if (typeof watchlist !== "object" || Array.isArray(watchlist)) {
       failures.push(`${entry.name}: watchlist must be an object`);
     } else {
-      for (const field of ["title", "placeholder", "subscribeTask", "checkTask"]) {
+      for (const field of ["title", "placeholder"]) {
         if (typeof watchlist[field] !== "string" || !watchlist[field].trim()) failures.push(`${entry.name}: watchlist.${field} is required`);
       }
-      if (typeof watchlist.subscribeTask === "string" && !watchlist.subscribeTask.includes("{handle}")) {
-        failures.push(`${entry.name}: watchlist.subscribeTask must contain {handle}`);
+      // The tasks live either on the watchlist or on each transport. Checking
+      // both the same way keeps a device from shipping with no pass to run.
+      const taskHolders = Array.isArray(watchlist.transports) && watchlist.transports.length
+        ? watchlist.transports
+        : [watchlist];
+      if (watchlist.transports != null && (!Array.isArray(watchlist.transports) || watchlist.transports.length < 2)) {
+        failures.push(`${entry.name}: watchlist.transports must list at least two devices`);
       }
-      if (typeof watchlist.checkTask === "string" && !watchlist.checkTask.includes("{handles}")) {
-        failures.push(`${entry.name}: watchlist.checkTask must contain {handles}`);
+      const transportIds = new Set();
+      for (const holder of taskHolders) {
+        const where = holder === watchlist ? "watchlist" : `watchlist.transports[${holder?.id ?? "?"}]`;
+        if (typeof holder !== "object" || holder == null || Array.isArray(holder)) {
+          failures.push(`${entry.name}: ${where} must be an object`);
+          continue;
+        }
+        if (holder !== watchlist) {
+          for (const field of ["id", "label"]) {
+            if (typeof holder[field] !== "string" || !holder[field].trim()) failures.push(`${entry.name}: ${where}.${field} is required`);
+          }
+          if (typeof holder.id === "string") {
+            if (!slugPattern.test(holder.id)) failures.push(`${entry.name}: ${where}.id must be a lowercase kebab-case slug`);
+            if (transportIds.has(holder.id)) failures.push(`${entry.name}: ${where}.id is used twice`);
+            transportIds.add(holder.id);
+          }
+          if (holder.runtime != null && !["browser", "cloud-phone"].includes(holder.runtime)) {
+            failures.push(`${entry.name}: ${where}.runtime must be browser or cloud-phone`);
+          }
+        }
+        for (const field of ["subscribeTask", "checkTask"]) {
+          if (typeof holder[field] !== "string" || !holder[field].trim()) failures.push(`${entry.name}: ${where}.${field} is required`);
+        }
+        if (typeof holder.subscribeTask === "string" && !holder.subscribeTask.includes("{handle}")) {
+          failures.push(`${entry.name}: ${where}.subscribeTask must contain {handle}`);
+        }
+        if (typeof holder.checkTask === "string" && !holder.checkTask.includes("{handles}")) {
+          failures.push(`${entry.name}: ${where}.checkTask must contain {handles}`);
+        }
       }
       if (watchlist.profileUrl != null && (typeof watchlist.profileUrl !== "string" || !watchlist.profileUrl.startsWith("https://") || !watchlist.profileUrl.includes("{handle}"))) {
         failures.push(`${entry.name}: watchlist.profileUrl must be an https template containing {handle}`);

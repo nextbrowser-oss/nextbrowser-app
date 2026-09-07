@@ -1,0 +1,45 @@
+{
+  "id": "reddit",
+  "name": "Reddit",
+  "description": "Watch subreddits and the inbox, draft one short reply per new item, and post the replies you approved - in a browser profile or in the Reddit Android app on a cloud phone.",
+  "author": "nextbrowser-oss",
+  "domains": [
+    "reddit.com"
+  ],
+  "operations": [
+    "scrape",
+    "post",
+    "comment"
+  ],
+  "category": {
+    "id": "social",
+    "title": "Social",
+    "icon": "bubble.left.and.bubble.right.fill",
+    "order": 40
+  },
+  "watchlist": {
+    "title": "Subreddits to answer",
+    "placeholder": "community without r/",
+    "prefix": "r/",
+    "handleMaxLength": 21,
+    "profileUrl": "https://old.reddit.com/r/{handle}",
+    "stateFile": "reddit-state.json",
+    "transports": [
+      {
+        "id": "browser",
+        "label": "Browser",
+        "blurb": "Communities NextBrowser checks in your browser profile. Every pass scans each one, and your inbox, for items nobody has answered yet, shows you what it would reply to, and posts only the replies you approved. A reply log keeps a rerun from answering the same item twice.",
+        "subscribeTask": "Subscribe to r/{handle} in the browser: run `nbc reddit status --profile <profile> --json` first and sign in with `nbc reddit login` if it reports REDDIT_LOGIN_REQUIRED. Then run `nbc reddit feed --profile <profile> {handle} --limit 10 --json`, confirm the community exists, and record r/{handle} in the state file with the newest post fullname as its baseline. Reply to nothing and upvote nothing in this run. Report whether the account can post there.",
+        "checkTask": "Run one reply pass in the browser over these communities: {handles}. Only these communities are watched right now. For each one run `nbc reddit autoreply --profile <profile> --source community --community <name> --dry-run --json` to see what is unanswered, and run it once with `--source inbox --dry-run --json` for replies and mentions addressed to the account. Read each target's own text and write a reply that answers that specific item - never a canned line. Show me every draft before anything goes out, then post the approved ones with `nbc reddit autoreply --profile <profile> --source <source> --replies '{\"<fullname>\":\"<text>\"}' --json`, and update the state file. Keep to a couple of replies per community and stop at the first failure."
+      },
+      {
+        "id": "cloud-phone",
+        "label": "Cloud phone",
+        "runtime": "cloud-phone",
+        "blurb": "Communities the agent visits in the Reddit app on your cloud phone. Each pass opens the community, reads what is new since the last visit, upvotes what fits the account, and comments only where you asked it to. The inbox and the auto-replier are browser-only.",
+        "subscribeTask": "Subscribe to r/{handle} on the cloud phone: connect adb, run the Reddit status flow, and sign in only if it reports logged_in false. Then open the community feed with `mobile reddit feed`, confirm it exists, and record r/{handle} in the state file with its newest post as the baseline. Engage with nothing in this run. Report whether the account has joined the community.",
+        "checkTask": "Run one engagement pass on the cloud phone over these communities: {handles}. Only these communities are watched right now. For each one open its feed with `mobile reddit feed` or `mobile reddit engage`, read what is newer than the recorded baseline, upvote what fits the account, and comment only where the task or the account voice asks for it. Show me any comment before it goes out. Use the ready flows rather than tap-by-tap ui primitives, keep to a few actions per community, report every write with the flow's own verified value, and update the state file."
+      }
+    ]
+  }
+}

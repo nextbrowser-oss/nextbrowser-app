@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../store";
 import { invoke } from "../electronBridge";
-import { fillTemplate, type SkillEntry } from "../skillsCatalog";
+import { fillTemplate, watchlistTransports, type SkillEntry } from "../skillsCatalog";
 import {
   DEFAULT_WATCHLIST_INTERVAL_MINUTES,
   WATCHLIST_INTERVAL_CHOICES,
@@ -63,6 +63,8 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
   const updateSettings = useStore((s) => s.updateXReplySettings);
   const run = useStore((s) => s.watchlistRuns).find((item) => item.skillId === entry.id);
   const startWatchlistRun = useStore((s) => s.startWatchlistRun);
+  const transport = useStore((s) => (entry.watchlist ? s.watchlistTransportFor(entry) : undefined));
+  const setWatchlistTransport = useStore((s) => s.setWatchlistTransport);
   const stopWatchlistRun = useStore((s) => s.stopWatchlistRun);
 
   const engine = watchlist?.engine === "x-reply";
@@ -85,6 +87,8 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
 
   if (!watchlist) return null;
   const prefix = watchlist.prefix ?? "";
+  const transports = watchlistTransports(watchlist, entry.runtime);
+  const blurb = transport?.blurb ?? watchlist.blurb;
   const site = entry.selector.value;
   const activeCount = profiles.filter((item) => item.enabled).length;
   const publisher = engine ? engineState.publisher : watchPublishers[entry.id];
@@ -179,6 +183,25 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
           </button>
         </div>
 
+        {transports.length > 1 && (
+          <div className="row watchlist-profile">
+            <label className="muted small">Runs on</label>
+            <div className="watchlist-transport" role="group" aria-label="Where a pass runs">
+              {transports.map((option) => (
+                <button
+                  key={option.id}
+                  className={"mini" + (option.id === transport?.id ? " selected" : "")}
+                  aria-pressed={option.id === transport?.id}
+                  title={option.blurb ?? option.label}
+                  onClick={() => setWatchlistTransport(entry, option.id)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {engine && (
           <div className="row watchlist-profile">
             <label className="muted small">Profile</label>
@@ -249,7 +272,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
             <strong>Nothing watched yet</strong>
             <span className="muted small">
               {!engine
-                ? (watchlist.blurb ?? "Add an account to watch.")
+                ? (blurb ?? "Add an account to watch.")
                 : engineState.watchSource === "notifications"
                   ? `Add an account — its ${site} post notifications get switched on.`
                   : `Add an account — its ${site} profile is read on every pass.`}
