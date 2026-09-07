@@ -87,7 +87,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
     if (runtime === "cloud-phone") return cloudPhoneRunsIn(cloudPhone);
     const host = selectorTargetHost(e.selector);
     if (host) return `Runs in ${sessionName} → ${host}`;
-    if (e.selector.kind === "captcha") return `Runs in ${sessionName} · current tab`;
+    if (e.selector.kind === "captcha" || e.selector.kind === "current_tab") return `Runs in ${sessionName} · current tab`;
     return `Runs in ${sessionName}`;
   };
 
@@ -226,6 +226,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                   </div>
                 )}
                 {repositorySkill && <div className="small ok skill-status"><Icon name="checkmark.seal.fill" size={12} /> Included with NextBrowser</div>}
+                {repositorySkill && <div className="skill-contract small muted"><span>{e.verification === "verified" ? "Verified" : "Test contract included"}</span>{e.permissions?.length ? <span>{e.permissions.map((permission) => permission.replace(/_/g, " ")).join(" · ")}</span> : <span>Legacy permissions</span>}</div>}
                 {e.watchlist && (
                   <button
                     className="skill-watchlist-summary small"

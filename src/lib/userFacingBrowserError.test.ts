@@ -22,6 +22,11 @@ describe("userFacingBrowserError", () => {
       .toBe("The browser profile stopped responding. Restart the profile and try again.");
   });
 
+  it("explains a proxy tunnel failure without Chromium error jargon", () => {
+    expect(userFacingBrowserError("navigation failed: net::ERR_TUNNEL_CONNECTION_FAILED"))
+      .toBe("The selected profile’s proxy could not connect. Check or change its proxy, then run the automation again.");
+  });
+
   it("preserves useful ordinary errors while removing local log paths", () => {
     expect(userFacingBrowserError("Could not open page; see log /Users/person/private/child.log"))
       .toBe("Could not open page");

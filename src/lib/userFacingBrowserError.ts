@@ -41,6 +41,10 @@ export function userFacingBrowserError(error: unknown): string {
     return "The browser profile stopped responding. Restart the profile and try again.";
   }
 
+  if (/ERR_TUNNEL_CONNECTION_FAILED/i.test(raw)) {
+    return "The selected profile’s proxy could not connect. Check or change its proxy, then run the automation again.";
+  }
+
   // Never expose private filesystem locations from host-process diagnostics.
   return raw
     .replace(/^Error invoking remote method ['"][^'"]+['"]:\s*(?:Error:\s*)?/i, "")

@@ -938,6 +938,27 @@ body.is-resizing-sidebar {
   margin-top: 15px;
 }
 .proxy-usage-allocation-meta { margin-top: 8px; }
+.nodemaven-handoff {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface-2));
+}
+.nodemaven-handoff.exhausted {
+  border-color: color-mix(in srgb, var(--red) 35%, var(--border));
+  background: color-mix(in srgb, var(--red) 7%, var(--surface-2));
+}
+.nodemaven-handoff-copy { display: flex; align-items: flex-start; gap: 10px; }
+.nodemaven-handoff-copy > svg { flex: 0 0 auto; color: var(--accent); margin-top: 1px; }
+.nodemaven-handoff.exhausted .nodemaven-handoff-copy > svg { color: var(--red); }
+.nodemaven-handoff-copy strong { display: block; font-size: 14px; }
+.nodemaven-handoff-copy p { margin: 4px 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.nodemaven-handoff-copy span, .nodemaven-handoff-notice { color: var(--muted); font-size: 11px; }
+.nodemaven-handoff-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.nodemaven-handoff-notice { margin: 0; }
 .proxy-usage-card .warning-banner { margin-top: 12px; }
 .proxy-traffic-gate {
   margin-top: 13px;
@@ -7889,6 +7910,38 @@ pre,
 .recording-progress-card.failed, .recording-progress-card.cancelled { border-color: color-mix(in srgb, var(--red) 35%, var(--line)); background: color-mix(in srgb, var(--red) 8%, var(--panel)); }
 .recording-progress-card.failed .recording-progress-head b, .recording-progress-card.cancelled .recording-progress-head b { color: var(--red); }
 .recording-progress-card.failed .recording-progress-track i, .recording-progress-card.cancelled .recording-progress-track i { background: var(--red); }
+
+/* Explain a run before it starts and make progress useful without exposing
+   transport/CDP diagnostics as the primary UI. */
+.automation-run-timeline { display: grid; gap: 7px; padding-top: 2px; }
+.automation-run-timeline summary { display: flex; cursor: pointer; align-items: center; justify-content: space-between; gap: 10px; color: var(--text); font-size: 11px; font-weight: 600; }
+.automation-run-timeline summary span { overflow: hidden; color: var(--muted); font-size: 10px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.automation-run-timeline ol { display: grid; gap: 6px; max-height: 178px; margin: 0; padding: 3px 0 0; overflow: auto; list-style: none; }
+.automation-run-timeline li { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: start; gap: 7px; color: var(--muted); font-size: 11px; }
+.automation-run-timeline li.success { color: var(--green); }
+.automation-run-timeline li.failed { color: var(--red); }
+.automation-run-timeline li.repair { color: var(--accent); }
+.automation-run-timeline li span { display: grid; gap: 1px; min-width: 0; }
+.automation-run-timeline li strong { color: var(--text); font-size: 11px; font-weight: 550; }
+.automation-run-timeline li small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.automation-repair-saved { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--green); font-size: 11px; }
+.trust-preview-dialog { display: grid; width: min(600px, calc(100vw - 32px)); gap: 16px; }
+.trust-preview-title { display: flex; align-items: flex-start; gap: 11px; }
+.trust-preview-title > span { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 12px; background: color-mix(in srgb, var(--accent) 14%, var(--surface-2)); color: var(--accent); }
+.trust-preview-title h2 { margin: 0; font-size: 18px; }
+.trust-preview-title p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.trust-preview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.trust-preview-grid > div { min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--surface-1) 85%, transparent); }
+.trust-preview-grid dt { color: var(--muted); font-size: 10px; }
+.trust-preview-grid dd { overflow: hidden; margin: 3px 0 0; color: var(--text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.trust-preview-effects { display: flex; flex-wrap: wrap; gap: 7px; }
+.trust-preview-effects span { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line)); border-radius: 999px; color: var(--text); font-size: 11px; }
+.trust-preview-effects span.risk, .trust-preview-warning { border-color: color-mix(in srgb, var(--yellow) 45%, var(--line)); color: var(--yellow); }
+.trust-preview-dialog ul { display: grid; gap: 5px; margin: 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
+.trust-preview-warning { display: flex; align-items: flex-start; gap: 7px; margin: 0; padding: 9px 10px; border: 1px solid; border-radius: 9px; background: color-mix(in srgb, var(--yellow) 8%, var(--surface-1)); font-size: 11px; }
+.skill-contract { display: flex; flex-wrap: wrap; gap: 5px 8px; margin-top: -2px; }
+.skill-contract span { padding: 2px 5px; border: 1px solid var(--line); border-radius: 999px; background: color-mix(in srgb, var(--surface-2) 68%, transparent); font-size: 9px; text-transform: capitalize; }
+@media (max-width: 560px) { .trust-preview-grid { grid-template-columns: 1fr; } .trust-preview-dialog { gap: 12px; } }
 .automation-panel { border: 1px solid var(--line); border-radius: 16px; background: var(--panel); overflow: hidden; }
 .automation-panel-head { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
 .automation-panel-head h2 { margin: 0 0 4px; font-size: 17px; }

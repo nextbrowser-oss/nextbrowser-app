@@ -14,7 +14,7 @@ import { Icon, Spinner } from "./components/Icon";
 import { AgentPicker } from "./components/AgentPicker";
 import { brandName, dashboardUrl, discordUrl, latestReleaseUrl, repoUrl } from "./constants";
 import { trafficAllowanceBytes, trafficAllowanceFraction } from "./lib/trafficGate";
-import { getPreviewMode, getPreviewTab } from "./preview";
+import { getPreviewMode, getPreviewNodeMavenState, getPreviewTab } from "./preview";
 import { humanBytes, type AppTab, type Conversation } from "./types";
 import { resolveTheme, type Theme } from "./theme";
 import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
@@ -1030,6 +1030,7 @@ export function App() {
     }
     if (preview === "main") {
       const tabParam = getPreviewTab();
+      const nodeMavenState = getPreviewNodeMavenState();
       const previewConvs: Conversation[] = [
         {
           id: "preview-conv-1",
@@ -1085,11 +1086,17 @@ export function App() {
         activeConvId: { claude: "preview-conv-1", codex: "" },
         proxy: {
           limited: true,
-          used_bytes: 1_200_000_000,
-          limit_bytes: 5_000_000_000,
-          percent_used: 24,
-          state: "active",
+          used_bytes: nodeMavenState === "exhausted" ? 1_000_000_000 : 240_000_000,
+          limit_bytes: 1_000_000_000,
+          remaining_bytes: nodeMavenState === "exhausted" ? 0 : 760_000_000,
+          percent_used: nodeMavenState === "exhausted" ? 100 : 24,
+          state: nodeMavenState === "exhausted" ? "exhausted" : "ok",
           dashboard_url: dashboardUrl,
+          provider: "nodemaven",
+          provider_account_email: "customer@example.com",
+          provider_access_method: "password_reset",
+          provider_access_url: "https://dashboard.nodemaven.com/accounts/password/reset/",
+          pricing_url: "https://dashboard.nodemaven.com/pricing?tab=MONTHLY_PLANS",
         },
         showOnboarding: false,
         ...(tabParam && PREVIEW_TABS.has(tabParam) ? { tab: tabParam as AppTab } : {}),

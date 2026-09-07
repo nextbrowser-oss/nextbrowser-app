@@ -4,6 +4,9 @@ import path from "node:path";
 const root = path.resolve(process.argv[2] ?? "skills");
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const allowedOperations = new Set(["search", "scrape", "paginate", "post", "comment", "message", "form"]);
+const allowedTargetModes = new Set(["fixed_domain", "current_tab"]);
+const allowedPermissions = new Set(["read_page", "use_page_controls", "save_local_artifact", "upload_file", "login", "publish"]);
+const allowedVerification = new Set(["community", "verified"]);
 const failures = [];
 
 for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
@@ -26,6 +29,21 @@ for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
   }
   if (!Array.isArray(manifest.operations) || !manifest.operations.length || manifest.operations.some((operation) => !allowedOperations.has(operation))) {
     failures.push(`${entry.name}: operations contains an unsupported value`);
+  }
+  if (!allowedTargetModes.has(manifest.target_mode)) {
+    failures.push(`${entry.name}: target_mode must be fixed_domain or current_tab`);
+  }
+  if (!Array.isArray(manifest.permissions) || !manifest.permissions.length || manifest.permissions.some((permission) => !allowedPermissions.has(permission))) {
+    failures.push(`${entry.name}: permissions must declare every browser/data capability used by the skill`);
+  }
+  if (manifest.verification != null && !allowedVerification.has(manifest.verification)) {
+    failures.push(`${entry.name}: verification must be community or verified`);
+  }
+  if (manifest.min_nextctl_version != null && (typeof manifest.min_nextctl_version !== "string" || !/^>=\d+\.\d+\.\d+$/.test(manifest.min_nextctl_version))) {
+    failures.push(`${entry.name}: min_nextctl_version must use the format >=x.y.z`);
+  }
+  if (manifest.verification === "verified" && manifest.min_nextctl_version == null) {
+    failures.push(`${entry.name}: verified skills must declare min_nextctl_version`);
   }
   if (!manifest.category || !slugPattern.test(manifest.category.id ?? "") || typeof manifest.category.title !== "string" || typeof manifest.category.icon !== "string" || !Number.isInteger(manifest.category.order)) {
     failures.push(`${entry.name}: category must include id, title, icon, and integer order`);
@@ -150,8 +168,8 @@ for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
   if (fs.existsSync(casesPath)) {
     try {
       const cases = JSON.parse(fs.readFileSync(casesPath, "utf8"));
-      if (!Array.isArray(cases) || cases.length < 3 || cases.some((testCase) => typeof testCase?.task !== "string" || !Array.isArray(testCase?.expects))) {
-        failures.push(`${entry.name}: tests/cases.json must contain at least three task/expects cases`);
+      if (!Array.isArray(cases) || cases.length < 3 || cases.some((testCase) => typeof testCase?.task !== "string" || !testCase.task.trim() || !Array.isArray(testCase?.expects) || !testCase.expects.length || testCase.expects.some((expectation) => typeof expectation !== "string" || !expectation.trim()))) {
+        failures.push(`${entry.name}: tests/cases.json must contain at least three non-empty task/expects cases`);
       }
     } catch { failures.push(`${entry.name}: tests/cases.json is not valid JSON`); }
   }

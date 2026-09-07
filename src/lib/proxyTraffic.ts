@@ -151,6 +151,24 @@ export function mergeProxyTrafficHistories(
   };
 }
 
+export function isProxyTrafficExhausted(proxyTraffic?: ProxyTraffic | null): boolean {
+  if (!proxyTraffic?.limited) return false;
+  const remaining = proxyTraffic.remaining_bytes
+    ?? (proxyTraffic.limit_bytes == null ? undefined : proxyTraffic.limit_bytes - proxyTraffic.used_bytes);
+  return proxyTraffic.state === "exhausted" || (remaining != null && remaining <= 0);
+}
+
+export function isTrustedNodeMavenURL(value?: string | null): value is string {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:"
+      && (url.hostname === "nodemaven.com" || url.hostname.endsWith(".nodemaven.com"));
+  } catch {
+    return false;
+  }
+}
+
 export function proxyTrafficWarning(proxyTraffic: ProxyTraffic): string | undefined {
   const state = trafficGateState(proxyTraffic);
   if (state === "blocked") return "Free traffic is paused. Ask in Discord to unlock the rest.";

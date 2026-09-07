@@ -9,6 +9,11 @@ export interface ProxyTraffic {
   state: string;
   top_up_bytes?: number | null;
   dashboard_url?: string | null;
+  provider?: string | null;
+  provider_account_email?: string | null;
+  provider_access_method?: "password_reset" | "email_sent" | null;
+  provider_access_url?: string | null;
+  pricing_url?: string | null;
 }
 
 export interface ProxyTrafficHistoryPoint {
