@@ -3,7 +3,9 @@ import type { ProxyTrafficDomainBreakdown } from "../types";
 import {
   domainPaginationItems,
   domainsPageByTraffic,
+  isProxyTrafficExhausted,
   isProxyTrafficHistoryRangeValid,
+  isTrustedNodeMavenURL,
   mergeProxyTrafficHistories,
   proxyTrafficHistoryCoverage,
   proxyTrafficHistoryMaxDays,
@@ -202,5 +204,20 @@ describe("proxy traffic warning", () => {
       percent_used: 100,
       state: "exhausted",
     })).toBe("Proxy traffic limit reached.");
+  });
+});
+
+describe("NodeMaven handoff", () => {
+  it("detects exhausted traffic from remaining bytes or state", () => {
+    expect(isProxyTrafficExhausted({ limited: true, used_bytes: 1_000, limit_bytes: 1_000, state: "ok" })).toBe(true);
+    expect(isProxyTrafficExhausted({ limited: true, used_bytes: 900, limit_bytes: 1_000, state: "exhausted" })).toBe(true);
+    expect(isProxyTrafficExhausted({ limited: true, used_bytes: 900, limit_bytes: 1_000, state: "near_limit" })).toBe(false);
+  });
+
+  it("only accepts HTTPS NodeMaven handoff links", () => {
+    expect(isTrustedNodeMavenURL("https://dashboard.nodemaven.com/pricing")).toBe(true);
+    expect(isTrustedNodeMavenURL("https://nodemaven.com/pricing/")).toBe(true);
+    expect(isTrustedNodeMavenURL("http://dashboard.nodemaven.com/pricing")).toBe(false);
+    expect(isTrustedNodeMavenURL("https://nodemaven.com.evil.example/pricing")).toBe(false);
   });
 });

@@ -3,6 +3,7 @@ import {
   activeAutomationExecution,
   automationAgentAnswer,
   automationAgentBrowserActionCount,
+  automationExecutionTimeline,
   automationExecutionView,
   canContinueWithoutRemoteRunHistory,
   executionWithRecipeProgress,
@@ -62,6 +63,14 @@ describe("automation execution indicator", () => {
       phase: "running",
       progress: 50,
     });
+    expect(updated.events).toMatchObject([{ kind: "browser", title: "Step 3: extract", state: "info" }]);
+  });
+
+  it("adds safe agent action names to the visible timeline without exposing arguments", () => {
+    const repair = { ...execution, engine: "agent" as const, replyId: "answer", events: [{ id: "repair", at: 100, kind: "repair" as const, title: "AI repair started", state: "info" as const }] };
+    const timeline = automationExecutionTimeline(repair, [conversation("streaming", 1)]);
+    expect(timeline.map((event) => event.title)).toEqual(["AI repair started", "act"]);
+    expect(timeline[1].detail).toBeUndefined();
   });
 
   it("ignores runner events belonging to another execution", () => {

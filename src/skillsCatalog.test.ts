@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { withLocalScripts, type SkillCategory, type SkillEntry } from "./skillsCatalog";
+import { selectorFlags, selectorTargetHost, withLocalScripts, type SkillCategory, type SkillEntry } from "./skillsCatalog";
 
 describe("backend-driven skill catalog", () => {
   it("groups only entries returned by the backend", () => {
@@ -18,5 +18,11 @@ describe("backend-driven skill catalog", () => {
     expect(categories.flatMap((category) => category.entries)).not.toContainEqual(
       expect.objectContaining({ subtitle: "amazon.com" }),
     );
+  });
+
+  it("does not turn a current-tab skill into a fixed domain launch", () => {
+    const selector = { kind: "current_tab", value: "current tab" } as const;
+    expect(selectorTargetHost(selector)).toBeUndefined();
+    expect(selectorFlags(selector)).toEqual([]);
   });
 });

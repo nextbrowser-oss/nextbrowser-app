@@ -26,6 +26,8 @@ function validFixture(id = "example-search") {
       author: "test-author",
       domains: ["example.com"],
       operations: ["search", "scrape", "paginate"],
+      target_mode: "fixed_domain",
+      permissions: ["read_page"],
       category: { id: "marketplaces", title: "Marketplaces", icon: "globe", order: 30 },
     },
     cases: [1, 2, 3].map((number) => ({ task: `Example task ${number}`, expects: ["returns results"] })),
@@ -52,6 +54,8 @@ test("rejects invalid metadata, instructions, and acceptance cases with actionab
       author: "test-author",
       domains: [],
       operations: ["teleport"],
+      target_mode: "wrong",
+      permissions: [],
       category: { id: "Invalid Category", title: "Invalid", icon: "globe", order: 30 },
     },
     cases: [{ task: "Only one case", expects: ["failure"] }],
@@ -62,6 +66,8 @@ test("rejects invalid metadata, instructions, and acceptance cases with actionab
   assert.match(errors, /manifest id must match its directory/);
   assert.match(errors, /domains must contain at least one hostname/);
   assert.match(errors, /operations contains an unsupported value/);
+  assert.match(errors, /target_mode must be fixed_domain or current_tab/);
+  assert.match(errors, /permissions must declare every browser\/data capability/);
   assert.match(errors, /SKILL\.md must start with YAML frontmatter/);
   assert.match(errors, /tests\/cases\.json must contain at least three/);
 });

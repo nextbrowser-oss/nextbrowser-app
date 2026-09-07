@@ -1,7 +1,11 @@
 export type Selector =
   | { kind: "domain"; value: string }
   | { kind: "captcha"; value: string }
+  | { kind: "current_tab"; value: "current tab" }
   | { kind: "script"; value: string };
+
+export type SkillPermission = "read_page" | "use_page_controls" | "save_local_artifact" | "upload_file" | "login" | "publish";
+export type SkillVerification = "community" | "verified";
 
 /// A skill that follows accounts over time declares a watchlist, and the app
 /// renders the manager for it. The wording of the runs stays with the skill so
@@ -162,6 +166,9 @@ export interface SkillEntry {
   instructions?: string;
   author?: string;
   watchlist?: SkillWatchlist;
+  permissions?: SkillPermission[];
+  minNextctlVersion?: string;
+  verification?: SkillVerification;
 }
 
 /// fillTemplate substitutes `{name}` placeholders. A placeholder without a
@@ -180,6 +187,7 @@ export interface SkillCategory {
 
 export function selectorFlags(s: Selector): string[] {
   if (s.kind === "captcha") return ["--captcha", s.value];
+  if (s.kind === "current_tab") return [];
   return ["--domain", s.value];
 }
 
@@ -189,6 +197,7 @@ export function selectorTargetHost(s: Selector): string | undefined {
 
 export function selectorIcon(s: Selector): string {
   if (s.kind === "captcha") return "checkmark.shield";
+  if (s.kind === "current_tab") return "rectangle.on.rectangle";
   if (s.kind === "script") return "scroll";
   return "globe";
 }

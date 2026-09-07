@@ -1,4 +1,11 @@
-import type { SkillCategory, SkillEntry, SkillRuntime, SkillWatchlist } from "./skillsCatalog";
+import type {
+  SkillCategory,
+  SkillEntry,
+  SkillPermission,
+  SkillRuntime,
+  SkillVerification,
+  SkillWatchlist,
+} from "./skillsCatalog";
 
 interface RepositorySkillManifest {
   id: string;
@@ -10,6 +17,10 @@ interface RepositorySkillManifest {
   category: { id: string; title: string; icon: string; order: number };
   runtime?: SkillRuntime;
   watchlist?: SkillWatchlist;
+  target_mode?: "fixed_domain" | "current_tab";
+  permissions?: SkillPermission[];
+  min_nextctl_version?: string;
+  verification?: SkillVerification;
 }
 
 const manifests = import.meta.glob<RepositorySkillManifest>("../skills/*/manifest.json", {
@@ -49,8 +60,13 @@ export function repositorySkillCategories(): SkillCategory[] {
       categoryTitle: manifest.category.title,
       categoryIcon: manifest.category.icon,
       categoryOrder: manifest.category.order,
-      selector: { kind: "domain", value: manifest.domains[0] },
+      selector: manifest.target_mode === "current_tab"
+        ? { kind: "current_tab", value: "current tab" }
+        : { kind: "domain", value: manifest.domains[0] },
       runtime: manifest.runtime === "cloud-phone" ? "cloud-phone" : undefined,
+      permissions: manifest.permissions ?? [],
+      minNextctlVersion: manifest.min_nextctl_version,
+      verification: manifest.verification,
       source: "repository",
       instructions: skillInstructions,
       author: manifest.author,

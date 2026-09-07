@@ -5,6 +5,8 @@
   "author": "nextbrowser-oss",
   "domains": ["999.md"],
   "operations": ["search", "scrape", "paginate"],
+  "target_mode": "fixed_domain",
+  "permissions": ["read_page", "use_page_controls"],
   "category": {
     "id": "marketplaces",
     "title": "Marketplaces",

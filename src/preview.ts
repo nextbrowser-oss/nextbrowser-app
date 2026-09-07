@@ -12,3 +12,9 @@ export function getPreviewTab(): string | null {
   if (typeof window === "undefined") return null;
   return new URLSearchParams(window.location.search).get("tab");
 }
+
+export function getPreviewNodeMavenState(): "active" | "exhausted" | null {
+  if (typeof window === "undefined") return null;
+  const value = new URLSearchParams(window.location.search).get("nodemaven");
+  return value === "active" || value === "exhausted" ? value : null;
+}

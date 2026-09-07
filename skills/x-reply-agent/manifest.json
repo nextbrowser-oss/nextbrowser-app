@@ -11,6 +11,8 @@
     "post",
     "comment"
   ],
+  "target_mode": "fixed_domain",
+  "permissions": ["read_page", "use_page_controls", "publish"],
   "category": {
     "id": "social",
     "title": "Social",

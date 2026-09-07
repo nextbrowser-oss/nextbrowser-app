@@ -9,6 +9,8 @@ describe("repository skills", () => {
     expect(skill?.source).toBe("repository");
     expect(skill?.selector).toEqual({ kind: "domain", value: "999.md" });
     expect(skill?.instructions).toContain("# 999.md car search");
+    expect(skill?.permissions).toEqual(["read_page", "use_page_controls"]);
+    expect(skill?.verification).toBeUndefined();
   });
 
   it("carries a declared watchlist into the catalog entry", () => {

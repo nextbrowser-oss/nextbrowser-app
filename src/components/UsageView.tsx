@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { nextctlJson } from "../nextctl";
 import { useStore } from "../store";
+import { invoke } from "../electronBridge";
 import { discordUrl } from "../constants";
 import { trackEvent } from "../lib/analytics";
 import {
   domainPaginationItems,
   domainsPageByTraffic,
+  isProxyTrafficExhausted,
   isProxyTrafficHistoryRangeValid,
+  isTrustedNodeMavenURL,
   mergeProxyTrafficHistories,
   proxyTrafficHistoryCoverage,
   proxyTrafficHistoryMaxDays,
@@ -118,6 +121,8 @@ export function UsageView() {
   const [historyNotice, setHistoryNotice] = useState<string>();
   const [historyReload, setHistoryReload] = useState(0);
   const [domainsPage, setDomainsPage] = useState(1);
+  const [handoffLoading, setHandoffLoading] = useState(false);
+  const [handoffNotice, setHandoffNotice] = useState<string>();
   const gateState = trafficGateState(s.proxy);
   const allowanceBytes = trafficAllowanceBytes(s.proxy);
   const allowanceRemainingBytes = trafficAllowanceRemainingBytes(s.proxy);
@@ -186,9 +191,31 @@ export function UsageView() {
     });
     window.open(discordUrl, "_blank", "noopener,noreferrer");
   };
+  const openNodeMaven = async (kind: "access" | "pricing") => {
+    if (!s.proxy || handoffLoading) return;
+    const url = kind === "access" ? s.proxy.provider_access_url : s.proxy.pricing_url;
+    if (!isTrustedNodeMavenURL(url)) {
+      setHandoffNotice("The NodeMaven link is unavailable. Refresh and try again.");
+      return;
+    }
+    setHandoffLoading(true);
+    setHandoffNotice(undefined);
+    trackEvent(`nodemaven_${kind}_opened`, { proxy_state: s.proxy.state, limited: s.proxy.limited });
+    try {
+      await invoke("open_external", { url });
+      setHandoffNotice(kind === "access"
+        ? "NodeMaven account setup opened in your browser."
+        : "NodeMaven pricing opened. After checkout, return here and refresh your usage.");
+    } catch {
+      setHandoffNotice("We couldn't open NodeMaven. Try again.");
+    } finally {
+      setHandoffLoading(false);
+    }
+  };
   const points = history?.data_points ?? [];
   const topDomains = history?.top_domains ?? [];
   const domainPage = domainsPageByTraffic(topDomains, domainsPage);
+  const proxyExhausted = isProxyTrafficExhausted(s.proxy);
   const peak = peakPoint(points);
   const averageBytes = points.length ? (history?.total_bytes ?? 0) / points.length : 0;
 
@@ -290,6 +317,44 @@ export function UsageView() {
                   <Icon name="bubble.left.and.bubble.right.fill" size={13} />
                   Ask in Discord
                 </button>
+              </div>
+            )}
+            {s.proxy.provider === "nodemaven" && gateState !== "blocked" && (
+              <div className={`nodemaven-handoff ${proxyExhausted ? "exhausted" : "ready"}`}>
+                <div className="nodemaven-handoff-copy">
+                  <Icon name={proxyExhausted ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"} size={18} />
+                  <div>
+                    <strong>{proxyExhausted ? "Your free 1 GB has been used" : "Your NodeMaven account is ready"}</strong>
+                    <p>
+                      {proxyExhausted
+                        ? "Buy more traffic in NodeMaven to continue. Your existing proxy credentials stay the same."
+                        : s.proxy.provider_access_method === "email_sent"
+                          ? "Your free 1 GB is active. NodeMaven sent account access instructions to your email."
+                          : "Your free 1 GB is active. Set a password once so you can buy more traffic when you need it."}
+                    </p>
+                    {s.proxy.provider_account_email && <span>NodeMaven account: {s.proxy.provider_account_email}</span>}
+                  </div>
+                </div>
+                <div className="nodemaven-handoff-actions">
+                  {s.proxy.provider_access_method === "password_reset" && isTrustedNodeMavenURL(s.proxy.provider_access_url) && (
+                    <button className={proxyExhausted ? "btn-bordered" : "btn-bordered-prominent"} disabled={handoffLoading} type="button" onClick={() => void openNodeMaven("access")}>
+                      <Icon name="person.crop.circle" size={13} />
+                      Set up account access
+                    </button>
+                  )}
+                  {proxyExhausted && isTrustedNodeMavenURL(s.proxy.pricing_url) && (
+                    <button className="btn-bordered-prominent" disabled={handoffLoading} type="button" onClick={() => void openNodeMaven("pricing")}>
+                      {handoffLoading ? <Spinner size={13} /> : <Icon name="arrow.up.right" size={13} />}
+                      Buy traffic in NodeMaven
+                    </button>
+                  )}
+                  {proxyExhausted && (
+                    <button className="btn-bordered" disabled={s.isRefreshing} type="button" onClick={() => void refreshUsage()}>
+                      I’ve added traffic — Refresh
+                    </button>
+                  )}
+                </div>
+                {handoffNotice && <p className="nodemaven-handoff-notice" role="status">{handoffNotice}</p>}
               </div>
             )}
           </>

@@ -38,11 +38,40 @@ export type AutomationExecution = {
   repairPersistenceError?: string;
   repairAttempt?: number;
   workflowSnapshot?: BrowserWorkflowSkill;
+  events?: AutomationExecutionEvent[];
+};
+
+export type AutomationExecutionEvent = {
+  id: string;
+  at: number;
+  kind: "system" | "browser" | "validation" | "repair" | "artifact";
+  title: string;
+  detail?: string;
+  state: "pending" | "success" | "failed" | "info";
 };
 
 export function automationAgentBrowserActionCount(execution: AutomationExecution, conversations: Conversation[]) {
   const answer = automationAgentAnswer(execution, conversations);
   return (answer?.toolEvents || []).filter((event) => /^(?:clawbrowser|nextbrowser)\.(?:open|wait|click|input|press|select|scroll|dismiss|upload|extract|paginate_extract|tabs_extract|form_fill|multi_action|site_recipe_run|act|evaluate|save_artifact)$/.test(event.name)).length;
+}
+
+/** A safe, human-readable merge of runner and agent progress. Tool arguments
+ * are deliberately excluded: they may contain a query or user-entered value. */
+export function automationExecutionTimeline(execution: AutomationExecution, conversations: Conversation[]): AutomationExecutionEvent[] {
+  const stored = execution.events ?? [];
+  if (execution.engine !== "agent") return stored;
+  const answer = automationAgentAnswer(execution, conversations);
+  const browserEvents = (answer?.toolEvents ?? [])
+    .filter((event) => /^(?:clawbrowser|nextbrowser)\.(?:open|wait|click|input|press|select|scroll|dismiss|upload|extract|paginate_extract|tabs_extract|form_fill|multi_action|site_recipe_run|act|evaluate|save_artifact)$/.test(event.name))
+    .map((event): AutomationExecutionEvent => ({
+      id: `tool-${event.id}`,
+      at: event.createdAt,
+      kind: event.name.endsWith("save_artifact") ? "artifact" : "browser",
+      title: event.name.replace(/^(?:clawbrowser|nextbrowser)\./, "").replace(/_/g, " "),
+      state: "info",
+    }));
+  const ids = new Set(stored.map((event) => event.id));
+  return [...stored, ...browserEvents.filter((event) => !ids.has(event.id))].sort((a, b) => a.at - b.at);
 }
 
 export type AutomationExecutionView = {
@@ -103,6 +132,23 @@ export function setActiveAutomationExecution(execution: AutomationExecution) {
   window.dispatchEvent(new CustomEvent(AUTOMATION_EXECUTION_EVENT, { detail: execution }));
 }
 
+export function withAutomationExecutionEvent(execution: AutomationExecution, event: Omit<AutomationExecutionEvent, "id" | "at"> & Partial<Pick<AutomationExecutionEvent, "id" | "at">>): AutomationExecution {
+  const next = {
+    id: event.id ?? `${execution.executionId}-${execution.events?.length || 0}-${event.title}`,
+    at: event.at ?? Date.now(),
+    kind: event.kind,
+    title: event.title,
+    detail: event.detail,
+    state: event.state,
+  } satisfies AutomationExecutionEvent;
+  const events = execution.events ?? [];
+  const previous = events.at(-1);
+  // Progress can be emitted twice by the Electron bridge. Keep the timeline
+  // legible while preserving a changed status or detail.
+  if (previous?.title === next.title && previous.detail === next.detail && previous.state === next.state) return execution;
+  return { ...execution, events: [...events, next].slice(-40) };
+}
+
 export function clearActiveAutomationExecution() {
   localStorage.removeItem(STATE_KEY);
   sessionStorage.removeItem(SESSION_KEY);
@@ -113,7 +159,7 @@ export function executionWithRecipeProgress(execution: AutomationExecution, upda
   if (execution.executionId !== update.executionId || execution.engine !== "deterministic") return execution;
   const browserSessionLost = update.phase === "failed" && /(?:list cdp targets|session .*not found|connection refused|CDP became reachable|browser (?:process )?(?:closed|exited)|target closed)/i.test(update.error || update.detail);
   const completedActions = Math.max(0, Math.min(update.total, update.stepIndex));
-  return {
+  const next = {
     ...execution,
     phase: browserSessionLost ? "preparing" : update.phase,
     expectedActions: update.total,
@@ -125,6 +171,15 @@ export function executionWithRecipeProgress(execution: AutomationExecution, upda
     error: update.error,
     failedStep: update.phase === "failed" && !browserSessionLost ? update.stepIndex : undefined,
   };
+  const kind = update.tool === "save_artifact" ? "artifact" : update.phase === "failed" ? "validation" : "browser";
+  const title = browserSessionLost
+    ? "Browser closed — recovering the selected profile"
+    : update.phase === "failed"
+      ? `Step ${update.stepIndex + 1} could not complete`
+      : update.phase === "completed"
+        ? "Saved browser steps completed"
+        : update.tool ? `Step ${Math.min(update.total, update.stepIndex + 1)}: ${update.tool}` : "Browser progress updated";
+  return withAutomationExecutionEvent(next, { kind, title, detail: next.detail, state: update.phase === "failed" ? "failed" : update.phase === "completed" ? "success" : "info" });
 }
 
 export function automationAgentAnswer(execution: AutomationExecution, conversations: Conversation[]): ChatMessage | undefined {

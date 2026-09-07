@@ -47,7 +47,7 @@ import {
   type MultiloginOSType,
 } from "../lib/multiloginProfileCreate";
 import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, type ActiveAutomationRecording } from "../lib/automationRecording";
-import { activeAutomationExecution, automationAgentAnswer, automationAgentBrowserActionCount, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, executionWithRecipeProgress, setActiveAutomationExecution, type AutomationExecution, type AutomationRecipeProgress } from "../lib/automationExecution";
+import { activeAutomationExecution, automationAgentAnswer, automationAgentBrowserActionCount, automationExecutionView, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, executionWithRecipeProgress, setActiveAutomationExecution, withAutomationExecutionEvent, type AutomationExecution, type AutomationRecipeProgress } from "../lib/automationExecution";
 import { automationRepairTask, parseAutomationRepairRecipe } from "../lib/automationRepair";
 
 type ManualProxyInputMode = "url" | "fields" | "bulk";
@@ -286,6 +286,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const recordingWorkspace = activeRecording ? s.workspaces.find((workspace) => workspace.id === activeRecording.workspaceId) : undefined;
   const automationExecutionWorkspace = automationExecution ? s.workspaces.find((workspace) => workspace.id === automationExecution.workspaceId) : undefined;
   const automationExecutionState = automationExecution ? automationExecutionView(automationExecution, s.conversations, automationExecutionClock) : undefined;
+  const automationExecutionLabel = automationExecution?.sourceKind === "recording" ? "Replay" : "Workflow";
   const automationAgentStatus = automationExecution?.engine === "agent" ? automationAgentAnswer(automationExecution, s.conversations)?.status : undefined;
   const recordingDestinationLabel = activeRecording?.destination === "workflow" ? "Workflow Builder" : "Recorder";
   const recordingMiniLabel = activeRecording ? `${recordingDestinationLabel} ${recordingDuration(activeRecording.startedAt, recordingClock)}` : "Recording";
@@ -432,12 +433,19 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       if (automationExecution.backendRunId) {
         await invoke("automation_run_update", { id: automationExecution.backendRunId, update: { status: "completed", output: { engine: "hybrid", repaired: true, fast_path_saved: persisted, detail } } }).catch(() => undefined);
       }
-      setActiveAutomationExecution({ ...automationExecution, phase: "completed", outputValidated: true, repairPersisted: persisted, repairPersistenceError: persistenceError, progress: 100, detail });
+      setActiveAutomationExecution(withAutomationExecutionEvent({ ...automationExecution, phase: "completed", outputValidated: true, repairPersisted: persisted, repairPersistenceError: persistenceError, progress: 100, detail }, {
+        kind: "repair",
+        title: persisted ? "Repair verified and saved" : "Repair verified, but not saved",
+        detail,
+        state: persisted ? "success" : "failed",
+      }));
     })().catch((error) => {
       if (cancelled) return;
       const detail = error instanceof Error ? error.message : String(error);
       if (automationExecution.backendRunId) void invoke("automation_run_update", { id: automationExecution.backendRunId, update: { status: "failed", output: { engine: "hybrid", repaired: false, detail } } }).catch(() => undefined);
-      setActiveAutomationExecution({ ...automationExecution, phase: "failed", progress: 100, outputValidationError: detail, detail });
+      setActiveAutomationExecution(withAutomationExecutionEvent({ ...automationExecution, phase: "failed", progress: 100, outputValidationError: detail, detail }, {
+        kind: "validation", title: "Repair result did not pass validation", detail, state: "failed",
+      }));
     });
     return () => { cancelled = true; };
   }, [automationExecution?.executionId, automationExecution?.expectedArtifactName, automationExecution?.outputValidated, automationExecution?.outputValidationError, automationExecution?.repairValidationRequired, automationExecution?.startedAt, automationAgentStatus]);
@@ -1110,7 +1118,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       </section>}
 
       {automationExecution && automationExecutionState && <section className={`sidebar-execution-control ${automationExecutionState.phase}`} aria-label="Automation execution status">
-        <div className="sidebar-execution-status"><span className="sidebar-execution-icon"><Icon name={automationExecutionState.phase === "completed" ? "checkmark.circle.fill" : ["failed", "cancelled"].includes(automationExecutionState.phase) ? "xmark.circle.fill" : automationExecutionState.phase === "stopping" ? "stop.fill" : "play.fill"} size={12} /></span><div><strong>{automationExecutionState.phase === "completed" ? "Workflow completed" : automationExecutionState.phase === "cancelled" ? "Workflow stopped" : automationExecutionState.phase === "failed" ? "Workflow failed" : automationExecutionState.phase === "stopping" ? "Stopping workflow" : automationExecutionState.phase === "preparing" ? "Preparing workflow" : "Workflow running"}</strong><small title={automationExecution.workflowTitle}>{automationExecution.workflowTitle} · {automationExecutionWorkspace?.name || "Current workspace"}</small></div><b>{automationExecutionState.progress}%</b></div>
+        <div className="sidebar-execution-status"><span className="sidebar-execution-icon"><Icon name={automationExecutionState.phase === "completed" ? "checkmark.circle.fill" : ["failed", "cancelled"].includes(automationExecutionState.phase) ? "xmark.circle.fill" : automationExecutionState.phase === "stopping" ? "stop.fill" : "play.fill"} size={12} /></span><div><strong>{automationExecutionState.phase === "completed" ? `${automationExecutionLabel} completed` : automationExecutionState.phase === "cancelled" ? `${automationExecutionLabel} stopped` : automationExecutionState.phase === "failed" ? `${automationExecutionLabel} failed` : automationExecutionState.phase === "stopping" ? `Stopping ${automationExecutionLabel.toLowerCase()}` : automationExecutionState.phase === "preparing" ? `Preparing ${automationExecutionLabel.toLowerCase()}` : `${automationExecutionLabel} running`}</strong><small title={automationExecution.workflowTitle}>{automationExecution.workflowTitle} · {automationExecutionWorkspace?.name || "Current workspace"}</small></div><b>{automationExecutionState.progress}%</b></div>
         <div className="sidebar-execution-track"><i style={{ width: `${automationExecutionState.progress}%` }} /></div>
         <small className="sidebar-execution-detail">{automationExecutionState.detail}</small>
         <div className="sidebar-recording-actions"><button onClick={openAutomationExecution}>Open</button>{["completed", "failed", "cancelled"].includes(automationExecutionState.phase) ? <button onClick={clearActiveAutomationExecution}>Dismiss</button> : <button className="stop" disabled={automationExecution.phase === "stopping"} onClick={() => void stopAutomationExecution()}>{automationExecution.phase === "stopping" ? <Spinner size={11} /> : <Icon name="stop.fill" size={11} />} {automationExecution.phase === "stopping" ? "Stopping" : "Stop"}</button>}</div>

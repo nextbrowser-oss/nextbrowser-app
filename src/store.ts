@@ -311,8 +311,11 @@ function skillAgentPrompt(
   openedHost?: string,
   directFallback = false,
   task?: string,
+  currentTab = false,
 ): string {
-  const startHint = openedHost
+  const startHint = currentTab
+    ? `${pageReadyNote(undefined, directFallback)} Keep the current browser tab active; do not open a different website unless the user explicitly asks.`
+    : openedHost
     ? pageReadyNote(openedHost, directFallback)
     : ` Start by opening ${target} in the active NextBrowser profile.${pageReadyNote(undefined, directFallback)}`;
   // The task is the app's own instruction for this run, so it precedes the
@@ -4397,8 +4400,7 @@ export const useStore = create<State>((set, get) => {
       background: !!options?.background,
     });
     if (!options?.background) set({ tab: "chat" });
-    const target =
-      entry.selector.kind === "domain" ? entry.selector.value : entry.selector.value;
+    const target = entry.selector.kind === "current_tab" ? "the current tab" : entry.selector.value;
     const requested = options?.conversationId;
     const cid = (requested && get().conversations.some((conversation) => conversation.id === requested) ? requested : undefined)
       ?? get().activeConversation()?.id
@@ -4482,6 +4484,7 @@ export const useStore = create<State>((set, get) => {
       prep.host,
       prep.directFallback,
       task,
+      entry.selector.kind === "current_tab",
     );
     get().enqueue(prompt, chip, cid);
     await get().loadDefaultSession();
