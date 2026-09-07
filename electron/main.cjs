@@ -763,6 +763,8 @@ async function ensureDasbrowserRuntime({ force = false, reportStatus = true, req
   return dasbrowserInstallPromise;
 }
 function dataDir() { return path.join(app.getPath("userData")); }
+/** How large an append-only app-data file may grow before it is rotated. */
+const APP_DATA_APPEND_LIMIT_BYTES = 16 * 1024 * 1024;
 function githubStarsCachePath() { return path.join(dataDir(), "github-stars.json"); }
 function localAutomationArtifacts() {
   if (!automationArtifactStore) {
@@ -1735,6 +1737,29 @@ async function invokeCommand(command, args = {}, sender) {
         if (process.platform !== "win32") { await fs.rm(temp, { force: true }); throw error; }
         await fs.rm(target, { force: true }); await fs.rename(temp, target);
       }
+      return null;
+    }
+    // Append-only app data is how a log grows: one line at a time, never a
+    // rewrite of the whole file. The file is bounded — once it outgrows its
+    // limit it is rotated aside once, so a loop that runs for weeks leaves two
+    // generations at most.
+    case "app_data_append": {
+      await fs.mkdir(dataDir(), { recursive: true });
+      const target = path.join(dataDir(), safeName(args.name));
+      const limit = Number(args.maxBytes) > 0 ? Number(args.maxBytes) : APP_DATA_APPEND_LIMIT_BYTES;
+      try {
+        const stat = await fs.stat(target);
+        if (stat.size >= limit) { await fs.rm(`${target}.1`, { force: true }); await fs.rename(target, `${target}.1`); }
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+      }
+      await fs.appendFile(target, String(args.content ?? ""), "utf8");
+      return null;
+    }
+    case "app_data_reveal": {
+      const target = path.join(dataDir(), safeName(args.name));
+      try { await fs.access(target); } catch { await fs.mkdir(dataDir(), { recursive: true }); await fs.writeFile(target, "", "utf8"); }
+      shell.showItemInFolder(target);
       return null;
     }
     case "working_directory": {

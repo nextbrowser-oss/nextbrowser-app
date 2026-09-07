@@ -9,6 +9,7 @@
 
 import type { XBrowser } from "./browser";
 import { pageHealthScript, type PageHealth } from "./scripts";
+import { xlog } from "./log";
 
 export interface LoadedPage extends PageHealth {
   /** Whether the URL had to be reopened in a fresh tab to render. */
@@ -25,14 +26,29 @@ const READY_WAIT_SECONDS = 10;
 export async function loadPage(browser: XBrowser, url: string, readySelector: string): Promise<LoadedPage> {
   await browser.open(url);
   const first = await settle(browser, readySelector);
-  if (first.rendered || first.login_wall) return { ...first, reopened: false };
+  if (first.rendered || first.login_wall) return report({ ...first, reopened: false }, url);
   await browser.reopen(url);
   const second = await settle(browser, readySelector);
-  return { ...second, reopened: true };
+  return report({ ...second, reopened: true }, url);
 }
 
 async function settle(browser: XBrowser, readySelector: string): Promise<PageHealth> {
   await browser.waitForLoad(LOAD_WAIT_SECONDS).catch(() => undefined);
   await browser.waitForSelector(readySelector, READY_WAIT_SECONDS).catch(() => undefined);
-  return browser.evaluate<PageHealth>(pageHealthScript());
+  return browser.evaluate<PageHealth>(pageHealthScript(), "health");
+}
+
+/** report puts what the page finally showed into the log: the URL asked for,
+ *  the URL landed on, and the diagnostics of the document that answered. */
+function report(page: LoadedPage, wanted: string): LoadedPage {
+  xlog("page", {
+    wanted,
+    url: page.url,
+    rendered: page.rendered,
+    error_screen: page.error_screen,
+    login_wall: page.login_wall,
+    reopened: page.reopened,
+    diag: page.diag,
+  });
+  return page;
 }

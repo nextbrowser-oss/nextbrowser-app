@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useStore } from "../store";
+import { useStore, X_REPLY_LOG_FILE } from "../store";
 import { invoke } from "../electronBridge";
 import type { MultiloginConnectionStatus } from "../lib/multiloginProfiles";
 import { fillTemplate, signInIsForDevice, watchlistTransports, type SkillEntry } from "../skillsCatalog";
@@ -522,6 +522,19 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
               {!busy && engineState.lastPassNotes?.map((text) => (
                 <div key={text} className="small watchlist-pass-note">{text}</div>
               ))}
+              {/* Three reasons are all the panel keeps. The log keeps every
+                  step, every browser call and what each page looked like when
+                  a read went wrong — it is what to send when the reasons do
+                  not explain a pass. */}
+              {engine && (
+                <button
+                  className="link small"
+                  title="Reveal the engine's log file"
+                  onClick={() => void invoke("app_data_reveal", { name: X_REPLY_LOG_FILE })}
+                >
+                  Show log
+                </button>
+              )}
             </div>
           </div>
           <div className="row watchlist-loop-controls">

@@ -31,6 +31,7 @@ import {
 import { REPOSITORY_SKILL_CATEGORIES, mergeSkillCategories } from "./repositorySkills";
 import { cliBrowser } from "./lib/xreply/browser";
 import { openNotifications, readPublisher, runPass, subscribeHandle } from "./lib/xreply/engine";
+import { errorText as xReplyErrorText, setXReplyLogSink, xlog } from "./lib/xreply/log";
 import { emptyXReplyState, normalizeXReplyState, type XReplyState } from "./lib/xreply/state";
 import { activityFromText, extractToolEvents } from "./lib/activityParser";
 import { composePrompt } from "./lib/composePrompt";
@@ -49,7 +50,7 @@ import {
   saveOnboardingCompletion,
 } from "./lib/onboarding";
 import type { RemoteStreamInfo } from "./remoteControl";
-import { loadJson, saveJson } from "./lib/storage";
+import { appendAppData, loadJson, saveJson } from "./lib/storage";
 import { apiBaseUrl } from "./constants";
 import { accountLoginURL } from "./lib/accountAuth";
 import { requiresWorkspaceSetup } from "./lib/workspaceSetup";
@@ -910,6 +911,17 @@ function watchHandleMaxLength(state: State, skillId: string): number | undefined
 }
 
 const X_REPLY_STATE_FILE = "x-reply-state.json";
+/** The engine's own log, next to its state: every step, every CLI call and
+ *  what each page looked like when a read went wrong. The panel keeps three
+ *  reasons per pass; this is what explains them. Lines are appended in order,
+ *  and the main process rotates the file once it outgrows its limit. */
+export const X_REPLY_LOG_FILE = "x-reply-log.jsonl";
+let xReplyLogQueue: Promise<void> = Promise.resolve();
+setXReplyLogSink((entry) => {
+  xReplyLogQueue = xReplyLogQueue
+    .then(() => appendAppData(X_REPLY_LOG_FILE, `${JSON.stringify(entry)}\n`))
+    .catch(() => undefined);
+});
 /** How long one draft may take before the agent is killed, ported from the Go
  *  service's DefaultCommandTimeout. A CLI that hangs otherwise holds the panel
  *  busy until the app restarts, and Stop cannot reach it. */
@@ -4596,8 +4608,10 @@ export const useStore = create<State>((set, get) => {
 
     xReplyStopRequested = false;
     set({ xReplyBusy: true, xReplyStep: "Preparing the browser session", xReplySignInNeeded: false });
+    xlog("run.start", { profile: get().xReplyState.profileName ?? get().selectedProfile, handles, app: __APP_VERSION__ });
     try {
       const profileArgs = await prepareXReplySession(undefined, (step) => set({ xReplyStep: step }));
+      xlog("run.session", { profileArgs });
       const { state, summary } = await runPass({
         browser: cliBrowser(profileArgs),
         agentId: get().agentId,
@@ -4615,6 +4629,7 @@ export const useStore = create<State>((set, get) => {
       set({ xReplyState: state, xReplySignInNeeded: summary.loginRequired });
       trackEvent("x_reply_pass_finished", { watched_count: handles.length, sent: summary.sent });
     } catch (error) {
+      xlog("run.error", { error: xReplyErrorText(error) });
       const state: XReplyState = {
         ...get().xReplyState,
         lastPassAt: now(),
@@ -4678,6 +4693,7 @@ export const useStore = create<State>((set, get) => {
   subscribeXReplyHandle: async (_entry, handle) => {
     if (get().xReplyBusy) return;
     set({ xReplyBusy: true, xReplyStep: `Subscribing to @${handle}`, xReplySignInNeeded: false });
+    xlog("run.start", { profile: get().xReplyState.profileName ?? get().selectedProfile, subscribe: handle, app: __APP_VERSION__ });
     try {
       const profileArgs = await prepareXReplySession(undefined, (step) => set({ xReplyStep: step }));
       const result = await subscribeHandle({
@@ -4691,6 +4707,7 @@ export const useStore = create<State>((set, get) => {
       set({ xReplyState: result.state, xReplySignInNeeded: !result.signedIn });
       trackEvent("x_reply_handle_subscribed", { signed_in: result.signedIn, noted: !!result.note });
     } catch (error) {
+      xlog("run.error", { error: xReplyErrorText(error) });
       const xReplyState = { ...get().xReplyState, lastPassSummary: friendlyXReplyError(error) };
       persistXReplyState(xReplyState);
       set({ xReplyState });
