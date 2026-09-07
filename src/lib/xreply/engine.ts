@@ -16,6 +16,7 @@ import type { XBrowser } from "./browser";
 import {
   FEED_READY_SELECTOR,
   IDENTITY_READY_SELECTOR,
+  PROFILE_READY_SELECTOR,
   TIMELINE_READY_SELECTOR,
   bellScript,
   feedPillScript,
@@ -32,7 +33,8 @@ import {
 import { compareIds, newerThan, newestId, normalizePosts, selectEligible, type XPost } from "./posts";
 import { loadPage, type LoadedPage } from "./page";
 import { draftReply, type AgentRunner } from "./draft";
-import { publishReply, type GifOptions } from "./publish";
+import { describeDiag, publishReply, type GifOptions } from "./publish";
+import { compact, errorText, xlog } from "./log";
 import { DEFAULT_GIF_BLOCKLIST } from "./reaction";
 import {
   DEFAULT_REPLY_MAX_LENGTH,
@@ -62,6 +64,8 @@ const NOTICE_READ_LIMIT = 5;
  *  wait ends on the signed-out markers too, so only a page that renders nothing
  *  at all pays for the whole window. */
 const IDENTITY_WAIT_SECONDS = 12;
+/** How long a profile page may take to draw its header after the load event. */
+const PROFILE_WAIT_SECONDS = 10;
 
 export interface PassDeps {
   browser: XBrowser;
@@ -110,7 +114,8 @@ class StopRequested extends Error {}
  *  panel asking for a sign-in that was already done. */
 export async function readPublisher(browser: XBrowser): Promise<{ handle?: string; signedIn: boolean }> {
   await browser.waitForSelector(IDENTITY_READY_SELECTOR, IDENTITY_WAIT_SECONDS).catch(() => undefined);
-  const state = await browser.evaluate<IdentitySnapshot>(identityScript());
+  const state = await browser.evaluate<IdentitySnapshot>(identityScript(), "identity");
+  xlog("identity", { url: state.url, login_wall: state.login_wall, identity: state.identity, diag: state.diag });
   if (state.login_wall || !state.identity.session) return { signedIn: false };
   return { handle: state.identity.handle || undefined, signedIn: true };
 }
@@ -127,7 +132,12 @@ export async function ensureNotifications(
     await browser.open(`https://x.com/${handle}`);
     await browser.waitForLoad(15).catch(() => undefined);
   }
-  const bell = await browser.evaluate<BellState>(bellScript());
+  // The header the bell sits in renders after the load event, and x.com's
+  // shell comes from its service worker at once — so a read right after load
+  // met an empty page on every pass and reported the profile as not rendered.
+  await browser.waitForSelector(PROFILE_READY_SELECTOR, PROFILE_WAIT_SECONDS).catch(() => undefined);
+  const bell = await browser.evaluate<BellState>(bellScript(), "bell");
+  xlog("bell", { handle, url: bell.url, login_wall: bell.login_wall, header: bell.header, found: bell.found, enabled: bell.enabled, following: bell.following, unfollowed: bell.unfollowed, visible: bell.visible, diag: bell.diag });
   if (bell.login_wall) return { settled: false, note: "Signed out while reading the profile." };
   if (bell.unfollowed && !bell.found) {
     // The bell only exists for an account this profile follows, and following
@@ -144,13 +154,13 @@ export async function ensureNotifications(
     // that rendered without a bell is not.
     return bell.header
       ? { settled: true, following: bell.following || undefined, note: "Could not find the notification bell on this profile." }
-      : { settled: false, note: "The profile page had not rendered yet." };
+      : { settled: false, note: `The profile page had not rendered yet${describeDiag(bell.diag)}.` };
   }
   if (bell.enabled) return { settled: true, following: true, notifications: true };
   if (!bell.visible) return { settled: false, note: "The notification bell was not clickable yet." };
 
   await browser.clickAt(bell.x, bell.y);
-  const after = await browser.evaluate<BellState>(bellScript());
+  const after = await browser.evaluate<BellState>(bellScript(), "bell");
   if (after.found && after.enabled) return { settled: true, following: true, notifications: true };
   return { settled: false, notifications: false, note: "Post notifications could not be confirmed." };
 }
@@ -170,7 +180,7 @@ function unrendered(page: LoadedPage, what: string): string {
 
 async function readTimeline(browser: XBrowser, handle: string, limit: number): Promise<TimelineSnapshot> {
   await openProfile(browser, handle);
-  return browser.evaluate<TimelineSnapshot>(timelineScript(limit));
+  return browser.evaluate<TimelineSnapshot>(timelineScript(limit), "timeline");
 }
 
 async function readNotifications(
@@ -184,7 +194,7 @@ async function readNotifications(
   }
   await browser.waitForSelector(FEED_READY_SELECTOR, 10).catch(() => undefined);
   if (await pressFeedPill(browser)) await browser.waitForSelector(FEED_READY_SELECTOR, 8).catch(() => undefined);
-  return browser.evaluate<NotificationsSnapshot>(notificationsScript(limit));
+  return browser.evaluate<NotificationsSnapshot>(notificationsScript(limit), "notifications");
 }
 
 /** pressFeedPill reveals what the feed holds back. X draws the notifications
@@ -193,7 +203,7 @@ async function readNotifications(
  *  rows behind it never reach the DOM and an unattended loop reads a feed that
  *  is blank for good. Reports whether anything was pressed. */
 async function pressFeedPill(browser: XBrowser): Promise<boolean> {
-  const pill = await browser.evaluate<FeedPillResult>(feedPillScript()).catch(() => undefined);
+  const pill = await browser.evaluate<FeedPillResult>(feedPillScript(), "feed-pill").catch(() => undefined);
   return pill?.pressed === true;
 }
 
@@ -244,7 +254,11 @@ export async function subscribeHandle(deps: {
   now: () => number;
   onStep?: (step: string) => void;
 }): Promise<{ state: XReplyState; signedIn: boolean; note?: string }> {
-  const step = deps.onStep ?? (() => undefined);
+  const step = (text: string) => {
+    xlog("step", { step: text });
+    deps.onStep?.(text);
+  };
+  xlog("subscribe.start", { handle: deps.handle, source: deps.state.watchSource });
   step(`Opening @${deps.handle}`);
   const publisher = await readPublisher(deps.browser);
   let state: XReplyState = { ...deps.state, publisher: { ...publisher, checkedAt: deps.now() } };
@@ -271,7 +285,7 @@ export async function subscribeHandle(deps: {
 
   step(`Recording where @${deps.handle} stands now`);
   await deps.browser.waitForSelector(TIMELINE_READY_SELECTOR, 10).catch(() => undefined);
-  const snapshot = await deps.browser.evaluate<TimelineSnapshot>(timelineScript(state.watchLimit));
+  const snapshot = await deps.browser.evaluate<TimelineSnapshot>(timelineScript(state.watchLimit), "timeline");
   if (snapshot.login_wall) {
     return {
       state: { ...state, publisher: { ...state.publisher, signedIn: false, checkedAt: deps.now() } },
@@ -310,7 +324,10 @@ export async function subscribeHandle(deps: {
 
 /** runPass performs one full cycle over the watched accounts. */
 export async function runPass(deps: PassDeps): Promise<PassResult> {
-  const step = deps.onStep ?? (() => undefined);
+  const step = (text: string) => {
+    xlog("step", { step: text });
+    deps.onStep?.(text);
+  };
   const sleep = deps.sleep;
   const summary: PassSummary = {
     checked: 0, drafted: 0, sent: 0, failed: 0, baselined: 0,
@@ -319,11 +336,21 @@ export async function runPass(deps: PassDeps): Promise<PassResult> {
   const passStartedAt = deps.now();
   let state = deps.state;
   if (!state.startedAt) state = { ...state, startedAt: deps.now() };
+  xlog("pass.start", {
+    handles: deps.handles,
+    source: state.watchSource,
+    publisher: state.publisher?.handle,
+    pinned: state.publisherHandle,
+    sendable: sendableDrafts(state).length,
+    autoRetry: state.autoRetry,
+    maxAttempts: state.maxAttempts,
+  });
   // Every exit goes through here, including the ones that stop early: a pass
   // that ends without stamping its summary leaves the panel showing the result
   // of the pass before it.
   const finish = (): PassResult => {
     const took = Math.max(1, Math.round((deps.now() - passStartedAt) / 1000));
+    xlog("pass.end", { took, result: describe(summary), ...summary });
     return {
       state: {
         ...state,
@@ -337,7 +364,10 @@ export async function runPass(deps: PassDeps): Promise<PassResult> {
   const stopIfAsked = () => {
     if (deps.shouldStop?.()) throw new StopRequested();
   };
-  const note = (text: string) => addNote(summary, text);
+  const note = (text: string) => {
+    xlog("note", { text });
+    addNote(summary, text);
+  };
 
   try {
     if (state.watchSource !== "notifications") {
@@ -366,7 +396,7 @@ export async function runPass(deps: PassDeps): Promise<PassResult> {
           if (!verdict.ok) return finish();
           verified = true;
         }
-        const snapshot = await deps.browser.evaluate<TimelineSnapshot>(timelineScript(state.watchLimit));
+        const snapshot = await deps.browser.evaluate<TimelineSnapshot>(timelineScript(state.watchLimit), "timeline");
         if (snapshot.login_wall) {
           summary.loginRequired = true;
           note("x.com signed the profile out during the pass.");
@@ -495,7 +525,8 @@ export async function runPass(deps: PassDeps): Promise<PassResult> {
       summary.stopped = true;
     } else {
       summary.failed += 1;
-      note(error instanceof Error ? error.message : String(error));
+      xlog("pass.error", { error: errorText(error) });
+      note(errorText(error));
     }
   }
 
@@ -637,7 +668,8 @@ async function draftPosts(
       // post is retried rather than passed over.
       if (error instanceof Error && error.name === "StopRequested") throw error;
       summary.failed += 1;
-      failure = error instanceof Error ? error.message : String(error);
+      failure = errorText(error);
+      xlog("draft.failed", { handle, post: post.url, error: failure });
       addNote(summary, `@${handle}: ${failure}`);
     }
     if (failure) {
@@ -688,6 +720,17 @@ export async function sendDraft(
   );
   const at = deps.now();
   const attempts = (draft.attempts ?? 0) + 1;
+  xlog("publish", {
+    draft: draft.id,
+    handle: draft.handle,
+    post: draft.postUrl,
+    status: outcome.status,
+    reason: "reason" in outcome ? outcome.reason : undefined,
+    replyUrl: "replyUrl" in outcome ? outcome.replyUrl : undefined,
+    attempts,
+    retryable: outcome.status === "refused" && state.autoRetry && attempts < state.maxAttempts,
+    text: compact(draft.replyText, 120),
+  });
   switch (outcome.status) {
     case "published":
     case "already-published": {

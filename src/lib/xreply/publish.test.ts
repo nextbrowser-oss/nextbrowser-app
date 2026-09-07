@@ -218,3 +218,52 @@ describe("publishing one reply", () => {
       .resolves.toMatchObject({ status: "refused" });
   });
 });
+
+describe("the account chrome on the post page", () => {
+  const noChrome = (): PageState => pageState({ identity: { present: false, session: false, handle: "", matches: false } });
+
+  it("waits for the chrome when the post drew first, then publishes", async () => {
+    // x.com draws the post and the account chrome from separate requests, and
+    // the landing waits for the post only. Reading the chrome the moment the
+    // post appeared called a signed-in profile signed out.
+    const { browser, calls } = fakeBrowser({
+      inspect: [noChrome(), pageState(), pageState({ composer: { present: true, text: request.replyText } })],
+    });
+    const outcome = await publishReply(browser, request, noSleep);
+    expect(outcome.status).toBe("published");
+    expect(browser.waitForSelector).toHaveBeenCalledWith(expect.stringContaining("SideNav_AccountSwitcher_Button"), expect.any(Number));
+    expect(calls.filter((call) => call === "inspect").length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("refuses a page that never drew the chrome without calling it a sign-out", async () => {
+    const { browser, calls } = fakeBrowser({ inspect: noChrome() });
+    const outcome = await publishReply(browser, request, noSleep);
+    expect(outcome).toMatchObject({ status: "refused" });
+    const reason = outcome.status === "refused" ? outcome.reason : "";
+    expect(reason).toContain("without the account chrome");
+    expect(reason).not.toContain("not signed in");
+    expect(calls.some((call) => call.startsWith("clickAt") || call.startsWith("input:"))).toBe(false);
+  });
+
+  it("reports the sign-in wall as not signed in", async () => {
+    const { browser } = fakeBrowser({
+      inspect: pageState({ login_wall: true, identity: { present: false, session: false, handle: "", matches: false } }),
+    });
+    const outcome = await publishReply(browser, request, noSleep);
+    expect(outcome).toEqual({ status: "refused", reason: "The browser profile is not signed in to x.com." });
+  });
+
+  it("says what the page was when it refuses", async () => {
+    // The note is what a screenshot of the panel carries, so it names the
+    // viewport, the tab's state and what x.com had drawn.
+    const diag = {
+      width: 1280, height: 670, ready: "complete", visible: "visible", focus: false, title: "Post",
+      anchors: [], login_markers: [], posts: 1, composer: true, error_text: false,
+    };
+    const { browser } = fakeBrowser({ inspect: { ...noChrome(), diag } });
+    const outcome = await publishReply(browser, request, noSleep);
+    const reason = outcome.status === "refused" ? outcome.reason : "";
+    expect(reason).toContain("1280×670");
+    expect(reason).toContain("no account chrome");
+  });
+});

@@ -16,6 +16,10 @@ const TWEET_SELECTOR = `article[data-testid="tweet"], [itemtype="https://schema.
 /** What a rendered timeline looks like: a post, or the explicit empty state.
  *  X renders posts asynchronously, so a read right after load sees nothing. */
 export const TIMELINE_READY_SELECTOR = `article[data-testid="tweet"], [data-testid="emptyState"]`;
+/** A profile page x.com actually drew: its header actions, or the timeline
+ *  under them. The Notify bell lives in that header, which renders long after
+ *  the load event; a signed-out page ends the wait on the login markers. */
+export const PROFILE_READY_SELECTOR = `[data-testid="userActions"], article[data-testid="tweet"], [data-testid="emptyState"], a[href="/i/flow/login"], input[autocomplete="username"]`;
 /** A post page is ready once the focused post is there; a signed-out one ends
  *  the wait on the login markers instead of running the clock out. */
 export const POST_READY_SELECTOR = `article[data-testid="tweet"], a[href="/i/flow/login"], input[autocomplete="username"]`;
@@ -69,9 +73,28 @@ export interface NotificationsSnapshot {
   triggers: { handle: string; notified_at: string; text: string }[];
 }
 
+/** What a page looked like when a read went wrong, for the log rather than
+ *  the user: the viewport, whether the tab was even visible, and which of the
+ *  account chrome, the login markers, the posts and the composer had been
+ *  drawn. "Not signed in" on a signed-in profile is only explicable from this. */
+export interface PageDiag {
+  width: number;
+  height: number;
+  ready: string;
+  visible: string;
+  focus: boolean;
+  title: string;
+  anchors: string[];
+  login_markers: string[];
+  posts: number;
+  composer: boolean;
+  error_text: boolean;
+}
+
 export interface BellState {
   url: string;
   login_wall: boolean;
+  diag?: PageDiag;
   header: boolean;
   following: boolean;
   unfollowed: boolean;
@@ -97,6 +120,7 @@ export interface IdentitySnapshot {
   url: string;
   login_wall: boolean;
   identity: Identity;
+  diag?: PageDiag;
 }
 
 export interface PageState {
@@ -110,6 +134,7 @@ export interface PageState {
   identity: Identity;
   reply_control: boolean;
   existing_reply_url: string;
+  diag?: PageDiag;
 }
 
 export interface ClickTarget {
@@ -335,8 +360,8 @@ export function feedPillScript(): string {
  *  button by the action it offers, so "Turn off post notifications" is what an
  *  account that already notifies looks like. */
 export function bellScript(): string {
-  return `(() => {${LOGIN_WALL_CHECK}
-  const state = { url: location.href, login_wall: false, header: false, following: false, unfollowed: false, enabled: false, found: false, label: "", x: 0, y: 0, visible: false };
+  return `(() => {${LOGIN_WALL_CHECK}${DIAG_HELPER}
+  const state = { url: location.href, login_wall: false, header: false, following: false, unfollowed: false, enabled: false, found: false, label: "", x: 0, y: 0, visible: false, diag: pageDiag() };
   if (atLoginWall()) { state.login_wall = true; return state; }
   const nodes = Array.from(document.querySelectorAll('button[aria-label], div[role="button"][aria-label]'));
   const pick = (needle) => nodes.find((node) => (node.getAttribute("aria-label") || "").toLowerCase().indexOf(needle) >= 0);
@@ -435,6 +460,32 @@ const IDENTITY_HELPER = `
       const handle = avatarHandle(node) || textHandle(node) || hrefHandle(node);
       if (handle) return found(handle);
     }
+    // The reply composer draws the acting account's avatar beside its text box
+    // on every layout — including a post page in a narrow window, which has no
+    // side navigation at all. The nearest block around the editor that holds
+    // exactly one avatar is the composer's own row; a wider block also holds
+    // the post being answered, and that avatar is the author's.
+    const insidePost = (avatar) => {
+      for (let node = avatar.parentElement; node; node = node.parentElement) {
+        if (String(node.tagName || "").toLowerCase() === "article") return true;
+      }
+      return false;
+    };
+    const composerHandle = () => {
+      const editor = document.querySelector('${COMPOSER_SELECTOR}');
+      let node = editor ? editor.parentElement : null;
+      for (let depth = 0; node && depth < 12; depth += 1) {
+        // An avatar inside a post is its author's, whatever block it shares
+        // with the editor; only one outside a post can be the acting account.
+        const avatars = Array.from(node.querySelectorAll('[data-testid^="' + AVATAR + '"]')).filter((avatar) => !insidePost(avatar));
+        if (avatars.length === 1) return testIdHandle(avatars[0]);
+        if (avatars.length > 1) return "";
+        node = node.parentElement;
+      }
+      return "";
+    };
+    const fromComposer = composerHandle();
+    if (fromComposer) return found(fromComposer);
     // The sidebar is the last place to look: a layout that drops the switcher
     // entirely still draws the account's avatar in it.
     const sideNav = document.querySelector('header[role="banner"]');
@@ -444,6 +495,36 @@ const IDENTITY_HELPER = `
     // signed out sends the user to a sign-in they have already done.
     const session = nodes.length > 0;
     return { present: session, session: session, handle: "", matches: false };
+  };`;
+
+/** pageDiag describes the page for the log. Every field is read defensively:
+ *  the scripts also run against a stand-in document in tests, and a diagnostic
+ *  must never be what breaks the read it describes. */
+const DIAG_HELPER = `
+  const pageDiag = () => {
+    const ids = (selector) => {
+      try {
+        return Array.from(document.querySelectorAll(selector))
+          .map((node) => node.getAttribute("data-testid") || node.getAttribute("href") || node.getAttribute("autocomplete") || "?")
+          .slice(0, 6);
+      } catch (error) { return []; }
+    };
+    const count = (selector) => { try { return document.querySelectorAll(selector).length; } catch (error) { return 0; } };
+    const view = typeof window === "object" && window ? window : {};
+    const bodyText = String((document.body && document.body.innerText) || "");
+    return {
+      width: Number(view.innerWidth) || 0,
+      height: Number(view.innerHeight) || 0,
+      ready: String(document.readyState || ""),
+      visible: String(document.visibilityState || ""),
+      focus: typeof document.hasFocus === "function" ? !!document.hasFocus() : false,
+      title: String(document.title || "").slice(0, 80),
+      anchors: ids('${IDENTITY_ANCHOR_SELECTOR}'),
+      login_markers: ids('a[href="/i/flow/login"], input[autocomplete="username"]'),
+      posts: count('${ARTICLE_SELECTOR}'),
+      composer: count('${COMPOSER_SELECTOR}') > 0,
+      error_text: /something went wrong/i.test(bodyText) && /try again|retry/i.test(bodyText)
+    };
   };`;
 
 const HIT_TEST_HELPER = `
@@ -470,6 +551,7 @@ export interface PageHealth {
   rendered: boolean;
   error_screen: boolean;
   login_wall: boolean;
+  diag?: PageDiag;
 }
 
 /** pageHealthScript tells a page x.com drew from one it gave up on. The error
@@ -478,28 +560,28 @@ export interface PageHealth {
  *  of the two it is decides whether the cure is a sign-in or a fresh tab. An
  *  error module next to a drawn timeline is not the error screen. */
 export function pageHealthScript(): string {
-  return `(() => {${LOGIN_WALL_CHECK}
+  return `(() => {${LOGIN_WALL_CHECK}${DIAG_HELPER}
   const drew = (selector) => !!document.querySelector(selector);
   const rendered = drew('${IDENTITY_ANCHOR_SELECTOR}') || drew('${TWEET_SELECTOR}')
     || drew('[data-testid="cellInnerDiv"], [data-testid="emptyState"]');
   const text = (document.body.innerText || "").replace(/\\s+/g, " ");
   const errorText = /something went wrong/i.test(text) && /try again|retry/i.test(text);
-  return { url: location.href, rendered: rendered, error_screen: errorText && !rendered, login_wall: atLoginWall() };
+  return { url: location.href, rendered: rendered, error_screen: errorText && !rendered, login_wall: atLoginWall(), diag: pageDiag() };
 })()`;
 }
 
 /** identityScript reads only who is signed in, which is what the panel shows
  *  before anything is watched. */
 export function identityScript(): string {
-  return `(() => {${IDENTITY_HELPER}${LOGIN_WALL_CHECK}
-  return { url: location.href, login_wall: atLoginWall(), identity: publisherIdentity("") };
+  return `(() => {${IDENTITY_HELPER}${LOGIN_WALL_CHECK}${DIAG_HELPER}
+  return { url: location.href, login_wall: atLoginWall(), identity: publisherIdentity(""), diag: pageDiag() };
 })()`;
 }
 
 /** inspectScript reports composer and submit state without scrolling, so click
  *  points measured afterwards stay valid. */
 export function inspectScript(postId: string, replyText: string, publisherHandle: string): string {
-  return `(() => {${FOCUSED_TWEET_HELPER}${REPLY_FINDER_HELPER}${IDENTITY_HELPER}
+  return `(() => {${FOCUSED_TWEET_HELPER}${REPLY_FINDER_HELPER}${IDENTITY_HELPER}${LOGIN_WALL_CHECK}${DIAG_HELPER}
   const postId = ${jsLiteral(postId)};
   const wanted = ${jsLiteral(replyText)};
   const publisherHandle = ${jsLiteral(publisherHandle)};
@@ -508,13 +590,16 @@ export function inspectScript(postId: string, replyText: string, publisherHandle
     url: location.href,
     on_post: path.includes("/status/" + postId),
     reply_composer_route: false,
-    login_wall: path.startsWith("/i/flow/login") || path.startsWith("/login"),
+    // The same markers the other reads use: a sign-in wall is a sign-in wall
+    // whether it arrived by redirect or was drawn in place.
+    login_wall: atLoginWall(),
     composer: { present: false, text: "" },
     submit: { present: false, disabled: true },
     media: { present: false, uploading: false },
     identity: publisherIdentity(publisherHandle),
     reply_control: false,
-    existing_reply_url: ""
+    existing_reply_url: "",
+    diag: pageDiag()
   };
   const editor = document.querySelector('${COMPOSER_SELECTOR}');
   if (editor) {

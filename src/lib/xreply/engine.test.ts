@@ -644,3 +644,15 @@ describe("the stacking reply budget", () => {
     expect(replyBudget(state, at)).toBe(7);
   });
 });
+
+describe("settling the Notify bell", () => {
+  it("waits for the profile header before reading the bell", async () => {
+    // The header renders after the load event, and x.com's shell arrives from
+    // its service worker at once: a read right after load met an empty page
+    // and reported the profile as not rendered on every pass.
+    const { args, browser } = deps(feedOnly(), { triggers: [] });
+    const { state } = await runPass(args);
+    expect(browser.waitForSelector).toHaveBeenCalledWith(expect.stringContaining("userActions"), expect.any(Number));
+    expect(state.handles.author.bellDone).toBe(true);
+  });
+});
