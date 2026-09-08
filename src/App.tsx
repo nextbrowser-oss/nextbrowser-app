@@ -17,6 +17,7 @@ import { trafficAllowanceBytes, trafficAllowanceFraction } from "./lib/trafficGa
 import { getPreviewMode, getPreviewNodeMavenState, getPreviewTab } from "./preview";
 import { humanBytes, type AppTab, type Conversation } from "./types";
 import { resolveTheme, type Theme } from "./theme";
+import { pendingBrowserRuntimeUpdate } from "./lib/browserRuntimeUpdate";
 import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
 import {
   appTabLabel,
@@ -832,6 +833,9 @@ export function App() {
     setRuntimeUpdatePromptDismissed(browserRuntimeUpdateSignature(browserRuntimeUpdates.runtimes));
     setRuntimeUpdatePrompt(undefined);
     setRuntimeUpdateProgressHidden(false);
+    // Do not wait for an Electron event before showing feedback. The host first
+    // refreshes release availability, which can take several seconds.
+    setRuntimeUpdateInstall(pendingBrowserRuntimeUpdate(runtimes, browserRuntimeUpdates.runtimes));
     void invoke<BrowserRuntimeUpdateInstallStatus>("browser_runtime_install_updates", { runtimes })
       .then(setRuntimeUpdateInstall)
       .catch((error) => setRuntimeUpdateInstall({
