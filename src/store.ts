@@ -44,6 +44,7 @@ import { proxyTrafficWarning } from "./lib/proxyTraffic";
 import { activeAutomationRecording } from "./lib/automationRecording";
 import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
 import { internalError } from "./lib/userFacingError";
+import { agentEmptyReplyMessage } from "./lib/agentRunResult";
 import { userFacingBrowserError } from "./lib/userFacingBrowserError";
 import {
   hasCompletedCurrentOnboarding,
@@ -1369,7 +1370,8 @@ export const useStore = create<State>((set, get) => {
             const error = internalError(`${agentById(agentId).name} stopped unexpectedly.`, "AGENT_STOPPED_UNEXPECTEDLY");
             text = text ? `${text}\n${error}` : error;
           } else if (!text) {
-            text = "(no output)";
+            status = "failed";
+            text = agentEmptyReplyMessage(agentId, agentById(agentId).name);
           }
           return { ...message, status, text, stalled: false };
         }),

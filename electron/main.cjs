@@ -78,7 +78,7 @@ const {
   installRuntimeUpdateWithVerification,
 } = require("./browser-runtime-updates.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
-const { parseMultiloginProfiles, parseMultiloginCreatedProfile, parseMultiloginFolders } = require("./multilogin-profiles.cjs");
+const { parseMultiloginProfiles, parseMultiloginCreatedMobileProfile, parseMultiloginCreatedProfile, parseMultiloginFolders } = require("./multilogin-profiles.cjs");
 const { multiloginAccountFromTokens } = require("./multilogin-account.cjs");
 const { MULTILOGIN_DOWNLOAD_URL, resolveMultiloginApp } = require("./multilogin-app.cjs");
 const { runAgentProcess } = require("./agent-process.cjs");
@@ -157,6 +157,9 @@ default_tools_approval_mode = "approve"
 
 [plugins."clawbrowser@nbc-local"]
 enabled = false
+
+[mcp_servers.clawbrowser]
+enabled = false
 `;
 
 function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
@@ -177,6 +180,7 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
     "-c", 'plugins."clawbrowser@clawctl-local".enabled=false',
     "-c", 'plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser.enabled=false',
     "-c", 'plugins."clawbrowser@nbc-local".enabled=false',
+    "-c", "mcp_servers.clawbrowser.enabled=false",
     "-c", `mcp_servers.nextbrowser.command=${JSON.stringify(nextctlBin)}`,
     "-c", `mcp_servers.nextbrowser.args=${JSON.stringify(["mcp", ...(automationTraceFile ? ["--automation-trace-file", automationTraceFile] : [])])}`,
     "-c", `mcp_servers.nextbrowser.env=${mcpEnv}`,
@@ -932,6 +936,31 @@ async function createMultiloginProfile(args = {}) {
   return parseMultiloginCreatedProfile(result.stdout);
 }
 
+async function createMultiloginMobileProfile(args = {}) {
+  await initializeMultiloginCredential();
+  if (!multiloginAutomationToken) throw new Error("Connect Multilogin before creating a cloud phone.");
+  const name = String(args.name || "").trim();
+  if (!name) throw new Error("Cloud phone name is required.");
+  const country = String(args.country || "").trim().toUpperCase();
+  const bin = await resolveOrInstallNextctl();
+  if (!bin) throw new Error("nextctl is required to create Multilogin cloud phones.");
+  const result = await run(
+    bin,
+    [
+      "--runtime", "multilogin",
+      ...(multiloginFolders?.mobile ? ["--multilogin-folder-id", multiloginFolders.mobile] : []),
+      "mobile", "profiles", "create", name,
+      ...(/^[A-Z]{2}$/.test(country) ? ["--country", country] : []),
+      "--android-version", "14",
+      "--json",
+    ],
+    { MULTILOGIN_TOKEN: multiloginAutomationToken },
+    { requestId: args.requestId, timeoutMs: Number(args.timeoutMs) || 120_000 },
+  );
+  if (result.code !== 0) throw multiloginCommandError(result);
+  return parseMultiloginCreatedMobileProfile(result.stdout);
+}
+
 async function disconnectMultilogin() {
   await initializeMultiloginCredential();
   await multiloginCredentialStore?.clear();
@@ -1342,6 +1371,7 @@ async function invokeCommand(command, args = {}, sender) {
     case "multilogin_connect": return await connectMultilogin(args.bearerToken);
     case "multilogin_disconnect": return await disconnectMultilogin();
     case "multilogin_profile_create": return await createMultiloginProfile(args);
+    case "multilogin_mobile_profile_create": return await createMultiloginMobileProfile(args);
     case "multilogin_folders_list": {
       await initializeMultiloginCredential();
       if (!multiloginAutomationToken) throw new Error("Connect Multilogin before choosing a folder.");

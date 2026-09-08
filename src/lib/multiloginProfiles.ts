@@ -42,6 +42,11 @@ export interface MultiloginConnectionStatus {
   folders?: { browser?: string; mobile?: string };
   valid: boolean;
   secureStorageAvailable: boolean;
+  /**
+   * A local recognition label decoded from the short-lived sign-in token.
+   * Multilogin automation tokens themselves only grant workspace access.
+   */
+  accountEmail?: string;
   browserProfiles?: MultiloginProfileSummary[];
   cloudPhones?: MultiloginProfileSummary[];
   browserProfilesError?: string;

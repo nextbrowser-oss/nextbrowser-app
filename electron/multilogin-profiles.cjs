@@ -80,6 +80,25 @@ function parseMultiloginCreatedProfile(stdout) {
   };
 }
 
+function parseMultiloginCreatedMobileProfile(stdout) {
+  let payload;
+  try {
+    payload = JSON.parse(String(stdout || ""));
+  } catch {
+    throw new Error("nextctl returned an invalid Multilogin cloud phone response.");
+  }
+  const mobile = payload?.data?.mobile ?? payload?.mobile ?? payload?.data;
+  const profile = Array.isArray(mobile?.profiles) ? mobile.profiles[0] : undefined;
+  const id = boundedString(profile?.id ?? profile?.profile_id);
+  if (!id) throw new Error("Multilogin did not return the created cloud phone.");
+  return {
+    id,
+    name: boundedString(profile?.name ?? profile?.profile_name ?? profile?.serial_name) || id,
+    folderId: boundedString(mobile?.folder_id ?? profile?.folder_id) || undefined,
+    country: boundedString(mobile?.country, 8).toUpperCase() || undefined,
+  };
+}
+
 const MULTILOGIN_FOLDER_KINDS = { browser: "browser", mobile: "mobile" };
 
 /** Reads `nbc profiles folders --json` into the folder choices the UI offers. */
@@ -104,4 +123,4 @@ function parseMultiloginFolders(stdout) {
 }
 
 module.exports = {
-  parseMultiloginFolders, parseMultiloginProfiles, parseMultiloginCreatedProfile };
+  parseMultiloginFolders, parseMultiloginProfiles, parseMultiloginCreatedProfile, parseMultiloginCreatedMobileProfile };
