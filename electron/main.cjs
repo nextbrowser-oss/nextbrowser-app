@@ -1247,9 +1247,25 @@ async function installedBrowserRuntimeVersion(runtime) {
 }
 async function installBrowserRuntimeUpdates(requestedRuntimes = []) {
   if (browserRuntimeUpdateInstallPromise) return browserRuntimeUpdateInstallPromise;
+  const requested = [...new Set((Array.isArray(requestedRuntimes) ? requestedRuntimes : []).filter((runtime) => (
+    runtime === "clawbrowser" || runtime === "camoufox" || runtime === "dasbrowser"
+  )))];
+  // `installSelectedRuntimeUpdates` begins with a fresh network check. Publish
+  // a status before that check so an IPC subscriber never leaves the user with
+  // a closed confirmation dialog and no visible acknowledgement.
+  setBrowserRuntimeUpdateInstallStatus("installing", {
+    runtimes: requested,
+    completed: [],
+    errors: [],
+    currentRuntime: requested[0],
+    currentName: "browser toolsets",
+    total: requested.length,
+    progress: 0,
+    message: "Checking the selected browser toolset updates…",
+  });
   browserRuntimeUpdateInstallPromise = (async () => {
     return installSelectedRuntimeUpdates({
-      requestedRuntimes,
+      requestedRuntimes: requested,
       checkForUpdates: checkForBrowserRuntimeUpdates,
       installRuntime: async (update) => {
         if (update.runtime === "clawbrowser") await updateClawbrowserRuntime(update.latestVersion);
