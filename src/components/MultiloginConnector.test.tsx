@@ -18,6 +18,9 @@ function render(
       dialogOpen={dialogOpen}
       bearerToken=""
       confirmDisconnect={false}
+      reconnecting={false}
+      folders={[]}
+      foldersLoading={false}
       profileKind={profileKind}
       tokenSource={tokenSource}
       workspaceName="Work"
@@ -28,7 +31,11 @@ function render(
       onDisconnectRequest={noop}
       onDisconnectCancel={noop}
       onDisconnect={noop}
+      onReconnect={noop}
+      onReconnectCancel={noop}
+      onSelectFolder={noop}
       onOpenMultilogin={noop}
+      onOpenMultiloginApp={noop}
       onOpenGuide={noop}
       onProfileKindChange={noop}
       onTokenSourceChange={noop}
@@ -74,6 +81,7 @@ describe("MultiloginConnectorView", () => {
     expect(dialogHtml).toContain("Amazon US");
     expect(dialogHtml).toContain("2 profiles");
     expect(dialogHtml).toContain("No-expiration token");
+    expect(dialogHtml).toContain("Use another token");
 
     const mobileHtml = render(status, true, "mobile");
     expect(mobileHtml).toContain("Android cloud phones");
@@ -87,7 +95,7 @@ describe("MultiloginConnectorView", () => {
     expect(html).toContain("Connect Multilogin");
     expect(html).toContain("Desktop app");
     expect(html).toContain("Web");
-    expect(html).toContain("Multilogin desktop app");
+    expect(html).toContain("<button type=\"button\">Open the Multilogin desktop app</button>");
     expect(html).toContain("Info");
     expect(html).toContain("API token");
     expect(html).not.toContain("Multilogin token guide");
@@ -104,12 +112,79 @@ describe("MultiloginConnectorView", () => {
     expect(html).toContain("Multilogin token guide");
     expect(html).toContain("DevTools");
     expect(html).toContain("F12");
-    expect(html).toContain("Application");
+    expect(html).toContain("<strong>Application</strong> in Chrome, <strong>Storage</strong> in Firefox and Safari");
     expect(html).toContain("Local storage");
     expect(html).toContain("https://app.multilogin.com");
     expect(html).toContain("token");
     expect(html).toContain("Bearer token");
     expect(html).not.toContain("Information dialog");
+  });
+
+  it("names the account and workspace a token belongs to", () => {
+    const html = render({
+      connected: true,
+      valid: true,
+      secureStorageAvailable: true,
+      account: { email: "pasha@example.com", workspaceName: "Shared team", workspaceRole: "manager" },
+      browserProfiles: [{ id: "browser-1", name: "Amazon US" }],
+    }, true);
+
+    expect(html).toContain("Shared team · manager");
+    expect(html).toContain("pasha@example.com");
+  });
+
+  it("falls back to a workspace id when the token carries no email", () => {
+    const html = render({
+      connected: true,
+      valid: true,
+      secureStorageAvailable: true,
+      account: { workspaceId: "4f3a91c2-7788" },
+    }, true);
+
+    expect(html).toContain("Workspace 4f3a91c2");
+  });
+
+  it("offers the folders of the selected profile kind", () => {
+    const html = renderToStaticMarkup(
+      <MultiloginConnectorView
+        status={{ connected: true, valid: true, secureStorageAvailable: true, folders: { browser: "f-1" } }}
+        checking={false}
+        busy={false}
+        dialogOpen
+        bearerToken=""
+        confirmDisconnect={false}
+        reconnecting={false}
+        folders={[
+          { id: "f-1", name: "Shared with me", kind: "browser", profilesCount: 3 },
+          { id: "f-2", name: "Phones", kind: "mobile", profilesCount: 0 },
+        ]}
+        foldersLoading={false}
+        profileKind="browser"
+        tokenSource="app"
+        workspaceName="Work"
+        onOpen={noop}
+        onClose={noop}
+        onBearerTokenChange={noop}
+        onConnect={noop}
+        onDisconnectRequest={noop}
+        onDisconnectCancel={noop}
+        onDisconnect={noop}
+        onReconnect={noop}
+        onReconnectCancel={noop}
+        onSelectFolder={noop}
+        onOpenMultilogin={noop}
+        onOpenMultiloginApp={noop}
+        onOpenGuide={noop}
+        onProfileKindChange={noop}
+        onTokenSourceChange={noop}
+        onSelectProfile={noop}
+        onClearSelection={noop}
+      />,
+    );
+
+    expect(html).toContain("Shared with me (3)");
+    expect(html).not.toContain("Phones");
+    expect(html).toContain("All folders");
   });
 
   it("blocks connection when secure storage is unavailable", () => {

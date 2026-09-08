@@ -10,6 +10,8 @@ import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFla
 import { guideProfileTarget } from "../lib/guideQuickStart";
 import { manualProxyDefaultName, manualProxyLimits, parseManualProxyBatch, parseManualProxyClipboard, validateManualProxyFields, type ManualProxyScheme } from "../lib/manualProxy";
 import { internalError, needsSupportLink } from "../lib/userFacingError";
+import { userFacingMultiloginError } from "../lib/userFacingMultiloginError";
+import { openMultiloginApp } from "../lib/multiloginApp";
 import { entityNameLimits, validateEntityName } from "../lib/entityValidation";
 import { cancelNextctlRun } from "../nextctl";
 import { conversationPreview, type AppTab, type BrowserWorkflowAction, type BrowserWorkflowSkill } from "../types";
@@ -30,6 +32,7 @@ import {
 } from "../lib/multiloginSelection";
 import {
   filterMultiloginProfiles,
+  multiloginAccountLabel,
   multiloginProfileSelected,
   previewMultiloginConnectionStatus,
   type MultiloginConnectionStatus,
@@ -276,9 +279,12 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const multiloginCloudPhones = multiloginStatus?.cloudPhones ?? [];
   const multiloginKindProfiles = multiloginKind === "browser" ? multiloginBrowserProfiles : multiloginCloudPhones;
   const multiloginVisibleProfiles = filterMultiloginProfiles(multiloginKindProfiles, multiloginQuery);
-  const multiloginKindError = multiloginKind === "browser"
+  const multiloginRawKindError = multiloginKind === "browser"
     ? multiloginStatus?.browserProfilesError
     : multiloginStatus?.cloudPhonesError;
+  const multiloginKindError = multiloginRawKindError
+    ? userFacingMultiloginError(multiloginRawKindError, multiloginKind === "browser" ? "browser" : "mobile")
+    : undefined;
   const multiloginReady = multiloginConnected(multiloginStatus);
   const multiloginExisting = profileToolset === "multilogin" && multiloginMode === "existing";
   const runningCount = profileWorkspaceEntries.filter(({ profile }) => s.statuses[profile.name] === "running").length;
@@ -964,7 +970,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       setProfileError(
         /timed out/i.test(message)
           ? "Multilogin profile creation took too long and was stopped. Check your connection, then try again."
-          : message,
+          : userFacingMultiloginError(error, "browser"),
       );
     } finally {
       window.clearTimeout(proxyStageTimer);
@@ -1642,6 +1648,12 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   </div>
                 ) : (
                   <>
+                    {/* Profiles come from the workspace the saved token opens, which is often someone else's. */}
+                    <div className="profile-multilogin-account">
+                      <Icon name="person.crop.circle" size={12} />
+                      <span>{multiloginAccountLabel(multiloginStatus?.account) || "Multilogin workspace"}</span>
+                      <button type="button" className="link" onClick={routeToMultiloginConnector}>Change</button>
+                    </div>
                     <div className="connector-profile-tabs profile-multilogin-modes" role="tablist" aria-label="Multilogin profile source">
                       <button
                         type="button"
@@ -1749,9 +1761,20 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                           })}
                           {!multiloginVisibleProfiles.length && !multiloginKindError && (
                             <div className="connector-profile-empty">
-                              {multiloginQuery.trim()
-                                ? "No matching profiles"
-                                : `No ${multiloginKind === "browser" ? "browser profiles" : "cloud phones"} found.`}
+                              {multiloginQuery.trim() ? "No matching profiles" : (
+                                <>
+                                  <span>No {multiloginKind === "browser" ? "browser profiles" : "cloud phones"} in this Multilogin workspace yet.</span>
+                                  {multiloginKind === "browser" ? (
+                                    <button type="button" className="link" onClick={() => { setMultiloginMode("new"); setProfileError(null); }}>
+                                      Create profile
+                                    </button>
+                                  ) : (
+                                    <button type="button" className="link" onClick={() => void openMultiloginApp()}>
+                                      Create one in Multilogin
+                                    </button>
+                                  )}
+                                </>
+                              )}
                             </div>
                           )}
                           {multiloginKindError && <div className="error small connector-profile-error">{multiloginKindError}</div>}

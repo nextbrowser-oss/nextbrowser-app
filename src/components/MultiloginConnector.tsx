@@ -10,10 +10,13 @@ import {
 } from "../lib/multiloginSelection";
 import {
   multiloginProfileSelected,
+  multiloginWorkspaceLabel,
   previewMultiloginConnectionStatus,
   type MultiloginConnectionStatus,
+  type MultiloginFolder,
   type MultiloginProfileSummary,
 } from "../lib/multiloginProfiles";
+import { openMultiloginApp } from "../lib/multiloginApp";
 import { getPreviewMode } from "../preview";
 import { Icon, Spinner } from "./Icon";
 
@@ -32,6 +35,9 @@ interface MultiloginConnectorViewProps {
   bearerToken: string;
   error?: string;
   confirmDisconnect: boolean;
+  reconnecting: boolean;
+  folders: MultiloginFolder[];
+  foldersLoading: boolean;
   profileKind: MultiloginProfileKind;
   tokenSource: MultiloginTokenSource;
   selection?: MultiloginProfileSelection;
@@ -43,7 +49,11 @@ interface MultiloginConnectorViewProps {
   onDisconnectRequest: () => void;
   onDisconnectCancel: () => void;
   onDisconnect: () => void;
+  onReconnect: () => void;
+  onReconnectCancel: () => void;
+  onSelectFolder: (kind: MultiloginProfileKind, folderId: string) => void;
   onOpenMultilogin: () => void;
+  onOpenMultiloginApp: () => void;
   onOpenGuide: () => void;
   onProfileKindChange: (kind: MultiloginProfileKind) => void;
   onTokenSourceChange: (source: MultiloginTokenSource) => void;
@@ -70,6 +80,9 @@ export function MultiloginConnectorView({
   bearerToken,
   error,
   confirmDisconnect,
+  reconnecting,
+  folders,
+  foldersLoading,
   profileKind,
   tokenSource,
   selection,
@@ -81,13 +94,19 @@ export function MultiloginConnectorView({
   onDisconnectRequest,
   onDisconnectCancel,
   onDisconnect,
+  onReconnect,
+  onReconnectCancel,
+  onSelectFolder,
   onOpenMultilogin,
+  onOpenMultiloginApp,
   onOpenGuide,
   onProfileKindChange,
   onTokenSourceChange,
   onSelectProfile,
   onClearSelection,
 }: MultiloginConnectorViewProps) {
+  const workspaceLabel = multiloginWorkspaceLabel(status?.account);
+  const kindFolders = folders.filter((folder) => folder.kind === profileKind);
   const connected = Boolean(status?.connected && status.valid);
   const needsReconnect = Boolean(status?.connected && !status.valid);
   const visibleError = error || status?.error;
@@ -137,8 +156,14 @@ export function MultiloginConnectorView({
             <div className="connector-modal-head">
               <span className="connector-logo connector-logo-small"><img src="./multilogin-icon.svg" alt="" /></span>
               <span>
-                <strong id="multilogin-connector-title">{connected ? "Multilogin connected" : "Connect Multilogin"}</strong>
-                <small>{connected ? "Available to nbc and your agents" : "One-time setup"}</small>
+                <strong id="multilogin-connector-title">
+                  {reconnecting ? "Connect another workspace" : connected ? "Multilogin connected" : "Connect Multilogin"}
+                </strong>
+                <small>
+                  {reconnecting
+                    ? "Replaces the saved token"
+                    : connected ? "Available to nbc and your agents" : "One-time setup"}
+                </small>
               </span>
               <span className="spacer" />
               <button type="button" className="plain-icon-btn" onClick={onClose} disabled={busy} aria-label="Close Multilogin connector">
@@ -146,11 +171,22 @@ export function MultiloginConnectorView({
               </button>
             </div>
 
-            {connected ? (
+            {connected && !reconnecting ? (
               <div className="connector-connected-view">
                 <div className="connector-connected-summary">
                   <span className="connector-status is-connected"><span className="connector-status-dot" />Connected</span>
                   <span className="muted small">No-expiration token · encrypted on this device</span>
+                </div>
+
+                {/* A token opens exactly one workspace, so name it: shared workspaces look like your own otherwise. */}
+                <div className="connector-account-row">
+                  <span>
+                    <small>{workspaceLabel || "Multilogin account"}</small>
+                    <strong>{status?.account?.email || "Unknown account"}</strong>
+                  </span>
+                  <button type="button" className="connector-text-link" disabled={busy} onClick={onReconnect}>
+                    Use another token
+                  </button>
                 </div>
 
                 <div className="connector-profile-tabs" role="tablist" aria-label="Multilogin profile types">
@@ -175,6 +211,24 @@ export function MultiloginConnectorView({
                     <strong>{cloudPhones.length}</strong>
                   </button>
                 </div>
+
+                {/* Without a choice the CLI picks the workspace's only folder, or asks for one when several exist. */}
+                <label className="modal-field connector-folder-field">
+                  <span>Folder</span>
+                  <select
+                    value={status?.folders?.[profileKind] ?? ""}
+                    disabled={busy || foldersLoading}
+                    aria-label={profileKind === "browser" ? "Browser profile folder" : "Cloud phone folder"}
+                    onChange={(event) => onSelectFolder(profileKind, event.target.value)}
+                  >
+                    <option value="">{foldersLoading ? "Loading folders…" : "All folders"}</option>
+                    {kindFolders.map((folder) => (
+                      <option key={folder.id} value={folder.id}>
+                        {folder.name}{folder.profilesCount ? ` (${folder.profilesCount})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
                 <div className="connector-profile-picker" role="tabpanel">
                   <div className="connector-profile-picker-head">
@@ -270,7 +324,7 @@ export function MultiloginConnectorView({
                 </div>
                 {tokenSource === "app" ? (
                   <div className="connector-token-steps connector-token-steps-plain" role="tabpanel">
-                    <div><span>1</span><p>Open the Multilogin desktop app and sign in.</p></div>
+                    <div><span>1</span><p><button type="button" onClick={onOpenMultiloginApp}>Open the Multilogin desktop app</button> and sign in.</p></div>
                     <div><span>2</span><p>Click <strong>Info</strong> in the bottom-left corner of the profile list.</p></div>
                     <div><span>3</span><p>In the Information dialog, press <strong>Copy</strong> next to <strong>API token</strong>, then paste it below.</p></div>
                     <MultiloginAppTokenFigure />
@@ -280,7 +334,7 @@ export function MultiloginConnectorView({
                     <div className="connector-token-steps" role="tabpanel">
                       <div><span>1</span><p><button type="button" onClick={onOpenMultilogin}>Open Multilogin</button> and sign in.</p></div>
                       <div><span>2</span><p>Open DevTools with <kbd>⌘ ⌥ I</kbd> on macOS or <kbd>F12</kbd> on Windows/Linux.</p></div>
-                      <div><span>3</span><p><strong>Application</strong> → <strong>Local storage</strong> → <code>https://app.multilogin.com</code> → copy the <code>token</code> value.</p></div>
+                      <div><span>3</span><p><strong>Application</strong> in Chrome, <strong>Storage</strong> in Firefox and Safari → <strong>Local storage</strong> → <code>https://app.multilogin.com</code> → copy the <code>token</code> value.</p></div>
                       <MultiloginWebTokenFigure />
                     </div>
                     <button type="button" className="connector-text-link connector-guide-link" onClick={onOpenGuide}>
@@ -304,7 +358,7 @@ export function MultiloginConnectorView({
                 <div className="modal-actions connector-modal-actions">
                   <span className="muted small">Token is discarded after exchange.</span>
                   <span className="spacer" />
-                  <button type="button" className="secondary" disabled={busy} onClick={onClose}>Cancel</button>
+                  <button type="button" className="secondary" disabled={busy} onClick={reconnecting ? onReconnectCancel : onClose}>Cancel</button>
                   <button type="submit" className="primary" disabled={busy || !bearerToken.trim()}>
                     {busy ? <><Spinner size={12} /> Connecting…</> : "Connect"}
                   </button>
@@ -371,10 +425,12 @@ function MultiloginWebTokenFigure() {
     <figure className="connector-token-figure" aria-hidden="true">
       <svg viewBox="0 0 424 126" role="presentation" focusable="false">
         <rect x="1" y="4" width="422" height="118" rx="9" fill="var(--surface-2)" stroke="var(--line-strong)" />
-        <text x="14" y="21" fontSize="8.5" fill="var(--muted)">Elements</text>
-        <text x="58" y="21" fontSize="8.5" fill="var(--muted)">Console</text>
+        {/* Only tab names every browser shares; the panel itself is Application in Chrome, Storage elsewhere. */}
+        <text x="14" y="21" fontSize="8.5" fill="var(--muted)">Console</text>
+        <text x="56" y="21" fontSize="8.5" fill="var(--muted)">Network</text>
         <text x="100" y="21" fontSize="8.5" fill="var(--accent-text)" fontWeight="600">Application</text>
         <line x1="98" y1="26" x2="152" y2="26" stroke="var(--accent)" strokeWidth="1.5" />
+        <text x="158" y="21" fontSize="8" fill="var(--muted)">or Storage</text>
         <line x1="1" y1="30" x2="423" y2="30" stroke="var(--line-strong)" />
         <line x1="152" y1="30" x2="152" y2="122" stroke="var(--line-strong)" />
 
@@ -432,6 +488,9 @@ export function MultiloginConnector({
   const [bearerToken, setBearerToken] = useState("");
   const [error, setError] = useState<string>();
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
+  const [folders, setFolders] = useState<MultiloginFolder[]>([]);
+  const [foldersLoading, setFoldersLoading] = useState(false);
   const [profileKind, setProfileKind] = useState<MultiloginProfileKind>("browser");
   const [tokenSource, setTokenSource] = useState<MultiloginTokenSource>("app");
   const [selection, setSelection] = useState<MultiloginProfileSelection>();
@@ -463,6 +522,30 @@ export function MultiloginConnector({
     return () => { cancelled = true; };
   }, [preview]);
 
+  // Folders are only needed once the dialog is open, and only for a live connection.
+  useEffect(() => {
+    if (preview || !dialogOpen || !status?.connected || !status.valid) return undefined;
+    let cancelled = false;
+    setFoldersLoading(true);
+    invoke<MultiloginFolder[]>("multilogin_folders_list")
+      .then((loaded) => { if (!cancelled) setFolders(Array.isArray(loaded) ? loaded : []); })
+      .catch(() => { if (!cancelled) setFolders([]); })
+      .finally(() => { if (!cancelled) setFoldersLoading(false); });
+    return () => { cancelled = true; };
+  }, [preview, dialogOpen, status?.connected, status?.valid]);
+
+  const selectFolder = async (kind: MultiloginProfileKind, folderId: string) => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      setStatus(await invoke<MultiloginConnectionStatus>("multilogin_folder_select", { kind, folderId }));
+    } catch (selectError) {
+      setError(errorMessage(selectError));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const connect = async (event: FormEvent) => {
     event.preventDefault();
     if (busy || !bearerToken.trim()) return;
@@ -473,6 +556,7 @@ export function MultiloginConnector({
     try {
       const nextStatus = await invoke<MultiloginConnectionStatus>("multilogin_connect", { bearerToken: copiedBearerToken });
       setStatus(nextStatus);
+      setReconnecting(false);
       if (nextStatus.connected && nextStatus.valid) onConnected?.();
     } catch (connectError) {
       setError(errorMessage(connectError));
@@ -516,6 +600,7 @@ export function MultiloginConnector({
     void invoke("open_external", { url }).catch(() => window.open(url, "_blank", "noopener,noreferrer"));
   };
 
+
   const closeDialog = () => {
     if (busy) return;
     onDismiss?.();
@@ -523,6 +608,7 @@ export function MultiloginConnector({
     setBearerToken("");
     setError(undefined);
     setConfirmDisconnect(false);
+    setReconnecting(false);
   };
 
   return (
@@ -534,6 +620,9 @@ export function MultiloginConnector({
       bearerToken={bearerToken}
       error={error}
       confirmDisconnect={confirmDisconnect}
+      reconnecting={reconnecting}
+      folders={folders}
+      foldersLoading={foldersLoading}
       profileKind={profileKind}
       tokenSource={tokenSource}
       selection={selection}
@@ -545,7 +634,11 @@ export function MultiloginConnector({
       onDisconnectRequest={() => setConfirmDisconnect(true)}
       onDisconnectCancel={() => setConfirmDisconnect(false)}
       onDisconnect={() => void disconnect()}
+      onReconnect={() => { setReconnecting(true); setBearerToken(""); setError(undefined); }}
+      onReconnectCancel={() => { setReconnecting(false); setBearerToken(""); setError(undefined); }}
+      onSelectFolder={(kind, folderId) => void selectFolder(kind, folderId)}
       onOpenMultilogin={() => openExternal(MULTILOGIN_URL)}
+      onOpenMultiloginApp={() => void openMultiloginApp()}
       onOpenGuide={() => openExternal(MULTILOGIN_TOKEN_GUIDE_URL)}
       onProfileKindChange={setProfileKind}
       onTokenSourceChange={setTokenSource}

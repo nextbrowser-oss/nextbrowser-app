@@ -2604,13 +2604,16 @@ body.is-resizing-sidebar {
   color: var(--muted);
 }
 .multilogin-chat-search:focus-within { border-color: color-mix(in srgb, var(--accent) 52%, var(--line)); }
-.multilogin-chat-search input {
+.multilogin-chat-search input[type="search"] {
   min-width: 0;
   width: 100%;
+  margin: 0;
   padding: 7px 0;
   border: 0;
+  border-radius: 0;
   outline: 0;
   background: transparent;
+  box-shadow: none;
   color: var(--text);
   font: inherit;
   font-size: 11px;
@@ -4406,6 +4409,42 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   font-size: 9px;
 }
 .connector-selection-summary strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.connector-folder-field {
+  width: 100%;
+  margin: 0 0 10px;
+}
+.connector-folder-field select {
+  margin-top: 4px;
+  font-size: 11px;
+}
+.connector-account-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.connector-account-row > span {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.connector-account-row small {
+  color: var(--muted);
+  font-size: 9px;
+}
+.connector-account-row strong {
   overflow: hidden;
   font-size: 11px;
   text-overflow: ellipsis;
@@ -6960,6 +6999,22 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   gap: 7px;
 }
 .profile-multilogin-picker-head .connector-profile-tabs { flex: 1; }
+.profile-multilogin-account {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 9px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.profile-multilogin-account span {
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .profile-multilogin-search {
   display: flex;
   align-items: center;
@@ -6971,13 +7026,16 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   color: var(--muted);
 }
 .profile-multilogin-search:focus-within { border-color: color-mix(in srgb, var(--accent) 52%, var(--line)); }
-.profile-multilogin-search input {
+.profile-multilogin-search input[type="search"] {
   min-width: 0;
   width: 100%;
+  margin: 0;
   padding: 7px 0;
   border: 0;
+  border-radius: 0;
   outline: 0;
   background: transparent;
+  box-shadow: none;
   color: var(--text);
   font: inherit;
   font-size: 11px;
