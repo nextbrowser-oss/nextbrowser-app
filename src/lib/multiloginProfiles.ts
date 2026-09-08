@@ -7,8 +7,39 @@ export interface MultiloginProfileSummary {
   status?: string;
 }
 
+/** Display-only identity of the connected token, read from its JWT claims. */
+export interface MultiloginAccount {
+  email?: string;
+  workspaceId?: string;
+  workspaceName?: string;
+  workspaceRole?: string;
+}
+
+/** Names the workspace a token opens. Multilogin tokens carry no workspace name, so the id is
+ * shortened the way the Multilogin UI shows it, and the role says how you got in. */
+export function multiloginWorkspaceLabel(account: MultiloginAccount | undefined): string {
+  if (!account) return "";
+  const workspace = account.workspaceName || (account.workspaceId ? `Workspace ${account.workspaceId.slice(0, 8)}` : "");
+  return [workspace, account.workspaceRole].filter(Boolean).join(" · ");
+}
+
+export function multiloginAccountLabel(account: MultiloginAccount | undefined): string {
+  if (!account) return "";
+  return [account.email, multiloginWorkspaceLabel(account)].filter(Boolean).join(" · ");
+}
+
+/** A folder in the token workspace, as offered by `nbc profiles folders`. */
+export interface MultiloginFolder {
+  id: string;
+  name: string;
+  kind: MultiloginProfileKind;
+  profilesCount: number;
+}
+
 export interface MultiloginConnectionStatus {
   connected: boolean;
+  account?: MultiloginAccount;
+  folders?: { browser?: string; mobile?: string };
   valid: boolean;
   secureStorageAvailable: boolean;
   browserProfiles?: MultiloginProfileSummary[];
@@ -42,6 +73,7 @@ export function previewMultiloginConnectionStatus(search = window.location.searc
     connected: true,
     valid: true,
     secureStorageAvailable: true,
+    account: { email: "you@example.com", workspaceName: "Growth team", workspaceRole: "manager" },
     browserProfiles: [
       { id: "browser-1", name: "7_GitHub_acc", status: "Stopped" },
       { id: "browser-2", name: "Amazon US", status: "Running" },

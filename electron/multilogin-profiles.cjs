@@ -80,4 +80,28 @@ function parseMultiloginCreatedProfile(stdout) {
   };
 }
 
-module.exports = { parseMultiloginProfiles, parseMultiloginCreatedProfile };
+const MULTILOGIN_FOLDER_KINDS = { browser: "browser", mobile: "mobile" };
+
+/** Reads `nbc profiles folders --json` into the folder choices the UI offers. */
+function parseMultiloginFolders(stdout) {
+  let payload;
+  try {
+    payload = JSON.parse(stdout || "{}");
+  } catch {
+    return [];
+  }
+  const folders = payload?.data?.folders ?? payload?.folders;
+  if (!Array.isArray(folders)) return [];
+  const parsed = [];
+  for (const item of folders) {
+    const id = boundedString(item?.folder_id ?? item?.folderId);
+    const name = boundedString(item?.name);
+    const kind = MULTILOGIN_FOLDER_KINDS[String(item?.folder_type ?? item?.folderType ?? "browser").toLowerCase()];
+    if (!id || !kind) continue;
+    parsed.push({ id, name: name || id, kind, profilesCount: Number(item?.profiles_count ?? item?.profilesCount) || 0 });
+  }
+  return parsed;
+}
+
+module.exports = {
+  parseMultiloginFolders, parseMultiloginProfiles, parseMultiloginCreatedProfile };

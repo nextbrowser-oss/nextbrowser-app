@@ -4,6 +4,7 @@ const path = require("node:path");
 const MULTILOGIN_AUTOMATION_TOKEN_URL = "https://api.multilogin.com/workspace/automation_token?expiration_period=no_exp";
 const MULTILOGIN_REQUEST_TIMEOUT_MS = 20_000;
 const MULTILOGIN_CREDENTIAL_VERSION = 1;
+const { sanitizeMultiloginAccount, sanitizeMultiloginFolders } = require("./multilogin-account.cjs");
 
 function normalizeBearerToken(value) {
   let token = String(value || "").trim();
@@ -133,7 +134,55 @@ function createMultiloginCredentialStore({
       return token;
     },
 
-    async save(token) {
+    // The account is display-only metadata (which workspace this token opens), never a secret,
+    // so it is stored in the clear next to the encrypted token.
+    async loadAccount() {
+      let raw;
+      try {
+        raw = await fsImpl.readFile(filePath, "utf8");
+      } catch {
+        return undefined;
+      }
+      try {
+        return sanitizeMultiloginAccount(JSON.parse(raw)?.account);
+      } catch {
+        return undefined;
+      }
+    },
+
+    async loadFolders() {
+      let raw;
+      try {
+        raw = await fsImpl.readFile(filePath, "utf8");
+      } catch {
+        return undefined;
+      }
+      try {
+        return sanitizeMultiloginFolders(JSON.parse(raw)?.folders);
+      } catch {
+        return undefined;
+      }
+    },
+
+    // Rewrites only the folder choice, leaving the encrypted token untouched.
+    async saveFolders(folders) {
+      let payload;
+      try {
+        payload = JSON.parse(await fsImpl.readFile(filePath, "utf8"));
+      } catch {
+        return undefined;
+      }
+      const stored = sanitizeMultiloginFolders(folders);
+      if (stored) payload.folders = stored;
+      else delete payload.folders;
+      const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+      await fsImpl.writeFile(tempPath, `${JSON.stringify(payload)}\n`, { encoding: "utf8", mode: 0o600 });
+      await fsImpl.rename(tempPath, filePath);
+      if (platform !== "win32") await fsImpl.chmod(filePath, 0o600);
+      return stored;
+    },
+
+    async save(token, account) {
       await requireSecureStorage(safeStorage, platform);
       const normalized = String(token || "").trim();
       if (!normalized) throw new Error("Multilogin automation token is empty.");
@@ -141,7 +190,8 @@ function createMultiloginCredentialStore({
         ? await safeStorage.encryptStringAsync(normalized)
         : safeStorage.encryptString(normalized);
       const encryptedToken = encrypted.toString("base64");
-      const payload = `${JSON.stringify({ version: MULTILOGIN_CREDENTIAL_VERSION, encryptedToken })}\n`;
+      const stored = sanitizeMultiloginAccount(account);
+      const payload = `${JSON.stringify({ version: MULTILOGIN_CREDENTIAL_VERSION, encryptedToken, ...(stored ? { account: stored } : {}) })}\n`;
       const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
       await fsImpl.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
       await fsImpl.writeFile(tempPath, payload, { encoding: "utf8", mode: 0o600 });

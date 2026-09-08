@@ -1,6 +1,6 @@
 const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage } = require("electron");
 const { autoUpdater } = require("electron-updater");
-const { spawn } = require("node:child_process");
+const { execFileSync, spawn } = require("node:child_process");
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const os = require("node:os");
@@ -78,7 +78,9 @@ const {
   installRuntimeUpdateWithVerification,
 } = require("./browser-runtime-updates.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
-const { parseMultiloginProfiles, parseMultiloginCreatedProfile } = require("./multilogin-profiles.cjs");
+const { parseMultiloginProfiles, parseMultiloginCreatedProfile, parseMultiloginFolders } = require("./multilogin-profiles.cjs");
+const { multiloginAccountFromTokens } = require("./multilogin-account.cjs");
+const { MULTILOGIN_DOWNLOAD_URL, resolveMultiloginApp } = require("./multilogin-app.cjs");
 const { runAgentProcess } = require("./agent-process.cjs");
 const {
   DASBROWSER_DOWNLOADS,
@@ -136,6 +138,8 @@ const agentControlProfileOwners = new Map();
 let multiloginCredentialStore = null;
 let automationArtifactStore = null;
 let multiloginAutomationToken = "";
+let multiloginAccount;
+let multiloginFolders;
 let multiloginCredentialLoadError = "";
 let multiloginCredentialLoadPromise = null;
 const nextctlAutomationTraceSupport = new Map();
@@ -782,9 +786,13 @@ function initializeMultiloginCredential() {
   multiloginCredentialLoadPromise = (async () => {
     try {
       multiloginAutomationToken = await multiloginCredentialStore.load();
+      multiloginAccount = await multiloginCredentialStore.loadAccount();
+      multiloginFolders = await multiloginCredentialStore.loadFolders();
       multiloginCredentialLoadError = "";
     } catch (error) {
       multiloginAutomationToken = "";
+      multiloginAccount = undefined;
+      multiloginFolders = undefined;
       multiloginCredentialLoadError = error?.message || String(error);
     }
   })();
@@ -801,12 +809,12 @@ function multiloginCommandError(result) {
   const output = String(result.stderr || result.stdout || "").trim().slice(0, 800);
   return new Error(output || "Multilogin connection check failed.");
 }
-async function listMultiloginProfiles(token, args) {
+async function listMultiloginProfiles(token, args, folderId) {
   const bin = await resolveOrInstallNextctl();
   if (!bin) throw new Error("nextctl is required to connect Multilogin.");
   const result = await run(
     bin,
-    ["--runtime", "multilogin", ...args, "--json"],
+    ["--runtime", "multilogin", ...args, ...(folderId ? ["--multilogin-folder-id", folderId] : []), "--json"],
     { MULTILOGIN_TOKEN: token },
     { timeoutMs: 60_000 },
   );
@@ -815,8 +823,8 @@ async function listMultiloginProfiles(token, args) {
 }
 async function loadMultiloginProfiles(token) {
   const [browserResult, mobileResult] = await Promise.allSettled([
-    listMultiloginProfiles(token, ["profiles", "list"]),
-    listMultiloginProfiles(token, ["mobile", "profiles", "list"]),
+    listMultiloginProfiles(token, ["profiles", "list"], multiloginFolders?.browser),
+    listMultiloginProfiles(token, ["mobile", "profiles", "list"], multiloginFolders?.mobile),
   ]);
   if (browserResult.status === "rejected" && mobileResult.status === "rejected") {
     throw browserResult.reason;
@@ -837,8 +845,31 @@ async function multiloginLocalStatus() {
     connected: Boolean(multiloginAutomationToken),
     valid: false,
     secureStorageAvailable: Boolean(await multiloginCredentialStore?.available()),
+    account: multiloginAccount,
+    folders: multiloginFolders,
     error: multiloginCredentialLoadError || undefined,
   };
+}
+// Last resort behind the known install paths: ask Windows itself where Multilogin was installed.
+function queryMultiloginUninstallKeys() {
+  const roots = [
+    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+    "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+    "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+  ];
+  let output = "";
+  for (const root of roots) {
+    try {
+      output += execFileSync("reg.exe", ["query", root, "/s", "/f", "Multilogin"], {
+        encoding: "utf8",
+        timeout: 4000,
+        windowsHide: true,
+      });
+    } catch {
+      // A missing hive or no match just means this root has nothing to contribute.
+    }
+  }
+  return output;
 }
 async function multiloginStatus() {
   await initializeMultiloginCredential();
@@ -858,13 +889,16 @@ async function connectMultilogin(bearerToken) {
   }
   const automationToken = await exchangeAutomationToken({ bearerToken });
   const profiles = await loadMultiloginProfiles(automationToken);
-  await multiloginCredentialStore.save(automationToken);
+  const account = multiloginAccountFromTokens(bearerToken, automationToken);
+  await multiloginCredentialStore.save(automationToken, account);
   multiloginAutomationToken = automationToken;
+  multiloginAccount = account;
   multiloginCredentialLoadError = "";
   return {
     connected: true,
     valid: true,
     secureStorageAvailable: true,
+    account,
     ...profiles,
   };
 }
@@ -885,6 +919,7 @@ async function createMultiloginProfile(args = {}) {
     bin,
     [
       "--runtime", "multilogin",
+      ...(multiloginFolders?.browser ? ["--multilogin-folder-id", multiloginFolders.browser] : []),
       "profiles", "create", name,
       ...(/^[A-Z]{2}$/.test(country) ? ["--country", country] : []),
       ...(MULTILOGIN_OS_TYPES.includes(osType) ? ["--os-type", osType] : []),
@@ -901,6 +936,8 @@ async function disconnectMultilogin() {
   await initializeMultiloginCredential();
   await multiloginCredentialStore?.clear();
   multiloginAutomationToken = "";
+  multiloginAccount = undefined;
+  multiloginFolders = undefined;
   multiloginCredentialLoadError = "";
   return await multiloginLocalStatus();
 }
@@ -1305,6 +1342,44 @@ async function invokeCommand(command, args = {}, sender) {
     case "multilogin_connect": return await connectMultilogin(args.bearerToken);
     case "multilogin_disconnect": return await disconnectMultilogin();
     case "multilogin_profile_create": return await createMultiloginProfile(args);
+    case "multilogin_folders_list": {
+      await initializeMultiloginCredential();
+      if (!multiloginAutomationToken) throw new Error("Connect Multilogin before choosing a folder.");
+      const bin = await resolveOrInstallNextctl();
+      if (!bin) throw new Error("nextctl is required to read Multilogin folders.");
+      const result = await run(
+        bin,
+        ["--runtime", "multilogin", "profiles", "folders", "--json"],
+        { MULTILOGIN_TOKEN: multiloginAutomationToken },
+        { timeoutMs: 60_000 },
+      );
+      if (result.code !== 0) throw multiloginCommandError(result);
+      return parseMultiloginFolders(result.stdout);
+    }
+    case "multilogin_folder_select": {
+      await initializeMultiloginCredential();
+      const kind = args.kind === "mobile" ? "mobile" : "browser";
+      const folderId = String(args.folderId || "").trim();
+      const next = { ...(multiloginFolders || {}) };
+      if (folderId) next[kind] = folderId;
+      else delete next[kind];
+      multiloginFolders = await multiloginCredentialStore.saveFolders(next);
+      return await multiloginStatus();
+    }
+    case "multilogin_open_app": {
+      const installed = resolveMultiloginApp({
+        platform: process.platform,
+        homeDir: os.homedir(),
+        env: process.env,
+        queryRegistry: queryMultiloginUninstallKeys,
+      });
+      if (installed) {
+        const error = await shell.openPath(installed);
+        if (!error) return { launched: true, path: installed };
+      }
+      await shell.openExternal(MULTILOGIN_DOWNLOAD_URL);
+      return { launched: false, url: MULTILOGIN_DOWNLOAD_URL };
+    }
     case "manual_proxies_list": return await listPersonalProxies({ env: childEnv() });
     case "manual_proxy_save": return await createPersonalProxy(args.proxy, { env: childEnv() });
     case "manual_proxy_delete": return await deletePersonalProxy(args.id, { env: childEnv() });
