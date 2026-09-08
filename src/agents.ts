@@ -64,7 +64,7 @@ export const AGENTS: AgentSpec[] = [
   spec("claude", "Claude Code", "claude", "claudePrint", { primary: true, loginArgs: ["auth", "login"], logoutArgs: ["auth", "logout"], statusArgs: ["auth", "status"], installUrl: "https://code.claude.com/docs/en/installation" }),
   spec("codex", "Codex", "codex", "codexExec", { primary: true, loginArgs: ["login"], logoutArgs: ["logout"], statusArgs: ["login", "status"], installUrl: "https://chatgpt.com/download/", installKind: "app" }),
   spec("hermes", "Hermes Agent", "hermes", "hermesOneshot", { loginArgs: ["setup"] }),
-  spec("kilo", "Kilo Code", "kilo", "runSubcommand"),
+  spec("kilo", "Kilo Code", "kilo", "runSubcommand", { installUrl: "https://kilo.ai/docs/getting-started/using-kilo-for-free" }),
   spec("openclaw", "OpenClaw", "openclaw", "openclawAgent", { loginArgs: ["onboard"] }),
   spec("cline", "Cline", "cline", "promptArg", { loginArgs: ["auth"] }),
   spec("pi", "pi", "pi", "promptFlag"),
@@ -73,8 +73,8 @@ export const AGENTS: AgentSpec[] = [
   // Authentication happens when its interactive terminal opens (keyring first,
   // then Google Sign-In), so it intentionally has no status or logout command.
   spec("antigravity", "Antigravity CLI", "agy", "promptFlag", { installUrl: "https://www.antigravity.google/docs/cli/install/" }),
-  // Copilot Free includes a monthly AI-credit allowance. Its documented
-  // programmatic mode is `copilot -p <prompt>`.
+  // Copilot Free includes a small monthly allowance. The CLI's programmatic
+  // mode is `copilot -p <prompt>`, the same shape used by Gemini/Antigravity.
   spec("copilot", "GitHub Copilot CLI", "copilot", "promptFlag", { loginArgs: ["login"], installUrl: "https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli" }),
   spec("qwen", "Qwen Code", "qwen", "promptFlag"),
   spec("opencode", "OpenCode", "opencode", "runSubcommand"),
@@ -92,7 +92,7 @@ export const AGENTS: AgentSpec[] = [
   spec("plandex", "Plandex", "plandex", "promptArg"),
   spec("codebuff", "Codebuff", "codebuff", "promptArg"),
   spec("interpreter", "Open Interpreter", "interpreter", "promptArg"),
-  spec("amazonq", "Amazon Q", "q", "promptArg"),
+  spec("amazonq", "Amazon Q", "q", "promptArg", { installUrl: "https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/q-tiers.html" }),
   spec("continue", "Continue", "cn", "promptArg"),
   spec("droid", "Factory Droid", "droid", "promptArg"),
 ];

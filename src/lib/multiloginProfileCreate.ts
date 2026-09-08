@@ -38,11 +38,12 @@ export function multiloginSubmitError(
   connection: "managed" | "direct" | "personal",
   country: string,
   selection?: MultiloginProfileSelection,
+  kind: MultiloginProfileKind = "browser",
 ): string | undefined {
   if (mode === "existing") {
     return selection ? undefined : "Choose a Multilogin profile.";
   }
-  return connection === "managed" && !multiloginCreateCountry(connection, country)
+  return (kind === "mobile" || connection === "managed") && !multiloginCreateCountry("managed", country)
     ? "Choose a valid proxy country."
     : undefined;
 }

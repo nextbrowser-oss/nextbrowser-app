@@ -11,11 +11,11 @@ import { guideProfileTarget } from "../lib/guideQuickStart";
 import { manualProxyDefaultName, manualProxyLimits, parseManualProxyBatch, parseManualProxyClipboard, validateManualProxyFields, type ManualProxyScheme } from "../lib/manualProxy";
 import { internalError, needsSupportLink } from "../lib/userFacingError";
 import { userFacingMultiloginError } from "../lib/userFacingMultiloginError";
-import { openMultiloginApp } from "../lib/multiloginApp";
 import { entityNameLimits, validateEntityName } from "../lib/entityValidation";
 import { cancelNextctlRun } from "../nextctl";
 import { conversationPreview, type AppTab, type BrowserWorkflowAction, type BrowserWorkflowSkill } from "../types";
 import { CountrySelect } from "./CountrySelect";
+import { PersonalProxySelect } from "./PersonalProxySelect";
 import { UserFacingError } from "./UserFacingError";
 import { VPSSetupModal } from "./VPSSetupModal";
 import { CONNECTOR_PROMPT_RESUMED_EVENT, CONNECTORS } from "../connectorsCatalog";
@@ -64,6 +64,17 @@ function recordingDuration(startedAt: number, now = Date.now()) {
 
 function repairedRecipeEvidence(actions: BrowserWorkflowAction[]) {
   return actions.map((action) => `Called clawbrowser.${action.tool}(${JSON.stringify(action.arguments)})\n{"ok":true}`).join("\n");
+}
+
+function multiloginCreationError(error: unknown, kind: MultiloginProfileKind): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/workspace has no .*Default folder|workspace has multiple .*Default folder/i.test(message)) {
+    const item = kind === "mobile" ? "cloud-phone" : "browser";
+    return `This Multilogin workspace needs one ${item} folder named “Default” before NextBrowser can create a new ${kind === "mobile" ? "cloud phone" : "browser profile"}. Create or rename that folder in Multilogin, then refresh here. You can still choose an existing shared profile.`;
+  }
+  return /timed out/i.test(message)
+    ? "Multilogin profile creation took too long and was stopped. Check your connection, then try again."
+    : userFacingMultiloginError(error, kind);
 }
 
 interface SidebarProps {
@@ -926,7 +937,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       setProfileError("Create a workspace before adding a Multilogin profile.");
       return;
     }
-    const invalid = multiloginSubmitError(multiloginMode, profileConnection, profileCountry, multiloginDraft);
+    const invalid = multiloginSubmitError(multiloginMode, profileConnection, profileCountry, multiloginDraft, multiloginKind);
     if (invalid) {
       setProfileError(invalid);
       return;
@@ -946,19 +957,20 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     const requestId = `profile-create-${crypto.randomUUID()}`;
     profileCreateRequestRef.current = requestId;
     setProfileSaving(true);
-    setProfileCreationStage("Creating Multilogin profile");
+    const creatingPhone = multiloginKind === "mobile";
+    setProfileCreationStage(creatingPhone ? "Creating Multilogin cloud phone" : "Creating Multilogin profile");
     setProfileError(null);
     const proxyStageTimer = window.setTimeout(() => setProfileCreationStage("Attaching Multilogin proxy"), 4_000);
     try {
-      const created = await invoke<MultiloginCreatedProfile>("multilogin_profile_create", {
+      const created = await invoke<MultiloginCreatedProfile>(creatingPhone ? "multilogin_mobile_profile_create" : "multilogin_profile_create", {
         name: createdName,
-        country: multiloginCreateCountry(profileConnection, profileCountry),
+        country: multiloginCreateCountry(creatingPhone ? "managed" : profileConnection, profileCountry),
         osType: multiloginOS,
         requestId,
         timeoutMs: PROFILE_CREATE_TIMEOUT_MS,
       });
       if (profileCreateRequestRef.current !== requestId) return;
-      applyMultiloginSelection(multiloginProfileSelection("browser", created));
+      applyMultiloginSelection(multiloginProfileSelection(creatingPhone ? "mobile" : "browser", created));
       void refreshMultiloginStatus();
       setProfileCreationStage("Ready");
       await new Promise((resolve) => window.setTimeout(resolve, 450));
@@ -966,12 +978,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       finishMultiloginProfile();
     } catch (error) {
       if (profileCreateRequestRef.current !== requestId) return;
-      const message = error instanceof Error ? error.message : String(error);
-      setProfileError(
-        /timed out/i.test(message)
-          ? "Multilogin profile creation took too long and was stopped. Check your connection, then try again."
-          : userFacingMultiloginError(error, "browser"),
-      );
+      setProfileError(multiloginCreationError(error, multiloginKind));
     } finally {
       window.clearTimeout(proxyStageTimer);
       if (profileCreateRequestRef.current === requestId) {
@@ -1570,19 +1577,14 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   </button>
                 </span>
                 {s.personalProxies.length ? (
-                  <select
+                  <PersonalProxySelect
                     value={profilePersonalProxyId}
+                    proxies={s.personalProxies}
                     disabled={profileSaving}
-                    onChange={(event) => setProfilePersonalProxyId(event.target.value)}
-                    aria-label="Personal proxy"
-                  >
-                    <option value="" disabled>Choose a proxy</option>
-                    {s.personalProxies.map((proxy) => (
-                      <option key={proxy.id} value={proxy.id}>
-                        {proxy.name} · {proxy.scheme.toUpperCase()} · {proxy.host}:{proxy.port}
-                      </option>
-                    ))}
-                  </select>
+                    ariaLabel="Personal proxy"
+                    onChange={setProfilePersonalProxyId}
+                    onAdd={() => { resetManualProxyForm(); setManualProxyEditing(true); setManualProxyOpen(true); }}
+                  />
                 ) : (
                   <button
                     type="button"
@@ -1654,6 +1656,11 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       <span>{multiloginAccountLabel(multiloginStatus?.account) || "Multilogin workspace"}</span>
                       <button type="button" className="link" onClick={routeToMultiloginConnector}>Change</button>
                     </div>
+                    <div className="profile-multilogin-proxy-note">
+                      <Icon name="network" size={13} />
+                      <span><strong>Proxy is managed by Multilogin</strong><small>For a custom proxy, configure it in Multilogin, then choose that existing profile here.</small></span>
+                      <button type="button" className="link" onClick={() => void invoke("open_external", { url: "https://app.multilogin.com" })}>Open Multilogin</button>
+                    </div>
                     <div className="connector-profile-tabs profile-multilogin-modes" role="tablist" aria-label="Multilogin profile source">
                       <button
                         type="button"
@@ -1675,21 +1682,33 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       </button>
                     </div>
                     {multiloginMode === "new" ? (
-                      <label className="modal-field profile-multilogin-os">
-                        <span>Fingerprint OS</span>
-                        <select
-                          value={multiloginOS}
-                          disabled={profileSaving}
-                          aria-label="Multilogin fingerprint OS"
-                          onChange={(event) => setMultiloginOS(event.target.value as MultiloginOSType)}
-                        >
-                          {MULTILOGIN_OS_TYPES.map((osType) => (
-                            <option key={osType} value={osType}>
-                              {osType === "macos" ? "macOS" : osType === "windows" ? "Windows" : "Linux"}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      <>
+                        <div className="connector-profile-tabs profile-multilogin-kind-tabs" role="tablist" aria-label="Multilogin profile type to create">
+                          <button type="button" role="tab" aria-selected={multiloginKind === "browser"} className={multiloginKind === "browser" ? "active" : ""} onClick={() => { setMultiloginKind("browser"); setProfileError(null); }}>
+                            <span>Browser</span>
+                          </button>
+                          <button type="button" role="tab" aria-selected={multiloginKind === "mobile"} className={multiloginKind === "mobile" ? "active" : ""} onClick={() => { setMultiloginKind("mobile"); setProfileConnection("managed"); setProfileError(null); }}>
+                            <span>Cloud phone</span>
+                          </button>
+                        </div>
+                        {multiloginKind === "browser" ? (
+                          <label className="modal-field profile-multilogin-os">
+                            <span>Fingerprint OS</span>
+                            <select
+                              value={multiloginOS}
+                              disabled={profileSaving}
+                              aria-label="Multilogin fingerprint OS"
+                              onChange={(event) => setMultiloginOS(event.target.value as MultiloginOSType)}
+                            >
+                              {MULTILOGIN_OS_TYPES.map((osType) => (
+                                <option key={osType} value={osType}>
+                                  {osType === "macos" ? "macOS" : osType === "windows" ? "Windows" : "Linux"}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        ) : <p className="profile-multilogin-phone-note">Creates one Android 14 cloud phone with a Multilogin-managed proxy in the selected country.</p>}
+                      </>
                     ) : (
                       <div className="profile-multilogin-picker" role="tabpanel">
                         <div className="profile-multilogin-picker-head">
@@ -1764,15 +1783,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                               {multiloginQuery.trim() ? "No matching profiles" : (
                                 <>
                                   <span>No {multiloginKind === "browser" ? "browser profiles" : "cloud phones"} in this Multilogin workspace yet.</span>
-                                  {multiloginKind === "browser" ? (
-                                    <button type="button" className="link" onClick={() => { setMultiloginMode("new"); setProfileError(null); }}>
-                                      Create profile
-                                    </button>
-                                  ) : (
-                                    <button type="button" className="link" onClick={() => void openMultiloginApp()}>
-                                      Create one in Multilogin
-                                    </button>
-                                  )}
+                                  <button type="button" className="connector-empty-create" onClick={() => { setMultiloginMode("new"); setProfileConnection("managed"); setProfileError(null); }}>
+                                    Create {multiloginKind === "browser" ? "a browser profile" : "a cloud phone"}
+                                  </button>
                                 </>
                               )}
                             </div>
@@ -2015,17 +2028,33 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               {!isDefaultProfile && (
                 <>
                   <div className="profile-menu-divider" />
-                  <button
-                    className="profile-delete-btn"
-                    onClick={() => {
-                      setProfileDeleteError(null);
-                      setConfirmDelete(menuProfile);
-                      setMenuProfile(null);
-                    }}
-                  >
-                    <Icon name="trash" size={14} />
-                    Delete profile
-                  </button>
+                  <div className="profile-menu-danger-actions">
+                    {profileBusy && (
+                      <button
+                        type="button"
+                        className="profile-stop-btn"
+                        disabled={status === "stopping"}
+                        onClick={() => {
+                          void runProfileAction(`We couldn't stop “${menuProfile}”.`, "PROFILE_STOP_FAILED", () => s.stopProfile(menuProfile));
+                          setMenuProfile(null);
+                        }}
+                      >
+                        <Icon name="stop.fill" size={13} />
+                        {status === "stopping" ? "Stopping profile…" : "Stop profile"}
+                      </button>
+                    )}
+                    <button
+                      className="profile-delete-btn"
+                      onClick={() => {
+                        setProfileDeleteError(null);
+                        setConfirmDelete(menuProfile);
+                        setMenuProfile(null);
+                      }}
+                    >
+                      <Icon name="trash" size={14} />
+                      Delete profile
+                    </button>
+                  </div>
                 </>
               )}
             </div>
@@ -2075,7 +2104,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             {profileConnectionEditor.connection === "managed" && <div className="modal-field profile-proxy-country-field"><span>Proxy country</span><CountrySelect countries={proxyCountries} value={profileConnectionEditor.country} disabled={profileConnectionSaving} ariaLabel="Proxy country" onChange={(country) => setProfileConnectionEditor({ ...profileConnectionEditor, country })} /></div>}
             {profileConnectionEditor.connection === "personal" && <div className="modal-field profile-personal-proxy-field">
               <span className="profile-field-heading"><span>Personal proxy</span><button type="button" className="link" onClick={() => { resetManualProxyForm(); setManualProxyEditing(s.personalProxies.length === 0); setManualProxyOpen(true); }}>Manage</button></span>
-              {s.personalProxies.length ? <select value={profileConnectionEditor.proxyId} disabled={profileConnectionSaving} onChange={(event) => setProfileConnectionEditor({ ...profileConnectionEditor, proxyId: event.target.value })}><option value="" disabled>Choose a proxy</option>{s.personalProxies.map((proxy) => <option key={proxy.id} value={proxy.id}>{proxy.name} · {proxy.scheme.toUpperCase()} · {proxy.host}:{proxy.port}</option>)}</select> : <button type="button" className="personal-proxy-empty-action" onClick={() => { resetManualProxyForm(); setManualProxyEditing(true); setManualProxyOpen(true); }}><Icon name="plus" size={13} /> Create your first proxy</button>}
+              {s.personalProxies.length ? <PersonalProxySelect value={profileConnectionEditor.proxyId} proxies={s.personalProxies} disabled={profileConnectionSaving} onChange={(proxyId) => setProfileConnectionEditor({ ...profileConnectionEditor, proxyId })} onAdd={() => { resetManualProxyForm(); setManualProxyEditing(true); setManualProxyOpen(true); }} /> : <button type="button" className="personal-proxy-empty-action" onClick={() => { resetManualProxyForm(); setManualProxyEditing(true); setManualProxyOpen(true); }}><Icon name="plus" size={13} /> Create your first proxy</button>}
             </div>}
             {profileConnectionError && <div className="error small" role="alert">{profileConnectionError}</div>}
             <div className="modal-actions"><button type="button" className="secondary" disabled={profileConnectionSaving} onClick={() => setProfileConnectionEditor(null)}>Cancel</button><button type="submit" className="primary" disabled={profileConnectionSaving || (profileConnectionEditor.connection === "personal" && !profileConnectionEditor.proxyId)}>{profileConnectionSaving ? <Spinner size={13} /> : <Icon name="checkmark" size={13} />}{profileConnectionSaving ? "Saving…" : "Save connection"}</button></div>

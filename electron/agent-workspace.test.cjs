@@ -49,6 +49,7 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   assert.match(main, /mcp_servers\.nextbrowser\.env_vars=.*MULTILOGIN_TOKEN/);
   assert.match(main, /mcp_servers\.nextbrowser\.env_vars=.*NEXTBROWSER_AUTOMATION_TRACE_FILE/);
   assert.match(main, /mcp_servers\.nextbrowser\.env_vars=.*NEXTBROWSER_CONTROL_URL/);
+  assert.match(main, /mcp_servers\.clawbrowser\.enabled=false/);
   assert.match(main, /mcp_servers\.nextbrowser\.env_vars=.*NEXTBROWSER_CONTROL_TOKEN/);
   assert.match(main, /nextctlHasAutomationTrace\(nextctlBin\)/);
   assert.match(main, /codexClawbrowserMCPArgs\(nextctlBin, supportedTraceFile\)/);
