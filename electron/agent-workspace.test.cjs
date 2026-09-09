@@ -43,6 +43,7 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   assert.match(main, /ensureCodexTerminalProfile\(\)/);
   assert.match(main, /const nextctlBin = await resolveOrInstallNextctl\(\)/);
   assert.match(main, /plugins\."clawbrowser@clawctl-local"\.enabled=false/);
+  assert.match(main, /"-c", "mcp_servers=\{\}"/);
   assert.match(main, /mcp_servers\.nextbrowser\.command=/);
   assert.match(main, /mcp_servers\.nextbrowser\.args=/);
   assert.match(main, /mcp_servers\.nextbrowser\.env=/);
