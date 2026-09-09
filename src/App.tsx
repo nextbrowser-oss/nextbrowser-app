@@ -128,21 +128,22 @@ function BrowserRuntimeUpdatePrompt({ runtimes, onLater, onConfirm }: {
   onLater: () => void;
   onConfirm: () => void;
 }) {
+  const isFirstInstall = runtimes.every((runtime) => runtime.status === "not-installed");
   return (
     <div className="modal-overlay">
       <div className="modal-card runtime-update-prompt" role="dialog" aria-modal="true" aria-labelledby="runtime-update-title">
         <div className="modal-title-row">
           <Icon name="arrow.down.circle" size={19} className="warn" />
           <div>
-            <strong id="runtime-update-title">Browser toolset update available</strong>
-            <div className="muted small">Choose when NextBrowser may install it.</div>
+            <strong id="runtime-update-title">{isFirstInstall ? "Install browser toolset" : "Browser toolset update available"}</strong>
+            <div className="muted small">{isFirstInstall ? "NextBrowser will download and prepare it for a new profile." : "Choose when NextBrowser may install it."}</div>
           </div>
         </div>
         <div className="runtime-update-prompt-list">
           {runtimes.map((runtime) => (
             <div className="runtime-update-prompt-row" key={runtime.runtime}>
               <strong>{runtime.name}</strong>
-              <span className="muted small">{runtime.currentVersion ?? "Installed"} → {runtime.latestVersion}</span>
+              <span className="muted small">{runtime.currentVersion ?? (runtime.status === "not-installed" ? "Not installed" : "Installed")} → {runtime.latestVersion}</span>
             </div>
           ))}
         </div>
@@ -150,7 +151,7 @@ function BrowserRuntimeUpdatePrompt({ runtimes, onLater, onConfirm }: {
         <div className="row settings-actions">
           <button className="secondary" onClick={onLater}>Later</button>
           <span className="spacer" />
-          <button className="primary" onClick={onConfirm}>Update {runtimes.length > 1 ? `${runtimes.length} toolsets` : "now"}</button>
+          <button className="primary" onClick={onConfirm}>{isFirstInstall ? `Install ${runtimes.length > 1 ? `${runtimes.length} toolsets` : "now"}` : `Update ${runtimes.length > 1 ? `${runtimes.length} toolsets` : "now"}`}</button>
         </div>
       </div>
     </div>
@@ -221,7 +222,7 @@ function browserRuntimeUpdateAvailable(status?: BrowserRuntimeUpdateStatus | nul
 
 function browserRuntimeUpdateSignature(runtimes: BrowserRuntimeUpdateEntry[]): string {
   return runtimes
-    .filter((runtime) => runtime.status === "available")
+    .filter((runtime) => runtime.status === "available" || runtime.status === "not-installed")
     .map((runtime) => `${runtime.runtime}:${runtime.latestVersion ?? "unknown"}`)
     .sort()
     .join("|");
@@ -549,9 +550,9 @@ function SettingsModal({
                     {browserRuntimeUpdateLabel(runtime)}
                   </span>
                 </div>
-                {runtime.status === "available" && (
+                {(runtime.status === "available" || runtime.status === "not-installed") && (
                   <button className="mini primary-mini" onClick={() => onRequestBrowserRuntimeUpdate(runtime)}>
-                    Update
+                    {runtime.status === "not-installed" ? "Install" : "Update"}
                   </button>
                 )}
               </div>
@@ -959,9 +960,12 @@ export function App() {
 
   useEffect(() => {
     const available = browserRuntimeUpdates.runtimes.filter((runtime) => runtime.status === "available");
-    const signature = browserRuntimeUpdateSignature(available);
+    const actionable = browserRuntimeUpdates.runtimes.filter((runtime) => (
+      runtime.status === "available" || runtime.status === "not-installed"
+    ));
+    const signature = browserRuntimeUpdateSignature(actionable);
     if (runtimeUpdatePrompt) {
-      const promptStillCurrent = runtimeUpdatePrompt.every((prompted) => available.some((runtime) => (
+      const promptStillCurrent = runtimeUpdatePrompt.every((prompted) => actionable.some((runtime) => (
         runtime.runtime === prompted.runtime && runtime.latestVersion === prompted.latestVersion
       )));
       if (!promptStillCurrent) {
