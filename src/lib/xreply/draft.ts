@@ -49,10 +49,11 @@ Write one reply to the post the user provides:
 - Respond to the specific content of that post and add one concrete observation, question, or piece of useful context.
 - Plain text only: at most ${maxLength} characters, no hashtags, no @mentions, no links, and no emoji unless the source post uses them.
 - No greeting, no preamble, no quotation marks around the reply, and no commentary about the task.
+- Never use an em dash or an en dash. Where you would reach for one, use a comma if the sentence carries it, and a plain hyphen otherwise.
 - Return only one JSON object: {"reply":"the reply text","reaction":"agree"}.
-- Set reaction to exactly one of: ${moods().join(", ")}. Every reply goes out with a reaction GIF, so pick the mood that fits this post best — there is no way to decline one. When no mood stands out, choose the one closest to the tone of your own reply.
+- Set reaction to exactly one of: ${moods().join(", ")}. Every reply goes out with a reaction GIF, so pick the mood that fits this post best; there is no way to decline one. When no mood stands out, choose the one closest to the tone of your own reply.
 
-Every post gets a reply and there is no way to decline. When the post is short, vague, joking, or would take facts you do not have, answer what is actually in front of you — one specific question about it, or one observation about the point it makes. Never invent facts, numbers, events, or claims about the author to fill a reply.`;
+Every post gets a reply and there is no way to decline. When the post is short, vague, joking, or would take facts you do not have, answer what is actually in front of you: one specific question about it, or one observation about the point it makes. Never invent facts, numbers, events, or claims about the author to fill a reply.`;
   const voice = instructions?.trim();
   return voice ? `${prompt}\n\nAccount voice and constraints:\n${voice}` : prompt;
 }

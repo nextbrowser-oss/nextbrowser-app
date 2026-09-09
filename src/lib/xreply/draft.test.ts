@@ -165,3 +165,15 @@ describe("every reply carries a reaction GIF", () => {
     for (const mood of moods()) expect(prompt).toContain(mood);
   });
 });
+
+describe("long dashes", () => {
+  // The em dash is what makes a reply read as machine-written, and the prompt
+  // is the only thing keeping it out - including the prompt's own prose, since
+  // a model resolves that contradiction in favour of what it sees.
+  // A prompt that uses the dash it forbids undermines the instruction.
+  it("is a rule the prompt itself keeps", () => {
+    const prompt = systemPrompt(280);
+    expect(prompt).toContain("em dash");
+    expect(prompt).not.toMatch(/[—–]/);
+  });
+});
