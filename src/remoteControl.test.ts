@@ -56,8 +56,14 @@ class FakePeerConnection {
     return { type: "offer" as RTCSdpType, sdp: "offer-sdp" };
   }
 
+  acceptedAnswers = 0;
+
   async setLocalDescription() {}
-  async setRemoteDescription() {}
+
+  async setRemoteDescription() {
+    this.acceptedAnswers += 1;
+  }
+
   async addIceCandidate() {}
 
   close() {
@@ -103,6 +109,54 @@ describe("RemoteControlClient", () => {
       .filter((message) => message.type === "rtc_offer");
     expect(offers.map((message) => message.revision)).toEqual([1, 2]);
     expect(states).toContain("connecting");
+    client.close();
+  });
+
+  // The backend greets a viewer with the ICE servers it should use, and older
+  // clients must survive a signalling message they were never taught. This one
+  // arrives before the answer, so ignoring it has to leave the rest working.
+  it("ignores a signalling message it does not know and still takes the answer", async () => {
+    let deliver: ((event: { payload: { id: string; type: string; data?: string } }) => void) | null =
+      null;
+    bridge.listen.mockImplementation(async (_event: string, handler: unknown) => {
+      deliver = handler as typeof deliver;
+      return () => undefined;
+    });
+
+    const onError = vi.fn();
+    const client = new RemoteControlClient(
+      { id: "session-1", viewer_ws_url: "wss://example.test/viewer" },
+      { onError },
+    );
+
+    await client.start();
+    expect(deliver).not.toBeNull();
+
+    deliver?.({
+      payload: {
+        id: "signal-1",
+        type: "message",
+        data: JSON.stringify({
+          type: "ice_servers",
+          payload: { ice_servers: [{ urls: ["turn:turn.example.test:3478"] }] },
+        }),
+      },
+    });
+    await Promise.resolve();
+
+    expect(onError).not.toHaveBeenCalled();
+
+    const peer = FakePeerConnection.instances[0];
+    deliver?.({
+      payload: {
+        id: "signal-1",
+        type: "message",
+        data: JSON.stringify({ type: "rtc_answer", revision: 1, payload: { sdp: "answer-sdp" } }),
+      },
+    });
+    await Promise.resolve();
+
+    expect(peer.acceptedAnswers).toBe(1);
     client.close();
   });
 
