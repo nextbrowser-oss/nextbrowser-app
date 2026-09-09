@@ -12,4 +12,4 @@ export const repoApiUrl = "https://api.github.com/repos/nextbrowser-oss/nextbrow
 
 export const latestReleaseUrl = `${repoUrl}/releases/latest`;
 
-export const discordUrl = "https://discord.gg/qnKUKMvGB9";
+export const discordUrl = "https://discord.com/invite/gHXEvkGXnz";
