@@ -115,6 +115,7 @@ Nextbrowser is the desktop control surface. Profiles define browser identities, 
 - [Browser control reference](docs/cli-reference.md) — browser operations and diagnostics used with Nextbrowser.
 - [Configuration and development](docs/configuration.md) — application settings, local state, analytics notes, and development scripts.
 - [Troubleshooting](docs/troubleshooting.md) — account-to-page diagnostics and common recovery paths.
+- [Codex MCP recovery](docs/troubleshooting.md#codex-reports-a-clawbrowser-mcp-startup-or-handshake-error) — recover from legacy ClawBrowser MCP configuration errors.
 - [Language index](docs/i18n/README.md) — all 20 README editions.
 
 ## Roadmap

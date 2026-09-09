@@ -157,9 +157,6 @@ default_tools_approval_mode = "approve"
 
 [plugins."clawbrowser@nbc-local"]
 enabled = false
-
-[mcp_servers.clawbrowser]
-enabled = false
 `;
 
 function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
@@ -180,7 +177,6 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
     "-c", 'plugins."clawbrowser@clawctl-local".enabled=false',
     "-c", 'plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser.enabled=false',
     "-c", 'plugins."clawbrowser@nbc-local".enabled=false',
-    "-c", "mcp_servers.clawbrowser.enabled=false",
     "-c", `mcp_servers.nextbrowser.command=${JSON.stringify(nextctlBin)}`,
     "-c", `mcp_servers.nextbrowser.args=${JSON.stringify(["mcp", ...(automationTraceFile ? ["--automation-trace-file", automationTraceFile] : [])])}`,
     "-c", `mcp_servers.nextbrowser.env=${mcpEnv}`,

@@ -18,6 +18,17 @@ Start at the account layer and move inward toward the page. Stop at the first fa
 
 Confirm that the agent is installed and runs outside Nextbrowser. If discovery still fails, use the path setting supported by the installed release, restart the app, and verify the agent's own authentication.
 
+## Codex reports a ClawBrowser MCP startup or handshake error
+
+Nextbrowser starts Codex with its managed `nextbrowser` MCP server. It does not require a separately configured `clawbrowser` MCP server in Codex.
+
+1. Update Nextbrowser and restart the affected Terminal chat.
+2. If Codex prints `invalid transport in mcp_servers.clawbrowser`, open `~/.codex/config.toml` and remove the obsolete `[mcp_servers.clawbrowser]` block, or replace it with a complete configuration supported by your installed Codex version.
+3. Run `codex --version` in a system terminal to confirm the Codex CLI is available, then reconnect Codex from Nextbrowser Settings if needed.
+4. If the terminal still exits, include the first terminal error and the Nextbrowser version in a support report. Do not include `auth.json`, tokens, cookies, or the complete Codex configuration.
+
+The underlying browser server is named `nextbrowser` in a Nextbrowser-managed Codex session. Old warnings naming `clawbrowser` identify a separate legacy MCP entry rather than the managed server.
+
 ## The API key is rejected
 
 Use the product setup flow to store the key again and verify account identity. Do not paste the key into an issue, screenshot, prompt, or chat transcript.

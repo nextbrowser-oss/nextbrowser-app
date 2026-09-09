@@ -17,7 +17,7 @@ import { trafficAllowanceBytes, trafficAllowanceFraction } from "./lib/trafficGa
 import { getPreviewMode, getPreviewNodeMavenState, getPreviewTab } from "./preview";
 import { humanBytes, type AppTab, type Conversation } from "./types";
 import { resolveTheme, type Theme } from "./theme";
-import { pendingBrowserRuntimeUpdate } from "./lib/browserRuntimeUpdate";
+import { confirmedBrowserRuntimeUpdates, pendingBrowserRuntimeUpdate } from "./lib/browserRuntimeUpdate";
 import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
 import {
   appTabLabel,
@@ -827,8 +827,11 @@ export function App() {
     if (runtimeUpdatePrompt) setRuntimeUpdatePromptDismissed(browserRuntimeUpdateSignature(runtimeUpdatePrompt));
     setRuntimeUpdatePrompt(undefined);
   };
-  const installBrowserRuntimeUpdates = (requestedRuntimes?: BrowserRuntimeUpdateEntry["runtime"][]) => {
-    const runtimes = requestedRuntimes ?? runtimeUpdatePrompt?.map((runtime) => runtime.runtime) ?? [];
+  const installBrowserRuntimeUpdates = (requestedRuntimes?: unknown) => {
+    const runtimes = confirmedBrowserRuntimeUpdates(
+      requestedRuntimes,
+      runtimeUpdatePrompt?.map((runtime) => runtime.runtime) ?? [],
+    );
     if (!runtimes.length) return;
     setRuntimeUpdatePromptDismissed(browserRuntimeUpdateSignature(browserRuntimeUpdates.runtimes));
     setRuntimeUpdatePrompt(undefined);
@@ -1215,7 +1218,7 @@ export function App() {
           <BrowserRuntimeUpdatePrompt
             runtimes={runtimeUpdatePrompt}
             onLater={dismissBrowserRuntimeUpdatePrompt}
-            onConfirm={installBrowserRuntimeUpdates}
+            onConfirm={() => installBrowserRuntimeUpdates()}
           />
         )}
         {runtimeUpdateInstall.status !== "idle" && !runtimeUpdateProgressHidden && (
@@ -1320,7 +1323,7 @@ export function App() {
         <BrowserRuntimeUpdatePrompt
           runtimes={runtimeUpdatePrompt}
           onLater={dismissBrowserRuntimeUpdatePrompt}
-          onConfirm={installBrowserRuntimeUpdates}
+          onConfirm={() => installBrowserRuntimeUpdates()}
         />
       )}
       <DashboardKeyModal />
