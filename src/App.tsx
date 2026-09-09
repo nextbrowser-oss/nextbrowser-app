@@ -38,6 +38,7 @@ import { AgentInstallLink } from "./components/AgentInstallLink";
 import { ConnectorsView } from "./components/ConnectorsView";
 import { AutomationStudio } from "./components/AutomationStudio";
 import { FeedbackModal } from "./components/FeedbackModal";
+import { markFeedbackSubmitted, shouldPromptForFeedback } from "./lib/feedbackPrompt";
 
 const TABS: { id: AppTab; label: string; icon?: string }[] = [
   { id: "chat", label: "Project", icon: "folder" },
@@ -728,6 +729,7 @@ export function App() {
   const [browserRuntimeInstall, setBrowserRuntimeInstall] = useState<BrowserRuntimeInstallStatus>();
   const [agentGateDismissed, setAgentGateDismissed] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const feedbackPromptEvaluated = useRef(false);
   const preview = getPreviewMode();
   const checking = useStore((s) => s.checking);
   const tab = useStore((s) => s.tab);
@@ -792,6 +794,17 @@ export function App() {
     const timer = window.setTimeout(() => setUnexpectedError(undefined), 8_000);
     return () => window.clearTimeout(timer);
   }, [unexpectedError]);
+
+  useEffect(() => {
+    // Ask only after the app is usable. This keeps the fifth-open request out
+    // of onboarding, recovery, and first-run setup flows.
+    if (feedbackPromptEvaluated.current || checking || showOnboarding || workspaceSetupRequired || !agentReady) return;
+    feedbackPromptEvaluated.current = true;
+    if (shouldPromptForFeedback(localStorage)) {
+      setFeedbackOpen(true);
+      trackEvent("feedback_prompt_shown", { trigger: "fifth_open" });
+    }
+  }, [agentReady, checking, showOnboarding, workspaceSetupRequired]);
 
   const checkAppUpdate = () => {
     void invoke<AppUpdateStatus>("app_check_for_update").then(setAppUpdate).catch(() => {
@@ -1356,7 +1369,10 @@ export function App() {
         <BrowserRuntimeUpdateProgress status={runtimeUpdateInstall} onClose={() => setRuntimeUpdateProgressHidden(true)} onRetry={installBrowserRuntimeUpdates} onOpenManualGuide={openBrowserRuntimeManualGuide} />
       )}
       {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
-      {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} />}
+      {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} onSubmitted={(rating) => {
+        markFeedbackSubmitted(localStorage);
+        trackEvent("feedback_submitted", { rating });
+      }} />}
     </div>
   );
 }

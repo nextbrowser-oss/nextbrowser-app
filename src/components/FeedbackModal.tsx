@@ -4,7 +4,7 @@ import { Icon, Spinner } from "./Icon";
 
 const RATING_LABELS = ["Very poor", "Poor", "Okay", "Good", "Excellent"];
 
-export function FeedbackModal({ onClose }: { onClose: () => void }) {
+export function FeedbackModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitted?: (rating: number) => void }) {
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "sent">("idle");
@@ -17,6 +17,7 @@ export function FeedbackModal({ onClose }: { onClose: () => void }) {
     try {
       await invoke("feedback_submit", { rating, comment });
       setStatus("sent");
+      onSubmitted?.(rating);
     } catch (cause) {
       setStatus("idle");
       setError(cause instanceof Error ? cause.message : "We couldn't send your feedback. Please try again.");
