@@ -136,6 +136,16 @@ function resolvePersonalProxy(id, deps) {
   return projectRequest(`/v1/personal-proxies/${encodeURIComponent(id)}/credentials`, {}, deps);
 }
 
+// The desktop renderer never receives the account key. The Electron host reads
+// it from the isolated NextBrowser config and sends it only to the authenticated
+// Signal Router endpoint on the same Core domain used for cloud entities.
+function submitFeedback(feedback, deps) {
+  return projectRequest("/signal-router/v1/feedback", {
+    method: "POST",
+    body: JSON.stringify(feedback),
+  }, deps);
+}
+
 module.exports = {
   createPersonalProxy,
   deletePersonalProxy,
@@ -149,4 +159,5 @@ module.exports = {
   putProject,
   putWorkspace,
   resolvePersonalProxy,
+  submitFeedback,
 };

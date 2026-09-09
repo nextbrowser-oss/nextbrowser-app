@@ -37,6 +37,7 @@ import { WorkspaceSetupGate } from "./components/WorkspaceSetupGate";
 import { AgentInstallLink } from "./components/AgentInstallLink";
 import { ConnectorsView } from "./components/ConnectorsView";
 import { AutomationStudio } from "./components/AutomationStudio";
+import { FeedbackModal } from "./components/FeedbackModal";
 
 const TABS: { id: AppTab; label: string; icon?: string }[] = [
   { id: "chat", label: "Project", icon: "folder" },
@@ -337,6 +338,15 @@ function DiscordButton() {
       aria-label="Join NextBrowser on Discord"
     >
       <DiscordMark size={18} />
+    </button>
+  );
+}
+
+function FeedbackButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button className="social-button feedback-button" onClick={onClick} title="Send feedback" aria-label="Send feedback">
+      <Icon name="bubble.left.and.bubble.right.fill" size={17} />
+      <span>Feedback</span>
     </button>
   );
 }
@@ -717,6 +727,7 @@ export function App() {
   const [unexpectedError, setUnexpectedError] = useState<{ reference: string; detail: string }>();
   const [browserRuntimeInstall, setBrowserRuntimeInstall] = useState<BrowserRuntimeInstallStatus>();
   const [agentGateDismissed, setAgentGateDismissed] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const preview = getPreviewMode();
   const checking = useStore((s) => s.checking);
   const tab = useStore((s) => s.tab);
@@ -1272,6 +1283,7 @@ export function App() {
           </div>
           <span className="tabbar-spacer" />
           <div className="tabbar-controls">
+            <FeedbackButton onClick={() => setFeedbackOpen(true)} />
             <SocialButtons />
             <SettingsButton onClick={() => openSettings()} hasUpdate={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)} />
             <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
@@ -1344,6 +1356,7 @@ export function App() {
         <BrowserRuntimeUpdateProgress status={runtimeUpdateInstall} onClose={() => setRuntimeUpdateProgressHidden(true)} onRetry={installBrowserRuntimeUpdates} onOpenManualGuide={openBrowserRuntimeManualGuide} />
       )}
       {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
+      {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} />}
     </div>
   );
 }
