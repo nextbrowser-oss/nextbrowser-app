@@ -797,14 +797,15 @@ export function App() {
 
   useEffect(() => {
     // Ask only after the app is usable. This keeps the fifth-open request out
-    // of onboarding, recovery, and first-run setup flows.
-    if (feedbackPromptEvaluated.current || checking || showOnboarding || workspaceSetupRequired || !agentReady) return;
+    // of onboarding, recovery, and first-run setup flows, but does not make
+    // feedback depend on which agent the user has selected.
+    if (feedbackPromptEvaluated.current || checking || showOnboarding || workspaceSetupRequired) return;
     feedbackPromptEvaluated.current = true;
     if (shouldPromptForFeedback(localStorage)) {
       setFeedbackOpen(true);
       trackEvent("feedback_prompt_shown", { trigger: "fifth_open" });
     }
-  }, [agentReady, checking, showOnboarding, workspaceSetupRequired]);
+  }, [checking, showOnboarding, workspaceSetupRequired]);
 
   const checkAppUpdate = () => {
     void invoke<AppUpdateStatus>("app_check_for_update").then(setAppUpdate).catch(() => {
