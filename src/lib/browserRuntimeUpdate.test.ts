@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pendingBrowserRuntimeUpdate } from "./browserRuntimeUpdate";
+import { confirmedBrowserRuntimeUpdates, pendingBrowserRuntimeUpdate } from "./browserRuntimeUpdate";
 
 describe("pendingBrowserRuntimeUpdate", () => {
   it("shows immediate visible progress for the confirmed toolset", () => {
@@ -13,5 +13,10 @@ describe("pendingBrowserRuntimeUpdate", () => {
       currentVersion: "0.5.7",
       progress: 0,
     });
+  });
+
+  it("uses the confirmed dialog runtimes when React supplies a click event", () => {
+    expect(confirmedBrowserRuntimeUpdates({ type: "click" }, ["dasbrowser"])).toEqual(["dasbrowser"]);
+    expect(confirmedBrowserRuntimeUpdates(["camoufox"], ["dasbrowser"])).toEqual(["camoufox"]);
   });
 });

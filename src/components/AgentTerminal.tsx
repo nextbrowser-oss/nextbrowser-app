@@ -9,6 +9,7 @@ import type { ChatAttachment } from "../types";
 import { terminalAttachmentContext } from "../lib/chatAttachments";
 import { terminalBrowserScopeContext, terminalInputWithDeferredContext, terminalLineBufferAfter } from "../lib/contextHandoff";
 import { terminalActivityPreview, terminalAgentReady, terminalInputShouldQueueBeforeReady } from "../lib/terminalReadiness";
+import { codexMcpRecovery } from "../lib/codexMcpRecovery";
 import { terminalBrowserSession } from "../lib/terminalBrowserSession";
 import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT } from "../lib/automationRecording";
 import { openTerminalWebLink } from "../lib/terminalWebLinks";
@@ -184,6 +185,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
     let lastObservedBrowserSession = "";
     let lastEscapeAt = 0;
     let startupOutput = "";
+    let lastMcpRecovery = "";
     let readinessTimer: ReturnType<typeof setTimeout> | undefined;
     let previewTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -334,6 +336,11 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
         if (id !== terminalIdRef.current) return;
         terminal.write(data);
         startupOutput = (startupOutput + data).slice(-64_000);
+        const recovery = codexMcpRecovery(agentId, startupOutput);
+        if (recovery && recovery !== lastMcpRecovery) {
+          lastMcpRecovery = recovery;
+          terminal.write(`\r\n\x1b[33m${recovery}\x1b[0m\r\n`);
+        }
         // MCP browser starts happen inside the terminal process, outside the
         // Electron command bridge that normally emits profile lifecycle events.
         // Observe the successful session payload and reconcile the sidebar with

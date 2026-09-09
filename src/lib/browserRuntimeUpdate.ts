@@ -26,3 +26,14 @@ export function pendingBrowserRuntimeUpdate<T extends string>(
     message: "Checking the selected browser toolset updates…",
   };
 }
+
+/**
+ * A dialog button supplies a MouseEvent to its onClick handler. Only explicit
+ * runtime arrays are valid here; any other value means “use the runtimes the
+ * user just confirmed in the dialog”. This keeps the update action from
+ * silently returning before the IPC call is made.
+ */
+export function confirmedBrowserRuntimeUpdates<T extends string>(requested: unknown, fallback: T[]): T[] {
+  if (!Array.isArray(requested)) return fallback;
+  return requested.filter((runtime): runtime is T => typeof runtime === "string");
+}
