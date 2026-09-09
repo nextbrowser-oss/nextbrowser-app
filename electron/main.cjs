@@ -5,7 +5,7 @@ const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { randomUUID } = require("node:crypto");
+const { createHash, randomUUID } = require("node:crypto");
 const http = require("node:http");
 const { Readable } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
@@ -1228,7 +1228,7 @@ async function updateClawbrowserRuntime(latestVersion) {
 async function updateCamoufoxRuntime(latestVersion) {
   const python = camoufoxVenvPython();
   const version = assertRuntimeReleaseVersion(latestVersion);
-  if (!launchable(python)) return installCamoufoxRuntime(version);
+  if (!launchable(python) || !(await camoufoxPythonSupported(python))) return installCamoufoxRuntime(version);
   const install = await run(python, [
     "-m", "pip", "install", "--disable-pip-version-check", "--upgrade", `camoufox[geoip]==${version}`,
   ], {}, { timeoutMs: 30 * 60 * 1000 });
@@ -1242,15 +1242,20 @@ async function installCamoufoxRuntime(latestVersion) {
   const python = camoufoxVenvPython();
   const venv = path.dirname(path.dirname(python));
   camoufoxInstallPromise = (async () => {
-    const baseCandidates = process.platform === "win32" ? ["py", "python"] : ["python3", "python"];
+    const baseCandidates = process.platform === "win32" ? ["py", "python"] : ["python3.13", "python3.12", "python3.11", "python3"];
     let created = null;
     for (const candidate of baseCandidates) {
-      const available = await run(candidate, ["--version"], {}, { timeoutMs: 10_000 }).catch(() => null);
-      if (!available || available.code !== 0) continue;
+      if (!(await camoufoxPythonSupported(candidate))) continue;
       created = await run(candidate, ["-m", "venv", venv], {}, { timeoutMs: 120_000 });
       break;
     }
-    if (!created) throw new Error("Python 3 is required to install Camoufox. Install Python 3, then retry.");
+    if (!created) {
+      // A previous attempt may have created a venv with an unsupported system
+      // Python. Replace only this managed, incomplete runtime before asking uv
+      // for its compatible Python 3.13.
+      await fs.rm(venv, { recursive: true, force: true });
+      created = await createCamoufoxManagedPython(venv);
+    }
     if (created.code !== 0) throw new Error((created.stderr || created.stdout || "Could not create the Camoufox Python environment.").trim());
     const packageInstall = await run(python, [
       "-m", "pip", "install", "--disable-pip-version-check", `camoufox[geoip]==${version}`,
@@ -1262,6 +1267,47 @@ async function installCamoufoxRuntime(latestVersion) {
     camoufoxInstallPromise = null;
   });
   return camoufoxInstallPromise;
+}
+async function camoufoxPythonSupported(python) {
+  const result = await run(python, ["-c", "import sys; raise SystemExit(0 if (3, 11) <= sys.version_info[:2] < (3, 14) else 1)"], {}, { timeoutMs: 10_000 }).catch(() => null);
+  return !!result && result.code === 0;
+}
+function camoufoxUVRelease() {
+  const releases = {
+    "darwin/arm64": { asset: "uv-aarch64-apple-darwin.tar.gz", digest: "281ea18a5778099f7edeee0a7b20671d14918782de153604c939486f2b8a2791" },
+    "darwin/x64": { asset: "uv-x86_64-apple-darwin.tar.gz", digest: "567d98b0c541a68df8aaa2c3214242c4070068b2edaea1be376a4c0fa348bdf1" },
+    "linux/arm64": { asset: "uv-aarch64-unknown-linux-gnu.tar.gz", digest: "69616218470b2ad053617efb9e7027b1518ea38918d933c2791e113d99cec507" },
+    "linux/x64": { asset: "uv-x86_64-unknown-linux-gnu.tar.gz", digest: "954add045f29f93191523175e4aea066996840e86c1b6339dee25f48b15b5ddb" },
+    "win32/x64": { asset: "uv-x86_64-pc-windows-msvc.zip", digest: "3f68ab95d2856e6b238e0e3f4255a723ccdc2cf1d4b8e53f5a4f5a47b645dc72" },
+  };
+  const release = releases[`${process.platform}/${process.arch}`];
+  if (!release) throw new Error(`Camoufox automatic installation is not available for ${process.platform}/${process.arch}.`);
+  return release;
+}
+async function createCamoufoxManagedPython(venv) {
+  const release = camoufoxUVRelease();
+  const runtimeDir = path.dirname(venv);
+  const executable = process.platform === "win32" ? "uv.exe" : "uv";
+  const uv = path.join(runtimeDir, "uv", executable);
+  if (!launchable(uv)) {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-camoufox-uv-"));
+    try {
+      const archive = path.join(tempDir, release.asset);
+      const extracted = path.join(tempDir, "extract");
+      await downloadFile(`https://github.com/astral-sh/uv/releases/download/0.8.14/${release.asset}`, archive);
+      const digest = createHash("sha256").update(await fs.readFile(archive)).digest("hex");
+      if (digest !== release.digest) throw new Error("Camoufox Python installer checksum verification failed.");
+      await extractArchive(archive, release.asset.endsWith(".zip") ? "zip" : "tar", extracted);
+      const source = findBinaryUnderRoots(executable, [extracted]);
+      if (!source) throw new Error("Camoufox Python installer did not contain uv.");
+      await fs.mkdir(path.dirname(uv), { recursive: true });
+      await fs.copyFile(source, uv);
+      if (process.platform !== "win32") await fs.chmod(uv, 0o700);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+  return run(uv, ["venv", "--seed", "--python", "3.13", "--python-preference", "managed", venv], {}, { timeoutMs: 15 * 60 * 1000 });
 }
 async function installedBrowserRuntimeVersion(runtime) {
   if (runtime === "clawbrowser") return installedClawbrowserVersion(nextbrowserRuntimeRoot());
