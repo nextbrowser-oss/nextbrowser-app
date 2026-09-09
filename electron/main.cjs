@@ -128,6 +128,7 @@ let browserRuntimeUpdateInstallStatus = { status: "idle", runtimes: [] };
 let browserRuntimeUpdateInstallPromise = null;
 let nextctlInstallPromise = null;
 let browserInstallPromise = null;
+let camoufoxInstallPromise = null;
 let dasbrowserInstallPromise = null;
 const browserRuntimeInstallAbortControllers = new Map();
 let agentControlServer = null;
@@ -1226,14 +1227,41 @@ async function updateClawbrowserRuntime(latestVersion) {
 }
 async function updateCamoufoxRuntime(latestVersion) {
   const python = camoufoxVenvPython();
-  if (!launchable(python)) throw new Error("Camoufox is not installed on this device.");
   const version = assertRuntimeReleaseVersion(latestVersion);
+  if (!launchable(python)) return installCamoufoxRuntime(version);
   const install = await run(python, [
     "-m", "pip", "install", "--disable-pip-version-check", "--upgrade", `camoufox[geoip]==${version}`,
   ], {}, { timeoutMs: 30 * 60 * 1000 });
   if (install.code !== 0) throw new Error((install.stderr || install.stdout || "Camoufox package update failed.").trim());
   const browser = await run(python, ["-m", "camoufox", "fetch"], {}, { timeoutMs: 30 * 60 * 1000 });
   if (browser.code !== 0) throw new Error((browser.stderr || browser.stdout || "Camoufox browser download failed.").trim());
+}
+async function installCamoufoxRuntime(latestVersion) {
+  if (camoufoxInstallPromise) return camoufoxInstallPromise;
+  const version = assertRuntimeReleaseVersion(latestVersion);
+  const python = camoufoxVenvPython();
+  const venv = path.dirname(path.dirname(python));
+  camoufoxInstallPromise = (async () => {
+    const baseCandidates = process.platform === "win32" ? ["py", "python"] : ["python3", "python"];
+    let created = null;
+    for (const candidate of baseCandidates) {
+      const available = await run(candidate, ["--version"], {}, { timeoutMs: 10_000 }).catch(() => null);
+      if (!available || available.code !== 0) continue;
+      created = await run(candidate, ["-m", "venv", venv], {}, { timeoutMs: 120_000 });
+      break;
+    }
+    if (!created) throw new Error("Python 3 is required to install Camoufox. Install Python 3, then retry.");
+    if (created.code !== 0) throw new Error((created.stderr || created.stdout || "Could not create the Camoufox Python environment.").trim());
+    const packageInstall = await run(python, [
+      "-m", "pip", "install", "--disable-pip-version-check", `camoufox[geoip]==${version}`,
+    ], {}, { timeoutMs: 30 * 60 * 1000 });
+    if (packageInstall.code !== 0) throw new Error((packageInstall.stderr || packageInstall.stdout || "Camoufox package installation failed.").trim());
+    const browser = await run(python, ["-m", "camoufox", "fetch"], {}, { timeoutMs: 30 * 60 * 1000 });
+    if (browser.code !== 0) throw new Error((browser.stderr || browser.stdout || "Camoufox browser download failed.").trim());
+  })().finally(() => {
+    camoufoxInstallPromise = null;
+  });
+  return camoufoxInstallPromise;
 }
 async function installedBrowserRuntimeVersion(runtime) {
   if (runtime === "clawbrowser") return installedClawbrowserVersion(nextbrowserRuntimeRoot());

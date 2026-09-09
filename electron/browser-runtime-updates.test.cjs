@@ -49,7 +49,7 @@ test("builds official platform release URLs without using the GitHub API", () =>
   assert.throws(() => clawbrowserReleaseAsset("darwin", "x64", "1.0.4"), /not available/);
 });
 
-test("installs only explicitly confirmed updates that are still available", () => {
+test("installs only explicitly confirmed updates or missing toolsets", () => {
   const status = {
     runtimes: [
       { runtime: "clawbrowser", status: "available" },
@@ -57,7 +57,7 @@ test("installs only explicitly confirmed updates that are still available", () =
       { runtime: "dasbrowser", status: "up-to-date" },
     ],
   };
-  assert.deepEqual(selectAvailableRuntimeUpdates(status, ["clawbrowser", "camoufox", "invented"]), [status.runtimes[0]]);
+  assert.deepEqual(selectAvailableRuntimeUpdates(status, ["clawbrowser", "camoufox", "invented"]), [status.runtimes[0], status.runtimes[1]]);
   assert.deepEqual(selectAvailableRuntimeUpdates(status, []), []);
 });
 

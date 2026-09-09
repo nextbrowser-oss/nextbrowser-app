@@ -33,7 +33,10 @@ function assertRuntimeReleaseVersion(value) {
 
 function selectAvailableRuntimeUpdates(status, requestedRuntimes) {
   const requested = new Set(Array.isArray(requestedRuntimes) ? requestedRuntimes.map(String) : []);
-  return (status?.runtimes || []).filter((runtime) => runtime.status === "available" && requested.has(runtime.runtime));
+  return (status?.runtimes || []).filter((runtime) => (
+    (runtime.status === "available" || runtime.status === "not-installed")
+    && requested.has(runtime.runtime)
+  ));
 }
 
 function conciseFailureMessage(error) {
@@ -86,7 +89,7 @@ async function installSelectedRuntimeUpdates({ requestedRuntimes, checkForUpdate
       completed: [],
       errors: [],
       progress: 100,
-      message: "The selected browser toolsets are already up to date.",
+      message: "The selected browser toolsets are already installed or up to date.",
     };
     onStatus(result);
     return result;
