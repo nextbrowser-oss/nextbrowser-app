@@ -175,6 +175,12 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
   const mcpEnv = `{${mcpEnvKeys.map((key) => `${key}=${JSON.stringify(runtimeEnv[key])}`).join(",")}}`;
   return [
     "--profile", CODEX_TERMINAL_PROFILE,
+    // Codex profiles layer on top of the user's base config. A legacy manual
+    // `mcp_servers.clawbrowser` entry would otherwise still start alongside
+    // the app-owned server and can close during initialize. Restrict this
+    // NextBrowser-launched process to the MCP server configured below without
+    // reading, editing, or deleting the user's persistent Codex config.
+    "-c", "mcp_servers={}",
     "-c", 'plugins."clawbrowser@clawctl-local".enabled=false',
     "-c", 'plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser.enabled=false',
     "-c", 'plugins."clawbrowser@nbc-local".enabled=false',
