@@ -937,7 +937,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       setProfileError("Create a workspace before adding a Multilogin profile.");
       return;
     }
-    const invalid = multiloginSubmitError(multiloginMode, profileConnection, profileCountry, multiloginDraft, multiloginKind);
+    const invalid = multiloginSubmitError(multiloginMode, "managed", profileCountry, multiloginDraft, multiloginKind);
     if (invalid) {
       setProfileError(invalid);
       return;
@@ -964,7 +964,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     try {
       const created = await invoke<MultiloginCreatedProfile>(creatingPhone ? "multilogin_mobile_profile_create" : "multilogin_profile_create", {
         name: createdName,
-        country: multiloginCreateCountry(creatingPhone ? "managed" : profileConnection, profileCountry),
+        country: multiloginCreateCountry("managed", profileCountry),
         osType: multiloginOS,
         requestId,
         timeoutMs: PROFILE_CREATE_TIMEOUT_MS,
@@ -1519,7 +1519,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 autoFocus
               />
             </label>}
-            {!multiloginExisting && <fieldset className="project-mode-field profile-connection-field">
+            {profileToolset !== "multilogin" && <fieldset className="project-mode-field profile-connection-field">
               <legend>Connection</legend>
               <label className={"project-mode-option" + (profileConnection === "direct" ? " is-selected" : "")}>
                 <input type="radio" name="profile-connection" checked={profileConnection === "direct"} onChange={() => setProfileConnection("direct")} />
@@ -1531,10 +1531,10 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 <Icon name="globe" size={16} />
                 <span>
                   <strong>Managed proxy</strong>
-                  <small>{profileToolset === "multilogin" ? "Multilogin built-in proxy by country" : "Choose the proxy country"}</small>
+                  <small>Choose the proxy country</small>
                 </span>
               </label>
-              {profileToolset !== "multilogin" && <label className={"project-mode-option" + (profileConnection === "personal" ? " is-selected" : "")}>
+              <label className={"project-mode-option" + (profileConnection === "personal" ? " is-selected" : "")}>
                 <input
                   type="radio"
                   name="profile-connection"
@@ -1547,9 +1547,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 />
                 <Icon name="network" size={16} />
                 <span><strong>Personal proxy</strong><small>Use one of your saved proxies</small></span>
-              </label>}
+              </label>
             </fieldset>}
-            {profileConnection === "managed" && !multiloginExisting && <div className="modal-field profile-proxy-country-field">
+            {profileConnection === "managed" && profileToolset !== "multilogin" && <div className="modal-field profile-proxy-country-field">
               <span>Proxy country</span>
               <CountrySelect
                 countries={proxyCountries}
@@ -1625,7 +1625,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   onChange={() => {
                     setProfileToolset("multilogin");
                     setProfileError(null);
-                    if (profileConnection === "personal") setProfileConnection("managed");
+                    // Multilogin attaches its own proxy, so the connection choice never applies.
+                    setProfileConnection("managed");
                     if (!multiloginStatus && !multiloginChecking) void refreshMultiloginStatus();
                   }}
                 />
@@ -1658,7 +1659,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                     </div>
                     <div className="profile-multilogin-proxy-note">
                       <Icon name="network" size={13} />
-                      <span><strong>Proxy is managed by Multilogin</strong><small>For a custom proxy, configure it in Multilogin, then choose that existing profile here.</small></span>
+                      <span><strong>Proxy is managed by Multilogin</strong><small>New profiles get a built-in proxy in the country below. For your own proxy, set it up in Multilogin and pick that existing profile.</small></span>
                       <button type="button" className="link" onClick={() => void invoke("open_external", { url: "https://app.multilogin.com" })}>Open Multilogin</button>
                     </div>
                     <div className="connector-profile-tabs profile-multilogin-modes" role="tablist" aria-label="Multilogin profile source">
@@ -1687,9 +1688,19 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                           <button type="button" role="tab" aria-selected={multiloginKind === "browser"} className={multiloginKind === "browser" ? "active" : ""} onClick={() => { setMultiloginKind("browser"); setProfileError(null); }}>
                             <span>Browser</span>
                           </button>
-                          <button type="button" role="tab" aria-selected={multiloginKind === "mobile"} className={multiloginKind === "mobile" ? "active" : ""} onClick={() => { setMultiloginKind("mobile"); setProfileConnection("managed"); setProfileError(null); }}>
+                          <button type="button" role="tab" aria-selected={multiloginKind === "mobile"} className={multiloginKind === "mobile" ? "active" : ""} onClick={() => { setMultiloginKind("mobile"); setProfileError(null); }}>
                             <span>Cloud phone</span>
                           </button>
+                        </div>
+                        <div className="modal-field profile-multilogin-country">
+                          <span>Proxy country</span>
+                          <CountrySelect
+                            countries={proxyCountries}
+                            value={profileCountry}
+                            disabled={profileSaving}
+                            ariaLabel="Proxy country"
+                            onChange={setProfileCountry}
+                          />
                         </div>
                         {multiloginKind === "browser" ? (
                           <label className="modal-field profile-multilogin-os">
