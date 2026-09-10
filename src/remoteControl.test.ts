@@ -116,10 +116,9 @@ describe("RemoteControlClient", () => {
   // clients must survive a signalling message they were never taught. This one
   // arrives before the answer, so ignoring it has to leave the rest working.
   it("ignores a signalling message it does not know and still takes the answer", async () => {
-    let deliver: ((event: { payload: { id: string; type: string; data?: string } }) => void) | null =
-      null;
+    const listener: { deliver?: (event: { payload: { id: string; type: string; data?: string } }) => void } = {};
     bridge.listen.mockImplementation(async (_event: string, handler: unknown) => {
-      deliver = handler as typeof deliver;
+      listener.deliver = handler as NonNullable<typeof listener.deliver>;
       return () => undefined;
     });
 
@@ -130,9 +129,9 @@ describe("RemoteControlClient", () => {
     );
 
     await client.start();
-    expect(deliver).not.toBeNull();
+    expect(listener.deliver).toBeTypeOf("function");
 
-    deliver?.({
+    listener.deliver?.({
       payload: {
         id: "signal-1",
         type: "message",
@@ -147,7 +146,7 @@ describe("RemoteControlClient", () => {
     expect(onError).not.toHaveBeenCalled();
 
     const peer = FakePeerConnection.instances[0];
-    deliver?.({
+    listener.deliver?.({
       payload: {
         id: "signal-1",
         type: "message",

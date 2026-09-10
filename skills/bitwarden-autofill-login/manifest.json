@@ -5,6 +5,9 @@
   "author": "Yas1nY1lmaz",
   "domains": ["github.com", "accounts.google.com", "login.microsoftonline.com"],
   "operations": ["form"],
+  "target_mode": "current_tab",
+  "permissions": ["read_page", "use_page_controls", "login"],
+  "verification": "community",
   "category": {
     "id": "utilities",
     "title": "Utilities",
