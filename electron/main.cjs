@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const { execFileSync, spawn } = require("node:child_process");
+const { feedbackBuildContext } = require("./app-build-info.cjs");
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const os = require("node:os");
@@ -1589,9 +1590,8 @@ async function invokeCommand(command, args = {}, sender) {
           rating,
           comment,
           context: {
-            app_version: app.getVersion(),
+            ...feedbackBuildContext({ app, execFileSync }),
             platform: process.platform,
-            packaged: app.isPackaged,
           },
         }, { env: childEnv() });
       } catch (error) {

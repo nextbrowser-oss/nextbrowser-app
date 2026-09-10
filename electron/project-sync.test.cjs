@@ -3,6 +3,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+require("./app-build-info.node.cjs");
 const {
   createPersonalProxy,
   deletePersonalProxy,
