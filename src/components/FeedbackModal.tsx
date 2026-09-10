@@ -6,9 +6,11 @@ const RATING_LABELS = ["Very poor", "Poor", "Okay", "Good", "Excellent"];
 
 export function FeedbackModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitted?: (rating: number) => void }) {
   const [rating, setRating] = useState(0);
+  const [hoverRating, setHoverRating] = useState<number | null>(null);
   const [comment, setComment] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "sent">("idle");
   const [error, setError] = useState("");
+  const displayedRating = hoverRating ?? rating;
 
   const submit = async () => {
     if (!rating || status === "sending") return;
@@ -45,13 +47,38 @@ export function FeedbackModal({ onClose, onSubmitted }: { onClose: () => void; o
           </div>
         ) : (
           <>
-            <div className="feedback-rating" role="radiogroup" aria-label="Rate NextBrowser from one to five">
+            <div
+              className="feedback-rating"
+              role="radiogroup"
+              aria-label="Rate NextBrowser from one to five"
+              onMouseLeave={() => setHoverRating(null)}
+            >
               {RATING_LABELS.map((label, index) => {
                 const value = index + 1;
-                return <button key={label} type="button" role="radio" aria-checked={rating === value} className={"feedback-star" + (value <= rating ? " is-selected" : "")} onClick={() => setRating(value)} title={`${value}: ${label}`}><Icon name="star.fill" size={26} fill="currentColor" /></button>;
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    role="radio"
+                    aria-checked={rating === value}
+                    className={
+                      "feedback-star" +
+                      (value <= displayedRating ? " is-preview" : "") +
+                      (hoverRating === null && value <= rating ? " is-selected" : "") +
+                      (value === hoverRating ? " is-hovered" : "")
+                    }
+                    onMouseEnter={() => setHoverRating(value)}
+                    onFocus={() => setHoverRating(value)}
+                    onBlur={() => setHoverRating(null)}
+                    onClick={() => setRating(value)}
+                    title={`${value}: ${label}`}
+                  >
+                    <Icon name="star.fill" size={26} fill="currentColor" />
+                  </button>
+                );
               })}
             </div>
-            <div className="feedback-rating-label">{rating ? `${rating}/5 · ${RATING_LABELS[rating - 1]}` : "Choose a rating"}</div>
+            <div className="feedback-rating-label">{displayedRating ? `${displayedRating}/5 · ${RATING_LABELS[displayedRating - 1]}` : "Choose a rating"}</div>
             <label className="feedback-comment">
               <span>Tell us more <em>(optional)</em></span>
               <textarea value={comment} maxLength={2_000} rows={4} placeholder="What worked well, or what should we improve?" onChange={(event) => setComment(event.target.value)} />
