@@ -37,6 +37,8 @@ import { WorkspaceSetupGate } from "./components/WorkspaceSetupGate";
 import { AgentInstallLink } from "./components/AgentInstallLink";
 import { ConnectorsView } from "./components/ConnectorsView";
 import { AutomationStudio } from "./components/AutomationStudio";
+import { FeedbackModal } from "./components/FeedbackModal";
+import { markFeedbackSubmitted, shouldPromptForFeedback } from "./lib/feedbackPrompt";
 
 const TABS: { id: AppTab; label: string; icon?: string }[] = [
   { id: "chat", label: "Project", icon: "folder" },
@@ -337,6 +339,20 @@ function DiscordButton() {
       aria-label="Join NextBrowser on Discord"
     >
       <DiscordMark size={18} />
+    </button>
+  );
+}
+
+function FeedbackButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      className="social-button feedback-button"
+      onClick={onClick}
+      title="Send feedback (⌘⇧F on macOS, Ctrl+Shift+F on Windows/Linux)"
+      aria-label="Send feedback. Shortcut: Command or Control, Shift, F"
+    >
+      <Icon name="bubble.left.and.bubble.right.fill" size={17} />
+      <span>Feedback</span>
     </button>
   );
 }
@@ -717,6 +733,8 @@ export function App() {
   const [unexpectedError, setUnexpectedError] = useState<{ reference: string; detail: string }>();
   const [browserRuntimeInstall, setBrowserRuntimeInstall] = useState<BrowserRuntimeInstallStatus>();
   const [agentGateDismissed, setAgentGateDismissed] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const feedbackPromptEvaluated = useRef(false);
   const preview = getPreviewMode();
   const checking = useStore((s) => s.checking);
   const tab = useStore((s) => s.tab);
@@ -781,6 +799,29 @@ export function App() {
     const timer = window.setTimeout(() => setUnexpectedError(undefined), 8_000);
     return () => window.clearTimeout(timer);
   }, [unexpectedError]);
+
+  useEffect(() => {
+    // Ask only after the app is usable. This keeps the fifth-open request out
+    // of onboarding, recovery, and first-run setup flows, but does not make
+    // feedback depend on which agent the user has selected.
+    if (feedbackPromptEvaluated.current || checking || showOnboarding || workspaceSetupRequired) return;
+    feedbackPromptEvaluated.current = true;
+    if (shouldPromptForFeedback(localStorage)) {
+      setFeedbackOpen(true);
+      trackEvent("feedback_prompt_shown", { trigger: "fifth_open" });
+    }
+  }, [checking, showOnboarding, workspaceSetupRequired]);
+
+  useEffect(() => {
+    const openFeedbackWithShortcut = (event: KeyboardEvent) => {
+      if ((!event.metaKey && !event.ctrlKey) || !event.shiftKey || event.altKey || event.key.toLowerCase() !== "f") return;
+      event.preventDefault();
+      setFeedbackOpen(true);
+      trackEvent("feedback_prompt_shown", { trigger: "keyboard_shortcut" });
+    };
+    window.addEventListener("keydown", openFeedbackWithShortcut);
+    return () => window.removeEventListener("keydown", openFeedbackWithShortcut);
+  }, []);
 
   const checkAppUpdate = () => {
     void invoke<AppUpdateStatus>("app_check_for_update").then(setAppUpdate).catch(() => {
@@ -1188,7 +1229,12 @@ export function App() {
     };
   }, [checking, sidebarCollapsed, setSidebarWidth]);
 
-    if (checking && preview !== "login" && preview !== "main" && preview !== "onboarding") {
+  const feedbackModal = feedbackOpen ? <FeedbackModal onClose={() => setFeedbackOpen(false)} onSubmitted={(rating) => {
+    markFeedbackSubmitted(localStorage);
+    trackEvent("feedback_submitted", { rating });
+  }} /> : null;
+
+  if (checking && preview !== "login" && preview !== "main" && preview !== "onboarding") {
     return (
       <>
         <div className="floating-controls">
@@ -1229,6 +1275,7 @@ export function App() {
           <BrowserRuntimeUpdateProgress status={runtimeUpdateInstall} onClose={() => setRuntimeUpdateProgressHidden(true)} onRetry={installBrowserRuntimeUpdates} onOpenManualGuide={openBrowserRuntimeManualGuide} />
         )}
         {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
+        {feedbackModal}
       </>
     );
   }
@@ -1272,6 +1319,7 @@ export function App() {
           </div>
           <span className="tabbar-spacer" />
           <div className="tabbar-controls">
+            <FeedbackButton onClick={() => setFeedbackOpen(true)} />
             <SocialButtons />
             <SettingsButton onClick={() => openSettings()} hasUpdate={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)} />
             <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
@@ -1344,6 +1392,7 @@ export function App() {
         <BrowserRuntimeUpdateProgress status={runtimeUpdateInstall} onClose={() => setRuntimeUpdateProgressHidden(true)} onRetry={installBrowserRuntimeUpdates} onOpenManualGuide={openBrowserRuntimeManualGuide} />
       )}
       {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
+      {feedbackModal}
     </div>
   );
 }

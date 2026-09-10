@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const { execFileSync, spawn } = require("node:child_process");
+const { feedbackBuildContext } = require("./app-build-info.cjs");
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const os = require("node:os");
@@ -40,6 +41,7 @@ const {
   putProject,
   putWorkspace,
   resolvePersonalProxy,
+  submitFeedback,
 } = require("./project-sync.cjs");
 const { defaultSSHConfigPath, discoverSSHHosts, isAllowedExplicitConfigPath } = require("./ssh-config.cjs");
 const { createLocalArtifactStore } = require("./local-artifacts.cjs");
@@ -1577,6 +1579,26 @@ async function invokeCommand(command, args = {}, sender) {
     case "workspaces_list": return await listWorkspaces({ env: childEnv() });
     case "workspace_put": return await putWorkspace(String(args.id || ""), args.workspace, { env: childEnv() });
     case "workspace_delete": return await deleteWorkspace(String(args.id || ""), { env: childEnv() });
+    case "feedback_submit": {
+      const rating = Number(args.rating);
+      if (!Number.isInteger(rating) || rating < 1 || rating > 5) throw new Error("Choose a rating from 1 to 5.");
+      const comment = typeof args.comment === "string" ? args.comment.trim() : "";
+      if (comment.length > 2_000) throw new Error("Feedback is limited to 2,000 characters.");
+      try {
+        return await submitFeedback({
+          id: `desktop-feedback:${randomUUID()}`,
+          rating,
+          comment,
+          context: {
+            ...feedbackBuildContext({ app, execFileSync }),
+            platform: process.platform,
+          },
+        }, { env: childEnv() });
+      } catch (error) {
+        if (error?.status === 401) throw new Error("Sign in to your NextBrowser account before sending feedback.");
+        throw error;
+      }
+    }
     case "account_logout": {
       await shell.openExternal(authLogoutURL());
       await clearRuntimeCredential({ runtimeRoot: nextbrowserRuntimeRoot() });

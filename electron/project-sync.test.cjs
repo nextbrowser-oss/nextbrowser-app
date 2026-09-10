@@ -3,6 +3,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+require("./app-build-info.node.cjs");
 const {
   createPersonalProxy,
   deletePersonalProxy,
@@ -12,6 +13,7 @@ const {
   listWorkspaces,
   putProject,
   resolvePersonalProxy,
+  submitFeedback,
 } = require("./project-sync.cjs");
 
 test("syncs projects with the private backend key", async (t) => {
@@ -38,6 +40,25 @@ test("syncs projects with the private backend key", async (t) => {
 
 test("uses the same default backend as cloud skills", () => {
   assert.equal(entityBackendURL({}), "https://core.nextbrowser.com");
+});
+
+test("submits desktop feedback with the saved account key without exposing it to the renderer", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "feedback-sync-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const configDir = path.join(root, "config");
+  await fs.mkdir(configDir, { recursive: true });
+  await fs.writeFile(path.join(configDir, "config.json"), JSON.stringify({ api_key: "nb_live_secret" }));
+  const calls = [];
+  await submitFeedback({ rating: 5, comment: "Useful" }, {
+    env: { NEXTBROWSER_CONFIG_DIR: configDir },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return { ok: true, text: async () => JSON.stringify({ ok: true, id: "feedback" }) };
+    },
+  });
+  assert.equal(calls[0].url, "https://core.nextbrowser.com/signal-router/v1/feedback");
+  assert.equal(calls[0].options.headers.authorization, "Bearer nb_live_secret");
+  assert.deepEqual(JSON.parse(calls[0].options.body), { rating: 5, comment: "Useful" });
 });
 
 test("moves entity sync with an app API override", () => {
