@@ -13,7 +13,7 @@ Please keep contributions focused, factual, and easy to review. By participating
 
 ## Development setup
 
-You need Git, Node.js 22, and npm. Testing a browser skill in the desktop app requires macOS or Windows, a NextBrowser account, a connected agent, and a working browser profile. Platform packaging may also require the native tools expected by Electron Builder.
+You need Git, Node.js 22, and npm. The desktop development and browser-skill flow is officially covered on macOS and Windows, and requires a NextBrowser account, a connected agent, and a working browser profile. Linux contributors are welcome to run the source build and report results; it is not yet a packaged release or CI-supported target. Platform packaging may also require the native tools expected by Electron Builder.
 
 Fork the repository, clone your fork, and install the exact locked dependencies:
 
