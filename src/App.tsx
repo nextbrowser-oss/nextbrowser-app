@@ -345,7 +345,12 @@ function DiscordButton() {
 
 function FeedbackButton({ onClick }: { onClick: () => void }) {
   return (
-    <button className="social-button feedback-button" onClick={onClick} title="Send feedback" aria-label="Send feedback">
+    <button
+      className="social-button feedback-button"
+      onClick={onClick}
+      title="Send feedback (⌘⇧F on macOS, Ctrl+Shift+F on Windows/Linux)"
+      aria-label="Send feedback. Shortcut: Command or Control, Shift, F"
+    >
       <Icon name="bubble.left.and.bubble.right.fill" size={17} />
       <span>Feedback</span>
     </button>
@@ -806,6 +811,17 @@ export function App() {
       trackEvent("feedback_prompt_shown", { trigger: "fifth_open" });
     }
   }, [checking, showOnboarding, workspaceSetupRequired]);
+
+  useEffect(() => {
+    const openFeedbackWithShortcut = (event: KeyboardEvent) => {
+      if ((!event.metaKey && !event.ctrlKey) || !event.shiftKey || event.altKey || event.key.toLowerCase() !== "f") return;
+      event.preventDefault();
+      setFeedbackOpen(true);
+      trackEvent("feedback_prompt_shown", { trigger: "keyboard_shortcut" });
+    };
+    window.addEventListener("keydown", openFeedbackWithShortcut);
+    return () => window.removeEventListener("keydown", openFeedbackWithShortcut);
+  }, []);
 
   const checkAppUpdate = () => {
     void invoke<AppUpdateStatus>("app_check_for_update").then(setAppUpdate).catch(() => {
