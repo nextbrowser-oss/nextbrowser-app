@@ -33,7 +33,7 @@ export function FeedbackModal({ onClose, onSubmitted }: { onClose: () => void; o
           <Icon name="bubble.left.and.bubble.right.fill" size={18} />
           <div>
             <strong id="feedback-title">How is NextBrowser?</strong>
-            <div className="muted small">Your rating and note go directly to the product team.</div>
+            <div className="muted small">Your signed-in email, rating, and note go directly to the product team.</div>
           </div>
           <span className="spacer" />
           {status !== "sending" && <button className="plain-icon-btn" onClick={onClose} aria-label="Close feedback"><Icon name="xmark" size={16} /></button>}
