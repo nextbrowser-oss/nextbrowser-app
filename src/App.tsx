@@ -1229,7 +1229,12 @@ export function App() {
     };
   }, [checking, sidebarCollapsed, setSidebarWidth]);
 
-    if (checking && preview !== "login" && preview !== "main" && preview !== "onboarding") {
+  const feedbackModal = feedbackOpen ? <FeedbackModal onClose={() => setFeedbackOpen(false)} onSubmitted={(rating) => {
+    markFeedbackSubmitted(localStorage);
+    trackEvent("feedback_submitted", { rating });
+  }} /> : null;
+
+  if (checking && preview !== "login" && preview !== "main" && preview !== "onboarding") {
     return (
       <>
         <div className="floating-controls">
@@ -1270,6 +1275,7 @@ export function App() {
           <BrowserRuntimeUpdateProgress status={runtimeUpdateInstall} onClose={() => setRuntimeUpdateProgressHidden(true)} onRetry={installBrowserRuntimeUpdates} onOpenManualGuide={openBrowserRuntimeManualGuide} />
         )}
         {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
+        {feedbackModal}
       </>
     );
   }
@@ -1386,10 +1392,7 @@ export function App() {
         <BrowserRuntimeUpdateProgress status={runtimeUpdateInstall} onClose={() => setRuntimeUpdateProgressHidden(true)} onRetry={installBrowserRuntimeUpdates} onOpenManualGuide={openBrowserRuntimeManualGuide} />
       )}
       {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
-      {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} onSubmitted={(rating) => {
-        markFeedbackSubmitted(localStorage);
-        trackEvent("feedback_submitted", { rating });
-      }} />}
+      {feedbackModal}
     </div>
   );
 }
