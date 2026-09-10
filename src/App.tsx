@@ -64,7 +64,7 @@ interface BrowserRuntimeInstallStatus {
 interface BrowserRuntimeUpdateEntry {
   runtime: "clawbrowser" | "dasbrowser" | "camoufox";
   name: string;
-  status: "available" | "up-to-date" | "not-installed" | "unknown" | "error";
+  status: "available" | "up-to-date" | "not-installed" | "unavailable" | "unknown" | "error";
   currentVersion?: string;
   latestVersion?: string;
   releasePage: string;
@@ -234,6 +234,7 @@ function browserRuntimeUpdateLabel(runtime: BrowserRuntimeUpdateEntry): string {
   if (runtime.status === "available") return `${runtime.currentVersion ?? "Installed"} → ${runtime.latestVersion ?? "new version"}`;
   if (runtime.status === "up-to-date") return `${runtime.currentVersion ?? runtime.latestVersion ?? "Installed"} · Up to date`;
   if (runtime.status === "not-installed") return runtime.latestVersion ? `Not installed · Latest ${runtime.latestVersion}` : "Not installed";
+  if (runtime.status === "unavailable") return runtime.latestVersion ? `Latest ${runtime.latestVersion} · Not available for this system yet` : "Not available for this system yet";
   if (runtime.status === "error") return "Couldn't check";
   return runtime.currentVersion
     ? `${runtime.currentVersion} · Latest unknown`

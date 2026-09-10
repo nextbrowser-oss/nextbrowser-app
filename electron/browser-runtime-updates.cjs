@@ -306,6 +306,64 @@ async function latestClawbrowserVersion(fetchImpl) {
   return version;
 }
 
+function clawbrowserPlatformAsset(platform, arch, version) {
+  try {
+    return clawbrowserReleaseAsset(platform, arch, version).assetName;
+  } catch {
+    return "";
+  }
+}
+
+function missingClawbrowserAssetMessage(version, platform, arch) {
+  return `ClawBrowser ${version} does not include a download for ${platform}/${arch} yet.`;
+}
+
+async function latestClawbrowserRelease(fetchImpl, platform, arch) {
+  let release;
+  let version = "";
+  try {
+    release = await fetchJSON(fetchImpl, "https://api.github.com/repos/clawbrowser/clawbrowser/releases/latest");
+    version = normalizeVersion(release?.tag_name);
+    if (!version) throw new Error("Latest ClawBrowser release did not include a version");
+  } catch {
+    const response = await fetchImpl("https://github.com/clawbrowser/clawbrowser/releases/latest", {
+      headers: { Accept: "text/html", "User-Agent": "NextBrowser-runtime-update-checker" },
+      redirect: "follow",
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!response.ok) throw new Error(`Update source returned ${response.status}`);
+    const finalTag = String(response.url || "").match(/\/releases\/tag\/([^/?#]+)/i)?.[1];
+    const html = finalTag ? "" : await response.text();
+    const htmlTag = html.match(/\/clawbrowser\/clawbrowser\/releases\/tag\/([^"'/?#]+)/i)?.[1];
+    version = normalizeVersion(decodeURIComponent(finalTag || htmlTag || ""));
+    if (!version) throw new Error("Latest ClawBrowser release did not include a version");
+  }
+
+  const assetName = clawbrowserPlatformAsset(platform, arch, version);
+  if (!assetName) {
+    return { version, availability: "unavailable", message: `Automatic ClawBrowser updates are not available for ${platform}/${arch}.` };
+  }
+  if (Array.isArray(release?.assets)) {
+    return release.assets.some((asset) => asset?.name === assetName)
+      ? { version, availability: "available" }
+      : { version, availability: "unavailable", message: missingClawbrowserAssetMessage(version, platform, arch) };
+  }
+
+  // GitHub's release redirect does not expose assets. Confirm the exact archive
+  // before offering an update so a rate-limited API cannot create a false Update
+  // button for a platform omitted from this release.
+  const archiveRelease = clawbrowserReleaseAsset(platform, arch, version);
+  const response = await fetchImpl(archiveRelease.url, {
+    method: "HEAD",
+    headers: { Accept: "application/octet-stream", "User-Agent": "NextBrowser-runtime-update-checker" },
+    redirect: "follow",
+    signal: AbortSignal.timeout(8_000),
+  });
+  if (response.ok) return { version, availability: "available" };
+  if (response.status === 404) return { version, availability: "unavailable", message: missingClawbrowserAssetMessage(version, platform, arch) };
+  throw new Error(`Update source could not verify the ${assetName} download (${response.status}).`);
+}
+
 async function latestCamoufoxVersion(fetchImpl) {
   const release = await fetchJSON(fetchImpl, "https://pypi.org/pypi/camoufox/json");
   const version = normalizeVersion(release?.info?.version);
@@ -336,21 +394,28 @@ function runtimeResult(source, currentVersion, latestVersion, error = "", instal
   };
 }
 
-async function checkBrowserRuntimeUpdates({ fetchImpl = fetch, runtimeRoot, readDasbrowserVersion = async () => "", isRuntimeInstalled = {} }) {
+async function checkBrowserRuntimeUpdates({ fetchImpl = fetch, runtimeRoot, readDasbrowserVersion = async () => "", isRuntimeInstalled = {}, platform = process.platform, arch = process.arch }) {
   const installed = {
     clawbrowser: await installedClawbrowserVersion(runtimeRoot),
     camoufox: await installedCamoufoxVersion(runtimeRoot),
     dasbrowser: normalizeVersion(await readDasbrowserVersion()),
   };
   const latestReaders = {
-    clawbrowser: latestClawbrowserVersion,
-    camoufox: latestCamoufoxVersion,
-    dasbrowser: latestDasbrowserVersion,
+    clawbrowser: () => latestClawbrowserRelease(fetchImpl, platform, arch),
+    camoufox: () => latestCamoufoxVersion(fetchImpl),
+    dasbrowser: () => latestDasbrowserVersion(fetchImpl),
   };
   const runtimes = await Promise.all(RUNTIME_UPDATE_SOURCES.map(async (source) => {
     try {
-      const latest = await latestReaders[source.runtime](fetchImpl);
-      return runtimeResult(source, installed[source.runtime], latest, "", isRuntimeInstalled[source.runtime] ?? !!installed[source.runtime]);
+      const latest = await latestReaders[source.runtime]();
+      if (source.runtime === "clawbrowser" && latest.availability === "unavailable") {
+        return {
+          ...runtimeResult(source, installed[source.runtime], latest.version, "", isRuntimeInstalled[source.runtime] ?? !!installed[source.runtime]),
+          status: "unavailable",
+          error: latest.message,
+        };
+      }
+      return runtimeResult(source, installed[source.runtime], source.runtime === "clawbrowser" ? latest.version : latest, "", isRuntimeInstalled[source.runtime] ?? !!installed[source.runtime]);
     } catch (error) {
       return runtimeResult(source, installed[source.runtime], "", error?.message || String(error), isRuntimeInstalled[source.runtime] ?? !!installed[source.runtime]);
     }

@@ -150,17 +150,38 @@ test("checks every runtime independently and preserves partial results", async (
   fs.mkdirSync(path.join(root, "data"), { recursive: true });
   fs.writeFileSync(path.join(root, "data", ".clawbrowser-browser-release.json"), JSON.stringify({ version: "1.0.3" }));
   const fetchImpl = async (url) => {
-    if (url.includes("api.github.com")) return { ok: true, json: async () => ({ tag_name: "1.0.4" }) };
+    if (url.includes("api.github.com")) return { ok: true, json: async () => ({ tag_name: "1.0.4", assets: [{ name: "clawbrowser-linux-x64.tar.gz" }] }) };
     if (url.includes("pypi.org")) return { ok: false, status: 503 };
     return { ok: true, text: async () => '<a href="https://cdn.dasbrowser.com/144.32/DasbrowserSetup.exe">Download</a>' };
   };
-  const result = await checkBrowserRuntimeUpdates({ fetchImpl, runtimeRoot: root, readDasbrowserVersion: async () => "144.31" });
+  const result = await checkBrowserRuntimeUpdates({ fetchImpl, runtimeRoot: root, platform: "linux", arch: "x64", readDasbrowserVersion: async () => "144.31" });
   assert.equal(result.status, "partial");
   assert.deepEqual(result.runtimes.map(({ runtime, status }) => [runtime, status]), [
     ["clawbrowser", "available"],
     ["camoufox", "error"],
     ["dasbrowser", "available"],
   ]);
+});
+
+test("does not offer a Linux update when the latest ClawBrowser release has only macOS and Windows assets", async (t) => {
+  const root = fixture(t);
+  fs.mkdirSync(path.join(root, "data"), { recursive: true });
+  fs.writeFileSync(path.join(root, "data", ".clawbrowser-browser-release.json"), JSON.stringify({ version: "1.0.3" }));
+  const fetchImpl = async (url) => {
+    if (url.includes("api.github.com")) return { ok: true, json: async () => ({ tag_name: "1.0.4", assets: [{ name: "clawbrowser-macos-arm64.tar.gz" }, { name: "clawbrowser-win-amd64.zip" }] }) };
+    if (url.includes("pypi.org")) return { ok: true, json: async () => ({ info: { version: "0.5.5" } }) };
+    return { ok: true, text: async () => '<a href="https://cdn.dasbrowser.com/144.32/DasbrowserSetup.exe">Download</a>' };
+  };
+  const result = await checkBrowserRuntimeUpdates({ fetchImpl, runtimeRoot: root, platform: "linux", arch: "x64", readDasbrowserVersion: async () => "144.32" });
+  assert.deepEqual(result.runtimes[0], {
+    runtime: "clawbrowser",
+    name: "ClawBrowser",
+    releasePage: "https://github.com/clawbrowser/clawbrowser/releases/latest",
+    status: "unavailable",
+    currentVersion: "1.0.3",
+    latestVersion: "1.0.4",
+    error: "ClawBrowser 1.0.4 does not include a download for linux/x64 yet.",
+  });
 });
 
 test("falls back to the official latest-release redirect when GitHub API is rate limited", async (t) => {

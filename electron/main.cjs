@@ -1111,6 +1111,8 @@ async function checkForBrowserRuntimeUpdates() {
   browserRuntimeUpdateCheckPromise = checkBrowserRuntimeUpdates({
     fetchImpl: fetch,
     runtimeRoot: nextbrowserRuntimeRoot(),
+    platform: process.platform,
+    arch: process.arch,
     readDasbrowserVersion: installedDasbrowserVersion,
     isRuntimeInstalled: {
       clawbrowser: !!resolveBrowserRuntime({ platform: process.platform, homeDir: home(), env: process.env, runtimeRoot: nextbrowserRuntimeRoot() }),
