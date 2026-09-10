@@ -70,6 +70,7 @@ const { cancelAllAutomationElementPicks, cancelAutomationElementPick, pickAutoma
 const { activeAutomationRecordingHasDataAction, activeAutomationTraceFile, attachAutomationPageRecording, cancelAllAutomationPageRecordings, recordAutomationToolAction, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
 const {
+  assertClawbrowserSessionsStopped,
   assertRuntimeReleaseVersion,
   checkBrowserRuntimeUpdates,
   clawbrowserReleaseAsset,
@@ -128,6 +129,7 @@ let browserRuntimeUpdateCheckPromise = null;
 let browserRuntimeUpdateTimer = null;
 let browserRuntimeUpdateInstallStatus = { status: "idle", runtimes: [] };
 let browserRuntimeUpdateInstallPromise = null;
+let clawbrowserRuntimeUpdateActive = false;
 let nextctlInstallPromise = null;
 let browserInstallPromise = null;
 let camoufoxInstallPromise = null;
@@ -514,6 +516,9 @@ async function executeNextctl(commandArgs, options = {}) {
   if (!bin) throw new Error("nextctl not found. Install Clawbrowser CLI or set NEXTCTL_BIN.");
   let adaptedArgs = commandArgs;
   const browserRuntime = requestedBrowserRuntime(adaptedArgs);
+  if (browserRuntime === "clawbrowser" && requiresBrowserRuntime(adaptedArgs) && clawbrowserRuntimeUpdateActive) {
+    throw new Error("ClawBrowser cannot start while its runtime update is being installed. Retry after the update finishes.");
+  }
   if (browserRuntime === "multilogin") await initializeMultiloginCredential();
   if (browserRuntime === "dasbrowser") {
     const executable = await ensureDasbrowserRuntime({ requestId: options.requestId });
@@ -1163,7 +1168,7 @@ async function findClawbrowserReleaseAsset(root) {
   }
   return "";
 }
-async function replaceClawbrowserRelease(source, release) {
+async function replaceClawbrowserRelease(source, release, options = {}) {
   const dataDir = path.join(nextbrowserRuntimeRoot(), "data");
   await fs.mkdir(dataDir, { recursive: true });
   const isBundle = process.platform === "darwin";
@@ -1188,6 +1193,9 @@ async function replaceClawbrowserRelease(source, release) {
     } catch (error) {
       if (error?.code !== "ENOENT") throw error;
     }
+    // The old managed path is unavailable at this point, so an app-owned
+    // launch cannot attach to it between the final idle check and activation.
+    await options.beforeActivate?.();
     await fs.rename(staged, target);
     await fs.writeFile(
       path.join(dataDir, ".clawbrowser-browser-release.json"),
@@ -1212,28 +1220,68 @@ async function replaceClawbrowserRelease(source, release) {
     throw error;
   }
 }
+async function clawbrowserRuntimeSessionNames() {
+  const names = new Set();
+  try {
+    // Every launched managed runtime writes a state directory before it can be
+    // controlled. Persistent browser-data directories are intentionally not
+    // scanned: they also contain stopped profiles and toolset environments.
+    const entries = await fs.readdir(path.join(nextbrowserRuntimeRoot(), "state"), { withFileTypes: true });
+    for (const entry of entries) if (entry.isDirectory()) names.add(entry.name);
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw new Error("ClawBrowser session status is unavailable.");
+  }
+  return [...names];
+}
+async function assertClawbrowserRuntimeIdle(nextctlBin) {
+  await assertClawbrowserSessionsStopped({
+    sessionNames: await clawbrowserRuntimeSessionNames(),
+    statusSession: (profile) => run(nextctlBin, [
+      "status", "--profile", profile, "--runtime", "clawbrowser", "--format", "json",
+    ], {}, { timeoutMs: 10_000 }),
+    processIsAlive: async (pid) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  });
+}
 async function updateClawbrowserRuntime(latestVersion) {
   const runtimeRoot = nextbrowserRuntimeRoot();
   const release = clawbrowserReleaseAsset(process.platform, process.arch, latestVersion);
-  return installRuntimeUpdateWithVerification({
-    label: "ClawBrowser",
-    expectedVersion: latestVersion,
-    install: async () => {
-      const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-clawbrowser-update-"));
-      try {
-        const archive = path.join(tempDir, release.assetName);
-        const extracted = path.join(tempDir, "extract");
-        await downloadFileStreaming(release.url, archive);
-        await extractArchive(archive, release.kind, extracted);
-        const source = await findClawbrowserReleaseAsset(extracted);
-        if (!source) throw new Error("The ClawBrowser release did not contain a browser executable.");
-        await replaceClawbrowserRelease(source, release);
-      } finally {
-        await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
-      }
-    },
-    readInstalledVersion: () => installedClawbrowserVersion(runtimeRoot),
-  });
+  const nextctlBin = await resolveOrInstallNextctl();
+  clawbrowserRuntimeUpdateActive = true;
+  try {
+    // Refuse before downloading, then check again after staging because a
+    // profile may have been started while the archive was in flight.
+    await assertClawbrowserRuntimeIdle(nextctlBin);
+    return await installRuntimeUpdateWithVerification({
+      label: "ClawBrowser",
+      expectedVersion: latestVersion,
+      install: async () => {
+        const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-clawbrowser-update-"));
+        try {
+          const archive = path.join(tempDir, release.assetName);
+          const extracted = path.join(tempDir, "extract");
+          await downloadFileStreaming(release.url, archive);
+          await extractArchive(archive, release.kind, extracted);
+          const source = await findClawbrowserReleaseAsset(extracted);
+          if (!source) throw new Error("The ClawBrowser release did not contain a browser executable.");
+          await replaceClawbrowserRelease(source, release, {
+            beforeActivate: () => assertClawbrowserRuntimeIdle(nextctlBin),
+          });
+        } finally {
+          await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+        }
+      },
+      readInstalledVersion: () => installedClawbrowserVersion(runtimeRoot),
+    });
+  } finally {
+    clawbrowserRuntimeUpdateActive = false;
+  }
 }
 async function updateCamoufoxRuntime(latestVersion) {
   const python = camoufoxVenvPython();

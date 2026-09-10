@@ -149,7 +149,7 @@ function BrowserRuntimeUpdatePrompt({ runtimes, onLater, onConfirm }: {
             </div>
           ))}
         </div>
-        <p className="muted small">Installation starts only after you confirm and continues in the background. Keep NextBrowser open until it finishes.</p>
+        <p className="muted small">Installation starts only after you confirm and continues in the background. Stop running profiles first; NextBrowser won’t close them automatically.</p>
         <div className="row settings-actions">
           <button className="secondary" onClick={onLater}>Later</button>
           <span className="spacer" />
