@@ -7,7 +7,7 @@ import { BrandHeader, BrandLogo } from "./BrandLogo";
 import { Icon, Spinner } from "./Icon";
 import { withLocalScripts } from "../skillsCatalog";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
-import { guideProfileTarget } from "../lib/guideQuickStart";
+import { guideProfileTarget, guideWorkspaceProfileNames } from "../lib/guideQuickStart";
 import { manualProxyDefaultName, manualProxyLimits, parseManualProxyBatch, parseManualProxyClipboard, validateManualProxyFields, type ManualProxyScheme } from "../lib/manualProxy";
 import { internalError, needsSupportLink } from "../lib/userFacingError";
 import { userFacingMultiloginError } from "../lib/userFacingMultiloginError";
@@ -159,6 +159,10 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const projectListRef = useRef<HTMLDivElement | null>(null);
   const profileListRef = useRef<HTMLDivElement | null>(null);
+  const profilesCardRef = useRef<HTMLDivElement | null>(null);
+  const profilesSectionRef = useRef<HTMLElement | null>(null);
+  const guideFocusFrameRef = useRef(0);
+  const guideFocusTimerRef = useRef(0);
   const workspacePickerRef = useRef<HTMLDivElement | null>(null);
 
   const runProfileAction = (label: string, code: string, action: () => Promise<void>) => {
@@ -248,6 +252,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const visibleWorkspaceProfiles = normalizedSearch
     ? profileWorkspaceEntries.filter(({ profile }) => profile.name.toLowerCase().includes(normalizedSearch))
     : profileWorkspaceEntries;
+  // The Guide picks its target from the same list, so a workspace entry whose
+  // profile was deleted can never become the profile a Guide step starts.
+  const guideProfileNames = guideWorkspaceProfileNames(s.activeWorkspaceId, s.workspaces, profiles);
   useEffect(() => {
     const handleProjectShortcut = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
@@ -639,17 +646,32 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     return () => window.cancelAnimationFrame(frame);
   }, [profilesOpen, s.selectedProfile, visibleWorkspaceProfiles.length]);
 
+  // The highlight outlives this effect on purpose. Its dependency list contains
+  // polled state, so keeping the timer inside meant a status refresh could clear
+  // it mid-flight and leave the panel lit up for good.
+  useEffect(() => () => {
+    window.cancelAnimationFrame(guideFocusFrameRef.current);
+    window.clearTimeout(guideFocusTimerRef.current);
+  }, []);
+
   useEffect(() => {
-    let focusTimer = 0;
     const focusProfiles = () => {
       setProfilesOpen(true);
       s.setProfileSearch("");
-      setProfileGuideFocus(true);
-      window.clearTimeout(focusTimer);
-      window.requestAnimationFrame(() => {
-        profileListRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      setProfileGuideFocus(false);
+      window.cancelAnimationFrame(guideFocusFrameRef.current);
+      window.clearTimeout(guideFocusTimerRef.current);
+      // Restart the highlight on the next frame so a repeat click still
+      // flashes: re-adding a class that is already there animates nothing.
+      guideFocusFrameRef.current = window.requestAnimationFrame(() => {
+        setProfileGuideFocus(true);
+        // The profile list is still collapsed to zero height in this frame, so
+        // scrolling it would move nothing. Aim at the panel the user was told
+        // to look at instead.
+        (profilesSectionRef.current ?? profilesCardRef.current ?? profileListRef.current)
+          ?.scrollIntoView({ block: "center", behavior: "smooth" });
+        guideFocusTimerRef.current = window.setTimeout(() => setProfileGuideFocus(false), 2_400);
       });
-      focusTimer = window.setTimeout(() => setProfileGuideFocus(false), 1_800);
     };
     const openCreator = () => {
       focusProfiles();
@@ -661,21 +683,13 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     };
     const openActions = () => {
       focusProfiles();
-      const profile = guideProfileTarget(
-        s.selectedProfile,
-        activeWorkspace?.profileNames ?? [],
-        !activeWorkspace && showDefaultProfile,
-      );
-      if (profile) setMenuProfile(profile);
+      const profile = guideProfileTarget(s.selectedProfile, guideProfileNames, showDefaultProfile);
+      if (profile && profile !== "__default") setMenuProfile(profile);
     };
     const startSelectedProfile = () => {
       focusProfiles();
       s.setProfileSearch("");
-      const profile = guideProfileTarget(
-        s.selectedProfile,
-        activeWorkspace?.profileNames ?? [],
-        !activeWorkspace && showDefaultProfile,
-      );
+      const profile = guideProfileTarget(s.selectedProfile, guideProfileNames, showDefaultProfile);
       if (!profile) return;
       if (profile === "__default") {
         s.selectProfile(undefined);
@@ -696,7 +710,6 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     window.addEventListener("nextbrowser:open-profile-actions", openActions);
     window.addEventListener("nextbrowser:start-selected-profile", startSelectedProfile);
     return () => {
-      window.clearTimeout(focusTimer);
       window.removeEventListener("nextbrowser:focus-profiles", focusProfiles);
       window.removeEventListener("nextbrowser:open-profile-creator", openCreator);
       window.removeEventListener("nextbrowser:open-profile-actions", openActions);
@@ -706,6 +719,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     activeWorkspace,
     defaultBusy,
     defaultRunning,
+    guideProfileNames.join("\u0000"),
     s.authed,
     s.profileSessions,
     s.profiles,
@@ -1156,7 +1170,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           );
         })}
 
-        <div className={"claw-card control-card profiles-card" + (profileGuideFocus ? " guide-focus" : "")}>
+        <div ref={profilesCardRef} className={"claw-card control-card profiles-card" + (profileGuideFocus ? " guide-focus" : "")}>
           <div className="row profiles-panel-head">
             <div className="workspace-picker-wrap" ref={workspacePickerRef}>
               <button
@@ -1300,7 +1314,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               </div>
             </section>
 
-            <section className={"workspace-section workspace-profiles" + (profilesOpen ? " is-open" : "")}>
+            <section ref={profilesSectionRef} className={"workspace-section workspace-profiles" + (profilesOpen ? " is-open" : "") + (profileGuideFocus ? " guide-focus" : "")}>
               <div className="workspace-section-head">
                 <button className="workspace-section-toggle" onClick={() => setProfilesOpen((open) => !open)} aria-expanded={profilesOpen} aria-label={profilesOpen ? "Collapse profiles" : "Expand profiles"}>
                   <Icon name="chevron.right" size={10} className={profilesOpen ? "section-chevron open" : "section-chevron"} />

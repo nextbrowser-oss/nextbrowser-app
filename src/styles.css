@@ -2177,6 +2177,25 @@ body.is-resizing-sidebar {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
   transition: border-color 180ms ease, box-shadow 180ms ease;
 }
+/* "Show profiles" often lands on a panel that is already open, so the pulse is
+   the only feedback the click produced anything. */
+.workspace-section.workspace-profiles.guide-focus > .workspace-section-head {
+  border-radius: 8px;
+  animation: guide-profiles-pulse 800ms ease-out 2;
+}
+.workspace-section.workspace-profiles.guide-focus > .workspace-section-head .workspace-section-toggle span {
+  color: var(--accent-text);
+}
+@keyframes guide-profiles-pulse {
+  0% { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+  100% { background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace-section.workspace-profiles.guide-focus > .workspace-section-head {
+    animation: none;
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+}
 .nextctl-refresh { min-width: 24px !important; min-height: 24px !important; padding: 2px !important; }
 
 /* Tab bar — MainView.swift TabBar */

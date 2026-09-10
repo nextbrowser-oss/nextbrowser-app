@@ -7,8 +7,11 @@ export function sequentialProgress(ready: readonly boolean[]): {
   const currentIndex = ready.findIndex((value) => !value);
   return {
     currentIndex,
-    states: ready.map((_, index) => {
-      if (currentIndex === -1 || index < currentIndex) return "complete";
+    // A step the user has already satisfied stays "complete" even when an
+    // earlier one is still open — telling someone with a dozen chats to
+    // "complete step 3 first" is simply wrong.
+    states: ready.map((value, index) => {
+      if (value) return "complete";
       if (index === currentIndex) return "current";
       return "locked";
     }),
