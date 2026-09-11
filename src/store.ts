@@ -40,7 +40,7 @@ import { shouldApplyRemoteConversation } from "./lib/conversationSync";
 import { hasVPSPromptMarker, vpsConnectionInstructions } from "./lib/vpsPrompt";
 import { promptWithAttachments } from "./lib/chatAttachments";
 import { normalizeNextctlVersion } from "./lib/version";
-import { proxyTrafficWarning } from "./lib/proxyTraffic";
+import { isProxyTrafficExhaustedError, proxyTrafficWarning } from "./lib/proxyTraffic";
 import { activeAutomationRecording } from "./lib/automationRecording";
 import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
 import { internalError } from "./lib/userFacingError";
@@ -2773,6 +2773,9 @@ export const useStore = create<State>((set, get) => {
       });
       if (/command cancelled/i.test(error instanceof Error ? error.message : String(error))) return;
       requestAccountSignIn(set, error);
+      // A launch refused for exhausted traffic means the gate just closed:
+      // refresh the allocation so Proxy usage shows it as paused right away.
+      if (isProxyTrafficExhaustedError(error)) void get().refreshProxyData().catch(() => undefined);
       throw error;
     }
   },

@@ -5,14 +5,18 @@ import { needsSupportLink } from "../lib/userFacingError";
 export function UserFacingError({
   message,
   surface,
+  discordLabel,
 }: {
   message: string;
   surface: string;
+  /** Always link to Discord with this label, e.g. when the fix lives there. */
+  discordLabel?: string;
 }) {
+  const label = discordLabel ?? (needsSupportLink(message) ? "Get help in Discord." : undefined);
   return (
     <span className="user-facing-error">
       <span>{message}</span>
-      {needsSupportLink(message) && (
+      {label && (
         <>
           {" "}
           <a
@@ -21,7 +25,7 @@ export function UserFacingError({
             rel="noreferrer"
             onClick={() => trackEvent("internal_error_support_opened", { surface })}
           >
-            Get help in Discord.
+            {label}
           </a>
         </>
       )}

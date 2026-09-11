@@ -14,6 +14,20 @@ describe("UserFacingError", () => {
     expect(html).toContain("Get help in Discord.");
   });
 
+  it("links to Discord under a custom label when the fix lives there", () => {
+    const html = renderToStaticMarkup(
+      <UserFacingError
+        message="Free traffic is paused. Ask in Discord to unlock the rest."
+        surface="test"
+        discordLabel="Ask in Discord."
+      />,
+    );
+
+    expect(html).toContain(`href="${discordUrl}"`);
+    expect(html).toContain("Ask in Discord.");
+    expect(html).not.toContain("Get help in Discord.");
+  });
+
   it("keeps user input errors focused on the correction", () => {
     const html = renderToStaticMarkup(
       <UserFacingError message="Enter a valid proxy URL." surface="test" />,

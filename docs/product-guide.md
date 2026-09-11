@@ -38,7 +38,7 @@ A session is the running browser context for a profile. The session must be runn
 ### Free traffic allowance
 
 New accounts are shown a 1 GiB free proxy allowance, but they are provisioned with a
-smaller starting limit — somewhere between 10 MiB and 70 MiB. When that starting limit
+smaller starting limit — somewhere between 70 MiB and 170 MiB. When that starting limit
 is reached, proxy traffic pauses and **Proxy usage** explains how to unlock the rest:
 ask in the NextBrowser Discord. The remaining allowance is then released by hand, one
 1 GiB grant at a time, up to a 3 GiB ceiling. Feedback, repository stars, and pull

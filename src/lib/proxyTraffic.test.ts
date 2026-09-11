@@ -4,6 +4,8 @@ import {
   domainPaginationItems,
   domainsPageByTraffic,
   isProxyTrafficExhausted,
+  isProxyTrafficExhaustedError,
+  isProxyTrafficGateMessage,
   isProxyTrafficHistoryRangeValid,
   isTrustedNodeMavenURL,
   mergeProxyTrafficHistories,
@@ -12,6 +14,8 @@ import {
   proxyTrafficHistoryPresetDays,
   proxyTrafficHistoryRequestDays,
   proxyTrafficHistoryWindows,
+  proxyTrafficGateMessage,
+  proxyTrafficLaunchRefusedMessage,
   proxyTrafficWarning,
   sortDomainsByTraffic,
 } from "./proxyTraffic";
@@ -204,6 +208,43 @@ describe("proxy traffic warning", () => {
       percent_used: 100,
       state: "exhausted",
     })).toBe("Proxy traffic limit reached.");
+  });
+});
+
+describe("launch refused by proxy traffic", () => {
+  it("recognises the nextctl exhausted-traffic error", () => {
+    expect(isProxyTrafficExhaustedError(new Error(
+      "Proxy traffic limit reached [PROXY_TRAFFIC_EXHAUSTED] — Ask the user to request more free traffic in the NextBrowser Discord, then retry.",
+    ))).toBe(true);
+    expect(isProxyTrafficExhaustedError(new Error("Launch failed [LAUNCH_FAILED]"))).toBe(false);
+    expect(isProxyTrafficExhaustedError(undefined)).toBe(false);
+  });
+
+  it("sends a gated account to Discord", () => {
+    const message = proxyTrafficLaunchRefusedMessage({
+      limited: true,
+      used_bytes: 100 * 1024 * 1024,
+      limit_bytes: 100 * 1024 * 1024,
+      remaining_bytes: 0,
+      percent_used: 100,
+      state: "exhausted",
+    });
+    expect(message).toBe(proxyTrafficGateMessage);
+    expect(isProxyTrafficGateMessage(message)).toBe(true);
+    expect(proxyTrafficLaunchRefusedMessage(undefined)).toBe(proxyTrafficGateMessage);
+  });
+
+  it("points an account that holds the full allowance at Proxy usage", () => {
+    const message = proxyTrafficLaunchRefusedMessage({
+      limited: true,
+      used_bytes: 3 * 1024 * 1024 * 1024,
+      limit_bytes: 3 * 1024 * 1024 * 1024,
+      remaining_bytes: 0,
+      percent_used: 100,
+      state: "exhausted",
+    });
+    expect(message).toBe("Proxy traffic limit reached. Open Proxy usage to add more traffic.");
+    expect(isProxyTrafficGateMessage(message)).toBe(false);
   });
 });
 

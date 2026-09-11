@@ -10,6 +10,7 @@ import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFla
 import { guideProfileTarget, guideWorkspaceProfileNames } from "../lib/guideQuickStart";
 import { manualProxyDefaultName, manualProxyLimits, parseManualProxyBatch, parseManualProxyClipboard, validateManualProxyFields, type ManualProxyScheme } from "../lib/manualProxy";
 import { internalError, needsSupportLink } from "../lib/userFacingError";
+import { isProxyTrafficExhaustedError, isProxyTrafficGateMessage, proxyTrafficLaunchRefusedMessage } from "../lib/proxyTraffic";
 import { userFacingMultiloginError } from "../lib/userFacingMultiloginError";
 import { entityNameLimits, validateEntityName } from "../lib/entityValidation";
 import { cancelNextctlRun } from "../nextctl";
@@ -168,6 +169,12 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const runProfileAction = (label: string, code: string, action: () => Promise<void>) => {
     setProfileActionError(null);
     void action().catch((error: unknown) => {
+      if (isProxyTrafficExhaustedError(error)) {
+        // nextctl refused the launch because the proxy traffic ran out. That
+        // is not an internal error: a gated account has to ask in Discord.
+        setProfileActionError(proxyTrafficLaunchRefusedMessage(useStore.getState().proxy));
+        return;
+      }
       const detail = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
       console.error(`[${code}] ${label}`, detail);
       setProfileActionError(internalError(label, code));
@@ -1418,7 +1425,14 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               <div className="muted small">No matches for "{s.profileSearch}".</div>
             )}
             {profileActionError && (
-              <div className="error small profile-action-error" role="alert"><span>{profileActionError}</span><button type="button" onClick={() => setProfileActionError(null)}>Dismiss</button></div>
+              <div className="error small profile-action-error" role="alert">
+                <UserFacingError
+                  message={profileActionError}
+                  surface="profile_action"
+                  discordLabel={isProxyTrafficGateMessage(profileActionError) ? "Ask in Discord." : undefined}
+                />
+                <button type="button" onClick={() => setProfileActionError(null)}>Dismiss</button>
+              </div>
             )}
           </div>
         </div>
