@@ -634,9 +634,13 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   useEffect(() => {
     const revealProject = () => {
       setProjectsOpen(true);
+      setProfilesOpen(false);
       window.requestAnimationFrame(() => projectListRef.current?.scrollTo({ top: 0, behavior: "smooth" }));
     };
-    const revealProfile = () => setProfilesOpen(true);
+    const revealProfile = () => {
+      setProjectsOpen(false);
+      setProfilesOpen(true);
+    };
     window.addEventListener("nextbrowser:project-created", revealProject);
     window.addEventListener("nextbrowser:profile-created", revealProfile);
     return () => {
@@ -663,6 +667,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
   useEffect(() => {
     const focusProfiles = () => {
+      setProjectsOpen(false);
       setProfilesOpen(true);
       s.setProfileSearch("");
       setProfileGuideFocus(false);
@@ -1272,7 +1277,14 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           <div className="profile-list workspace-content">
             <section className={"workspace-section workspace-chats" + (projectsOpen ? " is-open" : "")}>
               <div className="workspace-section-head">
-                <button className="workspace-section-toggle" onClick={() => setProjectsOpen((open) => !open)} aria-expanded={projectsOpen} aria-label={projectsOpen ? "Collapse projects" : "Expand projects"}>
+                <button className="workspace-section-toggle" onClick={() => {
+                  if (projectsOpen) {
+                    setProjectsOpen(false);
+                  } else {
+                    setProjectsOpen(true);
+                    setProfilesOpen(false);
+                  }
+                }} aria-expanded={projectsOpen} aria-label={projectsOpen ? "Collapse projects" : "Expand projects"}>
                   <Icon name="chevron.right" size={10} className={projectsOpen ? "section-chevron open" : "section-chevron"} />
                   <Icon name="folder" size={12} />
                   <span>Projects</span>
@@ -1323,7 +1335,14 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
             <section ref={profilesSectionRef} className={"workspace-section workspace-profiles" + (profilesOpen ? " is-open" : "") + (profileGuideFocus ? " guide-focus" : "")}>
               <div className="workspace-section-head">
-                <button className="workspace-section-toggle" onClick={() => setProfilesOpen((open) => !open)} aria-expanded={profilesOpen} aria-label={profilesOpen ? "Collapse profiles" : "Expand profiles"}>
+                <button className="workspace-section-toggle" onClick={() => {
+                  if (profilesOpen) {
+                    setProfilesOpen(false);
+                  } else {
+                    setProfilesOpen(true);
+                    setProjectsOpen(false);
+                  }
+                }} aria-expanded={profilesOpen} aria-label={profilesOpen ? "Collapse profiles" : "Expand profiles"}>
                   <Icon name="chevron.right" size={10} className={profilesOpen ? "section-chevron open" : "section-chevron"} />
                   <Icon name="person.2.fill" size={12} />
                   <span>Profiles</span>
