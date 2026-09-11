@@ -159,6 +159,22 @@ describe("prepareSession command reporting", () => {
     expect(nextctl.run).not.toHaveBeenCalled();
   });
 
+  it("retries one transient CDP disconnect before surfacing browser setup failure", async () => {
+    const onStep = vi.fn();
+    nextctl.json
+      .mockRejectedValueOnce(new Error("cdp Runtime.evaluate: read response: wsarecv: An established connection was aborted by the software in your host machine"))
+      .mockResolvedValueOnce(greenVerification)
+      .mockResolvedValueOnce({ tabs: [{ id: "page", url: "https://example.com" }] });
+
+    await expect(prepareSession({
+      statuses: {},
+      defaultSession: { status: "running" },
+      onStep,
+    })).resolves.toMatchObject({ steps: expect.arrayContaining(["Reconnecting to the browser", "Browser verified"]) });
+
+    expect(nextctl.json).toHaveBeenCalledTimes(3);
+  });
+
   it("retries verification when the user chooses retry", async () => {
     const onStep = vi.fn();
     const onVerificationFailure = vi.fn().mockResolvedValue("retry");
