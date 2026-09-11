@@ -80,6 +80,21 @@ test("every officially free-capable agent shown in the catalog can start in Term
   assert.match(main, /amazonq: \{ binary: "q", envVar: "Q_BIN" \}/);
 });
 
+test("Terminal accepts legacy Antigravity ids and reports an actionable version mismatch", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  assert.match(main, /"antigravity-cli": "antigravity"/);
+  assert.match(main, /const resolvedAgentId = terminalAgentId\(requestedAgentId\)/);
+  assert.match(main, /Restart NextBrowser to complete its update/);
+});
+
+test("Windows hides the Electron menu bar and local proxies fail clearly before ClawBrowser launch", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  const proxyRuntime = fs.readFileSync(path.join(__dirname, "manual-proxy-runtime.cjs"), "utf8");
+  assert.match(main, /autoHideMenuBar: true/);
+  assert.match(main, /assertManualProxyRuntimeSupport\(runtime, proxy\)/);
+  assert.match(proxyRuntime, /\[LOCAL_PROXY_UNSUPPORTED\]/);
+});
+
 test("Codex chat uses the managed Clawbrowser MCP configuration", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   assert.match(main, /case "agent_run":[\s\S]*args\.agentId === "codex"/);

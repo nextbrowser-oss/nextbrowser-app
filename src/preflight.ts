@@ -105,19 +105,36 @@ class BrowserVerificationError extends Error {
   }
 }
 
-async function requireGreenVerification(args: string[]): Promise<void> {
-  const data = await nextctlJson<VerificationResult>([
+async function requireGreenVerification(args: string[], onRetry?: () => void): Promise<void> {
+  const inspect = () => nextctlJson<VerificationResult>([
     ...args,
     "verify",
     "--timeout",
     "30s",
   ]);
+  let data: VerificationResult;
+  try {
+    data = await inspect();
+  } catch (error) {
+    // A browser can finish opening while its local CDP pipe is briefly being
+    // replaced. Retrying one read is safe and avoids surfacing a false setup
+    // failure after the page is already visible.
+    const message = error instanceof Error ? error.message : String(error);
+    if (!isTransientCdpDisconnect(message)) throw error;
+    onRetry?.();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    data = await inspect();
+  }
   const verification = data.verify;
   const failed = verification?.checks?.filter((check) => check.pass !== true) ?? [];
   if (verification?.finalized !== true || verification.status !== "pass" || failed.length > 0) {
     const surfaces = failed.flatMap((check) => check.surface ? [check.surface] : []);
     throw new BrowserVerificationError(surfaces);
   }
+}
+
+export function isTransientCdpDisconnect(message: string): boolean {
+  return /(?:\bcdp\b.*(?:read response|connection|aborted|closed|reset)|Runtime\.evaluate.*(?:read|connection|aborted|closed|reset)|wsarecv.*(?:aborted|reset)|read tcp.*(?:aborted|reset))/i.test(message);
 }
 
 async function openBlankActivePage(args: string[]): Promise<void> {
@@ -222,7 +239,7 @@ export async function prepareSession(opts: {
       break;
     }
     try {
-      await requireGreenVerification(args);
+      await requireGreenVerification(args, () => step("Reconnecting to the browser"));
       verifiedAt.set(verifyKey, Date.now());
       step("Browser verified");
       break;

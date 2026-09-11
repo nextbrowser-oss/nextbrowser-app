@@ -27,6 +27,17 @@ describe("userFacingBrowserError", () => {
       .toBe("The selected profile’s proxy could not connect. Check or change its proxy, then run the automation again.");
   });
 
+  it("explains that a local proxy needs a locally configured runtime", () => {
+    expect(userFacingBrowserError("[LOCAL_PROXY_UNSUPPORTED] This proxy runs on this computer."))
+      .toBe("This proxy runs on your computer. Use Camoufox or DasBrowser for a localhost proxy; ClawBrowser support for local proxy ports is coming soon.");
+  });
+
+  it("hides a transient CDP transport error behind a recovery action", () => {
+    const message = userFacingBrowserError("cdp Runtime.evaluate: read response: read tcp 127.0.0.1:1->127.0.0.1:2: wsarecv: An established connection was aborted by the software in your host machine");
+    expect(message).toContain("NextBrowser retried once");
+    expect(message).not.toMatch(/127\.0\.0\.1|wsarecv/i);
+  });
+
   it("preserves useful ordinary errors while removing local log paths", () => {
     expect(userFacingBrowserError("Could not open page; see log /Users/person/private/child.log"))
       .toBe("Could not open page");

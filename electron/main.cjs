@@ -84,6 +84,7 @@ const { parseMultiloginProfiles, parseMultiloginCreatedMobileProfile, parseMulti
 const { multiloginAccountFromTokens } = require("./multilogin-account.cjs");
 const { MULTILOGIN_DOWNLOAD_URL, resolveMultiloginApp } = require("./multilogin-app.cjs");
 const { runAgentProcess } = require("./agent-process.cjs");
+const { assertManualProxyRuntimeSupport } = require("./manual-proxy-runtime.cjs");
 const {
   DASBROWSER_DOWNLOADS,
   adaptDasbrowserArgs,
@@ -275,6 +276,20 @@ const TERMINAL_AGENTS = {
   continue: { binary: "cn", envVar: "CN_BIN" },
   droid: { binary: "droid", envVar: "DROID_BIN" },
 };
+
+// Some older renderer bundles persisted aliases rather than catalog ids. Keep
+// Terminal startup backwards compatible so a partial desktop update cannot
+// leave a visible agent impossible to open.
+const TERMINAL_AGENT_ALIASES = Object.freeze({
+  "antigravity-cli": "antigravity",
+  agy: "antigravity",
+  "github-copilot": "copilot",
+});
+
+function terminalAgentId(value) {
+  const requested = String(value || "").trim().toLowerCase();
+  return TERMINAL_AGENT_ALIASES[requested] || requested;
+}
 
 function home() { return os.homedir(); }
 function legacyAppRuntimeRoot() { return path.join(app.getPath("userData"), "runtime"); }
@@ -1516,6 +1531,7 @@ async function invokeCommand(command, args = {}, sender) {
         ? args.runtime
         : "clawbrowser";
       const proxy = await resolvePersonalProxy(args.proxyId, { env: childEnv() });
+      assertManualProxyRuntimeSupport(runtime, proxy);
       return await executeNextctl([
         "profiles", "create", profileName,
         "--manual-proxy",
@@ -1538,6 +1554,7 @@ async function invokeCommand(command, args = {}, sender) {
         ? args.runtime
         : "clawbrowser";
       const proxy = await resolvePersonalProxy(args.proxyId, { env: childEnv() });
+      assertManualProxyRuntimeSupport(runtime, proxy);
       return await executeNextctl([
         "profiles", "set-proxy", profileName,
         "--manual-proxy",
@@ -2115,8 +2132,10 @@ async function invokeCommand(command, args = {}, sender) {
       return null;
     }
     case "terminal_start": {
-      const agent = TERMINAL_AGENTS[String(args.agentId || "")];
-      if (!agent) throw new Error("This agent is not available in the experimental terminal.");
+      const requestedAgentId = String(args.agentId || "").trim();
+      const resolvedAgentId = terminalAgentId(requestedAgentId);
+      const agent = TERMINAL_AGENTS[resolvedAgentId];
+      if (!agent) throw new Error(`Terminal support for “${requestedAgentId || "this agent"}” is unavailable in the running NextBrowser ${app.getVersion()} build. Restart NextBrowser to complete its update, then try again. [TERMINAL_AGENT_UNAVAILABLE]`);
       const bin = resolveBinary(agent.binary, agent.envVar);
       if (!bin) throw new Error(`${agent.binary} CLI not found.`);
       const id = randomUUID();
@@ -2147,9 +2166,9 @@ async function invokeCommand(command, args = {}, sender) {
         [...profileScope.entries()].map(([name, access]) => [name, access.runtime]),
       )), "utf8");
       if (args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
-      const writableDirs = args.agentId === "codex" ? clawbrowserWritableDirs() : [];
+      const writableDirs = resolvedAgentId === "codex" ? clawbrowserWritableDirs() : [];
       let agentArgs = agent.args || [];
-      if (args.agentId === "codex") {
+      if (resolvedAgentId === "codex") {
         await ensureCodexTerminalProfile();
         const nextctlBin = await resolveOrInstallNextctl();
         if (!nextctlBin) throw new Error("nextctl is required for Clawbrowser MCP.");
@@ -2382,6 +2401,9 @@ function createWindow() {
   const window = new BrowserWindow({
     title: "NextBrowser", width: 1180, height: 760, minWidth: 960, minHeight: 640,
     backgroundColor: "#0e0e0e", show: false,
+    // The native menu looks like Electron chrome in the Windows product UI.
+    // Keep keyboard access through Alt without reserving visual space for it.
+    ...(process.platform === "win32" ? { autoHideMenuBar: true } : {}),
     ...(icon ? { icon } : {}),
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: true, backgroundThrottling: false },
   });
