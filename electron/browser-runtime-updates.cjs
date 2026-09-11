@@ -55,7 +55,10 @@ function classifyRuntimeUpdateFailure(error) {
   if (/eacces|eperm|permission denied|operation not permitted|administrator/.test(normalized)) {
     return { code: "UPDATE_PERMISSION", category: "Permission required", retryable: false, message, recovery: "Check that NextBrowser can write to its application data, then try again." };
   }
-  if (/ebusy|locked|in use|already running|running browser|process.*running/.test(normalized)) {
+  if (/could not verify .*session status|session status.*unavailable/.test(normalized)) {
+    return { code: "UPDATE_RUNTIME_STATE_UNKNOWN", category: "Browser status unavailable", retryable: true, message, recovery: "Close every running ClawBrowser profile, then try again." };
+  }
+  if (/ebusy|locked|in use|already running|still running|running browser|process.*running/.test(normalized)) {
     return { code: "UPDATE_RUNTIME_IN_USE", category: "Browser is still running", retryable: true, message, recovery: "Close this browser toolset completely, then retry." };
   }
   if (/timeout|timed out|fetch failed|network|econn|enotfound|eai_again|http\s*[45]\d\d|update source returned/.test(normalized)) {
@@ -65,6 +68,59 @@ function classifyRuntimeUpdateFailure(error) {
     return { code: "UPDATE_RELEASE_VALIDATION", category: "Release verification failed", retryable: false, message, recovery: "Use the official manual update page below, or try again after a newer release is published." };
   }
   return { code: "UPDATE_UNKNOWN", category: "Update could not finish", retryable: true, message, recovery: "Keep NextBrowser open, check disk space and your connection, then retry." };
+}
+
+function nextctlCommandData(result) {
+  if (!result || Number(result.code) !== 0) return null;
+  try {
+    const parsed = JSON.parse(String(result.stdout || ""));
+    return parsed?.data && typeof parsed.data === "object" ? parsed.data : parsed;
+  } catch {
+    return null;
+  }
+}
+
+// Runtime replacement must fail closed when a persisted session cannot be
+// classified. A missing runtime label is treated as ClawBrowser for active
+// legacy sessions; stopped sessions and explicitly different runtimes are safe.
+async function assertClawbrowserSessionsStopped({ sessionNames = [], statusSession, processIsAlive = async () => false }) {
+  const names = [...new Set(sessionNames.map((name) => String(name || "").trim()).filter(Boolean))].sort();
+  const active = [];
+  const unavailable = [];
+  await Promise.all(names.map(async (name) => {
+    let data;
+    try {
+      data = nextctlCommandData(await statusSession(name));
+    } catch {
+      data = null;
+    }
+    const status = String(data?.status || "").trim().toLowerCase();
+    if (!status || status === "unknown") {
+      unavailable.push(name);
+      return;
+    }
+    const runtime = String(data?.session?.runtime || "").trim().toLowerCase();
+    if (runtime && runtime !== "clawbrowser") return;
+    if (status !== "stopped") {
+      active.push(name);
+      return;
+    }
+    const pid = Number.parseInt(String(data?.pid || ""), 10);
+    if (Number.isInteger(pid) && pid > 1) {
+      try {
+        if (await processIsAlive(pid)) active.push(name);
+      } catch {
+        unavailable.push(name);
+      }
+    }
+  }));
+
+  if (unavailable.length) {
+    throw new Error(`NextBrowser could not verify ClawBrowser session status for: ${unavailable.sort().join(", ")}.`);
+  }
+  if (active.length) {
+    throw new Error(`ClawBrowser is still running in: ${active.sort().join(", ")}. Stop these profiles before installing the update; NextBrowser did not close them automatically.`);
+  }
 }
 
 function updateInstallMessage(completed, errors) {
@@ -430,6 +486,7 @@ async function checkBrowserRuntimeUpdates({ fetchImpl = fetch, runtimeRoot, read
 module.exports = {
   RUNTIME_UPDATE_SOURCES,
   assertRuntimeReleaseVersion,
+  assertClawbrowserSessionsStopped,
   checkBrowserRuntimeUpdates,
   clawbrowserReleaseAsset,
   classifyRuntimeUpdateFailure,

@@ -5,6 +5,7 @@ const path = require("node:path");
 const test = require("node:test");
 
 const {
+  assertClawbrowserSessionsStopped,
   assertRuntimeReleaseVersion,
   checkBrowserRuntimeUpdates,
   clawbrowserReleaseAsset,
@@ -104,8 +105,63 @@ test("classifies recovery guidance without exposing an opaque raw failure", () =
   assert.equal(classifyRuntimeUpdateFailure(new Error("ENOSPC: no space left on device")).code, "UPDATE_DISK_SPACE");
   assert.equal(classifyRuntimeUpdateFailure(new Error("EACCES permission denied")).code, "UPDATE_PERMISSION");
   assert.equal(classifyRuntimeUpdateFailure(new Error("runtime is locked by a running browser")).code, "UPDATE_RUNTIME_IN_USE");
+  assert.equal(classifyRuntimeUpdateFailure(new Error("ClawBrowser is still running in: worker")).code, "UPDATE_RUNTIME_IN_USE");
+  assert.equal(classifyRuntimeUpdateFailure(new Error("ClawBrowser session status is unavailable")).code, "UPDATE_RUNTIME_STATE_UNKNOWN");
   assert.equal(classifyRuntimeUpdateFailure(new Error("fetch failed: ETIMEDOUT")).code, "UPDATE_NETWORK");
   assert.equal(classifyRuntimeUpdateFailure(new Error("bad release payload")).code, "UPDATE_UNKNOWN");
+});
+
+function nextctlStatus(name, status, runtime = "clawbrowser", pid = "") {
+  return {
+    code: 0,
+    stdout: JSON.stringify({ ok: true, data: { status, session: { name, runtime }, ...(pid ? { pid } : {}) } }),
+  };
+}
+
+test("allows a ClawBrowser update only when every ClawBrowser session is stopped", async () => {
+  const statuses = {
+    default: nextctlStatus("default", "stopped", ""),
+    research: nextctlStatus("research", "stopped"),
+    firefox: nextctlStatus("firefox", "running", "camoufox"),
+  };
+  await assert.doesNotReject(assertClawbrowserSessionsStopped({
+    sessionNames: ["research", "default", "firefox", "research"],
+    statusSession: async (name) => statuses[name],
+  }));
+});
+
+test("does not require nextctl status when there are no persisted sessions", async () => {
+  await assert.doesNotReject(assertClawbrowserSessionsStopped({
+    sessionNames: [],
+    statusSession: async () => { throw new Error("should not run"); },
+  }));
+});
+
+test("refuses a ClawBrowser update without silently stopping active profiles", async () => {
+  const calls = [];
+  await assert.rejects(assertClawbrowserSessionsStopped({
+    sessionNames: ["worker", "default"],
+    statusSession: async (name) => {
+      calls.push(name);
+      return nextctlStatus(name, name === "worker" ? "running" : "stopped", name === "worker" ? "" : "clawbrowser");
+    },
+  }), /ClawBrowser is still running in: worker.*did not close them automatically/);
+  assert.deepEqual(calls.sort(), ["default", "worker"]);
+});
+
+test("refuses an update while a starting ClawBrowser process is alive but its endpoint is not ready", async () => {
+  await assert.rejects(assertClawbrowserSessionsStopped({
+    sessionNames: ["worker"],
+    statusSession: async () => nextctlStatus("worker", "stopped", "clawbrowser", "4242"),
+    processIsAlive: async (pid) => pid === 4242,
+  }), /ClawBrowser is still running in: worker/);
+});
+
+test("fails closed when a persisted session status cannot be verified", async () => {
+  await assert.rejects(assertClawbrowserSessionsStopped({
+    sessionNames: ["worker"],
+    statusSession: async () => ({ code: 1, stdout: "" }),
+  }), /could not verify ClawBrowser session status for: worker/);
 });
 
 test("retries once when a CLI self-update completes before the browser runtime changes", async () => {
