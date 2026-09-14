@@ -1105,6 +1105,53 @@ describe("local component and profile lifecycle", () => {
 
     expect(useStore.getState().statuses.work).toBe("stopped");
   });
+
+  it.each(["stopped", "unknown", "running"])("handles a %s poll while the launcher is still pending", async (status) => {
+    let finish!: (value: unknown) => void;
+    const pending = new Promise((resolve) => { finish = resolve; });
+    bridge.invoke.mockImplementation(async (command, payload) => {
+      if (command !== "nextctl_run") return null;
+      const args = payload.args as string[];
+      if (args.includes("start")) return pending;
+      const value = args.includes("profiles")
+        ? { profiles: [{ name: "work" }] }
+        : { status };
+      return { code: 0, stdout: JSON.stringify({ ok: true, data: value }), stderr: "" };
+    });
+    useStore.setState({ statuses: { work: "stopped" } });
+    const launch = useStore.getState().startProfile("work");
+    try {
+      await useStore.getState().loadProfiles();
+      expect(useStore.getState().statuses.work).toBe(status === "running" ? "running" : "starting");
+    } finally {
+      finish({ code: 0, stdout: "{}", stderr: "" });
+      await launch;
+    }
+    expect(useStore.getState().statuses.work).toBe(status);
+  });
+
+  it("lets a newer stop supersede a pending launch during polling", async () => {
+    let finish!: (value: unknown) => void;
+    const pending = new Promise((resolve) => { finish = resolve; });
+    bridge.invoke.mockImplementation(async (command, payload) => {
+      if (command !== "nextctl_run") return null;
+      const args = payload.args as string[];
+      if (args.includes("start")) return pending;
+      const data = args.includes("profiles")
+        ? { profiles: [{ name: "work" }] } : { status: "stopped" };
+      return { code: 0, stdout: JSON.stringify({ ok: true, data }), stderr: "" };
+    });
+    useStore.setState({ statuses: { work: "stopped" } });
+    const launch = useStore.getState().startProfile("work");
+    try {
+      await useStore.getState().stopProfile("work");
+      expect(useStore.getState().statuses.work).toBe("stopped");
+    } finally {
+      finish({ code: 0, stdout: "{}", stderr: "" });
+      await launch;
+    }
+    expect(useStore.getState().statuses.work).toBe("stopped");
+  });
 });
 
 describe("deferred chat context", () => {

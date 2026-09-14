@@ -668,6 +668,7 @@ interface APIKeyIdentity {
 const replyExecutionTargets = new Map<string, ExecutionTarget>();
 const replyProfileBaselines = new Map<string, Set<string>>();
 const profileOperationEpoch = new Map<string, number>();
+const pendingProfileLaunches = new Map<string, number>();
 const BOOTSTRAP_FOREGROUND_WAIT_MS = 12_000;
 
 function activeConversationStorageKey(agentId: string, workspaceId?: string): string {
@@ -2559,6 +2560,15 @@ export const useStore = create<State>((set, get) => {
           if (get().profileIdentities[p.name]) profileIdentities[p.name] = get().profileIdentities[p.name];
         }
       }
+      // A poll can start before a launch and finish while that launch is still
+      // preparing the browser. Do not turn Starting into a misleading Stopped
+      // (or Unknown) until the launcher actually settles. A newer stop/remove
+      // operation takes precedence through the operation epoch.
+      for (const name of Object.keys(statuses)) {
+        const launch = pendingProfileLaunches.get(name);
+        if (launch !== undefined && launch === profileOperationEpoch.get(name)
+          && statuses[name] !== "running") statuses[name] = "starting";
+      }
       set({ profiles: list.profiles, statuses, profileSessions, profileIdentities });
     } catch {
       /* non-fatal */
@@ -2733,6 +2743,7 @@ export const useStore = create<State>((set, get) => {
         }
       };
       const statusReconciliation = reconcileRunningProfile();
+      pendingProfileLaunches.set(n, operation);
       await nextctlRunChecked([
         "start",
         "--profile",
@@ -2742,7 +2753,10 @@ export const useStore = create<State>((set, get) => {
         ...(runtime === "camoufox" && profile?.country ? ["--verify"] : []),
         "--format",
         "json",
-      ], undefined, { requestId, timeoutMs: 240_000 }).finally(() => { launchSettled = true; });
+      ], undefined, { requestId, timeoutMs: 240_000 }).finally(() => {
+        launchSettled = true;
+        if (pendingProfileLaunches.get(n) === operation) pendingProfileLaunches.delete(n);
+      });
       await statusReconciliation;
       if (profileOperationEpoch.get(n) !== operation) return;
       await get().loadProfiles();
