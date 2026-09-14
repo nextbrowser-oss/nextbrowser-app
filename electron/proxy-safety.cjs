@@ -30,10 +30,11 @@ function requireGreen(result) {
 const diagnostic = new Set(["start", "rotate", "stop", "status", "verify", "profiles", "version", "doctor", "config", "identity", "proxy", "proxy-traffic"]);
 function createProxySafety({ file, run, pause, publish, discover }) {
   const watched = new Map(), busy = new Map(), proxyModes = new Map();
-  let recovering = false, polling = false, timer, recoveryEpoch = 0;
+  let recovering = false, polling = false, timer, recoveryEpoch = 0, emergencyState = null;
   const key = (p) => `${p.runtime}:${p.profile}`;
   const args = (p) => ["--profile", p.profile, "--runtime", p.runtime];
   function state() {
+    if (emergencyState) return emergencyState;
     try {
       const value = JSON.parse(fs.readFileSync(file, "utf8"));
       if (!value || typeof value !== "object" || typeof value.phase !== "string") throw new Error("Invalid safety state");
@@ -42,9 +43,17 @@ function createProxySafety({ file, run, pause, publish, discover }) {
     catch (error) { if (error.code === "ENOENT") return null; return { phase: "blocked", message: "Safety state cannot be read. Local work remains paused." }; }
   }
   function save(value) {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(value), { mode: 0o600 });
-    publish(value);
+    // Block native entry points even when the disk cannot store the latch.
+    emergencyState = { ...value, phase: "blocked", message: "Safety state could not be saved. Local work remains paused." };
+    let persisted = false;
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(value), { mode: 0o600 });
+      emergencyState = null;
+      persisted = true;
+    } catch { /* Cleanup must still run; an I/O failure never permits work. */ }
+    try { publish(emergencyState ?? value); } catch { /* UI delivery cannot prevent cleanup. */ }
+    return persisted;
   }
   async function command(p, name) { return run([...args(p), name, ...(name === "verify" ? ["--timeout", "15s"] : []), "--format", "json"]); }
   async function stop(p) { payload(await command(p, "stop")); }
@@ -55,20 +64,25 @@ function createProxySafety({ file, run, pause, publish, discover }) {
     const checkCancelled = () => { if (epoch !== recoveryEpoch) throw new Error("Recovery cancelled"); };
     const p = { ...current, proxyExpected: current.proxyExpected ?? proxyModes.get(current.profile) !== "direct" };
     try {
-      save({ ...p, phase: "recovering", attempt: 0, message: "Connection lost. Stopping local tasks and the profile." });
-      await pause();
-      await stop(p); // Never launch another browser unless cleanup succeeded.
+      const persisted = save({ ...p, phase: "recovering", attempt: 0, message: "Connection lost. Stopping local tasks and the profile." });
+      let pauseError;
+      try { await pause(); } catch (error) { pauseError = error; }
+      await stop(p); // Stop the browser even if stopping an agent failed.
+      if (pauseError || !persisted) throw new Error("Safety cleanup could not be completed");
       checkCancelled();
       for (let attempt = 1; attempt <= 3; attempt++) {
         checkCancelled();
-        save({ ...p, phase: "recovering", attempt, message: `Restoring the same connection (${attempt}/3)…` });
+        if (!save({ ...p, phase: "recovering", attempt, message: `Restoring the same connection (${attempt}/3)…` })) throw new Error("Safety state could not be saved");
         try {
           payload(await command(p, "start"));
           checkCancelled();
           requireGreen(await command(p, "verify"));
           checkCancelled();
           watched.set(key(p), p);
-          save({ ...p, phase: "recovered", attempt, message: "Connection verified. Review the interrupted action before resuming queued tasks." });
+          if (!save({ ...p, phase: "recovered", attempt, message: "Connection verified. Review the interrupted action before resuming queued tasks." })) {
+            await stop(p);
+            throw new Error("Safety state could not be saved");
+          }
           return;
         } catch {
           await stop(p);

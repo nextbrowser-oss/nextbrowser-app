@@ -99,3 +99,32 @@ test("another verifier being busy is not classified as proxy loss", async (t) =>
   assert.equal(f.paused(), 0);
   assert.equal(f.manager.state(), null);
 });
+
+test("a failed safety-state write still pauses and stops, and blocks native actions in memory", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "proxy-safety-io-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const parent = path.join(dir, "not-a-directory"); fs.writeFileSync(parent, "fixture");
+  const calls = [];
+  const manager = createProxySafety({ file: path.join(parent, "block.json"),
+    run: async (args) => { calls.push(parseCommand(args).command); return ok({}); },
+    pause: async () => { calls.push("pause"); }, publish: () => {},
+  });
+  await manager.recover({ profile: "work", runtime: "clawbrowser" });
+  assert.deepEqual(calls, ["pause", "stop"]);
+  fs.unlinkSync(parent); // ENOENT must not erase the in-memory emergency latch.
+  assert.equal(manager.state().phase, "blocked");
+  assert.throws(() => manager.begin(["open", "https://example.invalid"]), /PROXY_CONNECTION_LOST/);
+  await assert.rejects(manager.resume(), /Restore/);
+});
+test("an agent cleanup failure still stops the browser and never starts a replacement", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "proxy-safety-pause-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const calls = [];
+  const manager = createProxySafety({ file: path.join(dir, "block.json"),
+    run: async (args) => { calls.push(parseCommand(args).command); return ok({}); },
+    pause: async () => { throw new Error("agent refused to stop"); }, publish: () => {},
+  });
+  await manager.recover({ profile: "work", runtime: "clawbrowser" });
+  assert.deepEqual(calls, ["stop"]);
+  assert.equal(manager.state().phase, "blocked");
+});
