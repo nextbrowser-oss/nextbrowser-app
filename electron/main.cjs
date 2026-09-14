@@ -20,7 +20,7 @@ const {
   resolveBinary,
   searchDirs,
 } = require("./binary-resolver.cjs");
-const { applyLegacyRuntimeMigration, applyRuntimeRootMigration, clearRuntimeCredential, runtimeAPIBaseURL } = require("./runtime-config.cjs");
+const { applyLegacyRuntimeMigration, applyRuntimeRootMigration, clearRuntimeCredential, runtimeAPIBaseURL, accountAPIBaseURL } = require("./runtime-config.cjs");
 const { fetchGitHubStars, readLocalGitHubStars, writeLocalGitHubStars } = require("./github-stars.cjs");
 const { ensureWorkspaceInstructions } = require("./workspace-instructions.cjs");
 const pty = require("node-pty");
@@ -115,7 +115,6 @@ const NEXTCTL_RELEASE_BASE = "https://github.com/nextbrowser-oss/nbc_releases/re
 // A workspace state file is read for display only, so it is truncated rather
 // than streamed: a runaway file must not be pulled into the renderer whole.
 const MAX_WORKSPACE_FILE_BYTES = 256 * 1024;
-const DEFAULT_API_BASE_URL = "https://api.nextbrowser.com";
 const DEFAULT_AUTH_BASE_URL = "https://app.nextbrowser.com";
 const DEFAULT_AUTH0_ISSUER_BASE_URL = "https://dev-5v20zhlfh5c7o71v.us.auth0.com";
 const DEFAULT_AUTH0_CLIENT_ID = "E9Net5ggtBdR18nKT08eAqaXeSpbhCKt";
@@ -1420,13 +1419,7 @@ function startBrowserRuntimeUpdateChecks() {
   }, BROWSER_RUNTIME_UPDATE_CHECK_INTERVAL_MS);
 }
 function apiBaseURL(raw) {
-  return String(
-    raw
-      || process.env.NEXTBROWSER_DEV_API_BASE_URL
-      || process.env.NEXTBROWSER_API_BASE_URL
-      || process.env.CLAWBROWSER_API_BASE_URL
-      || DEFAULT_API_BASE_URL,
-  ).replace(/\/$/, "");
+  return accountAPIBaseURL(raw, process.env);
 }
 function authBaseURL() {
   return String(process.env.NEXTBROWSER_AUTH_BASE_URL || DEFAULT_AUTH_BASE_URL).replace(/\/$/, "");

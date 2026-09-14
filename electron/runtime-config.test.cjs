@@ -12,6 +12,7 @@ const {
   applyRuntimeRootMigration,
   clearRuntimeCredential,
   runtimeAPIBaseURL,
+  accountAPIBaseURL,
 } = require("./runtime-config.cjs");
 
 const homeDir = "/home/u";
@@ -39,6 +40,17 @@ function plan(files) {
 }
 
 const nbKey = JSON.stringify({ api_key: "nb_live_abc123", theme: "dark" });
+
+test("pairing host configuration overrides renderer production URL without rerouting runtime", () => {
+  const env = { NEXTBROWSER_DEV_API_BASE_URL: "http://127.0.0.1:18080/" };
+  assert.equal(accountAPIBaseURL("https://api.nextbrowser.com", env), "http://127.0.0.1:18080");
+  assert.equal(runtimeAPIBaseURL(env), "https://api.nextbrowser.com");
+  assert.equal(accountAPIBaseURL(undefined, {}), "https://api.nextbrowser.com");
+  assert.equal(accountAPIBaseURL("https://explicit.example/", {}), "https://explicit.example");
+  assert.equal(accountAPIBaseURL("https://api.nextbrowser.com", {
+    NEXTBROWSER_API_BASE_URL: "https://qa.example/",
+  }), "https://qa.example");
+});
 
 test("keeps browser runtime traffic off an entity-only dev backend", () => {
   assert.equal(runtimeAPIBaseURL({ NEXTBROWSER_DEV_API_BASE_URL: "http://127.0.0.1:18098" }), "https://api.nextbrowser.com");
