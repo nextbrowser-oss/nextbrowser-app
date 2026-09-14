@@ -239,7 +239,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const searchQuery = s.profileSearch.trim();
   const normalizedSearch = searchQuery.toLowerCase();
   const profiles = s.profiles;
-  const projects = s.conversationsForAgent(s.agentId);
+  const projects = s.conversations.filter((project) => project.workspaceId === s.activeWorkspaceId)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
   const activeProject = s.activeConversation();
   const activeWorkspace = s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId);
   const manualProxyBatch = useMemo(() => parseManualProxyBatch(manualProxyBulk), [manualProxyBulk]);
@@ -1296,7 +1297,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                     <Icon name={chat.chatMode === "terminal" ? "terminal" : "bubble.left.and.bubble.right.fill"} size={12} />
                     <span className="workspace-chat-copy">
                       <strong><HighlightedName text={chat.title} query={searchQuery} /></strong>
-                      <small>{conversationPreview(chat)}</small>
+                      <small>{agentById(chat.agent).name} · {conversationPreview(chat)}</small>
                     </span>
                     {chat.id === activeProject?.id && <span className="workspace-active-dot" title="Active chat" />}
                     <span
@@ -1492,7 +1493,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           onClick={onOpenAgentSettings}
         >
           <span className="status-dot" />
-          <span>{ready ? agentName : "No agent"}</span>
+          <span>{agentName} · {ready ? "Connected" : s.agentLoggedIn() === false ? "Sign-in required" : "Not connected"}</span>
           <Icon name="chevron.down" size={11} />
         </button>
       </div>
@@ -2132,7 +2133,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 ["direct", "network", "No proxy", "Use your direct internet connection"],
                 ["managed", "globe", "Managed proxy", "Choose a country and rotate IP later"],
                 ["personal", "network", "Personal proxy", "Use one of your saved proxies"],
-              ] as const).map(([connection, icon, title, description]) => (
+              ] as const).filter(([connection]) => connection !== "direct" || s.profiles.find((p) => p.name === profileConnectionEditor.name)?.proxy_mode === "direct").map(([connection, icon, title, description]) => (
                 <label key={connection} className={"project-mode-option" + (profileConnectionEditor.connection === connection ? " is-selected" : "")}>
                   <input type="radio" name="existing-profile-connection" checked={profileConnectionEditor.connection === connection} onChange={() => setProfileConnectionEditor({ ...profileConnectionEditor, connection })} />
                   <Icon name={icon} size={16} />

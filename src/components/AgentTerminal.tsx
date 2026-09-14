@@ -219,6 +219,12 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
     terminal.loadAddon(new WebLinksAddon((_event, uri) => openLink(uri)));
     terminal.open(host);
     terminalRef.current = terminal;
+    const reportInputFailure = (reason: unknown) => {
+      const message = reason instanceof Error ? reason.message : String(reason);
+      setError(message);
+      setStatus("failed");
+    };
+
     const showContextMenu = (event: MouseEvent) => {
       event.preventDefault();
       void invoke("terminal_context_menu", { text: terminal.getSelection() });
@@ -233,7 +239,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
           // Codex treats LF (the same byte as Ctrl+J) as an editor newline and
           // CR as submit. Suppress every native Shift+Enter event so xterm
           // cannot emit a second, submitting CR after this explicit LF.
-          if (id) void invoke("terminal_input", { id, data: "\n" });
+          if (id) void invoke("terminal_input", { id, data: "\n" }).catch(reportInputFailure);
         }
         return false;
       }
@@ -284,7 +290,8 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
     const writeInput = (id: string, data: string) => {
       inputWriteQueueRef.current = inputWriteQueueRef.current
         .catch(() => undefined)
-        .then(() => invoke("terminal_input", { id, data }));
+        .then(() => invoke("terminal_input", { id, data }))
+        .catch(reportInputFailure);
     };
     const forwardInput = (data: string) => {
       const id = terminalIdRef.current;

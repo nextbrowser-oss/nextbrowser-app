@@ -57,6 +57,8 @@ jobs:
             echo "::warning::No Developer ID certificate — publishing an ad-hoc signed macOS artifact."
             echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
           fi
+      - name: Critical feature regressions (mandatory)
+        run: npm run test:critical
       - run: npm test
       - name: Build macOS app
         env:
@@ -142,6 +144,8 @@ jobs:
       - name: Generate release notes
         if: github.ref_type == 'tag'
         run: node scripts/generate-release-notes.mjs ${{ github.ref_name }} release-notes.md
+      - name: Critical feature regressions (mandatory)
+        run: npm run test:critical
       - run: npm test
       - run: npm run dist:win
       - name: Publish NSIS installer
