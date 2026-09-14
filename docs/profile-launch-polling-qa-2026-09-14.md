@@ -38,8 +38,21 @@ The full test run before the additional stop-supersession regression passed
 Build and packaging passed. Focused tests cover stopped/unknown/running polls
 and cleanup after launcher settlement, plus a newer stop operation.
 
-Live View separately reported Live with tabs but its video element reported
-media playback failure. It is not a passed remote-control journey. No viewer
-URLs, credentials or private account details are included here. This follow-up
-does not close the PixelScan, all-platform Chromium, or real update-install
-acceptance gates.
+## Correction after visual Live View retest
+
+The earlier accessibility-tree text suggested media playback failure, but that
+text alone was not sufficient evidence. A subsequent real UI run on the same
+packaged polling fix visibly displayed the verification page in the video.
+Selecting an existing Google tab changed the video to that page; clicking its
+"Why did this happen?" link inside the video expanded the explanatory text.
+This confirms video refresh, tab selection, and pointer-input delivery in this
+run. No CAPTCHA was solved. The test restored the verification tab and stopped
+the profile afterwards. Scrolling did not produce a separately verified visible
+change, and keyboard input was not exercised.
+
+Therefore the earlier blanket claim of failed video playback is withdrawn.
+No playback patch was required for this reproduction. No viewer URLs,
+credentials or private account details are included here. This follow-up does
+not close the PixelScan, all-platform Chromium, or real update-install
+acceptance gates. Screenshots of the actual stream and expanded page were
+captured through the desktop UI tool in the task history.
