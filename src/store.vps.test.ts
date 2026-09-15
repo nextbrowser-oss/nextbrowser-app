@@ -1071,6 +1071,36 @@ describe("Live View runtime selection", () => {
 });
 
 describe("local component and profile lifecycle", () => {
+  it("repairs an incompatible CLI without invoking update through that executable", async () => {
+    useStore.setState({ nextctlCompatibilityError: "VERIFY_REQUIRED", nextctlAvailable: false });
+    bridge.invoke.mockImplementation((command) => {
+      if (command === "nextctl_reinstall") return Promise.resolve(true);
+      if (command === "nextctl_resolve") return Promise.resolve("/managed/nbc");
+      if (command === "nextctl_version") return Promise.resolve("nextctl 1.3.0");
+      if (command === "nextctl_supports_skill") return Promise.resolve(true);
+      return Promise.resolve(null);
+    });
+    await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(true);
+    expect(bridge.invoke).toHaveBeenCalledWith("nextctl_reinstall");
+    expect(localNextctlCalls().some((call) => call[1]?.args?.includes("update"))).toBe(false);
+    expect(useStore.getState().nextctlCompatibilityError).toBeUndefined();
+    expect(useStore.getState().nextctlAvailable).toBe(true);
+  });
+
+  it("keeps browser work blocked when the replacement CLI is still incompatible", async () => {
+    vi.useFakeTimers();
+    try {
+      useStore.setState({ nextctlCompatibilityError: "VERIFY_REQUIRED", nextctlAvailable: false });
+      bridge.invoke.mockRejectedValue(new Error("VERIFY_REQUIRED: incompatible release"));
+      await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(false);
+      expect(useStore.getState().nextctlAvailable).toBe(false);
+      expect(useStore.getState().nextctlCompatibilityError).toBeTruthy();
+      expect(localNextctlCalls()).toHaveLength(0);
+      // Consume the bounded retry timers without leaking them into another test.
+      await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+    } finally { vi.useRealTimers(); }
+  });
+
   it("stops a persisted streaming reply when no agent process owns it", () => {
     const stale = conversation("stale", "local", [
       message("user", "user", "Hello"),

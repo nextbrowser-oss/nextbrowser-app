@@ -1,7 +1,5 @@
 const STATE_KEY = "nextbrowser.feedbackPrompt.v1";
 const PROMPT_EVERY_OPENS = 5;
-// A feedback request is intentionally rare after a successful submission.
-const FEEDBACK_COOLDOWN_MS = 90 * 24 * 60 * 60 * 1_000;
 
 interface FeedbackPromptState {
   opens: number;
@@ -32,23 +30,19 @@ function save(storage: Storage, state: FeedbackPromptState): void {
 }
 
 /** Records one usable app opening and returns true on every fifth opening. */
-export function shouldPromptForFeedback(storage: Storage, now = Date.now()): boolean {
-  let state = load(storage);
-  if (state.submittedAt && now - state.submittedAt < FEEDBACK_COOLDOWN_MS) return false;
-
-  // After three months, forget the previous response and start a fresh cycle.
-  if (state.submittedAt) state = { opens: 0 };
+export function shouldPromptForFeedback(storage: Storage): boolean {
+  const state = load(storage);
+  if (state.submittedAt) return false;
   const opens = state.opens + 1;
   save(storage, { opens });
   return opens % PROMPT_EVERY_OPENS === 0;
 }
 
-/** Stops automatic prompts for three months after an actual successful send. */
+/** Stops automatic prompts after an actual successful send. */
 export function markFeedbackSubmitted(storage: Storage, now = Date.now()): void {
   save(storage, { opens: 0, submittedAt: now });
 }
 
 export const feedbackPromptConfig = {
   everyOpens: PROMPT_EVERY_OPENS,
-  cooldownMs: FEEDBACK_COOLDOWN_MS,
 };

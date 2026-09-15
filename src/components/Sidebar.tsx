@@ -1443,8 +1443,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       <hr className="divider" />
       <div className={"sidebar-account-footer" + (s.authed ? " is-connected" : "")}>
         <Icon name={s.authed ? "person.crop.circle" : "lock"} size={14} />
-        <span title={s.authed ? s.accountEmail || "Browser account connected" : "Browser account not connected"}>
-          {s.authed ? s.accountEmail || "Browser account connected" : "Browser account not connected"}
+        <span title={s.nextctlCompatibilityError || (s.authed ? s.accountEmail || "Browser account connected" : "Browser account not connected")}>
+          {s.nextctlCompatibilityError ? "Update nextctl to check account" : s.authed ? s.accountEmail || "Browser account connected" : "Browser account not connected"}
         </span>
         {s.authed ? (
           <button
@@ -1485,7 +1485,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             · <UserFacingError message={s.nextctlUpdateStatus} surface="component_update" />
           </span>
         )}
-        {!s.nextctlSupportsSkill && <span className="warn"> · no skill cmd</span>}
+        {!s.nextctlSupportsSkill && !s.nextctlCompatibilityError && <span className="warn"> · no skill cmd</span>}
         <span className="spacer" />
         <button
           className={"agent-footer-status" + (ready ? " is-ready" : "")}

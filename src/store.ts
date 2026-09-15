@@ -436,6 +436,7 @@ interface State {
   nextctlUpdateStatus?: string;
   nextctlSupportsSkill: boolean;
   nextctlAvailable: boolean;
+  nextctlCompatibilityError?: string;
   skillCategories: SkillCategory[];
   watchedProfiles: WatchedProfile[];
   watchReports: Record<string, WatchedProfileReport>;
@@ -1149,6 +1150,7 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
       nextctlVersion: normalizeNextctlVersion(ver),
       nextctlSupportsSkill: supportsSkill,
       nextctlAvailable: true,
+      nextctlCompatibilityError: undefined,
     });
     trackEvent("nextctl_detected", { supports_skill: supportsSkill });
     try {
@@ -1163,15 +1165,19 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
       trackEvent("analytics_identity_unavailable", { phase: "bootstrap" });
       return false;
     }
-  } catch {
+  } catch (error) {
     setAnalyticsUserId(undefined);
+    const incompatible = String(error).includes("VERIFY_REQUIRED");
     useStore.setState({
       accountEmail: undefined,
-      nextctlVersion: "not found",
+      nextctlVersion: incompatible ? "update required" : "not found",
       nextctlSupportsSkill: false,
       nextctlAvailable: false,
+      nextctlCompatibilityError: incompatible
+        ? "This nextctl version cannot enforce browser verification. Update nextctl to continue."
+        : undefined,
     });
-    trackEvent("nextctl_missing");
+    trackEvent(incompatible ? "nextctl_incompatible" : "nextctl_missing");
     return false;
   }
 }
@@ -3468,6 +3474,14 @@ export const useStore = create<State>((set, get) => {
     set({ nextctlUpdating: true, nextctlUpdateStatus: undefined });
     try {
       if (pendingTarget(get(), "vps")) return false;
+      if (get().nextctlCompatibilityError) {
+        // The old executable cannot run even update under mandatory verify.
+        // The host installs and validates a release without launching browsers.
+        await invoke("nextctl_reinstall");
+        const authed = await refreshLocalNextctlMetadata();
+        set({ authed });
+        return get().nextctlAvailable;
+      }
       // Updating also refreshes Clawbrowser and agent assets. On slower or
       // filtered networks that can legitimately take longer than the normal
       // one-minute command timeout.
@@ -3497,7 +3511,7 @@ export const useStore = create<State>((set, get) => {
       if (pendingTarget(get(), "vps")) return true;
       const supportsSkill = await invoke<boolean>("nextctl_supports_skill");
       if (pendingTarget(get(), "vps")) return true;
-      set({ nextctlVersion: normalizeNextctlVersion(ver), nextctlSupportsSkill: supportsSkill, nextctlAvailable: true });
+      set({ nextctlVersion: normalizeNextctlVersion(ver), nextctlSupportsSkill: supportsSkill, nextctlAvailable: true, nextctlCompatibilityError: undefined });
       trackTiming("nextctl_update_completed", startedAt, { supports_skill: supportsSkill });
       return true;
     } catch (error) {
