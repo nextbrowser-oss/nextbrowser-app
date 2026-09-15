@@ -789,6 +789,7 @@ async function waitForLocalNextctlIdle(getState: () => State): Promise<void> {
 let conversationWriteTail: Promise<void> = Promise.resolve();
 let projectSyncTimer: ReturnType<typeof setTimeout> | undefined;
 let applyingCloudProjects = false;
+let profileRefreshGeneration = 0;
 const PROJECT_SYNC_DELAY_MS = 750;
 
 function runScheduledProjectSync() {
@@ -2547,8 +2548,12 @@ export const useStore = create<State>((set, get) => {
   },
 
   loadProfiles: async () => {
+    const generation = ++profileRefreshGeneration;
     try {
       const list = await nextctlJson<{ profiles: Profile[] }>(["profiles", "ls"]);
+      if (generation !== profileRefreshGeneration) return;
+      // Render the inventory without waiting for every browser status command.
+      set({ profiles: list.profiles });
       const statuses: Record<string, string> = {};
       const profileSessions: Record<string, SessionStatus> = {};
       const profileIdentities: Record<string, ProxyIdentity> = {};
@@ -2559,6 +2564,7 @@ export const useStore = create<State>((set, get) => {
         country_count: new Set(list.profiles.map((p) => p.country).filter(Boolean)).size,
       });
       for (const p of list.profiles) {
+        if (generation !== profileRefreshGeneration) return;
         try {
           const runtime = runtimeForProfile(get().workspaces, p.name);
           const st = await nextctlJson<SessionStatus>(["status", "--profile", p.name, "--runtime", runtime]);
@@ -2582,7 +2588,8 @@ export const useStore = create<State>((set, get) => {
           if (get().profileIdentities[p.name]) profileIdentities[p.name] = get().profileIdentities[p.name];
         }
       }
-      set({ profiles: list.profiles, statuses, profileSessions, profileIdentities });
+      if (generation !== profileRefreshGeneration) return;
+      set({ statuses, profileSessions, profileIdentities });
     } catch {
       /* non-fatal */
     }
@@ -3559,6 +3566,8 @@ export const useStore = create<State>((set, get) => {
   syncProjects: async () => {
     if (!get().authed || get().projectsSyncing) return;
     set({ projectsSyncing: true });
+    const initialWorkspaces = get().workspaces;
+    let retryWorkspaceSync = false;
     try {
       const workspaceResponse = await invoke<{ workspaces?: Array<{
         id: string; name: string; document: Partial<Workspace>; revision: number; updated_at: string; created_at: string;
@@ -3627,12 +3636,6 @@ export const useStore = create<State>((set, get) => {
         }
         workspaceRevisions[workspace.id] = saved.revision;
       }
-      let activeWorkspaceId = get().activeWorkspaceId;
-      if (!workspaces.some((workspace) => workspace.id === activeWorkspaceId)) activeWorkspaceId = workspaces[0]?.id;
-      if (activeWorkspaceId) localStorage.setItem("activeWorkspaceId", activeWorkspaceId);
-      else localStorage.removeItem("activeWorkspaceId");
-      await saveJson("workspaces.json", workspaces);
-
       const response = await invoke<{ projects?: Array<{
         id: string; title: string; agent: string; chat_mode: "chat" | "terminal";
         workspace_id: string; document: Conversation; revision: number; updated_at: string;
@@ -3661,6 +3664,26 @@ export const useStore = create<State>((set, get) => {
         )) conversations[index] = normalized;
       }
 
+      // Profile creation can change workspace membership while the network
+      // requests above are pending. Never replace those edits with our snapshot.
+      const currentWorkspaces = get().workspaces;
+      if (currentWorkspaces !== initialWorkspaces) {
+        retryWorkspaceSync = true;
+        const initialById = new Map(initialWorkspaces.map((workspace) => [workspace.id, workspace]));
+        const syncedById = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
+        workspaces = currentWorkspaces.map((workspace) => {
+          const synced = syncedById.get(workspace.id);
+          if (workspace === initialById.get(workspace.id)) return synced ?? workspace;
+          return { ...workspace, updatedAt: Math.max(workspace.updatedAt, (synced?.updatedAt ?? 0) + 1) };
+        });
+        for (const workspace of syncedById.values()) {
+          if (!initialById.has(workspace.id) && !workspaces.some((item) => item.id === workspace.id)) workspaces.push(workspace);
+        }
+      }
+      let activeWorkspaceId = get().activeWorkspaceId;
+      if (!workspaces.some((workspace) => workspace.id === activeWorkspaceId)) activeWorkspaceId = workspaces[0]?.id;
+      if (activeWorkspaceId) localStorage.setItem("activeWorkspaceId", activeWorkspaceId);
+      else localStorage.removeItem("activeWorkspaceId");
       applyingCloudProjects = true;
       set({
         conversations,
@@ -3669,6 +3692,7 @@ export const useStore = create<State>((set, get) => {
         projectRevisions: revisions,
         workspaceRevisions,
       });
+      await saveJson("workspaces.json", workspaces);
       await persistConvs(conversations);
       applyingCloudProjects = false;
 
@@ -3708,6 +3732,7 @@ export const useStore = create<State>((set, get) => {
           state.activeWorkspaceId,
         ),
       });
+      if (retryWorkspaceSync) void get().syncProjects().catch(() => {});
     }
   },
 
