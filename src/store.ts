@@ -176,6 +176,7 @@ interface AgentRuntime {
 }
 
 interface AgentAuthorizationOptions {
+  suggestInstalledAlternative?: boolean;
   skipNextctlSetup?: boolean;
   deferMissingNextctlPrompt?: boolean;
 }
@@ -437,6 +438,7 @@ interface State {
   nextctlSupportsSkill: boolean;
   nextctlAvailable: boolean;
   nextctlCompatibilityError?: string;
+  startupAgentSuggestion?: string;
   skillCategories: SkillCategory[];
   watchedProfiles: WatchedProfile[];
   watchReports: Record<string, WatchedProfileReport>;
@@ -1684,7 +1686,7 @@ export const useStore = create<State>((set, get) => {
       get().startTimers();
 
       // These operations have their own status UI and cannot hold the splash.
-      void get().authorizeAgent({ deferMissingNextctlPrompt: true });
+      void get().authorizeAgent({ deferMissingNextctlPrompt: true, suggestInstalledAlternative: true });
       if (!hasCompletedCurrentOnboarding(localStorage)) set({ showOnboarding: true });
       void (async () => {
         if (authenticated && !pendingTarget(get(), "vps")) {
@@ -3096,7 +3098,7 @@ export const useStore = create<State>((set, get) => {
     if (id === get().agentId) return;
     trackEvent("agent_switched", { from_agent: get().agentId, to_agent: id });
     localStorage.setItem("lastAgent", id);
-    set({ agentId: id });
+    set({ agentId: id, startupAgentSuggestion: undefined });
     get().ensureConversation(id);
     get().reconcileQueues();
     get().startConsumer(id);
@@ -3117,6 +3119,7 @@ export const useStore = create<State>((set, get) => {
   },
 
   authorizeAgent: async (options = {}) => {
+    if (!options.suggestInstalledAlternative) set({ startupAgentSuggestion: undefined });
     const startedAt = performance.now();
     const agentId = get().agentId;
     const rt = get().runtime[agentId];
@@ -3191,6 +3194,28 @@ export const useStore = create<State>((set, get) => {
     } catch (error) {
       trackTiming("agent_connect_failed", startedAt, { agent: agentId });
       const missingInstall = missingAgentInstallError(error, a);
+      if (missingInstall && agentId === "claude" && options.suggestInstalledAlternative) {
+        const codex = agentById("codex");
+        try {
+          const version = await invoke<string>("agent_authorize", { binary: codex.binary, envVar: codex.envVar });
+          const loggedIn = await invoke<boolean | null>("agent_check_login", {
+            binary: codex.binary, envVar: codex.envVar, statusArgs: codex.statusArgs ?? [],
+          }).catch(() => null);
+          // Discovery must not connect an agent, run queued work, or change an
+          // existing conversation. The gate offers the installed alternative.
+          if (version && get().agentId === agentId) {
+            set((s) => ({
+              startupAgentSuggestion: "codex",
+              runtime: {
+                ...s.runtime,
+                claude: { ...s.runtime.claude, ready: false, authorizing: false, error: undefined },
+                codex: { ...s.runtime.codex, version, loggedIn },
+              },
+            }));
+            return;
+          }
+        } catch { /* Neither agent is installed: retain the actionable error. */ }
+      }
       set((s) => ({
         runtime: {
           ...s.runtime,

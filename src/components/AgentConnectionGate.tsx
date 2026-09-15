@@ -15,7 +15,12 @@ export function AgentConnectionGate({ onDismiss }: { onDismiss: () => void }) {
   const s = useStore();
   // Do not mutate the active agent until Connect is pressed. This lets a user
   // safely recover from selecting the wrong option and closing the dialog.
-  const [selectedAgentId, setSelectedAgentId] = useState(s.agentId);
+  const [selectedAgentId, setSelectedAgentId] = useState(s.startupAgentSuggestion || s.agentId);
+  const [selectionChanged, setSelectionChanged] = useState(false);
+  useEffect(() => {
+    if (!selectionChanged && s.startupAgentSuggestion) setSelectedAgentId(s.startupAgentSuggestion);
+  }, [s.startupAgentSuggestion, selectionChanged]);
+  const selectAgent = (id: string) => { setSelectionChanged(true); setSelectedAgentId(id); };
   const agent = agentById(selectedAgentId);
   const runtime = s.runtime[selectedAgentId];
   const version = runtime?.version;
@@ -52,6 +57,9 @@ export function AgentConnectionGate({ onDismiss }: { onDismiss: () => void }) {
         <BrandLogo size={44} />
         <div className="agent-gate-copy">
           <h2 id="agent-gate-title">Connect an agent to continue</h2>
+          {s.startupAgentSuggestion === "codex" && selectedAgentId === "codex" && (
+            <p role="status">Codex is available on this computer. You can continue with Codex. Your existing chats keep their original agent.</p>
+          )}
           <p className="muted">Every project keeps one agent context. Choose the agent that will run its chats, terminal sessions, and browser profiles.</p>
         </div>
         <div className="agent-gate-options">
@@ -61,7 +69,7 @@ export function AgentConnectionGate({ onDismiss }: { onDismiss: () => void }) {
               key={candidate.id}
               className={"agent-gate-option" + (candidate.id === selectedAgentId ? " is-selected" : "")}
               aria-pressed={candidate.id === selectedAgentId}
-              onClick={() => setSelectedAgentId(candidate.id)}
+              onClick={() => selectAgent(candidate.id)}
             >
               <Icon name="cpu.fill" size={17} />
               <strong>{candidate.name}</strong>
@@ -72,7 +80,7 @@ export function AgentConnectionGate({ onDismiss }: { onDismiss: () => void }) {
         <label className="modal-field">
           <span>Other agents</span>
           <select value={agent.primary ? "" : selectedAgentId} onChange={(event) => {
-            if (event.target.value) setSelectedAgentId(event.target.value);
+            if (event.target.value) selectAgent(event.target.value);
           }}>
             <option value="" disabled>Choose another agent</option>
             {ADDITIONAL_AGENTS.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
