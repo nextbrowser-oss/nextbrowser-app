@@ -143,8 +143,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceSaving, setWorkspaceSaving] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
-  const [projectsOpen, setProjectsOpen] = useState(true);
-  const [profilesOpen, setProfilesOpen] = useState(false);
+  const [openSection, setOpenSection] = useState<"projects" | "profiles" | null>("projects");
   const [dragOverProfileName, setDragOverProfileName] = useState<string | null>(null);
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
@@ -237,9 +236,13 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const agentName = agentById(s.agentId).name;
   const ready = s.agentReady();
   const searchQuery = s.profileSearch.trim();
+  // Search reveals both result types without overwriting the accordion selection.
+  const projectsOpen = !!searchQuery || openSection === "projects";
+  const profilesOpen = !!searchQuery || openSection === "profiles";
   const normalizedSearch = searchQuery.toLowerCase();
   const profiles = s.profiles;
-  const projects = s.conversationsForAgent(s.agentId);
+  const projects = s.conversations.filter((project) => project.workspaceId === s.activeWorkspaceId)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
   const activeProject = s.activeConversation();
   const activeWorkspace = s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId);
   const manualProxyBatch = useMemo(() => parseManualProxyBatch(manualProxyBulk), [manualProxyBulk]);
@@ -633,13 +636,11 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
   useEffect(() => {
     const revealProject = () => {
-      setProjectsOpen(true);
-      setProfilesOpen(false);
+      setOpenSection("projects");
       window.requestAnimationFrame(() => projectListRef.current?.scrollTo({ top: 0, behavior: "smooth" }));
     };
     const revealProfile = () => {
-      setProjectsOpen(false);
-      setProfilesOpen(true);
+      setOpenSection("profiles");
     };
     window.addEventListener("nextbrowser:project-created", revealProject);
     window.addEventListener("nextbrowser:profile-created", revealProfile);
@@ -667,8 +668,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
   useEffect(() => {
     const focusProfiles = () => {
-      setProjectsOpen(false);
-      setProfilesOpen(true);
+      setOpenSection("profiles");
       s.setProfileSearch("");
       setProfileGuideFocus(false);
       window.cancelAnimationFrame(guideFocusFrameRef.current);
@@ -1254,14 +1254,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               className="search-inline"
               placeholder="Search"
               value={s.profileSearch}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (value.trim()) {
-                  setProjectsOpen(true);
-                  setProfilesOpen(true);
-                }
-                s.setProfileSearch(value);
-              }}
+              onChange={(e) => s.setProfileSearch(e.target.value)}
             />
             {s.profileSearch && (
               <button
@@ -1278,13 +1271,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             <section className={"workspace-section workspace-chats" + (projectsOpen ? " is-open" : "")}>
               <div className="workspace-section-head">
                 <button className="workspace-section-toggle" onClick={() => {
-                  if (projectsOpen) {
-                    setProjectsOpen(false);
-                  } else {
-                    setProjectsOpen(true);
-                    setProfilesOpen(false);
-                  }
-                }} aria-expanded={projectsOpen} aria-label={projectsOpen ? "Collapse projects" : "Expand projects"}>
+                  if (!searchQuery) setOpenSection((current) => current === "projects" ? null : "projects");
+                }} disabled={!!searchQuery} aria-expanded={projectsOpen} aria-label={projectsOpen ? "Collapse projects" : "Expand projects"}>
                   <Icon name="chevron.right" size={10} className={projectsOpen ? "section-chevron open" : "section-chevron"} />
                   <Icon name="folder" size={12} />
                   <span>Projects</span>
@@ -1308,7 +1296,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                     <Icon name={chat.chatMode === "terminal" ? "terminal" : "bubble.left.and.bubble.right.fill"} size={12} />
                     <span className="workspace-chat-copy">
                       <strong><HighlightedName text={chat.title} query={searchQuery} /></strong>
-                      <small>{conversationPreview(chat)}</small>
+                      <small>{agentById(chat.agent).name} · {conversationPreview(chat)}</small>
                     </span>
                     {chat.id === activeProject?.id && <span className="workspace-active-dot" title="Active chat" />}
                     <span
@@ -1336,13 +1324,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             <section ref={profilesSectionRef} className={"workspace-section workspace-profiles" + (profilesOpen ? " is-open" : "") + (profileGuideFocus ? " guide-focus" : "")}>
               <div className="workspace-section-head">
                 <button className="workspace-section-toggle" onClick={() => {
-                  if (profilesOpen) {
-                    setProfilesOpen(false);
-                  } else {
-                    setProfilesOpen(true);
-                    setProjectsOpen(false);
-                  }
-                }} aria-expanded={profilesOpen} aria-label={profilesOpen ? "Collapse profiles" : "Expand profiles"}>
+                  if (!searchQuery) setOpenSection((current) => current === "profiles" ? null : "profiles");
+                }} disabled={!!searchQuery} aria-expanded={profilesOpen} aria-label={profilesOpen ? "Collapse profiles" : "Expand profiles"}>
                   <Icon name="chevron.right" size={10} className={profilesOpen ? "section-chevron open" : "section-chevron"} />
                   <Icon name="person.2.fill" size={12} />
                   <span>Profiles</span>
@@ -1511,7 +1494,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           onClick={onOpenAgentSettings}
         >
           <span className="status-dot" />
-          <span>{ready ? agentName : "No agent"}</span>
+          <span>{agentName} · {ready ? "Connected" : s.agentLoggedIn() === false ? "Sign-in required" : "Not connected"}</span>
           <Icon name="chevron.down" size={11} />
         </button>
       </div>
@@ -2151,7 +2134,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 ["direct", "network", "No proxy", "Use your direct internet connection"],
                 ["managed", "globe", "Managed proxy", "Choose a country and rotate IP later"],
                 ["personal", "network", "Personal proxy", "Use one of your saved proxies"],
-              ] as const).map(([connection, icon, title, description]) => (
+              ] as const).filter(([connection]) => connection !== "direct" || s.profiles.find((p) => p.name === profileConnectionEditor.name)?.proxy_mode === "direct").map(([connection, icon, title, description]) => (
                 <label key={connection} className={"project-mode-option" + (profileConnectionEditor.connection === connection ? " is-selected" : "")}>
                   <input type="radio" name="existing-profile-connection" checked={profileConnectionEditor.connection === connection} onChange={() => setProfileConnectionEditor({ ...profileConnectionEditor, connection })} />
                   <Icon name={icon} size={16} />

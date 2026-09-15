@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { PRIMARY_AGENTS, agentById } from "../agents";
+import { PRIMARY_AGENTS, ADDITIONAL_AGENTS, agentById } from "../agents";
 import { useStore } from "../store";
 import { AgentInstallLink } from "./AgentInstallLink";
 import { BrandLogo } from "./BrandLogo";
@@ -69,6 +69,15 @@ export function AgentConnectionGate({ onDismiss }: { onDismiss: () => void }) {
             </button>
           ))}
         </div>
+        <label className="modal-field">
+          <span>Other agents</span>
+          <select value={agent.primary ? "" : selectedAgentId} onChange={(event) => {
+            if (event.target.value) setSelectedAgentId(event.target.value);
+          }}>
+            <option value="" disabled>Choose another agent</option>
+            {ADDITIONAL_AGENTS.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
+          </select>
+        </label>
         <button
           type="button"
           className="primary agent-gate-connect"

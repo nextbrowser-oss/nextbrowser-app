@@ -6,7 +6,7 @@ import { MarkdownText } from "./MarkdownText";
 import { Icon, Spinner } from "./Icon";
 import type { ChatAttachment, ChatMessage } from "../types";
 import { filePathForFile, invoke } from "../electronBridge";
-import { agentById, agentInvocation, type AgentSpec } from "../agents";
+import { AGENTS, agentById, agentInvocation, type AgentSpec } from "../agents";
 import { trackEvent } from "../lib/analytics";
 import { needsSupportLink } from "../lib/userFacingError";
 import { userFacingBrowserError } from "../lib/userFacingBrowserError";
@@ -117,6 +117,7 @@ export function ChatView() {
   const [editText, setEditText] = useState("");
   const [promptDetail, setPromptDetail] = useState<string | null>(null);
   const [projectCreatorOpen, setProjectCreatorOpen] = useState(false);
+  const [projectAgentId, setProjectAgentId] = useState(s.agentId);
   const [projectName, setProjectName] = useState("");
   const [projectMode, setProjectMode] = useState<"chat" | "terminal">("chat");
   const [workflowDraft, setWorkflowDraft] = useState<{ task: string; answer: ChatMessage; prepared: DistilledWorkflow } | null>(null);
@@ -137,6 +138,7 @@ export function ChatView() {
 
   useEffect(() => {
     const openProjectCreator = () => {
+      setProjectAgentId(useStore.getState().agentId);
       setProjectName("");
       setProjectMode("chat");
       setProjectCreatorOpen(true);
@@ -164,7 +166,10 @@ export function ChatView() {
     setTerminalHandoff(undefined);
     setTerminalToChatRequest(undefined);
     setPendingTerminalContext(undefined);
-  }, [conv?.id]);
+    // Opening another project is not a chat/terminal handoff.
+    previousTerminalChat.current = s.terminalChat;
+    setTerminalMounted(s.terminalChat);
+  }, [conversationKey]);
 
   useEffect(() => {
     const wasTerminalChat = previousTerminalChat.current;
@@ -455,20 +460,35 @@ export function ChatView() {
                 <Icon name="cursorarrow" size={24} />
               </div>
               <div>
-                <strong>{agentNeedsLogin ? `Sign in to ${agentName}` : ready ? "Ready for browser work" : "Connect an agent"}</strong>
+                <strong>{agentNeedsLogin ? `Sign in to ${agentName}` : ready ? "Agent connected" : `Connect ${agentName}`}</strong>
                 <p className="muted">
-                  Choose the next step, then confirm the selected agent, profile, and running session before you send a task.
+                  Start the selected browser profile for verification. Website actions stay blocked until verification passes.
                 </p>
               </div>
+              {!ready && agentError && <div className="error small" role="status">
+                <UserFacingError message={agentError} surface="agent_chat" />
+                <AgentInstallLink agent={agentSpec} error={agentError} surface="agent_chat" />
+              </div>}
+              {conv && !remoteOnly && conv.chatMode !== "terminal" && !conv.terminalPreview && (
+                <label className="modal-field">
+                  <span>Agent for this project</span>
+                  <select aria-label="Agent for this project" value={agentId} disabled={s.runtime[agentId]?.authorizing}
+                    onChange={(event) => s.changeEmptyProjectAgent(conv.id, event.target.value)}>
+                    {AGENTS.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+                  </select>
+                  <small className="muted">You can change the agent while this chat is empty.</small>
+                </label>
+              )}
               <div className="empty-actions">
                 {!ready && (
                   <button
                     className="btn-bordered-prominent"
                     title={agentNeedsLogin ? `Log in to ${agentName}` : "Connect the selected agent CLI"}
+                    disabled={s.runtime[agentId]?.authorizing}
                     onClick={() => agentNeedsLogin ? s.loginAgent() : s.authorizeAgent()}
                   >
                     <Icon name="bolt.fill" size={14} />
-                    {agentNeedsLogin ? "Login" : "Connect agent"}
+                    {s.runtime[agentId]?.authorizing ? "Checking…" : agentNeedsLogin ? `Sign in to ${agentName}` : agentError ? "Check again" : `Connect ${agentName}`}
                   </button>
                 )}
                 <button className="btn-bordered" title="Open Skills" onClick={() => s.setTab("skills")}>
@@ -557,7 +577,16 @@ export function ChatView() {
         </div>
 
         <hr className="divider" />
-        {!ready && agentError && (
+        {!ready && messages.length > 0 && (
+          <div className="chat-agent-error small" role="status">
+            <span>{agentName} · {agentNeedsLogin ? "Sign-in required" : "Not connected"}</span>{" "}
+            <button className="btn-bordered" disabled={s.runtime[agentId]?.authorizing}
+              onClick={() => agentNeedsLogin ? s.loginAgent() : s.authorizeAgent()}>
+              {s.runtime[agentId]?.authorizing ? "Checking…" : agentNeedsLogin ? `Sign in to ${agentName}` : `Connect ${agentName}`}
+            </button>
+          </div>
+        )}
+        {!ready && agentError && (messages.length > 0 || s.terminalChat) && (
           <div className="chat-agent-error error small">
             <UserFacingError message={agentError} surface="agent_chat" />
             <AgentInstallLink agent={agentSpec} error={agentError} surface="agent_chat" />
@@ -716,7 +745,7 @@ export function ChatView() {
             onMouseDown={(event) => event.stopPropagation()}
             onSubmit={(event) => {
               event.preventDefault();
-              const projectId = s.createProject(projectName, projectMode);
+              const projectId = s.createProject(projectName, projectMode, projectAgentId);
               if (projectId) window.dispatchEvent(new CustomEvent("nextbrowser:project-created", { detail: { id: projectId } }));
               setProjectCreatorOpen(false);
             }}
@@ -734,6 +763,15 @@ export function ChatView() {
             <label className="modal-field">
               <span className="modal-field-heading"><span>Project name</span><small>Max {entityNameLimits.project}</small></span>
               <input autoFocus value={projectName} maxLength={entityNameLimits.project} onChange={(event) => setProjectName(event.target.value)} placeholder="Product research" />
+            </label>
+            <label className="modal-field">
+              <span>Agent</span>
+              <select value={projectAgentId} onChange={(event) => setProjectAgentId(event.target.value)}>
+                {AGENTS.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+              </select>
+              <small className="muted">{s.runtime[projectAgentId]?.ready && s.runtime[projectAgentId]?.loggedIn !== false
+                ? "Connected" : s.runtime[projectAgentId]?.loggedIn === false ? "Sign-in required — you can sign in after creating the project."
+                : "Not connected — you can connect after creating the project."}</small>
             </label>
             <fieldset className="project-mode-field">
               <legend>Agent workspace</legend>
