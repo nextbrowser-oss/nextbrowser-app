@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { feedbackPromptConfig, markFeedbackSubmitted, shouldPromptForFeedback } from "./feedbackPrompt";
+import { markFeedbackSubmitted, shouldPromptForFeedback } from "./feedbackPrompt";
 
 function storage(): Storage {
   const values = new Map<string, string>();
@@ -22,13 +22,10 @@ describe("feedback prompt cadence", () => {
     ]);
   });
 
-  it("suppresses prompts for three months after a successful submission then starts a new five-open cycle", () => {
+  it("never prompts again after a successful submission, including legacy submissions", () => {
     const local = storage();
-    const submittedAt = 1_000_000;
-    markFeedbackSubmitted(local, submittedAt);
-    expect(shouldPromptForFeedback(local, submittedAt + feedbackPromptConfig.cooldownMs - 1)).toBe(false);
-    expect(Array.from({ length: 5 }, (_, index) => shouldPromptForFeedback(local, submittedAt + feedbackPromptConfig.cooldownMs + index))).toEqual([
-      false, false, false, false, true,
-    ]);
+    markFeedbackSubmitted(local, 1_000_000);
+    expect(Array.from({ length: 100 }, () => shouldPromptForFeedback(local))).toEqual(Array(100).fill(false));
+    expect(JSON.parse(local.getItem("nextbrowser.feedbackPrompt.v1")!).submittedAt).toBe(1_000_000);
   });
 });

@@ -176,6 +176,7 @@ interface AgentRuntime {
 }
 
 interface AgentAuthorizationOptions {
+  suggestInstalledAlternative?: boolean;
   skipNextctlSetup?: boolean;
   deferMissingNextctlPrompt?: boolean;
 }
@@ -436,6 +437,8 @@ interface State {
   nextctlUpdateStatus?: string;
   nextctlSupportsSkill: boolean;
   nextctlAvailable: boolean;
+  nextctlCompatibilityError?: string;
+  startupAgentSuggestion?: string;
   skillCategories: SkillCategory[];
   watchedProfiles: WatchedProfile[];
   watchReports: Record<string, WatchedProfileReport>;
@@ -787,6 +790,7 @@ async function waitForLocalNextctlIdle(getState: () => State): Promise<void> {
 let conversationWriteTail: Promise<void> = Promise.resolve();
 let projectSyncTimer: ReturnType<typeof setTimeout> | undefined;
 let applyingCloudProjects = false;
+let profileRefreshGeneration = 0;
 const PROJECT_SYNC_DELAY_MS = 750;
 
 function runScheduledProjectSync() {
@@ -1150,6 +1154,7 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
       nextctlVersion: normalizeNextctlVersion(ver),
       nextctlSupportsSkill: supportsSkill,
       nextctlAvailable: true,
+      nextctlCompatibilityError: undefined,
     });
     trackEvent("nextctl_detected", { supports_skill: supportsSkill });
     try {
@@ -1164,15 +1169,19 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
       trackEvent("analytics_identity_unavailable", { phase: "bootstrap" });
       return false;
     }
-  } catch {
+  } catch (error) {
     setAnalyticsUserId(undefined);
+    const incompatible = String(error).includes("VERIFY_REQUIRED");
     useStore.setState({
       accountEmail: undefined,
-      nextctlVersion: "not found",
+      nextctlVersion: incompatible ? "update required" : "not found",
       nextctlSupportsSkill: false,
       nextctlAvailable: false,
+      nextctlCompatibilityError: incompatible
+        ? "This nextctl version cannot enforce browser verification. Update nextctl to continue."
+        : undefined,
     });
-    trackEvent("nextctl_missing");
+    trackEvent(incompatible ? "nextctl_incompatible" : "nextctl_missing");
     return false;
   }
 }
@@ -1679,7 +1688,7 @@ export const useStore = create<State>((set, get) => {
       get().startTimers();
 
       // These operations have their own status UI and cannot hold the splash.
-      void get().authorizeAgent({ deferMissingNextctlPrompt: true });
+      void get().authorizeAgent({ deferMissingNextctlPrompt: true, suggestInstalledAlternative: true });
       if (!hasCompletedCurrentOnboarding(localStorage)) set({ showOnboarding: true });
       void (async () => {
         if (authenticated && !pendingTarget(get(), "vps")) {
@@ -2540,8 +2549,12 @@ export const useStore = create<State>((set, get) => {
   },
 
   loadProfiles: async () => {
+    const generation = ++profileRefreshGeneration;
     try {
       const list = await nextctlJson<{ profiles: Profile[] }>(["profiles", "ls"]);
+      if (generation !== profileRefreshGeneration) return;
+      // Render the inventory without waiting for every browser status command.
+      set({ profiles: list.profiles });
       const statuses: Record<string, string> = {};
       const profileSessions: Record<string, SessionStatus> = {};
       const profileIdentities: Record<string, ProxyIdentity> = {};
@@ -2552,6 +2565,7 @@ export const useStore = create<State>((set, get) => {
         country_count: new Set(list.profiles.map((p) => p.country).filter(Boolean)).size,
       });
       for (const p of list.profiles) {
+        if (generation !== profileRefreshGeneration) return;
         try {
           const runtime = runtimeForProfile(get().workspaces, p.name);
           const st = await nextctlJson<SessionStatus>(["status", "--profile", p.name, "--runtime", runtime]);
@@ -2575,6 +2589,7 @@ export const useStore = create<State>((set, get) => {
           if (get().profileIdentities[p.name]) profileIdentities[p.name] = get().profileIdentities[p.name];
         }
       }
+      if (generation !== profileRefreshGeneration) return;
       // A poll can start before a launch and finish while that launch is still
       // preparing the browser. Do not turn Starting into a misleading Stopped
       // (or Unknown), or Running before verification settles. A newer stop/remove
@@ -2583,7 +2598,7 @@ export const useStore = create<State>((set, get) => {
         const launch = pendingProfileLaunches.get(name);
         if (launch !== undefined && launch === profileOperationEpoch.get(name)) statuses[name] = "starting";
       }
-      set({ profiles: list.profiles, statuses, profileSessions, profileIdentities });
+      set({ statuses, profileSessions, profileIdentities });
     } catch {
       /* non-fatal */
     }
@@ -3102,7 +3117,7 @@ export const useStore = create<State>((set, get) => {
     if (id === get().agentId) return;
     trackEvent("agent_switched", { from_agent: get().agentId, to_agent: id });
     localStorage.setItem("lastAgent", id);
-    set({ agentId: id });
+    set({ agentId: id, startupAgentSuggestion: undefined });
     get().ensureConversation(id);
     get().reconcileQueues();
     get().startConsumer(id);
@@ -3123,6 +3138,7 @@ export const useStore = create<State>((set, get) => {
   },
 
   authorizeAgent: async (options = {}) => {
+    if (!options.suggestInstalledAlternative) set({ startupAgentSuggestion: undefined });
     const startedAt = performance.now();
     const agentId = get().agentId;
     const rt = get().runtime[agentId];
@@ -3197,6 +3213,28 @@ export const useStore = create<State>((set, get) => {
     } catch (error) {
       trackTiming("agent_connect_failed", startedAt, { agent: agentId });
       const missingInstall = missingAgentInstallError(error, a);
+      if (missingInstall && agentId === "claude" && options.suggestInstalledAlternative) {
+        const codex = agentById("codex");
+        try {
+          const version = await invoke<string>("agent_authorize", { binary: codex.binary, envVar: codex.envVar });
+          const loggedIn = await invoke<boolean | null>("agent_check_login", {
+            binary: codex.binary, envVar: codex.envVar, statusArgs: codex.statusArgs ?? [],
+          }).catch(() => null);
+          // Discovery must not connect an agent, run queued work, or change an
+          // existing conversation. The gate offers the installed alternative.
+          if (version && get().agentId === agentId) {
+            set((s) => ({
+              startupAgentSuggestion: "codex",
+              runtime: {
+                ...s.runtime,
+                claude: { ...s.runtime.claude, ready: false, authorizing: false, error: undefined },
+                codex: { ...s.runtime.codex, version, loggedIn },
+              },
+            }));
+            return;
+          }
+        } catch { /* Neither agent is installed: retain the actionable error. */ }
+      }
       set((s) => ({
         runtime: {
           ...s.runtime,
@@ -3480,6 +3518,14 @@ export const useStore = create<State>((set, get) => {
     set({ nextctlUpdating: true, nextctlUpdateStatus: undefined });
     try {
       if (pendingTarget(get(), "vps")) return false;
+      if (get().nextctlCompatibilityError) {
+        // The old executable cannot run even update under mandatory verify.
+        // The host installs and validates a release without launching browsers.
+        await invoke("nextctl_reinstall");
+        const authed = await refreshLocalNextctlMetadata();
+        set({ authed });
+        return get().nextctlAvailable;
+      }
       // Updating also refreshes Clawbrowser and agent assets. On slower or
       // filtered networks that can legitimately take longer than the normal
       // one-minute command timeout.
@@ -3509,7 +3555,7 @@ export const useStore = create<State>((set, get) => {
       if (pendingTarget(get(), "vps")) return true;
       const supportsSkill = await invoke<boolean>("nextctl_supports_skill");
       if (pendingTarget(get(), "vps")) return true;
-      set({ nextctlVersion: normalizeNextctlVersion(ver), nextctlSupportsSkill: supportsSkill, nextctlAvailable: true });
+      set({ nextctlVersion: normalizeNextctlVersion(ver), nextctlSupportsSkill: supportsSkill, nextctlAvailable: true, nextctlCompatibilityError: undefined });
       trackTiming("nextctl_update_completed", startedAt, { supports_skill: supportsSkill });
       return true;
     } catch (error) {
@@ -3532,6 +3578,8 @@ export const useStore = create<State>((set, get) => {
   syncProjects: async () => {
     if (!get().authed || get().projectsSyncing) return;
     set({ projectsSyncing: true });
+    const initialWorkspaces = get().workspaces;
+    let retryWorkspaceSync = false;
     try {
       const workspaceResponse = await invoke<{ workspaces?: Array<{
         id: string; name: string; document: Partial<Workspace>; revision: number; updated_at: string; created_at: string;
@@ -3600,12 +3648,6 @@ export const useStore = create<State>((set, get) => {
         }
         workspaceRevisions[workspace.id] = saved.revision;
       }
-      let activeWorkspaceId = get().activeWorkspaceId;
-      if (!workspaces.some((workspace) => workspace.id === activeWorkspaceId)) activeWorkspaceId = workspaces[0]?.id;
-      if (activeWorkspaceId) localStorage.setItem("activeWorkspaceId", activeWorkspaceId);
-      else localStorage.removeItem("activeWorkspaceId");
-      await saveJson("workspaces.json", workspaces);
-
       const response = await invoke<{ projects?: Array<{
         id: string; title: string; agent: string; chat_mode: "chat" | "terminal";
         workspace_id: string; document: Conversation; revision: number; updated_at: string;
@@ -3634,6 +3676,26 @@ export const useStore = create<State>((set, get) => {
         )) conversations[index] = normalized;
       }
 
+      // Profile creation can change workspace membership while the network
+      // requests above are pending. Never replace those edits with our snapshot.
+      const currentWorkspaces = get().workspaces;
+      if (currentWorkspaces !== initialWorkspaces) {
+        retryWorkspaceSync = true;
+        const initialById = new Map(initialWorkspaces.map((workspace) => [workspace.id, workspace]));
+        const syncedById = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
+        workspaces = currentWorkspaces.map((workspace) => {
+          const synced = syncedById.get(workspace.id);
+          if (workspace === initialById.get(workspace.id)) return synced ?? workspace;
+          return { ...workspace, updatedAt: Math.max(workspace.updatedAt, (synced?.updatedAt ?? 0) + 1) };
+        });
+        for (const workspace of syncedById.values()) {
+          if (!initialById.has(workspace.id) && !workspaces.some((item) => item.id === workspace.id)) workspaces.push(workspace);
+        }
+      }
+      let activeWorkspaceId = get().activeWorkspaceId;
+      if (!workspaces.some((workspace) => workspace.id === activeWorkspaceId)) activeWorkspaceId = workspaces[0]?.id;
+      if (activeWorkspaceId) localStorage.setItem("activeWorkspaceId", activeWorkspaceId);
+      else localStorage.removeItem("activeWorkspaceId");
       applyingCloudProjects = true;
       set({
         conversations,
@@ -3642,6 +3704,7 @@ export const useStore = create<State>((set, get) => {
         projectRevisions: revisions,
         workspaceRevisions,
       });
+      await saveJson("workspaces.json", workspaces);
       await persistConvs(conversations);
       applyingCloudProjects = false;
 
@@ -3681,6 +3744,7 @@ export const useStore = create<State>((set, get) => {
           state.activeWorkspaceId,
         ),
       });
+      if (retryWorkspaceSync) void get().syncProjects().catch(() => {});
     }
   },
 

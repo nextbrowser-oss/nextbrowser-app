@@ -760,6 +760,47 @@ describe("VPS execution target isolation", () => {
     );
   });
 
+  it.each([true, false, null])("offers installed Codex after missing Claude at startup (login %s), without switching chats or running work", async (loggedIn) => {
+    const existing = { ...conversation("claude-project", "local"), agent: "claude" };
+    useStore.setState((state) => ({
+      agentId: "claude", conversations: [existing],
+      runtime: { ...state.runtime, claude: { ...state.runtime.claude, ready: false }, codex: { ...state.runtime.codex, ready: false } },
+    }));
+    bridge.invoke.mockImplementation((command, args) => {
+      if (command === "agent_authorize" && args.binary === "claude") return Promise.reject(new Error("claude executable not found"));
+      if (command === "agent_authorize" && args.binary === "codex") return Promise.resolve("1.2.3");
+      if (command === "agent_check_login") return Promise.resolve(loggedIn);
+      return Promise.resolve(null);
+    });
+    await useStore.getState().authorizeAgent({ suggestInstalledAlternative: true });
+    const state = useStore.getState();
+    expect(state.startupAgentSuggestion).toBe("codex");
+    expect(state.runtime.claude.error).toBeUndefined();
+    expect(state.runtime.codex).toMatchObject({ version: "1.2.3", loggedIn, ready: false });
+    expect(state.agentId).toBe("claude");
+    expect(state.conversations).toEqual([existing]);
+    expect(state.startConsumer).not.toHaveBeenCalled();
+    expect(localNextctlCalls()).toHaveLength(0);
+  });
+
+  it("keeps the install error when neither Claude nor Codex is available", async () => {
+    useStore.setState((state) => ({ agentId: "claude", runtime: { ...state.runtime, claude: { ...state.runtime.claude, ready: false } } }));
+    bridge.invoke.mockImplementation((_command, args) => Promise.reject(new Error(`${args.binary} executable not found`)));
+    await useStore.getState().authorizeAgent({ suggestInstalledAlternative: true });
+    expect(useStore.getState().startupAgentSuggestion).toBeUndefined();
+    expect(useStore.getState().runtime.claude.error).toContain("Claude Code CLI not found");
+  });
+
+  it("does not suggest another agent on explicit Claude connection or on non-install errors", async () => {
+    for (const [error, options] of [["claude executable not found", {}], ["connection timed out", { suggestInstalledAlternative: true }]] as const) {
+      bridge.invoke.mockReset();
+      useStore.setState((state) => ({ agentId: "claude", runtime: { ...state.runtime, claude: { ...state.runtime.claude, ready: false } } }));
+      bridge.invoke.mockRejectedValue(new Error(error));
+      await useStore.getState().authorizeAgent(options);
+      expect(bridge.invoke.mock.calls.some(([, args]) => args?.binary === "codex")).toBe(false);
+    }
+  });
+
   it("rejects a VPS marker inserted into a queued local turn", () => {
     const local = conversation("local", "local");
     useStore.setState({ conversations: [local], activeConvId: { codex: local.id } });
@@ -1071,6 +1112,36 @@ describe("Live View runtime selection", () => {
 });
 
 describe("local component and profile lifecycle", () => {
+  it("repairs an incompatible CLI without invoking update through that executable", async () => {
+    useStore.setState({ nextctlCompatibilityError: "VERIFY_REQUIRED", nextctlAvailable: false });
+    bridge.invoke.mockImplementation((command) => {
+      if (command === "nextctl_reinstall") return Promise.resolve(true);
+      if (command === "nextctl_resolve") return Promise.resolve("/managed/nbc");
+      if (command === "nextctl_version") return Promise.resolve("nextctl 1.3.0");
+      if (command === "nextctl_supports_skill") return Promise.resolve(true);
+      return Promise.resolve(null);
+    });
+    await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(true);
+    expect(bridge.invoke).toHaveBeenCalledWith("nextctl_reinstall");
+    expect(localNextctlCalls().some((call) => call[1]?.args?.includes("update"))).toBe(false);
+    expect(useStore.getState().nextctlCompatibilityError).toBeUndefined();
+    expect(useStore.getState().nextctlAvailable).toBe(true);
+  });
+
+  it("keeps browser work blocked when the replacement CLI is still incompatible", async () => {
+    vi.useFakeTimers();
+    try {
+      useStore.setState({ nextctlCompatibilityError: "VERIFY_REQUIRED", nextctlAvailable: false });
+      bridge.invoke.mockRejectedValue(new Error("VERIFY_REQUIRED: incompatible release"));
+      await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(false);
+      expect(useStore.getState().nextctlAvailable).toBe(false);
+      expect(useStore.getState().nextctlCompatibilityError).toBeTruthy();
+      expect(localNextctlCalls()).toHaveLength(0);
+      // Consume the bounded retry timers without leaking them into another test.
+      await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+    } finally { vi.useRealTimers(); }
+  });
+
   it("stops a persisted streaming reply when no agent process owns it", () => {
     const stale = conversation("stale", "local", [
       message("user", "user", "Hello"),

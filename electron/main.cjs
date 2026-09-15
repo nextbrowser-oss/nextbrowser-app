@@ -3,6 +3,7 @@ const { requireVerificationCapableCLI, verificationFailureDialogOptions, verific
 const { agentLoginStatus } = require("./agent-login-status.cjs");
 const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage } = require("electron");
 const { autoUpdater } = require("electron-updater");
+const { createAppUpdateDownload } = require("./app-update-download.cjs");
 const { execFileSync, spawn } = require("node:child_process");
 const { feedbackBuildContext } = require("./app-build-info.cjs");
 const fs = require("node:fs/promises");
@@ -491,6 +492,8 @@ async function installManagedNextctl() {
       await extractArchive(archivePath, archive.kind, extractDir);
       const extracted = findNextctlInTree(extractDir);
       if (!extracted) throw new Error("Downloaded nextctl archive did not contain a nextctl binary.");
+      // Reject incompatible releases before replacing an installed binary.
+      await requireVerificationCapableCLI(extracted, run);
       await fs.mkdir(managedNextctlRoot(), { recursive: true });
       await fs.copyFile(extracted, managedNextctlBin());
       if (process.platform !== "win32") await fs.chmod(managedNextctlBin(), 0o755);
@@ -1123,7 +1126,7 @@ function configureAutoUpdater() {
   autoUpdater.on("checking-for-update", () => setAppUpdateStatus("checking"));
   autoUpdater.on("update-available", (info) => setAppUpdateStatus("available", { version: info.version }));
   autoUpdater.on("update-not-available", (info) => setAppUpdateStatus("not-available", { version: info.version }));
-  autoUpdater.on("download-progress", (progress) => setAppUpdateStatus("downloading", { percent: Math.round(progress.percent ?? 0) }));
+  autoUpdater.on("download-progress", (progress) => setAppUpdateStatus("downloading", { version: appUpdateStatus.version, percent: Math.round(progress.percent ?? 0) }));
   autoUpdater.on("update-downloaded", (info) => setAppUpdateStatus("downloaded", { version: info.version }));
   autoUpdater.on("error", (error) => setAppUpdateStatus("error", { message: error?.message || String(error) }));
 }
@@ -1153,6 +1156,14 @@ function checkForAppUpdate() {
     return null;
   }
 }
+const downloadAppUpdate = createAppUpdateDownload({
+  supported: appUpdatesSupported,
+  getStatus: () => appUpdateStatus,
+  setStatus: setAppUpdateStatus,
+  check: checkForAppUpdate,
+  download: () => autoUpdater.downloadUpdate(),
+  reportError: reportUpdaterError,
+});
 function startAutoUpdater() {
   try {
     configureAutoUpdater();
@@ -1563,23 +1574,7 @@ async function invokeCommand(command, args = {}, sender) {
       await checkForAppUpdate();
       return appUpdateStatus;
     }
-    case "app_download_update": {
-      if (!appUpdatesSupported()) {
-        setAppUpdateStatus("disabled", { message: "App updates are unavailable in this build." });
-        return appUpdateStatus;
-      }
-      if (!["available", "downloaded"].includes(appUpdateStatus.status)) {
-        await checkForAppUpdate();
-      }
-      if (appUpdateStatus.status === "available") {
-        try {
-          await autoUpdater.downloadUpdate();
-        } catch (error) {
-          reportUpdaterError(error);
-        }
-      }
-      return appUpdateStatus;
-    }
+    case "app_download_update": return downloadAppUpdate();
     case "app_install_update": {
       if (appUpdateStatus.status !== "downloaded") return false;
       try {
@@ -1684,6 +1679,13 @@ async function invokeCommand(command, args = {}, sender) {
     }
     case "nextctl_resolve": return await resolveOrInstallNextctl();
     case "nextctl_install_status": return nextctlInstallStatus;
+    case "nextctl_reinstall": {
+      if (process.env.NEXTCTL_BIN) throw new Error("Update the CLI selected by NEXTCTL_BIN, then restart NextBrowser.");
+      const installed = await installManagedNextctl();
+      await requireVerificationCapableCLI(installed, run);
+      verifiedNextctlBin = installed;
+      return true;
+    }
     case "browser_runtime_install_status": return browserRuntimeInstallStatus;
     case "browser_runtime_available": {
       const runtime = ["clawbrowser", "dasbrowser", "camoufox"].includes(args.runtime) ? args.runtime : "clawbrowser";

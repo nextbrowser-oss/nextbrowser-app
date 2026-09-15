@@ -143,8 +143,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceSaving, setWorkspaceSaving] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
-  const [projectsOpen, setProjectsOpen] = useState(true);
-  const [profilesOpen, setProfilesOpen] = useState(false);
+  const [openSection, setOpenSection] = useState<"projects" | "profiles" | null>("projects");
   const [dragOverProfileName, setDragOverProfileName] = useState<string | null>(null);
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
@@ -237,6 +236,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const agentName = agentById(s.agentId).name;
   const ready = s.agentReady();
   const searchQuery = s.profileSearch.trim();
+  // Search reveals both result types without overwriting the accordion selection.
+  const projectsOpen = !!searchQuery || openSection === "projects";
+  const profilesOpen = !!searchQuery || openSection === "profiles";
   const normalizedSearch = searchQuery.toLowerCase();
   const profiles = s.profiles;
   const projects = s.conversations.filter((project) => project.workspaceId === s.activeWorkspaceId)
@@ -634,10 +636,12 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
   useEffect(() => {
     const revealProject = () => {
-      setProjectsOpen(true);
+      setOpenSection("projects");
       window.requestAnimationFrame(() => projectListRef.current?.scrollTo({ top: 0, behavior: "smooth" }));
     };
-    const revealProfile = () => setProfilesOpen(true);
+    const revealProfile = () => {
+      setOpenSection("profiles");
+    };
     window.addEventListener("nextbrowser:project-created", revealProject);
     window.addEventListener("nextbrowser:profile-created", revealProfile);
     return () => {
@@ -664,7 +668,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
   useEffect(() => {
     const focusProfiles = () => {
-      setProfilesOpen(true);
+      setOpenSection("profiles");
       s.setProfileSearch("");
       setProfileGuideFocus(false);
       window.cancelAnimationFrame(guideFocusFrameRef.current);
@@ -1250,14 +1254,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               className="search-inline"
               placeholder="Search"
               value={s.profileSearch}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (value.trim()) {
-                  setProjectsOpen(true);
-                  setProfilesOpen(true);
-                }
-                s.setProfileSearch(value);
-              }}
+              onChange={(e) => s.setProfileSearch(e.target.value)}
             />
             {s.profileSearch && (
               <button
@@ -1273,7 +1270,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           <div className="profile-list workspace-content">
             <section className={"workspace-section workspace-chats" + (projectsOpen ? " is-open" : "")}>
               <div className="workspace-section-head">
-                <button className="workspace-section-toggle" onClick={() => setProjectsOpen((open) => !open)} aria-expanded={projectsOpen} aria-label={projectsOpen ? "Collapse projects" : "Expand projects"}>
+                <button className="workspace-section-toggle" onClick={() => {
+                  if (!searchQuery) setOpenSection((current) => current === "projects" ? null : "projects");
+                }} disabled={!!searchQuery} aria-expanded={projectsOpen} aria-label={projectsOpen ? "Collapse projects" : "Expand projects"}>
                   <Icon name="chevron.right" size={10} className={projectsOpen ? "section-chevron open" : "section-chevron"} />
                   <Icon name="folder" size={12} />
                   <span>Projects</span>
@@ -1324,7 +1323,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
             <section ref={profilesSectionRef} className={"workspace-section workspace-profiles" + (profilesOpen ? " is-open" : "") + (profileGuideFocus ? " guide-focus" : "")}>
               <div className="workspace-section-head">
-                <button className="workspace-section-toggle" onClick={() => setProfilesOpen((open) => !open)} aria-expanded={profilesOpen} aria-label={profilesOpen ? "Collapse profiles" : "Expand profiles"}>
+                <button className="workspace-section-toggle" onClick={() => {
+                  if (!searchQuery) setOpenSection((current) => current === "profiles" ? null : "profiles");
+                }} disabled={!!searchQuery} aria-expanded={profilesOpen} aria-label={profilesOpen ? "Collapse profiles" : "Expand profiles"}>
                   <Icon name="chevron.right" size={10} className={profilesOpen ? "section-chevron open" : "section-chevron"} />
                   <Icon name="person.2.fill" size={12} />
                   <span>Profiles</span>
@@ -1442,8 +1443,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       <hr className="divider" />
       <div className={"sidebar-account-footer" + (s.authed ? " is-connected" : "")}>
         <Icon name={s.authed ? "person.crop.circle" : "lock"} size={14} />
-        <span title={s.authed ? s.accountEmail || "Browser account connected" : "Browser account not connected"}>
-          {s.authed ? s.accountEmail || "Browser account connected" : "Browser account not connected"}
+        <span title={s.nextctlCompatibilityError || (s.authed ? s.accountEmail || "Browser account connected" : "Browser account not connected")}>
+          {s.nextctlCompatibilityError ? "Update nextctl to check account" : s.authed ? s.accountEmail || "Browser account connected" : "Browser account not connected"}
         </span>
         {s.authed ? (
           <button
@@ -1484,7 +1485,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             · <UserFacingError message={s.nextctlUpdateStatus} surface="component_update" />
           </span>
         )}
-        {!s.nextctlSupportsSkill && <span className="warn"> · no skill cmd</span>}
+        {!s.nextctlSupportsSkill && !s.nextctlCompatibilityError && <span className="warn"> · no skill cmd</span>}
         <span className="spacer" />
         <button
           className={"agent-footer-status" + (ready ? " is-ready" : "")}

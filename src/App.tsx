@@ -361,6 +361,24 @@ function GlobalErrorNotice({ error, onClose }: { error: { reference: string; det
   );
 }
 
+function ManualReleaseDownload({ onOpen }: { onOpen: () => Promise<void> }) {
+  const [state, setState] = useState<"idle" | "opening" | "opened" | "error">("idle");
+  const open = async () => {
+    if (state === "opening") return;
+    setState("opening");
+    try { await onOpen(); setState("opened"); }
+    catch { setState("error"); }
+  };
+  return <div>
+    <button className="mini primary-mini" disabled={state === "opening"} onClick={() => void open()}>
+      {state === "opening" && <Spinner size={12} />}
+      {state === "opening" ? "Opening download…" : "Download update"}
+    </button>
+    {state === "opened" && <p className="muted small" role="status">Download opened in your browser. When it finishes, open the DMG from Downloads and drag NextBrowser into Applications.</p>}
+    {state === "error" && <p className="error small" role="alert">Could not open the download. Please try again.</p>}
+  </div>;
+}
+
 function SettingsModal({
   onClose,
   onOpenUsage,
@@ -385,7 +403,7 @@ function SettingsModal({
   onCheckBrowserRuntimeUpdates: () => void;
   onDownloadUpdate: () => void;
   onInstallUpdate: () => void;
-  onOpenRelease: () => void;
+  onOpenRelease: () => Promise<void>;
   onRequestBrowserRuntimeUpdate: (runtime: BrowserRuntimeUpdateEntry) => void;
 }) {
   const [agentLogoutPending, setAgentLogoutPending] = useState(false);
@@ -404,6 +422,7 @@ function SettingsModal({
     return s.profiles.length + (defaultKnown && !hasListedDefault ? 1 : 0);
   });
   const proxy = useStore((s) => s.proxy);
+  const proxySafetyBlocked = useStore((s) => s.proxySafetyBlocked);
   const agentSpec = agentById(agentId);
   const agentName = agentSpec.name;
   const agentDetected = !!agentVersion;
@@ -462,9 +481,7 @@ function SettingsModal({
               </strong>
               {manualUpdate ? (
                 updateAvailable(appUpdate) ? (
-                  <button className="mini primary-mini" onClick={onOpenRelease}>
-                    Download update
-                  </button>
+                  <ManualReleaseDownload onOpen={onOpenRelease} />
                 ) : null
               ) : (
                 <>
@@ -482,6 +499,7 @@ function SettingsModal({
               )}
             </div>
           </div>
+          {appUpdate.status === "downloading" && <InstallationProgress label={`Downloading NextBrowser ${appUpdate.percent ?? 0}%`} />}
           <div className="settings-row">
             <span className="muted small">nextctl</span>
             <strong>{nextctlVersion || "not detected"}</strong>
@@ -492,8 +510,8 @@ function SettingsModal({
           </div>
           <div className="settings-row">
             <span className="muted small">Proxy</span>
-            <span className={proxy ? "ok small" : "muted small"}>
-              {proxy ? proxy.state : "locked"}
+            <span className={proxySafetyBlocked ? "warn small" : proxy ? "ok small" : "muted small"}>
+              {proxySafetyBlocked ? "Verification required · local tasks paused" : proxy ? proxy.state : "locked"}
             </span>
           </div>
         </div>
@@ -630,7 +648,7 @@ function AppUpdatePrompt({
   onLater: () => void;
   onDownload: () => void;
   onInstall: () => void;
-  onOpenRelease: () => void;
+  onOpenRelease: () => Promise<void>;
 }) {
   const downloading = status.status === "downloading";
   const downloaded = status.status === "downloaded";
@@ -655,11 +673,12 @@ function AppUpdatePrompt({
                 ? "Downloading the update — you can keep working."
                 : "Update now, or keep working and install it later from Settings."}
         </p>
+        {downloading && <InstallationProgress label={`Downloading NextBrowser ${status.percent ?? 0}%`} />}
         <div className="row settings-actions">
           <button className="secondary" onClick={onLater}>Later</button>
           <span className="spacer" />
           {manual ? (
-            <button className="primary" onClick={onOpenRelease}>Download update</button>
+            <ManualReleaseDownload onOpen={onOpenRelease} />
           ) : (
             <button
               className="primary"
@@ -818,9 +837,7 @@ export function App() {
     } catch {
       // Browser previews and unsupported builds fall back to the releases page.
     }
-    await invoke("open_external", { url }).catch(() => {
-      window.open(url, "_blank", "noopener,noreferrer");
-    });
+    await invoke("open_external", { url });
   };
   const requestBrowserRuntimeUpdate = (runtime: BrowserRuntimeUpdateEntry) => {
     setRuntimeUpdatePrompt([runtime]);
@@ -1279,7 +1296,6 @@ export function App() {
 
   return (
     <div className="app">
-      <ProxySafetyBanner />
       <aside
         className={"sidebar thin-material" + (sidebarCollapsed ? " sidebar-collapsed" : "")}
         style={{ width: sidebarCollapsed ? 68 : sidebarWidth }}
@@ -1324,6 +1340,7 @@ export function App() {
           </div>
         </nav>
         <hr className="divider" />
+        <ProxySafetyBanner />
         {workspaceSyncing && <div className="workspace-sync-status muted small" role="status">
           <Spinner size={12} /> Syncing workspace…
         </div>}
