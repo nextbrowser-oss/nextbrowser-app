@@ -47,7 +47,11 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
   const engineState = useStore((s) => s.xReplyState);
   const busy = useStore((s) => s.xReplyBusy);
   const signInNeeded = useStore((s) => s.xReplySignInNeeded);
-  const browserProfiles = useStore((s) => s.profiles);
+  const allBrowserProfiles = useStore((s) => s.profiles);
+  const workspaces = useStore((s) => s.workspaces);
+  const activeWorkspaceId = useStore((s) => s.activeWorkspaceId);
+  const workspace = workspaces.find((item) => item.id === activeWorkspaceId);
+  const browserProfiles = allBrowserProfiles.filter((profile) => workspace?.profileNames.includes(profile.name));
   const selectedProfile = useStore((s) => s.selectedProfile);
   const dismissSignIn = useStore((s) => s.dismissXReplySignIn);
   const step = useStore((s) => s.xReplyStep);
@@ -118,7 +122,14 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
   // The panel's own check is fresher than whatever a pass recorded, so it
   // wins; the agent's record still answers before anyone has checked.
   const publisher = engine ? engineState.publisher : (watchlistSignIn ?? watchPublishers[entry.id]);
-  const signedIn = publisher?.signedIn === true;
+  const savedProfile = engine ? engineState.profileName : watchlistProfile;
+  const effectiveProfile = savedProfile ?? selectedProfile;
+  const requiresBrowserProfile = engine || (!!signInConfig && !onDevice);
+  const profileAvailable = !requiresBrowserProfile || browserProfiles.some((profile) => profile.name === effectiveProfile);
+  const selectedInWorkspace = browserProfiles.some((profile) => profile.name === selectedProfile);
+  const selectedLabel = selectedInWorkspace ? `Selected · ${selectedProfile}` : "Choose a profile";
+  const profileValue = profileAvailable ? (savedProfile ?? "") : "__choose_profile__";
+  const signedIn = profileAvailable && publisher?.signedIn === true;
   const recentDrafts = engine
     ? engineState.drafts.filter((item) => item.status !== "rejected").slice(-3).reverse()
     : [];
@@ -145,6 +156,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
    *  for it at the moment it is needed and then resumes what the user pressed,
    *  instead of standing in front of the list from the start. */
   const withSignIn = async (action: PendingAction) => {
+    if (!profileAvailable) return;
     if (!gated || signedIn) {
       perform(action);
       return;
@@ -158,6 +170,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
   };
 
   const confirmSignedIn = async () => {
+    if (!profileAvailable) return;
     const ok = await ensureSignedIn(entry);
     setSignInTried(true);
     if (!ok) return;
@@ -183,7 +196,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
     // Confirming an account subscribes it there and then: the bell goes on and
     // the account's current position is recorded, so the first pass answers what
     // comes next rather than the whole visible timeline.
-    if (!known && engine) void withSignIn({ kind: "add", handle });
+    if (!known && engine && profileAvailable) void withSignIn({ kind: "add", handle });
   };
 
   const openProfile = (handle: string) => {
@@ -267,12 +280,13 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
           <div className="row watchlist-profile">
             <label className="muted small">Profile</label>
             <select
-              value={watchlistProfile ?? ""}
-              disabled={watchlistBusy}
+              value={profileValue}
+              disabled={watchlistBusy || run?.enabled}
               title="The browser profile this skill signs in and runs its passes with"
               onChange={(event) => setWatchlistProfile(entry, event.target.value || undefined)}
             >
-              <option value="">{selectedProfile ? `Selected · ${selectedProfile}` : "Default session"}</option>
+              {!profileAvailable && <option value="__choose_profile__" disabled>Choose a profile in this workspace</option>}
+              {selectedInWorkspace && <option value="">{selectedLabel}</option>}
               {browserProfiles.map((profile) => (
                 <option key={profile.name} value={profile.name}>
                   {profile.name}{profile.country ? ` · ${profile.country.toUpperCase()}` : ""}
@@ -280,7 +294,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
               ))}
             </select>
             <span className="spacer" />
-            <button className="mini" disabled={watchlistBusy}
+            <button className="mini" disabled={watchlistBusy || !profileAvailable}
               title={`Open ${site} in this profile to sign in or switch account`}
               onClick={() => void openSite(entry)}>
               Open {site}
@@ -303,7 +317,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                     : `Sign-in to ${site} not checked yet`}
             </span>
             <span className="spacer" />
-            <button className="mini" disabled={watchlistBusy}
+            <button className="mini" disabled={watchlistBusy || !profileAvailable}
               title={`Read which account is signed in to ${site} in this profile`}
               onClick={() => void checkWatchlistSignIn(entry)}>
               {watchlistBusy ? "Checking…" : "Check"}
@@ -315,7 +329,8 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
           <div className="row watchlist-profile">
             <label className="muted small">Profile</label>
             <select
-              value={engineState.profileName ?? ""}
+              value={profileValue}
+              disabled={busy || run?.enabled}
               onChange={(event) => {
                 const name = event.target.value || undefined;
                 // A different profile is a different browser with its own
@@ -323,7 +338,8 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                 updateSettings({ profileName: name, publisher: undefined });
               }}
             >
-              <option value="">{selectedProfile ? `Selected · ${selectedProfile}` : "Default session"}</option>
+              {!profileAvailable && <option value="__choose_profile__" disabled>Choose a profile in this workspace</option>}
+              {selectedInWorkspace && <option value="">{selectedLabel}</option>}
               {browserProfiles.map((profile) => (
                 <option key={profile.name} value={profile.name}>
                   {profile.name}{profile.country ? ` · ${profile.country.toUpperCase()}` : ""}
@@ -331,11 +347,15 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
               ))}
             </select>
             <span className="spacer" />
-            <button className="mini" disabled={busy} title={`Open ${site} in this profile to sign in or switch account`}
+            <button className="mini" disabled={busy || !profileAvailable} title={`Open ${site} in this profile to sign in or switch account`}
               onClick={() => void openSkillSite(entry)}>
               Open {site}
             </button>
           </div>
+        )}
+
+        {requiresBrowserProfile && !profileAvailable && (
+          <p className="muted small" role="status">Choose a browser profile from this workspace before opening the site or starting checks.</p>
         )}
 
         {engine && (
@@ -351,8 +371,8 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
             </select>
             <span className="muted small">
               {engineState.watchSource === "notifications"
-                ? "One feed read per pass; needs the Notify bell on every account."
-                : "Opens every watched profile on each pass; no bell needed."}
+                ? "Checks the notifications feed for new posts. Turn on notifications for each watched account."
+                : "Checks each watched account for new posts at the interval below. No notifications needed."}
             </span>
           </div>
         )}
@@ -384,7 +404,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                 ? (blurb ?? "Add an account to watch.")
                 : engineState.watchSource === "notifications"
                   ? `Add an account — its ${site} post notifications get switched on.`
-                  : `Add an account — its ${site} profile is read on every pass.`}
+                  : `Add an account to check its ${site} profile for new posts at the interval below.`}
             </span>
           </div>
         ) : (
@@ -428,7 +448,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                   <div className="watchlist-actions">
                     <button
                       className="mini"
-                      disabled={!ready || busy}
+                      disabled={!profileAvailable || !ready || busy}
                       title={!engine
                         ? "Ask the agent to subscribe"
                         : engineState.watchSource === "notifications"
@@ -470,10 +490,10 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
             <div className="row watchlist-signin-actions">
               <button className="mini" disabled={signInBusy} onClick={cancelSignIn}>Cancel</button>
               <span className="spacer" />
-              <button className="btn-bordered" disabled={signInBusy} onClick={() => void openSite(entry)}>
+              <button className="btn-bordered" disabled={signInBusy || !profileAvailable} onClick={() => void openSite(entry)}>
                 <Icon name="arrow.up.right.square" size={13} /> Sign in
               </button>
-              <button className="btn-bordered-prominent" disabled={signInBusy} onClick={() => void confirmSignedIn()}>
+              <button className="btn-bordered-prominent" disabled={signInBusy || !profileAvailable} onClick={() => void confirmSignedIn()}>
                 I'm signed in
               </button>
             </div>
@@ -542,6 +562,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
               Every
               <select
                 value={run?.enabled ? run.intervalMinutes : interval}
+                disabled={!profileAvailable}
                 onChange={(event) => {
                   const minutes = Number(event.target.value);
                   setInterval(minutes);
@@ -579,7 +600,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
             <span className="spacer" />
             <button
               className="btn-bordered"
-              disabled={!ready || busy || activeCount === 0 || run?.enabled}
+              disabled={!profileAvailable || !ready || busy || activeCount === 0 || run?.enabled}
               title="Run one pass now without starting the loop"
               onClick={() => void runWatchlistPass(entry)}
             >
@@ -592,7 +613,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
             ) : (
               <button
                 className="btn-bordered-prominent"
-                disabled={!ready || busy || activeCount === 0}
+                disabled={!profileAvailable || !ready || busy || activeCount === 0}
                 title="Check the watched profiles on this interval"
                 onClick={() => void withSignIn({ kind: "start", minutes: interval })}
               >

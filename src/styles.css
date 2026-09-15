@@ -8371,3 +8371,28 @@ pre,
   background: #262016; color: #fff4df; box-shadow: 0 8px 32px #0006;
 }
 .proxy-safety-banner p { margin: 8px 0; font-size: 13px; line-height: 1.45; }
+
+/* Keep a usable profile viewport when zoom or a short window reduces space.
+   The whole navigation can scroll instead of crushing the profile rows. */
+.sidebar-nav-list {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.sidebar-nav-list > .profiles-card {
+  flex: 1 0 360px;
+  min-height: 360px;
+}
+.workspace-profile-list,
+.workspace-chat-list {
+  scrollbar-width: auto;
+}
+.workspace-profile-list::-webkit-scrollbar,
+.workspace-chat-list::-webkit-scrollbar {
+  width: 8px;
+}
+.workspace-profile-list::-webkit-scrollbar-thumb,
+.workspace-chat-list::-webkit-scrollbar-thumb {
+  background: var(--muted);
+  border: 2px solid var(--surface-1);
+  border-radius: 8px;
+}
