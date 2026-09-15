@@ -176,6 +176,7 @@ interface AgentRuntime {
 }
 
 interface AgentAuthorizationOptions {
+  suggestInstalledAlternative?: boolean;
   skipNextctlSetup?: boolean;
   deferMissingNextctlPrompt?: boolean;
 }
@@ -436,6 +437,8 @@ interface State {
   nextctlUpdateStatus?: string;
   nextctlSupportsSkill: boolean;
   nextctlAvailable: boolean;
+  nextctlCompatibilityError?: string;
+  startupAgentSuggestion?: string;
   skillCategories: SkillCategory[];
   watchedProfiles: WatchedProfile[];
   watchReports: Record<string, WatchedProfileReport>;
@@ -1149,6 +1152,7 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
       nextctlVersion: normalizeNextctlVersion(ver),
       nextctlSupportsSkill: supportsSkill,
       nextctlAvailable: true,
+      nextctlCompatibilityError: undefined,
     });
     trackEvent("nextctl_detected", { supports_skill: supportsSkill });
     try {
@@ -1163,15 +1167,19 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
       trackEvent("analytics_identity_unavailable", { phase: "bootstrap" });
       return false;
     }
-  } catch {
+  } catch (error) {
     setAnalyticsUserId(undefined);
+    const incompatible = String(error).includes("VERIFY_REQUIRED");
     useStore.setState({
       accountEmail: undefined,
-      nextctlVersion: "not found",
+      nextctlVersion: incompatible ? "update required" : "not found",
       nextctlSupportsSkill: false,
       nextctlAvailable: false,
+      nextctlCompatibilityError: incompatible
+        ? "This nextctl version cannot enforce browser verification. Update nextctl to continue."
+        : undefined,
     });
-    trackEvent("nextctl_missing");
+    trackEvent(incompatible ? "nextctl_incompatible" : "nextctl_missing");
     return false;
   }
 }
@@ -1678,7 +1686,7 @@ export const useStore = create<State>((set, get) => {
       get().startTimers();
 
       // These operations have their own status UI and cannot hold the splash.
-      void get().authorizeAgent({ deferMissingNextctlPrompt: true });
+      void get().authorizeAgent({ deferMissingNextctlPrompt: true, suggestInstalledAlternative: true });
       if (!hasCompletedCurrentOnboarding(localStorage)) set({ showOnboarding: true });
       void (async () => {
         if (authenticated && !pendingTarget(get(), "vps")) {
@@ -3090,7 +3098,7 @@ export const useStore = create<State>((set, get) => {
     if (id === get().agentId) return;
     trackEvent("agent_switched", { from_agent: get().agentId, to_agent: id });
     localStorage.setItem("lastAgent", id);
-    set({ agentId: id });
+    set({ agentId: id, startupAgentSuggestion: undefined });
     get().ensureConversation(id);
     get().reconcileQueues();
     get().startConsumer(id);
@@ -3111,6 +3119,7 @@ export const useStore = create<State>((set, get) => {
   },
 
   authorizeAgent: async (options = {}) => {
+    if (!options.suggestInstalledAlternative) set({ startupAgentSuggestion: undefined });
     const startedAt = performance.now();
     const agentId = get().agentId;
     const rt = get().runtime[agentId];
@@ -3185,6 +3194,28 @@ export const useStore = create<State>((set, get) => {
     } catch (error) {
       trackTiming("agent_connect_failed", startedAt, { agent: agentId });
       const missingInstall = missingAgentInstallError(error, a);
+      if (missingInstall && agentId === "claude" && options.suggestInstalledAlternative) {
+        const codex = agentById("codex");
+        try {
+          const version = await invoke<string>("agent_authorize", { binary: codex.binary, envVar: codex.envVar });
+          const loggedIn = await invoke<boolean | null>("agent_check_login", {
+            binary: codex.binary, envVar: codex.envVar, statusArgs: codex.statusArgs ?? [],
+          }).catch(() => null);
+          // Discovery must not connect an agent, run queued work, or change an
+          // existing conversation. The gate offers the installed alternative.
+          if (version && get().agentId === agentId) {
+            set((s) => ({
+              startupAgentSuggestion: "codex",
+              runtime: {
+                ...s.runtime,
+                claude: { ...s.runtime.claude, ready: false, authorizing: false, error: undefined },
+                codex: { ...s.runtime.codex, version, loggedIn },
+              },
+            }));
+            return;
+          }
+        } catch { /* Neither agent is installed: retain the actionable error. */ }
+      }
       set((s) => ({
         runtime: {
           ...s.runtime,
@@ -3468,6 +3499,14 @@ export const useStore = create<State>((set, get) => {
     set({ nextctlUpdating: true, nextctlUpdateStatus: undefined });
     try {
       if (pendingTarget(get(), "vps")) return false;
+      if (get().nextctlCompatibilityError) {
+        // The old executable cannot run even update under mandatory verify.
+        // The host installs and validates a release without launching browsers.
+        await invoke("nextctl_reinstall");
+        const authed = await refreshLocalNextctlMetadata();
+        set({ authed });
+        return get().nextctlAvailable;
+      }
       // Updating also refreshes Clawbrowser and agent assets. On slower or
       // filtered networks that can legitimately take longer than the normal
       // one-minute command timeout.
@@ -3497,7 +3536,7 @@ export const useStore = create<State>((set, get) => {
       if (pendingTarget(get(), "vps")) return true;
       const supportsSkill = await invoke<boolean>("nextctl_supports_skill");
       if (pendingTarget(get(), "vps")) return true;
-      set({ nextctlVersion: normalizeNextctlVersion(ver), nextctlSupportsSkill: supportsSkill, nextctlAvailable: true });
+      set({ nextctlVersion: normalizeNextctlVersion(ver), nextctlSupportsSkill: supportsSkill, nextctlAvailable: true, nextctlCompatibilityError: undefined });
       trackTiming("nextctl_update_completed", startedAt, { supports_skill: supportsSkill });
       return true;
     } catch (error) {
