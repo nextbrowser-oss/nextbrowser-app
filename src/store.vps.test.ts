@@ -979,6 +979,23 @@ describe("browser profile creation", () => {
     expect(useStore.getState().profileIdentities.existing).toEqual({ country: "US" });
   });
 
+  it("leaves queued work untouched while proxy recovery is paused", () => {
+    useStore.setState({ proxySafetyBlocked: true });
+    const before = useStore.getState().runtime;
+    for (const id of Object.keys(before)) {
+      useStore.getState().startConsumer(id);
+      expect(useStore.getState().dequeue(id)).toBeNull();
+    }
+    expect(useStore.getState().runtime).toBe(before);
+    useStore.setState({ proxySafetyBlocked: false });
+  });
+
+  it("cannot remove the proxy from a stopped proxy profile", async () => {
+    useStore.setState({ profiles: [{ name: "work", proxy_mode: "manual" }], statuses: { work: "stopped" } });
+    await expect(useStore.getState().updateProfileConnection("work", "direct")).rejects.toThrow("cannot be changed to direct");
+    expect(localNextctlCalls()).toHaveLength(0);
+  });
+
   it("does not change the connection while the profile is running", async () => {
     useStore.setState({ statuses: { existing: "running" } });
 
@@ -1093,6 +1110,28 @@ describe("local component and profile lifecycle", () => {
     }
   });
 
+  it("requires verified preparation for the profile launch button", async () => {
+    useStore.setState({ profiles: [{ name: "work", proxy_mode: "manual" }], statuses: { work: "stopped" } });
+    await useStore.getState().startProfile("work");
+    expect(preflight.prepareSession).toHaveBeenCalledWith(expect.objectContaining({
+      selectedProfile: "work", proxyExpected: true, verifyOnly: true,
+      shouldContinue: expect.any(Function), onVerificationFailure: expect.any(Function),
+    }));
+  });
+
+  it("does not swallow verification failure when status refresh says the process is running", async () => {
+    preflight.prepareSession.mockRejectedValueOnce(new Error("verification failed"));
+    useStore.setState({ statuses: { work: "running" } });
+    await expect(useStore.getState().startProfile("work")).rejects.toThrow("verification failed");
+    expect(useStore.getState().statuses.work).toBe("stopped");
+  });
+
+  it("does not claim the profile is stopped when cleanup itself fails", async () => {
+    preflight.prepareSession.mockRejectedValueOnce(new Error("Could not stop the unverified browser"));
+    await expect(useStore.getState().startProfile("work")).rejects.toThrow("Could not stop");
+    expect(useStore.getState().statuses.work).toBe("unknown");
+  });
+
   it("restores a profile status when launching it fails", async () => {
     useStore.setState({ statuses: { work: "stopped" } });
     bridge.invoke.mockResolvedValue({
@@ -1101,6 +1140,7 @@ describe("local component and profile lifecycle", () => {
       stderr: "browser runtime could not start",
     });
 
+    preflight.prepareSession.mockRejectedValueOnce(new Error("browser runtime could not start"));
     await expect(useStore.getState().startProfile("work")).rejects.toThrow("browser runtime could not start");
 
     expect(useStore.getState().statuses.work).toBe("stopped");
@@ -1109,6 +1149,7 @@ describe("local component and profile lifecycle", () => {
   it.each(["stopped", "unknown", "running"])("handles a %s poll while the launcher is still pending", async (status) => {
     let finish!: (value: unknown) => void;
     const pending = new Promise((resolve) => { finish = resolve; });
+    preflight.prepareSession.mockImplementationOnce(() => pending);
     bridge.invoke.mockImplementation(async (command, payload) => {
       if (command !== "nextctl_run") return null;
       const args = payload.args as string[];
@@ -1122,7 +1163,7 @@ describe("local component and profile lifecycle", () => {
     const launch = useStore.getState().startProfile("work");
     try {
       await useStore.getState().loadProfiles();
-      expect(useStore.getState().statuses.work).toBe(status === "running" ? "running" : "starting");
+      expect(useStore.getState().statuses.work).toBe("starting");
     } finally {
       finish({ code: 0, stdout: "{}", stderr: "" });
       await launch;
@@ -1133,6 +1174,7 @@ describe("local component and profile lifecycle", () => {
   it("lets a newer stop supersede a pending launch during polling", async () => {
     let finish!: (value: unknown) => void;
     const pending = new Promise((resolve) => { finish = resolve; });
+    preflight.prepareSession.mockImplementationOnce(() => pending);
     bridge.invoke.mockImplementation(async (command, payload) => {
       if (command !== "nextctl_run") return null;
       const args = payload.args as string[];

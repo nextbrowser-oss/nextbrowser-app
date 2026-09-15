@@ -205,3 +205,80 @@ describe("onboarding setup handoff", () => {
     expect(useStore.getState().showOnboarding).toBe(false);
   });
 });
+
+describe("foreground startup deadline", () => {
+  it.each(["app_data_read", "nextctl_resolve", "nextctl_version", "identity"])(
+    "stops the main spinner when %s stalls, without declaring credentials invalid",
+    async (blockedCommand) => {
+      mockDesktop(true);
+      const normalInvoke = bridge.invoke.getMockImplementation()!;
+      bridge.invoke.mockImplementation((command, payload) => {
+        if (command === blockedCommand || (blockedCommand === "identity" && command === "nextctl_run" && payload?.args?.[0] === "identity")) {
+          return new Promise(() => {});
+        }
+        return normalInvoke(command, payload);
+      });
+      const { useStore } = await import("./store");
+      const startup = useStore.getState().bootstrap();
+      await vi.advanceTimersByTimeAsync(11_999);
+      expect(useStore.getState().checking).toBe(true);
+      await vi.advanceTimersByTimeAsync(1);
+      await startup;
+      expect(useStore.getState().checking).toBe(false);
+      expect(useStore.getState().startupError).toContain("taking longer than expected");
+      expect(useStore.getState().startupPhase).toBe(blockedCommand === "app_data_read" ? "local" : "account");
+      expect(useStore.getState().accountEmail).toBeUndefined();
+    },
+  );
+
+  it("opens the interface while agent setup and workspace sync are still pending", async () => {
+    mockDesktop(true);
+    const { useStore } = await import("./store");
+    const syncProjects = vi.fn(() => new Promise<void>(() => {}));
+    const authorizeAgent = vi.fn(() => new Promise<void>(() => {}));
+    useStore.setState({ syncProjects, authorizeAgent });
+    await useStore.getState().bootstrap();
+    expect(syncProjects).toHaveBeenCalledOnce();
+    expect(authorizeAgent).toHaveBeenCalledOnce();
+    expect(useStore.getState()).toMatchObject({ checking: false, authed: true, startupError: undefined });
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(useStore.getState().startupError).toBeUndefined();
+  });
+
+  it("does not wait for an update that continues in the background", async () => {
+    mockDesktop(true);
+    const { useStore } = await import("./store");
+    const tickNextctlDailyUpdate = vi.fn(() => new Promise<void>(() => {}));
+    useStore.setState({ syncProjects: vi.fn().mockResolvedValue(undefined), refreshAll: vi.fn().mockResolvedValue(undefined), tickNextctlDailyUpdate });
+    await useStore.getState().bootstrap();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(tickNextctlDailyUpdate).toHaveBeenCalledOnce();
+    expect(useStore.getState().checking).toBe(false);
+  });
+
+  it("recovers automatically if the account check succeeds after the deadline", async () => {
+    mockDesktop(true);
+    const normalInvoke = bridge.invoke.getMockImplementation()!;
+    let release!: (value: string) => void;
+    bridge.invoke.mockImplementation((command, payload) => command === "nextctl_resolve"
+      ? new Promise<string>((resolve) => { release = resolve; })
+      : normalInvoke(command, payload));
+    const { useStore } = await import("./store");
+    const startup = useStore.getState().bootstrap();
+    await vi.advanceTimersByTimeAsync(12_000);
+    await startup;
+    expect(useStore.getState().startupError).toBeDefined();
+    release("/tmp/nextctl");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(useStore.getState()).toMatchObject({ checking: false, authed: true, startupError: undefined });
+  });
+
+  it("offers recovery when initialization fails before credential verification", async () => {
+    mockDesktop(true);
+    bridge.listen.mockRejectedValue(new Error("bridge unavailable"));
+    const { useStore } = await import("./store");
+    await useStore.getState().bootstrap();
+    expect(useStore.getState().checking).toBe(false);
+    expect(useStore.getState().startupError).toContain("couldn't finish startup");
+  });
+});

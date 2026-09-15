@@ -7,7 +7,7 @@ import {
   type GuideAction,
   type GuideFeature,
 } from "../lib/guideFeatures";
-import { guideSessionSetupEvent, guideSessionState, guideWorkspaceProfileNames } from "../lib/guideQuickStart";
+import { guideBrowserSession, guideSessionSetupEvent, guideWorkspaceProfileNames } from "../lib/guideQuickStart";
 import { sequentialProgress } from "../lib/sequentialProgress";
 import { useStore } from "../store";
 import { BrandLogo } from "./BrandLogo";
@@ -70,16 +70,21 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
   const selectedProfile = useStore((s) => s.selectedProfile);
   const statuses = useStore((s) => s.statuses);
   const profileSessions = useStore((s) => s.profileSessions);
+  const defaultSession = useStore((s) => s.defaultSession);
   const workspaceProfileNames = guideWorkspaceProfileNames(activeWorkspaceId, workspaces, profiles);
   const profileCount = workspaceProfileNames.length;
-  const selectedWorkspaceProfile = selectedProfile && workspaceProfileNames.includes(selectedProfile)
-    ? selectedProfile
-    : workspaceProfileNames.length === 1 ? workspaceProfileNames[0] : undefined;
-  const selectedSessionStatus = selectedWorkspaceProfile
-    ? guideSessionState(statuses[selectedWorkspaceProfile], profileSessions[selectedWorkspaceProfile]?.status)
-    : "stopped";
-  const selectedSessionRunning = selectedSessionStatus === "running";
-  const selectedSessionStarting = selectedSessionStatus === "starting";
+  const hasDefaultProfile = !!defaultSession && defaultSession.status !== "unknown";
+  const session = guideBrowserSession(
+    workspaceProfileNames,
+    selectedProfile,
+    statuses,
+    profileSessions,
+    defaultSession?.status,
+    hasDefaultProfile,
+  );
+  const sessionRunning = session.state === "running";
+  const sessionStarting = session.state === "starting";
+  const sessionProfileLabel = session.profile === "__default" ? "default profile" : session.profile ?? undefined;
   const conversationCount = useStore((s) =>
     s.conversations.filter((conversation) => conversation.agent === s.agentId).length,
   );
@@ -92,7 +97,7 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
   const readiness = [
     authed,
     agentReady,
-    selectedSessionRunning,
+    sessionRunning,
     conversationCount > 0,
   ];
   const progress = sequentialProgress(readiness);
@@ -118,23 +123,24 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
         return;
       }
       setSidebarCollapsed(false);
-      dispatchGuideEvent("nextbrowser:focus-profiles");
-      if (profileCount === 0) dispatchGuideEvent("nextbrowser:open-profile-creator");
+      dispatchGuideEvent(
+        profileCount === 0
+          ? "nextbrowser:open-profile-creator"
+          : "nextbrowser:focus-profiles",
+      );
       return;
     }
     if (action === "start_session") {
-      if (selectedSessionRunning) {
+      if (sessionRunning) {
         setTab("live");
         return;
       }
       setSidebarCollapsed(false);
-      dispatchGuideEvent("nextbrowser:focus-profiles");
-      dispatchGuideEvent(guideSessionSetupEvent(profileCount));
+      dispatchGuideEvent(guideSessionSetupEvent(session.profile));
       return;
     }
     if (action === "identity") {
       setSidebarCollapsed(false);
-      dispatchGuideEvent("nextbrowser:focus-profiles");
       dispatchGuideEvent(
         profileCount === 0
           ? "nextbrowser:open-profile-creator"
@@ -151,6 +157,7 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
     detail: string;
     action: GuideAction;
     actionLabel: string;
+    confirmTitle?: string;
     icon: string;
     tint: string;
   }> = [
@@ -173,24 +180,29 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
       tint: "#af52de",
     },
     {
-      label: selectedSessionRunning
-        ? "Selected session running"
-        : selectedSessionStarting
+      label: sessionRunning
+        ? "Session running"
+        : sessionStarting
           ? "Starting session…"
-        : profileCount > 0
+        : session.profile
           ? "Start session"
           : "Create profile",
       detail: progress.states[2] === "locked"
         ? `Complete step ${progress.currentIndex + 1} first`
-        : selectedSessionRunning
-        ? "Ready"
-        : selectedSessionStarting
-          ? "Starting…"
-        : profileCount > 0
-          ? "Start a browser profile"
+        : sessionProfileLabel
+          ? sessionRunning
+            ? `${sessionProfileLabel} is running`
+            : sessionStarting
+              ? `${sessionProfileLabel} is starting`
+              : `Start ${sessionProfileLabel}`
           : "Create a browser profile",
       action: "start_session",
-      actionLabel: selectedSessionRunning ? "Open Live" : profileCount > 0 ? "Start profile" : "Create profile",
+      actionLabel: sessionRunning ? "Open Live" : session.profile ? "Start profile" : "Create profile",
+      confirmTitle: sessionRunning
+        ? "Open Live Streaming?"
+        : sessionProfileLabel
+          ? `Start ${sessionProfileLabel}?`
+          : "Create a profile?",
       icon: "play.circle",
       tint: "#34c759",
     },
@@ -264,12 +276,12 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
                 type="button"
                 className={`quick-step is-${state}`}
                 data-step-state={state}
-                disabled={state === "locked" || (step.action === "start_session" && selectedSessionStarting)}
+                disabled={state === "locked" || (step.action === "start_session" && sessionStarting)}
                 onClick={() => requestAction(
                   step.action,
                   `quick_step_${index + 1}`,
                   {
-                    title: `${step.actionLabel}?`,
+                    title: step.confirmTitle ?? `${step.actionLabel}?`,
                     confirmLabel: step.actionLabel,
                     icon: step.icon,
                     tint: step.tint,

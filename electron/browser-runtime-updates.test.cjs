@@ -256,3 +256,51 @@ test("falls back to the official latest-release redirect when GitHub API is rate
   assert.equal(result.runtimes[0].status, "up-to-date");
   assert.equal(result.runtimes[0].latestVersion, "1.0.4");
 });
+
+
+test("fails closed on an error envelope even with a zero exit code", async () => {
+  await assert.rejects(assertClawbrowserSessionsStopped({
+    sessionNames: ["worker"],
+    statusSession: async () => ({ code: 0, stdout: JSON.stringify({ ok: false, error: "unavailable", data: { status: "stopped" } }) }),
+  }), /could not verify/);
+});
+
+test("fails closed when process liveness cannot be checked", async () => {
+  await assert.rejects(assertClawbrowserSessionsStopped({
+    sessionNames: ["worker"],
+    statusSession: async () => nextctlStatus("worker", "stopped", "clawbrowser", "4242"),
+    processIsAlive: async () => { throw Object.assign(new Error("denied"), { code: "EPERM" }); },
+  }), /could not verify/);
+});
+
+
+test("runtime update refuses an in-flight app launch and releases the guard on failure", async () => {
+  const vm = require("node:vm");
+  const source = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  const extract = (name, next) => source.slice(source.indexOf(`async function ${name}(`), source.indexOf(`\n${next}`, source.indexOf(`async function ${name}(`)));
+  let release;
+  const preparing = new Promise((_, reject) => { release = reject; });
+  let entered;
+  const started = new Promise((resolve) => { entered = resolve; });
+  const context = vm.createContext({
+    resolveOrInstallNextctl: async () => "nextctl",
+    requestedBrowserRuntime: () => "clawbrowser",
+    requiresBrowserRuntime: (args) => args[0] === "start",
+    ensureClawbrowserRuntime: () => { entered(); return preparing; },
+    clawbrowserRuntimeSessionNames: async () => [],
+    assertClawbrowserSessionsStopped,
+    run: async () => ({ code: 0 }),
+    process,
+  });
+  vm.runInContext(`let clawbrowserRuntimeUpdateActive = false; let clawbrowserRuntimeLaunches = 0;
+    ${extract("executeNextctlRaw", "function sendControlResponse")}
+    ${extract("assertClawbrowserRuntimeIdle", "async function updateClawbrowserRuntime")}`, context);
+  const launch = vm.runInContext('executeNextctlRaw(["start"])', context);
+  await started;
+  await assert.rejects(vm.runInContext('assertClawbrowserRuntimeIdle("nextctl")', context), /still starting/);
+  release(new Error("setup failed"));
+  await assert.rejects(launch, /setup failed/);
+  await vm.runInContext('assertClawbrowserRuntimeIdle("nextctl")', context);
+  vm.runInContext('clawbrowserRuntimeUpdateActive = true', context);
+  await assert.rejects(vm.runInContext('executeNextctlRaw(["start"])', context), /update is being installed/);
+});

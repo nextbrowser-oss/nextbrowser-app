@@ -169,9 +169,37 @@ export function isTrustedNodeMavenURL(value?: string | null): value is string {
   }
 }
 
+/** The nextctl error code for a launch refused because the proxy traffic ran out. */
+const proxyTrafficExhaustedErrorCode = "PROXY_TRAFFIC_EXHAUSTED";
+
+export const proxyTrafficGateMessage = "Free traffic is paused. Ask in Discord to unlock the rest.";
+
+export function isProxyTrafficExhaustedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.includes(`[${proxyTrafficExhaustedErrorCode}]`);
+}
+
+export function isProxyTrafficGateMessage(message: string): boolean {
+  return message === proxyTrafficGateMessage;
+}
+
+/**
+ * What to tell the user when nextctl refuses to start a profile because the
+ * proxy traffic ran out. A gated account is sent to Discord, where the rest of
+ * its allowance is unlocked by hand; an account that already holds the full
+ * allowance buys more traffic from Proxy usage.
+ */
+export function proxyTrafficLaunchRefusedMessage(proxyTraffic?: ProxyTraffic | null): string {
+  const state = trafficGateState(proxyTraffic);
+  if (state === "open" || state === "unlimited") {
+    return "Proxy traffic limit reached. Open Proxy usage to add more traffic.";
+  }
+  return proxyTrafficGateMessage;
+}
+
 export function proxyTrafficWarning(proxyTraffic: ProxyTraffic): string | undefined {
   const state = trafficGateState(proxyTraffic);
-  if (state === "blocked") return "Free traffic is paused. Ask in Discord to unlock the rest.";
+  if (state === "blocked") return proxyTrafficGateMessage;
   // A gated account still believes it has the full allowance, so stay quiet
   // until the gate actually closes.
   if (state === "gated") return undefined;

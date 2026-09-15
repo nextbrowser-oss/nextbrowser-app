@@ -7,9 +7,10 @@ import { BrandHeader, BrandLogo } from "./BrandLogo";
 import { Icon, Spinner } from "./Icon";
 import { withLocalScripts } from "../skillsCatalog";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
-import { guideProfileTarget } from "../lib/guideQuickStart";
+import { guideProfileTarget, guideWorkspaceProfileNames } from "../lib/guideQuickStart";
 import { manualProxyDefaultName, manualProxyLimits, parseManualProxyBatch, parseManualProxyClipboard, validateManualProxyFields, type ManualProxyScheme } from "../lib/manualProxy";
 import { internalError, needsSupportLink } from "../lib/userFacingError";
+import { isProxyTrafficExhaustedError, isProxyTrafficGateMessage, proxyTrafficLaunchRefusedMessage } from "../lib/proxyTraffic";
 import { userFacingMultiloginError } from "../lib/userFacingMultiloginError";
 import { entityNameLimits, validateEntityName } from "../lib/entityValidation";
 import { cancelNextctlRun } from "../nextctl";
@@ -159,11 +160,21 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const projectListRef = useRef<HTMLDivElement | null>(null);
   const profileListRef = useRef<HTMLDivElement | null>(null);
+  const profilesCardRef = useRef<HTMLDivElement | null>(null);
+  const profilesSectionRef = useRef<HTMLElement | null>(null);
+  const guideFocusFrameRef = useRef(0);
+  const guideFocusTimerRef = useRef(0);
   const workspacePickerRef = useRef<HTMLDivElement | null>(null);
 
   const runProfileAction = (label: string, code: string, action: () => Promise<void>) => {
     setProfileActionError(null);
     void action().catch((error: unknown) => {
+      if (isProxyTrafficExhaustedError(error)) {
+        // nextctl refused the launch because the proxy traffic ran out. That
+        // is not an internal error: a gated account has to ask in Discord.
+        setProfileActionError(proxyTrafficLaunchRefusedMessage(useStore.getState().proxy));
+        return;
+      }
       const detail = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
       console.error(`[${code}] ${label}`, detail);
       setProfileActionError(internalError(label, code));
@@ -228,7 +239,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const searchQuery = s.profileSearch.trim();
   const normalizedSearch = searchQuery.toLowerCase();
   const profiles = s.profiles;
-  const projects = s.conversationsForAgent(s.agentId);
+  const projects = s.conversations.filter((project) => project.workspaceId === s.activeWorkspaceId)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
   const activeProject = s.activeConversation();
   const activeWorkspace = s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId);
   const manualProxyBatch = useMemo(() => parseManualProxyBatch(manualProxyBulk), [manualProxyBulk]);
@@ -248,6 +260,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const visibleWorkspaceProfiles = normalizedSearch
     ? profileWorkspaceEntries.filter(({ profile }) => profile.name.toLowerCase().includes(normalizedSearch))
     : profileWorkspaceEntries;
+  // The Guide picks its target from the same list, so a workspace entry whose
+  // profile was deleted can never become the profile a Guide step starts.
+  const guideProfileNames = guideWorkspaceProfileNames(s.activeWorkspaceId, s.workspaces, profiles);
   useEffect(() => {
     const handleProjectShortcut = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
@@ -639,17 +654,32 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     return () => window.cancelAnimationFrame(frame);
   }, [profilesOpen, s.selectedProfile, visibleWorkspaceProfiles.length]);
 
+  // The highlight outlives this effect on purpose. Its dependency list contains
+  // polled state, so keeping the timer inside meant a status refresh could clear
+  // it mid-flight and leave the panel lit up for good.
+  useEffect(() => () => {
+    window.cancelAnimationFrame(guideFocusFrameRef.current);
+    window.clearTimeout(guideFocusTimerRef.current);
+  }, []);
+
   useEffect(() => {
-    let focusTimer = 0;
     const focusProfiles = () => {
       setProfilesOpen(true);
       s.setProfileSearch("");
-      setProfileGuideFocus(true);
-      window.clearTimeout(focusTimer);
-      window.requestAnimationFrame(() => {
-        profileListRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      setProfileGuideFocus(false);
+      window.cancelAnimationFrame(guideFocusFrameRef.current);
+      window.clearTimeout(guideFocusTimerRef.current);
+      // Restart the highlight on the next frame so a repeat click still
+      // flashes: re-adding a class that is already there animates nothing.
+      guideFocusFrameRef.current = window.requestAnimationFrame(() => {
+        setProfileGuideFocus(true);
+        // The profile list is still collapsed to zero height in this frame, so
+        // scrolling it would move nothing. Aim at the panel the user was told
+        // to look at instead.
+        (profilesSectionRef.current ?? profilesCardRef.current ?? profileListRef.current)
+          ?.scrollIntoView({ block: "center", behavior: "smooth" });
+        guideFocusTimerRef.current = window.setTimeout(() => setProfileGuideFocus(false), 2_400);
       });
-      focusTimer = window.setTimeout(() => setProfileGuideFocus(false), 1_800);
     };
     const openCreator = () => {
       focusProfiles();
@@ -661,21 +691,13 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     };
     const openActions = () => {
       focusProfiles();
-      const profile = guideProfileTarget(
-        s.selectedProfile,
-        activeWorkspace?.profileNames ?? [],
-        !activeWorkspace && showDefaultProfile,
-      );
-      if (profile) setMenuProfile(profile);
+      const profile = guideProfileTarget(s.selectedProfile, guideProfileNames, showDefaultProfile);
+      if (profile && profile !== "__default") setMenuProfile(profile);
     };
     const startSelectedProfile = () => {
       focusProfiles();
       s.setProfileSearch("");
-      const profile = guideProfileTarget(
-        s.selectedProfile,
-        activeWorkspace?.profileNames ?? [],
-        !activeWorkspace && showDefaultProfile,
-      );
+      const profile = guideProfileTarget(s.selectedProfile, guideProfileNames, showDefaultProfile);
       if (!profile) return;
       if (profile === "__default") {
         s.selectProfile(undefined);
@@ -696,7 +718,6 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     window.addEventListener("nextbrowser:open-profile-actions", openActions);
     window.addEventListener("nextbrowser:start-selected-profile", startSelectedProfile);
     return () => {
-      window.clearTimeout(focusTimer);
       window.removeEventListener("nextbrowser:focus-profiles", focusProfiles);
       window.removeEventListener("nextbrowser:open-profile-creator", openCreator);
       window.removeEventListener("nextbrowser:open-profile-actions", openActions);
@@ -706,6 +727,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     activeWorkspace,
     defaultBusy,
     defaultRunning,
+    guideProfileNames.join("\u0000"),
     s.authed,
     s.profileSessions,
     s.profiles,
@@ -1156,7 +1178,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           );
         })}
 
-        <div className={"claw-card control-card profiles-card" + (profileGuideFocus ? " guide-focus" : "")}>
+        <div ref={profilesCardRef} className={"claw-card control-card profiles-card" + (profileGuideFocus ? " guide-focus" : "")}>
           <div className="row profiles-panel-head">
             <div className="workspace-picker-wrap" ref={workspacePickerRef}>
               <button
@@ -1275,7 +1297,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                     <Icon name={chat.chatMode === "terminal" ? "terminal" : "bubble.left.and.bubble.right.fill"} size={12} />
                     <span className="workspace-chat-copy">
                       <strong><HighlightedName text={chat.title} query={searchQuery} /></strong>
-                      <small>{conversationPreview(chat)}</small>
+                      <small>{agentById(chat.agent).name} · {conversationPreview(chat)}</small>
                     </span>
                     {chat.id === activeProject?.id && <span className="workspace-active-dot" title="Active chat" />}
                     <span
@@ -1300,7 +1322,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               </div>
             </section>
 
-            <section className={"workspace-section workspace-profiles" + (profilesOpen ? " is-open" : "")}>
+            <section ref={profilesSectionRef} className={"workspace-section workspace-profiles" + (profilesOpen ? " is-open" : "") + (profileGuideFocus ? " guide-focus" : "")}>
               <div className="workspace-section-head">
                 <button className="workspace-section-toggle" onClick={() => setProfilesOpen((open) => !open)} aria-expanded={profilesOpen} aria-label={profilesOpen ? "Collapse profiles" : "Expand profiles"}>
                   <Icon name="chevron.right" size={10} className={profilesOpen ? "section-chevron open" : "section-chevron"} />
@@ -1404,7 +1426,14 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               <div className="muted small">No matches for "{s.profileSearch}".</div>
             )}
             {profileActionError && (
-              <div className="error small profile-action-error" role="alert"><span>{profileActionError}</span><button type="button" onClick={() => setProfileActionError(null)}>Dismiss</button></div>
+              <div className="error small profile-action-error" role="alert">
+                <UserFacingError
+                  message={profileActionError}
+                  surface="profile_action"
+                  discordLabel={isProxyTrafficGateMessage(profileActionError) ? "Ask in Discord." : undefined}
+                />
+                <button type="button" onClick={() => setProfileActionError(null)}>Dismiss</button>
+              </div>
             )}
           </div>
         </div>
@@ -1464,7 +1493,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           onClick={onOpenAgentSettings}
         >
           <span className="status-dot" />
-          <span>{ready ? agentName : "No agent"}</span>
+          <span>{agentName} · {ready ? "Connected" : s.agentLoggedIn() === false ? "Sign-in required" : "Not connected"}</span>
           <Icon name="chevron.down" size={11} />
         </button>
       </div>
@@ -2104,7 +2133,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 ["direct", "network", "No proxy", "Use your direct internet connection"],
                 ["managed", "globe", "Managed proxy", "Choose a country and rotate IP later"],
                 ["personal", "network", "Personal proxy", "Use one of your saved proxies"],
-              ] as const).map(([connection, icon, title, description]) => (
+              ] as const).filter(([connection]) => connection !== "direct" || s.profiles.find((p) => p.name === profileConnectionEditor.name)?.proxy_mode === "direct").map(([connection, icon, title, description]) => (
                 <label key={connection} className={"project-mode-option" + (profileConnectionEditor.connection === connection ? " is-selected" : "")}>
                   <input type="radio" name="existing-profile-connection" checked={profileConnectionEditor.connection === connection} onChange={() => setProfileConnectionEditor({ ...profileConnectionEditor, connection })} />
                   <Icon name={icon} size={16} />

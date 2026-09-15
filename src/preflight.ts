@@ -87,11 +87,13 @@ interface VerificationResult {
   };
 }
 
-export type VerificationFailureChoice = "retry" | "direct" | "cancel";
+export type VerificationFailureChoice = "direct" | "cancel";
 
 export interface VerificationFailure {
   message: string;
   failedSurfaces: string[];
+  proxyExpected: boolean;
+  attempts: number;
 }
 
 class BrowserVerificationError extends Error {
@@ -105,19 +107,36 @@ class BrowserVerificationError extends Error {
   }
 }
 
-async function requireGreenVerification(args: string[]): Promise<void> {
-  const data = await nextctlJson<VerificationResult>([
+async function requireGreenVerification(args: string[], onRetry?: () => void): Promise<void> {
+  const inspect = () => nextctlJson<VerificationResult>([
     ...args,
     "verify",
     "--timeout",
     "30s",
   ]);
+  let data: VerificationResult;
+  try {
+    data = await inspect();
+  } catch (error) {
+    // A browser can finish opening while its local CDP pipe is briefly being
+    // replaced. Retrying one read is safe and avoids surfacing a false setup
+    // failure after the page is already visible.
+    const message = error instanceof Error ? error.message : String(error);
+    if (!isTransientCdpDisconnect(message)) throw error;
+    onRetry?.();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    data = await inspect();
+  }
   const verification = data.verify;
   const failed = verification?.checks?.filter((check) => check.pass !== true) ?? [];
-  if (verification?.finalized !== true || verification.status !== "pass" || failed.length > 0) {
+  if (verification?.finalized !== true || verification.status !== "pass" || !verification.checks?.length || failed.length > 0) {
     const surfaces = failed.flatMap((check) => check.surface ? [check.surface] : []);
     throw new BrowserVerificationError(surfaces);
   }
+}
+
+export function isTransientCdpDisconnect(message: string): boolean {
+  return /(?:\bcdp\b.*(?:read response|connection|aborted|closed|reset)|Runtime\.evaluate.*(?:read|connection|aborted|closed|reset)|wsarecv.*(?:aborted|reset)|read tcp.*(?:aborted|reset))/i.test(message);
 }
 
 async function openBlankActivePage(args: string[]): Promise<void> {
@@ -141,12 +160,6 @@ export interface PrepareResult {
   steps: string[];
   directFallback?: boolean;
 }
-
-/** When each profile was last verified green, by its command-line identity.
- *  Verification borrows the current tab for clawbrowser://verify, so a caller
- *  that prepares the same running session every minute may ask to trust a
- *  recent result instead of paying for a new one on every pass. */
-const verifiedAt = new Map<string, number>();
 
 /** tidyEngineTabs closes what an unattended loop leaves behind in its profile:
  *  the clawbrowser://verify pages verification opens, and duplicate x.com tabs.
@@ -187,10 +200,11 @@ export async function prepareSession(opts: {
   statuses: Record<string, string>;
   defaultSession?: SessionStatus;
   onStep?: (step: string) => void;
+  proxyExpected?: boolean;
+  verifyOnly?: boolean;
+  shouldContinue?: () => boolean;
   onVerificationFailure?: (failure: VerificationFailure) => Promise<VerificationFailureChoice>;
-  /** Trust a green verification of this still-running session for this many
-   *  milliseconds instead of verifying again. A session that had to be started
-   *  is always verified. */
+  /** Legacy caller option; ignored because every action requires fresh verification. */
   verifyEvery?: number;
 }): Promise<PrepareResult> {
   let args = profileArgs(opts.selectedProfile, opts.runtime);
@@ -202,48 +216,64 @@ export async function prepareSession(opts: {
     opts.onStep?.(text);
   };
 
-  const running = await isRunning(opts.selectedProfile, opts.statuses, opts.defaultSession);
-  if (running) {
-    step("Session running");
-  } else {
-    await runChecked(
-      [...args, "start", "--format", "json"],
-      "Could not start NextBrowser",
-    );
-    step("Started NextBrowser");
-  }
-
-  const verifyKey = args.join(" ");
-  const recentlyVerified = running && opts.verifyEvery != null
-    && Date.now() - (verifiedAt.get(verifyKey) ?? 0) < opts.verifyEvery;
-  while (true) {
-    if (recentlyVerified) {
-      step("Browser verified recently");
-      break;
-    }
+  const proxyExpected = opts.proxyExpected !== false;
+  const checkCancelled = () => {
+    if (opts.shouldContinue?.() === false) throw new Error("Profile start cancelled");
+  };
+  const stop = () => runChecked([...args, "stop", "--format", "json"], "Could not stop the unverified browser");
+  let running = await isRunning(opts.selectedProfile, opts.statuses, opts.defaultSession);
+  let lastError: unknown;
+  for (let attempt = 0; attempt < (proxyExpected ? 3 : 1); attempt++) {
+    checkCancelled();
     try {
-      await requireGreenVerification(args);
-      verifiedAt.set(verifyKey, Date.now());
+      if (!running) {
+        await runChecked([...args, "start", "--format", "json"], "Could not start NextBrowser");
+        step("Started NextBrowser for verification");
+      } else {
+        step("Session running");
+      }
+      checkCancelled();
+      await requireGreenVerification(args, () => step("Reconnecting to the browser"));
+      checkCancelled();
       step("Browser verified");
+      lastError = undefined;
       break;
     } catch (error) {
-      if (!(error instanceof BrowserVerificationError) || !opts.onVerificationFailure) throw error;
-      const choice = await opts.onVerificationFailure({
-        message: error.message,
-        failedSurfaces: error.failedSurfaces,
-      });
-      if (choice === "retry") continue;
-      if (choice !== "direct") throw error;
-
-      args = [];
-      directFallback = true;
-      if (opts.defaultSession?.status !== "running") {
-        await runChecked(["start", "--format", "json"], "Could not start a direct NextBrowser session");
-      }
-      step("Continuing without proxy");
-      break;
+      lastError = error;
+      // Stop must succeed before a retry or any direct-connection choice.
+      await stop();
+      running = false;
+      checkCancelled();
+      if (proxyExpected && attempt < 2) step("Restarting the profile with the same proxy");
     }
   }
+  if (lastError !== undefined) {
+    const choice = await opts.onVerificationFailure?.({
+      message: lastError instanceof Error ? lastError.message : String(lastError),
+      failedSurfaces: lastError instanceof BrowserVerificationError ? lastError.failedSurfaces : [],
+      proxyExpected,
+      attempts: proxyExpected ? 3 : 1,
+    });
+    checkCancelled();
+    if (!proxyExpected || choice !== "direct") throw lastError;
+    const directProfile = `direct-consented-${crypto.randomUUID()}`;
+    await runChecked(["profiles", "create", directProfile, "--no-proxy", "--format", "json"], "Could not create a direct session");
+    args = profileArgs(directProfile, opts.runtime);
+    try {
+      checkCancelled();
+      await runChecked([...args, "start", "--format", "json"], "Could not start the direct session");
+      checkCancelled();
+      await requireGreenVerification(args);
+      checkCancelled();
+      directFallback = true;
+      step("Direct session verified after your confirmation");
+    } catch (error) {
+      await stop();
+      throw error;
+    }
+  }
+
+  if (opts.verifyOnly) return { profileArgs: args, steps, directFallback };
 
   if (rawHost) {
     if (await activateMatchingTab(args, rawHost)) {

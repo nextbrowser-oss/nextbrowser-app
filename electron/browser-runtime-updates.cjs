@@ -74,6 +74,7 @@ function nextctlCommandData(result) {
   if (!result || Number(result.code) !== 0) return null;
   try {
     const parsed = JSON.parse(String(result.stdout || ""));
+    if (parsed?.ok === false || parsed?.error) return null;
     return parsed?.data && typeof parsed.data === "object" ? parsed.data : parsed;
   } catch {
     return null;

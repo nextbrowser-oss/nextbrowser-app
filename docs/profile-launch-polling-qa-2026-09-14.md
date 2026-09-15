@@ -56,3 +56,12 @@ credentials or private account details are included here. This follow-up does
 not close the PixelScan, all-platform Chromium, or real update-install
 acceptance gates. Screenshots of the actual stream and expanded page were
 captured through the desktop UI tool in the task history.
+
+## Integration with verified startup (September 15)
+
+After merging the proxy safety changes from main, pending launches retain
+Starting for every polled process status, including Running, until the verified
+preflight settles. A running process alone is not evidence of successful verify.
+A newer stop still supersedes the pending launch. The earlier visible retest
+above describes the pre-integration build; this integration is covered by
+automated tests and was not separately retested through the desktop UI.

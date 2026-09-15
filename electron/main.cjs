@@ -1,3 +1,6 @@
+const { createProxySafety } = require("./proxy-safety.cjs");
+const { requireVerificationCapableCLI, verificationFailureDialogOptions, verificationFailureDialogChoice } = require("./verification-policy.cjs");
+const { agentLoginStatus } = require("./agent-login-status.cjs");
 const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const { execFileSync, spawn } = require("node:child_process");
@@ -85,6 +88,7 @@ const { parseMultiloginProfiles, parseMultiloginCreatedMobileProfile, parseMulti
 const { multiloginAccountFromTokens } = require("./multilogin-account.cjs");
 const { MULTILOGIN_DOWNLOAD_URL, resolveMultiloginApp } = require("./multilogin-app.cjs");
 const { runAgentProcess } = require("./agent-process.cjs");
+const { assertManualProxyRuntimeSupport } = require("./manual-proxy-runtime.cjs");
 const {
   DASBROWSER_DOWNLOADS,
   adaptDasbrowserArgs,
@@ -129,7 +133,9 @@ let browserRuntimeUpdateTimer = null;
 let browserRuntimeUpdateInstallStatus = { status: "idle", runtimes: [] };
 let browserRuntimeUpdateInstallPromise = null;
 let clawbrowserRuntimeUpdateActive = false;
+let clawbrowserRuntimeLaunches = 0;
 let nextctlInstallPromise = null;
+let verifiedNextctlBin = "";
 let browserInstallPromise = null;
 let camoufoxInstallPromise = null;
 let dasbrowserInstallPromise = null;
@@ -166,6 +172,8 @@ enabled = false
 function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
   const runtimeEnv = childEnv(automationTraceFile ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: automationTraceFile } : {});
   const mcpEnvKeys = [
+    "NEXTBROWSER_REQUIRE_VERIFY",
+    "NEXTBROWSER_PROXY_SAFETY_FILE",
     "NEXTBROWSER_CONFIG_DIR",
     "CLAWBROWSER_CACHE_DIR",
     "CLAWBROWSER_DATA_DIR",
@@ -188,7 +196,7 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
     "-c", 'plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser.enabled=false',
     "-c", 'plugins."clawbrowser@nbc-local".enabled=false',
     "-c", `mcp_servers.nextbrowser.command=${JSON.stringify(nextctlBin)}`,
-    "-c", `mcp_servers.nextbrowser.args=${JSON.stringify(["mcp", ...(automationTraceFile ? ["--automation-trace-file", automationTraceFile] : [])])}`,
+    "-c", `mcp_servers.nextbrowser.args=${JSON.stringify(["--require-verify", "mcp", ...(automationTraceFile ? ["--automation-trace-file", automationTraceFile] : [])])}`,
     "-c", `mcp_servers.nextbrowser.env=${mcpEnv}`,
     // Codex starts the MCP server itself. Forward the Recorder's ephemeral
     // trace path from the agent process; putting it only in the parent env is
@@ -277,6 +285,20 @@ const TERMINAL_AGENTS = {
   droid: { binary: "droid", envVar: "DROID_BIN" },
 };
 
+// Some older renderer bundles persisted aliases rather than catalog ids. Keep
+// Terminal startup backwards compatible so a partial desktop update cannot
+// leave a visible agent impossible to open.
+const TERMINAL_AGENT_ALIASES = Object.freeze({
+  "antigravity-cli": "antigravity",
+  agy: "antigravity",
+  "github-copilot": "copilot",
+});
+
+function terminalAgentId(value) {
+  const requested = String(value || "").trim().toLowerCase();
+  return TERMINAL_AGENT_ALIASES[requested] || requested;
+}
+
 function home() { return os.homedir(); }
 function legacyAppRuntimeRoot() { return path.join(app.getPath("userData"), "runtime"); }
 function nextbrowserRuntimeRoot() {
@@ -293,7 +315,7 @@ async function plainRunDir() {
 }
 function childEnv(extra = {}) {
   const runtimeRoot = nextbrowserRuntimeRoot();
-  const commandPaths = [managedNextctlRoot(), ...searchDirs()];
+  const commandPaths = [...(verifiedNextctlBin ? [path.dirname(verifiedNextctlBin)] : []), managedNextctlRoot(), ...searchDirs()];
   const clawbrowserBin = resolveBrowserRuntime({
     platform: process.platform,
     homeDir: home(),
@@ -322,6 +344,8 @@ function childEnv(extra = {}) {
     ...(dasbrowserBin ? { DASBROWSER_BIN: dasbrowserBin } : {}),
     ...(multiloginAutomationToken ? { MULTILOGIN_TOKEN: multiloginAutomationToken } : {}),
     ...extra,
+    NEXTBROWSER_REQUIRE_VERIFY: "1",
+    NEXTBROWSER_PROXY_SAFETY_FILE: path.join(dataDir(), "proxy-safety-block.json"),
   };
 }
 function terminalEnv(extra = {}) {
@@ -504,13 +528,57 @@ async function resolveNextctl() {
 async function resolveOrInstallNextctl() {
   const existing = await resolveNextctl();
   if (existing) {
+    await requireVerificationCapableCLI(existing, run);
+    verifiedNextctlBin = existing;
     setNextctlInstallStatus("ready", { path: existing });
     return existing;
   }
-  return installManagedNextctl();
+  const installed = await installManagedNextctl();
+  await requireVerificationCapableCLI(installed, run);
+  verifiedNextctlBin = installed;
+  return installed;
 }
 
+let proxySafety;
+function getProxySafety() {
+  if (!proxySafety) proxySafety = createProxySafety({
+    file: path.join(dataDir(), "proxy-safety-block.json"),
+    run: (args) => executeNextctlRaw(args, { timeoutMs: 240_000 }),
+    publish: (state) => emit("proxy:safety", state),
+    discover: async () => {
+      const result = await executeNextctlRaw(["profiles", "ls", "--format", "json"], { timeoutMs: 15000 });
+      if (result.code !== 0) return [];
+      const envelope = JSON.parse(result.stdout);
+      const profiles = (envelope.data ?? envelope).profiles ?? [];
+      const workspaces = JSON.parse(await fs.readFile(path.join(dataDir(), "workspaces.json"), "utf8").catch(() => "[]"));
+      return [{ profile: "", runtime: "clawbrowser" }, ...profiles.map((p) => ({
+        profile: p.name, proxyMode: p.proxy_mode,
+        runtime: workspaces.find((w) => w.profileNames?.includes(p.name))?.profileToolsets?.[p.name] ?? "clawbrowser",
+      }))];
+    },
+    pause: async () => {
+      cancelAllCommands();
+      cancelAllAutomationRecipes();
+      cancelAllAutomationElementPicks();
+      cancelAllAutomationPageRecordings();
+      for (const terminal of terminals.values()) terminal.process.kill();
+      terminals.clear();
+      const running = [...children.values()];
+      children.clear();
+      const stopped = await Promise.allSettled(running.map((child) => terminateProcessTree(child.pid, { includeRoot: true })));
+      if (stopped.some((result) => result.status === "rejected")) throw new Error("Could not stop local agent processes");
+    },
+  });
+  return proxySafety;
+}
 async function executeNextctl(commandArgs, options = {}) {
+  const complete = getProxySafety().begin(commandArgs);
+  let result;
+  try { result = await executeNextctlRaw(commandArgs, options); return result; }
+  finally { complete(result); }
+}
+
+async function executeNextctlRaw(commandArgs, options = {}) {
   const bin = await resolveOrInstallNextctl();
   if (!bin) throw new Error("nextctl not found. Install Clawbrowser CLI or set NEXTCTL_BIN.");
   let adaptedArgs = commandArgs;
@@ -518,28 +586,34 @@ async function executeNextctl(commandArgs, options = {}) {
   if (browserRuntime === "clawbrowser" && requiresBrowserRuntime(adaptedArgs) && clawbrowserRuntimeUpdateActive) {
     throw new Error("ClawBrowser cannot start while its runtime update is being installed. Retry after the update finishes.");
   }
-  if (browserRuntime === "multilogin") await initializeMultiloginCredential();
-  if (browserRuntime === "dasbrowser") {
-    const executable = await ensureDasbrowserRuntime({ requestId: options.requestId });
-    adaptedArgs = adaptDasbrowserArgs(adaptedArgs, executable);
-  } else if (browserRuntime === "clawbrowser" && requiresBrowserRuntime(adaptedArgs)) {
-    await ensureClawbrowserRuntime(bin, { requestId: options.requestId });
-  } else if (browserRuntime === "camoufox" && requiresBrowserRuntime(adaptedArgs)) {
-    setBrowserRuntimeInstallStatus("camoufox", "installing", { message: "Preparing the Camoufox browser runtime…", requestId: options.requestId });
-    try {
-      const result = await run(bin, adaptedArgs, options.extraEnv || {}, options);
-      if (result.code === 0) {
-        setBrowserRuntimeInstallStatus("camoufox", "ready");
-      } else {
-        setBrowserRuntimeInstallStatus("camoufox", "failed", { message: "We couldn't prepare Camoufox. Please retry." });
+  const clawbrowserLaunch = browserRuntime === "clawbrowser" && requiresBrowserRuntime(adaptedArgs);
+  if (clawbrowserLaunch) clawbrowserRuntimeLaunches += 1;
+  try {
+    if (browserRuntime === "multilogin") await initializeMultiloginCredential();
+    if (browserRuntime === "dasbrowser") {
+      const executable = await ensureDasbrowserRuntime({ requestId: options.requestId });
+      adaptedArgs = adaptDasbrowserArgs(adaptedArgs, executable);
+    } else if (browserRuntime === "clawbrowser" && requiresBrowserRuntime(adaptedArgs)) {
+      await ensureClawbrowserRuntime(bin, { requestId: options.requestId });
+    } else if (browserRuntime === "camoufox" && requiresBrowserRuntime(adaptedArgs)) {
+      setBrowserRuntimeInstallStatus("camoufox", "installing", { message: "Preparing the Camoufox browser runtime…", requestId: options.requestId });
+      try {
+        const result = await run(bin, ["--require-verify", ...adaptedArgs], options.extraEnv || {}, options);
+        if (result.code === 0) {
+          setBrowserRuntimeInstallStatus("camoufox", "ready");
+        } else {
+          setBrowserRuntimeInstallStatus("camoufox", "failed", { message: "We couldn't prepare Camoufox. Please retry." });
+        }
+        return result;
+      } catch (error) {
+        setBrowserRuntimeInstallStatus("camoufox", "failed", { message: String(error?.message || error) });
+        throw error;
       }
-      return result;
-    } catch (error) {
-      setBrowserRuntimeInstallStatus("camoufox", "failed", { message: String(error?.message || error) });
-      throw error;
     }
+    return await run(bin, ["--require-verify", ...adaptedArgs], options.extraEnv || {}, options);
+  } finally {
+    if (clawbrowserLaunch) clawbrowserRuntimeLaunches -= 1;
   }
-  return run(bin, adaptedArgs, options.extraEnv || {}, options);
 }
 
 function sendControlResponse(response, status, body) {
@@ -1233,6 +1307,9 @@ async function clawbrowserRuntimeSessionNames() {
   return [...names];
 }
 async function assertClawbrowserRuntimeIdle(nextctlBin) {
+  if (clawbrowserRuntimeLaunches > 0) {
+    throw new Error("ClawBrowser profiles are still starting. Wait for them to finish, then stop them before installing the update.");
+  }
   await assertClawbrowserSessionsStopped({
     sessionNames: await clawbrowserRuntimeSessionNames(),
     statusSession: (profile) => run(nextctlBin, [
@@ -1242,8 +1319,9 @@ async function assertClawbrowserRuntimeIdle(nextctlBin) {
       try {
         process.kill(pid, 0);
         return true;
-      } catch {
-        return false;
+      } catch (error) {
+        if (error?.code === "ESRCH") return false;
+        throw error;
       }
     },
   });
@@ -1454,6 +1532,14 @@ async function apiFetchJSON(baseURL, route, options = {}) {
 }
 
 async function invokeCommand(command, args = {}, sender) {
+  const safety = getProxySafety();
+  if (command === "proxy_safety_status") return safety.state();
+  if (command === "proxy_safety_recover") { void safety.recover().catch(() => {}); return safety.state(); }
+  if (command === "proxy_safety_resume") { await safety.resume(); return safety.state(); }
+  if (safety.state() && ["agent_run", "terminal_start", "terminal_input", "automation_recipe_execute", "automation_element_pick", "automation_page_record_start"].includes(command)) {
+    throw new Error("PROXY_CONNECTION_LOST: Local work is paused. Review connection recovery before continuing.");
+  }
+
   switch (command) {
     case "github_stars": {
       let count = null;
@@ -1557,6 +1643,7 @@ async function invokeCommand(command, args = {}, sender) {
         ? args.runtime
         : "clawbrowser";
       const proxy = await resolvePersonalProxy(args.proxyId, { env: childEnv() });
+      assertManualProxyRuntimeSupport(runtime, proxy);
       return await executeNextctl([
         "profiles", "create", profileName,
         "--manual-proxy",
@@ -1579,6 +1666,7 @@ async function invokeCommand(command, args = {}, sender) {
         ? args.runtime
         : "clawbrowser";
       const proxy = await resolvePersonalProxy(args.proxyId, { env: childEnv() });
+      assertManualProxyRuntimeSupport(runtime, proxy);
       return await executeNextctl([
         "profiles", "set-proxy", profileName,
         "--manual-proxy",
@@ -1692,11 +1780,7 @@ async function invokeCommand(command, args = {}, sender) {
     case "agent_check_login": {
       if (!args.statusArgs?.length) return null;
       const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} executable not found.`);
-      const r = await run(bin, args.statusArgs); const text = `${r.stdout}${r.stderr}`.toLowerCase();
-      if (["not logged in", "logged out", "please run", "not authenticated"].some((v) => text.includes(v))) return false;
-      if (["logged in", "authenticated", "account", "email", "subscription"].some((v) => text.includes(v))) return true;
-      if (text.includes("api") && text.includes("key")) return true;
-      return r.code === 0;
+      return agentLoginStatus(await run(bin, args.statusArgs));
     }
     case "open_terminal_login": {
       const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} executable not found.`);
@@ -1719,28 +1803,11 @@ async function invokeCommand(command, args = {}, sender) {
     case "read_file": return fs.readFile(args.path, "utf8");
     case "browser_verification_failure_choice": {
       const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
-      const surfaces = Array.isArray(args.failedSurfaces)
-        ? args.failedSurfaces.map((value) => String(value).trim()).filter(Boolean).slice(0, 8)
-        : [];
-      const detail = [
-        surfaces.length ? `Failed checks: ${surfaces.join(", ")}.` : "The browser verification did not complete successfully.",
-        "You can retry, or continue this task in the direct browser session without the selected proxy.",
-        "Continuing without proxy may expose your real IP and will not preserve the requested country.",
-      ].join("\n\n");
-      const options = {
-        type: "warning",
-        title: "Proxy verification failed",
-        message: "The selected proxy could not be verified.",
-        detail,
-        buttons: ["Retry verification", "Continue without proxy", "Cancel"],
-        defaultId: 0,
-        cancelId: 2,
-        noLink: true,
-      };
+      const options = verificationFailureDialogOptions(args);
       const result = owner
         ? await dialog.showMessageBox(owner, options)
         : await dialog.showMessageBox(options);
-      return ["retry", "direct", "cancel"][result.response] || "cancel";
+      return verificationFailureDialogChoice(args.proxyExpected, result.response, args.attempts);
     }
     case "ssh_config_hosts": {
       const requestedPath = typeof args.configPath === "string" ? args.configPath.trim() : "";
@@ -2156,8 +2223,10 @@ async function invokeCommand(command, args = {}, sender) {
       return null;
     }
     case "terminal_start": {
-      const agent = TERMINAL_AGENTS[String(args.agentId || "")];
-      if (!agent) throw new Error("This agent is not available in the experimental terminal.");
+      const requestedAgentId = String(args.agentId || "").trim();
+      const resolvedAgentId = terminalAgentId(requestedAgentId);
+      const agent = TERMINAL_AGENTS[resolvedAgentId];
+      if (!agent) throw new Error(`Terminal support for “${requestedAgentId || "this agent"}” is unavailable in the running NextBrowser ${app.getVersion()} build. Restart NextBrowser to complete its update, then try again. [TERMINAL_AGENT_UNAVAILABLE]`);
       const bin = resolveBinary(agent.binary, agent.envVar);
       if (!bin) throw new Error(`${agent.binary} CLI not found.`);
       const id = randomUUID();
@@ -2188,9 +2257,9 @@ async function invokeCommand(command, args = {}, sender) {
         [...profileScope.entries()].map(([name, access]) => [name, access.runtime]),
       )), "utf8");
       if (args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
-      const writableDirs = args.agentId === "codex" ? clawbrowserWritableDirs() : [];
+      const writableDirs = resolvedAgentId === "codex" ? clawbrowserWritableDirs() : [];
       let agentArgs = agent.args || [];
-      if (args.agentId === "codex") {
+      if (resolvedAgentId === "codex") {
         await ensureCodexTerminalProfile();
         const nextctlBin = await resolveOrInstallNextctl();
         if (!nextctlBin) throw new Error("nextctl is required for Clawbrowser MCP.");
@@ -2423,6 +2492,9 @@ function createWindow() {
   const window = new BrowserWindow({
     title: "NextBrowser", width: 1180, height: 760, minWidth: 960, minHeight: 640,
     backgroundColor: "#0e0e0e", show: false,
+    // The native menu looks like Electron chrome in the Windows product UI.
+    // Keep keyboard access through Alt without reserving visual space for it.
+    ...(process.platform === "win32" ? { autoHideMenuBar: true } : {}),
     ...(icon ? { icon } : {}),
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: true, backgroundThrottling: false },
   });
@@ -2494,6 +2566,7 @@ if (!gotLock) {
     ipcMain.handle("nextbrowser:invoke", (event, command, args) => invokeCommand(command, args, event.sender));
     createWindow();
     for (const arg of process.argv) handleDeepLink(arg);
+    getProxySafety().start();
     startAutoUpdater();
     startBrowserRuntimeUpdateChecks();
     app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
@@ -2505,6 +2578,7 @@ app.on("open-url", (event, url) => {
 });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 app.on("before-quit", () => {
+  proxySafety?.dispose();
   if (browserRuntimeUpdateTimer) clearInterval(browserRuntimeUpdateTimer);
   if (appUpdateTimer) clearInterval(appUpdateTimer);
   for (const socket of remoteSignalSockets.values()) socket.close();

@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { RunResult } from "./nextctl";
 import { prepareSession, tidyEngineTabs } from "./preflight";
 
 const nextctl = vi.hoisted(() => ({
@@ -8,217 +7,140 @@ const nextctl = vi.hoisted(() => ({
 }));
 
 vi.mock("./nextctl", () => ({
-  nextctlJson: nextctl.json,
-  nextctlRun: nextctl.run,
-  nextctlErrorMessage: (result: RunResult) =>
-    result.stderr.trim() || result.stdout.trim() || "nextctl command failed",
+  nextctlJson: nextctl.json, nextctlRun: nextctl.run,
+  nextctlErrorMessage: (r: { stderr: string; stdout: string }) => r.stderr || r.stdout,
 }));
-
-const success = { stdout: "", stderr: "", code: 0 };
-const greenVerification = {
-  verify: {
-    finalized: true,
-    status: "pass",
-    checks: [{ surface: "Proxy", pass: true }],
-  },
-};
-
+const green = { verify: { finalized: true, status: "pass", checks: [{ pass: true }] } };
+const failed = { verify: { finalized: true, status: "fail", checks: [{ pass: false, surface: "Proxy" }] } };
+const options = { selectedProfile: "work", runtime: "clawbrowser" as const, statuses: { work: "running" }, host: "example.com" };
+const commands = () => nextctl.run.mock.calls.map(([args]) => args);
 beforeEach(() => {
-  nextctl.json.mockReset();
-  nextctl.run.mockReset();
-  nextctl.json.mockImplementation(async (args: string[]) =>
-    args.includes("verify") ? greenVerification : { tabs: [] });
-  nextctl.run.mockResolvedValue(success);
+  nextctl.json.mockReset(); nextctl.run.mockReset();
+  nextctl.run.mockResolvedValue({ code: 0, stdout: "", stderr: "" });
+  nextctl.json.mockImplementation(async (args: string[]) => args.includes("verify") ? green : { tabs: [] });
 });
-
-describe("prepareSession command reporting", () => {
-  it("keeps the selected runtime on every profile command", async () => {
-    nextctl.json
-      .mockResolvedValueOnce(greenVerification)
-      .mockResolvedValueOnce({ tabs: [{ id: "page", url: "https://example.com" }] });
-
-    const result = await prepareSession({
-      selectedProfile: "work-profile",
-      runtime: "camoufox",
-      statuses: { "work-profile": "running" },
+describe("mandatory proxy startup", () => {
+  it.each([
+    ["failed", failed], ["missing", {}],
+    ["pending", { verify: { finalized: false, status: "pending", checks: [{ pass: true }] } }],
+    ["empty", { verify: { finalized: true, status: "pass", checks: [] } }],
+    ["contradictory", { verify: { finalized: true, status: "pass", checks: [{ pass: false }] } }],
+  ])("stops, restarts the same proxy, stops again before asking on %s verify", async (_label, result) => {
+    nextctl.json.mockResolvedValue(result);
+    const choose = vi.fn(async () => {
+      expect(commands()).toEqual([
+        ["--profile", "work", "--runtime", "clawbrowser", "stop", "--format", "json"],
+        ["--profile", "work", "--runtime", "clawbrowser", "start", "--format", "json"],
+        ["--profile", "work", "--runtime", "clawbrowser", "stop", "--format", "json"],
+        ["--profile", "work", "--runtime", "clawbrowser", "start", "--format", "json"],
+        ["--profile", "work", "--runtime", "clawbrowser", "stop", "--format", "json"],
+      ]);
+      return "cancel" as const;
     });
-
-    expect(result.profileArgs).toEqual(["--profile", "work-profile", "--runtime", "camoufox"]);
-    expect(nextctl.json).toHaveBeenNthCalledWith(1, [
-      "--profile", "work-profile", "--runtime", "camoufox", "verify", "--timeout", "30s",
-    ]);
-    expect(nextctl.json).toHaveBeenNthCalledWith(2, [
-      "--profile", "work-profile", "--runtime", "camoufox", "tabs", "list",
-    ]);
+    await expect(prepareSession({ ...options, onVerificationFailure: choose })).rejects.toThrow();
+    expect(choose).toHaveBeenCalledOnce();
+    expect(nextctl.json.mock.calls.every(([args]) => args.includes("verify"))).toBe(true);
   });
-
-  it("does not report a started session when start fails", async () => {
-    const onStep = vi.fn();
-    nextctl.run.mockResolvedValueOnce({
-      stdout: "",
-      stderr: "browser runtime unavailable",
-      code: 1,
-    });
-
-    await expect(prepareSession({
-      statuses: {},
-      onStep,
-    })).rejects.toThrow("Could not start NextBrowser: browser runtime unavailable");
-
-    expect(onStep).not.toHaveBeenCalledWith("Started NextBrowser");
+  it("treats timeout as failure, stops all three attempts and never opens a site", async () => {
+    nextctl.json.mockRejectedValue(new Error("deadline exceeded"));
+    await expect(prepareSession(options)).rejects.toThrow("deadline exceeded");
+    expect(commands().map((args) => args[4])).toEqual(["stop", "start", "stop", "start", "stop"]);
   });
-
-  it("treats a JSON error envelope as failure even with a zero exit code", async () => {
-    const onStep = vi.fn();
-    nextctl.run.mockResolvedValueOnce({
-      stdout: JSON.stringify({ ok: false, error: { message: "runtime rejected start" } }),
-      stderr: "",
-      code: 0,
-    });
-
-    await expect(prepareSession({
-      statuses: {},
-      onStep,
-    })).rejects.toThrow("Could not start NextBrowser");
-
-    expect(onStep).not.toHaveBeenCalledWith("Started NextBrowser");
+  it("continues after successful same-proxy restart without asking for direct access", async () => {
+    nextctl.json.mockResolvedValueOnce(failed).mockResolvedValueOnce(green);
+    const choose = vi.fn();
+    const result = await prepareSession({ ...options, onVerificationFailure: choose });
+    expect(choose).not.toHaveBeenCalled();
+    expect(commands().map((args) => args[4])).toEqual(["stop", "start", "open", "wait"]);
+    expect(result.directFallback).toBe(false);
+    expect(result.profileArgs).toEqual(["--profile", "work", "--runtime", "clawbrowser"]);
   });
-
-  it("does not report an opened or ready page when open fails", async () => {
-    const onStep = vi.fn();
-    nextctl.run.mockResolvedValueOnce({
-      stdout: "",
-      stderr: "navigation failed",
-      code: 1,
-    });
-
-    await expect(prepareSession({
-      host: "example.com",
-      statuses: {},
-      defaultSession: { status: "running" },
-      onStep,
-    })).rejects.toThrow("Could not open example.com: navigation failed");
-
-    expect(onStep).toHaveBeenCalledWith("Session running");
-    expect(onStep).not.toHaveBeenCalledWith("Opened example.com");
-    expect(onStep).not.toHaveBeenCalledWith("Page ready");
+  it("does not restart, prompt or open a site if stopping the failed profile fails", async () => {
+    nextctl.json.mockResolvedValue(failed);
+    nextctl.run.mockResolvedValue({ code: 1, stdout: "", stderr: "stop failed" });
+    const choose = vi.fn();
+    await expect(prepareSession({ ...options, onVerificationFailure: choose })).rejects.toThrow("Could not stop");
+    expect(nextctl.run).toHaveBeenCalledOnce();
+    expect(choose).not.toHaveBeenCalled();
   });
-
-  it("reports an opened page but not a ready page when wait fails", async () => {
-    const onStep = vi.fn();
-    nextctl.run
-      .mockResolvedValueOnce(success)
-      .mockResolvedValueOnce({ stdout: "", stderr: "load timed out", code: 1 });
-
-    await expect(prepareSession({
-      host: "example.com",
-      statuses: {},
-      defaultSession: { status: "running" },
-      onStep,
-    })).rejects.toThrow("Could not finish loading example.com: load timed out");
-
-    expect(onStep).toHaveBeenCalledWith("Opened example.com");
-    expect(onStep).not.toHaveBeenCalledWith("Page ready");
+  it("offers direct access only after the third stopped failure and waits for consent", async () => {
+    nextctl.json.mockResolvedValue(failed);
+    let approve: (choice: "direct") => void = () => {};
+    const choose = vi.fn(() => new Promise<"direct">((resolve) => { approve = resolve; }));
+    const pending = prepareSession({ ...options, onVerificationFailure: choose });
+    await vi.waitFor(() => expect(choose).toHaveBeenCalledOnce());
+    expect(choose).toHaveBeenCalledWith(expect.objectContaining({ attempts: 3, proxyExpected: true }));
+    expect(commands().map((args) => args[4])).toEqual(["stop", "start", "stop", "start", "stop"]);
+    nextctl.json.mockImplementation(async (args: string[]) => args.includes("verify") ? green : { tabs: [] });
+    approve("direct");
+    const result = await pending;
+    expect(result.directFallback).toBe(true);
+    expect(result.profileArgs[1]).toMatch(/^direct-consented-/);
+    expect(commands().find((args) => args[0] === "profiles")).toEqual(["profiles", "create", result.profileArgs[1], "--no-proxy", "--format", "json"]);
+    expect(commands().find((args) => args.includes("open"))?.[1]).toBe(result.profileArgs[1]);
   });
-
-  it("does not report a blank page when nextctl returns no tab", async () => {
-    const onStep = vi.fn();
-    nextctl.json
-      .mockResolvedValueOnce(greenVerification)
-      .mockResolvedValueOnce({ tabs: [] })
-      .mockResolvedValueOnce({});
-
-    await expect(prepareSession({
-      statuses: {},
-      defaultSession: { status: "running" },
-      onStep,
-    })).rejects.toThrow("Could not open a blank page: nextctl returned no tab");
-
-    expect(onStep).not.toHaveBeenCalledWith("Opened a blank page");
+  it("stops a consented direct session too if its verification fails", async () => {
+    nextctl.json.mockResolvedValue(failed);
+    await expect(prepareSession({ ...options, onVerificationFailure: async () => "direct" })).rejects.toThrow();
+    expect(commands().at(-1)).toEqual(["--profile", expect.stringMatching(/^direct-consented-/), "--runtime", "clawbrowser", "stop", "--format", "json"]);
+    expect(commands().some((args) => args.includes("open"))).toBe(false);
   });
-
-  it("stops before navigation when browser verification is not green", async () => {
-    const onStep = vi.fn();
-    nextctl.json.mockResolvedValueOnce({
-      verify: {
-        finalized: true,
-        status: "fail",
-        checks: [{ surface: "Proxy", pass: false }],
-      },
-    });
-
-    await expect(prepareSession({
-      host: "example.com",
-      statuses: {},
-      defaultSession: { status: "running" },
-      onStep,
-    })).rejects.toThrow("Browser verification is not green: Proxy");
-
-    expect(onStep).toHaveBeenCalledWith("Session running");
-    expect(onStep).not.toHaveBeenCalledWith("Browser verified");
-    expect(nextctl.run).not.toHaveBeenCalled();
+  it("succeeds on the third proxy attempt without offering a direct session", async () => {
+    nextctl.json.mockResolvedValueOnce(failed).mockResolvedValueOnce(failed).mockResolvedValueOnce(green);
+    const choose = vi.fn();
+    const result = await prepareSession({ ...options, onVerificationFailure: choose });
+    expect(choose).not.toHaveBeenCalled();
+    expect(result.directFallback).toBe(false);
+    expect(commands().map((args) => args[4])).toEqual(["stop", "start", "stop", "start", "open", "wait"]);
   });
-
-  it("retries verification when the user chooses retry", async () => {
-    const onStep = vi.fn();
-    const onVerificationFailure = vi.fn().mockResolvedValue("retry");
-    nextctl.json
-      .mockResolvedValueOnce({
-        verify: { finalized: true, status: "fail", checks: [{ surface: "Proxy", pass: false }] },
-      })
-      .mockResolvedValueOnce(greenVerification)
-      .mockResolvedValueOnce({ tabs: [{ id: "page", url: "about:blank" }] });
-
-    const result = await prepareSession({
-      statuses: {},
-      defaultSession: { status: "running" },
-      onStep,
-      onVerificationFailure,
-    });
-
-    expect(onVerificationFailure).toHaveBeenCalledTimes(1);
-    expect(onStep).toHaveBeenCalledWith("Browser verified");
+  it("allows a profile explicitly created as direct to run after successful verification", async () => {
+    const result = await prepareSession({ ...options, selectedProfile: "created-direct", statuses: { "created-direct": "running" }, proxyExpected: false });
+    expect(result.profileArgs[1]).toBe("created-direct");
+    expect(result.directFallback).toBe(false);
+    expect(commands().map((args) => args[4])).toEqual(["open", "wait"]);
+  });
+  it("cleans up a failed diagnostic start and retries before opening a site", async () => {
+    nextctl.run.mockResolvedValueOnce({ code: 0, stdout: JSON.stringify({ ok: false, error: { message: "proxy start failed" } }), stderr: "proxy start failed" });
+    const result = await prepareSession({ ...options, statuses: {} });
+    expect(commands().map((args) => args[4])).toEqual(["start", "stop", "start", "open", "wait"]);
     expect(result.directFallback).toBe(false);
   });
 
-  it("switches the current task to the direct session when the user bypasses the proxy", async () => {
+  it("checks a newly started profile before reporting it ready", async () => {
     const onStep = vi.fn();
-    nextctl.json
-      .mockResolvedValueOnce({
-        verify: { finalized: true, status: "fail", checks: [{ surface: "Proxy", pass: false }] },
-      })
-      .mockResolvedValueOnce({ tabs: [{ id: "direct", url: "about:blank" }] });
-
-    const result = await prepareSession({
-      selectedProfile: "proxy-profile",
-      statuses: { "proxy-profile": "running" },
-      defaultSession: { status: "running" },
-      onStep,
-      onVerificationFailure: async () => "direct",
-    });
-
-    expect(result.profileArgs).toEqual([]);
-    expect(result.directFallback).toBe(true);
-    expect(onStep).toHaveBeenCalledWith("Continuing without proxy");
-    expect(nextctl.run).not.toHaveBeenCalled();
+    await prepareSession({ ...options, statuses: {}, verifyOnly: true, onStep });
+    expect(commands().map((args) => args[4])).toEqual(["start"]);
+    expect(onStep).toHaveBeenLastCalledWith("Browser verified");
+  });
+  it("cancels without restarting when the user stops the pending startup", async () => {
+    let active = true;
+    nextctl.json.mockImplementation(async () => { active = false; return failed; });
+    await expect(prepareSession({ ...options, shouldContinue: () => active })).rejects.toThrow("cancelled");
+    expect(commands().map((args) => args[4])).toEqual(["stop"]);
+  });
+  it("does not report ready if navigation fails after a successful verify", async () => {
+    nextctl.run.mockResolvedValue({ code: 1, stdout: "", stderr: "navigation failed" });
+    const onStep = vi.fn();
+    await expect(prepareSession({ ...options, onStep })).rejects.toThrow("Could not open");
+    expect(onStep).not.toHaveBeenCalledWith("Page ready");
   });
 });
 
 describe("verification cadence", () => {
   const listing = { tabs: [{ id: "page", url: "https://x.com/notifications" }] };
 
-  it("trusts a recent green verification of a running session", async () => {
-    nextctl.json.mockImplementation(async (args: string[]) => (args.includes("verify") ? greenVerification : listing));
+  it("requires fresh verification even when a caller requests cached proof", async () => {
+    nextctl.json.mockImplementation(async (args: string[]) => (args.includes("verify") ? green : listing));
     const opts = { selectedProfile: "cadence-running", statuses: { "cadence-running": "running" }, verifyEvery: 60_000 };
     await prepareSession(opts);
     const second = await prepareSession(opts);
     const verifies = nextctl.json.mock.calls.filter(([args]) => (args as string[]).includes("verify"));
-    expect(verifies).toHaveLength(1);
-    expect(second.steps).toContain("Browser verified recently");
+    expect(verifies).toHaveLength(2);
+    expect(second.steps).toContain("Browser verified");
   });
 
   it("verifies again once the session had to be started", async () => {
-    nextctl.json.mockImplementation(async (args: string[]) => (args.includes("verify") ? greenVerification : listing));
+    nextctl.json.mockImplementation(async (args: string[]) => (args.includes("verify") ? green : listing));
     await prepareSession({ selectedProfile: "cadence-restart", statuses: { "cadence-restart": "running" }, verifyEvery: 60_000 });
     await prepareSession({ selectedProfile: "cadence-restart", statuses: {}, verifyEvery: 60_000 });
     const verifies = nextctl.json.mock.calls.filter(([args]) => (args as string[]).includes("verify"));
@@ -226,7 +148,7 @@ describe("verification cadence", () => {
   });
 
   it("verifies every time when no cadence is asked for", async () => {
-    nextctl.json.mockImplementation(async (args: string[]) => (args.includes("verify") ? greenVerification : listing));
+    nextctl.json.mockImplementation(async (args: string[]) => (args.includes("verify") ? green : listing));
     const opts = { selectedProfile: "cadence-none", statuses: { "cadence-none": "running" } };
     await prepareSession(opts);
     await prepareSession(opts);
