@@ -35,6 +35,8 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - name: Critical feature regressions (mandatory)
+        run: npm run test:critical
       - run: npm test
       - run: npm run build
       - name: Package application without installer

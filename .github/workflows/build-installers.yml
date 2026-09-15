@@ -28,6 +28,8 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - name: Critical feature regressions (mandatory)
+        run: npm run test:critical
       - run: npm test
       - name: Configure macOS signing
         env:
@@ -89,6 +91,8 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - name: Critical feature regressions (mandatory)
+        run: npm run test:critical
       - run: npm test
       - name: Build Windows installer
         run: npm run dist:win

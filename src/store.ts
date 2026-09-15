@@ -297,9 +297,7 @@ function skillKey(agentId: string, entryId: string) {
 }
 
 function pageReadyNote(openedHost?: string, directFallback = false): string {
-  const direct = directFallback
-    ? " Use the default direct NextBrowser session for this task; do not switch back to the selected proxy profile."
-    : "";
+  const direct = directFallback ? " Use the selected direct profile explicitly approved by the user; do not switch back to the failed proxy profile." : "";
   if (!openedHost) return direct;
   return ` The page ${openedHost} is already open in the active NextBrowser profile — work there and don't navigate away unless the steps require it.${direct}`;
 }
@@ -387,6 +385,8 @@ interface State {
   authed: boolean;
   accountEmail?: string;
   checking: boolean;
+  startupPhase: "local" | "account";
+  startupError?: string;
   loginError?: string;
   isLoggingIn: boolean;
   proxy?: ProxyTraffic;
@@ -396,6 +396,7 @@ interface State {
   proxyCountries: RotationCountry[];
   statuses: Record<string, string>;
   profileSessions: Record<string, SessionStatus>;
+  proxySafetyBlocked: boolean;
   profileIdentities: Record<string, ProxyIdentity>;
   profileChatOwners: Record<string, string>;
   selectedProfile?: string;
@@ -514,7 +515,7 @@ interface State {
   authorizeAgent: (options?: AgentAuthorizationOptions) => Promise<void>;
   loginAgent: () => Promise<void>;
   logoutAgent: () => Promise<void>;
-  recheckLogin: () => Promise<void>;
+  recheckLogin: (agentId?: string) => Promise<void>;
   setTab: (t: AppTab) => void;
   setAppActive: (v: boolean) => void;
   setProfileSearch: (q: string) => void;
@@ -553,7 +554,8 @@ interface State {
   skillApplyError: (entryId: string) => string | undefined;
 
   newChat: () => string;
-  createProject: (name: string, mode: "chat" | "terminal") => string;
+  createProject: (name: string, mode: "chat" | "terminal", agentId?: string) => string;
+  changeEmptyProjectAgent: (id: string, agentId: string) => boolean;
   assignProfileToProject: (profileName: string, toolset: BrowserToolset, projectId?: string, replaceToolset?: boolean, proxyId?: string) => void;
   setProfileChatOwner: (profileName: string, conversationId?: string) => void;
   moveProfileToWorkspace: (profileName: string, workspaceId: string) => Promise<void>;
@@ -749,14 +751,24 @@ async function prepareLocalSession(
   const selectedRuntime = options.selectedProfile
     ? runtimeForProfile(useStore.getState().workspaces, options.selectedProfile)
     : undefined;
-  return runLocalNextctlOperation(() => prepareSession({
+  const result = await runLocalNextctlOperation(() => prepareSession({
     ...options,
     runtime: options.runtime ?? selectedRuntime,
+    proxyExpected: options.proxyExpected ?? (useStore.getState().profiles.find((p) => p.name === options.selectedProfile)?.proxy_mode !== "direct"),
     onVerificationFailure: options.onVerificationFailure ?? ((failure) =>
       invoke<VerificationFailureChoice>("browser_verification_failure_choice", {
         failedSurfaces: failure.failedSurfaces,
+        proxyExpected: failure.proxyExpected,
+        attempts: failure.attempts,
       })),
   }));
+  if (result.directFallback) {
+    const name = result.profileArgs[result.profileArgs.indexOf("--profile") + 1];
+    useStore.getState().assignProfileToProject(name, options.runtime ?? selectedRuntime ?? "clawbrowser");
+    useStore.getState().selectProfile(name);
+    await useStore.getState().loadProfiles();
+  }
+  return result;
 }
 
 async function waitForLocalNextctlIdle(getState: () => State): Promise<void> {
@@ -1345,6 +1357,7 @@ export const useStore = create<State>((set, get) => {
     const executionTarget = replyExecutionTargets.get(replyId) ??
       executionTargetForTurn(owningConversation);
     replyProfileBaselines.delete(replyId);
+    if (result.code !== 0) void get().recheckLogin(agentId);
     const stopped = get().runtime[agentId]?.pendingStop;
     set((s) => {
       const runtime = { ...s.runtime };
@@ -1402,12 +1415,15 @@ export const useStore = create<State>((set, get) => {
   authed: false,
   accountEmail: undefined,
   checking: true,
+  startupPhase: "local",
+  startupError: undefined,
   isLoggingIn: false,
   profiles: [],
   personalProxies: [],
   proxyCountries: [],
   statuses: {},
   profileSessions: {},
+  proxySafetyBlocked: false,
   profileIdentities: {},
   profileChatOwners: {},
   profileSearch: "",
@@ -1479,7 +1495,7 @@ export const useStore = create<State>((set, get) => {
       const selected = s.conversations.find((conversation) =>
         conversation.id === id && (!s.activeWorkspaceId || conversation.workspaceId === s.activeWorkspaceId),
       );
-      if (selected) return selected;
+      if (selected?.agent === s.agentId) return selected;
     }
     return get().conversationsForAgent(s.agentId)[0];
   },
@@ -1518,182 +1534,176 @@ export const useStore = create<State>((set, get) => {
     didBootstrap = true;
     const startedAt = performance.now();
     trackEvent("bootstrap_started");
-    const [rawConvs, rawWorkspaces, rawSchedules, rawScripts, rawLocalSkills, rawAppliedScripts, rawHistory, rawWatched, rawWatchlistRuns, rawWatchlistTransports, rawWatchlistProfiles, rawWatchlistDevices, rawXReply, wd] = await Promise.all([
-      loadJson<Conversation[]>("conversations.json", []),
-      loadJson<Workspace[]>("workspaces.json", []),
-      loadJson<ScheduledRun[]>("scheduled-runs.json", []),
-      loadJson<CustomScript[]>("custom-scripts.json", []),
-      loadJson<BrowserWorkflowSkill[]>("local-skills.json", []),
-      loadJson<SkillEntry[]>("applied-scripts.json", []),
-      loadJson<UsageSnapshot[]>("usage-history.json", []),
-      loadJson<WatchedProfile[]>("watched-profiles.json", []),
-      loadJson<WatchlistRun[]>("watchlist-runs.json", []),
-      loadJson<Record<string, string>>("watchlist-transports.json", {}),
-      loadJson<Record<string, string>>("watchlist-profiles.json", {}),
-      loadJson<Record<string, MultiloginProfileSelection>>("watchlist-devices.json", {}),
-      loadJson<unknown>(X_REPLY_STATE_FILE, null),
-      invoke<string>("working_directory").catch(() => ""),
-    ]);
-    const convs = rawConvs.map(normalizeConversation);
-    const workspaces = rawWorkspaces.filter((item) => item?.id && item?.name).map((item) => ({
-      ...item,
-      profileNames: Array.isArray(item.profileNames) ? item.profileNames : [],
-      profileToolsets: item.profileToolsets ?? {},
-      profileProxyIds: item.profileProxyIds ?? {},
-      createdAt: Number(item.createdAt) || now(),
-      updatedAt: Number(item.updatedAt) || now(),
-    }));
-    let activeWorkspaceId = localStorage.getItem("activeWorkspaceId") ?? undefined;
-    if (!workspaces.some((item) => item.id === activeWorkspaceId)) activeWorkspaceId = workspaces[0]?.id;
-    const schedules = rawSchedules.map(normalizeSchedule);
-    const scripts = rawScripts.map(normalizeScript);
-    const history = rawHistory.map(normalizeUsage);
-    const activeConvId: Record<string, string> = {};
-    for (const a of AGENTS) {
-      const stored = localStorage.getItem(activeConversationStorageKey(a.id, activeWorkspaceId));
-      const candidates = convs
-        .filter((conversation) => conversation.agent === a.id && (!activeWorkspaceId || conversation.workspaceId === activeWorkspaceId))
-        .sort((left, right) => right.updatedAt - left.updatedAt);
-      const selected = candidates.find((conversation) => conversation.id === stored) ?? candidates[0];
-      if (selected) activeConvId[a.id] = selected.id;
-    }
-    set({
-      conversations: convs,
-      workspaces,
-      activeWorkspaceId,
-      activeConvId,
-      scheduledRuns: schedules,
-      customScripts: scripts,
-      localSkills: rawLocalSkills.map(normalizeWorkflowSkill),
-      appliedScripts: rawAppliedScripts.filter((entry) => entry?.selector?.kind === "script"),
-      usageHistory: history,
-      watchedProfiles: normalizeWatchedProfiles(rawWatched),
-      watchlistRuns: normalizeWatchlistRuns(rawWatchlistRuns),
-      watchlistTransports: rawWatchlistTransports ?? {},
-      watchlistProfiles: rawWatchlistProfiles ?? {},
-      watchlistDevices: rawWatchlistDevices ?? {},
-      xReplyState: normalizeXReplyState(rawXReply),
-      workingDir: wd,
+    set({ checking: true, startupPhase: "local", startupError: undefined });
+    // Cover the entire foreground startup, including disk reads and CLI
+    // resolution. A timeout offers recovery, never a false signed-out state.
+    let startupTimer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<void>((resolve) => {
+      startupTimer = setTimeout(() => {
+        set({ checking: false, startupError: get().startupPhase === "local"
+          ? "Loading saved projects is taking longer than expected. You can restart the check."
+          : "Account verification is taking longer than expected. You can restart the check." });
+        trackEvent("bootstrap_foreground_timeout", { phase: get().startupPhase });
+        resolve();
+      }, BOOTSTRAP_FOREGROUND_WAIT_MS);
     });
-    get().reconcileQueues();
-
-    await listen<[string, string]>("agent:chunk", (e) => {
-      const [replyId, chunk] = e.payload;
-      set((s) => {
-        const conversations = s.conversations.map((c) => ({
-          ...c,
-          messages: c.messages.map((m) => {
-            if (m.id !== replyId) return m;
-            const text = capStreamText(m.text + chunk);
-            return {
-              ...m,
-              text,
-              status: "streaming" as const,
-              lastActivityAt: now(),
-              stalled: false,
-              // Scan only the recent tail — activityFromText over the whole
-              // growing text on every chunk is O(n²) and stalls the UI thread.
-              activityLabel: activityFromText(text.slice(-ACTIVITY_SCAN_TAIL)) ?? m.activityLabel,
-              toolEvents: extractToolEvents(chunk, m.toolEvents ?? []),
-            };
-          }),
-        }));
-        // Persist on completion, not on every chunk — writing the
-        // whole conversation store to disk per 4 KB chunk is an IO storm the
-        // Swift app avoids. An interrupted reply is reconciled on next launch.
-        return { conversations };
-      });
-    });
-
-    await listen<[string, string]>("agent:activity", (e) => {
-      const [replyId, chunk] = e.payload;
-      set((s) => {
-        const conversations = s.conversations.map((c) => ({
-          ...c,
-          messages: c.messages.map((m) => {
-            if (m.id !== replyId) return m;
-            return {
-              ...m,
-              lastActivityAt: now(),
-              stalled: false,
-              activityLabel: activityFromText(chunk) ?? m.activityLabel,
-              toolEvents: extractToolEvents(chunk, m.toolEvents ?? []),
-            };
-          }),
-        }));
-        // Persisted on completion, not per chunk — see agent:chunk.
-        return { conversations };
-      });
-    });
-
-    await listen<[string, number, string, string]>("agent:done", (e) => {
-      const [replyId, code, stderr, stdout] = e.payload;
-      void finishAgentRun(replyId, { code, stderr, stdout });
-    });
-    await listen<AuthDeepLinkPayload>("auth:deeplink", (event) => {
-      const pairing = get().accountPairing;
-      if (!pairing) return;
-      if (event.payload.pairingId && event.payload.pairingId !== pairing.pairingId) return;
-      trackEvent("account_pairing_deeplink", { status: event.payload.status || "unknown" });
-      void get().pollAccountPairing();
-    });
-
-    const authenticated = !pendingTarget(get(), "vps")
-      ? await refreshLocalNextctlMetadata()
-      : false;
-    set({ authed: authenticated });
-    get().startTimers();
-    void get().tickNextctlDailyUpdate();
-
-    try {
-      const refreshWorkspace = authenticated && !pendingTarget(get(), "vps")
-        ? get().syncProjects().catch(() => {}).then(() => get().refreshAll())
-        : Promise.resolve();
-      const bootstrapWork = Promise.all([
-        refreshWorkspace,
-        get().authorizeAgent({ deferMissingNextctlPrompt: true }),
+    const initialize = (async () => {
+      const safety = await invoke<unknown>("proxy_safety_status").catch(() => ({ phase: "unknown" }));
+      set({ proxySafetyBlocked: !!safety });
+      const [rawConvs, rawWorkspaces, rawSchedules, rawScripts, rawLocalSkills, rawAppliedScripts, rawHistory, rawWatched, rawWatchlistRuns, rawWatchlistTransports, rawWatchlistProfiles, rawWatchlistDevices, rawXReply, wd] = await Promise.all([
+        loadJson<Conversation[]>("conversations.json", []),
+        loadJson<Workspace[]>("workspaces.json", []),
+        loadJson<ScheduledRun[]>("scheduled-runs.json", []),
+        loadJson<CustomScript[]>("custom-scripts.json", []),
+        loadJson<BrowserWorkflowSkill[]>("local-skills.json", []),
+        loadJson<SkillEntry[]>("applied-scripts.json", []),
+        loadJson<UsageSnapshot[]>("usage-history.json", []),
+        loadJson<WatchedProfile[]>("watched-profiles.json", []),
+        loadJson<WatchlistRun[]>("watchlist-runs.json", []),
+        loadJson<Record<string, string>>("watchlist-transports.json", {}),
+        loadJson<Record<string, string>>("watchlist-profiles.json", {}),
+        loadJson<Record<string, MultiloginProfileSelection>>("watchlist-devices.json", {}),
+        loadJson<unknown>(X_REPLY_STATE_FILE, null),
+        invoke<string>("working_directory").catch(() => ""),
       ]);
-      let bootstrapTimedOut = false;
-      let bootstrapTimer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        await Promise.race([
-          bootstrapWork,
-          new Promise<void>((resolve) => {
-            bootstrapTimer = setTimeout(() => {
-              bootstrapTimedOut = true;
-              resolve();
-            }, BOOTSTRAP_FOREGROUND_WAIT_MS);
-          }),
-        ]);
-      } finally {
-        if (bootstrapTimer) clearTimeout(bootstrapTimer);
+      const convs = rawConvs.map(normalizeConversation);
+      const workspaces = rawWorkspaces.filter((item) => item?.id && item?.name).map((item) => ({
+        ...item,
+        profileNames: Array.isArray(item.profileNames) ? item.profileNames : [],
+        profileToolsets: item.profileToolsets ?? {},
+        profileProxyIds: item.profileProxyIds ?? {},
+        createdAt: Number(item.createdAt) || now(),
+        updatedAt: Number(item.updatedAt) || now(),
+      }));
+      let activeWorkspaceId = localStorage.getItem("activeWorkspaceId") ?? undefined;
+      if (!workspaces.some((item) => item.id === activeWorkspaceId)) activeWorkspaceId = workspaces[0]?.id;
+      const schedules = rawSchedules.map(normalizeSchedule);
+      const scripts = rawScripts.map(normalizeScript);
+      const history = rawHistory.map(normalizeUsage);
+      const activeConvId: Record<string, string> = {};
+      for (const a of AGENTS) {
+        const stored = localStorage.getItem(activeConversationStorageKey(a.id, activeWorkspaceId));
+        const candidates = convs
+          .filter((conversation) => conversation.agent === a.id && (!activeWorkspaceId || conversation.workspaceId === activeWorkspaceId))
+          .sort((left, right) => right.updatedAt - left.updatedAt);
+        const selected = candidates.find((conversation) => conversation.id === stored) ?? candidates[0];
+        if (selected) activeConvId[a.id] = selected.id;
       }
-      if (bootstrapTimedOut) {
-        trackEvent("bootstrap_background_continuation", {
-          nextctl_available: get().nextctlAvailable,
-        });
-      }
-      // Cloud project state may contain a reply that was streaming when the
-      // previous app process exited. Reconcile once more after cloud sync so
-      // that stale remote state cannot resurrect an hours-old running badge.
+      set({
+        conversations: convs,
+        workspaces,
+        activeWorkspaceId,
+        activeConvId,
+        scheduledRuns: schedules,
+        customScripts: scripts,
+        localSkills: rawLocalSkills.map(normalizeWorkflowSkill),
+        appliedScripts: rawAppliedScripts.filter((entry) => entry?.selector?.kind === "script"),
+        usageHistory: history,
+        watchedProfiles: normalizeWatchedProfiles(rawWatched),
+        watchlistRuns: normalizeWatchlistRuns(rawWatchlistRuns),
+        watchlistTransports: rawWatchlistTransports ?? {},
+        watchlistProfiles: rawWatchlistProfiles ?? {},
+        watchlistDevices: rawWatchlistDevices ?? {},
+        xReplyState: normalizeXReplyState(rawXReply),
+        workingDir: wd,
+      });
       get().reconcileQueues();
-      if (!hasCompletedCurrentOnboarding(localStorage)) {
-        set({ showOnboarding: true });
-      }
+      set({ startupPhase: "account" });
+
+      await listen<[string, string]>("agent:chunk", (e) => {
+        const [replyId, chunk] = e.payload;
+        set((s) => {
+          const conversations = s.conversations.map((c) => ({
+            ...c,
+            messages: c.messages.map((m) => {
+              if (m.id !== replyId) return m;
+              const text = capStreamText(m.text + chunk);
+              return {
+                ...m,
+                text,
+                status: "streaming" as const,
+                lastActivityAt: now(),
+                stalled: false,
+                // Scan only the recent tail — activityFromText over the whole
+                // growing text on every chunk is O(n²) and stalls the UI thread.
+                activityLabel: activityFromText(text.slice(-ACTIVITY_SCAN_TAIL)) ?? m.activityLabel,
+                toolEvents: extractToolEvents(chunk, m.toolEvents ?? []),
+              };
+            }),
+          }));
+          // Persist on completion, not on every chunk — writing the
+          // whole conversation store to disk per 4 KB chunk is an IO storm the
+          // Swift app avoids. An interrupted reply is reconciled on next launch.
+          return { conversations };
+        });
+      });
+
+      await listen<[string, string]>("agent:activity", (e) => {
+        const [replyId, chunk] = e.payload;
+        set((s) => {
+          const conversations = s.conversations.map((c) => ({
+            ...c,
+            messages: c.messages.map((m) => {
+              if (m.id !== replyId) return m;
+              return {
+                ...m,
+                lastActivityAt: now(),
+                stalled: false,
+                activityLabel: activityFromText(chunk) ?? m.activityLabel,
+                toolEvents: extractToolEvents(chunk, m.toolEvents ?? []),
+              };
+            }),
+          }));
+          // Persisted on completion, not per chunk — see agent:chunk.
+          return { conversations };
+        });
+      });
+
+      await listen<[string, number, string, string]>("agent:done", (e) => {
+        const [replyId, code, stderr, stdout] = e.payload;
+        void finishAgentRun(replyId, { code, stderr, stdout });
+      });
+      await listen<AuthDeepLinkPayload>("auth:deeplink", (event) => {
+        const pairing = get().accountPairing;
+        if (!pairing) return;
+        if (event.payload.pairingId && event.payload.pairingId !== pairing.pairingId) return;
+        trackEvent("account_pairing_deeplink", { status: event.payload.status || "unknown" });
+        void get().pollAccountPairing();
+      });
+
+      const authenticated = !pendingTarget(get(), "vps")
+        ? await refreshLocalNextctlMetadata()
+        : false;
+      set({ authed: authenticated, checking: false, startupError: undefined });
+      get().startTimers();
+
+      // These operations have their own status UI and cannot hold the splash.
+      void get().authorizeAgent({ deferMissingNextctlPrompt: true });
+      if (!hasCompletedCurrentOnboarding(localStorage)) set({ showOnboarding: true });
+      void (async () => {
+        if (authenticated && !pendingTarget(get(), "vps")) {
+          await get().syncProjects().catch(() => {});
+          await get().refreshAll();
+        }
+        get().reconcileQueues();
+      })().catch(() => {
+        trackEvent("bootstrap_sync_failed");
+      }).finally(() => {
+        // Discover running profiles before an automatic update replaces files.
+        void get().tickNextctlDailyUpdate().catch(() => {});
+      });
       trackTiming("bootstrap_completed", startedAt, {
         nextctl_available: get().nextctlAvailable,
         profile_count: get().profiles.length,
         conversation_count: get().conversations.length,
       });
-    } catch {
-      /* app remains usable without dashboard credentials or local nextctl */
-      trackTiming("bootstrap_completed", startedAt, {
-        nextctl_available: get().nextctlAvailable,
-        partial: true,
-      });
-    } finally {
-      set({ checking: false });
-    }
+    })().catch(() => {
+      set({ checking: false, startupError: "NextBrowser couldn't finish startup. Restart the check to try again." });
+      trackTiming("bootstrap_failed", startedAt, { phase: get().startupPhase });
+    }).finally(() => {
+      if (startupTimer) clearTimeout(startupTimer);
+    });
+    await Promise.race([initialize, deadline]);
   },
 
   startTimers: () => {
@@ -1768,7 +1778,7 @@ export const useStore = create<State>((set, get) => {
   },
 
   tickScheduledRuns: async () => {
-    if (!get().authed) return;
+    if (get().proxySafetyBlocked || !get().authed) return;
     const d = new Date();
     const hour = d.getHours();
     const minute = d.getMinutes();
@@ -1907,8 +1917,9 @@ export const useStore = create<State>((set, get) => {
   },
 
   startConsumer: (agentId: string) => {
+    if (get().proxySafetyBlocked) return;
     const rt = get().runtime[agentId];
-    if (!rt?.ready || rt.isConsuming) return;
+    if (!rt?.ready || rt.loggedIn === false || rt.isConsuming || !rt.queue.length) return;
     const nextTarget = rt.queue[0]?.executionTarget;
     if (nextTarget === "vps" && (get().nextctlUpdating || runningTarget(get(), "local"))) return;
     if (nextTarget === "local" && pendingTarget(get(), "vps")) return;
@@ -1920,6 +1931,9 @@ export const useStore = create<State>((set, get) => {
     }));
     void (async () => {
       while (true) {
+        if (get().proxySafetyBlocked || !get().runtime[agentId]?.queue.length) break;
+        await get().recheckLogin(agentId);
+        if (get().runtime[agentId]?.loggedIn === false) break;
         const nextTarget = get().runtime[agentId]?.queue[0]?.executionTarget;
         if (nextTarget === "vps" && runningTarget(get(), "local")) break;
         if (nextTarget === "local" && pendingTarget(get(), "vps")) break;
@@ -1937,6 +1951,7 @@ export const useStore = create<State>((set, get) => {
   },
 
   dequeue: (agentId: string) => {
+    if (get().proxySafetyBlocked) return null;
     const rt = get().runtime[agentId];
     if (!rt?.queue.length) return null;
     const item = rt.queue[0];
@@ -2638,7 +2653,7 @@ export const useStore = create<State>((set, get) => {
     const startedAt = performance.now();
     trackEvent("profile_start_requested", { scope: "default" });
     try {
-      await nextctlRunChecked(["start", "--format", "json"]);
+      await prepareLocalSession({ statuses: {}, verifyOnly: true });
       await get().loadDefaultSession();
       const identity = await verifyProxyIdentity();
       if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
@@ -2698,9 +2713,7 @@ export const useStore = create<State>((set, get) => {
   startProfile: async (n) => {
     const startedAt = performance.now();
     trackEvent("profile_start_requested", { scope: "named" });
-    const previousStatus = get().statuses[n] ?? "stopped";
     const operation = nextProfileOperation(n);
-    const requestId = `profile-start:${n}`;
     const ownerId = get().activeConversation()?.id;
     set((s) => ({
       statuses: { ...s.statuses, [n]: "starting" },
@@ -2709,67 +2722,22 @@ export const useStore = create<State>((set, get) => {
     try {
       const runtime = runtimeForProfile(get().workspaces, n);
       const profile = get().profiles.find((item) => item.name === n);
-      let launchSettled = false;
-      // A successful browser may outlive the short nextctl launcher and its
-      // detached streaming child can keep inherited pipes open on some hosts.
-      // Reconcile the authoritative status while launch is pending so the UI
-      // never remains on Starting after the browser is already usable.
-      const reconcileRunningProfile = async () => {
-        for (let attempt = 0; attempt < 20 && !launchSettled; attempt += 1) {
-          await new Promise((resolve) => setTimeout(resolve, 500));
-          if (profileOperationEpoch.get(n) !== operation) return;
-          try {
-            const session = await nextctlJson<SessionStatus>(["status", "--profile", n, "--runtime", runtime]);
-            if (session.status !== "running") continue;
-            set((s) => ({
-              statuses: { ...s.statuses, [n]: "running" },
-              profileSessions: { ...s.profileSessions, [n]: session },
-            }));
-            return;
-          } catch {
-            // The launcher may still be writing its state file. Retry within
-            // the bounded launch window and let the main error path decide.
-          }
-        }
-      };
-      const statusReconciliation = reconcileRunningProfile();
-      await nextctlRunChecked([
-        "start",
-        "--profile",
-        n,
-        "--runtime",
-        runtime,
-        ...(runtime === "camoufox" && profile?.country ? ["--verify"] : []),
-        "--format",
-        "json",
-      ], undefined, { requestId, timeoutMs: 240_000 }).finally(() => { launchSettled = true; });
-      await statusReconciliation;
+      await prepareLocalSession({
+        selectedProfile: n, runtime, statuses: {}, verifyOnly: true,
+        proxyExpected: profile?.proxy_mode !== "direct",
+        shouldContinue: () => profileOperationEpoch.get(n) === operation,
+      });
       if (profileOperationEpoch.get(n) !== operation) return;
       await get().loadProfiles();
-      if (profileOperationEpoch.get(n) !== operation) return;
-      // Starting a profile should hand it to the user/agent immediately after
-      // nextctl reports it ready. A second `verify` navigation here used to
-      // race the first browser task, especially for manual proxy profiles.
-      // Managed ClawBrowser and Camoufox already verify during their launch;
-      // the saved country is sufficient for the sidebar until an explicit
-      // rotate/verify action refreshes the detailed IP identity.
-      const identity = profile?.country ? { country: profile.country } : undefined;
-      if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: identity } }));
       trackTiming("profile_start_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
     } catch (error) {
       if (profileOperationEpoch.get(n) !== operation) return;
       await get().loadProfiles().catch(() => undefined);
-      if (get().statuses[n] === "running") {
-        if (ownerId) get().setProfileChatOwner(n, ownerId);
-        return;
-      }
-      // Never leave a failed launch looking active forever. Restore the last
-      // known state immediately; a later refresh can replace it with the
-      // authoritative nextctl status.
+      // Never reinterpret a live process as a successful verification.
       set((s) => {
         const profileChatOwners = { ...s.profileChatOwners };
         delete profileChatOwners[n];
-        return { statuses: { ...s.statuses, [n]: previousStatus }, profileChatOwners };
+        return { statuses: { ...s.statuses, [n]: /could not stop/i.test(error instanceof Error ? error.message : String(error)) ? "unknown" : "stopped" }, profileChatOwners };
       });
       if (/command cancelled/i.test(error instanceof Error ? error.message : String(error))) return;
       requestAccountSignIn(set, error);
@@ -3011,6 +2979,9 @@ export const useStore = create<State>((set, get) => {
     if (["running", "starting", "stopping", "rotating"].includes(status)) {
       throw new Error("Stop the profile before changing its connection.");
     }
+    if (connection === "direct" && get().profiles.find((p) => p.name === name)?.proxy_mode !== "direct") {
+      throw new Error("A proxy profile cannot be changed to direct. Create a new profile without a proxy instead.");
+    }
     const runtime = runtimeForProfile(get().workspaces, name);
     if (connection === "personal") {
       const proxyId = options?.proxyId?.trim();
@@ -3123,6 +3094,7 @@ export const useStore = create<State>((set, get) => {
     get().ensureConversation(id);
     get().reconcileQueues();
     get().startConsumer(id);
+    void get().recheckLogin(id);
   },
 
   ensureConversation: (agentId: string) => {
@@ -3299,6 +3271,7 @@ export const useStore = create<State>((set, get) => {
               [agentId]: { ...s.runtime[agentId], loggedIn: true },
             },
           }));
+          get().startConsumer(agentId);
           trackEvent("agent_login_succeeded", { agent: agentId });
           return;
         }
@@ -3374,21 +3347,20 @@ export const useStore = create<State>((set, get) => {
     }
   },
 
-  recheckLogin: async () => {
-    const agentId = get().agentId;
+  recheckLogin: async (selectedAgentId) => {
+    const agentId = selectedAgentId ?? get().agentId;
     const a = agentById(agentId);
-    if (!get().runtime[agentId]?.ready) return;
-    const loggedIn = (await invoke<boolean | null>("agent_check_login", {
-      binary: a.binary,
-      envVar: a.envVar,
-      statusArgs: a.statusArgs ?? [],
-    })) as boolean | null;
-    set((s) => ({
-      runtime: {
-        ...s.runtime,
-        [agentId]: { ...s.runtime[agentId], loggedIn },
-      },
-    }));
+    const runtime = get().runtime[agentId];
+    if (!runtime?.ready || runtime.authorizing || !a.statusArgs?.length) return;
+    try {
+      const loggedIn = await invoke<boolean | null>("agent_check_login", {
+        binary: a.binary, envVar: a.envVar, statusArgs: a.statusArgs,
+      });
+      // An inconclusive check must never turn a confirmed logout into ready.
+      if (typeof loggedIn !== "boolean") return;
+      set((s) => ({ runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], loggedIn } } }));
+      if (loggedIn) get().startConsumer(agentId);
+    } catch { /* A failed status command is not evidence of a login. */ }
   },
 
   setTab: (t) => {
@@ -3801,8 +3773,9 @@ export const useStore = create<State>((set, get) => {
     return c.id;
   },
 
-  createProject: (name, mode) => {
-    const agentId = get().agentId;
+  createProject: (name, mode, selectedAgentId) => {
+    const agentId = selectedAgentId ?? get().agentId;
+    if (!AGENTS.some((agent) => agent.id === agentId)) return "";
     const workspaceId = get().activeWorkspaceId;
     if (!workspaceId) return "";
     const cleanName = validateEntityName("project", name);
@@ -3829,6 +3802,7 @@ export const useStore = create<State>((set, get) => {
       terminalChat: mode === "terminal",
       tab: "chat",
     });
+    get().selectConversation(c.id);
     trackEvent("project_created", { agent: agentId, mode });
     return c.id;
   },
@@ -3953,14 +3927,37 @@ export const useStore = create<State>((set, get) => {
     return c.id;
   },
 
+  changeEmptyProjectAgent: (id, agentId) => {
+    const project = get().conversations.find((item) => item.id === id);
+    if (!project || project.messages.length || project.chatMode === "terminal" || project.terminalPreview
+      || project.executionTarget === "vps" || !AGENTS.some((agent) => agent.id === agentId)) return false;
+    const conversations = get().conversations.map((item) => item.id === id ? { ...item, agent: agentId, updatedAt: now() } : item);
+    const activeConvId = { ...get().activeConvId };
+    if (activeConvId[project.agent] === id) {
+      delete activeConvId[project.agent];
+      localStorage.removeItem(activeConversationStorageKey(project.agent, project.workspaceId));
+    }
+    persistConvs(conversations);
+    set({ conversations, activeConvId });
+    get().selectConversation(id);
+    return true;
+  },
+
   selectConversation: (id) => {
-    const agentId = get().agentId;
-    trackEvent("chat_selected", { agent: agentId });
     const project = get().conversations.find((conversation) => conversation.id === id);
-    const terminalChat = project?.chatMode === "terminal";
-    if (project) localStorage.setItem(activeConversationStorageKey(agentId, project.workspaceId), id);
+    if (!project) return;
+    const agentId = project.agent;
+    trackEvent("chat_selected", { agent: agentId });
+    const terminalChat = project.chatMode === "terminal";
+    localStorage.setItem(activeConversationStorageKey(agentId, project.workspaceId), id);
+    localStorage.setItem("lastAgent", agentId);
     localStorage.setItem("terminalChat", String(terminalChat));
-    set({ activeConvId: { ...get().activeConvId, [agentId]: id }, terminalChat });
+    if (project.workspaceId) localStorage.setItem("activeWorkspaceId", project.workspaceId);
+    set({ agentId, activeWorkspaceId: project.workspaceId ?? get().activeWorkspaceId,
+      activeConvId: { ...get().activeConvId, [agentId]: id }, terminalChat });
+    get().reconcileQueues();
+    get().startConsumer(agentId);
+    void get().recheckLogin(agentId);
   },
 
   renameConversation: (id, title) => {
@@ -3990,7 +3987,7 @@ export const useStore = create<State>((set, get) => {
   },
 
   deleteConversation: (id) => {
-    const agentId = get().agentId;
+    const agentId = get().conversations.find((item) => item.id === id)?.agent ?? get().agentId;
     const conversations = get().conversations.filter((c) => c.id !== id);
     const activeConvId = { ...get().activeConvId };
     if (activeConvId[agentId] === id) {

@@ -164,3 +164,63 @@ describe("conversation persistence", () => {
     });
   });
 });
+
+describe("project agent selection", () => {
+  it("creates with an explicit agent and opens existing projects with their own agent", async () => {
+    const { useStore } = await import("./store");
+    useStore.setState({ agentId: "claude", activeWorkspaceId: "work", conversations: [] });
+    const id = useStore.getState().createProject("Research", "chat", "codex");
+    expect(useStore.getState().activeConversation()).toMatchObject({ id, agent: "codex", workspaceId: "work" });
+    expect(useStore.getState().agentId).toBe("codex");
+    expect(useStore.getState().conversations).toHaveLength(1);
+    useStore.setState({ agentId: "claude" });
+    useStore.getState().selectConversation(id);
+    expect(useStore.getState().agentId).toBe("codex");
+    expect(localStorage.getItem("lastAgent")).toBe("codex");
+  });
+  it("changes an empty project in place but preserves chat and terminal history", async () => {
+    const { useStore } = await import("./store");
+    const empty = conversation("empty", "claude", 1);
+    const terminal = { ...conversation("terminal", "claude", 1), chatMode: "terminal" as const };
+    useStore.setState({ conversations: [empty, terminal], activeConvId: { claude: empty.id } });
+    expect(useStore.getState().changeEmptyProjectAgent(empty.id, "codex")).toBe(true);
+    expect(useStore.getState().activeConversation()).toMatchObject({ id: empty.id, agent: "codex" });
+    expect(useStore.getState().activeConvId.claude).toBeUndefined();
+    expect(useStore.getState().changeEmptyProjectAgent(terminal.id, "codex")).toBe(false);
+    useStore.setState({ conversations: [{ ...empty, messages: [{ id: "m", role: "user", text: "hello", status: "done", createdAt: 1 }] }] });
+    expect(useStore.getState().changeEmptyProjectAgent(empty.id, "codex")).toBe(false);
+  });
+  it("detects logout without restart and does not turn an inconclusive check into login", async () => {
+    const { useStore } = await import("./store");
+    const runtime = useStore.getState().runtime;
+    useStore.setState({ agentId: "claude", runtime: { ...runtime, claude: { ...runtime.claude, ready: true, loggedIn: true } } });
+    bridge.invoke.mockResolvedValue(false);
+    await useStore.getState().recheckLogin();
+    expect(useStore.getState().agentReady()).toBe(false);
+    bridge.invoke.mockResolvedValue(null);
+    await useStore.getState().recheckLogin();
+    expect(useStore.getState().agentReady()).toBe(false);
+    bridge.invoke.mockResolvedValue(true);
+    await useStore.getState().recheckLogin();
+    expect(useStore.getState().agentReady()).toBe(true);
+  });
+});
+
+it("keeps queued work pending after external logout and resumes after login", async () => {
+  const { useStore } = await import("./store");
+  const runtime = useStore.getState().runtime;
+  const item = { conversationId: "work", rawText: "Do the task", replyId: "reply", executionTarget: "local" as const };
+  const processItem = vi.fn().mockResolvedValue(undefined);
+  useStore.setState({ agentId: "claude", processItem, runtime: {
+    ...runtime, claude: { ...runtime.claude, ready: true, loggedIn: true, queue: [item] },
+  } });
+  bridge.invoke.mockResolvedValue(false);
+  useStore.getState().startConsumer("claude");
+  await vi.waitFor(() => expect(useStore.getState().runtime.claude.isConsuming).toBe(false));
+  expect(processItem).not.toHaveBeenCalled();
+  expect(useStore.getState().runtime.claude.queue).toEqual([item]);
+  bridge.invoke.mockResolvedValue(true);
+  await useStore.getState().recheckLogin();
+  await vi.waitFor(() => expect(processItem).toHaveBeenCalledExactlyOnceWith("claude", item));
+  expect(useStore.getState().runtime.claude.queue).toEqual([]);
+});

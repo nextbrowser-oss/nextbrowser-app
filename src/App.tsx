@@ -1,3 +1,6 @@
+import { ProxySafetyBanner } from "./components/ProxySafetyBanner";
+import { BrowserRuntimeUpdatePrompt, type BrowserRuntimeUpdateEntry } from "./components/BrowserRuntimeUpdatePrompt";
+import { InstallationProgress, InstallationSpinner } from "./components/InstallationProgress";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useStore } from "./store";
 import { Sidebar } from "./components/Sidebar";
@@ -61,15 +64,6 @@ interface BrowserRuntimeInstallStatus {
   requestId?: string;
 }
 
-interface BrowserRuntimeUpdateEntry {
-  runtime: "clawbrowser" | "dasbrowser" | "camoufox";
-  name: string;
-  status: "available" | "up-to-date" | "not-installed" | "unavailable" | "unknown" | "error";
-  currentVersion?: string;
-  latestVersion?: string;
-  releasePage: string;
-  error?: string;
-}
 
 interface BrowserRuntimeUpdateStatus {
   status: "idle" | "checking" | "ready" | "partial" | "error";
@@ -108,7 +102,7 @@ function BrowserRuntimeInstallModal({ status, onCancel }: { status: BrowserRunti
   return (
     <div className="browser-install-overlay" role="status" aria-live="polite">
       <div className="modal-card browser-install-modal" aria-labelledby="browser-install-title">
-        <div className="browser-install-mark"><Spinner size={22} /></div>
+        <InstallationSpinner />
         <div className="browser-install-copy">
           <strong id="browser-install-title">{installing ? `Installing ${name}` : `Downloading ${name}`}</strong>
           <p className="muted small">
@@ -117,7 +111,7 @@ function BrowserRuntimeInstallModal({ status, onCancel }: { status: BrowserRunti
               : `Preparing ${name} for its first profile. The download time depends on your connection.`}
           </p>
         </div>
-        <div className="browser-install-progress" aria-hidden="true"><span /></div>
+        <InstallationProgress label={installing ? `Installing ${name}` : `Downloading ${name}`} />
         <p className="muted browser-install-note">Keep NextBrowser open until setup is complete.</p>
         {status.requestId && <div className="modal-actions"><button className="secondary danger-text" type="button" onClick={onCancel}><Icon name="stop.fill" size={12} /> Stop download</button></div>}
       </div>
@@ -125,40 +119,6 @@ function BrowserRuntimeInstallModal({ status, onCancel }: { status: BrowserRunti
   );
 }
 
-function BrowserRuntimeUpdatePrompt({ runtimes, onLater, onConfirm }: {
-  runtimes: BrowserRuntimeUpdateEntry[];
-  onLater: () => void;
-  onConfirm: () => void;
-}) {
-  const isFirstInstall = runtimes.every((runtime) => runtime.status === "not-installed");
-  return (
-    <div className="modal-overlay">
-      <div className="modal-card runtime-update-prompt" role="dialog" aria-modal="true" aria-labelledby="runtime-update-title">
-        <div className="modal-title-row">
-          <Icon name="arrow.down.circle" size={19} className="warn" />
-          <div>
-            <strong id="runtime-update-title">{isFirstInstall ? "Install browser toolset" : "Browser toolset update available"}</strong>
-            <div className="muted small">{isFirstInstall ? "NextBrowser will download and prepare it for a new profile." : "Choose when NextBrowser may install it."}</div>
-          </div>
-        </div>
-        <div className="runtime-update-prompt-list">
-          {runtimes.map((runtime) => (
-            <div className="runtime-update-prompt-row" key={runtime.runtime}>
-              <strong>{runtime.name}</strong>
-              <span className="muted small">{runtime.currentVersion ?? (runtime.status === "not-installed" ? "Not installed" : "Installed")} → {runtime.latestVersion}</span>
-            </div>
-          ))}
-        </div>
-        <p className="muted small">Installation starts only after you confirm and continues in the background. Keep NextBrowser open until it finishes.</p>
-        <div className="row settings-actions">
-          <button className="secondary" onClick={onLater}>Later</button>
-          <span className="spacer" />
-          <button className="primary" onClick={onConfirm}>{isFirstInstall ? `Install ${runtimes.length > 1 ? `${runtimes.length} toolsets` : "now"}` : `Update ${runtimes.length > 1 ? `${runtimes.length} toolsets` : "now"}`}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function BrowserRuntimeUpdateProgress({ status, onClose, onRetry, onOpenManualGuide }: {
   status: BrowserRuntimeUpdateInstallStatus;
@@ -171,13 +131,14 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onRetry, onOpenManualGu
   const partial = status.status === "partial";
   return (
     <div className="runtime-update-progress-card" role="status" aria-live="polite">
-      <div className={"runtime-update-progress-mark" + (failed || partial ? " is-error" : !installing ? " is-ready" : "")}>
-        {installing ? <Spinner size={18} /> : <Icon name={failed || partial ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"} size={18} />}
-      </div>
+      {installing ? <InstallationSpinner /> : (
+        <div className={"runtime-update-progress-mark" + (failed || partial ? " is-error" : " is-ready")}>
+          <Icon name={failed || partial ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"} size={18} />
+        </div>
+      )}
       <div className="runtime-update-progress-copy">
         <strong>{installing ? `Updating ${status.currentName ?? "browser toolsets"}` : failed ? "Update failed" : partial ? "Update partly complete" : "Browser toolsets updated"}</strong>
         <span className="muted small">{status.message}</span>
-        {installing && <div className="runtime-update-progress-track"><span style={{ width: `${Math.max(4, status.progress ?? 0)}%` }} /></div>}
         {!!status.errors?.length && (
           <div className="runtime-update-errors">
             {status.errors.map((error) => (
@@ -199,6 +160,7 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onRetry, onOpenManualGu
         )}
         {(failed || partial) && <p className="runtime-update-requirements">Before retrying: keep NextBrowser open, use a stable connection, make sure there is free disk space, and close any running browser toolset.</p>}
       </div>
+      {installing && <InstallationProgress label={`Updating ${status.currentName ?? "browser toolsets"}`} />}
       {!installing && (
         <button className="plain-icon-btn plain-icon-btn-compact" onClick={onClose} aria-label="Dismiss update status">
           <Icon name="xmark" size={12} />
@@ -738,6 +700,9 @@ export function App() {
   const feedbackPromptEvaluated = useRef(false);
   const preview = getPreviewMode();
   const checking = useStore((s) => s.checking);
+  const startupPhase = useStore((s) => s.startupPhase);
+  const startupError = useStore((s) => s.startupError);
+  const workspaceSyncing = useStore((s) => s.projectsSyncing || s.isRefreshing);
   const tab = useStore((s) => s.tab);
   const setTab = useStore((s) => s.setTab);
   const bootstrap = useStore((s) => s.bootstrap);
@@ -871,11 +836,14 @@ export function App() {
     setRuntimeUpdatePrompt(undefined);
   };
   const installBrowserRuntimeUpdates = (requestedRuntimes?: unknown) => {
-    const runtimes = confirmedBrowserRuntimeUpdates(
-      requestedRuntimes,
-      runtimeUpdatePrompt?.map((runtime) => runtime.runtime) ?? [],
-    );
-    if (!runtimes.length) return;
+    const runtimes = confirmedBrowserRuntimeUpdates(requestedRuntimes, runtimeUpdatePrompt?.map((runtime) => runtime.runtime) ?? []);
+    if (!Array.isArray(runtimes) || !runtimes.length || runtimeUpdateInstall.status === "installing") return;
+    setRuntimeUpdateInstall({
+      status: "installing",
+      runtimes,
+      currentName: runtimeUpdatePrompt?.[0]?.name ?? browserRuntimeUpdates.runtimes.find((runtime) => runtime.runtime === runtimes[0])?.name,
+      message: "Checking the selected toolsets before downloading…",
+    });
     setRuntimeUpdatePromptDismissed(browserRuntimeUpdateSignature(browserRuntimeUpdates.runtimes));
     setRuntimeUpdatePrompt(undefined);
     setRuntimeUpdateProgressHidden(false);
@@ -1160,10 +1128,28 @@ export function App() {
   }, [bootstrap, preview]);
 
   useEffect(() => {
-    const onVis = () => setAppActive(document.visibilityState === "visible");
+    if (preview) return;
+    const refreshLogin = () => {
+      if (document.visibilityState === "visible") void useStore.getState().recheckLogin();
+    };
+    const onVis = () => {
+      setAppActive(document.visibilityState === "visible");
+      refreshLogin();
+    };
     document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, [setAppActive]);
+    window.addEventListener("focus", refreshLogin);
+    const timer = window.setInterval(refreshLogin, 30_000);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", refreshLogin);
+      window.clearInterval(timer);
+    };
+  }, [setAppActive, preview]);
+
+  useEffect(() => {
+    // A recovered connection allows a later logout to reopen setup.
+    if (agentReady) setAgentGateDismissed(false);
+  }, [agentReady]);
 
   useEffect(() => {
     const minSidebarWidth = 320;
@@ -1235,7 +1221,7 @@ export function App() {
     trackEvent("feedback_submitted", { rating });
   }} /> : null;
 
-  if (checking && preview !== "login" && preview !== "main" && preview !== "onboarding") {
+  if ((checking || startupError) && preview !== "login" && preview !== "main" && preview !== "onboarding") {
     return (
       <>
         <div className="floating-controls">
@@ -1262,8 +1248,18 @@ export function App() {
         <div className="splash">
           <BrandLogo size={76} />
           <div className="splash-title">{brandName}</div>
-          <Spinner size={18} />
-          <div className="muted small">Checking saved credentials…</div>
+          {startupError ? (
+            <div className="startup-recovery" role="alert">
+              <p className="muted small">{startupError}</p>
+              <button className="primary" onClick={() => window.location.reload()}>Restart check</button>
+            </div>
+          ) : (
+            <>
+              <InstallationSpinner />
+              <div className="muted small">{startupPhase === "local" ? "Loading saved projects…" : "Checking account access…"}</div>
+              <div className="startup-progress"><InstallationProgress label={startupPhase === "local" ? "Loading saved projects" : "Checking account access"} /></div>
+            </>
+          )}
         </div>
         {runtimeUpdatePrompt && (
           <BrowserRuntimeUpdatePrompt
@@ -1283,6 +1279,7 @@ export function App() {
 
   return (
     <div className="app">
+      <ProxySafetyBanner />
       <aside
         className={"sidebar thin-material" + (sidebarCollapsed ? " sidebar-collapsed" : "")}
         style={{ width: sidebarCollapsed ? 68 : sidebarWidth }}
@@ -1327,6 +1324,9 @@ export function App() {
           </div>
         </nav>
         <hr className="divider" />
+        {workspaceSyncing && <div className="workspace-sync-status muted small" role="status">
+          <Spinner size={12} /> Syncing workspace…
+        </div>}
         <div className={"tab-content" + (tab === "skills" ? " tab-content-bleed" : "")}>
           <div className={"persistent-tab-panel" + (tab === "chat" ? "" : " is-hidden")}>
             <ChatView />

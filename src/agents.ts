@@ -77,7 +77,7 @@ export const AGENTS: AgentSpec[] = [
   // mode is `copilot -p <prompt>`, the same shape used by Gemini/Antigravity.
   spec("copilot", "GitHub Copilot CLI", "copilot", "promptFlag", { loginArgs: ["login"], installUrl: "https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli" }),
   spec("qwen", "Qwen Code", "qwen", "promptFlag"),
-  spec("opencode", "OpenCode", "opencode", "runSubcommand"),
+  spec("opencode", "OpenCode", "opencode", "runSubcommand", { installUrl: "https://opencode.ai/docs/#install" }),
   spec("cursor", "Cursor Agent", "cursor-agent", "promptFlag"),
   spec("crush", "Crush", "crush", "runSubcommand"),
   spec("goose", "Goose", "goose", "runSubcommand"),
