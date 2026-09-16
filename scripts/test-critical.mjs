@@ -14,6 +14,7 @@ const renderer = [
   "src/lib/automationTrust.test.ts",
   "src/store.profileDeletion.test.ts",
   "src/store.auditFixes.test.ts",
+  "src/store.startupRace.test.ts",
 ];
 const native = [
   "electron/verification-policy.test.cjs",

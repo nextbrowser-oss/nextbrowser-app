@@ -672,6 +672,8 @@ interface APIKeyIdentity {
 const replyExecutionTargets = new Map<string, ExecutionTarget>();
 const replyProfileBaselines = new Map<string, Set<string>>();
 const profileOperationEpoch = new Map<string, number>();
+const pendingProfileStarts = new Map<string, Promise<void>>();
+const verifyingProfileStarts = new Set<string>();
 const BOOTSTRAP_FOREGROUND_WAIT_MS = 12_000;
 
 function activeConversationStorageKey(agentId: string, workspaceId?: string): string {
@@ -777,6 +779,13 @@ function persistWorkspaceMutation(transform: (workspaces: Workspace[]) => Worksp
 async function prepareLocalSession(
   options: Parameters<typeof prepareSession>[0],
 ): ReturnType<typeof prepareSession> {
+  if (options.selectedProfile && !options.verifyOnly) {
+    const pending = pendingProfileStarts.get(options.selectedProfile);
+    if (pending) {
+      await pending;
+      options = { ...options, statuses: useStore.getState().statuses };
+    }
+  }
   const selectedRuntime = options.selectedProfile
     ? runtimeForProfile(useStore.getState().workspaces, options.selectedProfile)
     : undefined;
@@ -2025,26 +2034,48 @@ export const useStore = create<State>((set, get) => {
       (itemWorkspace?.profileNames ?? []).filter((profile) => get().statuses[profile] === "running"),
     ));
     get().setMessageStatus(item.conversationId, item.replyId, "streaming");
+    let awaitingProfileStart = false;
     try {
       // Persist the dispatched state before spawning the agent. Otherwise an
       // app restart can restore the older queued snapshot and send the same
       // user prompt a second time.
       await flushConversations();
+      if (item.executionTarget === "local") {
+        const pendingNames = (itemWorkspace?.profileNames ?? []).filter((name) => pendingProfileStarts.has(name));
+        awaitingProfileStart = pendingNames.length > 0;
+        await Promise.all(pendingNames.map((name) => pendingProfileStarts.get(name)));
+        if (pendingNames.some((name) => get().statuses[name] !== "running")) {
+          throw new Error("Profile startup did not complete");
+        }
+      }
     } catch {
+      const cancelled = get().runtime[agentId]?.pendingStop;
       replyExecutionTargets.delete(item.replyId);
       replyProfileBaselines.delete(item.replyId);
       get().setMessageStatus(
         item.conversationId,
         item.replyId,
-        "failed",
-        "The request was not sent because its state could not be saved.",
+        cancelled ? "cancelled" : "failed",
+        cancelled ? "Request cancelled before the agent started." : awaitingProfileStart
+          ? "The request was not sent because the browser profile did not pass its startup check. Fix the connection and start the profile again."
+          : "The request was not sent because its state could not be saved.",
       );
       set((s) => ({
         runtime: {
           ...s.runtime,
-          [agentId]: { ...s.runtime[agentId], runningReplyId: undefined },
+          [agentId]: { ...s.runtime[agentId], runningReplyId: undefined, pendingStop: false },
         },
       }));
+      return;
+    }
+    const currentRuntime = get().runtime[agentId];
+    if (currentRuntime?.pendingStop || currentRuntime?.runningReplyId !== item.replyId) {
+      replyExecutionTargets.delete(item.replyId);
+      replyProfileBaselines.delete(item.replyId);
+      get().setMessageStatus(item.conversationId, item.replyId, "cancelled", "Request cancelled before the agent started.");
+      if (currentRuntime?.runningReplyId === item.replyId) {
+        set((s) => ({ runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], runningReplyId: undefined, pendingStop: false } } }));
+      }
       return;
     }
     trackEvent("agent_turn_started", {
@@ -2613,6 +2644,10 @@ export const useStore = create<State>((set, get) => {
         }
       }
       if (generation !== profileRefreshGeneration) return;
+      for (const name of verifyingProfileStarts) {
+        statuses[name] = get().statuses[name] === "stopping" ? "stopping" : "starting";
+        if (profileSessions[name]) profileSessions[name] = { ...profileSessions[name], status: statuses[name] };
+      }
       set({ statuses, profileSessions, profileIdentities });
     } catch {
       /* non-fatal */
@@ -2749,50 +2784,66 @@ export const useStore = create<State>((set, get) => {
     }
   },
 
-  startProfile: async (n) => {
-    const startedAt = performance.now();
-    trackEvent("profile_start_requested", { scope: "named" });
-    const operation = nextProfileOperation(n);
-    const ownerId = get().activeConversation()?.id;
-    set((s) => ({
-      statuses: { ...s.statuses, [n]: "starting" },
-      profileChatOwners: ownerId ? { ...s.profileChatOwners, [n]: ownerId } : s.profileChatOwners,
-    }));
-    try {
-      const runtime = runtimeForProfile(get().workspaces, n);
-      const profile = get().profiles.find((item) => item.name === n);
-      await prepareLocalSession({
-        selectedProfile: n, runtime, statuses: {}, verifyOnly: true,
-        proxyExpected: profile?.proxy_mode !== "direct",
-        shouldContinue: () => profileOperationEpoch.get(n) === operation,
-      });
-      if (profileOperationEpoch.get(n) !== operation) return;
-      await get().loadProfiles();
-      trackTiming("profile_start_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
-    } catch (error) {
-      if (profileOperationEpoch.get(n) !== operation) return;
-      await get().loadProfiles().catch(() => undefined);
-      // Never reinterpret a live process as a successful verification.
-      set((s) => {
-        const profileChatOwners = { ...s.profileChatOwners };
-        delete profileChatOwners[n];
-        return { statuses: { ...s.statuses, [n]: /could not stop/i.test(error instanceof Error ? error.message : String(error)) ? "unknown" : "stopped" }, profileChatOwners };
-      });
-      if (/command cancelled/i.test(error instanceof Error ? error.message : String(error))) return;
-      requestAccountSignIn(set, error);
-      // A launch refused for exhausted traffic means the gate just closed:
-      // refresh the allocation so Proxy usage shows it as paused right away.
-      if (isProxyTrafficExhaustedError(error)) void get().refreshProxyData().catch(() => undefined);
-      throw error;
-    }
+  startProfile: (n) => {
+    const existing = pendingProfileStarts.get(n);
+    if (existing) return existing;
+    verifyingProfileStarts.add(n);
+    const pending = (async () => {
+      const startedAt = performance.now();
+      trackEvent("profile_start_requested", { scope: "named" });
+      const operation = nextProfileOperation(n);
+      const ownerId = get().activeConversation()?.id;
+      set((s) => ({
+        statuses: { ...s.statuses, [n]: "starting" },
+        profileChatOwners: ownerId ? { ...s.profileChatOwners, [n]: ownerId } : s.profileChatOwners,
+      }));
+      try {
+        const runtime = runtimeForProfile(get().workspaces, n);
+        const profile = get().profiles.find((item) => item.name === n);
+        await prepareLocalSession({
+          selectedProfile: n, runtime, statuses: {}, verifyOnly: true,
+          proxyExpected: profile?.proxy_mode !== "direct",
+          shouldContinue: () => profileOperationEpoch.get(n) === operation,
+        });
+        if (profileOperationEpoch.get(n) !== operation) return;
+        verifyingProfileStarts.delete(n);
+        await get().loadProfiles();
+        trackTiming("profile_start_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
+      } catch (error) {
+        if (profileOperationEpoch.get(n) !== operation) return;
+        verifyingProfileStarts.delete(n);
+        await get().loadProfiles().catch(() => undefined);
+        // Never reinterpret a live process as a successful verification.
+        set((s) => {
+          const profileChatOwners = { ...s.profileChatOwners };
+          delete profileChatOwners[n];
+          return { statuses: { ...s.statuses, [n]: /could not stop/i.test(error instanceof Error ? error.message : String(error)) ? "unknown" : "stopped" }, profileChatOwners };
+        });
+        if (/command cancelled/i.test(error instanceof Error ? error.message : String(error))) return;
+        requestAccountSignIn(set, error);
+        // A launch refused for exhausted traffic means the gate just closed:
+        // refresh the allocation so Proxy usage shows it as paused right away.
+        if (isProxyTrafficExhaustedError(error)) void get().refreshProxyData().catch(() => undefined);
+        throw error;
+      }
+    })();
+    pendingProfileStarts.set(n, pending);
+    const clear = () => {
+      if (pendingProfileStarts.get(n) === pending) pendingProfileStarts.delete(n);
+      verifyingProfileStarts.delete(n);
+    };
+    void pending.then(clear, clear);
+    return pending;
   },
 
   stopProfile: async (n) => {
     const startedAt = performance.now();
     trackEvent("profile_stop_requested", { scope: "named" });
     const operation = nextProfileOperation(n);
-    void invoke("nextctl_cancel", { requestId: `profile-start:${n}` }).catch(() => undefined);
+    const pendingStart = pendingProfileStarts.get(n);
     set((s) => ({ statuses: { ...s.statuses, [n]: "stopping" } }));
+    await invoke("nextctl_cancel", { requestId: `profile-start:${n}` }).catch(() => undefined);
+    await pendingStart?.catch(() => undefined);
     const runtime = runtimeForProfile(get().workspaces, n);
     try {
       await nextctlRunChecked(["stop", "--profile", n, "--runtime", runtime, "--format", "json"]);
