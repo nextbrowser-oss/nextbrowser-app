@@ -6,7 +6,7 @@ test("an old CLI is rejected using only a mandatory-verification capability prob
   const calls = [];
   const run = async (...args) => { calls.push(args); return { code: 1, stderr: "unknown flag" }; };
   await assert.rejects(requireVerificationCapableCLI("/candidate/nbc", run), /VERIFY_REQUIRED/);
-  assert.deepEqual(calls[0], ["/candidate/nbc", ["--require-verify", "--proxy-safety-file", "", "version"], {}, { timeoutMs: 5000 }]);
+  assert.deepEqual(calls[0], ["/candidate/nbc", ["--verify-on-start-only", "version"], {}, { timeoutMs: 5000 }]);
   assert.equal(calls.length, 1);
   await requireVerificationCapableCLI("/candidate/nbc", async () => ({ code: 0 }));
 });

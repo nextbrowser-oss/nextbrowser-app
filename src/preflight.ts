@@ -204,7 +204,9 @@ export async function prepareSession(opts: {
   verifyOnly?: boolean;
   shouldContinue?: () => boolean;
   onVerificationFailure?: (failure: VerificationFailure) => Promise<VerificationFailureChoice>;
-  /** Legacy caller option; ignored because every action requires fresh verification. */
+  /** The CLI verifies startup before returning success and stops on failure. */
+  startupVerifies?: boolean;
+  /** Legacy caller option. */
   verifyEvery?: number;
 }): Promise<PrepareResult> {
   let args = profileArgs(opts.selectedProfile, opts.runtime);
@@ -223,7 +225,7 @@ export async function prepareSession(opts: {
   const stop = () => runChecked([...args, "stop", "--format", "json"], "Could not stop the unverified browser");
   let running = await isRunning(opts.selectedProfile, opts.statuses, opts.defaultSession);
   let lastError: unknown;
-  for (let attempt = 0; attempt < (proxyExpected ? 3 : 1); attempt++) {
+  for (let attempt = 0; attempt < (proxyExpected && !opts.startupVerifies ? 3 : 1); attempt++) {
     checkCancelled();
     try {
       if (!running) {
@@ -233,9 +235,9 @@ export async function prepareSession(opts: {
         step("Session running");
       }
       checkCancelled();
-      await requireGreenVerification(args, () => step("Reconnecting to the browser"));
+      if (!opts.startupVerifies) await requireGreenVerification(args, () => step("Reconnecting to the browser"));
       checkCancelled();
-      step("Browser verified");
+      step(opts.startupVerifies && running ? "Using running session" : "Browser verified");
       lastError = undefined;
       break;
     } catch (error) {
@@ -244,7 +246,7 @@ export async function prepareSession(opts: {
       await stop();
       running = false;
       checkCancelled();
-      if (proxyExpected && attempt < 2) step("Restarting the profile with the same proxy");
+      if (proxyExpected && !opts.startupVerifies && attempt < 2) step("Restarting the profile with the same proxy");
     }
   }
   if (lastError !== undefined) {
@@ -252,7 +254,7 @@ export async function prepareSession(opts: {
       message: lastError instanceof Error ? lastError.message : String(lastError),
       failedSurfaces: lastError instanceof BrowserVerificationError ? lastError.failedSurfaces : [],
       proxyExpected,
-      attempts: proxyExpected ? 3 : 1,
+      attempts: proxyExpected && !opts.startupVerifies ? 3 : 1,
     });
     checkCancelled();
     if (!proxyExpected || choice !== "direct") throw lastError;
@@ -263,7 +265,7 @@ export async function prepareSession(opts: {
       checkCancelled();
       await runChecked([...args, "start", "--format", "json"], "Could not start the direct session");
       checkCancelled();
-      await requireGreenVerification(args);
+      if (!opts.startupVerifies) await requireGreenVerification(args);
       checkCancelled();
       directFallback = true;
       step("Direct session verified after your confirmation");

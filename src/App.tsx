@@ -1,4 +1,3 @@
-import { ProxySafetyBanner } from "./components/ProxySafetyBanner";
 import { BrowserRuntimeUpdatePrompt, type BrowserRuntimeUpdateEntry } from "./components/BrowserRuntimeUpdatePrompt";
 import { InstallationProgress, InstallationSpinner } from "./components/InstallationProgress";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -422,7 +421,6 @@ function SettingsModal({
     return s.profiles.length + (defaultKnown && !hasListedDefault ? 1 : 0);
   });
   const proxy = useStore((s) => s.proxy);
-  const proxySafetyBlocked = useStore((s) => s.proxySafetyBlocked);
   const agentSpec = agentById(agentId);
   const agentName = agentSpec.name;
   const agentDetected = !!agentVersion;
@@ -510,8 +508,8 @@ function SettingsModal({
           </div>
           <div className="settings-row">
             <span className="muted small">Proxy</span>
-            <span className={proxySafetyBlocked ? "warn small" : proxy ? "ok small" : "muted small"}>
-              {proxySafetyBlocked ? "Verification required · local tasks paused" : proxy ? proxy.state : "locked"}
+            <span className={proxy ? "ok small" : "muted small"}>
+              {proxy ? proxy.state : "locked"}
             </span>
           </div>
         </div>
@@ -1340,7 +1338,6 @@ export function App() {
           </div>
         </nav>
         <hr className="divider" />
-        <ProxySafetyBanner />
         {workspaceSyncing && <div className="workspace-sync-status muted small" role="status">
           <Spinner size={12} /> Syncing workspace…
         </div>}

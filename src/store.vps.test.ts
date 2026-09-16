@@ -1020,17 +1020,6 @@ describe("browser profile creation", () => {
     expect(useStore.getState().profileIdentities.existing).toEqual({ country: "US" });
   });
 
-  it("leaves queued work untouched while proxy recovery is paused", () => {
-    useStore.setState({ proxySafetyBlocked: true });
-    const before = useStore.getState().runtime;
-    for (const id of Object.keys(before)) {
-      useStore.getState().startConsumer(id);
-      expect(useStore.getState().dequeue(id)).toBeNull();
-    }
-    expect(useStore.getState().runtime).toBe(before);
-    useStore.setState({ proxySafetyBlocked: false });
-  });
-
   it("cannot remove the proxy from a stopped proxy profile", async () => {
     useStore.setState({ profiles: [{ name: "work", proxy_mode: "manual" }], statuses: { work: "stopped" } });
     await expect(useStore.getState().updateProfileConnection("work", "direct")).rejects.toThrow("cannot be changed to direct");

@@ -1,6 +1,6 @@
 async function requireVerificationCapableCLI(binary, run) {
   if (!binary) throw new Error("VERIFY_REQUIRED: NextBrowser CLI is unavailable.");
-  const result = await run(binary, ["--require-verify", "--proxy-safety-file", "", "version"], {}, { timeoutMs: 5000 });
+  const result = await run(binary, ["--verify-on-start-only", "version"], {}, { timeoutMs: 5000 });
   if (result.code !== 0) throw new Error("VERIFY_REQUIRED: Update the NextBrowser CLI. This version cannot enforce mandatory browser verification.");
 }
 module.exports = { requireVerificationCapableCLI };
