@@ -15,7 +15,6 @@ const renderer = [
   "src/store.profileDeletion.test.ts",
 ];
 const native = [
-  "electron/proxy-safety.test.cjs",
   "electron/verification-policy.test.cjs",
   "electron/agent-workspace.test.cjs",
   "electron/automation-runner.test.cjs",

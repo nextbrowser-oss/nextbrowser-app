@@ -397,7 +397,6 @@ interface State {
   proxyCountries: RotationCountry[];
   statuses: Record<string, string>;
   profileSessions: Record<string, SessionStatus>;
-  proxySafetyBlocked: boolean;
   profileIdentities: Record<string, ProxyIdentity>;
   profileChatOwners: Record<string, string>;
   selectedProfile?: string;
@@ -756,6 +755,7 @@ async function prepareLocalSession(
     : undefined;
   const result = await runLocalNextctlOperation(() => prepareSession({
     ...options,
+    startupVerifies: true,
     runtime: options.runtime ?? selectedRuntime,
     proxyExpected: options.proxyExpected ?? (useStore.getState().profiles.find((p) => p.name === options.selectedProfile)?.proxy_mode !== "direct"),
     onVerificationFailure: options.onVerificationFailure ?? ((failure) =>
@@ -1432,7 +1432,6 @@ export const useStore = create<State>((set, get) => {
   proxyCountries: [],
   statuses: {},
   profileSessions: {},
-  proxySafetyBlocked: false,
   profileIdentities: {},
   profileChatOwners: {},
   profileSearch: "",
@@ -1557,8 +1556,6 @@ export const useStore = create<State>((set, get) => {
       }, BOOTSTRAP_FOREGROUND_WAIT_MS);
     });
     const initialize = (async () => {
-      const safety = await invoke<unknown>("proxy_safety_status").catch(() => ({ phase: "unknown" }));
-      set({ proxySafetyBlocked: !!safety });
       const [rawConvs, rawWorkspaces, rawSchedules, rawScripts, rawLocalSkills, rawAppliedScripts, rawHistory, rawWatched, rawWatchlistRuns, rawWatchlistTransports, rawWatchlistProfiles, rawWatchlistDevices, rawXReply, wd] = await Promise.all([
         loadJson<Conversation[]>("conversations.json", []),
         loadJson<Workspace[]>("workspaces.json", []),
@@ -1787,7 +1784,7 @@ export const useStore = create<State>((set, get) => {
   },
 
   tickScheduledRuns: async () => {
-    if (get().proxySafetyBlocked || !get().authed) return;
+    if (!get().authed) return;
     const d = new Date();
     const hour = d.getHours();
     const minute = d.getMinutes();
@@ -1926,7 +1923,6 @@ export const useStore = create<State>((set, get) => {
   },
 
   startConsumer: (agentId: string) => {
-    if (get().proxySafetyBlocked) return;
     const rt = get().runtime[agentId];
     if (!rt?.ready || rt.loggedIn === false || rt.isConsuming || !rt.queue.length) return;
     const nextTarget = rt.queue[0]?.executionTarget;
@@ -1940,7 +1936,7 @@ export const useStore = create<State>((set, get) => {
     }));
     void (async () => {
       while (true) {
-        if (get().proxySafetyBlocked || !get().runtime[agentId]?.queue.length) break;
+        if (!get().runtime[agentId]?.queue.length) break;
         await get().recheckLogin(agentId);
         if (get().runtime[agentId]?.loggedIn === false) break;
         const nextTarget = get().runtime[agentId]?.queue[0]?.executionTarget;
@@ -1960,7 +1956,6 @@ export const useStore = create<State>((set, get) => {
   },
 
   dequeue: (agentId: string) => {
-    if (get().proxySafetyBlocked) return null;
     const rt = get().runtime[agentId];
     if (!rt?.queue.length) return null;
     const item = rt.queue[0];
