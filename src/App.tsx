@@ -11,6 +11,7 @@ import { GuideView } from "./components/GuideView";
 import { ScheduledRunsPanel } from "./components/ScheduledRunsPanel";
 import { OnboardingView } from "./components/OnboardingView";
 import { DashboardKeyModal } from "./components/DashboardKeyModal";
+import { TrafficGateModal } from "./components/TrafficGateModal";
 import { BrandLogo } from "./components/BrandLogo";
 import { Icon, Spinner } from "./components/Icon";
 import { AgentPicker } from "./components/AgentPicker";
@@ -1394,6 +1395,7 @@ export function App() {
         />
       )}
       <DashboardKeyModal />
+      <TrafficGateModal />
       {!checking && !agentReady && !agentGateDismissed && preview !== "main" && (
         <AgentConnectionGate onDismiss={() => setAgentGateDismissed(true)} />
       )}
