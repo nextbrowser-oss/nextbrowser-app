@@ -1,4 +1,5 @@
 const { createProxySafety } = require("./proxy-safety.cjs");
+const { readCLIVersion } = require("./cli-version.cjs");
 const { requireVerificationCapableCLI, verificationFailureDialogOptions, verificationFailureDialogChoice } = require("./verification-policy.cjs");
 const { agentLoginStatus } = require("./agent-login-status.cjs");
 const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage } = require("electron");
@@ -506,9 +507,9 @@ async function installManagedNextctl() {
       await fs.mkdir(managedNextctlRoot(), { recursive: true });
       await fs.copyFile(extracted, managedNextctlBin());
       if (process.platform !== "win32") await fs.chmod(managedNextctlBin(), 0o755);
-      const version = await run(managedNextctlBin(), ["version"]);
-      if (version.code !== 0) throw new Error((version.stderr || version.stdout || "nextctl version check failed").trim());
-      setNextctlInstallStatus("ready", { path: managedNextctlBin(), version: version.stdout.trim() });
+      await requireVerificationCapableCLI(managedNextctlBin(), run);
+      const version = await readCLIVersion(managedNextctlBin(), run);
+      setNextctlInstallStatus("ready", { path: managedNextctlBin(), version });
       return managedNextctlBin();
     } catch (error) {
       setNextctlInstallStatus("failed", { message: error?.message || String(error) });
@@ -1714,7 +1715,7 @@ async function invokeCommand(command, args = {}, sender) {
     case "nextctl_cancel": return cancelCommand(args.requestId) || cancelBrowserRuntimeInstall(args.requestId);
     case "nextctl_version": {
       const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found");
-      const r = await run(bin, ["version"]); return r.stdout.trim();
+      return await readCLIVersion(bin, run);
     }
     case "nextctl_supports_skill": { const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found"); return nextctlHasSkill(bin); }
     case "projects_list": return await listProjects({ env: childEnv() });

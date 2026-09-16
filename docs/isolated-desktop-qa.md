@@ -44,3 +44,18 @@ were injected and no browser was launched. The CLI version label still showed
 `...`; version metadata and the post-install version check require follow-up.
 The app was stopped after this bounded smoke. OAuth and profile lifecycle remain
 untested.
+
+## Version metadata follow-up
+
+The CLI now provides a local `--version` flag; successful help/version probes
+do not send telemetry or run the authenticated command pre-run. The legacy
+`version` command and browser commands retain their API-key policy.
+Desktop prefers this local flag and falls back to the legacy command for older
+CLIs. Unavailable metadata is shown explicitly as `version unavailable`, not an
+empty loading label. Managed installation checks safety capability again after
+copying the executable; optional metadata failure cannot replace that gate or
+misreport a compatible install as failed solely because login has not happened.
+
+The final visible retest of this metadata change was blocked by the locked Mac
+on 2026-09-16. The test app was stopped. Unit/CLI evidence does not substitute
+for that pending UI retest or for actual download/install and OAuth acceptance.
