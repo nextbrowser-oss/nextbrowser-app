@@ -10,6 +10,13 @@ const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { devDataPaths } = require("./dev-data-root.cjs");
+const devStorage = devDataPaths({ isPackaged: app.isPackaged, homeDir: os.homedir() });
+if (devStorage) {
+  fsSync.mkdirSync(devStorage.userData, { recursive: true, mode: 0o700 });
+  app.setPath("userData", devStorage.userData);
+  app.setPath("sessionData", devStorage.userData);
+}
 const { createHash, randomUUID } = require("node:crypto");
 const http = require("node:http");
 const { Readable } = require("node:stream");
@@ -303,6 +310,7 @@ function terminalAgentId(value) {
 function home() { return os.homedir(); }
 function legacyAppRuntimeRoot() { return path.join(app.getPath("userData"), "runtime"); }
 function nextbrowserRuntimeRoot() {
+  if (devStorage) return devStorage.runtime;
   return process.platform === "darwin"
     ? path.join(home(), ".nextbrowser", "runtime")
     : legacyAppRuntimeRoot();
@@ -431,6 +439,7 @@ function setBrowserRuntimeUpdateInstallStatus(status, patch = {}) {
 }
 function legacyManagedNextctlRoot() { return path.join(app.getPath("userData"), "managed-nextctl"); }
 function managedNextctlRoot() {
+  if (devStorage) return devStorage.nextctl;
   return process.platform === "darwin"
     ? path.join(home(), ".nextbrowser", "managed-nextctl")
     : legacyManagedNextctlRoot();
@@ -1057,6 +1066,7 @@ async function disconnectMultilogin() {
   return await multiloginLocalStatus();
 }
 async function migrateLegacyData() {
+  if (devStorage) return;
   const legacy = path.join(app.getPath("appData"), "clawdesk-electron");
   const current = dataDir();
   if (legacy === current || !fsSync.existsSync(legacy) || fsSync.existsSync(current)) return;
@@ -1067,6 +1077,7 @@ async function migrateLegacyData() {
 // users keep their session (proxy stays on) and see all their profiles without
 // signing in again. Best-effort and idempotent; see runtime-config.cjs.
 async function migrateLegacyRuntimeConfig() {
+  if (devStorage) return;
   await applyRuntimeRootMigration({
     fromRoot: legacyAppRuntimeRoot(),
     toRoot: nextbrowserRuntimeRoot(),
@@ -2558,7 +2569,9 @@ if (!gotLock) {
     // argument; a browser callback then opens Electron's generic welcome window
     // instead of the running NextBrowser app. Clean up only that stale dev
     // handler. Packaged builds keep the normal protocol registration.
-    if (!app.isPackaged) {
+    if (devStorage) {
+      // Isolated QA must not change the user's protocol handler, even cleanup.
+    } else if (!app.isPackaged) {
       if (app.getApplicationNameForProtocol(`${DEEP_LINK_PROTOCOL}://`) === "Electron") {
         app.removeAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
       }
