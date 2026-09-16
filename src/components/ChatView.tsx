@@ -397,6 +397,7 @@ export function ChatView() {
         {terminalMounted && (
           <div className={"terminal-chat-layer" + (s.terminalChat ? "" : " is-hidden")} aria-hidden={!s.terminalChat}>
             <AgentTerminal
+              multiloginSelection={multiloginSelection}
               agentId={agentId}
               agentName={agentName}
               conversationId={conv?.id}
@@ -893,6 +894,11 @@ function MessageBubble({
 }) {
   const [clock, setClock] = useState(Date.now());
   const [showErrorDetails, setShowErrorDetails] = useState(false);
+  const [actionError, setActionError] = useState<string>();
+  const runMessageAction = async (action: () => Promise<unknown>, message: string) => {
+    setActionError(undefined);
+    try { await action(); } catch { setActionError(message); }
+  };
   useEffect(() => {
     if (m.status !== "streaming") return;
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
@@ -954,7 +960,7 @@ function MessageBubble({
                   className="message-attachment"
                   key={file.path}
                   title={file.path}
-                  onClick={() => void invoke("open_path", { path: file.path })}
+                  onClick={() => void runMessageAction(() => invoke("open_path", { path: file.path }), "Could not open this attachment. Check that the file still exists.")}
                 >
                   <Icon name="doc" size={14} />
                   <span>{file.name}</span>
@@ -963,6 +969,7 @@ function MessageBubble({
             </div>
           )}
           <div className="msg-user-meta muted small">
+            {actionError && <span role="alert">{actionError}</span>}
             {queuedReplyId && (
               <>
                 <span className="queue-badge">Waiting</span>
@@ -977,7 +984,7 @@ function MessageBubble({
             <button
               className="plain-icon-btn plain-icon-btn-compact"
               title="Copy message"
-              onClick={() => void navigator.clipboard.writeText(m.text)}
+              onClick={() => void runMessageAction(() => navigator.clipboard.writeText(m.text), "Could not copy the message. Try again.")}
             >
               <Icon name="doc.on.doc" size={12} />
             </button>
@@ -1042,10 +1049,11 @@ function MessageBubble({
       </div>
       {m.text && (
         <div className="msg-assistant-meta muted small">
+          {actionError && <span role="alert">{actionError}</span>}
           <button
             className="plain-icon-btn plain-icon-btn-compact"
             title="Copy message"
-            onClick={() => void navigator.clipboard.writeText(visibleText)}
+            onClick={() => void runMessageAction(() => navigator.clipboard.writeText(visibleText), "Could not copy the message. Try again.")}
           >
             <Icon name="doc.on.doc" size={12} />
           </button>

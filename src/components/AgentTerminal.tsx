@@ -1,3 +1,4 @@
+import type { MultiloginProfileSelection } from "../lib/multiloginSelection";
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -21,6 +22,7 @@ interface AgentTerminalProps {
   workspaceId?: string;
   workingDir?: string;
   browserContext?: string;
+  multiloginSelection?: MultiloginProfileSelection;
   browserProfiles?: Array<{ name: string; runtime: "clawbrowser" | "dasbrowser" | "camoufox"; running: boolean; selected?: boolean; ownerConversationId?: string }>;
   savingWorkflow?: boolean;
   pendingHandoff?: { id: string; text: string };
@@ -97,7 +99,7 @@ function handoffFingerprint(value: string): string {
     .trim();
 }
 
-export function AgentTerminal({ agentId, agentName, conversationId, workspaceId, workingDir, browserContext, browserProfiles, savingWorkflow, pendingHandoff, handoffToChatRequest, onSaveWorkflow, onContinueInChat, onHandoffConsumed, onChatHandoffConsumed, onProfileStarted, onProfileStopped, onProfilesRefresh, onPreviewChange }: AgentTerminalProps) {
+export function AgentTerminal({ agentId, agentName, conversationId, workspaceId, workingDir, browserContext, browserProfiles, multiloginSelection, savingWorkflow, pendingHandoff, handoffToChatRequest, onSaveWorkflow, onContinueInChat, onHandoffConsumed, onChatHandoffConsumed, onProfileStarted, onProfileStopped, onProfilesRefresh, onPreviewChange }: AgentTerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalIdRef = useRef<string>();
   const terminalRef = useRef<Terminal>();
@@ -386,6 +388,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
         workingDir: workingDir || null,
         browserContext: browserContext || "",
         browserProfiles: browserProfiles || [],
+        multiloginSelection,
         cols: terminal.cols,
         rows: terminal.rows,
       });
@@ -441,9 +444,10 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
       workingDir: workingDir || null,
       browserContext: nextContext,
       browserProfiles: browserProfiles || [],
+      multiloginSelection,
       conversationId: conversationId || "",
     });
-  }, [browserContext, browserProfilesFingerprint, conversationId, status, workspaceId, workingDir]);
+  }, [browserContext, browserProfilesFingerprint, multiloginSelection, conversationId, status, workspaceId, workingDir]);
 
   useEffect(() => {
     if (!handoffToChatRequest || status !== "running") return;

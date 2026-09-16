@@ -22,6 +22,9 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
   const [scriptEditor, setScriptEditor] = useState<CustomScript | "new" | null>(null);
   const [skillRun, setSkillRun] = useState<BrowserWorkflowSkill | null>(null);
   const [skillDetails, setSkillDetails] = useState<BrowserWorkflowSkill | null>(null);
+  const [deleteRequest, setDeleteRequest] = useState<{ title: string; run: () => Promise<void> }>();
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string>();
   const [watchlistSkill, setWatchlistSkill] = useState<SkillEntry | null>(null);
   // A run that stops on a signed-out profile opens its manager, which is where
   // the sign-in prompt lives; otherwise pressing Run looks like nothing at all.
@@ -284,8 +287,8 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                     </button>
                   ) : (
                     <>
-                      <button className="btn-bordered-prominent full" title={`${st === "installed" ? "Re-apply" : "Apply"} ${e.title}`} onClick={() => apply(e)}>
-                        {publishedScript && st === "installed" ? "Applied" : st === "installed" ? "Re-apply" : "Apply"}
+                      <button className="btn-bordered-prominent full" disabled={st === "applying"} title={`${st === "installed" ? "Re-apply" : "Apply"} ${e.title}`} onClick={() => apply(e)}>
+                        {st === "applying" ? "Applying…" : publishedScript && st === "installed" ? "Applied" : st === "installed" ? "Re-apply" : "Apply"}
                       </button>
                       {!publishedScript && (st === "installed" || status[e.id]?.startsWith("installed")) && (
                         <button
@@ -328,7 +331,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                   onRun={() => setSkillRun(skill)}
                   onDetails={() => setSkillDetails(skill)}
                   onSync={() => void s.saveLocalSkill(skill)}
-                  onDelete={() => s.deleteLocalSkill(skill.id)}
+                  onDelete={() => { setDeleteError(undefined); setDeleteRequest({ title: skill.title, run: () => s.deleteLocalSkill(skill.id) }); }}
                 />
               ))}
               {s.privateCloudSkills
@@ -409,7 +412,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                     sync={s.scriptSync[cs.id]}
                     sessionName={sessionName}
                     onEdit={() => setScriptEditor(cs)}
-                    onDelete={() => s.deleteCustomScript(cs.id)}
+                    onDelete={() => { setDeleteError(undefined); setDeleteRequest({ title: cs.title, run: () => s.deleteCustomScript(cs.id) }); }}
                     onUse={() => s.runCustomScript(cs)}
                     onSync={() => void s.saveCustomScript(cs)}
                   />
@@ -444,6 +447,25 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
       )}
       {skillDetails && (
         <LocalSkillDetails skill={skillDetails} onClose={() => setSkillDetails(null)} />
+      )}
+      {deleteRequest && (
+        <div className="modal-overlay" onMouseDown={() => { if (!deleting) setDeleteRequest(undefined); }}>
+          <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="delete-skill-title" onMouseDown={(event) => event.stopPropagation()}>
+            <strong id="delete-skill-title">Delete “{deleteRequest.title}”?</strong>
+            <p>This removes your saved instructions. This action cannot be undone.</p>
+            {deleteError && <div role="alert"><UserFacingError message={deleteError} surface="skill_delete" /></div>}
+            <div className="modal-actions">
+              <button className="secondary" disabled={deleting} onClick={() => setDeleteRequest(undefined)}>Cancel</button>
+              <button className="primary" disabled={deleting} onClick={async () => {
+                if (deleting) return;
+                setDeleting(true); setDeleteError(undefined);
+                try { await deleteRequest.run(); setDeleteRequest(undefined); }
+                catch { setDeleteError("Could not finish deleting these instructions. Try again."); }
+                finally { setDeleting(false); }
+              }}>{deleting ? "Deleting…" : "Delete"}</button>
+            </div>
+          </section>
+        </div>
       )}
       {watchlistSkill && (
         <WatchedProfilesPanel entry={watchlistSkill} onClose={() => { s.dismissXReplySignIn(); setWatchlistSkill(null); }} />

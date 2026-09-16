@@ -558,10 +558,10 @@ interface State {
   newChat: () => string;
   createProject: (name: string, mode: "chat" | "terminal", agentId?: string) => string;
   changeEmptyProjectAgent: (id: string, agentId: string) => boolean;
-  assignProfileToProject: (profileName: string, toolset: BrowserToolset, projectId?: string, replaceToolset?: boolean, proxyId?: string) => void;
+  assignProfileToProject: (profileName: string, toolset: BrowserToolset, projectId?: string, replaceToolset?: boolean, proxyId?: string) => Promise<void>;
   setProfileChatOwner: (profileName: string, conversationId?: string) => void;
   moveProfileToWorkspace: (profileName: string, workspaceId: string) => Promise<void>;
-  reorderProfileInProject: (projectId: string, profileName: string, beforeProfileName: string) => void;
+  reorderProfileInProject: (projectId: string, profileName: string, beforeProfileName: string) => Promise<void>;
   createNamedChat: (agentId: string, title: string) => string;
   selectConversation: (id: string) => void;
   renameConversation: (id: string, title: string) => void;
@@ -619,7 +619,7 @@ interface State {
   scheduledRunChatTitle: (run: ScheduledRun) => string | undefined;
 
   saveCustomScript: (script: CustomScript) => Promise<void>;
-  deleteCustomScript: (id: string) => void;
+  deleteCustomScript: (id: string) => Promise<void>;
   runCustomScript: (script: CustomScript) => Promise<void>;
   saveLocalSkill: (skill: BrowserWorkflowSkill) => Promise<void>;
   deleteLocalSkill: (id: string) => Promise<void>;
@@ -747,6 +747,33 @@ async function nextctlEnvelope<T>(
   return runLocalNextctlOperation(() => rawNextctlEnvelope<T>(args, extraEnv));
 }
 
+// Workspace changes must reach the desktop file. A localStorage fallback can
+// otherwise appear successful but be shadowed by the old file after restart.
+async function saveWorkspaces(workspaces: Workspace[]): Promise<void> {
+  await invoke("app_data_write", { name: "workspaces.json", content: JSON.stringify(workspaces, null, 2) });
+}
+let workspaceMutationQueue: Promise<unknown> = Promise.resolve();
+function persistWorkspaceMutation(transform: (workspaces: Workspace[]) => Workspace[]): Promise<void> {
+  const pending = workspaceMutationQueue.then(async () => {
+    const previous = useStore.getState().workspaces;
+    const workspaces = transform(previous);
+    useStore.setState({ workspaces });
+    try {
+      await saveWorkspaces(workspaces);
+    } catch (error) {
+      if (useStore.getState().workspaces === workspaces) useStore.setState({ workspaces: previous });
+      throw error;
+    }
+    try {
+      await useStore.getState().syncProjects();
+    } catch {
+      throw new Error("The profile change was saved on this device, but cloud sync failed. Retry when your connection is restored.");
+    }
+  });
+  workspaceMutationQueue = pending.catch(() => undefined);
+  return pending;
+}
+
 async function prepareLocalSession(
   options: Parameters<typeof prepareSession>[0],
 ): ReturnType<typeof prepareSession> {
@@ -767,7 +794,7 @@ async function prepareLocalSession(
   }));
   if (result.directFallback) {
     const name = result.profileArgs[result.profileArgs.indexOf("--profile") + 1];
-    useStore.getState().assignProfileToProject(name, options.runtime ?? selectedRuntime ?? "clawbrowser");
+    await useStore.getState().assignProfileToProject(name, options.runtime ?? selectedRuntime ?? "clawbrowser");
     useStore.getState().selectProfile(name);
     await useStore.getState().loadProfiles();
   }
@@ -2164,6 +2191,7 @@ export const useStore = create<State>((set, get) => {
         workspaceId: conversationWorkspaceId,
         browserContext,
         browserProfiles,
+        multiloginSelection,
       });
       await finishAgentRun(item.replyId, result);
     } catch {
@@ -2488,8 +2516,9 @@ export const useStore = create<State>((set, get) => {
     try {
       await get().loadProxy();
       trackTiming("proxy_refresh_succeeded", startedAt, { proxy_state: get().proxy?.state ?? "unknown" });
-    } catch {
+    } catch (error) {
       trackTiming("proxy_refresh_failed", startedAt);
+      throw error;
     } finally {
       set({ isRefreshing: false });
     }
@@ -2948,7 +2977,7 @@ export const useStore = create<State>((set, get) => {
         : { ...workspace, profileProxyIds, updatedAt: now() };
     });
     if (workspaces.some((workspace, index) => workspace !== previousWorkspaces[index])) {
-      await saveJson("workspaces.json", workspaces);
+      await saveWorkspaces(workspaces);
       set({ workspaces });
       await get().syncProjects().catch(() => {});
     }
@@ -3024,7 +3053,7 @@ export const useStore = create<State>((set, get) => {
       else delete profileProxyIds[name];
       return { ...workspace, profileProxyIds, updatedAt: now() };
     });
-    await saveJson("workspaces.json", workspaces);
+    await saveWorkspaces(workspaces);
     set((state) => ({
       workspaces,
       profileIdentities: connection === "managed"
@@ -3073,19 +3102,21 @@ export const useStore = create<State>((set, get) => {
       await nextctlRunChecked(["profiles", "rm", n, "--format", "json"]);
     }
     if (get().selectedProfile === n) set({ selectedProfile: undefined });
-    set((s) => {
-      const statuses = { ...s.statuses };
-      delete statuses[n];
-      const workspaces = s.workspaces.map((workspace) => {
+    const statuses = { ...get().statuses };
+    delete statuses[n];
+    set({ statuses });
+    try {
+      await persistWorkspaceMutation((previous) => previous.map((workspace) => {
         const profileToolsets = { ...workspace.profileToolsets };
         const profileProxyIds = { ...(workspace.profileProxyIds ?? {}) };
         delete profileToolsets[n];
         delete profileProxyIds[n];
-        return { ...workspace, profileNames: workspace.profileNames.filter((name) => name !== n), profileToolsets, profileProxyIds, updatedAt: now() };
-      });
-      void saveJson("workspaces.json", workspaces).then(() => get().syncProjects()).catch(() => {});
-      return { statuses, workspaces };
-    });
+        return { ...workspace, profileNames: workspace.profileNames.filter((name) => name !== n), profileToolsets, profileProxyIds, updatedAt: Math.max(now(), workspace.updatedAt + 1) };
+      }));
+    } catch (error) {
+      await get().loadProfiles();
+      throw new Error(`The profile was removed, but its workspace could not be saved. ${error instanceof Error ? error.message : String(error)}`);
+    }
     await get().loadProfiles();
     trackTiming("profile_delete_completed", startedAt);
   },
@@ -3330,12 +3361,15 @@ export const useStore = create<State>((set, get) => {
     const a = agentById(agentId);
     if (!a.logoutArgs.length) return;
     trackEvent("agent_logout_started", { agent: agentId });
+    set((s) => ({ runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], error: undefined } } }));
+    let signOutOpened = false;
     try {
       await invoke("open_terminal_login", {
         binary: a.binary,
         envVar: a.envVar,
         loginArgs: a.logoutArgs,
       });
+      signOutOpened = true;
       const cid = get().activeConvId[agentId] ?? get().activeConversation()?.id;
       if (cid) {
         const msg: ChatMessage = {
@@ -3360,7 +3394,7 @@ export const useStore = create<State>((set, get) => {
           envVar: a.envVar,
           statusArgs: a.statusArgs ?? [],
         })) as boolean | null;
-        if (loggedIn !== true) {
+        if (loggedIn === false) {
           set((s) => ({
             runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], loggedIn } },
           }));
@@ -3369,12 +3403,15 @@ export const useStore = create<State>((set, get) => {
         }
       }
       trackEvent("agent_logout_timeout", { agent: agentId });
+      set((s) => ({ runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId],
+        error: internalError(`Sign-out from ${a.name} could not be confirmed. Finish sign-out in Terminal, then check login status again.`, "AGENT_SIGN_OUT_UNCONFIRMED"),
+      } } }));
     } catch {
       trackEvent("agent_logout_failed", { agent: agentId });
       set((s) => ({
         runtime: {
           ...s.runtime,
-          [agentId]: { ...s.runtime[agentId], error: internalError(`We couldn't open ${a.name} sign-out.`, "AGENT_SIGN_OUT_OPEN_FAILED") },
+          [agentId]: { ...s.runtime[agentId], error: internalError(signOutOpened ? `We couldn't confirm ${a.name} sign-out. Check Terminal and try again.` : `We couldn't open ${a.name} sign-out.`, signOutOpened ? "AGENT_SIGN_OUT_CHECK_FAILED" : "AGENT_SIGN_OUT_OPEN_FAILED") },
         },
       }));
     }
@@ -3687,7 +3724,7 @@ export const useStore = create<State>((set, get) => {
         projectRevisions: revisions,
         workspaceRevisions,
       });
-      await saveJson("workspaces.json", workspaces);
+      await saveWorkspaces(workspaces);
       await persistConvs(conversations);
       applyingCloudProjects = false;
 
@@ -3764,8 +3801,7 @@ export const useStore = create<State>((set, get) => {
       })
       : state.conversations;
     const workspaces = [...state.workspaces, workspace];
-    localStorage.setItem("activeWorkspaceId", workspace.id);
-    await Promise.all([saveJson("workspaces.json", workspaces), persistConvs(conversations)]);
+    await Promise.all([saveWorkspaces(workspaces), persistConvs(conversations)]);
     set({
       workspaces,
       conversations,
@@ -3773,6 +3809,7 @@ export const useStore = create<State>((set, get) => {
       workspaceRevisions: { ...state.workspaceRevisions, [workspace.id]: saved.revision },
       workspaceSetupRequired: requiresWorkspaceSetup(workspaces, conversations, workspace.id),
     });
+    get().selectWorkspace(workspace.id);
     return workspace.id;
   },
 
@@ -3785,20 +3822,35 @@ export const useStore = create<State>((set, get) => {
       .filter((conversation) => conversation.workspaceId === id && conversation.agent === agentId)
       .sort((left, right) => right.updatedAt - left.updatedAt);
     const selected = candidates.find((conversation) => conversation.id === stored) ?? candidates[0];
-    const activeConvId = { ...get().activeConvId };
+    const activeConvId = Object.fromEntries(Object.entries(get().activeConvId)
+      .filter(([, conversationId]) => get().conversations.some((c) => c.id === conversationId && c.workspaceId === id)));
     if (selected) activeConvId[agentId] = selected.id;
     else delete activeConvId[agentId];
-    set({ activeWorkspaceId: id, activeConvId, selectedProfile: undefined });
+    set({ activeWorkspaceId: id, activeConvId, selectedProfile: undefined,
+      workspaceSetupRequired: requiresWorkspaceSetup(get().workspaces, get().conversations, id),
+    });
   },
 
   deleteWorkspace: async (id) => {
     await invoke("workspace_delete", { id });
     const workspaces = get().workspaces.filter((workspace) => workspace.id !== id);
     const conversations = get().conversations.filter((conversation) => conversation.workspaceId !== id);
-    const activeWorkspaceId = workspaces[0]?.id;
-    if (activeWorkspaceId) localStorage.setItem("activeWorkspaceId", activeWorkspaceId); else localStorage.removeItem("activeWorkspaceId");
-    await Promise.all([saveJson("workspaces.json", workspaces), persistConvs(conversations)]);
-    set({ workspaces, conversations, activeWorkspaceId });
+    const previousActive = get().activeWorkspaceId;
+    const activeWorkspaceId = workspaces.some((workspace) => workspace.id === previousActive)
+      ? previousActive : workspaces[0]?.id;
+    await Promise.all([saveWorkspaces(workspaces), persistConvs(conversations)]);
+    const activeConvId = Object.fromEntries(Object.entries(get().activeConvId)
+      .filter(([, conversationId]) => conversations.some((c) => c.id === conversationId && c.workspaceId === activeWorkspaceId)));
+    set({ workspaces, conversations, activeWorkspaceId, activeConvId,
+      workspaceSetupRequired: requiresWorkspaceSetup(workspaces, conversations, activeWorkspaceId),
+    });
+    if (activeWorkspaceId !== previousActive) {
+      if (activeWorkspaceId) get().selectWorkspace(activeWorkspaceId);
+      else {
+        localStorage.removeItem("activeWorkspaceId");
+        set({ selectedProfile: undefined, activeConvId: {} });
+      }
+    }
   },
 
   completeWorkspaceSetup: () => {
@@ -3868,20 +3920,21 @@ export const useStore = create<State>((set, get) => {
 
   assignProfileToProject: (profileName, toolset, projectId, replaceToolset = false, proxyId) => {
     const targetId = projectId ?? get().activeWorkspaceId;
-    if (!targetId) return;
-    set((state) => {
-      const existingToolset = state.workspaces.find((workspace) =>
+    if (!targetId) return Promise.reject(new Error("Choose a workspace first."));
+    return persistWorkspaceMutation((previous) => {
+      if (!previous.some((workspace) => workspace.id === targetId)) throw new Error("Workspace no longer exists.");
+      const existingToolset = previous.find((workspace) =>
         workspace.profileNames.includes(profileName)
       )?.profileToolsets?.[profileName];
       // A profile's runtime stays fixed while the profile exists, but a newly
       // created profile may reuse a deleted profile's name. Creation must
       // therefore replace stale workspace/cloud runtime metadata explicitly.
       const fixedToolset = replaceToolset ? toolset : existingToolset ?? toolset;
-      const existingProxyId = state.workspaces.find((workspace) =>
+      const existingProxyId = previous.find((workspace) =>
         workspace.profileNames.includes(profileName)
       )?.profileProxyIds?.[profileName];
       const fixedProxyId = replaceToolset ? proxyId : existingProxyId ?? proxyId;
-      const workspaces = state.workspaces.map((workspace) => {
+      const workspaces = previous.map((workspace) => {
         if (workspace.id === targetId && workspace.profileNames.includes(profileName)) {
           const profileProxyIds = { ...(workspace.profileProxyIds ?? {}) };
           if (fixedProxyId) profileProxyIds[profileName] = fixedProxyId;
@@ -3899,7 +3952,8 @@ export const useStore = create<State>((set, get) => {
         delete toolsets[profileName];
         delete profileProxyIds[profileName];
         if (workspace.id !== targetId) {
-          return { ...workspace, profileNames: withoutProfile, profileToolsets: toolsets, profileProxyIds };
+          return { ...workspace, profileNames: withoutProfile, profileToolsets: toolsets, profileProxyIds,
+            updatedAt: withoutProfile.length !== workspace.profileNames.length ? Math.max(now(), workspace.updatedAt + 1) : workspace.updatedAt };
         }
         if (fixedProxyId) profileProxyIds[profileName] = fixedProxyId;
         return {
@@ -3910,8 +3964,7 @@ export const useStore = create<State>((set, get) => {
           updatedAt: now(),
         };
       });
-      void saveJson("workspaces.json", workspaces).then(() => get().syncProjects()).catch(() => {});
-      return { workspaces };
+      return workspaces;
     });
   },
 
@@ -3932,22 +3985,24 @@ export const useStore = create<State>((set, get) => {
     const previous = state.workspaces;
     const workspaces = moveProfileBetweenWorkspaces(previous, profileName, workspaceId, now());
     if (workspaces === previous) return;
-    await saveJson("workspaces.json", workspaces);
+    await saveWorkspaces(workspaces);
     set({ workspaces });
     try {
       await get().syncProjects();
       trackEvent("profile_workspace_changed", { profile: profileName, workspace_id: workspaceId });
     } catch (error) {
-      await saveJson("workspaces.json", previous);
+      await saveWorkspaces(previous);
       set({ workspaces: previous });
       throw error;
     }
   },
 
   reorderProfileInProject: (projectId, profileName, beforeProfileName) => {
-    if (profileName === beforeProfileName) return;
-    set((state) => {
-      const workspaces = state.workspaces.map((workspace) => {
+    if (profileName === beforeProfileName) return Promise.resolve();
+    return persistWorkspaceMutation((previous) => {
+      const target = previous.find((workspace) => workspace.id === projectId);
+      if (!target?.profileNames.includes(profileName) || !target.profileNames.includes(beforeProfileName)) throw new Error("Profile is no longer in this workspace.");
+      const workspaces = previous.map((workspace) => {
         if (workspace.id !== projectId) return workspace;
         const names = workspace.profileNames.filter((name) => name !== profileName);
         const targetIndex = names.indexOf(beforeProfileName);
@@ -3955,8 +4010,7 @@ export const useStore = create<State>((set, get) => {
         else names.splice(targetIndex, 0, profileName);
         return { ...workspace, profileNames: names, updatedAt: now() };
       });
-      void saveJson("workspaces.json", workspaces).then(() => get().syncProjects()).catch(() => {});
-      return { workspaces };
+      return workspaces;
     });
   },
 
@@ -4307,6 +4361,9 @@ export const useStore = create<State>((set, get) => {
   },
 
   applySkill: async (entry) => {
+    if (AGENTS.some((agent) => get().skillState[skillKey(agent.id, entry.id)] === "applying")) {
+      throw new Error("This skill is already being applied.");
+    }
     if (entry.selector.kind !== "script" && pendingTarget(get(), "vps")) {
       throw new Error("Local skill checks are paused while VPS work is queued or running.");
     }
@@ -5288,9 +5345,9 @@ export const useStore = create<State>((set, get) => {
     }
   },
 
-  deleteCustomScript: (id) => {
+  deleteCustomScript: async (id) => {
     const customScripts = get().customScripts.filter((s) => s.id !== id);
-    persistScripts(customScripts);
+    await invoke("app_data_write", { name: "custom-scripts.json", content: JSON.stringify(serializeScripts(customScripts), null, 2) });
     set({ customScripts });
     trackEvent("custom_script_deleted", { script_count: customScripts.length });
   },
@@ -5390,9 +5447,9 @@ export const useStore = create<State>((set, get) => {
       if (res.code !== 0) throw new Error(nextctlErrorMessage(res));
     }
     const localSkills = get().localSkills.filter((skill) => skill.id !== id);
-    persistLocalSkills(localSkills);
+    await invoke("delete_local_skill", { slug: `workflow-${id.slice(0, 8)}` });
+    await invoke("app_data_write", { name: "local-skills.json", content: JSON.stringify(serializeWorkflowSkills(localSkills), null, 2) });
     set({ localSkills });
-    void invoke("delete_local_skill", { slug: `workflow-${id.slice(0, 8)}` });
   },
 
   runAutomationRecipe: async (skill, executionId, parameters = {}) => {

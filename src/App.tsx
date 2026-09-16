@@ -384,6 +384,7 @@ function SettingsModal({
   focus,
   appUpdate,
   browserRuntimeUpdates,
+  runtimeInstalling,
   manualUpdate,
   onCheckUpdate,
   onCheckBrowserRuntimeUpdates,
@@ -397,6 +398,7 @@ function SettingsModal({
   focus?: "agent" | null;
   appUpdate: AppUpdateStatus;
   browserRuntimeUpdates: BrowserRuntimeUpdateStatus;
+  runtimeInstalling: boolean;
   manualUpdate: boolean;
   onCheckUpdate: () => void;
   onCheckBrowserRuntimeUpdates: () => void;
@@ -546,7 +548,7 @@ function SettingsModal({
                   </span>
                 </div>
                 {(runtime.status === "available" || runtime.status === "not-installed") && (
-                  <button className="mini primary-mini" onClick={() => onRequestBrowserRuntimeUpdate(runtime)}>
+                  <button className="mini primary-mini" disabled={runtimeInstalling} onClick={() => onRequestBrowserRuntimeUpdate(runtime)}>
                     {runtime.status === "not-installed" ? "Install" : "Update"}
                   </button>
                 )}
@@ -1258,6 +1260,7 @@ export function App() {
             focus={settingsFocus}
             appUpdate={appUpdate}
             browserRuntimeUpdates={browserRuntimeUpdates}
+            runtimeInstalling={runtimeUpdateInstall.status === "installing"}
             manualUpdate={MANUAL_UPDATE}
             onCheckUpdate={checkAppUpdate}
             onCheckBrowserRuntimeUpdates={checkBrowserRuntimeUpdates}
@@ -1374,6 +1377,7 @@ export function App() {
           focus={settingsFocus}
           appUpdate={appUpdate}
           browserRuntimeUpdates={browserRuntimeUpdates}
+            runtimeInstalling={runtimeUpdateInstall.status === "installing"}
           manualUpdate={MANUAL_UPDATE}
           onCheckUpdate={checkAppUpdate}
           onCheckBrowserRuntimeUpdates={checkBrowserRuntimeUpdates}

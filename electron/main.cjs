@@ -1,3 +1,4 @@
+const { mcpProfileScope } = require("./mcp-profile-scope.cjs");
 const { requireVerificationCapableCLI, verificationFailureDialogOptions, verificationFailureDialogChoice } = require("./verification-policy.cjs");
 const { agentLoginStatus } = require("./agent-login-status.cjs");
 const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage } = require("electron");
@@ -2048,9 +2049,7 @@ async function invokeCommand(command, args = {}, sender) {
       const profileScopeDir = path.join(nextbrowserRuntimeRoot(), "chat-scopes");
       const profileScopeFile = path.join(profileScopeDir, `${args.replyId}.json`);
       await fs.mkdir(profileScopeDir, { recursive: true });
-      await fs.writeFile(profileScopeFile, JSON.stringify(Object.fromEntries(
-        [...profileScope.entries()].map(([name, access]) => [name, access.runtime]),
-      )), "utf8");
+      await fs.writeFile(profileScopeFile, JSON.stringify(mcpProfileScope(profileScope, args.multiloginSelection)), "utf8");
       // A plain run is a one-shot call with nothing of the chat around it: no
       // workspace instructions, no Clawbrowser MCP, and a working directory of
       // its own. The X reply engine drafts this way — what it hands the model
@@ -2079,9 +2078,7 @@ async function invokeCommand(command, args = {}, sender) {
           env: childEnv({
             NEXTBROWSER_CONTROL_URL: controlURL,
             NEXTBROWSER_CONTROL_TOKEN: controlToken,
-            NEXTBROWSER_ALLOWED_PROFILES_JSON: JSON.stringify(Object.fromEntries(
-              [...profileScope.entries()].map(([name, access]) => [name, access.runtime]),
-            )),
+            NEXTBROWSER_ALLOWED_PROFILES_JSON: JSON.stringify(mcpProfileScope(profileScope, args.multiloginSelection)),
             NEXTBROWSER_PROFILE_SCOPE_FILE: profileScopeFile,
             ...(activeAutomationTraceFile() ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: activeAutomationTraceFile() } : {}),
           }),
@@ -2161,9 +2158,7 @@ async function invokeCommand(command, args = {}, sender) {
       const profileScopeDir = path.join(nextbrowserRuntimeRoot(), "terminal-scopes");
       const profileScopeFile = path.join(profileScopeDir, `${id}.json`);
       await fs.mkdir(profileScopeDir, { recursive: true });
-      await fs.writeFile(profileScopeFile, JSON.stringify(Object.fromEntries(
-        [...profileScope.entries()].map(([name, access]) => [name, access.runtime]),
-      )), "utf8");
+      await fs.writeFile(profileScopeFile, JSON.stringify(mcpProfileScope(profileScope, args.multiloginSelection)), "utf8");
       if (args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
       const writableDirs = resolvedAgentId === "codex" ? clawbrowserWritableDirs() : [];
       let agentArgs = agent.args || [];
@@ -2191,9 +2186,7 @@ async function invokeCommand(command, args = {}, sender) {
         env: terminalEnv({
           NEXTBROWSER_CONTROL_URL: controlURL,
           NEXTBROWSER_CONTROL_TOKEN: controlToken,
-          NEXTBROWSER_ALLOWED_PROFILES_JSON: JSON.stringify(Object.fromEntries(
-            [...profileScope.entries()].map(([name, access]) => [name, access.runtime]),
-          )),
+          NEXTBROWSER_ALLOWED_PROFILES_JSON: JSON.stringify(mcpProfileScope(profileScope, args.multiloginSelection)),
           NEXTBROWSER_PROFILE_SCOPE_FILE: profileScopeFile,
         }),
       });
@@ -2275,9 +2268,7 @@ async function invokeCommand(command, args = {}, sender) {
         conversationId,
       });
       else agentControlArtifactScopes.delete(record.controlToken);
-      await fs.writeFile(record.profileScopeFile, JSON.stringify(Object.fromEntries(
-        [...nextScope.entries()].map(([name, access]) => [name, access.runtime]),
-      )), "utf8");
+      await fs.writeFile(record.profileScopeFile, JSON.stringify(mcpProfileScope(nextScope, args.multiloginSelection)), "utf8");
       if (args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
       return null;
     }
