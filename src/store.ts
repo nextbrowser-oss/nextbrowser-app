@@ -41,6 +41,7 @@ import { hasVPSPromptMarker, vpsConnectionInstructions } from "./lib/vpsPrompt";
 import { promptWithAttachments } from "./lib/chatAttachments";
 import { normalizeNextctlVersion } from "./lib/version";
 import { isProxyTrafficExhaustedError, proxyTrafficWarning } from "./lib/proxyTraffic";
+import { trafficGateState } from "./lib/trafficGate";
 import { activeAutomationRecording } from "./lib/automationRecording";
 import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
 import { internalError } from "./lib/userFacingError";
@@ -392,6 +393,7 @@ interface State {
   isLoggingIn: boolean;
   proxy?: ProxyTraffic;
   proxyWarning?: string;
+  trafficGatePromptOpen: boolean;
   profiles: Profile[];
   personalProxies: PersonalProxy[];
   proxyCountries: RotationCountry[];
@@ -477,6 +479,7 @@ interface State {
   logout: () => Promise<void>;
   refreshAll: () => Promise<void>;
   refreshProxyData: () => Promise<void>;
+  setTrafficGatePromptOpen: (open: boolean) => void;
   refreshSessions: () => Promise<void>;
   loadProxy: () => Promise<void>;
   loadProfiles: () => Promise<void>;
@@ -1510,6 +1513,7 @@ export const useStore = create<State>((set, get) => {
   chatListCollapsed: localStorage.getItem("chatListCollapsed") === "true",
   terminalChat: localStorage.getItem("terminalChat") === "true",
   dashboardKeyPromptOpen: false,
+  trafficGatePromptOpen: false,
   accountPairing: undefined,
   nextctlVersion: "",
   nextctlUpdating: false,
@@ -2505,6 +2509,7 @@ export const useStore = create<State>((set, get) => {
       proxy: undefined,
       proxyWarning: undefined,
       dashboardKeyPromptOpen: false,
+      trafficGatePromptOpen: false,
       accountPairing: undefined,
       profiles: [],
       statuses: {},
@@ -2572,6 +2577,13 @@ export const useStore = create<State>((set, get) => {
     const wrap = await nextctlJson<{ proxy_traffic: ProxyTraffic }>(["proxy-traffic"]);
     const p = wrap.proxy_traffic;
     const proxyWarning = proxyTrafficWarning(p);
+    // A gated account is shown the full free allowance, so it has no way to
+    // see its real limit run out: the first symptom is a profile that refuses
+    // to start. Raise the prompt on the edge into "blocked" -- on the refresh
+    // timer as well as at sign-in -- and leave it down while the gate stays
+    // closed, so dismissing it does not bring it back on the next tick.
+    const gateJustClosed =
+      trafficGateState(p) === "blocked" && trafficGateState(get().proxy) !== "blocked";
     const snap: UsageSnapshot = {
       id: uid(),
       date: now(),
@@ -2593,6 +2605,7 @@ export const useStore = create<State>((set, get) => {
     if (history.length > 96) history.splice(0, history.length - 96);
     void saveJson("usage-history.json", serializeUsage(history));
     set({ proxy: p, proxyWarning, usageHistory: history });
+    if (gateJustClosed) get().setTrafficGatePromptOpen(true);
     trackEvent("proxy_loaded", {
       proxy_state: p.state,
       limited: p.limited,
@@ -2823,7 +2836,15 @@ export const useStore = create<State>((set, get) => {
         requestAccountSignIn(set, error);
         // A launch refused for exhausted traffic means the gate just closed:
         // refresh the allocation so Proxy usage shows it as paused right away.
-        if (isProxyTrafficExhaustedError(error)) void get().refreshProxyData().catch(() => undefined);
+        if (isProxyTrafficExhaustedError(error)) {
+          // The user just hit the closed gate head-on, so say why even when the
+          // prompt was dismissed earlier in this session.
+          void get().refreshProxyData()
+            .then(() => {
+              if (trafficGateState(get().proxy) === "blocked") get().setTrafficGatePromptOpen(true);
+            })
+            .catch(() => undefined);
+        }
         throw error;
       }
     })();
@@ -3519,6 +3540,16 @@ export const useStore = create<State>((set, get) => {
       persistConvs(conversations);
       return { terminalChat: v, conversations };
     });
+  },
+  setTrafficGatePromptOpen: (open) => {
+    if (get().trafficGatePromptOpen === open) return;
+    trackEvent(open ? "proxy_traffic_gate_prompt_opened" : "proxy_traffic_gate_prompt_closed", {
+      used_bytes_bucket: (() => {
+        const proxy = get().proxy;
+        return proxy ? Math.floor(proxy.used_bytes / (10 * 1024 * 1024)) * 10 : "unknown";
+      })(),
+    });
+    set({ trafficGatePromptOpen: open });
   },
   setDashboardKeyPromptOpen: (v) => {
     trackEvent(v ? "dashboard_key_prompt_opened" : "dashboard_key_prompt_closed");

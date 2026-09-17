@@ -978,6 +978,34 @@ body.is-resizing-sidebar {
   max-width: 62ch;
   line-height: 1.5;
 }
+.traffic-gate-overlay {
+  backdrop-filter: blur(5px);
+}
+.traffic-gate-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(440px, calc(100vw - 32px));
+}
+.traffic-gate-modal .modal-title-row {
+  align-items: flex-start;
+}
+.traffic-gate-modal-copy {
+  margin: 0;
+  line-height: 1.55;
+  font-size: 13px;
+}
+.traffic-gate-modal-effect {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 12px;
+  line-height: 1.45;
+}
 .user-facing-error a {
   color: inherit;
   font-weight: 600;

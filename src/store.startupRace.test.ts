@@ -81,3 +81,24 @@ it("does not dispatch a cancelled request when startup later succeeds", async ()
   expect(mocks.invoke.mock.calls.some(([name]) => name === "agent_run")).toBe(false);
   expect(useStore.getState().conversations[0].messages.find((m) => m.id === item.replyId)?.status).toBe("cancelled");
 });
+
+it("reopens a dismissed traffic gate after a coalesced startup is refused", async () => {
+  const { useStore } = await import("./store");
+  let reject!: (error: Error) => void;
+  mocks.prepareSession.mockImplementation(() => new Promise((_done, fail) => { reject = fail; }));
+  const refreshProxyData = vi.fn().mockResolvedValue(undefined);
+  useStore.setState({
+    proxy: { limited: true, state: "exhausted", used_bytes: 50_000_000, limit_bytes: 50_000_000, remaining_bytes: 0 },
+    trafficGatePromptOpen: false,
+    refreshProxyData,
+  });
+  const first = useStore.getState().startProfile("qa");
+  expect(useStore.getState().startProfile("qa")).toBe(first);
+  const refused = expect(first).rejects.toThrow("PROXY_TRAFFIC_EXHAUSTED");
+  reject(new Error("[PROXY_TRAFFIC_EXHAUSTED] Traffic exhausted"));
+  await refused;
+  await vi.waitFor(() => expect(useStore.getState().trafficGatePromptOpen).toBe(true));
+  expect(refreshProxyData).toHaveBeenCalledTimes(1);
+  expect(mocks.prepareSession).toHaveBeenCalledTimes(1);
+  expect(useStore.getState().statuses.qa).toBe("stopped");
+});
