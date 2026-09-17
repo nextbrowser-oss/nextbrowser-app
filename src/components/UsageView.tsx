@@ -108,7 +108,7 @@ function peakPoint(points: ProxyTrafficHistoryPoint[]): ProxyTrafficHistoryPoint
 
 export function UsageView() {
   const s = useStore();
-  const today = useMemo(() => dateValue(new Date()), []);
+  const today = dateValue(new Date());
   const timezone = useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
     [],
@@ -118,6 +118,7 @@ export function UsageView() {
   const [to, setTo] = useState(today);
   const [history, setHistory] = useState<ProxyTrafficHistory>();
   const [historyLoading, setHistoryLoading] = useState(true);
+  const [refreshError, setRefreshError] = useState<string>();
   const [historyNotice, setHistoryNotice] = useState<string>();
   const [historyReload, setHistoryReload] = useState(0);
   const [domainsPage, setDomainsPage] = useState(1);
@@ -177,12 +178,19 @@ export function UsageView() {
 
   const applyPreset = (days: ProxyTrafficHistoryPreset) => {
     setPreset(days);
-    setTo(today);
-    setFrom(shiftDate(today, -(days - 1)));
+    const currentDay = dateValue(new Date());
+    setTo(currentDay);
+    setFrom(shiftDate(currentDay, -(days - 1)));
   };
   const refreshUsage = async () => {
-    await s.refreshProxyData();
-    setHistoryReload((value) => value + 1);
+    setRefreshError(undefined);
+    try {
+      await s.refreshProxyData();
+    } catch {
+      setRefreshError("Could not refresh your traffic allowance. Any previously loaded values may be out of date. Try Refresh again.");
+    } finally {
+      setHistoryReload((value) => value + 1);
+    }
   };
   const openTrafficGateDiscord = () => {
     trackEvent("proxy_traffic_gate_discord_opened", {
@@ -423,6 +431,7 @@ export function UsageView() {
           <span className="proxy-usage-source-badge backend">NodeMaven data</span>
         </div>
 
+        {refreshError && <div role="alert" className="muted small">{refreshError}</div>}
         {historyNotice && (
           <div className="proxy-usage-notice">
             <Icon name="info.circle.fill" size={14} />

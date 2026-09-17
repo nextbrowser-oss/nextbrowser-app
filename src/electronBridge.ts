@@ -10,7 +10,12 @@ declare global {
 
 export function invoke<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
   if (!window.nextbrowser) return Promise.reject(new Error("Electron bridge is unavailable."));
-  return window.nextbrowser.invoke<T>(command, args);
+  return window.nextbrowser.invoke<T>(command, args).catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    const safety = message.match(/PROXY_(?:CONNECTION_LOST|WORK_PAUSED):\s*(.*)/s);
+    if (safety) throw new Error(safety[1]);
+    throw error;
+  });
 }
 
 export function filePathForFile(file: File): string {

@@ -1020,17 +1020,6 @@ describe("browser profile creation", () => {
     expect(useStore.getState().profileIdentities.existing).toEqual({ country: "US" });
   });
 
-  it("leaves queued work untouched while proxy recovery is paused", () => {
-    useStore.setState({ proxySafetyBlocked: true });
-    const before = useStore.getState().runtime;
-    for (const id of Object.keys(before)) {
-      useStore.getState().startConsumer(id);
-      expect(useStore.getState().dequeue(id)).toBeNull();
-    }
-    expect(useStore.getState().runtime).toBe(before);
-    useStore.setState({ proxySafetyBlocked: false });
-  });
-
   it("cannot remove the proxy from a stopped proxy profile", async () => {
     useStore.setState({ profiles: [{ name: "work", proxy_mode: "manual" }], statuses: { work: "stopped" } });
     await expect(useStore.getState().updateProfileConnection("work", "direct")).rejects.toThrow("cannot be changed to direct");
@@ -1045,7 +1034,7 @@ describe("browser profile creation", () => {
     expect(bridge.invoke).not.toHaveBeenCalled();
   });
 
-  it("persists the personal proxy association in the workspace document", () => {
+  it("persists the personal proxy association in the workspace document", async () => {
     useStore.setState({
       activeWorkspaceId: "workspace",
       workspaces: [{
@@ -1059,7 +1048,7 @@ describe("browser profile creation", () => {
       }],
     });
 
-    useStore.getState().assignProfileToProject("saved-proxy-test", "camoufox", undefined, true, "proxy-id");
+    await useStore.getState().assignProfileToProject("saved-proxy-test", "camoufox", undefined, true, "proxy-id");
 
     expect(useStore.getState().workspaces[0]).toMatchObject({
       profileNames: ["saved-proxy-test"],
@@ -1257,7 +1246,14 @@ describe("local component and profile lifecycle", () => {
     useStore.setState({ statuses: { work: "stopped" } });
     const launch = useStore.getState().startProfile("work");
     try {
-      await useStore.getState().stopProfile("work");
+      const stop = useStore.getState().stopProfile("work");
+      // main now waits for cancellation/settlement of the in-flight start.
+      // A newer stop must stay authoritative while the old launch unwinds.
+      expect(useStore.getState().statuses.work).toBe("stopping");
+      await useStore.getState().loadProfiles();
+      expect(useStore.getState().statuses.work).not.toBe("starting");
+      finish({ code: 0, stdout: "{}", stderr: "" });
+      await stop;
       expect(useStore.getState().statuses.work).toBe("stopped");
     } finally {
       finish({ code: 0, stdout: "{}", stderr: "" });

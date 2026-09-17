@@ -193,3 +193,24 @@ describe("tidyEngineTabs", () => {
     expect(await tidyEngineTabs([])).toBe(0);
   });
 });
+
+it("uses CLI startup verification without repeating verify for a running profile", async () => {
+  await prepareSession({ ...options, startupVerifies: true });
+  expect(nextctl.json.mock.calls.some(([args]) => args.includes("verify"))).toBe(false);
+  expect(commands().map(args => args[4])).toEqual(["open", "wait"]);
+});
+
+it("starts through the verified CLI without a second verification page", async () => {
+  await prepareSession({ ...options, statuses: {}, startupVerifies: true, verifyOnly: true });
+  expect(commands().map(args => args[4])).toEqual(["start"]);
+  expect(nextctl.run.mock.calls[0][2]).toEqual({ requestId: "profile-start:work" });
+  expect(nextctl.json.mock.calls.some(([args]) => args.includes("verify"))).toBe(false);
+});
+
+it("stops and reports a failed verified startup without retries or opening a site", async () => {
+  nextctl.run.mockResolvedValueOnce({ code: 1, stdout: "", stderr: "VERIFY_FAILED: proxy unavailable" });
+  const onVerificationFailure = vi.fn().mockResolvedValue("cancel");
+  await expect(prepareSession({ ...options, statuses: {}, startupVerifies: true, onVerificationFailure })).rejects.toThrow("VERIFY_FAILED");
+  expect(commands().map(args => args[4])).toEqual(["start", "stop"]);
+  expect(onVerificationFailure).toHaveBeenCalledWith(expect.objectContaining({ attempts: 1, proxyExpected: true }));
+});

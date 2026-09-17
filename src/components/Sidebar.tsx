@@ -156,6 +156,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [automationExecutionClock, setAutomationExecutionClock] = useState(Date.now());
   const [automationExecutionError, setAutomationExecutionError] = useState<string>();
   const profileCreateRequestRef = useRef<string | null>(null);
+  const createdProfileRequests = useRef(new Set<string>());
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const projectListRef = useRef<HTMLDivElement | null>(null);
   const profileListRef = useRef<HTMLDivElement | null>(null);
@@ -1028,6 +1029,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       return;
     }
     if (profileSaving) return;
+    const targetWorkspaceId = s.activeWorkspaceId;
+    if (!targetWorkspaceId) { setProfileError("Choose a workspace first."); return; }
+    const creationKey = JSON.stringify([targetWorkspaceId, profileName.trim(), profileToolset, profileConnection, profileCountry, profilePersonalProxyId]);
     const requestId = `profile-create-${crypto.randomUUID()}`;
     profileCreateRequestRef.current = requestId;
     setProfileSaving(true);
@@ -1041,30 +1045,35 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     ), 4_000);
     try {
       const createdName = profileName.trim();
-      if (profileConnection === "personal") {
-        if (!profilePersonalProxyId) throw new Error("Choose a personal proxy.");
-        await s.createPersonalProxyProfile(createdName, profilePersonalProxyId, {
-          requestId,
-          timeoutMs: PROFILE_CREATE_TIMEOUT_MS,
-          runtime: profileToolset,
-        });
-      } else {
-        await s.createManagedProfile(createdName, profileCountry, {
-          requestId,
-          timeoutMs: PROFILE_CREATE_TIMEOUT_MS,
-          runtime: profileToolset,
-          direct: profileConnection === "direct",
-        });
+      if (!createdProfileRequests.current.has(creationKey)) {
+        if (profileConnection === "personal") {
+          if (!profilePersonalProxyId) throw new Error("Choose a personal proxy.");
+          await s.createPersonalProxyProfile(createdName, profilePersonalProxyId, {
+            requestId,
+            timeoutMs: PROFILE_CREATE_TIMEOUT_MS,
+            runtime: profileToolset,
+          });
+        } else {
+          await s.createManagedProfile(createdName, profileCountry, {
+            requestId,
+            timeoutMs: PROFILE_CREATE_TIMEOUT_MS,
+            runtime: profileToolset,
+            direct: profileConnection === "direct",
+          });
+        }
+        createdProfileRequests.current.add(creationKey);
       }
       if (profileCreateRequestRef.current !== requestId) return;
-      s.assignProfileToProject(
+      await s.assignProfileToProject(
         createdName,
         profileToolset,
-        undefined,
+        targetWorkspaceId,
         true,
         profileConnection === "personal" ? profilePersonalProxyId : undefined,
       );
-      s.selectProfile(createdName);
+      createdProfileRequests.current.delete(creationKey);
+      if (profileCreateRequestRef.current !== requestId) return;
+      if (useStore.getState().activeWorkspaceId === targetWorkspaceId) s.selectProfile(createdName);
       window.dispatchEvent(new CustomEvent("nextbrowser:profile-created", { detail: { name: createdName } }));
       setProfileCreationStage("Ready");
       await new Promise((resolve) => window.setTimeout(resolve, 450));
@@ -1079,7 +1088,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       if (profileCreateRequestRef.current !== requestId) return;
       const message = error instanceof Error ? error.message : String(error);
       setProfileError(
-        /timed out/i.test(message)
+        createdProfileRequests.current.has(creationKey)
+          ? `The profile was created, but its workspace assignment could not be completed. Try again with the same settings to finish saving it. ${message}`
+          : /timed out/i.test(message)
           ? "Profile creation took too long and was stopped. Check your connection, then try again."
           : message,
       );
@@ -1378,15 +1389,17 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                             const sourceProfile = event.dataTransfer.getData("application/x-nextbrowser-profile");
                             const sourceWorkspace = event.dataTransfer.getData("application/x-nextbrowser-project");
                             if (!activeWorkspace || !sourceProfile || sourceWorkspace !== activeWorkspace.id) return;
-                            s.reorderProfileInProject(activeWorkspace.id, sourceProfile, p.name);
+                            runProfileAction("We couldn’t save the profile order.", "PROFILE_ORDER_FAILED", () => s.reorderProfileInProject(activeWorkspace.id, sourceProfile, p.name));
                           }}
                           onSelect={() => s.selectProfile(selected ? undefined : p.name)}
                           onStart={() => {
                             if (!activeProject || occupiedByOther) return;
-                            s.assignProfileToProject(p.name, toolset, s.activeWorkspaceId);
-                            s.selectProfile(p.name);
-                            s.setTab("chat");
-                            void startProfileWithConfirmation(p.name, toolset);
+                            runProfileAction("We couldn’t prepare this profile.", "PROFILE_ASSIGNMENT_FAILED", async () => {
+                              await s.assignProfileToProject(p.name, toolset, s.activeWorkspaceId);
+                              s.selectProfile(p.name);
+                              s.setTab("chat");
+                              await startProfileWithConfirmation(p.name, toolset);
+                            });
                           }}
                           onStop={() => runProfileAction(`We couldn't stop “${p.name}”.`, "PROFILE_STOP_FAILED", () => s.stopProfile(p.name))}
                           onLive={() => { s.selectProfile(p.name); s.setTab("live"); }}
@@ -1889,12 +1902,13 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       ), document.body)}
 
       {workspaceCreatorOpen && createPortal((
-        <div className="modal-overlay" onMouseDown={() => setWorkspaceCreatorOpen(false)}>
+        <div className="modal-overlay" onMouseDown={() => { if (!workspaceSaving) setWorkspaceCreatorOpen(false); }}>
           <form
             className="modal-card workspace-create-modal"
             onMouseDown={(event) => event.stopPropagation()}
             onSubmit={(event) => {
               event.preventDefault();
+              if (workspaceSaving) return;
               let nextName: string;
               try {
                 nextName = validateEntityName("workspace", workspaceName);
@@ -1918,7 +1932,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               <Icon name="square.grid.2x2.fill" size={15} />
               <span className="profile-menu-name">Create workspace</span>
               <span className="spacer" />
-              <button type="button" className="plain-icon-btn" title="Close" onClick={() => setWorkspaceCreatorOpen(false)}>
+              <button type="button" className="plain-icon-btn" title="Close" disabled={workspaceSaving} onClick={() => setWorkspaceCreatorOpen(false)}>
                 <Icon name="xmark.circle.fill" size={18} />
               </button>
             </div>
@@ -1929,7 +1943,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             <p className="muted small workspace-create-note">Chats and profiles created here stay inside this workspace.</p>
             {workspaceError && <div className="error small">{workspaceError}</div>}
             <div className="modal-actions">
-              <button type="button" className="secondary" onClick={() => setWorkspaceCreatorOpen(false)}>Cancel</button>
+              <button type="button" className="secondary" disabled={workspaceSaving} onClick={() => setWorkspaceCreatorOpen(false)}>Cancel</button>
               <button type="submit" className="primary" disabled={workspaceSaving || !workspaceName.trim()}>
                 {workspaceSaving ? <Spinner size={13} /> : <Icon name="plus" size={13} />} Create workspace
               </button>

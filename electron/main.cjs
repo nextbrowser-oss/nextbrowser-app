@@ -1,5 +1,6 @@
 const { createProxySafety } = require("./proxy-safety.cjs");
 const { readCLIVersion } = require("./cli-version.cjs");
+const { mcpProfileScope } = require("./mcp-profile-scope.cjs");
 const { requireVerificationCapableCLI, verificationFailureDialogOptions, verificationFailureDialogChoice } = require("./verification-policy.cjs");
 const { agentLoginStatus } = require("./agent-login-status.cjs");
 const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage } = require("electron");
@@ -182,6 +183,7 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
   const runtimeEnv = childEnv(automationTraceFile ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: automationTraceFile } : {});
   const mcpEnvKeys = [
     "NEXTBROWSER_REQUIRE_VERIFY",
+    "NEXTBROWSER_VERIFY_ON_START_ONLY",
     "NEXTBROWSER_PROXY_SAFETY_FILE",
     "NEXTBROWSER_CONFIG_DIR",
     "CLAWBROWSER_CACHE_DIR",
@@ -205,7 +207,7 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
     "-c", 'plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser.enabled=false',
     "-c", 'plugins."clawbrowser@nbc-local".enabled=false',
     "-c", `mcp_servers.nextbrowser.command=${JSON.stringify(nextctlBin)}`,
-    "-c", `mcp_servers.nextbrowser.args=${JSON.stringify(["--require-verify", "mcp", ...(automationTraceFile ? ["--automation-trace-file", automationTraceFile] : [])])}`,
+    "-c", `mcp_servers.nextbrowser.args=${JSON.stringify(["--verify-on-start-only", "mcp", ...(automationTraceFile ? ["--automation-trace-file", automationTraceFile] : [])])}`,
     "-c", `mcp_servers.nextbrowser.env=${mcpEnv}`,
     // Codex starts the MCP server itself. Forward the Recorder's ephemeral
     // trace path from the agent process; putting it only in the parent env is
@@ -354,8 +356,9 @@ function childEnv(extra = {}) {
     ...(dasbrowserBin ? { DASBROWSER_BIN: dasbrowserBin } : {}),
     ...(multiloginAutomationToken ? { MULTILOGIN_TOKEN: multiloginAutomationToken } : {}),
     ...extra,
-    NEXTBROWSER_REQUIRE_VERIFY: "1",
-    NEXTBROWSER_PROXY_SAFETY_FILE: path.join(dataDir(), "proxy-safety-block.json"),
+    NEXTBROWSER_REQUIRE_VERIFY: "",
+    NEXTBROWSER_VERIFY_ON_START_ONLY: "1",
+    NEXTBROWSER_PROXY_SAFETY_FILE: "",
   };
 }
 function terminalEnv(extra = {}) {
@@ -552,43 +555,8 @@ async function resolveOrInstallNextctl() {
   return installed;
 }
 
-let proxySafety;
-function getProxySafety() {
-  if (!proxySafety) proxySafety = createProxySafety({
-    file: path.join(dataDir(), "proxy-safety-block.json"),
-    run: (args) => executeNextctlRaw(args, { timeoutMs: 240_000 }),
-    publish: (state) => emit("proxy:safety", state),
-    discover: async () => {
-      const result = await executeNextctlRaw(["profiles", "ls", "--format", "json"], { timeoutMs: 15000 });
-      if (result.code !== 0) return [];
-      const envelope = JSON.parse(result.stdout);
-      const profiles = (envelope.data ?? envelope).profiles ?? [];
-      const workspaces = JSON.parse(await fs.readFile(path.join(dataDir(), "workspaces.json"), "utf8").catch(() => "[]"));
-      return [{ profile: "", runtime: "clawbrowser" }, ...profiles.map((p) => ({
-        profile: p.name, proxyMode: p.proxy_mode,
-        runtime: workspaces.find((w) => w.profileNames?.includes(p.name))?.profileToolsets?.[p.name] ?? "clawbrowser",
-      }))];
-    },
-    pause: async () => {
-      cancelAllCommands();
-      cancelAllAutomationRecipes();
-      cancelAllAutomationElementPicks();
-      cancelAllAutomationPageRecordings();
-      for (const terminal of terminals.values()) terminal.process.kill();
-      terminals.clear();
-      const running = [...children.values()];
-      children.clear();
-      const stopped = await Promise.allSettled(running.map((child) => terminateProcessTree(child.pid, { includeRoot: true })));
-      if (stopped.some((result) => result.status === "rejected")) throw new Error("Could not stop local agent processes");
-    },
-  });
-  return proxySafety;
-}
 async function executeNextctl(commandArgs, options = {}) {
-  const complete = getProxySafety().begin(commandArgs);
-  let result;
-  try { result = await executeNextctlRaw(commandArgs, options); return result; }
-  finally { complete(result); }
+  return executeNextctlRaw(commandArgs, options);
 }
 
 async function executeNextctlRaw(commandArgs, options = {}) {
@@ -611,7 +579,7 @@ async function executeNextctlRaw(commandArgs, options = {}) {
     } else if (browserRuntime === "camoufox" && requiresBrowserRuntime(adaptedArgs)) {
       setBrowserRuntimeInstallStatus("camoufox", "installing", { message: "Preparing the Camoufox browser runtime…", requestId: options.requestId });
       try {
-        const result = await run(bin, ["--require-verify", ...adaptedArgs], options.extraEnv || {}, options);
+        const result = await run(bin, ["--verify-on-start-only", ...adaptedArgs], options.extraEnv || {}, options);
         if (result.code === 0) {
           setBrowserRuntimeInstallStatus("camoufox", "ready");
         } else {
@@ -623,7 +591,7 @@ async function executeNextctlRaw(commandArgs, options = {}) {
         throw error;
       }
     }
-    return await run(bin, ["--require-verify", ...adaptedArgs], options.extraEnv || {}, options);
+    return await run(bin, ["--verify-on-start-only", ...adaptedArgs], options.extraEnv || {}, options);
   } finally {
     if (clawbrowserLaunch) clawbrowserRuntimeLaunches -= 1;
   }
@@ -1555,14 +1523,6 @@ async function apiFetchJSON(baseURL, route, options = {}) {
 }
 
 async function invokeCommand(command, args = {}, sender) {
-  const safety = getProxySafety();
-  if (command === "proxy_safety_status") return safety.state();
-  if (command === "proxy_safety_recover") { void safety.recover().catch(() => {}); return safety.state(); }
-  if (command === "proxy_safety_resume") { await safety.resume(); return safety.state(); }
-  if (safety.state() && ["agent_run", "terminal_start", "terminal_input", "automation_recipe_execute", "automation_element_pick", "automation_page_record_start"].includes(command)) {
-    throw new Error("PROXY_CONNECTION_LOST: Local work is paused. Review connection recovery before continuing.");
-  }
-
   switch (command) {
     case "github_stars": {
       let count = null;
@@ -2154,9 +2114,7 @@ async function invokeCommand(command, args = {}, sender) {
       const profileScopeDir = path.join(nextbrowserRuntimeRoot(), "chat-scopes");
       const profileScopeFile = path.join(profileScopeDir, `${args.replyId}.json`);
       await fs.mkdir(profileScopeDir, { recursive: true });
-      await fs.writeFile(profileScopeFile, JSON.stringify(Object.fromEntries(
-        [...profileScope.entries()].map(([name, access]) => [name, access.runtime]),
-      )), "utf8");
+      await fs.writeFile(profileScopeFile, JSON.stringify(mcpProfileScope(profileScope, args.multiloginSelection)), "utf8");
       // A plain run is a one-shot call with nothing of the chat around it: no
       // workspace instructions, no Clawbrowser MCP, and a working directory of
       // its own. The X reply engine drafts this way — what it hands the model
@@ -2185,9 +2143,7 @@ async function invokeCommand(command, args = {}, sender) {
           env: childEnv({
             NEXTBROWSER_CONTROL_URL: controlURL,
             NEXTBROWSER_CONTROL_TOKEN: controlToken,
-            NEXTBROWSER_ALLOWED_PROFILES_JSON: JSON.stringify(Object.fromEntries(
-              [...profileScope.entries()].map(([name, access]) => [name, access.runtime]),
-            )),
+            NEXTBROWSER_ALLOWED_PROFILES_JSON: JSON.stringify(mcpProfileScope(profileScope, args.multiloginSelection)),
             NEXTBROWSER_PROFILE_SCOPE_FILE: profileScopeFile,
             ...(activeAutomationTraceFile() ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: activeAutomationTraceFile() } : {}),
           }),
@@ -2267,9 +2223,7 @@ async function invokeCommand(command, args = {}, sender) {
       const profileScopeDir = path.join(nextbrowserRuntimeRoot(), "terminal-scopes");
       const profileScopeFile = path.join(profileScopeDir, `${id}.json`);
       await fs.mkdir(profileScopeDir, { recursive: true });
-      await fs.writeFile(profileScopeFile, JSON.stringify(Object.fromEntries(
-        [...profileScope.entries()].map(([name, access]) => [name, access.runtime]),
-      )), "utf8");
+      await fs.writeFile(profileScopeFile, JSON.stringify(mcpProfileScope(profileScope, args.multiloginSelection)), "utf8");
       if (args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
       const writableDirs = resolvedAgentId === "codex" ? clawbrowserWritableDirs() : [];
       let agentArgs = agent.args || [];
@@ -2297,9 +2251,7 @@ async function invokeCommand(command, args = {}, sender) {
         env: terminalEnv({
           NEXTBROWSER_CONTROL_URL: controlURL,
           NEXTBROWSER_CONTROL_TOKEN: controlToken,
-          NEXTBROWSER_ALLOWED_PROFILES_JSON: JSON.stringify(Object.fromEntries(
-            [...profileScope.entries()].map(([name, access]) => [name, access.runtime]),
-          )),
+          NEXTBROWSER_ALLOWED_PROFILES_JSON: JSON.stringify(mcpProfileScope(profileScope, args.multiloginSelection)),
           NEXTBROWSER_PROFILE_SCOPE_FILE: profileScopeFile,
         }),
       });
@@ -2381,9 +2333,7 @@ async function invokeCommand(command, args = {}, sender) {
         conversationId,
       });
       else agentControlArtifactScopes.delete(record.controlToken);
-      await fs.writeFile(record.profileScopeFile, JSON.stringify(Object.fromEntries(
-        [...nextScope.entries()].map(([name, access]) => [name, access.runtime]),
-      )), "utf8");
+      await fs.writeFile(record.profileScopeFile, JSON.stringify(mcpProfileScope(nextScope, args.multiloginSelection)), "utf8");
       if (args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
       return null;
     }
@@ -2582,7 +2532,6 @@ if (!gotLock) {
     ipcMain.handle("nextbrowser:invoke", (event, command, args) => invokeCommand(command, args, event.sender));
     createWindow();
     for (const arg of process.argv) handleDeepLink(arg);
-    getProxySafety().start();
     startAutoUpdater();
     startBrowserRuntimeUpdateChecks();
     app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
@@ -2594,7 +2543,6 @@ app.on("open-url", (event, url) => {
 });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 app.on("before-quit", () => {
-  proxySafety?.dispose();
   if (browserRuntimeUpdateTimer) clearInterval(browserRuntimeUpdateTimer);
   if (appUpdateTimer) clearInterval(appUpdateTimer);
   for (const socket of remoteSignalSockets.values()) socket.close();
