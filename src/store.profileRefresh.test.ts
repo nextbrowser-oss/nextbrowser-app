@@ -60,6 +60,28 @@ it("preserves and persists a profile assigned while cloud sync is waiting for pr
   expect(uploads.at(-1)![1].workspace.document.profileNames).toEqual(["one", "two"]);
 });
 
+it("does not let an older status overwrite a newer running session", async () => {
+  const { useStore } = await import("./store");
+  const oldStatus = deferred<ReturnType<typeof result>>();
+  let statusCalls = 0;
+  bridge.invoke.mockImplementation((command, { args } = {}) => {
+    if (command !== "nextctl_run") return Promise.resolve(null);
+    if (args[0] === "profiles") return Promise.resolve(result({ profiles: [{ name: "one", country: "US" }] }));
+    if (args[0] === "status") return ++statusCalls === 1
+      ? oldStatus.promise
+      : Promise.resolve(result({ status: "running" }));
+    return Promise.resolve(null);
+  });
+  const oldRefresh = useStore.getState().loadProfiles();
+  await vi.waitFor(() => expect(statusCalls).toBe(1));
+  await useStore.getState().loadProfiles();
+  oldStatus.resolve(result({ status: "stopped" }));
+  await oldRefresh;
+  expect(useStore.getState().statuses.one).toBe("running");
+  expect(useStore.getState().profileSessions.one.status).toBe("running");
+  expect(useStore.getState().profileIdentities.one.country).toBe("US");
+});
+
 it("ignores a stale inventory response that arrives after the newer list", async () => {
   const { useStore } = await import("./store");
   const olderList = deferred<ReturnType<typeof result>>();

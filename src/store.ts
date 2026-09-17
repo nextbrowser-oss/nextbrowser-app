@@ -675,6 +675,7 @@ interface APIKeyIdentity {
 const replyExecutionTargets = new Map<string, ExecutionTarget>();
 const replyProfileBaselines = new Map<string, Set<string>>();
 const profileOperationEpoch = new Map<string, number>();
+const pendingProfileLaunches = new Map<string, number>();
 const pendingProfileStarts = new Map<string, Promise<void>>();
 const verifyingProfileStarts = new Set<string>();
 const BOOTSTRAP_FOREGROUND_WAIT_MS = 12_000;
@@ -2657,9 +2658,16 @@ export const useStore = create<State>((set, get) => {
         }
       }
       if (generation !== profileRefreshGeneration) return;
-      for (const name of verifyingProfileStarts) {
-        statuses[name] = get().statuses[name] === "stopping" ? "stopping" : "starting";
-        if (profileSessions[name]) profileSessions[name] = { ...profileSessions[name], status: statuses[name] };
+      // A poll can start before a launch and finish while that launch is still
+      // preparing the browser. Do not turn Starting into a misleading Stopped
+      // (or Unknown), or Running before verification settles. A newer stop/remove
+      // operation takes precedence through the operation epoch.
+      for (const name of Object.keys(statuses)) {
+        const launch = pendingProfileLaunches.get(name);
+        if (launch !== undefined && launch === profileOperationEpoch.get(name)) {
+          statuses[name] = get().statuses[name] === "stopping" ? "stopping" : "starting";
+          if (profileSessions[name]) profileSessions[name] = { ...profileSessions[name], status: statuses[name] };
+        }
       }
       set({ statuses, profileSessions, profileIdentities });
     } catch {
@@ -2813,10 +2821,13 @@ export const useStore = create<State>((set, get) => {
       try {
         const runtime = runtimeForProfile(get().workspaces, n);
         const profile = get().profiles.find((item) => item.name === n);
+        pendingProfileLaunches.set(n, operation);
         await prepareLocalSession({
           selectedProfile: n, runtime, statuses: {}, verifyOnly: true,
           proxyExpected: profile?.proxy_mode !== "direct",
           shouldContinue: () => profileOperationEpoch.get(n) === operation,
+        }).finally(() => {
+          if (pendingProfileLaunches.get(n) === operation) pendingProfileLaunches.delete(n);
         });
         if (profileOperationEpoch.get(n) !== operation) return;
         verifyingProfileStarts.delete(n);

@@ -1,3 +1,5 @@
+const { createProxySafety } = require("./proxy-safety.cjs");
+const { readCLIVersion } = require("./cli-version.cjs");
 const { mcpProfileScope } = require("./mcp-profile-scope.cjs");
 const { requireVerificationCapableCLI, verificationFailureDialogOptions, verificationFailureDialogChoice } = require("./verification-policy.cjs");
 const { agentLoginStatus } = require("./agent-login-status.cjs");
@@ -10,6 +12,13 @@ const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { devDataPaths } = require("./dev-data-root.cjs");
+const devStorage = devDataPaths({ isPackaged: app.isPackaged, homeDir: os.homedir() });
+if (devStorage) {
+  fsSync.mkdirSync(devStorage.userData, { recursive: true, mode: 0o700 });
+  app.setPath("userData", devStorage.userData);
+  app.setPath("sessionData", devStorage.userData);
+}
 const { createHash, randomUUID } = require("node:crypto");
 const http = require("node:http");
 const { Readable } = require("node:stream");
@@ -24,7 +33,7 @@ const {
   resolveBinary,
   searchDirs,
 } = require("./binary-resolver.cjs");
-const { applyLegacyRuntimeMigration, applyRuntimeRootMigration, clearRuntimeCredential, runtimeAPIBaseURL } = require("./runtime-config.cjs");
+const { applyLegacyRuntimeMigration, applyRuntimeRootMigration, clearRuntimeCredential, runtimeAPIBaseURL, accountAPIBaseURL } = require("./runtime-config.cjs");
 const { fetchGitHubStars, readLocalGitHubStars, writeLocalGitHubStars } = require("./github-stars.cjs");
 const { ensureWorkspaceInstructions } = require("./workspace-instructions.cjs");
 const pty = require("node-pty");
@@ -74,6 +83,7 @@ const { cancelAllAutomationElementPicks, cancelAutomationElementPick, pickAutoma
 const { activeAutomationRecordingHasDataAction, activeAutomationTraceFile, attachAutomationPageRecording, cancelAllAutomationPageRecordings, recordAutomationToolAction, startAutomationPageRecording, stopAutomationPageRecording } = require("./automation-page-recorder.cjs");
 const { browserInstallArgs, requiresBrowserRuntime, resolveBrowserRuntime } = require("./browser-runtime.cjs");
 const {
+  assertClawbrowserSessionsStopped,
   assertRuntimeReleaseVersion,
   checkBrowserRuntimeUpdates,
   clawbrowserReleaseAsset,
@@ -119,7 +129,6 @@ const NEXTCTL_RELEASE_BASE = "https://github.com/nextbrowser-oss/nbc_releases/re
 // A workspace state file is read for display only, so it is truncated rather
 // than streamed: a runaway file must not be pulled into the renderer whole.
 const MAX_WORKSPACE_FILE_BYTES = 256 * 1024;
-const DEFAULT_API_BASE_URL = "https://api.nextbrowser.com";
 const DEFAULT_AUTH_BASE_URL = "https://app.nextbrowser.com";
 const DEFAULT_AUTH0_ISSUER_BASE_URL = "https://dev-5v20zhlfh5c7o71v.us.auth0.com";
 const DEFAULT_AUTH0_CLIENT_ID = "E9Net5ggtBdR18nKT08eAqaXeSpbhCKt";
@@ -133,6 +142,8 @@ let browserRuntimeUpdateCheckPromise = null;
 let browserRuntimeUpdateTimer = null;
 let browserRuntimeUpdateInstallStatus = { status: "idle", runtimes: [] };
 let browserRuntimeUpdateInstallPromise = null;
+let clawbrowserRuntimeUpdateActive = false;
+let clawbrowserRuntimeLaunches = 0;
 let nextctlInstallPromise = null;
 let verifiedNextctlBin = "";
 let browserInstallPromise = null;
@@ -302,6 +313,7 @@ function terminalAgentId(value) {
 function home() { return os.homedir(); }
 function legacyAppRuntimeRoot() { return path.join(app.getPath("userData"), "runtime"); }
 function nextbrowserRuntimeRoot() {
+  if (devStorage) return devStorage.runtime;
   return process.platform === "darwin"
     ? path.join(home(), ".nextbrowser", "runtime")
     : legacyAppRuntimeRoot();
@@ -431,6 +443,7 @@ function setBrowserRuntimeUpdateInstallStatus(status, patch = {}) {
 }
 function legacyManagedNextctlRoot() { return path.join(app.getPath("userData"), "managed-nextctl"); }
 function managedNextctlRoot() {
+  if (devStorage) return devStorage.nextctl;
   return process.platform === "darwin"
     ? path.join(home(), ".nextbrowser", "managed-nextctl")
     : legacyManagedNextctlRoot();
@@ -497,9 +510,9 @@ async function installManagedNextctl() {
       await fs.mkdir(managedNextctlRoot(), { recursive: true });
       await fs.copyFile(extracted, managedNextctlBin());
       if (process.platform !== "win32") await fs.chmod(managedNextctlBin(), 0o755);
-      const version = await run(managedNextctlBin(), ["version"]);
-      if (version.code !== 0) throw new Error((version.stderr || version.stdout || "nextctl version check failed").trim());
-      setNextctlInstallStatus("ready", { path: managedNextctlBin(), version: version.stdout.trim() });
+      await requireVerificationCapableCLI(managedNextctlBin(), run);
+      const version = await readCLIVersion(managedNextctlBin(), run);
+      setNextctlInstallStatus("ready", { path: managedNextctlBin(), version });
       return managedNextctlBin();
     } catch (error) {
       setNextctlInstallStatus("failed", { message: error?.message || String(error) });
@@ -551,28 +564,37 @@ async function executeNextctlRaw(commandArgs, options = {}) {
   if (!bin) throw new Error("nextctl not found. Install Clawbrowser CLI or set NEXTCTL_BIN.");
   let adaptedArgs = commandArgs;
   const browserRuntime = requestedBrowserRuntime(adaptedArgs);
-  if (browserRuntime === "multilogin") await initializeMultiloginCredential();
-  if (browserRuntime === "dasbrowser") {
-    const executable = await ensureDasbrowserRuntime({ requestId: options.requestId });
-    adaptedArgs = adaptDasbrowserArgs(adaptedArgs, executable);
-  } else if (browserRuntime === "clawbrowser" && requiresBrowserRuntime(adaptedArgs)) {
-    await ensureClawbrowserRuntime(bin, { requestId: options.requestId });
-  } else if (browserRuntime === "camoufox" && requiresBrowserRuntime(adaptedArgs)) {
-    setBrowserRuntimeInstallStatus("camoufox", "installing", { message: "Preparing the Camoufox browser runtime…", requestId: options.requestId });
-    try {
-      const result = await run(bin, ["--verify-on-start-only", ...adaptedArgs], options.extraEnv || {}, options);
-      if (result.code === 0) {
-        setBrowserRuntimeInstallStatus("camoufox", "ready");
-      } else {
-        setBrowserRuntimeInstallStatus("camoufox", "failed", { message: "We couldn't prepare Camoufox. Please retry." });
-      }
-      return result;
-    } catch (error) {
-      setBrowserRuntimeInstallStatus("camoufox", "failed", { message: String(error?.message || error) });
-      throw error;
-    }
+  if (browserRuntime === "clawbrowser" && requiresBrowserRuntime(adaptedArgs) && clawbrowserRuntimeUpdateActive) {
+    throw new Error("ClawBrowser cannot start while its runtime update is being installed. Retry after the update finishes.");
   }
-  return run(bin, ["--verify-on-start-only", ...adaptedArgs], options.extraEnv || {}, options);
+  const clawbrowserLaunch = browserRuntime === "clawbrowser" && requiresBrowserRuntime(adaptedArgs);
+  if (clawbrowserLaunch) clawbrowserRuntimeLaunches += 1;
+  try {
+    if (browserRuntime === "multilogin") await initializeMultiloginCredential();
+    if (browserRuntime === "dasbrowser") {
+      const executable = await ensureDasbrowserRuntime({ requestId: options.requestId });
+      adaptedArgs = adaptDasbrowserArgs(adaptedArgs, executable);
+    } else if (browserRuntime === "clawbrowser" && requiresBrowserRuntime(adaptedArgs)) {
+      await ensureClawbrowserRuntime(bin, { requestId: options.requestId });
+    } else if (browserRuntime === "camoufox" && requiresBrowserRuntime(adaptedArgs)) {
+      setBrowserRuntimeInstallStatus("camoufox", "installing", { message: "Preparing the Camoufox browser runtime…", requestId: options.requestId });
+      try {
+        const result = await run(bin, ["--verify-on-start-only", ...adaptedArgs], options.extraEnv || {}, options);
+        if (result.code === 0) {
+          setBrowserRuntimeInstallStatus("camoufox", "ready");
+        } else {
+          setBrowserRuntimeInstallStatus("camoufox", "failed", { message: "We couldn't prepare Camoufox. Please retry." });
+        }
+        return result;
+      } catch (error) {
+        setBrowserRuntimeInstallStatus("camoufox", "failed", { message: String(error?.message || error) });
+        throw error;
+      }
+    }
+    return await run(bin, ["--verify-on-start-only", ...adaptedArgs], options.extraEnv || {}, options);
+  } finally {
+    if (clawbrowserLaunch) clawbrowserRuntimeLaunches -= 1;
+  }
 }
 
 function sendControlResponse(response, status, body) {
@@ -1013,6 +1035,7 @@ async function disconnectMultilogin() {
   return await multiloginLocalStatus();
 }
 async function migrateLegacyData() {
+  if (devStorage) return;
   const legacy = path.join(app.getPath("appData"), "clawdesk-electron");
   const current = dataDir();
   if (legacy === current || !fsSync.existsSync(legacy) || fsSync.existsSync(current)) return;
@@ -1023,6 +1046,7 @@ async function migrateLegacyData() {
 // users keep their session (proxy stays on) and see all their profiles without
 // signing in again. Best-effort and idempotent; see runtime-config.cjs.
 async function migrateLegacyRuntimeConfig() {
+  if (devStorage) return;
   await applyRuntimeRootMigration({
     fromRoot: legacyAppRuntimeRoot(),
     toRoot: nextbrowserRuntimeRoot(),
@@ -1208,7 +1232,7 @@ async function findClawbrowserReleaseAsset(root) {
   }
   return "";
 }
-async function replaceClawbrowserRelease(source, release) {
+async function replaceClawbrowserRelease(source, release, options = {}) {
   const dataDir = path.join(nextbrowserRuntimeRoot(), "data");
   await fs.mkdir(dataDir, { recursive: true });
   const isBundle = process.platform === "darwin";
@@ -1233,6 +1257,9 @@ async function replaceClawbrowserRelease(source, release) {
     } catch (error) {
       if (error?.code !== "ENOENT") throw error;
     }
+    // The old managed path is unavailable at this point, so an app-owned
+    // launch cannot attach to it between the final idle check and activation.
+    await options.beforeActivate?.();
     await fs.rename(staged, target);
     await fs.writeFile(
       path.join(dataDir, ".clawbrowser-browser-release.json"),
@@ -1257,28 +1284,72 @@ async function replaceClawbrowserRelease(source, release) {
     throw error;
   }
 }
+async function clawbrowserRuntimeSessionNames() {
+  const names = new Set();
+  try {
+    // Every launched managed runtime writes a state directory before it can be
+    // controlled. Persistent browser-data directories are intentionally not
+    // scanned: they also contain stopped profiles and toolset environments.
+    const entries = await fs.readdir(path.join(nextbrowserRuntimeRoot(), "state"), { withFileTypes: true });
+    for (const entry of entries) if (entry.isDirectory()) names.add(entry.name);
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw new Error("ClawBrowser session status is unavailable.");
+  }
+  return [...names];
+}
+async function assertClawbrowserRuntimeIdle(nextctlBin) {
+  if (clawbrowserRuntimeLaunches > 0) {
+    throw new Error("ClawBrowser profiles are still starting. Wait for them to finish, then stop them before installing the update.");
+  }
+  await assertClawbrowserSessionsStopped({
+    sessionNames: await clawbrowserRuntimeSessionNames(),
+    statusSession: (profile) => run(nextctlBin, [
+      "status", "--profile", profile, "--runtime", "clawbrowser", "--format", "json",
+    ], {}, { timeoutMs: 10_000 }),
+    processIsAlive: async (pid) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch (error) {
+        if (error?.code === "ESRCH") return false;
+        throw error;
+      }
+    },
+  });
+}
 async function updateClawbrowserRuntime(latestVersion) {
   const runtimeRoot = nextbrowserRuntimeRoot();
   const release = clawbrowserReleaseAsset(process.platform, process.arch, latestVersion);
-  return installRuntimeUpdateWithVerification({
-    label: "ClawBrowser",
-    expectedVersion: latestVersion,
-    install: async () => {
-      const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-clawbrowser-update-"));
-      try {
-        const archive = path.join(tempDir, release.assetName);
-        const extracted = path.join(tempDir, "extract");
-        await downloadFileStreaming(release.url, archive);
-        await extractArchive(archive, release.kind, extracted);
-        const source = await findClawbrowserReleaseAsset(extracted);
-        if (!source) throw new Error("The ClawBrowser release did not contain a browser executable.");
-        await replaceClawbrowserRelease(source, release);
-      } finally {
-        await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
-      }
-    },
-    readInstalledVersion: () => installedClawbrowserVersion(runtimeRoot),
-  });
+  const nextctlBin = await resolveOrInstallNextctl();
+  clawbrowserRuntimeUpdateActive = true;
+  try {
+    // Refuse before downloading, then check again after staging because a
+    // profile may have been started while the archive was in flight.
+    await assertClawbrowserRuntimeIdle(nextctlBin);
+    return await installRuntimeUpdateWithVerification({
+      label: "ClawBrowser",
+      expectedVersion: latestVersion,
+      install: async () => {
+        const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-clawbrowser-update-"));
+        try {
+          const archive = path.join(tempDir, release.assetName);
+          const extracted = path.join(tempDir, "extract");
+          await downloadFileStreaming(release.url, archive);
+          await extractArchive(archive, release.kind, extracted);
+          const source = await findClawbrowserReleaseAsset(extracted);
+          if (!source) throw new Error("The ClawBrowser release did not contain a browser executable.");
+          await replaceClawbrowserRelease(source, release, {
+            beforeActivate: () => assertClawbrowserRuntimeIdle(nextctlBin),
+          });
+        } finally {
+          await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+        }
+      },
+      readInstalledVersion: () => installedClawbrowserVersion(runtimeRoot),
+    });
+  } finally {
+    clawbrowserRuntimeUpdateActive = false;
+  }
 }
 async function updateCamoufoxRuntime(latestVersion) {
   const python = camoufoxVenvPython();
@@ -1417,13 +1488,7 @@ function startBrowserRuntimeUpdateChecks() {
   }, BROWSER_RUNTIME_UPDATE_CHECK_INTERVAL_MS);
 }
 function apiBaseURL(raw) {
-  return String(
-    raw
-      || process.env.NEXTBROWSER_DEV_API_BASE_URL
-      || process.env.NEXTBROWSER_API_BASE_URL
-      || process.env.CLAWBROWSER_API_BASE_URL
-      || DEFAULT_API_BASE_URL,
-  ).replace(/\/$/, "");
+  return accountAPIBaseURL(raw, process.env);
 }
 function authBaseURL() {
   return String(process.env.NEXTBROWSER_AUTH_BASE_URL || DEFAULT_AUTH_BASE_URL).replace(/\/$/, "");
@@ -1610,7 +1675,7 @@ async function invokeCommand(command, args = {}, sender) {
     case "nextctl_cancel": return cancelCommand(args.requestId) || cancelBrowserRuntimeInstall(args.requestId);
     case "nextctl_version": {
       const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found");
-      const r = await run(bin, ["version"]); return r.stdout.trim();
+      return await readCLIVersion(bin, run);
     }
     case "nextctl_supports_skill": { const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found"); return nextctlHasSkill(bin); }
     case "projects_list": return await listProjects({ env: childEnv() });
@@ -2455,7 +2520,9 @@ if (!gotLock) {
     // argument; a browser callback then opens Electron's generic welcome window
     // instead of the running NextBrowser app. Clean up only that stale dev
     // handler. Packaged builds keep the normal protocol registration.
-    if (!app.isPackaged) {
+    if (devStorage) {
+      // Isolated QA must not change the user's protocol handler, even cleanup.
+    } else if (!app.isPackaged) {
       if (app.getApplicationNameForProtocol(`${DEEP_LINK_PROTOCOL}://`) === "Electron") {
         app.removeAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
       }

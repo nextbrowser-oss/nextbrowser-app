@@ -35,6 +35,7 @@ export function BrowserRuntimeUpdatePrompt({ runtimes, onLater, onConfirm }: {
           ))}
         </div>
         <p className="muted small">Installation starts only after you confirm and continues in the background. Keep NextBrowser open until it finishes.</p>
+        {runtimes.some((runtime) => runtime.runtime === "clawbrowser") && <p className="muted small">Stop running ClawBrowser profiles first; NextBrowser won’t close them automatically.</p>}
         <div className="row settings-actions">
           <button className="secondary" onClick={onLater}>Later</button>
           <span className="spacer" />

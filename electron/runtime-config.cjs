@@ -10,6 +10,16 @@ const path = require("node:path");
 const NEXTBROWSER_TOKEN_PREFIX = "nb_live_";
 const DEFAULT_RUNTIME_API_BASE_URL = "https://api.nextbrowser.com";
 
+// Explicit host configuration must override the renderer's production default
+// for both halves of account pairing. Runtime routing remains independent.
+function accountAPIBaseURL(raw, env = process.env) {
+  return String(env.NEXTBROWSER_DEV_API_BASE_URL
+    || env.NEXTBROWSER_API_BASE_URL
+    || env.CLAWBROWSER_API_BASE_URL
+    || raw
+    || DEFAULT_RUNTIME_API_BASE_URL).replace(/\/$/, "");
+}
+
 // A development entity service may not expose browser Remote Session routes.
 // Keep runtime traffic independently configurable while the app continues to
 // send workspace and Automation entities to NEXTBROWSER_DEV_API_BASE_URL.
@@ -152,6 +162,7 @@ async function clearRuntimeCredential({ runtimeRoot }) {
 }
 
 module.exports = {
+  accountAPIBaseURL,
   NEXTBROWSER_TOKEN_PREFIX,
   runtimeAPIBaseURL,
   legacyConfigPath,
