@@ -1,4 +1,4 @@
-import type { MouseEvent, ReactNode } from "react";
+import { useState, type MouseEvent, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { invoke } from "../electronBridge";
@@ -48,16 +48,23 @@ function childText(children: ReactNode): string {
 }
 
 function LocalFileCard({ path, label }: { path: string; label: string }) {
+  const [error, setError] = useState<string>();
+  const open = async (target: string) => {
+    setError(undefined);
+    try { await invoke("open_path", { path: target }); }
+    catch { setError("Could not open this location. Check that it still exists."); }
+  };
   return (
     <span className="local-file-card" title={path}>
       <Icon name="doc" size={15} />
       <span className="local-file-name">{label || fileNameFromPath(path)}</span>
-      <button className="local-file-open" onClick={() => void invoke("open_path", { path })}>Open</button>
+      {error && <span role="alert">{error}</span>}
+      <button className="local-file-open" onClick={() => void open(path)}>Open</button>
       <button
         className="local-file-reveal plain-icon-btn plain-icon-btn-compact"
         title="Show in Finder / Explorer"
         aria-label={`Show ${label || fileNameFromPath(path)} in folder`}
-        onClick={() => void invoke("open_path", { path: containingFolderPath(path) })}
+        onClick={() => void open(containingFolderPath(path))}
       >
         <Icon name="folder" size={13} />
       </button>

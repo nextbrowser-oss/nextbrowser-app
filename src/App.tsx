@@ -385,6 +385,7 @@ function SettingsModal({
   focus,
   appUpdate,
   browserRuntimeUpdates,
+  runtimeInstalling,
   manualUpdate,
   onCheckUpdate,
   onCheckBrowserRuntimeUpdates,
@@ -398,6 +399,7 @@ function SettingsModal({
   focus?: "agent" | null;
   appUpdate: AppUpdateStatus;
   browserRuntimeUpdates: BrowserRuntimeUpdateStatus;
+  runtimeInstalling: boolean;
   manualUpdate: boolean;
   onCheckUpdate: () => void;
   onCheckBrowserRuntimeUpdates: () => void;
@@ -547,7 +549,7 @@ function SettingsModal({
                   </span>
                 </div>
                 {(runtime.status === "available" || runtime.status === "not-installed") && (
-                  <button className="mini primary-mini" onClick={() => onRequestBrowserRuntimeUpdate(runtime)}>
+                  <button className="mini primary-mini" disabled={runtimeInstalling} onClick={() => onRequestBrowserRuntimeUpdate(runtime)}>
                     {runtime.status === "not-installed" ? "Install" : "Update"}
                   </button>
                 )}
@@ -718,8 +720,10 @@ export function App() {
   const feedbackPromptEvaluated = useRef(false);
   const preview = getPreviewMode();
   const checking = useStore((s) => s.checking);
+  const authed = useStore((s) => s.authed);
   const startupPhase = useStore((s) => s.startupPhase);
   const startupError = useStore((s) => s.startupError);
+  const feedbackAvailable = authed && !checking && !startupError;
   const workspaceSyncing = useStore((s) => s.projectsSyncing || s.isRefreshing);
   const tab = useStore((s) => s.tab);
   const setTab = useStore((s) => s.setTab);
@@ -788,15 +792,20 @@ export function App() {
     // Ask only after the app is usable. This keeps the fifth-open request out
     // of onboarding, recovery, and first-run setup flows, but does not make
     // feedback depend on which agent the user has selected.
-    if (feedbackPromptEvaluated.current || checking || showOnboarding || workspaceSetupRequired) return;
+    if (feedbackPromptEvaluated.current || !feedbackAvailable || showOnboarding || workspaceSetupRequired) return;
     feedbackPromptEvaluated.current = true;
     if (shouldPromptForFeedback(localStorage)) {
       setFeedbackOpen(true);
       trackEvent("feedback_prompt_shown", { trigger: "fifth_open" });
     }
-  }, [checking, showOnboarding, workspaceSetupRequired]);
+  }, [feedbackAvailable, showOnboarding, workspaceSetupRequired]);
 
   useEffect(() => {
+    if (!feedbackAvailable) setFeedbackOpen(false);
+  }, [feedbackAvailable]);
+
+  useEffect(() => {
+    if (!feedbackAvailable) return;
     const openFeedbackWithShortcut = (event: KeyboardEvent) => {
       if ((!event.metaKey && !event.ctrlKey) || !event.shiftKey || event.altKey || event.key.toLowerCase() !== "f") return;
       event.preventDefault();
@@ -805,7 +814,7 @@ export function App() {
     };
     window.addEventListener("keydown", openFeedbackWithShortcut);
     return () => window.removeEventListener("keydown", openFeedbackWithShortcut);
-  }, []);
+  }, [feedbackAvailable]);
 
   const checkAppUpdate = () => {
     void invoke<AppUpdateStatus>("app_check_for_update").then(setAppUpdate).catch(() => {
@@ -1232,7 +1241,7 @@ export function App() {
     };
   }, [checking, sidebarCollapsed, setSidebarWidth]);
 
-  const feedbackModal = feedbackOpen ? <FeedbackModal onClose={() => setFeedbackOpen(false)} onSubmitted={(rating) => {
+  const feedbackModal = feedbackAvailable && feedbackOpen ? <FeedbackModal onClose={() => setFeedbackOpen(false)} onSubmitted={(rating) => {
     markFeedbackSubmitted(localStorage);
     trackEvent("feedback_submitted", { rating });
   }} /> : null;
@@ -1252,6 +1261,7 @@ export function App() {
             focus={settingsFocus}
             appUpdate={appUpdate}
             browserRuntimeUpdates={browserRuntimeUpdates}
+            runtimeInstalling={runtimeUpdateInstall.status === "installing"}
             manualUpdate={MANUAL_UPDATE}
             onCheckUpdate={checkAppUpdate}
             onCheckBrowserRuntimeUpdates={checkBrowserRuntimeUpdates}
@@ -1332,7 +1342,7 @@ export function App() {
           </div>
           <span className="tabbar-spacer" />
           <div className="tabbar-controls">
-            <FeedbackButton onClick={() => setFeedbackOpen(true)} />
+            {feedbackAvailable && <FeedbackButton onClick={() => setFeedbackOpen(true)} />}
             <SocialButtons />
             <SettingsButton onClick={() => openSettings()} hasUpdate={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)} />
             <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
@@ -1368,6 +1378,7 @@ export function App() {
           focus={settingsFocus}
           appUpdate={appUpdate}
           browserRuntimeUpdates={browserRuntimeUpdates}
+            runtimeInstalling={runtimeUpdateInstall.status === "installing"}
           manualUpdate={MANUAL_UPDATE}
           onCheckUpdate={checkAppUpdate}
           onCheckBrowserRuntimeUpdates={checkBrowserRuntimeUpdates}

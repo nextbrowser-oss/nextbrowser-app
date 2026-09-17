@@ -60,8 +60,8 @@ async function activateMatchingTab(args: string[], host: string): Promise<boolea
   return true;
 }
 
-async function runChecked(args: string[], message: string): Promise<void> {
-  const result = await nextctlRun(args);
+async function runChecked(args: string[], message: string, requestId?: string): Promise<void> {
+  const result = await nextctlRun(args, {}, requestId ? { requestId } : {});
   let envelopeFailed = false;
   try {
     const envelope = JSON.parse(result.stdout) as { ok?: boolean; error?: unknown };
@@ -229,7 +229,7 @@ export async function prepareSession(opts: {
     checkCancelled();
     try {
       if (!running) {
-        await runChecked([...args, "start", "--format", "json"], "Could not start NextBrowser");
+        await runChecked([...args, "start", "--format", "json"], "Could not start NextBrowser", opts.selectedProfile ? `profile-start:${opts.selectedProfile}` : undefined);
         step("Started NextBrowser for verification");
       } else {
         step("Session running");

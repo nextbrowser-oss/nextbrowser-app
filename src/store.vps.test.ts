@@ -1034,7 +1034,7 @@ describe("browser profile creation", () => {
     expect(bridge.invoke).not.toHaveBeenCalled();
   });
 
-  it("persists the personal proxy association in the workspace document", () => {
+  it("persists the personal proxy association in the workspace document", async () => {
     useStore.setState({
       activeWorkspaceId: "workspace",
       workspaces: [{
@@ -1048,7 +1048,7 @@ describe("browser profile creation", () => {
       }],
     });
 
-    useStore.getState().assignProfileToProject("saved-proxy-test", "camoufox", undefined, true, "proxy-id");
+    await useStore.getState().assignProfileToProject("saved-proxy-test", "camoufox", undefined, true, "proxy-id");
 
     expect(useStore.getState().workspaces[0]).toMatchObject({
       profileNames: ["saved-proxy-test"],

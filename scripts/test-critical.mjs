@@ -13,10 +13,13 @@ const renderer = [
   "src/lib/automationExecution.test.ts",
   "src/lib/automationTrust.test.ts",
   "src/store.profileDeletion.test.ts",
+  "src/store.auditFixes.test.ts",
+  "src/store.startupRace.test.ts",
 ];
 const native = [
   "electron/verification-policy.test.cjs",
   "electron/agent-workspace.test.cjs",
+  "electron/mcp-profile-scope.test.cjs",
   "electron/automation-runner.test.cjs",
   "electron/automation-element-picker.test.cjs",
   "electron/browser-runtime-updates.test.cjs",

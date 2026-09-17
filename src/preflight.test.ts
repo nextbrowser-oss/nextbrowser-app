@@ -203,6 +203,7 @@ it("uses CLI startup verification without repeating verify for a running profile
 it("starts through the verified CLI without a second verification page", async () => {
   await prepareSession({ ...options, statuses: {}, startupVerifies: true, verifyOnly: true });
   expect(commands().map(args => args[4])).toEqual(["start"]);
+  expect(nextctl.run.mock.calls[0][2]).toEqual({ requestId: "profile-start:work" });
   expect(nextctl.json.mock.calls.some(([args]) => args.includes("verify"))).toBe(false);
 });
 

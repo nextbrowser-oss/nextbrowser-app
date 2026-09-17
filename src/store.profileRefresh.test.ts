@@ -49,7 +49,7 @@ it("preserves and persists a profile assigned while cloud sync is waiting for pr
   });
   const sync = useStore.getState().syncProjects();
   await vi.waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("projects_list"));
-  useStore.getState().assignProfileToProject("two", "clawbrowser");
+  await useStore.getState().assignProfileToProject("two", "clawbrowser");
   projects.resolve({ projects: [] });
   await sync;
   await vi.waitFor(() => expect(useStore.getState().projectsSyncing).toBe(false));
