@@ -1,4 +1,3 @@
-const { createProxySafety } = require("./proxy-safety.cjs");
 const { readCLIVersion } = require("./cli-version.cjs");
 const { mcpProfileScope } = require("./mcp-profile-scope.cjs");
 const { requireVerificationCapableCLI, verificationFailureDialogOptions, verificationFailureDialogChoice } = require("./verification-policy.cjs");
