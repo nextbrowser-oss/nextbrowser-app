@@ -197,6 +197,13 @@ describe("account cache ownership at boot", () => {
     const writes = bridge.invoke.mock.calls.filter(([command]) => command === "app_data_write");
     const workspaceWrite = writes.find(([, payload]) => (payload as { name?: string })?.name === "workspaces.json");
     expect(workspaceWrite?.[1]).toMatchObject({ content: "[]" });
+    // clearAccountEntityCache's key must match the file X_REPLY_STATE_FILE
+    // actually reads/writes ("x-reply-state.json", hyphenated) — a stray
+    // "xreply-state.json" (no hyphen) would silently no-op and leave the
+    // real state file uncleared.
+    const xReplyWrite = writes.find(([, payload]) => (payload as { name?: string })?.name === "x-reply-state.json");
+    expect(xReplyWrite?.[1]).toMatchObject({ content: "null" });
+    expect(writes.some(([, payload]) => (payload as { name?: string })?.name === "xreply-state.json")).toBe(false);
   });
 
   it("keeps the workspace cache when it is stamped for the same account", async () => {
@@ -246,6 +253,29 @@ describe("account cache ownership at boot", () => {
 
     expect(useStore.getState().workspaces.map((w) => w.id)).toEqual(["ws-first-login"]);
     expect(localStorage.getItem("cachedAccountOwnerId")).toBe("owner-1");
+  });
+
+  it("drops the previous account's cache on an in-session re-login, not just at boot", async () => {
+    // A token can expire mid-session and reopen the sign-in modal without
+    // ever going through logout()'s cache wipe. login() with a DIFFERENT
+    // account's key must still drop whatever the previous account left in
+    // memory/localStorage before treating the session as authed.
+    mockDesktop(true, { ownerId: "owner-2" });
+    const { useStore } = await import("./store");
+    localStorage.setItem("cachedAccountOwnerId", "owner-1");
+    useStore.setState({
+      workspaces: [{ id: "ws-from-owner-1", name: "stale", profileNames: [], profileToolsets: {}, profileProxyIds: {}, createdAt: 1, updatedAt: 1 }],
+    });
+
+    await useStore.getState().login("owner-2-key");
+
+    expect(useStore.getState().authed).toBe(true);
+    expect(useStore.getState().workspaces).toEqual([]);
+    expect(localStorage.getItem("cachedAccountOwnerId")).toBe("owner-2");
+    const workspaceWrite = bridge.invoke.mock.calls.find(
+      ([command, payload]) => command === "app_data_write" && (payload as { name?: string })?.name === "workspaces.json",
+    );
+    expect(workspaceWrite?.[1]).toMatchObject({ content: "[]" });
   });
 });
 

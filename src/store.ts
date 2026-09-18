@@ -792,7 +792,7 @@ async function clearAccountEntityCache(): Promise<void> {
     "watchlist-profiles.json": "{}",
     "watchlist-devices.json": "{}",
     "watchlist-sign-ins.json": "{}",
-    "xreply-state.json": "null",
+    [X_REPLY_STATE_FILE]: "null",
   };
   await Promise.all(Object.entries(emptyFiles).map(([name, content]) =>
     invoke("app_data_write", { name, content }),
@@ -826,8 +826,32 @@ function emptyAccountOwnedCaches(): Partial<State> {
     watchlistTransports: {},
     watchlistProfiles: {},
     watchlistDevices: {},
+    watchlistSignIns: {},
     xReplyState: normalizeXReplyState(null),
   };
+}
+
+// Drops the account-owned caches if they were stamped for a different
+// account than the one that just authenticated (see CACHED_ACCOUNT_OWNER_KEY
+// and emptyAccountOwnedCaches above). This must run before anything treats
+// the session as authed — a workspace mutation or the queue reconciler can
+// trigger syncProjects() as soon as `authed` flips true, which would push
+// the stale cache at the backend under the new account's key. Runs both at
+// boot (bootstrap(), after a crash/force-quit/non-logout credential change
+// left a foreign cache on disk) and whenever a running session
+// re-authenticates without restarting — a token can expire mid-session and
+// reopen the sign-in modal for a different account without ever going
+// through logout()'s cache wipe.
+async function guardAgainstForeignAccountCache(): Promise<void> {
+  const ownerId = useStore.getState().accountOwnerId;
+  if (!ownerId) return;
+  const cachedOwnerId = localStorage.getItem(CACHED_ACCOUNT_OWNER_KEY) || undefined;
+  if (cachedOwnerId && cachedOwnerId !== ownerId) {
+    trackEvent("foreign_account_cache_cleared");
+    await clearAccountEntityCache().catch(() => {});
+    useStore.setState(emptyAccountOwnedCaches());
+  }
+  localStorage.setItem(CACHED_ACCOUNT_OWNER_KEY, ownerId);
 }
 
 let workspaceMutationQueue: Promise<unknown> = Promise.resolve();
@@ -1332,6 +1356,7 @@ async function refreshCompletedAccountPairing(
       throw new Error("Browser sign-in completed, but the account identity could not be verified.");
     }
   }
+  await guardAgainstForeignAccountCache();
   useStore.setState({
     authed: true,
     nextctlAvailable: true,
@@ -1811,18 +1836,7 @@ export const useStore = create<State>((set, get) => {
       // outside logout() would not). If they were stamped for a different
       // account, drop them now, before syncProjects can push foreign
       // workspaces/projects at the backend under this account's key.
-      if (authenticated) {
-        const ownerId = get().accountOwnerId;
-        const cachedOwnerId = localStorage.getItem(CACHED_ACCOUNT_OWNER_KEY) || undefined;
-        if (ownerId) {
-          if (cachedOwnerId && cachedOwnerId !== ownerId) {
-            trackEvent("bootstrap_foreign_account_cache_cleared");
-            await clearAccountEntityCache().catch(() => {});
-            set(emptyAccountOwnedCaches());
-          }
-          localStorage.setItem(CACHED_ACCOUNT_OWNER_KEY, ownerId);
-        }
-      }
+      if (authenticated) await guardAgainstForeignAccountCache();
       get().startTimers();
 
       // These operations have their own status UI and cannot hold the splash.
@@ -2509,6 +2523,11 @@ export const useStore = create<State>((set, get) => {
     set({ loginError: undefined, isLoggingIn: true });
     try {
       await finishAPIKeyLogin(apiKey);
+      // This can be a re-authentication mid-session (e.g. a token expired,
+      // reopening the sign-in modal) rather than a fresh launch — the
+      // caches already in memory may belong to whatever account was
+      // previously signed in here.
+      await guardAgainstForeignAccountCache();
       await get().loadProxy();
       set({ authed: true, nextctlAvailable: true, accountPairing: undefined });
       get().startTimers();
@@ -2572,6 +2591,13 @@ export const useStore = create<State>((set, get) => {
         pairingId: pairing.pairingId,
         pollToken: pairing.pollToken,
       });
+      // The pairing this poll started for may have been cancelled and
+      // replaced by a new one (e.g. for a different account) while the
+      // request was in flight — cancelAccountPairing() does not, and
+      // cannot, abort it. Applying a stale result here would clobber the
+      // newer pairing's state and, worse, sign the session into whichever
+      // account this stale poll belongs to.
+      if (get().accountPairing?.pairingId !== pairing.pairingId) return;
       set({
         accountPairing: {
           ...pairing,
@@ -2615,12 +2641,22 @@ export const useStore = create<State>((set, get) => {
     trackEvent("dashboard_logout");
     setAnalyticsUserId(undefined);
     if (proxyTimer) clearInterval(proxyTimer);
+    if (profileStatusTimer) clearInterval(profileStatusTimer);
     if (scheduleTimer) clearInterval(scheduleTimer);
     if (sessionPollTimer) clearInterval(sessionPollTimer);
     if (profileCreateRequestTimer) clearInterval(profileCreateRequestTimer);
     if (nextctlUpdateRetryTimer) clearTimeout(nextctlUpdateRetryTimer);
     nextctlUpdateRetryTimer = null;
-    proxyTimer = scheduleTimer = sessionPollTimer = profileCreateRequestTimer = null;
+    proxyTimer = profileStatusTimer = scheduleTimer = sessionPollTimer = profileCreateRequestTimer = null;
+    // These are keyed by profile name, not account. Leaving a stale entry
+    // behind would let the next account's operation on a same-named profile
+    // (e.g. both accounts happen to have a "work" profile) piggyback on this
+    // account's now-irrelevant in-flight promise/epoch instead of starting
+    // its own.
+    profileOperationEpoch.clear();
+    pendingProfileLaunches.clear();
+    pendingProfileStarts.clear();
+    verifyingProfileStarts.clear();
     set({
       authed: false,
       accountEmail: undefined,
@@ -2825,7 +2861,7 @@ export const useStore = create<State>((set, get) => {
   // startTimers so a pending request surfaces as a modal without the user
   // having to do anything first.
   pollProfileCreateRequests: async () => {
-    if (!get().authed || !get().nextctlAvailable || pendingTarget(get(), "vps")) return;
+    if (!get().appActive || !get().authed || !get().nextctlAvailable || pendingTarget(get(), "vps")) return;
     if (profileCreateRequestPollInFlight) return;
     profileCreateRequestPollInFlight = true;
     try {
@@ -3329,10 +3365,17 @@ export const useStore = create<State>((set, get) => {
     const previousStatus = get().statuses[n] ?? "unknown";
     trackEvent("profile_delete_requested", { was_running: previousStatus === "running", runtime });
 
-    // Deleting can race an in-flight launch. Invalidate that operation and ask
-    // the host to cancel it before touching the profile store.
+    // Deleting can race an in-flight launch. Invalidate that operation, ask
+    // the host to cancel it, and — like stopProfile — wait for the launch's
+    // own async work to actually settle before stopping/removing the
+    // profile. Cancellation isn't instantaneous: without this wait, `rm` can
+    // run while nextctl is still mid-launch, at best racing a spurious
+    // SESSION_ACTIVE error and at worst orphaning a browser process for a
+    // profile record that's already gone.
     nextProfileOperation(n);
+    const pendingStart = pendingProfileStarts.get(n);
     await invoke<boolean>("nextctl_cancel", { requestId: `profile-start:${n}` }).catch(() => false);
+    await pendingStart?.catch(() => undefined);
 
     const stopForDelete = async () => {
       set((s) => ({ statuses: { ...s.statuses, [n]: "stopping" } }));

@@ -14,36 +14,45 @@ export function ProfileCreateRequestModal() {
   const requests = useStore((s) => s.pendingProfileCreateRequests);
   const approve = useStore((s) => s.approveProfileCreateRequest);
   const reject = useStore((s) => s.rejectProfileCreateRequest);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | undefined>(undefined);
+  // Keyed by request id, not a bare boolean/string: the poll that refreshes
+  // `requests` every 10s can reorder or replace the front of the queue while
+  // an approve/reject for the PREVIOUS front request is still in flight. A
+  // bare `busy`/`error` would then attach to whatever request is now first,
+  // letting someone approve a request they never actually looked at.
+  const [busyRequestId, setBusyRequestId] = useState<string | undefined>(undefined);
+  const [errorFor, setErrorFor] = useState<{ id: string; message: string } | undefined>(undefined);
 
   const request = requests[0];
   if (!request) return null;
+  const busy = busyRequestId === request.id;
+  const error = errorFor?.id === request.id ? errorFor.message : undefined;
 
   const names = Array.from({ length: Math.min(request.quantity, 5) }, (_, i) => `${request.name_prefix}-${i + 1}`);
   const namesPreview = names.join(", ") + (request.quantity > names.length ? `, … (+${request.quantity - names.length} more)` : "");
 
   const onApprove = async () => {
-    setBusy(true);
-    setError(undefined);
+    const id = request.id;
+    setBusyRequestId(id);
+    setErrorFor(undefined);
     try {
-      await approve(request.id);
+      await approve(id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not create these profiles. Try again.");
+      setErrorFor({ id, message: e instanceof Error ? e.message : "Could not create these profiles. Try again." });
     } finally {
-      setBusy(false);
+      setBusyRequestId((current) => (current === id ? undefined : current));
     }
   };
 
   const onDecline = async () => {
-    setBusy(true);
-    setError(undefined);
+    const id = request.id;
+    setBusyRequestId(id);
+    setErrorFor(undefined);
     try {
-      await reject(request.id);
+      await reject(id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not decline this request. Try again.");
+      setErrorFor({ id, message: e instanceof Error ? e.message : "Could not decline this request. Try again." });
     } finally {
-      setBusy(false);
+      setBusyRequestId((current) => (current === id ? undefined : current));
     }
   };
 

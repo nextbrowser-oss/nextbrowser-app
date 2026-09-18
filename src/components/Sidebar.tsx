@@ -2004,8 +2004,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               <button
                 className="full rotate-btn"
                 onClick={() => {
-                  if (isDefaultProfile) s.rotateDefaultSession();
-                  else s.rotateProfile(menuProfile);
+                  const label = manual || direct ? "We couldn't restart the profile." : "We couldn't rotate the profile's IP.";
+                  runProfileAction(label, "PROFILE_ROTATE_FAILED", () => isDefaultProfile ? s.rotateDefaultSession() : s.rotateProfile(menuProfile));
                   setMenuProfile(null);
                 }}
               >
@@ -2021,8 +2021,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                     value={activeCountry ?? ""}
                     ariaLabel="Rotate country"
                     onChange={(country) => {
-                      if (isDefaultProfile) void s.rotateDefaultSessionCountry(country);
-                      else void s.rotateProfileCountry(menuProfile, country);
+                      runProfileAction("We couldn't rotate the profile's country.", "PROFILE_ROTATE_COUNTRY_FAILED", () =>
+                        isDefaultProfile ? s.rotateDefaultSessionCountry(country) : s.rotateProfileCountry(menuProfile, country));
                       setMenuProfile(null);
                     }}
                   />
