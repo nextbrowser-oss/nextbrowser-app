@@ -152,3 +152,40 @@ it("does not hide saved instructions when deletion cannot be persisted", async (
   await useStore.getState().deleteCustomScript("test");
   expect(useStore.getState().customScripts).toEqual([]);
 });
+
+it("clears the rotating marker when an IP rotation fails", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({ statuses: { p: "running" } });
+  bridge.invoke.mockRejectedValue(new Error("cli down"));
+  await expect(useStore.getState().rotateProfile("p")).rejects.toThrow();
+  // A stuck "rotating" status pauses status polling for every profile.
+  expect(useStore.getState().statuses.p).not.toBe("rotating");
+  expect(useStore.getState().statuses.p).toBe("unknown");
+});
+
+it("terminates an in-flight reply and clears its marker when its chat is deleted", async () => {
+  const { useStore } = await import("./store");
+  const project = {
+    id: "c1", title: "C", agent: "claude",
+    messages: [{ id: "r1", role: "assistant" as const, text: "…", status: "streaming" as const, createdAt: 1 }],
+    createdAt: 1, updatedAt: 1, executionTarget: "local" as const,
+  };
+  const runtime = useStore.getState().runtime;
+  useStore.setState({
+    conversations: [project],
+    activeConvId: { claude: "c1" },
+    runtime: { ...runtime, claude: { ...runtime.claude, runningReplyId: "r1" } },
+  });
+  useStore.getState().deleteConversation("c1");
+  expect(useStore.getState().conversations).toEqual([]);
+  expect(useStore.getState().runtime.claude.runningReplyId).toBeUndefined();
+  expect(bridge.invoke.mock.calls.some(([command, args]) => command === "agent_terminate" && (args as { replyId?: string })?.replyId === "r1")).toBe(true);
+});
+
+it("ignores a second sign-in request while one is already in flight", async () => {
+  const { useStore } = await import("./store");
+  const runtime = useStore.getState().runtime;
+  useStore.setState({ agentId: "claude", runtime: { ...runtime, claude: { ...runtime.claude, authorizing: true } } });
+  await useStore.getState().loginAgent();
+  expect(bridge.invoke.mock.calls.some(([command]) => command === "open_terminal_login")).toBe(false);
+});

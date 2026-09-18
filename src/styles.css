@@ -3718,6 +3718,9 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   min-width: 0;
   padding: 14px;
   overflow: hidden;
+  /* The overlay is click-through so it never blocks the app behind it; the
+     card must re-enable hit-testing or its Stop button is unclickable. */
+  pointer-events: auto;
   box-shadow: 0 14px 42px color-mix(in srgb, var(--shadow) 65%, transparent);
 }
 .browser-install-mark {

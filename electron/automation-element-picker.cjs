@@ -206,25 +206,48 @@ async function pickAutomationElement(input, deps) {
     if (state.cancelled) return { cancelled: true };
     throw error;
   } finally {
-    if (!state.cancelled) await client.callTool("evaluate", { expression: cleanupExpression }).catch(() => undefined);
+    // Always remove the in-page picker, even after a cancel. The injected
+    // script installs a capture-phase click interceptor; if it is left behind,
+    // every subsequent click on the page is swallowed. Cancellation only sets
+    // the flag (it does not close the client), so the cleanup call still has a
+    // live connection here; the pick function owns closing it.
+    await client.callTool("evaluate", { expression: cleanupExpression }).catch(() => undefined);
     client.close();
     activePicks.delete(pickId);
   }
 }
 
+// A cancelled pick still needs its live client to run the in-page cleanup, so
+// cancellation only sets the flag. This bounded fallback aborts a pick whose
+// MCP call never returns (the call timeout is two minutes) so it cannot block
+// a new pick for that long.
+function scheduleForceCancel(pickId, state) {
+  const timer = setTimeout(() => {
+    if (activePicks.get(pickId) !== state) return;
+    try { state.client.close(); } catch { /* already closed */ }
+    activePicks.delete(pickId);
+  }, 1500);
+  if (typeof timer.unref === "function") timer.unref();
+}
+
 function cancelAutomationElementPick(pickId) {
-  const state = activePicks.get(String(pickId || "").trim());
+  const id = String(pickId || "").trim();
+  const state = activePicks.get(id);
   if (!state) return false;
+  // Do not close the client here: the pick loop needs it to remove the
+  // in-page picker in its `finally` before closing. Closing first would strand
+  // the click interceptor in the page.
   state.cancelled = true;
-  state.client.close();
+  scheduleForceCancel(id, state);
   return true;
 }
 
 function cancelAllAutomationElementPicks() {
+  // Same as cancelAutomationElementPick: signal cancellation, let each pick
+  // loop clean up its own page script, and force-close if it does not.
   for (const [pickId, state] of activePicks) {
     state.cancelled = true;
-    state.client.close();
-    activePicks.delete(pickId);
+    scheduleForceCancel(pickId, state);
   }
 }
 

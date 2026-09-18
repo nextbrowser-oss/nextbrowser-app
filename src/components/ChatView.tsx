@@ -870,6 +870,7 @@ export function ChatView() {
 
 function MessageBubble({
   message: m,
+  canQueue,
   onCancel,
   onEdit,
   onStop,
@@ -973,12 +974,16 @@ function MessageBubble({
             {queuedReplyId && (
               <>
                 <span className="queue-badge">Waiting</span>
-                <button className="plain-icon-btn plain-icon-btn-compact" onClick={onEdit} title="Edit queued message">
-                  <Icon name="pencil" size={12} />
-                </button>
-                <button className="plain-icon-btn plain-icon-btn-compact" onClick={onCancel} title="Remove queued message">
-                  <Icon name="trash" size={12} className="error" />
-                </button>
+                {canQueue && (
+                  <>
+                    <button className="plain-icon-btn plain-icon-btn-compact" onClick={onEdit} title="Edit queued message">
+                      <Icon name="pencil" size={12} />
+                    </button>
+                    <button className="plain-icon-btn plain-icon-btn-compact" onClick={onCancel} title="Remove queued message">
+                      <Icon name="trash" size={12} className="error" />
+                    </button>
+                  </>
+                )}
               </>
             )}
             <button

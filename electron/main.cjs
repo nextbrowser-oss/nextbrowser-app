@@ -1837,16 +1837,28 @@ async function invokeCommand(command, args = {}, sender) {
       return await localAutomationArtifacts().validate(String(args.workspaceId || ""), String(args.id || ""));
     }
     case "artifact_import": {
+      const workspaceId = String(args.workspaceId || "");
       const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
       const result = await dialog.showOpenDialog(owner, {
         title: "Add artifacts",
         properties: ["openFile", "multiSelections"],
       });
-      if (result.canceled) return [];
-      for (const selected of result.filePaths.slice(0, 20)) {
-        await localAutomationArtifacts().importFile(String(args.workspaceId || ""), selected);
+      if (result.canceled) return { artifacts: await localAutomationArtifacts().list(workspaceId), imported: 0, failed: [], skipped: 0 };
+      const importable = result.filePaths.slice(0, 20);
+      const skipped = result.filePaths.length - importable.length;
+      const failed = [];
+      let imported = 0;
+      // Import each file independently so one unreadable/oversized file does
+      // not hide the files that were imported successfully.
+      for (const selected of importable) {
+        try {
+          await localAutomationArtifacts().importFile(workspaceId, selected);
+          imported += 1;
+        } catch (error) {
+          failed.push({ path: path.basename(selected), error: error instanceof Error ? error.message : String(error) });
+        }
       }
-      return await localAutomationArtifacts().list(String(args.workspaceId || ""));
+      return { artifacts: await localAutomationArtifacts().list(workspaceId), imported, failed, skipped };
     }
     case "artifact_open": {
       const target = await localAutomationArtifacts().resolvePath(String(args.workspaceId || ""), String(args.id || ""));

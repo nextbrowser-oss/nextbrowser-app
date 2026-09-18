@@ -15,6 +15,34 @@ export interface CapturedCall {
   score: number;
 }
 
+/** Returns the first balanced JSON object/array in `text`, or "" when there is
+ *  none. Used to score only a tool result, never trailing assistant prose. */
+function leadingJsonValue(text: string): string {
+  const start = text.search(/[{[]/);
+  if (start < 0) return "";
+  const open = text[start];
+  const close = open === "{" ? "}" : "]";
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') inString = true;
+    else if (char === open) depth += 1;
+    else if (char === close) {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, index + 1);
+    }
+  }
+  return text.slice(start, start + 512);
+}
+
 function capturedCalls(transcript: string): CapturedCall[] {
   const calls: CapturedCall[] = [];
   for (const match of transcript.matchAll(CLAWBROWSER_CALL)) {
@@ -49,10 +77,14 @@ function capturedCalls(transcript: string): CapturedCall[] {
     }
   }
   return calls.map((call, index) => {
-    // Tool status is emitted immediately after the call. Do not classify the
-    // complete assistant answer: extracted page content may legitimately contain
-    // words such as "failed" or "error" and would create a false failure.
-    const result = transcript.slice(call.end, calls[index + 1]?.start ?? transcript.length).slice(0, 512);
+    // Tool status is emitted immediately after the call. For the last call
+    // there is no following call, so the window would otherwise run into the
+    // assistant's final answer — extracted content and prose may legitimately
+    // contain words such as "failed" or "error" and create a false failure.
+    // Score the leading JSON result, else only the first status line.
+    const raw = transcript.slice(call.end, calls[index + 1]?.start ?? transcript.length);
+    const firstLine = raw.trimStart().split("\n")[0].trim();
+    const result = (firstLine.startsWith("{") || firstLine.startsWith("[") ? leadingJsonValue(raw) : firstLine).slice(0, 512);
     let score = 0;
     if (/\b(error|failed|failure)\b/i.test(result) || /"(?:count|executed)"\s*:\s*0\b/.test(result) || /"rows"\s*:\s*\[\s*\]/.test(result)) score -= 10;
     if (/"ok"\s*:\s*true/.test(result) || /"count"\s*:\s*[1-9]\d*/.test(result) || /"rows"\s*:\s*\[\s*\{/.test(result) || /Наш[её]л|found\s+[1-9]/i.test(result)) score += 10;
