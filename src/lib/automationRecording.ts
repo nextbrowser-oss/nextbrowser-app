@@ -15,11 +15,17 @@ const SESSION_KEY = "automationRecordingSessionId";
 export const AUTOMATION_RECORDING_EVENT = "nextbrowser:automation-recording-change";
 
 function removeStoredRecording() {
-  localStorage.removeItem(STATE_KEY);
-  localStorage.removeItem("automationRecordingId");
-  localStorage.removeItem("automationRecordingWorkspaceId");
-  localStorage.removeItem("automationRecordingSince");
-  sessionStorage.removeItem(SESSION_KEY);
+  // Storage access can throw (private browsing, a blocked/missing store, or
+  // — as this module now gets called from clearAccountEntityCache — a
+  // headless/test environment without sessionStorage at all). A failed
+  // best-effort cleanup must not take down the caller (logout()).
+  try {
+    localStorage.removeItem(STATE_KEY);
+    localStorage.removeItem("automationRecordingId");
+    localStorage.removeItem("automationRecordingWorkspaceId");
+    localStorage.removeItem("automationRecordingSince");
+    sessionStorage.removeItem(SESSION_KEY);
+  } catch { /* best effort */ }
 }
 
 export function activeAutomationRecording(): ActiveAutomationRecording | undefined {
@@ -54,5 +60,7 @@ export function setActiveAutomationRecording(recording: ActiveAutomationRecordin
 
 export function clearActiveAutomationRecording() {
   removeStoredRecording();
-  window.dispatchEvent(new CustomEvent(AUTOMATION_RECORDING_EVENT));
+  try {
+    window.dispatchEvent(new CustomEvent(AUTOMATION_RECORDING_EVENT));
+  } catch { /* best effort — e.g. called from a non-DOM context */ }
 }

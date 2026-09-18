@@ -42,7 +42,7 @@ import { promptWithAttachments } from "./lib/chatAttachments";
 import { normalizeNextctlVersion } from "./lib/version";
 import { isProxyTrafficExhaustedError, proxyTrafficWarning } from "./lib/proxyTraffic";
 import { trafficGateState } from "./lib/trafficGate";
-import { activeAutomationRecording } from "./lib/automationRecording";
+import { activeAutomationRecording, clearActiveAutomationRecording } from "./lib/automationRecording";
 import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
 import { internalError } from "./lib/userFacingError";
 import { agentEmptyReplyMessage } from "./lib/agentRunResult";
@@ -803,6 +803,11 @@ async function clearAccountEntityCache(): Promise<void> {
       localStorage.removeItem(key);
     }
   }
+  // These live outside the JSON-file caches above, in raw localStorage/
+  // sessionStorage, and are keyed by workspace id (backend-issued, globally
+  // unique) rather than account — but a stray "Recorder is active" banner
+  // surviving a same-session account switch is still worth clearing.
+  clearActiveAutomationRecording();
 }
 
 // The in-memory mirror of the account-owned files above, matching the shape
