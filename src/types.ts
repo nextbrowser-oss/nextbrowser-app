@@ -72,6 +72,24 @@ export interface Profile {
   created_at?: string | null;
 }
 
+// A batch profile-creation request an agent filed via the profiles_create_request
+// MCP tool. Agents cannot create profiles directly inside a NextBrowser
+// workspace; this is the human-approved path instead (see nextctl's
+// mcp_workspace_scope.go and profile_create_requests.go).
+export interface ProfileCreateRequest {
+  id: string;
+  name_prefix: string;
+  quantity: number;
+  country?: string | null;
+  proxy_scheme?: string | null;
+  status: "pending" | "completed" | "rejected" | "failed";
+  created_profiles?: string[] | null;
+  error?: string | null;
+  rejection_reason?: string | null;
+  requested_at: string;
+  updated_at: string;
+}
+
 export interface SessionInfo {
   name?: string | null;
   endpoint?: string | null;

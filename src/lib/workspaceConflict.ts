@@ -6,6 +6,12 @@ export function isWorkspaceRevisionConflict(error: unknown): boolean {
   return /workspace revision conflict/i.test(message);
 }
 
+/** Chats carry the same optimistic-revision contract as workspaces. */
+export function isProjectRevisionConflict(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /project revision conflict/i.test(message);
+}
+
 /**
  * Preserve both devices' profile associations when retrying an optimistic
  * workspace update. The local edit wins only for the same profile key, while

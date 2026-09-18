@@ -42,7 +42,7 @@ import { promptWithAttachments } from "./lib/chatAttachments";
 import { normalizeNextctlVersion } from "./lib/version";
 import { isProxyTrafficExhaustedError, proxyTrafficWarning } from "./lib/proxyTraffic";
 import { trafficGateState } from "./lib/trafficGate";
-import { activeAutomationRecording } from "./lib/automationRecording";
+import { activeAutomationRecording, clearActiveAutomationRecording } from "./lib/automationRecording";
 import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
 import { internalError } from "./lib/userFacingError";
 import { agentEmptyReplyMessage } from "./lib/agentRunResult";
@@ -58,7 +58,7 @@ import { accountLoginURL } from "./lib/accountAuth";
 import { requiresWorkspaceSetup } from "./lib/workspaceSetup";
 import { validateEntityName } from "./lib/entityValidation";
 import { moveProfileToWorkspace as moveProfileBetweenWorkspaces } from "./lib/workspaceProfiles";
-import { isWorkspaceRevisionConflict, mergeWorkspaceAfterRevisionConflict } from "./lib/workspaceConflict";
+import { isProjectRevisionConflict, isWorkspaceRevisionConflict, mergeWorkspaceAfterRevisionConflict } from "./lib/workspaceConflict";
 import {
   normalizeConversation,
   normalizeWorkflowSkill,
@@ -80,6 +80,7 @@ import type {
   Conversation,
   CustomScript,
   Profile,
+  ProfileCreateRequest,
   PersonalProxy,
   ProxyTraffic,
   ScheduledRun,
@@ -235,6 +236,7 @@ const WATCHDOG_MS = 5_000;
 const PROXY_REFRESH_MS = 120_000;
 const PROFILE_STATUS_REFRESH_MS = 15_000;
 const SCHEDULE_TICK_MS = 30_000;
+const PROFILE_CREATE_REQUEST_POLL_MS = 10_000;
 const NEXTCTL_DAILY_UPDATE_MS = 20 * 60 * 1000;
 const NEXTCTL_DAILY_UPDATE_POLL_MS = 60 * 1000;
 const NEXTCTL_UPDATE_RETRY_MS = 5 * 60 * 1000;
@@ -386,6 +388,7 @@ async function pullCatalogInstructions(entry: SkillEntry, preferredAgentId: stri
 interface State {
   authed: boolean;
   accountEmail?: string;
+  accountOwnerId?: string;
   checking: boolean;
   startupPhase: "local" | "account";
   startupError?: string;
@@ -395,6 +398,7 @@ interface State {
   proxyWarning?: string;
   trafficGatePromptOpen: boolean;
   profiles: Profile[];
+  pendingProfileCreateRequests: ProfileCreateRequest[];
   personalProxies: PersonalProxy[];
   proxyCountries: RotationCountry[];
   statuses: Record<string, string>;
@@ -483,6 +487,9 @@ interface State {
   refreshSessions: () => Promise<void>;
   loadProxy: () => Promise<void>;
   loadProfiles: () => Promise<void>;
+  pollProfileCreateRequests: () => Promise<void>;
+  approveProfileCreateRequest: (id: string) => Promise<void>;
+  rejectProfileCreateRequest: (id: string, reason?: string) => Promise<void>;
   loadProxyCountries: () => Promise<void>;
   loadDefaultSession: () => Promise<void>;
   loadSkillCatalog: () => Promise<void>;
@@ -652,6 +659,8 @@ let proxyTimer: ReturnType<typeof setInterval> | null = null;
 let profileStatusTimer: ReturnType<typeof setInterval> | null = null;
 let profileStatusRefreshInFlight = false;
 let scheduleTimer: ReturnType<typeof setInterval> | null = null;
+let profileCreateRequestTimer: ReturnType<typeof setInterval> | null = null;
+let profileCreateRequestPollInFlight = false;
 let sessionPollTimer: ReturnType<typeof setInterval> | null = null;
 let sessionPollInFlight = false;
 let nextctlDailyUpdateTimer: ReturnType<typeof setInterval> | null = null;
@@ -679,6 +688,12 @@ const pendingProfileLaunches = new Map<string, number>();
 const pendingProfileStarts = new Map<string, Promise<void>>();
 const verifyingProfileStarts = new Set<string>();
 const BOOTSTRAP_FOREGROUND_WAIT_MS = 12_000;
+// Stamps which account's data the on-disk caches (workspaces.json and
+// friends) belong to. A clean logout clears it along with the files; if it
+// survives to the next bootstrap under a different account (crash, killed
+// process, credential change outside logout()), that tells us the just-loaded
+// caches are foreign and must not reach syncProjects(). See NB-25647DEA.
+const CACHED_ACCOUNT_OWNER_KEY = "cachedAccountOwnerId";
 
 function activeConversationStorageKey(agentId: string, workspaceId?: string): string {
   return `activeConversationId:${agentId}:${workspaceId || "none"}`;
@@ -758,22 +773,123 @@ async function nextctlEnvelope<T>(
 async function saveWorkspaces(workspaces: Workspace[]): Promise<void> {
   await invoke("app_data_write", { name: "workspaces.json", content: JSON.stringify(workspaces, null, 2) });
 }
+
+// Account-owned entities must never survive a successful account switch. The
+// backend is the source of truth; these files are only the active account's
+// working cache and must not be offered to the next account for sync.
+async function clearAccountEntityCache(): Promise<void> {
+  const emptyFiles: Record<string, string> = {
+    "conversations.json": "[]",
+    "workspaces.json": "[]",
+    "scheduled-runs.json": "[]",
+    "custom-scripts.json": "[]",
+    "local-skills.json": "[]",
+    "applied-scripts.json": "[]",
+    "usage-history.json": "[]",
+    "watched-profiles.json": "[]",
+    "watchlist-runs.json": "[]",
+    "watchlist-transports.json": "{}",
+    "watchlist-profiles.json": "{}",
+    "watchlist-devices.json": "{}",
+    "watchlist-sign-ins.json": "{}",
+    [X_REPLY_STATE_FILE]: "null",
+  };
+  await Promise.all(Object.entries(emptyFiles).map(([name, content]) =>
+    invoke("app_data_write", { name, content }),
+  ));
+  for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+    const key = localStorage.key(index);
+    if (key?.startsWith("activeConversationId:") || key === "activeWorkspaceId" || key === CACHED_ACCOUNT_OWNER_KEY) {
+      localStorage.removeItem(key);
+    }
+  }
+  // These live outside the JSON-file caches above, in raw localStorage/
+  // sessionStorage, and are keyed by workspace id (backend-issued, globally
+  // unique) rather than account — but a stray "Recorder is active" banner
+  // surviving a same-session account switch is still worth clearing.
+  clearActiveAutomationRecording();
+}
+
+// The in-memory mirror of the account-owned files above, matching the shape
+// bootstrap() hydrates them into. Used when bootstrap finds the on-disk
+// cache it just loaded belongs to a different account than the one that
+// just authenticated — the files get wiped by clearAccountEntityCache, and
+// this drops the same data from the state that was already set from them.
+function emptyAccountOwnedCaches(): Partial<State> {
+  return {
+    conversations: [],
+    workspaces: [],
+    activeWorkspaceId: undefined,
+    activeConvId: {},
+    scheduledRuns: [],
+    customScripts: [],
+    localSkills: [],
+    appliedScripts: [],
+    usageHistory: [],
+    watchedProfiles: [],
+    watchlistRuns: [],
+    watchlistTransports: {},
+    watchlistProfiles: {},
+    watchlistDevices: {},
+    watchlistSignIns: {},
+    xReplyState: normalizeXReplyState(null),
+  };
+}
+
+// Drops the account-owned caches if they were stamped for a different
+// account than the one that just authenticated (see CACHED_ACCOUNT_OWNER_KEY
+// and emptyAccountOwnedCaches above). This must run before anything treats
+// the session as authed — a workspace mutation or the queue reconciler can
+// trigger syncProjects() as soon as `authed` flips true, which would push
+// the stale cache at the backend under the new account's key. Runs both at
+// boot (bootstrap(), after a crash/force-quit/non-logout credential change
+// left a foreign cache on disk) and whenever a running session
+// re-authenticates without restarting — a token can expire mid-session and
+// reopen the sign-in modal for a different account without ever going
+// through logout()'s cache wipe.
+async function guardAgainstForeignAccountCache(): Promise<void> {
+  const ownerId = useStore.getState().accountOwnerId;
+  if (!ownerId) return;
+  const cachedOwnerId = localStorage.getItem(CACHED_ACCOUNT_OWNER_KEY) || undefined;
+  if (cachedOwnerId && cachedOwnerId !== ownerId) {
+    trackEvent("foreign_account_cache_cleared");
+    await clearAccountEntityCache().catch(() => {});
+    useStore.setState(emptyAccountOwnedCaches());
+  }
+  localStorage.setItem(CACHED_ACCOUNT_OWNER_KEY, ownerId);
+}
+
 let workspaceMutationQueue: Promise<unknown> = Promise.resolve();
 function persistWorkspaceMutation(transform: (workspaces: Workspace[]) => Workspace[]): Promise<void> {
   const pending = workspaceMutationQueue.then(async () => {
-    const previous = useStore.getState().workspaces;
+    const state = useStore.getState();
+    if (!state.authed) throw new Error("Sign in before changing workspace data.");
+    if (state.projectsSyncing) throw new Error("Cloud sync is in progress. Retry this workspace change when it finishes.");
+    const previous = state.workspaces;
     const workspaces = transform(previous);
     useStore.setState({ workspaces });
     try {
+      // The backend is authoritative. Do not leave a mutation only in the
+      // local cache when its cloud write fails. syncProjects sees the
+      // temporary state and confirms/merges it before we keep the file.
       await saveWorkspaces(workspaces);
-    } catch (error) {
-      if (useStore.getState().workspaces === workspaces) useStore.setState({ workspaces: previous });
-      throw error;
-    }
-    try {
       await useStore.getState().syncProjects();
-    } catch {
-      throw new Error("The profile change was saved on this device, but cloud sync failed. Retry when your connection is restored.");
+    } catch (error) {
+      const ownershipConflict = error instanceof Error && error.message.includes("belongs to another account");
+      if (ownershipConflict) {
+        // syncProjects() already recovered: it filtered the foreign workspace
+        // out of local state and persisted that. The mutation the caller
+        // asked for is intact and saved — surfacing this as a rejection
+        // would make an otherwise-successful profile action look failed.
+        return;
+      }
+      if (useStore.getState().workspaces === workspaces) {
+        useStore.setState({ workspaces: previous });
+        await saveWorkspaces(previous).catch(() => {});
+      }
+      throw error instanceof Error
+        ? error
+        : new Error("Cloud sync failed. Retry when your connection is restored.");
     }
   });
   workspaceMutationQueue = pending.catch(() => undefined);
@@ -1170,7 +1286,7 @@ async function refreshAnalyticsIdentity(): Promise<boolean> {
   const ownerId = valid ? wrap.identity.owner_id?.trim() : undefined;
   const accountEmail = valid ? wrap.identity.email?.trim() : undefined;
   setAnalyticsUserId(ownerId || undefined);
-  useStore.setState({ accountEmail: accountEmail || undefined });
+  useStore.setState({ accountEmail: accountEmail || undefined, accountOwnerId: ownerId || undefined });
   trackEvent("analytics_identity_loaded", {
     valid,
     has_owner_id: !!ownerId,
@@ -1204,7 +1320,7 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
       return valid;
     } catch {
       setAnalyticsUserId(undefined);
-      useStore.setState({ accountEmail: undefined });
+      useStore.setState({ accountEmail: undefined, accountOwnerId: undefined });
       trackEvent("analytics_identity_unavailable", { phase: "bootstrap" });
       return false;
     }
@@ -1213,6 +1329,7 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
     const incompatible = String(error).includes("VERIFY_REQUIRED");
     useStore.setState({
       accountEmail: undefined,
+      accountOwnerId: undefined,
       nextctlVersion: incompatible ? "update required" : "not found",
       nextctlSupportsSkill: false,
       nextctlAvailable: false,
@@ -1251,6 +1368,7 @@ async function refreshCompletedAccountPairing(
       throw new Error("Browser sign-in completed, but the account identity could not be verified.");
     }
   }
+  await guardAgainstForeignAccountCache();
   useStore.setState({
     authed: true,
     nextctlAvailable: true,
@@ -1463,11 +1581,13 @@ export const useStore = create<State>((set, get) => {
   return {
   authed: false,
   accountEmail: undefined,
+  accountOwnerId: undefined,
   checking: true,
   startupPhase: "local",
   startupError: undefined,
   isLoggingIn: false,
   profiles: [],
+  pendingProfileCreateRequests: [],
   personalProxies: [],
   proxyCountries: [],
   statuses: {},
@@ -1722,6 +1842,13 @@ export const useStore = create<State>((set, get) => {
         ? await refreshLocalNextctlMetadata()
         : false;
       set({ authed: authenticated, checking: false, startupError: undefined });
+
+      // The caches loaded above were hydrated before identity was known
+      // (a clean logout wipes them, but a crash or a credential change
+      // outside logout() would not). If they were stamped for a different
+      // account, drop them now, before syncProjects can push foreign
+      // workspaces/projects at the backend under this account's key.
+      if (authenticated) await guardAgainstForeignAccountCache();
       get().startTimers();
 
       // These operations have their own status UI and cannot hold the splash.
@@ -1774,6 +1901,12 @@ export const useStore = create<State>((set, get) => {
       () => void get().tickNextctlDailyUpdate(),
       NEXTCTL_DAILY_UPDATE_POLL_MS,
     );
+    if (profileCreateRequestTimer) clearInterval(profileCreateRequestTimer);
+    profileCreateRequestTimer = setInterval(
+      () => void get().pollProfileCreateRequests(),
+      PROFILE_CREATE_REQUEST_POLL_MS,
+    );
+    void get().pollProfileCreateRequests();
   },
 
   refreshProfileStatuses: async () => {
@@ -2402,6 +2535,11 @@ export const useStore = create<State>((set, get) => {
     set({ loginError: undefined, isLoggingIn: true });
     try {
       await finishAPIKeyLogin(apiKey);
+      // This can be a re-authentication mid-session (e.g. a token expired,
+      // reopening the sign-in modal) rather than a fresh launch — the
+      // caches already in memory may belong to whatever account was
+      // previously signed in here.
+      await guardAgainstForeignAccountCache();
       await get().loadProxy();
       set({ authed: true, nextctlAvailable: true, accountPairing: undefined });
       get().startTimers();
@@ -2465,6 +2603,13 @@ export const useStore = create<State>((set, get) => {
         pairingId: pairing.pairingId,
         pollToken: pairing.pollToken,
       });
+      // The pairing this poll started for may have been cancelled and
+      // replaced by a new one (e.g. for a different account) while the
+      // request was in flight — cancelAccountPairing() does not, and
+      // cannot, abort it. Applying a stale result here would clobber the
+      // newer pairing's state and, worse, sign the session into whichever
+      // account this stale poll belongs to.
+      if (get().accountPairing?.pairingId !== pairing.pairingId) return;
       set({
         accountPairing: {
           ...pairing,
@@ -2493,15 +2638,37 @@ export const useStore = create<State>((set, get) => {
   },
 
   logout: async () => {
+    // Do not switch accounts while local mutations are still only local. A
+    // successful logout is the ownership boundary: flush and confirm the
+    // current account's cloud state before credentials are cleared.
+    await flushConversations();
+    const syncDeadline = now() + 30_000;
+    while (get().projectsSyncing && now() < syncDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    if (get().projectsSyncing) throw new Error("Cloud sync is still in progress. Wait for it to finish before switching accounts.");
+    await get().syncProjects();
     await invoke<null>("account_logout");
+    await clearAccountEntityCache();
     trackEvent("dashboard_logout");
     setAnalyticsUserId(undefined);
     if (proxyTimer) clearInterval(proxyTimer);
+    if (profileStatusTimer) clearInterval(profileStatusTimer);
     if (scheduleTimer) clearInterval(scheduleTimer);
     if (sessionPollTimer) clearInterval(sessionPollTimer);
+    if (profileCreateRequestTimer) clearInterval(profileCreateRequestTimer);
     if (nextctlUpdateRetryTimer) clearTimeout(nextctlUpdateRetryTimer);
     nextctlUpdateRetryTimer = null;
-    proxyTimer = scheduleTimer = sessionPollTimer = null;
+    proxyTimer = profileStatusTimer = scheduleTimer = sessionPollTimer = profileCreateRequestTimer = null;
+    // These are keyed by profile name, not account. Leaving a stale entry
+    // behind would let the next account's operation on a same-named profile
+    // (e.g. both accounts happen to have a "work" profile) piggyback on this
+    // account's now-irrelevant in-flight promise/epoch instead of starting
+    // its own.
+    profileOperationEpoch.clear();
+    pendingProfileLaunches.clear();
+    pendingProfileStarts.clear();
+    verifyingProfileStarts.clear();
     set({
       authed: false,
       accountEmail: undefined,
@@ -2513,10 +2680,34 @@ export const useStore = create<State>((set, get) => {
       trafficGatePromptOpen: false,
       accountPairing: undefined,
       profiles: [],
+      pendingProfileCreateRequests: [],
       statuses: {},
       profileSessions: {},
       profileIdentities: {},
       personalProxies: [],
+      conversations: [],
+      workspaces: [],
+      activeWorkspaceId: undefined,
+      activeConvId: {},
+      scheduledRuns: [],
+      customScripts: [],
+      localSkills: [],
+      localSkillSync: {},
+      appliedScripts: [],
+      scriptSync: {},
+      usageHistory: [],
+      watchedProfiles: [],
+      watchReports: {},
+      watchPublishers: {},
+      watchlistRuns: [],
+      watchlistTransports: {},
+      watchlistProfiles: {},
+      watchlistDevices: {},
+      watchlistSignIns: {},
+      xReplyState: normalizeXReplyState(null),
+      projectRevisions: {},
+      workspaceRevisions: {},
+      workspaceSetupRequired: false,
       selectedProfile: undefined,
       defaultSession: undefined,
       skillState: {},
@@ -2673,6 +2864,39 @@ export const useStore = create<State>((set, get) => {
     } catch {
       /* non-fatal */
     }
+  },
+
+  // Agents cannot create profiles directly inside a NextBrowser workspace
+  // (nbc's mcp_workspace_scope.go refuses profiles_create there); instead an
+  // agent files a batch request with profiles_create_request, and the person
+  // using the app approves or declines it here. Polled on a timer from
+  // startTimers so a pending request surfaces as a modal without the user
+  // having to do anything first.
+  pollProfileCreateRequests: async () => {
+    if (!get().appActive || !get().authed || !get().nextctlAvailable || pendingTarget(get(), "vps")) return;
+    if (profileCreateRequestPollInFlight) return;
+    profileCreateRequestPollInFlight = true;
+    try {
+      const result = await nextctlJson<{ requests: ProfileCreateRequest[] }>(["profiles", "requests", "list", "--status", "pending"]);
+      set({ pendingProfileCreateRequests: result.requests ?? [] });
+    } catch {
+      /* non-fatal; retry on the next tick */
+    } finally {
+      profileCreateRequestPollInFlight = false;
+    }
+  },
+
+  approveProfileCreateRequest: async (id: string) => {
+    trackEvent("profile_create_request_approved", { request_id: id });
+    await nextctlRun(["profiles", "requests", "approve", id]);
+    set({ pendingProfileCreateRequests: get().pendingProfileCreateRequests.filter((r) => r.id !== id) });
+    await get().loadProfiles();
+  },
+
+  rejectProfileCreateRequest: async (id: string, reason?: string) => {
+    trackEvent("profile_create_request_rejected", { request_id: id });
+    await nextctlRun(["profiles", "requests", "reject", id, ...(reason ? ["--reason", reason] : [])]);
+    set({ pendingProfileCreateRequests: get().pendingProfileCreateRequests.filter((r) => r.id !== id) });
   },
 
   loadProxyCountries: async () => {
@@ -3153,10 +3377,17 @@ export const useStore = create<State>((set, get) => {
     const previousStatus = get().statuses[n] ?? "unknown";
     trackEvent("profile_delete_requested", { was_running: previousStatus === "running", runtime });
 
-    // Deleting can race an in-flight launch. Invalidate that operation and ask
-    // the host to cancel it before touching the profile store.
+    // Deleting can race an in-flight launch. Invalidate that operation, ask
+    // the host to cancel it, and — like stopProfile — wait for the launch's
+    // own async work to actually settle before stopping/removing the
+    // profile. Cancellation isn't instantaneous: without this wait, `rm` can
+    // run while nextctl is still mid-launch, at best racing a spurious
+    // SESSION_ACTIVE error and at worst orphaning a browser process for a
+    // profile record that's already gone.
     nextProfileOperation(n);
+    const pendingStart = pendingProfileStarts.get(n);
     await invoke<boolean>("nextctl_cancel", { requestId: `profile-start:${n}` }).catch(() => false);
+    await pendingStart?.catch(() => undefined);
 
     const stopForDelete = async () => {
       set((s) => ({ statuses: { ...s.statuses, [n]: "stopping" } }));
@@ -3697,10 +3928,15 @@ export const useStore = create<State>((set, get) => {
       const workspaceResponse = await invoke<{ workspaces?: Array<{
         id: string; name: string; document: Partial<Workspace>; revision: number; updated_at: string; created_at: string;
       }> }>("workspaces_list");
-      const remoteWorkspaces = workspaceResponse.workspaces ?? [];
+      const remoteWorkspaces = workspaceResponse?.workspaces ?? [];
       const remoteWorkspaceById = new Map(remoteWorkspaces.map((workspace) => [workspace.id, workspace]));
       const workspaceRevisions = { ...get().workspaceRevisions };
       let workspaces = [...get().workspaces];
+      let conversations = [...get().conversations];
+      const unownedWorkspaceIds: string[] = [];
+      const unownedWorkspaces: string[] = [];
+      const unownedChatIds: string[] = [];
+      const unownedChats: string[] = [];
       for (const cloud of remoteWorkspaces) {
         workspaceRevisions[cloud.id] = cloud.revision;
         const normalized: Workspace = {
@@ -3732,7 +3968,7 @@ export const useStore = create<State>((set, get) => {
           },
         });
         let candidate = workspace;
-        let saved: { revision: number };
+        let saved: { revision: number } | undefined;
         try {
           saved = await saveWorkspace(candidate, workspaceRevisions[workspace.id] ?? 0);
         } catch (error) {
@@ -3744,32 +3980,53 @@ export const useStore = create<State>((set, get) => {
             id: string; name: string; document: Partial<Workspace>; revision: number; updated_at: string; created_at: string;
           }> }>("workspaces_list");
           const latest = refreshed.workspaces?.find((item) => item.id === workspace.id);
-          if (!latest) throw error;
-          const remote: Workspace = {
-            id: latest.id,
-            name: latest.name,
-            profileNames: Array.isArray(latest.document?.profileNames) ? latest.document.profileNames : [],
-            profileToolsets: latest.document?.profileToolsets ?? {},
-            profileProxyIds: latest.document?.profileProxyIds ?? {},
-            createdAt: Date.parse(latest.created_at),
-            updatedAt: Date.parse(latest.updated_at),
-          };
-          candidate = mergeWorkspaceAfterRevisionConflict(workspace, remote);
-          const index = workspaces.findIndex((item) => item.id === candidate.id);
-          if (index >= 0) workspaces[index] = candidate;
-          saved = await saveWorkspace(candidate, latest.revision);
+          if (!latest) {
+            // The backend already uses this id, but not for this account: the
+            // primary key is global, so no revision can ever match and the
+            // workspace cannot be created here. Retry once as a create, then
+            // keep it on this device. Aborting instead used to fail every
+            // profile action with a cloud-sync error.
+            try {
+              saved = await saveWorkspace(workspace, 0);
+            } catch (retryError) {
+              if (!isWorkspaceRevisionConflict(retryError)) throw retryError;
+              unownedWorkspaceIds.push(workspace.id);
+              unownedWorkspaces.push(workspace.name);
+              continue;
+            }
+          } else {
+            const remote: Workspace = {
+              id: latest.id,
+              name: latest.name,
+              profileNames: Array.isArray(latest.document?.profileNames) ? latest.document.profileNames : [],
+              profileToolsets: latest.document?.profileToolsets ?? {},
+              profileProxyIds: latest.document?.profileProxyIds ?? {},
+              createdAt: Date.parse(latest.created_at),
+              updatedAt: Date.parse(latest.updated_at),
+            };
+            candidate = mergeWorkspaceAfterRevisionConflict(workspace, remote);
+            const index = workspaces.findIndex((item) => item.id === candidate.id);
+            if (index >= 0) workspaces[index] = candidate;
+            saved = await saveWorkspace(candidate, latest.revision);
+          }
         }
-        workspaceRevisions[workspace.id] = saved.revision;
+        if (saved) workspaceRevisions[workspace.id] = saved.revision;
+      }
+      if (unownedWorkspaces.length) {
+        // A foreign account's entity must never remain in the active cache.
+        // Keeping it locally would make the next mutation try to upload it
+        // again and would recreate the cross-account 409 loop.
+        workspaces = workspaces.filter((workspace) => !unownedWorkspaceIds.includes(workspace.id));
+        conversations = conversations.filter((conversation) => !conversation.workspaceId || !unownedWorkspaceIds.includes(conversation.workspaceId));
+        console.warn(`[workspace_sync] removed ${unownedWorkspaces.length} workspace(s) owned by another NextBrowser account: ${unownedWorkspaces.join(", ")}`);
       }
       const response = await invoke<{ projects?: Array<{
         id: string; title: string; agent: string; chat_mode: "chat" | "terminal";
         workspace_id: string; document: Conversation; revision: number; updated_at: string;
       }> }>("projects_list");
-      const remote = response.projects ?? [];
+      const remote = response?.projects ?? [];
       const remoteById = new Map(remote.map((project) => [project.id, project]));
       const revisions = { ...get().projectRevisions };
-      let conversations = [...get().conversations];
-
       for (const cloud of remote) {
         revisions[cloud.id] = cloud.revision;
         const index = conversations.findIndex((conversation) => conversation.id === cloud.id);
@@ -3830,7 +4087,7 @@ export const useStore = create<State>((set, get) => {
         if (!conversation.workspaceId) continue;
         const cloud = remoteById.get(conversation.id);
         if (cloud && conversation.updatedAt <= Date.parse(cloud.updated_at)) continue;
-        const saved = await invoke<{ revision: number }>("project_put", {
+        const putProject = (baseRevision: number) => invoke<{ revision: number }>("project_put", {
           id: conversation.id,
           project: {
             title: conversation.title,
@@ -3838,10 +4095,46 @@ export const useStore = create<State>((set, get) => {
             chat_mode: conversation.chatMode === "terminal" ? "terminal" : "chat",
             workspace_id: conversation.workspaceId,
             document: serializeConversations([conversation])[0],
-            base_revision: revisions[conversation.id] ?? 0,
+            base_revision: baseRevision,
           },
         });
-        revisions[conversation.id] = saved.revision;
+        let saved: { revision: number } | undefined;
+        try {
+          saved = await putProject(revisions[conversation.id] ?? 0);
+        } catch (error) {
+          if (!isProjectRevisionConflict(error)) throw error;
+          // Another device may have advanced the chat, or its id may belong to a
+          // different NextBrowser account, where no revision can ever match.
+          // Retry against the refreshed revision or as a create, and keep the
+          // chat on this device instead of failing the whole sync.
+          const refreshed = await invoke<{ projects?: Array<{
+            id: string; title: string; agent: string; chat_mode: "chat" | "terminal";
+            workspace_id: string; document: Conversation; revision: number; updated_at: string;
+          }> }>("projects_list");
+          const latest = refreshed.projects?.find((item) => item.id === conversation.id);
+          try {
+            saved = await putProject(latest?.revision ?? 0);
+          } catch (retryError) {
+            if (!isProjectRevisionConflict(retryError)) throw retryError;
+            unownedChatIds.push(conversation.id);
+            unownedChats.push(conversation.title);
+            continue;
+          }
+        }
+        if (saved) revisions[conversation.id] = saved.revision;
+      }
+      if (unownedChats.length) {
+        conversations = conversations.filter((conversation) => !unownedChatIds.includes(conversation.id));
+        console.warn(`[project_sync] removed ${unownedChats.length} chat(s) owned by another NextBrowser account`);
+      }
+      if (unownedWorkspaces.length || unownedChats.length) {
+        conversations = conversations.filter((conversation) =>
+          !conversation.workspaceId || !unownedWorkspaceIds.includes(conversation.workspaceId),
+        );
+        await saveWorkspaces(workspaces);
+        await persistConvs(conversations);
+        set({ workspaces, conversations, projectRevisions: revisions, workspaceRevisions });
+        throw new Error("Some local workspace data belongs to another account. Sign in to its original account before switching accounts.");
       }
       set({ projectRevisions: revisions, workspaceRevisions });
       trackEvent("projects_synced", { project_count: conversations.length });

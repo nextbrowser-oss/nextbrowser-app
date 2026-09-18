@@ -38,12 +38,13 @@ function jsonResult(data: unknown) {
   };
 }
 
-function mockDesktop(identityValid: boolean) {
+function mockDesktop(identityValid: boolean, options?: { ownerId?: string; appData?: Record<string, string> }) {
+  const ownerId = options?.ownerId ?? "owner-1";
   bridge.listen.mockResolvedValue(() => {});
-  bridge.invoke.mockImplementation(async (command: string, payload?: { args?: string[] }) => {
+  bridge.invoke.mockImplementation(async (command: string, payload?: { args?: string[]; name?: string }) => {
     switch (command) {
       case "app_data_read":
-        return null;
+        return options?.appData?.[payload?.name ?? ""] ?? null;
       case "app_data_write":
         return undefined;
       case "working_directory":
@@ -63,7 +64,7 @@ function mockDesktop(identityValid: boolean) {
             identity: {
               valid: identityValid,
               key_id: identityValid ? "key-1" : undefined,
-              owner_id: identityValid ? "owner-1" : undefined,
+              owner_id: identityValid ? ownerId : undefined,
               email: identityValid ? "person@example.com" : undefined,
             },
           });
@@ -165,6 +166,116 @@ describe("desktop account bootstrap", () => {
       authed: true,
       accountEmail: "person@example.com",
     });
+  });
+});
+
+describe("account cache ownership at boot", () => {
+  it("drops a workspace cache stamped for a different account before it can reach cloud sync", async () => {
+    const staleWorkspace = {
+      id: "ws-from-account-0",
+      name: "stale",
+      profileNames: [],
+      profileToolsets: {},
+      profileProxyIds: {},
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    mockDesktop(true, {
+      ownerId: "owner-1",
+      appData: { "workspaces.json": JSON.stringify([staleWorkspace]) },
+    });
+    const { useStore } = await import("./store");
+    localStorage.setItem("cachedAccountOwnerId", "owner-0");
+    const syncProjects = vi.fn().mockResolvedValue(undefined);
+    useStore.setState({ syncProjects });
+
+    await useStore.getState().bootstrap();
+
+    expect(useStore.getState().workspaces).toEqual([]);
+    expect(syncProjects).toHaveBeenCalledOnce();
+    expect(localStorage.getItem("cachedAccountOwnerId")).toBe("owner-1");
+    const writes = bridge.invoke.mock.calls.filter(([command]) => command === "app_data_write");
+    const workspaceWrite = writes.find(([, payload]) => (payload as { name?: string })?.name === "workspaces.json");
+    expect(workspaceWrite?.[1]).toMatchObject({ content: "[]" });
+    // clearAccountEntityCache's key must match the file X_REPLY_STATE_FILE
+    // actually reads/writes ("x-reply-state.json", hyphenated) — a stray
+    // "xreply-state.json" (no hyphen) would silently no-op and leave the
+    // real state file uncleared.
+    const xReplyWrite = writes.find(([, payload]) => (payload as { name?: string })?.name === "x-reply-state.json");
+    expect(xReplyWrite?.[1]).toMatchObject({ content: "null" });
+    expect(writes.some(([, payload]) => (payload as { name?: string })?.name === "xreply-state.json")).toBe(false);
+  });
+
+  it("keeps the workspace cache when it is stamped for the same account", async () => {
+    const ownWorkspace = {
+      id: "ws-from-account-1",
+      name: "mine",
+      profileNames: [],
+      profileToolsets: {},
+      profileProxyIds: {},
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    mockDesktop(true, {
+      ownerId: "owner-1",
+      appData: { "workspaces.json": JSON.stringify([ownWorkspace]) },
+    });
+    const { useStore } = await import("./store");
+    localStorage.setItem("cachedAccountOwnerId", "owner-1");
+    const syncProjects = vi.fn().mockResolvedValue(undefined);
+    useStore.setState({ syncProjects });
+
+    await useStore.getState().bootstrap();
+
+    expect(useStore.getState().workspaces.map((w) => w.id)).toEqual(["ws-from-account-1"]);
+    expect(localStorage.getItem("cachedAccountOwnerId")).toBe("owner-1");
+  });
+
+  it("stamps the cache on first login instead of treating an empty stamp as foreign", async () => {
+    const ownWorkspace = {
+      id: "ws-first-login",
+      name: "first",
+      profileNames: [],
+      profileToolsets: {},
+      profileProxyIds: {},
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    mockDesktop(true, {
+      ownerId: "owner-1",
+      appData: { "workspaces.json": JSON.stringify([ownWorkspace]) },
+    });
+    const { useStore } = await import("./store");
+    const syncProjects = vi.fn().mockResolvedValue(undefined);
+    useStore.setState({ syncProjects });
+
+    await useStore.getState().bootstrap();
+
+    expect(useStore.getState().workspaces.map((w) => w.id)).toEqual(["ws-first-login"]);
+    expect(localStorage.getItem("cachedAccountOwnerId")).toBe("owner-1");
+  });
+
+  it("drops the previous account's cache on an in-session re-login, not just at boot", async () => {
+    // A token can expire mid-session and reopen the sign-in modal without
+    // ever going through logout()'s cache wipe. login() with a DIFFERENT
+    // account's key must still drop whatever the previous account left in
+    // memory/localStorage before treating the session as authed.
+    mockDesktop(true, { ownerId: "owner-2" });
+    const { useStore } = await import("./store");
+    localStorage.setItem("cachedAccountOwnerId", "owner-1");
+    useStore.setState({
+      workspaces: [{ id: "ws-from-owner-1", name: "stale", profileNames: [], profileToolsets: {}, profileProxyIds: {}, createdAt: 1, updatedAt: 1 }],
+    });
+
+    await useStore.getState().login("owner-2-key");
+
+    expect(useStore.getState().authed).toBe(true);
+    expect(useStore.getState().workspaces).toEqual([]);
+    expect(localStorage.getItem("cachedAccountOwnerId")).toBe("owner-2");
+    const workspaceWrite = bridge.invoke.mock.calls.find(
+      ([command, payload]) => command === "app_data_write" && (payload as { name?: string })?.name === "workspaces.json",
+    );
+    expect(workspaceWrite?.[1]).toMatchObject({ content: "[]" });
   });
 });
 

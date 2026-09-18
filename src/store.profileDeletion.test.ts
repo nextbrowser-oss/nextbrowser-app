@@ -66,6 +66,7 @@ describe("profile deletion", () => {
 
     const { useStore } = await import("./store");
     useStore.setState({
+      authed: true,
       profiles: [{ name: "Berlin demo" }],
       statuses: { "Berlin demo": "running" },
       selectedProfile: "Berlin demo",
@@ -111,6 +112,7 @@ describe("profile deletion", () => {
 
     const { useStore } = await import("./store");
     useStore.setState({
+      authed: true,
       profiles: [{ name: "Python demo" }],
       statuses: { "Python demo": "stopped" },
       workspaces: [{
