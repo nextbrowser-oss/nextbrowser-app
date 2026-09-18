@@ -758,6 +758,35 @@ async function nextctlEnvelope<T>(
 async function saveWorkspaces(workspaces: Workspace[]): Promise<void> {
   await invoke("app_data_write", { name: "workspaces.json", content: JSON.stringify(workspaces, null, 2) });
 }
+
+// Account-owned entities must never survive a successful account switch. The
+// backend is the source of truth; these files are only the active account's
+// working cache and must not be offered to the next account for sync.
+async function clearAccountEntityCache(): Promise<void> {
+  const emptyFiles: Record<string, string> = {
+    "conversations.json": "[]",
+    "workspaces.json": "[]",
+    "scheduled-runs.json": "[]",
+    "custom-scripts.json": "[]",
+    "local-skills.json": "[]",
+    "applied-scripts.json": "[]",
+    "usage-history.json": "[]",
+    "watched-profiles.json": "[]",
+    "watchlist-runs.json": "[]",
+    "watchlist-transports.json": "{}",
+    "watchlist-profiles.json": "{}",
+    "watchlist-devices.json": "{}",
+    "watchlist-sign-ins.json": "{}",
+    "xreply-state.json": "null",
+  };
+  await Promise.all(Object.entries(emptyFiles).map(([name, content]) =>
+    invoke("app_data_write", { name, content }),
+  ));
+  for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+    const key = localStorage.key(index);
+    if (key?.startsWith("activeConversationId:") || key === "activeWorkspaceId") localStorage.removeItem(key);
+  }
+}
 let workspaceMutationQueue: Promise<unknown> = Promise.resolve();
 function persistWorkspaceMutation(transform: (workspaces: Workspace[]) => Workspace[]): Promise<void> {
   const pending = workspaceMutationQueue.then(async () => {
@@ -2493,7 +2522,18 @@ export const useStore = create<State>((set, get) => {
   },
 
   logout: async () => {
+    // Do not switch accounts while local mutations are still only local. A
+    // successful logout is the ownership boundary: flush and confirm the
+    // current account's cloud state before credentials are cleared.
+    await flushConversations();
+    const syncDeadline = now() + 30_000;
+    while (get().projectsSyncing && now() < syncDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    if (get().projectsSyncing) throw new Error("Cloud sync is still in progress. Wait for it to finish before switching accounts.");
+    await get().syncProjects();
     await invoke<null>("account_logout");
+    await clearAccountEntityCache();
     trackEvent("dashboard_logout");
     setAnalyticsUserId(undefined);
     if (proxyTimer) clearInterval(proxyTimer);
@@ -2517,6 +2557,29 @@ export const useStore = create<State>((set, get) => {
       profileSessions: {},
       profileIdentities: {},
       personalProxies: [],
+      conversations: [],
+      workspaces: [],
+      activeWorkspaceId: undefined,
+      activeConvId: {},
+      scheduledRuns: [],
+      customScripts: [],
+      localSkills: [],
+      localSkillSync: {},
+      appliedScripts: [],
+      scriptSync: {},
+      usageHistory: [],
+      watchedProfiles: [],
+      watchReports: {},
+      watchPublishers: {},
+      watchlistRuns: [],
+      watchlistTransports: {},
+      watchlistProfiles: {},
+      watchlistDevices: {},
+      watchlistSignIns: {},
+      xReplyState: normalizeXReplyState(null),
+      projectRevisions: {},
+      workspaceRevisions: {},
+      workspaceSetupRequired: false,
       selectedProfile: undefined,
       defaultSession: undefined,
       skillState: {},
@@ -3697,7 +3760,7 @@ export const useStore = create<State>((set, get) => {
       const workspaceResponse = await invoke<{ workspaces?: Array<{
         id: string; name: string; document: Partial<Workspace>; revision: number; updated_at: string; created_at: string;
       }> }>("workspaces_list");
-      const remoteWorkspaces = workspaceResponse.workspaces ?? [];
+      const remoteWorkspaces = workspaceResponse?.workspaces ?? [];
       const remoteWorkspaceById = new Map(remoteWorkspaces.map((workspace) => [workspace.id, workspace]));
       const workspaceRevisions = { ...get().workspaceRevisions };
       let workspaces = [...get().workspaces];
@@ -3784,7 +3847,7 @@ export const useStore = create<State>((set, get) => {
         id: string; title: string; agent: string; chat_mode: "chat" | "terminal";
         workspace_id: string; document: Conversation; revision: number; updated_at: string;
       }> }>("projects_list");
-      const remote = response.projects ?? [];
+      const remote = response?.projects ?? [];
       const remoteById = new Map(remote.map((project) => [project.id, project]));
       const revisions = { ...get().projectRevisions };
       let conversations = [...get().conversations];
