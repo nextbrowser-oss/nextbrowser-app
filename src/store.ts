@@ -790,19 +790,26 @@ async function clearAccountEntityCache(): Promise<void> {
 let workspaceMutationQueue: Promise<unknown> = Promise.resolve();
 function persistWorkspaceMutation(transform: (workspaces: Workspace[]) => Workspace[]): Promise<void> {
   const pending = workspaceMutationQueue.then(async () => {
-    const previous = useStore.getState().workspaces;
+    const state = useStore.getState();
+    if (!state.authed) throw new Error("Sign in before changing workspace data.");
+    if (state.projectsSyncing) throw new Error("Cloud sync is in progress. Retry this workspace change when it finishes.");
+    const previous = state.workspaces;
     const workspaces = transform(previous);
     useStore.setState({ workspaces });
     try {
+      // The backend is authoritative. Do not leave a mutation only in the
+      // local cache when its cloud write fails. syncProjects sees the
+      // temporary state and confirms/merges it before we keep the file.
       await saveWorkspaces(workspaces);
-    } catch (error) {
-      if (useStore.getState().workspaces === workspaces) useStore.setState({ workspaces: previous });
-      throw error;
-    }
-    try {
       await useStore.getState().syncProjects();
-    } catch {
-      throw new Error("The profile change was saved on this device, but cloud sync failed. Retry when your connection is restored.");
+    } catch (error) {
+      if (useStore.getState().workspaces === workspaces) {
+        useStore.setState({ workspaces: previous });
+        await saveWorkspaces(previous).catch(() => {});
+      }
+      throw error instanceof Error
+        ? error
+        : new Error("Cloud sync failed. Retry when your connection is restored.");
     }
   });
   workspaceMutationQueue = pending.catch(() => undefined);
