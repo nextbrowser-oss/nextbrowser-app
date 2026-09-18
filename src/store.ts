@@ -80,6 +80,7 @@ import type {
   Conversation,
   CustomScript,
   Profile,
+  ProfileCreateRequest,
   PersonalProxy,
   ProxyTraffic,
   ScheduledRun,
@@ -235,6 +236,7 @@ const WATCHDOG_MS = 5_000;
 const PROXY_REFRESH_MS = 120_000;
 const PROFILE_STATUS_REFRESH_MS = 15_000;
 const SCHEDULE_TICK_MS = 30_000;
+const PROFILE_CREATE_REQUEST_POLL_MS = 10_000;
 const NEXTCTL_DAILY_UPDATE_MS = 20 * 60 * 1000;
 const NEXTCTL_DAILY_UPDATE_POLL_MS = 60 * 1000;
 const NEXTCTL_UPDATE_RETRY_MS = 5 * 60 * 1000;
@@ -386,6 +388,7 @@ async function pullCatalogInstructions(entry: SkillEntry, preferredAgentId: stri
 interface State {
   authed: boolean;
   accountEmail?: string;
+  accountOwnerId?: string;
   checking: boolean;
   startupPhase: "local" | "account";
   startupError?: string;
@@ -395,6 +398,7 @@ interface State {
   proxyWarning?: string;
   trafficGatePromptOpen: boolean;
   profiles: Profile[];
+  pendingProfileCreateRequests: ProfileCreateRequest[];
   personalProxies: PersonalProxy[];
   proxyCountries: RotationCountry[];
   statuses: Record<string, string>;
@@ -483,6 +487,9 @@ interface State {
   refreshSessions: () => Promise<void>;
   loadProxy: () => Promise<void>;
   loadProfiles: () => Promise<void>;
+  pollProfileCreateRequests: () => Promise<void>;
+  approveProfileCreateRequest: (id: string) => Promise<void>;
+  rejectProfileCreateRequest: (id: string, reason?: string) => Promise<void>;
   loadProxyCountries: () => Promise<void>;
   loadDefaultSession: () => Promise<void>;
   loadSkillCatalog: () => Promise<void>;
@@ -652,6 +659,8 @@ let proxyTimer: ReturnType<typeof setInterval> | null = null;
 let profileStatusTimer: ReturnType<typeof setInterval> | null = null;
 let profileStatusRefreshInFlight = false;
 let scheduleTimer: ReturnType<typeof setInterval> | null = null;
+let profileCreateRequestTimer: ReturnType<typeof setInterval> | null = null;
+let profileCreateRequestPollInFlight = false;
 let sessionPollTimer: ReturnType<typeof setInterval> | null = null;
 let sessionPollInFlight = false;
 let nextctlDailyUpdateTimer: ReturnType<typeof setInterval> | null = null;
@@ -679,6 +688,12 @@ const pendingProfileLaunches = new Map<string, number>();
 const pendingProfileStarts = new Map<string, Promise<void>>();
 const verifyingProfileStarts = new Set<string>();
 const BOOTSTRAP_FOREGROUND_WAIT_MS = 12_000;
+// Stamps which account's data the on-disk caches (workspaces.json and
+// friends) belong to. A clean logout clears it along with the files; if it
+// survives to the next bootstrap under a different account (crash, killed
+// process, credential change outside logout()), that tells us the just-loaded
+// caches are foreign and must not reach syncProjects(). See NB-25647DEA.
+const CACHED_ACCOUNT_OWNER_KEY = "cachedAccountOwnerId";
 
 function activeConversationStorageKey(agentId: string, workspaceId?: string): string {
   return `activeConversationId:${agentId}:${workspaceId || "none"}`;
@@ -784,9 +799,37 @@ async function clearAccountEntityCache(): Promise<void> {
   ));
   for (let index = localStorage.length - 1; index >= 0; index -= 1) {
     const key = localStorage.key(index);
-    if (key?.startsWith("activeConversationId:") || key === "activeWorkspaceId") localStorage.removeItem(key);
+    if (key?.startsWith("activeConversationId:") || key === "activeWorkspaceId" || key === CACHED_ACCOUNT_OWNER_KEY) {
+      localStorage.removeItem(key);
+    }
   }
 }
+
+// The in-memory mirror of the account-owned files above, matching the shape
+// bootstrap() hydrates them into. Used when bootstrap finds the on-disk
+// cache it just loaded belongs to a different account than the one that
+// just authenticated — the files get wiped by clearAccountEntityCache, and
+// this drops the same data from the state that was already set from them.
+function emptyAccountOwnedCaches(): Partial<State> {
+  return {
+    conversations: [],
+    workspaces: [],
+    activeWorkspaceId: undefined,
+    activeConvId: {},
+    scheduledRuns: [],
+    customScripts: [],
+    localSkills: [],
+    appliedScripts: [],
+    usageHistory: [],
+    watchedProfiles: [],
+    watchlistRuns: [],
+    watchlistTransports: {},
+    watchlistProfiles: {},
+    watchlistDevices: {},
+    xReplyState: normalizeXReplyState(null),
+  };
+}
+
 let workspaceMutationQueue: Promise<unknown> = Promise.resolve();
 function persistWorkspaceMutation(transform: (workspaces: Workspace[]) => Workspace[]): Promise<void> {
   const pending = workspaceMutationQueue.then(async () => {
@@ -1207,7 +1250,7 @@ async function refreshAnalyticsIdentity(): Promise<boolean> {
   const ownerId = valid ? wrap.identity.owner_id?.trim() : undefined;
   const accountEmail = valid ? wrap.identity.email?.trim() : undefined;
   setAnalyticsUserId(ownerId || undefined);
-  useStore.setState({ accountEmail: accountEmail || undefined });
+  useStore.setState({ accountEmail: accountEmail || undefined, accountOwnerId: ownerId || undefined });
   trackEvent("analytics_identity_loaded", {
     valid,
     has_owner_id: !!ownerId,
@@ -1241,7 +1284,7 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
       return valid;
     } catch {
       setAnalyticsUserId(undefined);
-      useStore.setState({ accountEmail: undefined });
+      useStore.setState({ accountEmail: undefined, accountOwnerId: undefined });
       trackEvent("analytics_identity_unavailable", { phase: "bootstrap" });
       return false;
     }
@@ -1250,6 +1293,7 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
     const incompatible = String(error).includes("VERIFY_REQUIRED");
     useStore.setState({
       accountEmail: undefined,
+      accountOwnerId: undefined,
       nextctlVersion: incompatible ? "update required" : "not found",
       nextctlSupportsSkill: false,
       nextctlAvailable: false,
@@ -1500,11 +1544,13 @@ export const useStore = create<State>((set, get) => {
   return {
   authed: false,
   accountEmail: undefined,
+  accountOwnerId: undefined,
   checking: true,
   startupPhase: "local",
   startupError: undefined,
   isLoggingIn: false,
   profiles: [],
+  pendingProfileCreateRequests: [],
   personalProxies: [],
   proxyCountries: [],
   statuses: {},
@@ -1759,6 +1805,24 @@ export const useStore = create<State>((set, get) => {
         ? await refreshLocalNextctlMetadata()
         : false;
       set({ authed: authenticated, checking: false, startupError: undefined });
+
+      // The caches loaded above were hydrated before identity was known
+      // (a clean logout wipes them, but a crash or a credential change
+      // outside logout() would not). If they were stamped for a different
+      // account, drop them now, before syncProjects can push foreign
+      // workspaces/projects at the backend under this account's key.
+      if (authenticated) {
+        const ownerId = get().accountOwnerId;
+        const cachedOwnerId = localStorage.getItem(CACHED_ACCOUNT_OWNER_KEY) || undefined;
+        if (ownerId) {
+          if (cachedOwnerId && cachedOwnerId !== ownerId) {
+            trackEvent("bootstrap_foreign_account_cache_cleared");
+            await clearAccountEntityCache().catch(() => {});
+            set(emptyAccountOwnedCaches());
+          }
+          localStorage.setItem(CACHED_ACCOUNT_OWNER_KEY, ownerId);
+        }
+      }
       get().startTimers();
 
       // These operations have their own status UI and cannot hold the splash.
@@ -1811,6 +1875,12 @@ export const useStore = create<State>((set, get) => {
       () => void get().tickNextctlDailyUpdate(),
       NEXTCTL_DAILY_UPDATE_POLL_MS,
     );
+    if (profileCreateRequestTimer) clearInterval(profileCreateRequestTimer);
+    profileCreateRequestTimer = setInterval(
+      () => void get().pollProfileCreateRequests(),
+      PROFILE_CREATE_REQUEST_POLL_MS,
+    );
+    void get().pollProfileCreateRequests();
   },
 
   refreshProfileStatuses: async () => {
@@ -2547,9 +2617,10 @@ export const useStore = create<State>((set, get) => {
     if (proxyTimer) clearInterval(proxyTimer);
     if (scheduleTimer) clearInterval(scheduleTimer);
     if (sessionPollTimer) clearInterval(sessionPollTimer);
+    if (profileCreateRequestTimer) clearInterval(profileCreateRequestTimer);
     if (nextctlUpdateRetryTimer) clearTimeout(nextctlUpdateRetryTimer);
     nextctlUpdateRetryTimer = null;
-    proxyTimer = scheduleTimer = sessionPollTimer = null;
+    proxyTimer = scheduleTimer = sessionPollTimer = profileCreateRequestTimer = null;
     set({
       authed: false,
       accountEmail: undefined,
@@ -2561,6 +2632,7 @@ export const useStore = create<State>((set, get) => {
       trafficGatePromptOpen: false,
       accountPairing: undefined,
       profiles: [],
+      pendingProfileCreateRequests: [],
       statuses: {},
       profileSessions: {},
       profileIdentities: {},
@@ -2744,6 +2816,39 @@ export const useStore = create<State>((set, get) => {
     } catch {
       /* non-fatal */
     }
+  },
+
+  // Agents cannot create profiles directly inside a NextBrowser workspace
+  // (nbc's mcp_workspace_scope.go refuses profiles_create there); instead an
+  // agent files a batch request with profiles_create_request, and the person
+  // using the app approves or declines it here. Polled on a timer from
+  // startTimers so a pending request surfaces as a modal without the user
+  // having to do anything first.
+  pollProfileCreateRequests: async () => {
+    if (!get().authed || !get().nextctlAvailable || pendingTarget(get(), "vps")) return;
+    if (profileCreateRequestPollInFlight) return;
+    profileCreateRequestPollInFlight = true;
+    try {
+      const result = await nextctlJson<{ requests: ProfileCreateRequest[] }>(["profiles", "requests", "list", "--status", "pending"]);
+      set({ pendingProfileCreateRequests: result.requests ?? [] });
+    } catch {
+      /* non-fatal; retry on the next tick */
+    } finally {
+      profileCreateRequestPollInFlight = false;
+    }
+  },
+
+  approveProfileCreateRequest: async (id: string) => {
+    trackEvent("profile_create_request_approved", { request_id: id });
+    await nextctlRun(["profiles", "requests", "approve", id]);
+    set({ pendingProfileCreateRequests: get().pendingProfileCreateRequests.filter((r) => r.id !== id) });
+    await get().loadProfiles();
+  },
+
+  rejectProfileCreateRequest: async (id: string, reason?: string) => {
+    trackEvent("profile_create_request_rejected", { request_id: id });
+    await nextctlRun(["profiles", "requests", "reject", id, ...(reason ? ["--reason", reason] : [])]);
+    set({ pendingProfileCreateRequests: get().pendingProfileCreateRequests.filter((r) => r.id !== id) });
   },
 
   loadProxyCountries: async () => {
