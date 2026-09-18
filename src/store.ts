@@ -473,6 +473,11 @@ interface State {
   projectRevisions: Record<string, number>;
   workspaceRevisions: Record<string, number>;
   projectsSyncing: boolean;
+  // Background sync runs constantly and is not something the user needs to
+  // see; logout is the one moment a sync becomes user-relevant, since it
+  // blocks the account switch. The sync-status UI only shows while this is
+  // true (see App.tsx), not whenever projectsSyncing/isRefreshing are true.
+  loggingOut: boolean;
 
   bootstrap: () => Promise<void>;
   login: (key: string) => Promise<void>;
@@ -1662,6 +1667,7 @@ export const useStore = create<State>((set, get) => {
   projectRevisions: {},
   workspaceRevisions: {},
   projectsSyncing: false,
+  loggingOut: false,
 
   conversationsForAgent: (agentId) =>
     get().conversations
@@ -2659,80 +2665,88 @@ export const useStore = create<State>((set, get) => {
     // Do not switch accounts while local mutations are still only local. A
     // successful logout is the ownership boundary: flush and confirm the
     // current account's cloud state before credentials are cleared.
-    await flushConversations();
-    const syncDeadline = now() + 30_000;
-    while (get().projectsSyncing && now() < syncDeadline) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
+    // loggingOut gates the sync-status UI (App.tsx): background sync is
+    // silent the rest of the time, but a sync blocking the account switch
+    // is worth surfacing.
+    set({ loggingOut: true });
+    try {
+      await flushConversations();
+      const syncDeadline = now() + 30_000;
+      while (get().projectsSyncing && now() < syncDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      if (get().projectsSyncing) throw new Error("Cloud sync is still in progress. Wait for it to finish before switching accounts.");
+      await get().syncProjects();
+      await invoke<null>("account_logout");
+      await clearAccountEntityCache();
+      trackEvent("dashboard_logout");
+      setAnalyticsUserId(undefined);
+      if (proxyTimer) clearInterval(proxyTimer);
+      if (profileStatusTimer) clearInterval(profileStatusTimer);
+      if (scheduleTimer) clearInterval(scheduleTimer);
+      if (sessionPollTimer) clearInterval(sessionPollTimer);
+      if (profileCreateRequestTimer) clearInterval(profileCreateRequestTimer);
+      if (nextctlUpdateRetryTimer) clearTimeout(nextctlUpdateRetryTimer);
+      nextctlUpdateRetryTimer = null;
+      proxyTimer = profileStatusTimer = scheduleTimer = sessionPollTimer = profileCreateRequestTimer = null;
+      // These are keyed by profile name, not account. Leaving a stale entry
+      // behind would let the next account's operation on a same-named profile
+      // (e.g. both accounts happen to have a "work" profile) piggyback on this
+      // account's now-irrelevant in-flight promise/epoch instead of starting
+      // its own.
+      profileOperationEpoch.clear();
+      pendingProfileLaunches.clear();
+      pendingProfileStarts.clear();
+      verifyingProfileStarts.clear();
+      set({
+        authed: false,
+        accountEmail: undefined,
+        runtime: initRuntimes(),
+        connectAnnounced: new Set(),
+        proxy: undefined,
+        proxyWarning: undefined,
+        dashboardKeyPromptOpen: false,
+        trafficGatePromptOpen: false,
+        accountPairing: undefined,
+        profiles: [],
+        pendingProfileCreateRequests: [],
+        statuses: {},
+        profileSessions: {},
+        profileIdentities: {},
+        personalProxies: [],
+        conversations: [],
+        workspaces: [],
+        activeWorkspaceId: undefined,
+        activeConvId: {},
+        scheduledRuns: [],
+        customScripts: [],
+        localSkills: [],
+        localSkillSync: {},
+        appliedScripts: [],
+        scriptSync: {},
+        privateCloudSkills: [],
+        skillCategories: REPOSITORY_SKILL_CATEGORIES,
+        usageHistory: [],
+        watchedProfiles: [],
+        watchReports: {},
+        watchPublishers: {},
+        watchlistRuns: [],
+        watchlistTransports: {},
+        watchlistProfiles: {},
+        watchlistDevices: {},
+        watchlistSignIns: {},
+        xReplyState: normalizeXReplyState(null),
+        projectRevisions: {},
+        workspaceRevisions: {},
+        workspaceSetupRequired: false,
+        selectedProfile: undefined,
+        defaultSession: undefined,
+        skillState: {},
+        tab: "chat",
+      });
+    } finally {
+      set({ loggingOut: false });
     }
-    if (get().projectsSyncing) throw new Error("Cloud sync is still in progress. Wait for it to finish before switching accounts.");
-    await get().syncProjects();
-    await invoke<null>("account_logout");
-    await clearAccountEntityCache();
-    trackEvent("dashboard_logout");
-    setAnalyticsUserId(undefined);
-    if (proxyTimer) clearInterval(proxyTimer);
-    if (profileStatusTimer) clearInterval(profileStatusTimer);
-    if (scheduleTimer) clearInterval(scheduleTimer);
-    if (sessionPollTimer) clearInterval(sessionPollTimer);
-    if (profileCreateRequestTimer) clearInterval(profileCreateRequestTimer);
-    if (nextctlUpdateRetryTimer) clearTimeout(nextctlUpdateRetryTimer);
-    nextctlUpdateRetryTimer = null;
-    proxyTimer = profileStatusTimer = scheduleTimer = sessionPollTimer = profileCreateRequestTimer = null;
-    // These are keyed by profile name, not account. Leaving a stale entry
-    // behind would let the next account's operation on a same-named profile
-    // (e.g. both accounts happen to have a "work" profile) piggyback on this
-    // account's now-irrelevant in-flight promise/epoch instead of starting
-    // its own.
-    profileOperationEpoch.clear();
-    pendingProfileLaunches.clear();
-    pendingProfileStarts.clear();
-    verifyingProfileStarts.clear();
-    set({
-      authed: false,
-      accountEmail: undefined,
-      runtime: initRuntimes(),
-      connectAnnounced: new Set(),
-      proxy: undefined,
-      proxyWarning: undefined,
-      dashboardKeyPromptOpen: false,
-      trafficGatePromptOpen: false,
-      accountPairing: undefined,
-      profiles: [],
-      pendingProfileCreateRequests: [],
-      statuses: {},
-      profileSessions: {},
-      profileIdentities: {},
-      personalProxies: [],
-      conversations: [],
-      workspaces: [],
-      activeWorkspaceId: undefined,
-      activeConvId: {},
-      scheduledRuns: [],
-      customScripts: [],
-      localSkills: [],
-      localSkillSync: {},
-      appliedScripts: [],
-      scriptSync: {},
-      privateCloudSkills: [],
-      skillCategories: REPOSITORY_SKILL_CATEGORIES,
-      usageHistory: [],
-      watchedProfiles: [],
-      watchReports: {},
-      watchPublishers: {},
-      watchlistRuns: [],
-      watchlistTransports: {},
-      watchlistProfiles: {},
-      watchlistDevices: {},
-      watchlistSignIns: {},
-      xReplyState: normalizeXReplyState(null),
-      projectRevisions: {},
-      workspaceRevisions: {},
-      workspaceSetupRequired: false,
-      selectedProfile: undefined,
-      defaultSession: undefined,
-      skillState: {},
-      tab: "chat",
-    });
   },
 
   refreshAll: async () => {

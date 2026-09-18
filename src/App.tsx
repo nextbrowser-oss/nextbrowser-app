@@ -725,7 +725,10 @@ export function App() {
   const startupPhase = useStore((s) => s.startupPhase);
   const startupError = useStore((s) => s.startupError);
   const feedbackAvailable = authed && !checking && !startupError;
-  const workspaceSyncing = useStore((s) => s.projectsSyncing || s.isRefreshing);
+  // Background sync happens constantly and isn't something the user needs
+  // to watch; logout is the one time a sync becomes visible, since it's what
+  // the sign-out flow is waiting on.
+  const workspaceSyncing = useStore((s) => s.loggingOut && (s.projectsSyncing || s.isRefreshing));
   const tab = useStore((s) => s.tab);
   const setTab = useStore((s) => s.setTab);
   const bootstrap = useStore((s) => s.bootstrap);
