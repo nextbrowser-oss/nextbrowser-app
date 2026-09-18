@@ -803,7 +803,8 @@ function persistWorkspaceMutation(transform: (workspaces: Workspace[]) => Worksp
       await saveWorkspaces(workspaces);
       await useStore.getState().syncProjects();
     } catch (error) {
-      if (useStore.getState().workspaces === workspaces) {
+      const ownershipConflict = error instanceof Error && error.message.includes("belongs to another account");
+      if (!ownershipConflict && useStore.getState().workspaces === workspaces) {
         useStore.setState({ workspaces: previous });
         await saveWorkspaces(previous).catch(() => {});
       }
@@ -3771,7 +3772,10 @@ export const useStore = create<State>((set, get) => {
       const remoteWorkspaceById = new Map(remoteWorkspaces.map((workspace) => [workspace.id, workspace]));
       const workspaceRevisions = { ...get().workspaceRevisions };
       let workspaces = [...get().workspaces];
+      let conversations = [...get().conversations];
+      const unownedWorkspaceIds: string[] = [];
       const unownedWorkspaces: string[] = [];
+      const unownedChatIds: string[] = [];
       const unownedChats: string[] = [];
       for (const cloud of remoteWorkspaces) {
         workspaceRevisions[cloud.id] = cloud.revision;
@@ -3826,6 +3830,7 @@ export const useStore = create<State>((set, get) => {
               saved = await saveWorkspace(workspace, 0);
             } catch (retryError) {
               if (!isWorkspaceRevisionConflict(retryError)) throw retryError;
+              unownedWorkspaceIds.push(workspace.id);
               unownedWorkspaces.push(workspace.name);
               continue;
             }
@@ -3848,7 +3853,12 @@ export const useStore = create<State>((set, get) => {
         if (saved) workspaceRevisions[workspace.id] = saved.revision;
       }
       if (unownedWorkspaces.length) {
-        console.warn(`[workspace_sync] ${unownedWorkspaces.length} workspace(s) stay on this device because their ids belong to another NextBrowser account: ${unownedWorkspaces.join(", ")}`);
+        // A foreign account's entity must never remain in the active cache.
+        // Keeping it locally would make the next mutation try to upload it
+        // again and would recreate the cross-account 409 loop.
+        workspaces = workspaces.filter((workspace) => !unownedWorkspaceIds.includes(workspace.id));
+        conversations = conversations.filter((conversation) => !conversation.workspaceId || !unownedWorkspaceIds.includes(conversation.workspaceId));
+        console.warn(`[workspace_sync] removed ${unownedWorkspaces.length} workspace(s) owned by another NextBrowser account: ${unownedWorkspaces.join(", ")}`);
       }
       const response = await invoke<{ projects?: Array<{
         id: string; title: string; agent: string; chat_mode: "chat" | "terminal";
@@ -3857,8 +3867,6 @@ export const useStore = create<State>((set, get) => {
       const remote = response?.projects ?? [];
       const remoteById = new Map(remote.map((project) => [project.id, project]));
       const revisions = { ...get().projectRevisions };
-      let conversations = [...get().conversations];
-
       for (const cloud of remote) {
         revisions[cloud.id] = cloud.revision;
         const index = conversations.findIndex((conversation) => conversation.id === cloud.id);
@@ -3948,6 +3956,7 @@ export const useStore = create<State>((set, get) => {
             saved = await putProject(latest?.revision ?? 0);
           } catch (retryError) {
             if (!isProjectRevisionConflict(retryError)) throw retryError;
+            unownedChatIds.push(conversation.id);
             unownedChats.push(conversation.title);
             continue;
           }
@@ -3955,7 +3964,17 @@ export const useStore = create<State>((set, get) => {
         if (saved) revisions[conversation.id] = saved.revision;
       }
       if (unownedChats.length) {
-        console.warn(`[project_sync] ${unownedChats.length} chat(s) stay on this device because their ids belong to another NextBrowser account`);
+        conversations = conversations.filter((conversation) => !unownedChatIds.includes(conversation.id));
+        console.warn(`[project_sync] removed ${unownedChats.length} chat(s) owned by another NextBrowser account`);
+      }
+      if (unownedWorkspaces.length || unownedChats.length) {
+        conversations = conversations.filter((conversation) =>
+          !conversation.workspaceId || !unownedWorkspaceIds.includes(conversation.workspaceId),
+        );
+        await saveWorkspaces(workspaces);
+        await persistConvs(conversations);
+        set({ workspaces, conversations, projectRevisions: revisions, workspaceRevisions });
+        throw new Error("Some local workspace data belongs to another account. Sign in to its original account before switching accounts.");
       }
       set({ projectRevisions: revisions, workspaceRevisions });
       trackEvent("projects_synced", { project_count: conversations.length });
