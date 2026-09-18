@@ -58,7 +58,7 @@ import { accountLoginURL } from "./lib/accountAuth";
 import { requiresWorkspaceSetup } from "./lib/workspaceSetup";
 import { validateEntityName } from "./lib/entityValidation";
 import { moveProfileToWorkspace as moveProfileBetweenWorkspaces } from "./lib/workspaceProfiles";
-import { isProjectRevisionConflict, isWorkspaceRevisionConflict, mergeWorkspaceAfterRevisionConflict } from "./lib/workspaceConflict";
+import { isProjectRevisionConflict, isWorkspaceNotFound, isWorkspaceRevisionConflict, mergeWorkspaceAfterRevisionConflict } from "./lib/workspaceConflict";
 import {
   normalizeConversation,
   normalizeWorkflowSkill,
@@ -4023,7 +4023,10 @@ export const useStore = create<State>((set, get) => {
         try {
           saved = await saveWorkspace(candidate, workspaceRevisions[workspace.id] ?? 0);
         } catch (error) {
-          if (!isWorkspaceRevisionConflict(error)) throw error;
+          // A 404 means the backend has no such workspace for this account.
+          // Handle it like a revision conflict (refresh, then retry as a
+          // create) instead of failing the user's profile action.
+          if (!isWorkspaceRevisionConflict(error) && !isWorkspaceNotFound(error)) throw error;
           // A second device changed the same workspace after our initial list.
           // Refresh once, merge profile associations, and retry against its
           // revision instead of surfacing a background 409 to the user.
@@ -4040,7 +4043,7 @@ export const useStore = create<State>((set, get) => {
             try {
               saved = await saveWorkspace(workspace, 0);
             } catch (retryError) {
-              if (!isWorkspaceRevisionConflict(retryError)) throw retryError;
+              if (!isWorkspaceRevisionConflict(retryError) && !isWorkspaceNotFound(retryError)) throw retryError;
               unownedWorkspaceIds.push(workspace.id);
               unownedWorkspaces.push(workspace.name);
               continue;

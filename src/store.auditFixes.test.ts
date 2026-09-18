@@ -99,6 +99,21 @@ it("keeps a profile usable when a workspace id belongs to another account", asyn
   expect(useStore.getState().projectsSyncing).toBe(false);
 });
 
+it("does not fail a profile action when the backend does not know the workspace", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({ authed: true, workspaces: [workspace("mine")], activeWorkspaceId: "mine", conversations: [] });
+  bridge.invoke.mockImplementation((command: string) => {
+    if (command === "workspace_put") return Promise.reject(Object.assign(new Error("workspace not found"), { status: 404 }));
+    if (command === "workspaces_list") return Promise.resolve({ workspaces: [] });
+    if (command === "projects_list") return Promise.resolve({ projects: [] });
+    return Promise.resolve({ revision: 1 });
+  });
+  // A workspace the backend returns 404 for must not block the user's action;
+  // it is dropped locally like a foreign workspace.
+  await expect(useStore.getState().assignProfileToProject("new", "clawbrowser")).resolves.toBeUndefined();
+  expect(useStore.getState().workspaces).toEqual([]);
+});
+
 it("reports refresh failure and releases the loading state", async () => {
   const { useStore } = await import("./store");
   useStore.setState({ loadProxy: vi.fn().mockRejectedValue(new Error("offline")) });
