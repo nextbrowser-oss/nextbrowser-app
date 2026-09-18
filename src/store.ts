@@ -58,7 +58,7 @@ import { accountLoginURL } from "./lib/accountAuth";
 import { requiresWorkspaceSetup } from "./lib/workspaceSetup";
 import { validateEntityName } from "./lib/entityValidation";
 import { moveProfileToWorkspace as moveProfileBetweenWorkspaces } from "./lib/workspaceProfiles";
-import { isWorkspaceRevisionConflict, mergeWorkspaceAfterRevisionConflict } from "./lib/workspaceConflict";
+import { isProjectRevisionConflict, isWorkspaceRevisionConflict, mergeWorkspaceAfterRevisionConflict } from "./lib/workspaceConflict";
 import {
   normalizeConversation,
   normalizeWorkflowSkill,
@@ -3701,6 +3701,8 @@ export const useStore = create<State>((set, get) => {
       const remoteWorkspaceById = new Map(remoteWorkspaces.map((workspace) => [workspace.id, workspace]));
       const workspaceRevisions = { ...get().workspaceRevisions };
       let workspaces = [...get().workspaces];
+      const unownedWorkspaces: string[] = [];
+      const unownedChats: string[] = [];
       for (const cloud of remoteWorkspaces) {
         workspaceRevisions[cloud.id] = cloud.revision;
         const normalized: Workspace = {
@@ -3732,7 +3734,7 @@ export const useStore = create<State>((set, get) => {
           },
         });
         let candidate = workspace;
-        let saved: { revision: number };
+        let saved: { revision: number } | undefined;
         try {
           saved = await saveWorkspace(candidate, workspaceRevisions[workspace.id] ?? 0);
         } catch (error) {
@@ -3744,22 +3746,39 @@ export const useStore = create<State>((set, get) => {
             id: string; name: string; document: Partial<Workspace>; revision: number; updated_at: string; created_at: string;
           }> }>("workspaces_list");
           const latest = refreshed.workspaces?.find((item) => item.id === workspace.id);
-          if (!latest) throw error;
-          const remote: Workspace = {
-            id: latest.id,
-            name: latest.name,
-            profileNames: Array.isArray(latest.document?.profileNames) ? latest.document.profileNames : [],
-            profileToolsets: latest.document?.profileToolsets ?? {},
-            profileProxyIds: latest.document?.profileProxyIds ?? {},
-            createdAt: Date.parse(latest.created_at),
-            updatedAt: Date.parse(latest.updated_at),
-          };
-          candidate = mergeWorkspaceAfterRevisionConflict(workspace, remote);
-          const index = workspaces.findIndex((item) => item.id === candidate.id);
-          if (index >= 0) workspaces[index] = candidate;
-          saved = await saveWorkspace(candidate, latest.revision);
+          if (!latest) {
+            // The backend already uses this id, but not for this account: the
+            // primary key is global, so no revision can ever match and the
+            // workspace cannot be created here. Retry once as a create, then
+            // keep it on this device. Aborting instead used to fail every
+            // profile action with a cloud-sync error.
+            try {
+              saved = await saveWorkspace(workspace, 0);
+            } catch (retryError) {
+              if (!isWorkspaceRevisionConflict(retryError)) throw retryError;
+              unownedWorkspaces.push(workspace.name);
+              continue;
+            }
+          } else {
+            const remote: Workspace = {
+              id: latest.id,
+              name: latest.name,
+              profileNames: Array.isArray(latest.document?.profileNames) ? latest.document.profileNames : [],
+              profileToolsets: latest.document?.profileToolsets ?? {},
+              profileProxyIds: latest.document?.profileProxyIds ?? {},
+              createdAt: Date.parse(latest.created_at),
+              updatedAt: Date.parse(latest.updated_at),
+            };
+            candidate = mergeWorkspaceAfterRevisionConflict(workspace, remote);
+            const index = workspaces.findIndex((item) => item.id === candidate.id);
+            if (index >= 0) workspaces[index] = candidate;
+            saved = await saveWorkspace(candidate, latest.revision);
+          }
         }
-        workspaceRevisions[workspace.id] = saved.revision;
+        if (saved) workspaceRevisions[workspace.id] = saved.revision;
+      }
+      if (unownedWorkspaces.length) {
+        console.warn(`[workspace_sync] ${unownedWorkspaces.length} workspace(s) stay on this device because their ids belong to another NextBrowser account: ${unownedWorkspaces.join(", ")}`);
       }
       const response = await invoke<{ projects?: Array<{
         id: string; title: string; agent: string; chat_mode: "chat" | "terminal";
@@ -3830,7 +3849,7 @@ export const useStore = create<State>((set, get) => {
         if (!conversation.workspaceId) continue;
         const cloud = remoteById.get(conversation.id);
         if (cloud && conversation.updatedAt <= Date.parse(cloud.updated_at)) continue;
-        const saved = await invoke<{ revision: number }>("project_put", {
+        const putProject = (baseRevision: number) => invoke<{ revision: number }>("project_put", {
           id: conversation.id,
           project: {
             title: conversation.title,
@@ -3838,10 +3857,35 @@ export const useStore = create<State>((set, get) => {
             chat_mode: conversation.chatMode === "terminal" ? "terminal" : "chat",
             workspace_id: conversation.workspaceId,
             document: serializeConversations([conversation])[0],
-            base_revision: revisions[conversation.id] ?? 0,
+            base_revision: baseRevision,
           },
         });
-        revisions[conversation.id] = saved.revision;
+        let saved: { revision: number } | undefined;
+        try {
+          saved = await putProject(revisions[conversation.id] ?? 0);
+        } catch (error) {
+          if (!isProjectRevisionConflict(error)) throw error;
+          // Another device may have advanced the chat, or its id may belong to a
+          // different NextBrowser account, where no revision can ever match.
+          // Retry against the refreshed revision or as a create, and keep the
+          // chat on this device instead of failing the whole sync.
+          const refreshed = await invoke<{ projects?: Array<{
+            id: string; title: string; agent: string; chat_mode: "chat" | "terminal";
+            workspace_id: string; document: Conversation; revision: number; updated_at: string;
+          }> }>("projects_list");
+          const latest = refreshed.projects?.find((item) => item.id === conversation.id);
+          try {
+            saved = await putProject(latest?.revision ?? 0);
+          } catch (retryError) {
+            if (!isProjectRevisionConflict(retryError)) throw retryError;
+            unownedChats.push(conversation.title);
+            continue;
+          }
+        }
+        if (saved) revisions[conversation.id] = saved.revision;
+      }
+      if (unownedChats.length) {
+        console.warn(`[project_sync] ${unownedChats.length} chat(s) stay on this device because their ids belong to another NextBrowser account`);
       }
       set({ projectRevisions: revisions, workspaceRevisions });
       trackEvent("projects_synced", { project_count: conversations.length });

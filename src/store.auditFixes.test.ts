@@ -67,6 +67,25 @@ it("retains a durable local change and reports a cloud sync failure", async () =
   expect(useStore.getState().workspaces[0].profileNames).toContain("new");
 });
 
+it("keeps a profile usable when a workspace id belongs to another account", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({ authed: true, workspaces: [workspace("mine")], activeWorkspaceId: "mine", conversations: [] });
+  bridge.invoke.mockImplementation((command: string) => {
+    if (command === "workspaces_list") return Promise.resolve({ workspaces: [] });
+    if (command === "workspace_put") return Promise.reject(Object.assign(new Error("workspace revision conflict"), { status: 409 }));
+    if (command === "projects_list") return Promise.resolve({ projects: [] });
+    return Promise.resolve({ revision: 1 });
+  });
+  // The backend owns this id globally, so no revision can ever match. The
+  // assignment must still succeed instead of failing on the cloud sync.
+  await expect(useStore.getState().assignProfileToProject("new", "clawbrowser")).resolves.toBeUndefined();
+  expect(useStore.getState().workspaces[0].profileNames).toContain("new");
+  expect(bridge.invoke.mock.calls.filter(([command]) => command === "workspace_put")).toHaveLength(2);
+  // The sync keeps going instead of aborting on the first unowned workspace.
+  expect(bridge.invoke.mock.calls.some(([command]) => command === "projects_list")).toBe(true);
+  expect(useStore.getState().projectsSyncing).toBe(false);
+});
+
 it("reports refresh failure and releases the loading state", async () => {
   const { useStore } = await import("./store");
   useStore.setState({ loadProxy: vi.fn().mockRejectedValue(new Error("offline")) });

@@ -9,7 +9,7 @@ import { withLocalScripts } from "../skillsCatalog";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
 import { guideProfileTarget, guideWorkspaceProfileNames } from "../lib/guideQuickStart";
 import { manualProxyDefaultName, manualProxyLimits, parseManualProxyBatch, parseManualProxyClipboard, validateManualProxyFields, type ManualProxyScheme } from "../lib/manualProxy";
-import { internalError, needsSupportLink } from "../lib/userFacingError";
+import { actionFailureMessage, internalError, needsSupportLink } from "../lib/userFacingError";
 import { isProxyTrafficExhaustedError, isProxyTrafficGateMessage, proxyTrafficLaunchRefusedMessage } from "../lib/proxyTraffic";
 import { userFacingMultiloginError } from "../lib/userFacingMultiloginError";
 import { entityNameLimits, validateEntityName } from "../lib/entityValidation";
@@ -177,7 +177,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       }
       const detail = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
       console.error(`[${code}] ${label}`, detail);
-      setProfileActionError(internalError(label, code));
+      setProfileActionError(actionFailureMessage(label, code, detail));
     });
   };
 
