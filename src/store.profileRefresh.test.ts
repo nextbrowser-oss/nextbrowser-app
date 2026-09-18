@@ -36,7 +36,11 @@ it("does not let an older profile refresh hide a newly created profile", async (
   expect(useStore.getState().profiles.map((p) => p.name)).toEqual(["one", "two"]);
 });
 
-it("preserves and persists a profile assigned while cloud sync is waiting for projects", async () => {
+it("rejects a profile assignment while cloud sync is in progress, and a retry after it finishes succeeds", async () => {
+  // persistWorkspaceMutation's projectsSyncing guard (added when workspace
+  // mutations became cloud-authoritative) deliberately rejects a mutation
+  // attempted mid-sync outright, rather than queuing it, so a local change
+  // is never merged with a sync pass that started before it existed.
   const { useStore } = await import("./store");
   const projects = deferred<{ projects: never[] }>();
   const workspace = { id: "w", name: "Workspace", profileNames: ["one"], profileToolsets: {}, createdAt: 1, updatedAt: 1 };
@@ -49,10 +53,14 @@ it("preserves and persists a profile assigned while cloud sync is waiting for pr
   });
   const sync = useStore.getState().syncProjects();
   await vi.waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("projects_list"));
-  await useStore.getState().assignProfileToProject("two", "clawbrowser");
+  await expect(useStore.getState().assignProfileToProject("two", "clawbrowser")).rejects.toThrow("Cloud sync is in progress");
+  expect(useStore.getState().workspaces[0].profileNames).toEqual(["one"]);
   projects.resolve({ projects: [] });
   await sync;
   await vi.waitFor(() => expect(useStore.getState().projectsSyncing).toBe(false));
+
+  await useStore.getState().assignProfileToProject("two", "clawbrowser");
+
   expect(useStore.getState().workspaces[0].profileNames).toEqual(["one", "two"]);
   const writes = bridge.invoke.mock.calls.filter(([command, args]) => command === "app_data_write" && args.name === "workspaces.json");
   expect(JSON.parse(writes.at(-1)![1].content)[0].profileNames).toEqual(["one", "two"]);

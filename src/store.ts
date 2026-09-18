@@ -876,7 +876,14 @@ function persistWorkspaceMutation(transform: (workspaces: Workspace[]) => Worksp
       await useStore.getState().syncProjects();
     } catch (error) {
       const ownershipConflict = error instanceof Error && error.message.includes("belongs to another account");
-      if (!ownershipConflict && useStore.getState().workspaces === workspaces) {
+      if (ownershipConflict) {
+        // syncProjects() already recovered: it filtered the foreign workspace
+        // out of local state and persisted that. The mutation the caller
+        // asked for is intact and saved — surfacing this as a rejection
+        // would make an otherwise-successful profile action look failed.
+        return;
+      }
+      if (useStore.getState().workspaces === workspaces) {
         useStore.setState({ workspaces: previous });
         await saveWorkspaces(previous).catch(() => {});
       }

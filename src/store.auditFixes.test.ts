@@ -34,37 +34,47 @@ it("clears stale references when the last workspace is deleted", async () => {
 
 it("rejects and rolls back assignment on a desktop write failure, then permits retry", async () => {
   const { useStore } = await import("./store");
-  useStore.setState({ workspaces: [workspace("a")], activeWorkspaceId: "a" });
+  useStore.setState({ authed: true, workspaces: [workspace("a")], activeWorkspaceId: "a" });
   bridge.invoke.mockRejectedValueOnce(new Error("disk full"));
   await expect(useStore.getState().assignProfileToProject("new", "clawbrowser")).rejects.toThrow("disk full");
   expect(useStore.getState().workspaces[0].profileNames).toEqual(["a-profile"]);
   await useStore.getState().assignProfileToProject("new", "clawbrowser");
   expect(useStore.getState().workspaces[0].profileNames).toEqual(["a-profile", "new"]);
-  const write = bridge.invoke.mock.calls.filter(([command]) => command === "app_data_write").at(-1)!;
+  // syncProjects() (folded into this mutation since 283e454) also persists
+  // conversations.json via the same "app_data_write" command — filter by
+  // file name, not just command, or the last call picked up here can be an
+  // unrelated write.
+  const write = bridge.invoke.mock.calls.filter(([command, args]) => command === "app_data_write" && args?.name === "workspaces.json").at(-1)!;
   expect(JSON.parse(write[1].content)[0].profileNames).toEqual(["a-profile", "new"]);
 });
 
 it("serializes simultaneous assignments without dropping either profile", async () => {
   const { useStore } = await import("./store");
-  useStore.setState({ workspaces: [workspace("a")], activeWorkspaceId: "a" });
+  useStore.setState({ authed: true, workspaces: [workspace("a")], activeWorkspaceId: "a" });
   await Promise.all([useStore.getState().assignProfileToProject("one", "clawbrowser"), useStore.getState().assignProfileToProject("two", "camoufox")]);
   expect(useStore.getState().workspaces[0].profileNames).toEqual(["a-profile", "one", "two"]);
 });
 
 it("does not reorder on write failure or insert a profile from another workspace", async () => {
   const { useStore } = await import("./store");
-  useStore.setState({ workspaces: [{ ...workspace("a"), profileNames: ["one", "two"] }] });
+  useStore.setState({ authed: true, workspaces: [{ ...workspace("a"), profileNames: ["one", "two"] }] });
   bridge.invoke.mockRejectedValueOnce(new Error("disk full"));
   await expect(useStore.getState().reorderProfileInProject("a", "two", "one")).rejects.toThrow();
   expect(useStore.getState().workspaces[0].profileNames).toEqual(["one", "two"]);
   await expect(useStore.getState().reorderProfileInProject("a", "outside", "one")).rejects.toThrow("no longer");
 });
 
-it("retains a durable local change and reports a cloud sync failure", async () => {
+it("rolls back and reports a transient cloud sync failure, unlike an unrecoverable ownership conflict", async () => {
+  // Workspace mutations are cloud-authoritative (283e454): a generic sync
+  // failure (offline, backend down) is retryable, so the local change is
+  // rolled back and the real error surfaces — the opposite of the
+  // unrecoverable "belongs to another account" case (see the test above),
+  // where there is no valid revision to ever retry against and the mutation
+  // is deliberately kept instead.
   const { useStore } = await import("./store");
-  useStore.setState({ workspaces: [workspace("a")], activeWorkspaceId: "a", syncProjects: vi.fn().mockRejectedValue(new Error("offline")) });
-  await expect(useStore.getState().assignProfileToProject("new", "clawbrowser")).rejects.toThrow("saved on this device");
-  expect(useStore.getState().workspaces[0].profileNames).toContain("new");
+  useStore.setState({ authed: true, workspaces: [workspace("a")], activeWorkspaceId: "a", syncProjects: vi.fn().mockRejectedValue(new Error("offline")) });
+  await expect(useStore.getState().assignProfileToProject("new", "clawbrowser")).rejects.toThrow("offline");
+  expect(useStore.getState().workspaces[0].profileNames).toEqual(["a-profile"]);
 });
 
 it("keeps a profile usable when a workspace id belongs to another account", async () => {
@@ -77,9 +87,12 @@ it("keeps a profile usable when a workspace id belongs to another account", asyn
     return Promise.resolve({ revision: 1 });
   });
   // The backend owns this id globally, so no revision can ever match. The
-  // assignment must still succeed instead of failing on the cloud sync.
+  // assignment must still succeed instead of failing on the cloud sync —
+  // even though that means the only workspace it touched, being unowned,
+  // gets filtered out of local state entirely rather than kept with a
+  // revision that can never sync.
   await expect(useStore.getState().assignProfileToProject("new", "clawbrowser")).resolves.toBeUndefined();
-  expect(useStore.getState().workspaces[0].profileNames).toContain("new");
+  expect(useStore.getState().workspaces).toEqual([]);
   expect(bridge.invoke.mock.calls.filter(([command]) => command === "workspace_put")).toHaveLength(2);
   // The sync keeps going instead of aborting on the first unowned workspace.
   expect(bridge.invoke.mock.calls.some(([command]) => command === "projects_list")).toBe(true);

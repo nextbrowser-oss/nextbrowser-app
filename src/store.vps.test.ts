@@ -1036,6 +1036,7 @@ describe("browser profile creation", () => {
 
   it("persists the personal proxy association in the workspace document", async () => {
     useStore.setState({
+      authed: true,
       activeWorkspaceId: "workspace",
       workspaces: [{
         id: "workspace",
