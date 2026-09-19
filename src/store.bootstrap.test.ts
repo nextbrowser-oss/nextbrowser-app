@@ -167,6 +167,40 @@ describe("desktop account bootstrap", () => {
       accountEmail: "person@example.com",
     });
   });
+
+  it("flags loggingOut only while logout is actually waiting on sync, and always clears it", async () => {
+    // Background sync stays silent (App.tsx only shows the sync-status UI
+    // while loggingOut is true); a sync that blocks the account switch is
+    // the one case worth surfacing.
+    bridge.invoke.mockResolvedValue(null);
+    const { useStore } = await import("./store");
+    let releaseSync!: () => void;
+    const sync = new Promise<void>((resolve) => { releaseSync = resolve; });
+    useStore.setState({
+      authed: true,
+      accountEmail: "person@example.com",
+      syncProjects: vi.fn(() => sync),
+    });
+    expect(useStore.getState().loggingOut).toBe(false);
+
+    const logoutPromise = useStore.getState().logout();
+    await vi.waitFor(() => expect(useStore.getState().loggingOut).toBe(true));
+
+    releaseSync();
+    await logoutPromise;
+
+    expect(useStore.getState().loggingOut).toBe(false);
+  });
+
+  it("clears loggingOut even when logout fails", async () => {
+    bridge.invoke.mockRejectedValue(new Error("permission denied"));
+    const { useStore } = await import("./store");
+    useStore.setState({ authed: true, accountEmail: "person@example.com" });
+
+    await expect(useStore.getState().logout()).rejects.toThrow("permission denied");
+
+    expect(useStore.getState().loggingOut).toBe(false);
+  });
 });
 
 describe("account cache ownership at boot", () => {
