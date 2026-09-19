@@ -287,8 +287,17 @@ export function AutomationStudio() {
     if (!selectedWorkflowId && workflows[0]) setSelectedWorkflowId(workflows[0].id);
   }, [workflows, selectedWorkflowId]);
 
+  const lastSelectedWorkflowId = useRef<string | undefined>(undefined);
+  const draftDirtyRef = useRef(false);
+  draftDirtyRef.current = draftDirty;
   useEffect(() => {
     const selected = workflows.find((skill) => skill.id === selectedWorkflowId);
+    const selectionChanged = lastSelectedWorkflowId.current !== selectedWorkflowId;
+    lastSelectedWorkflowId.current = selectedWorkflowId;
+    // A workflow-list refresh (delete, duplicate, library sync) must not throw
+    // away unsaved edits to the currently selected workflow. Only reload the
+    // draft when the selection changes, or when the current draft is clean.
+    if (!selectionChanged && draftDirtyRef.current) return;
     setDraft(selected ? structuredClone(selected) : undefined);
     setSelectedActionIndex(0);
     setActionErrors({});
@@ -1071,7 +1080,12 @@ export function AutomationStudio() {
       setPlayback(finished);
       setActiveAutomationExecution(finished);
       setNotice(undefined);
-      if (backendRunId) await invoke("automation_run_update", { id: backendRunId, update: { status: result.status, output: { engine: "deterministic", steps: result.results.map(({ index, tool, ok, error }) => ({ index, tool, ok, error })), detail } } });
+      if (backendRunId) {
+        // Persisting run history is best-effort: a transient backend failure
+        // must not turn a run that actually succeeded into a reported failure.
+        await invoke("automation_run_update", { id: backendRunId, update: { status: result.status, output: { engine: "deterministic", steps: result.results.map(({ index, tool, ok, error }) => ({ index, tool, ok, error })), detail } } })
+          .catch((error) => console.warn("[AUTOMATION_RUN_HISTORY_UNAVAILABLE] could not persist final run state", error));
+      }
       await Promise.all([loadRuns(), loadArtifacts()]);
       if (result.status === "completed") setNotice("Replay completed successfully.");
       else if (result.status === "failed") {
@@ -1167,8 +1181,22 @@ export function AutomationStudio() {
   const importArtifacts = async () => {
     setArtifactBusy(true);
     setArtifactError(undefined);
-    try { setArtifacts(await invoke<AutomationArtifact[]>("artifact_import", { workspaceId })); }
-    catch (error) { setArtifactError(error instanceof Error ? error.message : String(error)); }
+    try {
+      const result = await invoke<{
+        artifacts: AutomationArtifact[];
+        imported: number;
+        failed: { path: string; error: string }[];
+        skipped: number;
+      }>("artifact_import", { workspaceId });
+      // Always refresh the list, even when some files failed, so successfully
+      // imported files are visible instead of being hidden by one error.
+      setArtifacts(result.artifacts);
+      const problems = [
+        ...(result.failed ?? []).map((item) => `${item.path}: ${item.error}`),
+        ...(result.skipped > 0 ? [`${result.skipped} file(s) skipped (up to 20 per import).`] : []),
+      ];
+      setArtifactError(problems.length ? `Some files could not be imported. ${problems.join("; ")}` : undefined);
+    } catch (error) { setArtifactError(error instanceof Error ? error.message : String(error)); }
     finally { setArtifactBusy(false); }
   };
 

@@ -33,7 +33,10 @@ export function WorkspaceSetupGate() {
       } else {
         const name = validateEntityName("profile", profileName);
         await s.createManagedProfile(name, country, { runtime: toolset, direct });
-        s.assignProfileToProject(name, toolset, workspace.id);
+        // Await the assignment: otherwise setup reports success before the
+        // profile is actually in the workspace, and a rejected assignment
+        // escapes as an unhandled global error.
+        await s.assignProfileToProject(name, toolset, workspace.id);
         s.selectProfile(name);
         window.dispatchEvent(new CustomEvent("nextbrowser:profile-created", { detail: { name } }));
         s.completeWorkspaceSetup();

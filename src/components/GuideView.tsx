@@ -64,6 +64,7 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
   const authed = useStore((s) => s.authed);
   const agentId = useStore((s) => s.agentId);
   const agentReady = useStore((s) => s.agentReady());
+  const workspaceSetupRequired = useStore((s) => s.workspaceSetupRequired);
   const profiles = useStore((s) => s.profiles);
   const workspaces = useStore((s) => s.workspaces);
   const activeWorkspaceId = useStore((s) => s.activeWorkspaceId);
@@ -252,7 +253,15 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
           <p className="muted">Connect what you need, then start a task.</p>
         </div>
         <span className="spacer" />
-        <button className="btn-bordered" onClick={showTour}>
+        <button
+          className="btn-bordered"
+          onClick={showTour}
+          // The onboarding tour only renders when an agent is connected and
+          // workspace setup is done. Disable the button with a reason instead
+          // of letting it silently do nothing.
+          disabled={!agentReady || workspaceSetupRequired}
+          title={!agentReady ? "Connect an agent to replay the tour" : workspaceSetupRequired ? "Finish workspace setup to replay the tour" : undefined}
+        >
           <Icon name="play.circle" size={14} />
           Replay tour
         </button>

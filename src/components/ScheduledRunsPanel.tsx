@@ -216,7 +216,7 @@ function ScheduleEditor({
               min={0}
               max={23}
               value={hour}
-              onChange={(e) => setHour(Number(e.target.value))}
+              onChange={(e) => setHour(Math.max(0, Math.min(23, Math.trunc(Number(e.target.value)) || 0)))}
             />
           </label>
           <span className="schedule-time-separator" aria-hidden>:</span>
@@ -228,7 +228,7 @@ function ScheduleEditor({
               max={59}
               step={15}
               value={minute}
-              onChange={(e) => setMinute(Number(e.target.value))}
+              onChange={(e) => setMinute(Math.max(0, Math.min(59, Math.trunc(Number(e.target.value)) || 0)))}
             />
           </label>
         </div>

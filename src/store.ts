@@ -58,7 +58,7 @@ import { accountLoginURL } from "./lib/accountAuth";
 import { requiresWorkspaceSetup } from "./lib/workspaceSetup";
 import { validateEntityName } from "./lib/entityValidation";
 import { moveProfileToWorkspace as moveProfileBetweenWorkspaces } from "./lib/workspaceProfiles";
-import { isProjectRevisionConflict, isWorkspaceRevisionConflict, mergeWorkspaceAfterRevisionConflict } from "./lib/workspaceConflict";
+import { isProjectRevisionConflict, isWorkspaceNotFound, isWorkspaceRevisionConflict, mergeWorkspaceAfterRevisionConflict } from "./lib/workspaceConflict";
 import {
   normalizeConversation,
   normalizeWorkflowSkill,
@@ -825,6 +825,11 @@ function emptyAccountOwnedCaches(): Partial<State> {
     customScripts: [],
     localSkills: [],
     appliedScripts: [],
+    // Account-scoped cloud skills must be dropped with the rest of the
+    // account cache; otherwise the previous account's private skills stay
+    // visible after logout or an account switch.
+    privateCloudSkills: [],
+    skillCategories: REPOSITORY_SKILL_CATEGORIES,
     usageHistory: [],
     watchedProfiles: [],
     watchlistRuns: [],
@@ -1377,7 +1382,7 @@ async function refreshCompletedAccountPairing(
     loginError: undefined,
   });
   useStore.getState().startTimers();
-  void useStore.getState().refreshAll();
+  void useStore.getState().refreshAll().catch(() => {});
   void useStore.getState().authorizeAgent();
   if (useStore.getState().onboardingReturnPending) {
     useStore.getState().resumeOnboardingAfterSetup();
@@ -1425,6 +1430,17 @@ function requestAccountSignIn(setState: (state: Partial<State>) => void, error: 
     loginError: "Sign in to use managed profiles, traffic, Remote Control, and skills.",
   });
   trackEvent("account_signin_required");
+}
+
+// A failed rotate must not leave the profile — or every profile's status poll,
+// which pauses while any profile is "rotating" — stuck forever. Refresh the
+// authoritative status; if the CLI is also unreachable, clear the transient
+// marker so the user can retry.
+async function settleRotateFailure(name: string): Promise<void> {
+  await useStore.getState().loadProfiles();
+  useStore.setState((s) =>
+    s.statuses[name] === "rotating" ? { statuses: { ...s.statuses, [name]: "unknown" } } : {},
+  );
 }
 
 export const useStore = create<State>((set, get) => {
@@ -1841,14 +1857,16 @@ export const useStore = create<State>((set, get) => {
       const authenticated = !pendingTarget(get(), "vps")
         ? await refreshLocalNextctlMetadata()
         : false;
-      set({ authed: authenticated, checking: false, startupError: undefined });
 
       // The caches loaded above were hydrated before identity was known
       // (a clean logout wipes them, but a crash or a credential change
       // outside logout() would not). If they were stamped for a different
-      // account, drop them now, before syncProjects can push foreign
-      // workspaces/projects at the backend under this account's key.
+      // account, drop them now — before anything treats this session as
+      // authed: a workspace mutation or the queue reconciler can call
+      // syncProjects() as soon as `authed` flips true, which would push the
+      // stale cache at the backend under the new account's key.
       if (authenticated) await guardAgainstForeignAccountCache();
+      set({ authed: authenticated, checking: false, startupError: undefined });
       get().startTimers();
 
       // These operations have their own status UI and cannot hold the splash.
@@ -2695,6 +2713,8 @@ export const useStore = create<State>((set, get) => {
       localSkillSync: {},
       appliedScripts: [],
       scriptSync: {},
+      privateCloudSkills: [],
+      skillCategories: REPOSITORY_SKILL_CATEGORIES,
       usageHistory: [],
       watchedProfiles: [],
       watchReports: {},
@@ -3107,7 +3127,12 @@ export const useStore = create<State>((set, get) => {
       // A user may close the browser window directly. Refresh the authoritative
       // session state and treat stopping an already-closed profile as success.
       await get().loadProfiles().catch(() => undefined);
-      if (get().statuses[n] !== "stopped") throw error;
+      if (get().statuses[n] !== "stopped") {
+        // If the CLI could not confirm a status either, do not leave the
+        // transient "stopping" marker, which pauses every profile's polling.
+        set((s) => (s.statuses[n] === "stopping" ? { statuses: { ...s.statuses, [n]: "unknown" } } : {}));
+        throw error;
+      }
     }
     await get().loadProfiles();
     if (profileOperationEpoch.get(n) !== operation) return;
@@ -3147,6 +3172,7 @@ export const useStore = create<State>((set, get) => {
       trackTiming("profile_rotate_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
     } catch (error) {
       requestAccountSignIn(set, error);
+      await settleRotateFailure(n);
       throw error;
     }
   },
@@ -3178,6 +3204,7 @@ export const useStore = create<State>((set, get) => {
       trackTiming("profile_rotate_completed", startedAt, { scope: "named", country, status: get().statuses[n] ?? "unknown" });
     } catch (error) {
       requestAccountSignIn(set, error);
+      await settleRotateFailure(n);
       throw error;
     }
   },
@@ -3397,7 +3424,10 @@ export const useStore = create<State>((set, get) => {
         // Closing the browser window can leave the renderer one refresh behind.
         // Only suppress the stop error when nextctl confirms the session is gone.
         await get().loadProfiles().catch(() => undefined);
-        if (get().statuses[n] !== "stopped") throw error;
+        if (get().statuses[n] !== "stopped") {
+          set((s) => (s.statuses[n] === "stopping" ? { statuses: { ...s.statuses, [n]: "unknown" } } : {}));
+          throw error;
+        }
       }
     };
 
@@ -3463,6 +3493,11 @@ export const useStore = create<State>((set, get) => {
         activeConvId: { ...s.activeConvId, [agentId]: selected.id },
       }));
     }
+    // Keep the terminal/chat mode in step with whichever conversation became
+    // active. Only selectConversation used to do this, so switching agents or
+    // workspaces could leave the previous project's mode applied.
+    const active = get().conversations.find((conversation) => conversation.id === get().activeConvId[agentId]);
+    if (active) set({ terminalChat: active.chatMode === "terminal" });
   },
 
   authorizeAgent: async (options = {}) => {
@@ -3611,7 +3646,13 @@ export const useStore = create<State>((set, get) => {
   loginAgent: async () => {
     const agentId = get().agentId;
     const a = agentById(agentId);
+    // Ignore re-entry: without this, repeated clicks open several sign-in
+    // terminals and start several 2-minute polls.
+    if (get().runtime[agentId]?.authorizing) return;
     trackEvent("agent_login_started", { agent: agentId });
+    set((s) => ({
+      runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], authorizing: true, error: undefined } },
+    }));
     try {
       await invoke("open_terminal_login", {
         binary: a.binary,
@@ -3655,6 +3696,12 @@ export const useStore = create<State>((set, get) => {
         }
       }
       trackEvent("agent_login_timeout", { agent: agentId });
+      set((s) => ({
+        runtime: {
+          ...s.runtime,
+          [agentId]: { ...s.runtime[agentId], error: internalError(`${a.name} sign-in was not detected. Try again.`, "AGENT_SIGN_IN_TIMEOUT") },
+        },
+      }));
     } catch {
       trackEvent("agent_login_failed", { agent: agentId });
       set((s) => ({
@@ -3662,6 +3709,10 @@ export const useStore = create<State>((set, get) => {
           ...s.runtime,
           [agentId]: { ...s.runtime[agentId], error: internalError(`We couldn't open ${a.name} sign-in.`, "AGENT_SIGN_IN_OPEN_FAILED") },
         },
+      }));
+    } finally {
+      set((s) => ({
+        runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], authorizing: false } },
       }));
     }
   },
@@ -3972,7 +4023,10 @@ export const useStore = create<State>((set, get) => {
         try {
           saved = await saveWorkspace(candidate, workspaceRevisions[workspace.id] ?? 0);
         } catch (error) {
-          if (!isWorkspaceRevisionConflict(error)) throw error;
+          // A 404 means the backend has no such workspace for this account.
+          // Handle it like a revision conflict (refresh, then retry as a
+          // create) instead of failing the user's profile action.
+          if (!isWorkspaceRevisionConflict(error) && !isWorkspaceNotFound(error)) throw error;
           // A second device changed the same workspace after our initial list.
           // Refresh once, merge profile associations, and retry against its
           // revision instead of surfacing a background 409 to the user.
@@ -3989,7 +4043,7 @@ export const useStore = create<State>((set, get) => {
             try {
               saved = await saveWorkspace(workspace, 0);
             } catch (retryError) {
-              if (!isWorkspaceRevisionConflict(retryError)) throw retryError;
+              if (!isWorkspaceRevisionConflict(retryError) && !isWorkspaceNotFound(retryError)) throw retryError;
               unownedWorkspaceIds.push(workspace.id);
               unownedWorkspaces.push(workspace.name);
               continue;
@@ -4214,6 +4268,7 @@ export const useStore = create<State>((set, get) => {
     else delete activeConvId[agentId];
     set({ activeWorkspaceId: id, activeConvId, selectedProfile: undefined,
       workspaceSetupRequired: requiresWorkspaceSetup(get().workspaces, get().conversations, id),
+      terminalChat: selected?.chatMode === "terminal",
     });
   },
 
@@ -4265,6 +4320,9 @@ export const useStore = create<State>((set, get) => {
     set({
       conversations,
       activeConvId: { ...get().activeConvId, [agentId]: c.id },
+      // A new chat is always chat-mode; without this the previous project's
+      // terminal mode leaks into it.
+      terminalChat: false,
     });
     trackEvent("chat_created", { agent: agentId, conversation_count: conversations.length });
     return c.id;
@@ -4486,7 +4544,18 @@ export const useStore = create<State>((set, get) => {
   },
 
   deleteConversation: (id) => {
-    const agentId = get().conversations.find((item) => item.id === id)?.agent ?? get().agentId;
+    const removed = get().conversations.find((item) => item.id === id);
+    const agentId = removed?.agent ?? get().agentId;
+    // A streaming reply keeps its process alive after its conversation is
+    // gone. finishAgentRun cannot clear it then (the owning message no longer
+    // exists), which would leave the composer stuck on Stop for the rest of
+    // the session. Terminate the run and clear its runtime marker here.
+    const removedReplyIds = new Set(
+      (removed?.messages ?? [])
+        .filter((message) => message.status === "streaming")
+        .map((message) => message.id),
+    );
+    for (const replyId of removedReplyIds) void invoke("agent_terminate", { replyId }).catch(() => {});
     const conversations = get().conversations.filter((c) => c.id !== id);
     const activeConvId = { ...get().activeConvId };
     if (activeConvId[agentId] === id) {
@@ -4501,7 +4570,17 @@ export const useStore = create<State>((set, get) => {
     persistConvs(conversations);
     const projectRevisions = { ...get().projectRevisions };
     delete projectRevisions[id];
-    set({ conversations, activeConvId, projectRevisions });
+    set((s) => {
+      const runtime = { ...s.runtime };
+      if (removedReplyIds.size) {
+        for (const [key, value] of Object.entries(runtime)) {
+          if (value.runningReplyId && removedReplyIds.has(value.runningReplyId)) {
+            runtime[key] = { ...value, runningReplyId: undefined, pendingStop: false };
+          }
+        }
+      }
+      return { conversations, activeConvId, projectRevisions, runtime };
+    });
     trackEvent("chat_deleted", { agent: agentId, conversation_count: conversations.length });
   },
 

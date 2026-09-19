@@ -99,6 +99,21 @@ it("keeps a profile usable when a workspace id belongs to another account", asyn
   expect(useStore.getState().projectsSyncing).toBe(false);
 });
 
+it("does not fail a profile action when the backend does not know the workspace", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({ authed: true, workspaces: [workspace("mine")], activeWorkspaceId: "mine", conversations: [] });
+  bridge.invoke.mockImplementation((command: string) => {
+    if (command === "workspace_put") return Promise.reject(Object.assign(new Error("workspace not found"), { status: 404 }));
+    if (command === "workspaces_list") return Promise.resolve({ workspaces: [] });
+    if (command === "projects_list") return Promise.resolve({ projects: [] });
+    return Promise.resolve({ revision: 1 });
+  });
+  // A workspace the backend returns 404 for must not block the user's action;
+  // it is dropped locally like a foreign workspace.
+  await expect(useStore.getState().assignProfileToProject("new", "clawbrowser")).resolves.toBeUndefined();
+  expect(useStore.getState().workspaces).toEqual([]);
+});
+
 it("reports refresh failure and releases the loading state", async () => {
   const { useStore } = await import("./store");
   useStore.setState({ loadProxy: vi.fn().mockRejectedValue(new Error("offline")) });
@@ -151,4 +166,41 @@ it("does not hide saved instructions when deletion cannot be persisted", async (
   expect(useStore.getState().customScripts).toEqual([script]);
   await useStore.getState().deleteCustomScript("test");
   expect(useStore.getState().customScripts).toEqual([]);
+});
+
+it("clears the rotating marker when an IP rotation fails", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({ statuses: { p: "running" } });
+  bridge.invoke.mockRejectedValue(new Error("cli down"));
+  await expect(useStore.getState().rotateProfile("p")).rejects.toThrow();
+  // A stuck "rotating" status pauses status polling for every profile.
+  expect(useStore.getState().statuses.p).not.toBe("rotating");
+  expect(useStore.getState().statuses.p).toBe("unknown");
+});
+
+it("terminates an in-flight reply and clears its marker when its chat is deleted", async () => {
+  const { useStore } = await import("./store");
+  const project = {
+    id: "c1", title: "C", agent: "claude",
+    messages: [{ id: "r1", role: "assistant" as const, text: "…", status: "streaming" as const, createdAt: 1 }],
+    createdAt: 1, updatedAt: 1, executionTarget: "local" as const,
+  };
+  const runtime = useStore.getState().runtime;
+  useStore.setState({
+    conversations: [project],
+    activeConvId: { claude: "c1" },
+    runtime: { ...runtime, claude: { ...runtime.claude, runningReplyId: "r1" } },
+  });
+  useStore.getState().deleteConversation("c1");
+  expect(useStore.getState().conversations).toEqual([]);
+  expect(useStore.getState().runtime.claude.runningReplyId).toBeUndefined();
+  expect(bridge.invoke.mock.calls.some(([command, args]) => command === "agent_terminate" && (args as { replyId?: string })?.replyId === "r1")).toBe(true);
+});
+
+it("ignores a second sign-in request while one is already in flight", async () => {
+  const { useStore } = await import("./store");
+  const runtime = useStore.getState().runtime;
+  useStore.setState({ agentId: "claude", runtime: { ...runtime, claude: { ...runtime.claude, authorizing: true } } });
+  await useStore.getState().loginAgent();
+  expect(bridge.invoke.mock.calls.some(([command]) => command === "open_terminal_login")).toBe(false);
 });
