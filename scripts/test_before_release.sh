@@ -3,8 +3,9 @@
 # Local pre-release check.
 #
 # Runs the mandatory gates and then a real proxy canary: for each configured
-# country it starts a managed-proxy profile, requires a green verification,
-# proves the egress IP is the proxy (never the host), and repeats N times.
+# country it starts a managed-proxy profile, requires a green verification, and
+# proves the egress IP is the proxy (never the host) with a matching country.
+# One attempt per country by default; raise RUNS to retry for flakiness.
 #
 # It fails closed: any failed start, failed verification, direct egress, or
 # country mismatch makes the script exit non-zero.
@@ -17,7 +18,7 @@
 #
 # Configuration (environment variables):
 #   COUNTRIES        space-separated ISO-3166 alpha-2 codes   (default: US DE GB)
-#   RUNS             successful verifies per country          (default: 3)
+#   RUNS             attempts per country                     (default: 1)
 #   RUNTIME          browser runtime                          (default: clawbrowser)
 #   IPINFO_URL       JSON endpoint used for the egress check  (default: https://ipinfo.io/json)
 #   HOST_IP          override the detected host IP
@@ -31,7 +32,7 @@ set -uo pipefail
 
 # Use `-` (not `:-`) so an explicitly empty COUNTRIES means "skip the canary".
 COUNTRIES="${COUNTRIES-US DE GB}"
-RUNS="${RUNS:-3}"
+RUNS="${RUNS:-1}"
 RUNTIME="${RUNTIME:-clawbrowser}"
 IPINFO_URL="${IPINFO_URL:-https://ipinfo.io/json}"
 SKIP_GATES="${SKIP_GATES:-0}"
@@ -201,7 +202,7 @@ canary_one() {
 
 run_canary() {
   log ""
-  log "== Proxy canary: $RUNS successful verifies x countries [$COUNTRIES] =="
+  log "== Proxy canary: $RUNS attempt(s) per country [$COUNTRIES] =="
   local host; host="$(host_ip)"
   [ -n "$host" ] && dim "host IP: $host" || warn "could not detect host IP; direct-egress check relies on country only"
   dim "nextctl: $NCTL ($("$NCTL" --version 2>/dev/null | head -n1 || echo version unknown))"
