@@ -79,19 +79,51 @@ jobs:
               || echo "::warning::optional package $pkg unavailable"
           done
 
-      - name: Install nextctl
+      - name: Install latest nextctl
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.nextbrowser/bin"
-          gh release download --repo nextbrowser-oss/nbc_releases \
+          # Always the latest published release, never a pinned version.
+          tag="$(gh api repos/nextbrowser-oss/nbc_releases/releases/latest --jq .tag_name)"
+          echo "nextctl release: $tag"
+          gh release download "$tag" --repo nextbrowser-oss/nbc_releases \
             --pattern 'nbc-linux-amd64.tar.gz' --dir /tmp/nbc --clobber
           tar -xzf /tmp/nbc/nbc-linux-amd64.tar.gz -C /tmp/nbc
           bin="$(find /tmp/nbc -type f -name nbc -perm -u+x | head -n1)"
           install -m 0755 "$bin" "$HOME/.nextbrowser/bin/nextctl"
           echo "NEXTCTL_BIN=$HOME/.nextbrowser/bin/nextctl" >> "$GITHUB_ENV"
           "$HOME/.nextbrowser/bin/nextctl" --version || true
+
+      - name: Install latest ClawBrowser
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Pick the newest non-prerelease ClawBrowser release that ships a
+          # Linux x64 archive (the project publishes one release per OS).
+          info="$(gh api 'repos/clawbrowser/clawbrowser/releases?per_page=100' \
+            --jq '[.[]|select(.draft==false and .prerelease==false)|select(any(.assets[];.name|test("^clawbrowser-linux.*\\.tar\\.gz$")))]|sort_by(.published_at)|reverse|.[0]|[.tag_name,([.assets[].name|select(test("^clawbrowser-linux.*\\.tar\\.gz$"))][0])]|@tsv')"
+          tag="$(printf '%s' "$info" | cut -f1)"
+          asset="$(printf '%s' "$info" | cut -f2)"
+          if [ -z "$tag" ] || [ -z "$asset" ]; then
+            echo "::error::no Linux ClawBrowser release found"
+            exit 1
+          fi
+          echo "ClawBrowser release: $tag ($asset)"
+          mkdir -p /tmp/clawbrowser
+          gh release download "$tag" --repo clawbrowser/clawbrowser \
+            --pattern "$asset" --dir /tmp/clawbrowser --clobber
+          tar -xzf "/tmp/clawbrowser/$asset" -C /tmp/clawbrowser
+          launcher="$(find /tmp/clawbrowser -type f -iname clawbrowser -perm -u+x | head -n1)"
+          if [ -z "$launcher" ]; then
+            echo "::error::no clawbrowser launcher inside $asset"
+            exit 1
+          fi
+          chmod +x "$launcher"
+          echo "CLAWBROWSER_BIN=$launcher" >> "$GITHUB_ENV"
+          "$NEXTCTL_BIN" config set --browser-bin "$launcher"
 
       - name: Configure the canary account
         env:
