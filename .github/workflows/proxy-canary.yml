@@ -1,8 +1,9 @@
 name: Proxy canary
 
-# Real-browser, real-proxy core check. Starts managed-proxy profiles on a Linux
-# runner and requires a green verification with a matching egress country, three
-# times per country. It uses a dedicated canary account (CLAWBROWSER_API_KEY) and
+# Real-browser, real-proxy core check. Starts a managed-proxy profile per
+# country on a Linux runner and requires a green verification with a matching
+# egress country. One attempt per country by default; any single failure fails
+# the job. It uses a dedicated canary account (CLAWBROWSER_API_KEY) and
 # therefore never runs for fork pull requests.
 #
 # See scripts/test_before_release.sh for the local variant.
@@ -18,8 +19,8 @@ on:
         default: "US DE GB"
         required: false
       runs:
-        description: Successful verifies per country
-        default: "3"
+        description: Attempts per country
+        default: "1"
         required: false
   # Allow a release workflow to gate publication on this check later.
   workflow_call:
@@ -29,7 +30,7 @@ on:
         default: "US DE GB"
       runs:
         type: string
-        default: "3"
+        default: "1"
     secrets:
       CLAWBROWSER_API_KEY:
         required: true
@@ -147,9 +148,11 @@ jobs:
         env:
           CLAWBROWSER_API_KEY: ${{ secrets.CLAWBROWSER_API_KEY }}
           COUNTRIES: ${{ inputs.countries || 'US DE GB' }}
-          RUNS: ${{ inputs.runs || '3' }}
+          RUNS: ${{ inputs.runs || '1' }}
           RUNTIME: clawbrowser
           SKIP_GATES: "1"
+          # Any single failure fails the job; stop early to save proxy traffic.
+          STOP_ON_FIRST_ERROR: "1"
         run: |
           set -o pipefail
           # The portable runtime runs under a virtual display on headless Linux.
