@@ -263,6 +263,28 @@ function nextctlUpdatedVersion(text: string): string | undefined {
   return text.match(/\[nbc-update\]\s+Installed\s+v?([0-9][^\s]*)/i)?.[1];
 }
 
+// The success notice is a brief confirmation, not a permanent state: the
+// footer already shows the version, so "updated → X" must not linger.
+const NEXTCTL_UPDATE_NOTICE_MS = 10_000;
+let nextctlUpdateNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearNextctlUpdateNotice(): void {
+  if (!nextctlUpdateNoticeTimer) return;
+  clearTimeout(nextctlUpdateNoticeTimer);
+  nextctlUpdateNoticeTimer = null;
+}
+
+function showNextctlUpdateNotice(message: string): void {
+  useStore.setState({ nextctlUpdateStatus: message });
+  clearNextctlUpdateNotice();
+  nextctlUpdateNoticeTimer = setTimeout(() => {
+    nextctlUpdateNoticeTimer = null;
+    if (useStore.getState().nextctlUpdateStatus === message) {
+      useStore.setState({ nextctlUpdateStatus: undefined });
+    }
+  }, NEXTCTL_UPDATE_NOTICE_MS);
+}
+
 function nextBrowserInstallPrompt(agentAdapter: string): string {
   return `NextBrowser needs to finish installing its local browser components before browser work can start.
 
@@ -3958,14 +3980,16 @@ export const useStore = create<State>((set, get) => {
         // nextctl installed successfully. The command can still exit non-zero
         // because an optional browser-runtime asset failed to download (for
         // example a missing macOS Clawbrowser archive), which must not be
-        // reported as a failed nextctl update.
-        set({ nextctlUpdateStatus: `updated → ${normalizeNextctlVersion(to)}` });
+        // reported as a failed nextctl update. Show a brief confirmation.
+        showNextctlUpdateNotice(`updated → ${normalizeNextctlVersion(to)}`);
         trackEvent("nextctl_update_available", { updated: true });
       } else if (res.code === 0) {
         // Already current — keep the footer on one line; show nothing.
+        clearNextctlUpdateNotice();
         set({ nextctlUpdateStatus: undefined });
         trackEvent("nextctl_update_not_available");
       } else {
+        clearNextctlUpdateNotice();
         set({ nextctlUpdateStatus: nextctlUpdateErrorMessage(nextctlErrorMessage(res)) });
         trackEvent("nextctl_update_failed", { exit_code: res.code });
         scheduleRetry(retryAttempt + 1);
@@ -3981,6 +4005,7 @@ export const useStore = create<State>((set, get) => {
       return true;
     } catch (error) {
       console.error("[NEXTCTL_UPDATE_FAILED] nextctl update failed:", error);
+      clearNextctlUpdateNotice();
       set({
         nextctlUpdateStatus: nextctlUpdateErrorMessage(error instanceof Error ? error.message : String(error)),
         nextctlAvailable: false,

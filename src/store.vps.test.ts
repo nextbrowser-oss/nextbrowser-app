@@ -1172,25 +1172,51 @@ describe("local component and profile lifecycle", () => {
   });
 
   it("treats a successful nextctl install as success even when the command exits non-zero", async () => {
-    useStore.setState({ nextctlAvailable: true, nextctlCompatibilityError: undefined });
-    bridge.invoke.mockImplementation((command) => {
-      if (command === "nextctl_run") {
-        return Promise.resolve({
-          code: 1,
-          stdout: "[nbc-update] Downloading ...v1.2.15...\n[nbc-update] Installed v1.2.15 to /tmp/managed-nextctl/nextctl\n",
-          stderr: "Warning: download clawbrowser-macos-arm64.tar.gz: unexpected status 404 Not Found\n",
-        });
-      }
-      if (command === "nextctl_version") return Promise.resolve("1.2.15");
-      if (command === "nextctl_supports_skill") return Promise.resolve(true);
-      return Promise.resolve(null);
-    });
+    vi.useFakeTimers();
+    try {
+      useStore.setState({ nextctlAvailable: true, nextctlCompatibilityError: undefined });
+      bridge.invoke.mockImplementation((command) => {
+        if (command === "nextctl_run") {
+          return Promise.resolve({
+            code: 1,
+            stdout: "[nbc-update] Downloading ...v1.2.15...\n[nbc-update] Installed v1.2.15 to /tmp/managed-nextctl/nextctl\n",
+            stderr: "Warning: download clawbrowser-macos-arm64.tar.gz: unexpected status 404 Not Found\n",
+          });
+        }
+        if (command === "nextctl_version") return Promise.resolve("1.2.15");
+        if (command === "nextctl_supports_skill") return Promise.resolve(true);
+        return Promise.resolve(null);
+      });
 
-    // The optional browser-runtime asset can fail without making the nextctl
-    // install itself a failure.
-    await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(true);
-    expect(useStore.getState().nextctlUpdateStatus).toBe("updated → 1.2.15");
-    expect(useStore.getState().nextctlAvailable).toBe(true);
+      // The optional browser-runtime asset can fail without making the nextctl
+      // install itself a failure.
+      await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(true);
+      expect(useStore.getState().nextctlUpdateStatus).toBe("updated → 1.2.15");
+      expect(useStore.getState().nextctlAvailable).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears the brief nextctl update confirmation on its own", async () => {
+    vi.useFakeTimers();
+    try {
+      useStore.setState({ nextctlAvailable: true, nextctlCompatibilityError: undefined });
+      bridge.invoke.mockImplementation((command) => {
+        if (command === "nextctl_run") return Promise.resolve({ code: 0, stdout: "[nbc-update] Installed v1.2.15 to /tmp/managed-nextctl/nextctl\n", stderr: "" });
+        if (command === "nextctl_version") return Promise.resolve("1.2.15");
+        if (command === "nextctl_supports_skill") return Promise.resolve(true);
+        return Promise.resolve(null);
+      });
+
+      await useStore.getState().checkNextctlUpdate();
+      expect(useStore.getState().nextctlUpdateStatus).toBe("updated → 1.2.15");
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(useStore.getState().nextctlUpdateStatus).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("requires verified preparation for the profile launch button", async () => {
