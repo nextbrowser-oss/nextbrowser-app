@@ -166,17 +166,23 @@ canary_one() {
     return 1
   fi
 
-  # Read the egress identity from the page.
+  # Make sure the egress page is the active tab: verification can leave a
+  # different tab focused.
+  "$NCTL" open "$IPINFO_URL" --profile "$name" --runtime "$RUNTIME" --format json >/dev/null 2>&1 || true
+  "$NCTL" wait --load --timeout 20s --profile "$name" --runtime "$RUNTIME" --format json >/dev/null 2>&1 || true
+
+  # Read the egress identity from the page. `eval`'s JSON envelope is
+  # { data: { session, result } }; the evaluated value is under data.result.
   local eout page eip ecountry
   eout="$("$NCTL" eval "document.body.innerText" --profile "$name" --runtime "$RUNTIME" --format json 2>&1)" || true
-  page="$(json_field "$eout" 'd.get("data","")')"
+  page="$(json_field "$eout" 'd.get("data",{}).get("result","")')"
   eip="$(json_field "$page" 'd.get("ip","")')"
   ecountry="$(json_field "$page" 'd.get("country","")')"
 
   local host; host="$(host_ip)"
   local okrun=1
   if [ -z "$eip" ]; then
-    bad "$label: could not read egress IP"; okrun=0
+    bad "$label: could not read egress IP (page='$(printf '%s' "$page" | tr '\n' ' ' | cut -c1-120)')"; okrun=0
   elif [ -n "$host" ] && [ "$eip" = "$host" ]; then
     bad "$label: DIRECT egress detected (egress=$eip = host)"; okrun=0
   fi
