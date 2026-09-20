@@ -138,6 +138,13 @@ jobs:
           mkdir -p "$NEXTBROWSER_CONFIG_DIR"
           "$NEXTCTL_BIN" config set --api-key "$CLAWBROWSER_API_KEY"
 
+      - name: Allow the Chromium sandbox (Ubuntu 24.04 AppArmor userns restriction)
+        run: |
+          # Chromium cannot create its sandbox when unprivileged user namespaces
+          # are restricted; the ephemeral runner has no other Chrome profiles.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+
       - name: Proxy canary
         env:
           CLAWBROWSER_API_KEY: ${{ secrets.CLAWBROWSER_API_KEY }}
