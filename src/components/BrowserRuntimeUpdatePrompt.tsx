@@ -1,3 +1,4 @@
+import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { Icon } from "./Icon";
 
 export interface BrowserRuntimeUpdateEntry {
@@ -17,7 +18,14 @@ export function BrowserRuntimeUpdatePrompt({ runtimes, onLater, onConfirm }: {
 }) {
   const isFirstInstall = runtimes.every((runtime) => runtime.status === "not-installed");
   return (
-    <div className="modal-overlay">
+    <div
+      className="modal-overlay"
+      onKeyDown={(event) => {
+        if (!shouldDismissModalWithEscape(event)) return;
+        event.preventDefault();
+        onLater();
+      }}
+    >
       <div className="modal-card runtime-update-prompt" role="dialog" aria-modal="true" aria-labelledby="runtime-update-title">
         <div className="modal-title-row">
           <Icon name="arrow.down.circle" size={19} className="warn" />
@@ -37,7 +45,7 @@ export function BrowserRuntimeUpdatePrompt({ runtimes, onLater, onConfirm }: {
         <p className="muted small">Installation starts only after you confirm and continues in the background. Keep NextBrowser open until it finishes.</p>
         {runtimes.some((runtime) => runtime.runtime === "clawbrowser") && <p className="muted small">Stop running ClawBrowser profiles first; NextBrowser won’t close them automatically.</p>}
         <div className="row settings-actions">
-          <button className="secondary" onClick={onLater}>Later</button>
+          <button className="secondary" autoFocus onClick={onLater}>Later</button>
           <span className="spacer" />
           <button className="primary" onClick={() => onConfirm(runtimes.map((runtime) => runtime.runtime))}>{isFirstInstall ? "Install" : "Update"} {runtimes.length > 1 ? `${runtimes.length} toolsets` : "now"}</button>
         </div>

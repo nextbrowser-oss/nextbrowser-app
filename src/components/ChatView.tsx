@@ -115,6 +115,7 @@ export function ChatView() {
   const [scriptOpen, setScriptOpen] = useState(false);
   const [editingReply, setEditingReply] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [actionError, setActionError] = useState<string>();
   const [promptDetail, setPromptDetail] = useState<string | null>(null);
   const [projectCreatorOpen, setProjectCreatorOpen] = useState(false);
   const [projectAgentId, setProjectAgentId] = useState(s.agentId);
@@ -166,10 +167,37 @@ export function ChatView() {
     setTerminalHandoff(undefined);
     setTerminalToChatRequest(undefined);
     setPendingTerminalContext(undefined);
+    // Pending attachments and an unsent draft belong to the previous chat.
+    setAttachments([]);
+    setDraft("");
+    setGuideDraftLoaded(false);
     // Opening another project is not a chat/terminal handoff.
     previousTerminalChat.current = s.terminalChat;
     setTerminalMounted(s.terminalChat);
   }, [conversationKey]);
+
+  useEffect(() => {
+    if (!editingReply) return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setActionError(undefined);
+      setEditingReply(null);
+    };
+    window.addEventListener("keydown", dismiss);
+    return () => window.removeEventListener("keydown", dismiss);
+  }, [editingReply]);
+
+  useEffect(() => {
+    if (promptDetail === null) return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setPromptDetail(null);
+    };
+    window.addEventListener("keydown", dismiss);
+    return () => window.removeEventListener("keydown", dismiss);
+  }, [promptDetail]);
 
   useEffect(() => {
     const wasTerminalChat = previousTerminalChat.current;
@@ -225,19 +253,24 @@ export function ChatView() {
   };
 
   const attachFiles = async () => {
-    const selected = await invoke<ChatAttachment[]>("select_chat_files");
-    trackEvent("chat_files_selected", {
-      attachment_count: selected.length,
-      total_size_bucket: Math.min(
-        100_000_000,
-        Math.ceil(selected.reduce((total, file) => total + file.size, 0) / 1_000_000) * 1_000_000,
-      ),
-    });
-    setAttachments((current) => {
-      const byPath = new Map(current.map((file) => [file.path, file]));
-      for (const file of selected) byPath.set(file.path, file);
-      return [...byPath.values()];
-    });
+    setActionError(undefined);
+    try {
+      const selected = await invoke<ChatAttachment[]>("select_chat_files");
+      trackEvent("chat_files_selected", {
+        attachment_count: selected.length,
+        total_size_bucket: Math.min(
+          100_000_000,
+          Math.ceil(selected.reduce((total, file) => total + file.size, 0) / 1_000_000) * 1_000_000,
+        ),
+      });
+      setAttachments((current) => {
+        const byPath = new Map(current.map((file) => [file.path, file]));
+        for (const file of selected) byPath.set(file.path, file);
+        return [...byPath.values()];
+      });
+    } catch {
+      setActionError("Could not attach files. Try again.");
+    }
   };
 
   const addAttachmentFiles = (files: Iterable<File>, source: "paste" | "drop") => {
@@ -552,6 +585,7 @@ export function ChatView() {
                 const replyIndex = reply ? messages.findIndex((x) => x.id === reply.id) : -1;
                 const user = m.role === "user" ? m : replyIndex > 0 ? messages[replyIndex - 1] : null;
                 if (reply && user) {
+                  setActionError(undefined);
                   setEditingReply(reply.id);
                   setEditText(user.text);
                 }
@@ -629,6 +663,9 @@ export function ChatView() {
             ))}
           </div>
         )}
+        {actionError && !editingReply && (
+          <div className="chat-action-error error small" role="alert">{actionError}</div>
+        )}
         <div className="composer" onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
           <textarea
             ref={composerRef}
@@ -642,7 +679,7 @@ export function ChatView() {
             onChange={(e) => setDraft(e.target.value)}
             onPaste={handlePaste}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
                 e.preventDefault();
                 send();
               }
@@ -797,16 +834,21 @@ export function ChatView() {
 
       {editingReply && (
         <div className="modal-overlay">
-          <div className="modal-card">
+          <div className="modal-card" role="dialog" aria-modal="true" aria-label="Edit queued message">
             <textarea value={editText} onChange={(e) => setEditText(e.target.value)} rows={4} />
+            {actionError && <div className="error small" role="alert">{actionError}</div>}
             <div className="row" style={{ marginTop: 8, gap: 8 }}>
-              <button className="secondary" onClick={() => setEditingReply(null)}>
+              <button className="secondary" onClick={() => { setActionError(undefined); setEditingReply(null); }}>
                 Cancel
               </button>
               <button
                 className="primary"
                 onClick={() => {
-                  s.editQueuedReply(editingReply, editText);
+                  if (!s.editQueuedReply(editingReply, editText)) {
+                    setActionError("Could not update this queued message. It may have already started or been removed.");
+                    return;
+                  }
+                  setActionError(undefined);
                   setEditingReply(null);
                 }}
               >
@@ -819,7 +861,7 @@ export function ChatView() {
 
       {promptDetail !== null && (
         <div className="modal-overlay" onMouseDown={() => setPromptDetail(null)}>
-          <div className="modal-card prompt-detail-card" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="modal-card prompt-detail-card" role="dialog" aria-modal="true" aria-label="Prompt sent to agent" onMouseDown={(e) => e.stopPropagation()}>
             <strong>Prompt sent to agent</strong>
             <pre className="prompt-detail-text">{promptDetail}</pre>
             <div className="row" style={{ marginTop: 8, gap: 8 }}>

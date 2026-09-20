@@ -234,6 +234,50 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     return () => window.removeEventListener("keydown", dismissManualProxy);
   }, [manualProxyOpen, manualSaving, manualProxyDeletePending]);
 
+  useEffect(() => {
+    if (!profileConnectionEditor || profileConnectionSaving) return;
+    const dismissProfileConnectionEditor = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setProfileConnectionEditor(null);
+    };
+    window.addEventListener("keydown", dismissProfileConnectionEditor);
+    return () => window.removeEventListener("keydown", dismissProfileConnectionEditor);
+  }, [profileConnectionEditor, profileConnectionSaving]);
+
+  useEffect(() => {
+    if (!pendingRuntimeInstall) return;
+    const dismissRuntimeInstall = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setPendingRuntimeInstall(undefined);
+    };
+    window.addEventListener("keydown", dismissRuntimeInstall);
+    return () => window.removeEventListener("keydown", dismissRuntimeInstall);
+  }, [pendingRuntimeInstall]);
+
+  useEffect(() => {
+    if (!confirmDelete || profileDeleting) return;
+    const dismissProfileDelete = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setConfirmDelete(null);
+    };
+    window.addEventListener("keydown", dismissProfileDelete);
+    return () => window.removeEventListener("keydown", dismissProfileDelete);
+  }, [confirmDelete, profileDeleting]);
+
+  useEffect(() => {
+    if (!confirmDeleteChat) return;
+    const dismissChatDelete = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setConfirmDeleteChat(null);
+    };
+    window.addEventListener("keydown", dismissChatDelete);
+    return () => window.removeEventListener("keydown", dismissChatDelete);
+  }, [confirmDeleteChat]);
+
   const agentName = agentById(s.agentId).name;
   const ready = s.agentReady();
   const searchQuery = s.profileSearch.trim();
@@ -1957,7 +2001,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           <section className="modal-card runtime-install-confirm" role="dialog" aria-modal="true" aria-labelledby="runtime-install-confirm-title" onMouseDown={(event) => event.stopPropagation()}>
             <div className="profile-menu-head"><Icon name="arrow.down.circle.fill" size={17} /><strong id="runtime-install-confirm-title">Download {pendingRuntimeInstall.runtime === "camoufox" ? "Camoufox" : pendingRuntimeInstall.runtime === "dasbrowser" ? "DasBrowser" : "ClawBrowser"}?</strong></div>
             <p className="muted small">This browser toolset is required to start “{pendingRuntimeInstall.profile}”. NextBrowser will download it in the background and show progress. You can stop the download at any time.</p>
-            <div className="modal-actions"><button className="secondary" type="button" onClick={() => setPendingRuntimeInstall(undefined)}>Cancel</button><button className="primary" type="button" onClick={() => { const request = pendingRuntimeInstall; setPendingRuntimeInstall(undefined); runProfileAction(`We couldn't start “${request.profile}”.`, "PROFILE_START_FAILED", () => s.startProfile(request.profile)); }}><Icon name="arrow.down.circle.fill" size={13} /> Download &amp; start</button></div>
+            <div className="modal-actions"><button className="secondary" type="button" autoFocus onClick={() => setPendingRuntimeInstall(undefined)}>Cancel</button><button className="primary" type="button" onClick={() => { const request = pendingRuntimeInstall; setPendingRuntimeInstall(undefined); runProfileAction(`We couldn't start “${request.profile}”.`, "PROFILE_START_FAILED", () => s.startProfile(request.profile)); }}><Icon name="arrow.down.circle.fill" size={13} /> Download &amp; start</button></div>
           </section>
         </div>
       ), document.body)}
@@ -2121,6 +2165,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         <div className="modal-overlay" onMouseDown={() => !profileConnectionSaving && setProfileConnectionEditor(null)}>
           <form
             className="modal-card profile-connection-editor"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="profile-connection-editor-title"
             onMouseDown={(event) => event.stopPropagation()}
             onSubmit={(event) => {
               event.preventDefault();
@@ -2137,7 +2184,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           >
             <div className="profile-menu-head">
               <Icon name="network" size={15} className="accent-icon" />
-              <span className="profile-menu-name">Change connection</span>
+              <span id="profile-connection-editor-title" className="profile-menu-name">Change connection</span>
               <span className="spacer" />
               <button type="button" className="plain-icon-btn" title="Close" disabled={profileConnectionSaving} onClick={() => setProfileConnectionEditor(null)}><Icon name="xmark.circle.fill" size={18} /></button>
             </div>
@@ -2148,9 +2195,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 ["direct", "network", "No proxy", "Use your direct internet connection"],
                 ["managed", "globe", "Managed proxy", "Choose a country and rotate IP later"],
                 ["personal", "network", "Personal proxy", "Use one of your saved proxies"],
-              ] as const).filter(([connection]) => connection !== "direct" || s.profiles.find((p) => p.name === profileConnectionEditor.name)?.proxy_mode === "direct").map(([connection, icon, title, description]) => (
+              ] as const).filter(([connection]) => connection !== "direct" || s.profiles.find((p) => p.name === profileConnectionEditor.name)?.proxy_mode === "direct").map(([connection, icon, title, description], index) => (
                 <label key={connection} className={"project-mode-option" + (profileConnectionEditor.connection === connection ? " is-selected" : "")}>
-                  <input type="radio" name="existing-profile-connection" checked={profileConnectionEditor.connection === connection} onChange={() => setProfileConnectionEditor({ ...profileConnectionEditor, connection })} />
+                  <input type="radio" name="existing-profile-connection" autoFocus={index === 0} checked={profileConnectionEditor.connection === connection} onChange={() => setProfileConnectionEditor({ ...profileConnectionEditor, connection })} />
                   <Icon name={icon} size={16} />
                   <span><strong>{title}</strong><small>{description}</small></span>
                 </label>
@@ -2434,15 +2481,15 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
       {confirmDelete && createPortal((
         <div className="modal-overlay" onMouseDown={() => !profileDeleting && setConfirmDelete(null)}>
-          <div className="modal-card" onMouseDown={(event) => event.stopPropagation()}>
-            <p>Delete profile "{confirmDelete}"?</p>
+          <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="delete-profile-title" onMouseDown={(event) => event.stopPropagation()}>
+            <p id="delete-profile-title">Delete profile "{confirmDelete}"?</p>
             {profileDeleteError && (
               <div className="error small" role="alert" style={{ marginTop: 10 }}>
                 <UserFacingError message={profileDeleteError} surface="profile_delete" />
               </div>
             )}
             <div className="row" style={{ marginTop: 12, gap: 8 }}>
-              <button className="secondary" disabled={profileDeleting} onClick={() => setConfirmDelete(null)}>
+              <button className="secondary" disabled={profileDeleting} autoFocus onClick={() => setConfirmDelete(null)}>
                 Cancel
               </button>
               <button
@@ -2475,14 +2522,14 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         const runningProfiles = (chat.profileNames ?? []).filter((name) => s.statuses[name] === "running");
         return (
           <div className="modal-overlay" onMouseDown={() => setConfirmDeleteChat(null)}>
-            <div className="modal-card delete-chat-modal" onMouseDown={(event) => event.stopPropagation()}>
-              <h3>Delete “{chat.title}”?</h3>
+            <div className="modal-card delete-chat-modal" role="dialog" aria-modal="true" aria-labelledby="delete-chat-title" onMouseDown={(event) => event.stopPropagation()}>
+              <h3 id="delete-chat-title">Delete “{chat.title}”?</h3>
               <p>This removes the chat and its message history. Profiles stay in the workspace.</p>
               {runningProfiles.length > 0 && (
                 <p className="delete-chat-warning">Stop {runningProfiles.length === 1 ? `“${runningProfiles[0]}”` : "the running profiles"} before deleting this chat.</p>
               )}
               <div className="modal-actions">
-                <button className="secondary" onClick={() => setConfirmDeleteChat(null)}>Cancel</button>
+                <button className="secondary" autoFocus onClick={() => setConfirmDeleteChat(null)}>Cancel</button>
                 <button
                   className="primary danger"
                   disabled={runningProfiles.length > 0}
@@ -2570,7 +2617,16 @@ function ProfileRow({
   return (
     <div
       className={"profile-row" + (selected ? " selected" : "") + (occupiedBy ? " is-occupied" : "") + (draggable ? " is-draggable" : "") + (dragOver ? " is-drag-over" : "")}
+      role="button"
+      tabIndex={0}
+      aria-label={`Select profile ${name}`}
       onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onSelect();
+      }}
       draggable={draggable}
       onDragStart={(event) => {
         if (!draggable) return;

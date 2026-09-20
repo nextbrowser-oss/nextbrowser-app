@@ -126,6 +126,9 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
   const lastBrowserContextRef = useRef(browserContext || "");
   const onPreviewChangeRef = useRef(onPreviewChange);
   const attachmentsRef = useRef(attachments);
+  const terminalBusyRef = useRef(false);
+  const terminalStatusRef = useRef(status);
+  terminalStatusRef.current = status;
   onContinueInChatRef.current = onContinueInChat;
   onHandoffConsumedRef.current = onHandoffConsumed;
   onChatHandoffConsumedRef.current = onChatHandoffConsumed;
@@ -141,15 +144,22 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
     const syncRecorder = () => {
       const recordingId = activeAutomationRecording()?.id || "";
       if (!recordingId || recordingId === terminalRecordingIdRef.current) return;
-      terminalRecordingIdRef.current = recordingId;
       // MCP environment is fixed when Codex starts. Restart an idle Terminal
       // session as Recorder is armed so subsequent browser tools write to the
-      // new recording trace instead of silently bypassing it.
+      // new recording trace instead of silently bypassing it. Never interrupt
+      // a terminal that is still starting or running an agent task.
+      if (terminalStatusRef.current === "starting" || terminalBusyRef.current) return;
+      terminalRecordingIdRef.current = recordingId;
       setRestartNonce((value) => value + 1);
     };
     window.addEventListener(AUTOMATION_RECORDING_EVENT, syncRecorder);
     return () => window.removeEventListener(AUTOMATION_RECORDING_EVENT, syncRecorder);
   }, []);
+
+  useEffect(() => {
+    setAttachments([]);
+    setAttachmentError(undefined);
+  }, [conversationId]);
 
   const transcript = () => {
     const terminal = terminalRef.current;
@@ -190,6 +200,20 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
     let lastMcpRecovery = "";
     let readinessTimer: ReturnType<typeof setTimeout> | undefined;
     let previewTimer: ReturnType<typeof setTimeout> | undefined;
+    let busyTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const markTaskSubmitted = () => {
+      terminalBusyRef.current = true;
+      if (busyTimer) clearTimeout(busyTimer);
+      busyTimer = undefined;
+    };
+    const markOutputSettled = () => {
+      if (!terminalBusyRef.current) return;
+      if (busyTimer) clearTimeout(busyTimer);
+      // An agent task is considered finished once its output has been quiet
+      // for a moment, which keeps the terminal from restarting mid-task.
+      busyTimer = setTimeout(() => { terminalBusyRef.current = false; }, 1_500);
+    };
 
     const openLink = (uri: string) => {
       void openTerminalWebLink(uri, (url) => invoke("open_external", { url })).catch((reason) => {
@@ -316,6 +340,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
       }
       if (attachmentContext && deferred.consumed) setAttachments([]);
       if (deferred.userInput) userInputSinceChatHandoffRef.current = true;
+      if (data.includes("\r")) markTaskSubmitted();
       currentLineInputRef.current = deferred.consumed ? "" : terminalLineBufferAfter(currentLineInputRef.current, data);
       writeInput(id, deferred.data);
     };
@@ -340,10 +365,22 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
       forwardInput(data);
     });
 
+    // Listeners are registered asynchronously, so cleanup may run before a
+    // subscription resolves. Unsubscribe immediately when that happens.
+    const subscribe = async <T,>(channel: string, handler: (event: { payload: T }) => void): Promise<(() => void) | undefined> => {
+      const remove = await listen<T>(channel, handler);
+      if (disposed) {
+        remove();
+        return undefined;
+      }
+      return remove;
+    };
+
     void (async () => {
-      removeData = await listen<[string, string]>("terminal:data", ({ payload: [id, data] }) => {
+      removeData = await subscribe<[string, string]>("terminal:data", ({ payload: [id, data] }) => {
         if (id !== terminalIdRef.current) return;
         terminal.write(data);
+        markOutputSettled();
         startupOutput = (startupOutput + data).slice(-64_000);
         const recovery = codexMcpRecovery(agentId, startupOutput);
         if (recovery && recovery !== lastMcpRecovery) {
@@ -367,18 +404,20 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
         if (previewTimer) clearTimeout(previewTimer);
         previewTimer = setTimeout(() => onPreviewChangeRef.current?.(terminalActivityPreview(startupOutput)), 750);
       });
-      removeExit = await listen<[string, number, number]>("terminal:exit", ({ payload: [id, exitCode] }) => {
+      removeExit = await subscribe<[string, number, number]>("terminal:exit", ({ payload: [id, exitCode] }) => {
         if (id !== terminalIdRef.current) return;
         if (readinessTimer) clearTimeout(readinessTimer);
+        if (busyTimer) clearTimeout(busyTimer);
+        terminalBusyRef.current = false;
         terminalReadyRef.current = true;
         queuedInputRef.current = "";
         terminal.write(`\r\n\x1b[90mProcess exited (${exitCode}).\x1b[0m\r\n`);
         setStatus("exited");
       });
-      removeProfileStarted = await listen<[string, string]>("profile:host-started", ({ payload: [profile, ownerId] }) => {
+      removeProfileStarted = await subscribe<[string, string]>("profile:host-started", ({ payload: [profile, ownerId] }) => {
         if (ownerId === conversationId) onProfileStartedRef.current?.(profile);
       });
-      removeProfileStopped = await listen<[string, string]>("profile:host-stopped", ({ payload: [profile, ownerId] }) => {
+      removeProfileStopped = await subscribe<[string, string]>("profile:host-stopped", ({ payload: [profile, ownerId] }) => {
         if (ownerId === conversationId) onProfileStoppedRef.current?.(profile);
       });
       const id = await invoke<string>("terminal_start", {
@@ -411,9 +450,11 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
 
     return () => {
       disposed = true;
+      terminalBusyRef.current = false;
       observer.disconnect();
       if (readinessTimer) clearTimeout(readinessTimer);
       if (previewTimer) clearTimeout(previewTimer);
+      if (busyTimer) clearTimeout(busyTimer);
       host.removeEventListener("contextmenu", showContextMenu);
       themeObserver.disconnect();
       input.dispose();
@@ -485,9 +526,16 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
   };
 
   const removeAttachment = async (file: ChatAttachment) => {
-    await invoke("remove_terminal_file", { path: file.path });
-    setAttachments((current) => current.filter((item) => item.path !== file.path));
-    requestAnimationFrame(() => terminalRef.current?.focus());
+    setAttachmentError(undefined);
+    try {
+      await invoke("remove_terminal_file", { path: file.path });
+      setAttachments((current) => current.filter((item) => item.path !== file.path));
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason);
+      setAttachmentError(message.replace(/^Error invoking remote method '[^']+': Error:\s*/, ""));
+    } finally {
+      requestAnimationFrame(() => terminalRef.current?.focus());
+    }
   };
 
   return (

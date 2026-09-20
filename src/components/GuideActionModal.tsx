@@ -29,6 +29,10 @@ export function GuideActionModal({
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const onCancelRef = useRef(onCancel);
+  useEffect(() => {
+    onCancelRef.current = onCancel;
+  });
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement
@@ -39,7 +43,7 @@ export function GuideActionModal({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onCancel();
+        onCancelRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -71,7 +75,7 @@ export function GuideActionModal({
       document.removeEventListener("keydown", onKeyDown);
       if (previousFocus?.isConnected) previousFocus.focus();
     };
-  }, [onCancel]);
+  }, []);
 
   return (
     <div

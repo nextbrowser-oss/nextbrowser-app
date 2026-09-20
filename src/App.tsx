@@ -32,6 +32,7 @@ import {
   recordPreviousAppTab,
 } from "./lib/appNavigation";
 import { errorReference } from "./lib/userFacingError";
+import { shouldDismissModalWithEscape } from "./lib/modalKeyboard";
 import { invoke, listen } from "./electronBridge";
 import { agentById } from "./agents";
 import { releaseDownloadUrl } from "./lib/releaseDownload";
@@ -130,6 +131,11 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onRetry, onOpenManualGu
   const installing = status.status === "installing";
   const failed = status.status === "failed";
   const partial = status.status === "partial";
+  const errors = status.errors ?? [];
+  const retryRuntimes = status.runtimes ?? [];
+  // A failure with no per-runtime detail (for example the initial update check
+  // could not reach the network) still needs an actionable retry.
+  const canRetry = failed && errors.length === 0 && retryRuntimes.length > 0;
   return (
     <div className="runtime-update-progress-card" role="status" aria-live="polite">
       {installing ? <InstallationSpinner /> : (
@@ -140,9 +146,9 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onRetry, onOpenManualGu
       <div className="runtime-update-progress-copy">
         <strong>{installing ? `Updating ${status.currentName ?? "browser toolsets"}` : failed ? "Update failed" : partial ? "Update partly complete" : "Browser toolsets updated"}</strong>
         <span className="muted small">{status.message}</span>
-        {!!status.errors?.length && (
+        {!!errors.length && (
           <div className="runtime-update-errors">
-            {status.errors.map((error) => (
+            {errors.map((error) => (
               <section className="runtime-update-error" key={error.runtime}>
                 <div className="runtime-update-error-heading">
                   <strong>{error.name} couldn’t update</strong>
@@ -157,6 +163,11 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onRetry, onOpenManualGu
                 </div>
               </section>
             ))}
+          </div>
+        )}
+        {canRetry && (
+          <div className="row runtime-update-error-actions">
+            <button className="secondary small" onClick={() => onRetry(retryRuntimes)}>Retry</button>
           </div>
         )}
         {(failed || partial) && <p className="runtime-update-requirements">Before retrying: keep NextBrowser open, use a stable connection, make sure there is free disk space, and close any running browser toolset.</p>}
@@ -566,6 +577,11 @@ function SettingsModal({
           {browserRuntimeUpdates.status === "partial" && (
             <div className="muted small settings-runtime-note">Some update sources could not be reached. Installed runtimes are unaffected.</div>
           )}
+          {browserRuntimeUpdates.status === "error" && browserRuntimeUpdates.message && (
+            <div className="error small settings-runtime-note">
+              <UserFacingError message={browserRuntimeUpdates.message} surface="browser_runtime_update" />
+            </div>
+          )}
         </div>
 
         <div className="settings-section">
@@ -660,13 +676,22 @@ function AppUpdatePrompt({
 }) {
   const downloading = status.status === "downloading";
   const downloaded = status.status === "downloaded";
+  useEffect(() => {
+    const dismiss = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      onLater();
+    };
+    window.addEventListener("keydown", dismiss);
+    return () => window.removeEventListener("keydown", dismiss);
+  }, [onLater]);
   return (
     <div className="modal-overlay">
-      <div className="modal-card update-prompt">
+      <div className="modal-card update-prompt" role="dialog" aria-modal="true" aria-labelledby="app-update-title">
         <div className="modal-title-row">
           <Icon name="sparkles" size={18} className="warn" />
           <div>
-            <strong>New NextBrowser version available</strong>
+            <strong id="app-update-title">New NextBrowser version available</strong>
             <div className="muted small">
               {status.version ? `Version ${status.version} is ready.` : "A newer build is available."}
             </div>
@@ -683,7 +708,7 @@ function AppUpdatePrompt({
         </p>
         {downloading && <InstallationProgress label={`Downloading NextBrowser ${status.percent ?? 0}%`} />}
         <div className="row settings-actions">
-          <button className="secondary" onClick={onLater}>Later</button>
+          <button className="secondary" autoFocus onClick={onLater}>Later</button>
           <span className="spacer" />
           {manual ? (
             <ManualReleaseDownload onOpen={onOpenRelease} />
@@ -715,7 +740,7 @@ export function App() {
   const [settingsFocus, setSettingsFocus] = useState<"agent" | null>(null);
   const [appUpdate, setAppUpdate] = useState<AppUpdateStatus>({ status: "idle" });
   const [browserRuntimeUpdates, setBrowserRuntimeUpdates] = useState<BrowserRuntimeUpdateStatus>({ status: "idle", runtimes: [] });
-  const [updatePromptDismissed, setUpdatePromptDismissed] = useState(false);
+  const [updatePromptDismissedVersion, setUpdatePromptDismissedVersion] = useState<string>();
   const [runtimeUpdatePrompt, setRuntimeUpdatePrompt] = useState<BrowserRuntimeUpdateEntry[]>();
   const [runtimeUpdatePromptDismissed, setRuntimeUpdatePromptDismissed] = useState("");
   const [runtimeUpdateInstall, setRuntimeUpdateInstall] = useState<BrowserRuntimeUpdateInstallStatus>({ status: "idle" });
@@ -1398,11 +1423,11 @@ export function App() {
           onRequestBrowserRuntimeUpdate={requestBrowserRuntimeUpdate}
         />
       )}
-      {updateAvailable(appUpdate) && !updatePromptDismissed && !settingsOpen && (
+      {updateAvailable(appUpdate) && appUpdate.version !== updatePromptDismissedVersion && !settingsOpen && (
         <AppUpdatePrompt
           status={appUpdate}
           manual={MANUAL_UPDATE}
-          onLater={() => setUpdatePromptDismissed(true)}
+          onLater={() => setUpdatePromptDismissedVersion(appUpdate.version)}
           onDownload={downloadAppUpdate}
           onInstall={installAppUpdate}
           onOpenRelease={openLatestRelease}

@@ -1090,6 +1090,15 @@ function handleDeepLink(rawUrl) {
 }
 function quotePosix(value) { return `'${String(value).replaceAll("'", "'\\''")}'`; }
 function setAppUpdateStatus(status, patch = {}) {
+  // "downloaded" is the only status that exposes the "Restart and update"
+  // action. Background checks and transient errors must not discard it, or the
+  // action disappears until the next download. Only a strictly newer version
+  // may replace it.
+  if (appUpdateStatus?.status === "downloaded" && status !== "downloaded") {
+    const downloaded = appUpdateStatus.version;
+    const next = patch.version;
+    if (!downloaded || !next || compareVersions(next, downloaded) <= 0) return;
+  }
   appUpdateStatus = { status, ...patch, updatedAt: Date.now() };
   emit("app:update", appUpdateStatus);
 }

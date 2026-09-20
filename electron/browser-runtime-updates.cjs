@@ -140,8 +140,32 @@ async function installSelectedRuntimeUpdates({ requestedRuntimes, checkForUpdate
   const fresh = await checkForUpdates();
   const updates = selectAvailableRuntimeUpdates(fresh, requestedRuntimes);
   if (!updates.length) {
+    const requested = new Set(Array.isArray(requestedRuntimes) ? requestedRuntimes.map(String) : []);
+    const failedChecks = (fresh?.runtimes || []).filter((runtime) => (
+      requested.has(runtime.runtime) && runtime.status === "error"
+    ));
+    // A fresh check that failed is a real error, not a benign no-op. Surface it
+    // so the renderer can offer retry instead of an "already up to date" notice.
+    if (fresh?.status === "error" || failedChecks.length) {
+      const result = {
+        status: "failed",
+        runtimes: failedChecks.map((runtime) => runtime.runtime),
+        completed: [],
+        errors: failedChecks.map((runtime) => ({
+          runtime: runtime.runtime,
+          name: runtime.name,
+          releasePage: runtime.releasePage,
+          ...classifyRuntimeUpdateFailure(new Error(runtime.error || `Could not check ${runtime.name} for updates.`)),
+        })),
+        progress: 100,
+        message: fresh?.message || "The selected browser toolsets could not be checked for updates.",
+      };
+      onStatus(result);
+      return result;
+    }
+    // Nothing to install is a successful no-op, not a failure.
     const result = {
-      status: "failed",
+      status: "ready",
       runtimes: [],
       completed: [],
       errors: [],
