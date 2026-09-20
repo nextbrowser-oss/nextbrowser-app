@@ -8,8 +8,6 @@ name: Proxy canary
 # See scripts/test_before_release.sh for the local variant.
 
 on:
-  push:
-    branches: [ci/proxy-canary]
   schedule:
     # Nightly at 03:00 UTC.
     - cron: "0 3 * * *"
@@ -148,8 +146,8 @@ jobs:
       - name: Proxy canary
         env:
           CLAWBROWSER_API_KEY: ${{ secrets.CLAWBROWSER_API_KEY }}
-          COUNTRIES: "US"
-          RUNS: "1"
+          COUNTRIES: ${{ inputs.countries || 'US DE GB' }}
+          RUNS: ${{ inputs.runs || '3' }}
           RUNTIME: clawbrowser
           SKIP_GATES: "1"
         run: |
