@@ -1,0 +1,112 @@
+name: Proxy canary
+
+# Real-browser, real-proxy core check. Starts managed-proxy profiles on a Linux
+# runner and requires a green verification with a matching egress country, three
+# times per country. It uses a dedicated canary account (CLAWBROWSER_API_KEY) and
+# therefore never runs for fork pull requests.
+#
+# See scripts/test_before_release.sh for the local variant.
+
+on:
+  schedule:
+    # Nightly at 03:00 UTC.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      countries:
+        description: Space-separated ISO 3166-1 alpha-2 country codes
+        default: "US DE GB"
+        required: false
+      runs:
+        description: Successful verifies per country
+        default: "3"
+        required: false
+  # Allow a release workflow to gate publication on this check later.
+  workflow_call:
+    inputs:
+      countries:
+        type: string
+        default: "US DE GB"
+      runs:
+        type: string
+        default: "3"
+    secrets:
+      CLAWBROWSER_API_KEY:
+        required: true
+
+permissions:
+  contents: read
+
+# Never let two canaries share the canary account's proxy traffic at once.
+concurrency:
+  group: proxy-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    # The secret only exists for trusted refs; never run for forks.
+    if: github.repository == 'nextbrowser-oss/nextbrowser-app'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Install browser dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb ffmpeg \
+            libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+            libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
+            libxrandr2 libgbm1 libasound2 libpango-1.0-0 libcairo2
+
+      - name: Install nextctl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.nextbrowser/bin"
+          gh release download --repo nextbrowser-oss/nbc_releases \
+            --pattern 'nbc-linux-amd64.tar.gz' --dir /tmp/nbc --clobber
+          tar -xzf /tmp/nbc/nbc-linux-amd64.tar.gz -C /tmp/nbc
+          bin="$(find /tmp/nbc -type f -name nbc -perm -u+x | head -n1)"
+          install -m 0755 "$bin" "$HOME/.nextbrowser/bin/nextctl"
+          echo "NEXTCTL_BIN=$HOME/.nextbrowser/bin/nextctl" >> "$GITHUB_ENV"
+          "$HOME/.nextbrowser/bin/nextctl" --version || true
+
+      - name: Configure the canary account
+        env:
+          CLAWBROWSER_API_KEY: ${{ secrets.CLAWBROWSER_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLAWBROWSER_API_KEY:-}" ]; then
+            echo "::error::CLAWBROWSER_API_KEY secret is not set"
+            exit 1
+          fi
+          export NEXTBROWSER_CONFIG_DIR="$HOME/.nextbrowser/runtime/config"
+          mkdir -p "$NEXTBROWSER_CONFIG_DIR"
+          "$NEXTCTL_BIN" config set --api-key "$CLAWBROWSER_API_KEY"
+
+      - name: Proxy canary
+        env:
+          CLAWBROWSER_API_KEY: ${{ secrets.CLAWBROWSER_API_KEY }}
+          COUNTRIES: ${{ inputs.countries || 'US DE GB' }}
+          RUNS: ${{ inputs.runs || '3' }}
+          RUNTIME: clawbrowser
+          SKIP_GATES: "1"
+        run: |
+          set -o pipefail
+          # The portable runtime runs under a virtual display on headless Linux.
+          xvfb-run -a bash scripts/test_before_release.sh 2>&1 | tee proxy-canary.log
+
+      - name: Upload canary log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-canary-log
+          path: proxy-canary.log
+          if-no-files-found: warn
