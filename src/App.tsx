@@ -95,7 +95,7 @@ interface BrowserRuntimeUpdateInstallStatus {
   }[];
 }
 
-const APP_UPDATE_ERROR = "We couldn't update NextBrowser. Please retry again.";
+const APP_UPDATE_ERROR = "We couldn't update the NextBrowser app. Please retry.";
 
 function BrowserRuntimeInstallModal({ status, onCancel }: { status: BrowserRuntimeInstallStatus; onCancel: () => void }) {
   const name = status.runtime === "dasbrowser" ? "DasBrowser" : status.runtime === "camoufox" ? "Camoufox" : "ClawBrowser";
@@ -214,7 +214,13 @@ function updateLabel(status?: AppUpdateStatus | null): string {
   if (status.status === "not-available") return "Up to date";
   if (status.status === "checking") return "Checking...";
   if (status.status === "disabled") return "Updates unavailable in this build";
-  if (status.status === "error") return APP_UPDATE_ERROR;
+  if (status.status === "error") {
+    // Surface the updater's own reason when the main process provided one,
+    // instead of a generic message that hides what actually failed.
+    const detail = status.message?.trim();
+    if (!detail || detail === APP_UPDATE_ERROR) return APP_UPDATE_ERROR;
+    return `We couldn't update the NextBrowser app: ${detail}`;
+  }
   return "Check for updates";
 }
 

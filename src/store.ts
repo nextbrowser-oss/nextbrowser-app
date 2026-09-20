@@ -242,7 +242,26 @@ const NEXTCTL_DAILY_UPDATE_POLL_MS = 60 * 1000;
 const NEXTCTL_UPDATE_RETRY_MS = 5 * 60 * 1000;
 const NEXTCTL_UPDATE_MAX_RETRIES = 2;
 const NEXTCTL_UPDATE_STATE_FILE = "nextctl-update.json";
-const NEXTCTL_UPDATE_ERROR = "We couldn't update NextBrowser. Please retry again.";
+const NEXTCTL_UPDATE_ERROR = "We couldn't update the NextBrowser CLI (nextctl). Please retry.";
+const NEXTCTL_UPDATE_ERROR_DETAIL_LIMIT = 160;
+
+function nextctlUpdateErrorMessage(reason?: string): string {
+  const detail = String(reason ?? "").replace(/\s+/g, " ").trim().slice(0, NEXTCTL_UPDATE_ERROR_DETAIL_LIMIT);
+  return detail ? `${NEXTCTL_UPDATE_ERROR} (${detail})` : NEXTCTL_UPDATE_ERROR;
+}
+
+/**
+ * Reads the newly installed nextctl version from `nextctl update` output.
+ * Supports the current `[nbc-update] Installed vX` line and the legacy
+ * `nextctl updated: old > new` line. The command can exit non-zero because an
+ * optional browser-runtime asset failed to download even though nextctl
+ * itself was installed, so success must be detected from the output.
+ */
+function nextctlUpdatedVersion(text: string): string | undefined {
+  const legacy = text.split("\n").find((line) => line.includes("nextctl updated:"));
+  if (legacy) return legacy.split(">").pop()?.trim() || undefined;
+  return text.match(/\[nbc-update\]\s+Installed\s+v?([0-9][^\s]*)/i)?.[1];
+}
 
 function nextBrowserInstallPrompt(agentAdapter: string): string {
   return `NextBrowser needs to finish installing its local browser components before browser work can start.
@@ -1947,7 +1966,9 @@ export const useStore = create<State>((set, get) => {
     // Never replace that test binary with the latest published release while
     // the app is running under Vite/Electron development mode.
     if (import.meta.env.DEV) return;
-    if (!get().nextctlAvailable) return;
+    // An incompatible CLI reports nextctlAvailable=false but still needs a
+    // reinstall, so let the tick through for that case.
+    if (!get().nextctlAvailable && !get().nextctlCompatibilityError) return;
     if (get().nextctlUpdating) return;
     if (pendingTarget(get(), "vps")) return;
     // `nextctl update` also refreshes the browser runtime and agent assets. Do
@@ -1958,6 +1979,12 @@ export const useStore = create<State>((set, get) => {
       ...Object.values(get().statuses),
     ].some((status) => status != null && !["stopped", "unknown"].includes(status));
     if (browserSessionActive || get().anyAgentRunning()) return;
+    if (get().nextctlCompatibilityError) {
+      // The old executable cannot run anything, so reinstall it now instead of
+      // waiting for the daily window. Respect an already-scheduled retry.
+      if (!nextctlUpdateRetryTimer) void get().checkNextctlUpdate();
+      return;
+    }
     const state = await loadJson<NextctlUpdateState>(NEXTCTL_UPDATE_STATE_FILE, {});
     if (pendingTarget(get(), "vps")) return;
     const lastAutoCheckAt = Number(state.lastAutoCheckAt ?? 0);
@@ -3926,21 +3953,20 @@ export const useStore = create<State>((set, get) => {
       // one-minute command timeout.
       const res = await nextctlRun(["update"], undefined, { timeoutMs: 10 * 60_000 });
       const text = res.stdout + res.stderr;
-      const line = text.split("\n").find((l) => l.includes("nextctl updated:"));
-      if (line) {
-        const to = line.split(">").pop()?.trim() ?? "";
-        set({
-          nextctlUpdateStatus: to
-            ? `updated → ${normalizeNextctlVersion(to)}`
-            : "updated",
-        });
+      const to = nextctlUpdatedVersion(text);
+      if (to) {
+        // nextctl installed successfully. The command can still exit non-zero
+        // because an optional browser-runtime asset failed to download (for
+        // example a missing macOS Clawbrowser archive), which must not be
+        // reported as a failed nextctl update.
+        set({ nextctlUpdateStatus: `updated → ${normalizeNextctlVersion(to)}` });
         trackEvent("nextctl_update_available", { updated: true });
       } else if (res.code === 0) {
         // Already current — keep the footer on one line; show nothing.
         set({ nextctlUpdateStatus: undefined });
         trackEvent("nextctl_update_not_available");
       } else {
-        set({ nextctlUpdateStatus: NEXTCTL_UPDATE_ERROR });
+        set({ nextctlUpdateStatus: nextctlUpdateErrorMessage(nextctlErrorMessage(res)) });
         trackEvent("nextctl_update_failed", { exit_code: res.code });
         scheduleRetry(retryAttempt + 1);
         return false;
@@ -3956,7 +3982,7 @@ export const useStore = create<State>((set, get) => {
     } catch (error) {
       console.error("[NEXTCTL_UPDATE_FAILED] nextctl update failed:", error);
       set({
-        nextctlUpdateStatus: NEXTCTL_UPDATE_ERROR,
+        nextctlUpdateStatus: nextctlUpdateErrorMessage(error instanceof Error ? error.message : String(error)),
         nextctlAvailable: false,
       });
       trackTiming("nextctl_update_failed", startedAt);
