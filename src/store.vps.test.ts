@@ -1147,7 +1147,7 @@ describe("local component and profile lifecycle", () => {
     expect(restored.updatedAt).toBeGreaterThan(previousUpdatedAt);
   });
 
-  it("retries a failed nextctl update twice at five-minute intervals", async () => {
+  it("retries a failed nextctl update five times with a growing pause before reporting failure", async () => {
     vi.useFakeTimers();
     try {
       useStore.setState({ nextctlAvailable: true });
@@ -1158,41 +1158,56 @@ describe("local component and profile lifecycle", () => {
 
       await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(false);
       expect(localNextctlCalls()).toHaveLength(1);
-      expect(useStore.getState().nextctlUpdateStatus).toBe("We couldn't update the NextBrowser CLI (nextctl). Please retry. offline");
+      // Every attempt stays silent until retries are exhausted.
+      expect(useStore.getState().nextctlUpdateStatus).toBeUndefined();
 
-      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
-      expect(localNextctlCalls()).toHaveLength(2);
-      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
-      expect(localNextctlCalls()).toHaveLength(3);
-      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
-      expect(localNextctlCalls()).toHaveLength(3);
+      const pausesSeconds = [90, 100, 110, 120, 130];
+      for (const [index, pause] of pausesSeconds.entries()) {
+        await vi.advanceTimersByTimeAsync(pause * 1000);
+        expect(localNextctlCalls()).toHaveLength(index + 2);
+        const isLastRetry = index === pausesSeconds.length - 1;
+        expect(useStore.getState().nextctlUpdateStatus).toBe(
+          isLastRetry ? "We couldn't update the NextBrowser CLI (nextctl). Please retry. offline" : undefined,
+        );
+      }
+
+      // No further retries are scheduled once the fifth one has failed.
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+      expect(localNextctlCalls()).toHaveLength(6);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("reduces a request failure to just the HTTP status", async () => {
-    useStore.setState({ nextctlAvailable: true });
-    bridge.invoke.mockImplementation((command) => {
-      if (command === "nextctl_run") {
-        return Promise.resolve({
-          code: 1,
-          stdout: "",
-          stderr: "fetch releases/latest https://api.github.com/repos/nextbrowser-oss/nbc_releases/releases/latest: unexpected status 403 Forbidden",
-        });
-      }
-      return Promise.resolve(null);
-    });
+  it("reduces a request failure to just the HTTP status once retries are exhausted", async () => {
+    vi.useFakeTimers();
+    try {
+      useStore.setState({ nextctlAvailable: true });
+      bridge.invoke.mockImplementation((command) => {
+        if (command === "nextctl_run") {
+          return Promise.resolve({
+            code: 1,
+            stdout: "",
+            stderr: "fetch releases/latest https://api.github.com/repos/nextbrowser-oss/nbc_releases/releases/latest: unexpected status 403 Forbidden",
+          });
+        }
+        return Promise.resolve(null);
+      });
 
-    await useStore.getState().checkNextctlUpdate();
+      await useStore.getState().checkNextctlUpdate();
+      expect(useStore.getState().nextctlUpdateStatus).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
 
-    const status = useStore.getState().nextctlUpdateStatus ?? "";
-    expect(status).toBe("We couldn't update the NextBrowser CLI (nextctl). Please retry. 403 Forbidden");
-    expect(status).not.toContain("api.github.com");
-    expect(status).not.toContain("fetch releases/latest");
+      const status = useStore.getState().nextctlUpdateStatus ?? "";
+      expect(status).toBe("We couldn't update the NextBrowser CLI (nextctl). Please retry. 403 Forbidden");
+      expect(status).not.toContain("api.github.com");
+      expect(status).not.toContain("fetch releases/latest");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it("does not schedule short retries when the nextctl update is rate-limited", async () => {
+  it("still retries silently in the background when the nextctl update is rate-limited, then backs off for the daily tick", async () => {
     vi.useFakeTimers();
     try {
       useStore.setState({ nextctlAvailable: true });
@@ -1210,11 +1225,12 @@ describe("local component and profile lifecycle", () => {
       await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(false);
       expect(localNextctlCalls()).toHaveLength(1);
 
-      // A rate limit must not trigger the five-minute retries.
-      await vi.advanceTimersByTimeAsync(30 * 60 * 1000);
-      expect(localNextctlCalls()).toHaveLength(1);
+      // The five background retries still run for a rate limit, same as any
+      // other failure — only the daily background tick treats it specially.
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+      expect(localNextctlCalls()).toHaveLength(6);
 
-      // It records a one-hour backoff so the daily tick waits it out.
+      // Once exhausted, it records a one-hour backoff so the daily tick waits it out.
       const write = bridge.invoke.mock.calls
         .filter(([command, args]) => command === "app_data_write" && (args as { name?: string })?.name === "nextctl-update.json")
         .at(-1);
