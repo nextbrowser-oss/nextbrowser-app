@@ -768,6 +768,15 @@ export function App() {
   const workspaceSetupRequired = useStore((s) => {
     return s.authed && s.workspacesLoaded && s.workspaceSetupRequired;
   });
+  const workspaceSetupAuto = useStore((s) => s.workspaceSetupAuto);
+  const ensureDefaultWorkspaceSetup = useStore((s) => s.ensureDefaultWorkspaceSetup);
+  // Create the default workspace/project/profiles silently on first run instead
+  // of blocking the user with the setup modal.
+  useEffect(() => {
+    if (!workspaceSetupRequired) return;
+    if (workspaceSetupAuto === "running" || workspaceSetupAuto === "failed") return;
+    void ensureDefaultWorkspaceSetup();
+  }, [workspaceSetupRequired, workspaceSetupAuto, ensureDefaultWorkspaceSetup]);
   const sidebarWidth = useStore((s) => s.sidebarWidth);
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
   const setSidebarWidth = useStore((s) => s.setSidebarWidth);
@@ -1447,7 +1456,7 @@ export function App() {
         <AgentConnectionGate onDismiss={() => setAgentGateDismissed(true)} />
       )}
       {showOnboarding && agentReady && !workspaceSetupRequired && <OnboardingView />}
-      {!checking && agentReady && workspaceSetupRequired && <WorkspaceSetupGate />}
+      {!checking && agentReady && workspaceSetupRequired && workspaceSetupAuto === "failed" && <WorkspaceSetupGate />}
       {browserRuntimeInstall && <BrowserRuntimeInstallModal status={browserRuntimeInstall} onCancel={() => {
         if (browserRuntimeInstall.requestId) void invoke("nextctl_cancel", { requestId: browserRuntimeInstall.requestId });
         setBrowserRuntimeInstall(undefined);
