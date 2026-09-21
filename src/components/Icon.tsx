@@ -74,6 +74,8 @@ import {
   Play,
   Square,
   Sun,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 
 /** Maps Swift SF Symbol names → Lucide icons for visual parity. */
@@ -112,6 +114,8 @@ const SF_MAP: Record<string, LucideIcon> = {
   star: Star,
   "star.fill": Star,
   "bolt.fill": Zap,
+  "hand.thumbsup.fill": ThumbsUp,
+  "hand.thumbsdown.fill": ThumbsDown,
   "checkmark.seal.fill": CheckCircle2,
   "person.badge.key": KeyRound,
   magnifyingglass: Search,

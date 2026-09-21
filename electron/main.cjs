@@ -98,6 +98,7 @@ const { multiloginAccountFromTokens } = require("./multilogin-account.cjs");
 const { MULTILOGIN_DOWNLOAD_URL, resolveMultiloginApp } = require("./multilogin-app.cjs");
 const { runAgentProcess } = require("./agent-process.cjs");
 const { assertManualProxyRuntimeSupport } = require("./manual-proxy-runtime.cjs");
+const { testManualProxy } = require("./manual-proxy-test.cjs");
 const {
   DASBROWSER_DOWNLOADS,
   adaptDasbrowserArgs,
@@ -1621,6 +1622,10 @@ async function invokeCommand(command, args = {}, sender) {
     case "manual_proxies_list": return await listPersonalProxies({ env: childEnv() });
     case "manual_proxy_save": return await createPersonalProxy(args.proxy, { env: childEnv() });
     case "manual_proxy_delete": return await deletePersonalProxy(args.id, { env: childEnv() });
+    case "manual_proxy_test": {
+      const proxy = await resolvePersonalProxy(args.id, { env: childEnv() });
+      return await testManualProxy(proxy);
+    }
     case "manual_proxy_profile_create": {
       const profileName = String(args.profileName || "").trim();
       if (!profileName) throw new Error("Profile name is required.");

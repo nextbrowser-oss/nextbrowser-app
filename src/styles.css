@@ -6591,6 +6591,8 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .plain-icon-btn:hover { background: var(--surface-3); color: var(--text); }
 .plain-icon-btn:active:not(:disabled) { transform: scale(0.92); background: var(--surface-5); }
 .plain-icon-btn:disabled { opacity: 0.4; }
+.plain-icon-btn.proxy-test-ok { color: var(--success); }
+.plain-icon-btn.proxy-test-fail { color: var(--red); }
 .send-btn { color: var(--accent); }
 .accent-icon { color: var(--accent); }
 .icon-btn {
