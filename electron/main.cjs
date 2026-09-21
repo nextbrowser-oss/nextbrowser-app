@@ -176,6 +176,10 @@ default_tools_approval_mode = "approve"
 
 [plugins."clawbrowser@nbc-local"]
 enabled = false
+
+[plugins."clawbrowser@nbc-local".mcp_servers.clawbrowser]
+enabled = false
+default_tools_approval_mode = "approve"
 `;
 
 function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
@@ -201,10 +205,16 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
     // the app-owned server and can close during initialize. Restrict this
     // NextBrowser-launched process to the MCP server configured below without
     // reading, editing, or deleting the user's persistent Codex config.
+    // Both known plugin installs (the legacy clawctl-local and the current
+    // nbc-local one) declare their own nested mcp_servers.clawbrowser entry;
+    // disabling only the plugin's own top-level `enabled` flag does not stop
+    // Codex from still starting that nested server, so each needs its own
+    // explicit disable too.
     "-c", "mcp_servers={}",
     "-c", 'plugins."clawbrowser@clawctl-local".enabled=false',
     "-c", 'plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser.enabled=false',
     "-c", 'plugins."clawbrowser@nbc-local".enabled=false',
+    "-c", 'plugins."clawbrowser@nbc-local".mcp_servers.clawbrowser.enabled=false',
     "-c", `mcp_servers.nextbrowser.command=${JSON.stringify(nextctlBin)}`,
     "-c", `mcp_servers.nextbrowser.args=${JSON.stringify(["--verify-on-start-only", "mcp", ...(automationTraceFile ? ["--automation-trace-file", automationTraceFile] : [])])}`,
     "-c", `mcp_servers.nextbrowser.env=${mcpEnv}`,

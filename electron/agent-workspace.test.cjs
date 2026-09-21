@@ -60,6 +60,17 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   assert.doesNotMatch(main, /mcpEnvKeys\.push\("MULTILOGIN_TOKEN"\)/);
   assert.match(main, /plugins\."clawbrowser@clawctl-local"\.mcp_servers\.clawbrowser\.enabled=false/);
   assert.match(main, /plugins\."clawbrowser@nbc-local"\.enabled=false/);
+  // nbc-local is the plugin `nbc install codex` actually registers today; its
+  // own nested mcp_servers.clawbrowser entry needs the same explicit disable
+  // as clawctl-local's, or Codex still starts it and the handshake can close
+  // mid-initialize (disabling only the plugin's top-level `enabled` flag is
+  // not enough — see NB MCP startup incomplete reports).
+  assert.match(main, /plugins\."clawbrowser@nbc-local"\.mcp_servers\.clawbrowser\.enabled=false/);
+  // Same fix, mirrored in the static CODEX_TERMINAL_PROFILE_CONTENT TOML that
+  // ensureCodexTerminalProfile() writes to ~/.codex/nextbrowser.config.toml —
+  // the `-c` flags above only cover the one launch, this file is what a
+  // stray direct `codex --profile nextbrowser` invocation would still read.
+  assert.match(main, /\[plugins\."clawbrowser@nbc-local"\.mcp_servers\.clawbrowser\][\s\S]*?enabled = false/);
   assert.match(main, /mcp_servers\.nextbrowser\.default_tools_approval_mode=approve/);
   assert.match(main, /"--add-dir", dir/);
   assert.match(main, /\.cache", "clawbrowser"/);
