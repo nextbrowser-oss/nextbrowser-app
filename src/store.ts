@@ -239,10 +239,18 @@ const SCHEDULE_TICK_MS = 30_000;
 const PROFILE_CREATE_REQUEST_POLL_MS = 10_000;
 const NEXTCTL_DAILY_UPDATE_MS = 20 * 60 * 1000;
 const NEXTCTL_DAILY_UPDATE_POLL_MS = 60 * 1000;
-const NEXTCTL_UPDATE_RETRY_MS = 5 * 60 * 1000;
-const NEXTCTL_UPDATE_MAX_RETRIES = 2;
+// Retries stay silent in the background: only the last one surfaces
+// nextctlUpdateStatus, so a transient failure (or GitHub's anonymous API
+// rate limit) doesn't interrupt the user unless every attempt fails.
+const NEXTCTL_UPDATE_MAX_RETRIES = 5;
+const NEXTCTL_UPDATE_RETRY_BASE_MS = 90 * 1000;
+const NEXTCTL_UPDATE_RETRY_STEP_MS = 10 * 1000;
+function nextctlUpdateRetryDelay(attempt: number): number {
+  return NEXTCTL_UPDATE_RETRY_BASE_MS + (attempt - 1) * NEXTCTL_UPDATE_RETRY_STEP_MS;
+}
 // GitHub's anonymous API limit (60 requests/hour per IP) resets within the
-// hour; wait the window out instead of retrying straight into another 403.
+// hour; once the retries above are exhausted, wait the window out before the
+// daily background check tries again.
 const NEXTCTL_UPDATE_RATE_LIMIT_MS = 60 * 60 * 1000;
 const NEXTCTL_UPDATE_STATE_FILE = "nextctl-update.json";
 const NEXTCTL_UPDATE_ERROR = "We couldn't update the NextBrowser CLI (nextctl). Please retry.";
@@ -4086,8 +4094,11 @@ export const useStore = create<State>((set, get) => {
       nextctlUpdateRetryTimer = setTimeout(() => {
         nextctlUpdateRetryTimer = null;
         void get().checkNextctlUpdate(attempt);
-      }, NEXTCTL_UPDATE_RETRY_MS);
+      }, nextctlUpdateRetryDelay(attempt));
     };
+    // Only the exhausted-retries failure is shown to the user; every attempt
+    // up to and including this one stays silent in the background.
+    const willRetry = retryAttempt < NEXTCTL_UPDATE_MAX_RETRIES;
     if (retryAttempt === 0 && nextctlUpdateRetryTimer) {
       clearTimeout(nextctlUpdateRetryTimer);
       nextctlUpdateRetryTimer = null;
@@ -4131,14 +4142,18 @@ export const useStore = create<State>((set, get) => {
       } else {
         clearNextctlUpdateNotice();
         const reason = nextctlErrorMessage(res);
-        set({ nextctlUpdateStatus: nextctlUpdateErrorMessage(reason) });
         trackEvent("nextctl_update_failed", { exit_code: res.code });
         if (isNextctlRateLimit(reason)) {
-          // Back off for the full rate-limit window and skip the short retries.
+          // Once retries are exhausted, back off for the full rate-limit
+          // window so the daily background check doesn't hit it again.
           await recordNextctlUpdateAttempt({ rateLimitedUntil: now() + NEXTCTL_UPDATE_RATE_LIMIT_MS });
         } else {
           await recordNextctlUpdateAttempt();
+        }
+        if (willRetry) {
           scheduleRetry(retryAttempt + 1);
+        } else {
+          set({ nextctlUpdateStatus: nextctlUpdateErrorMessage(reason) });
         }
         return false;
       }
@@ -4163,16 +4178,17 @@ export const useStore = create<State>((set, get) => {
       console.error("[NEXTCTL_UPDATE_FAILED] nextctl update failed:", error);
       clearNextctlUpdateNotice();
       const reason = error instanceof Error ? error.message : String(error);
-      set({
-        nextctlUpdateStatus: nextctlUpdateErrorMessage(reason),
-        nextctlAvailable: false,
-      });
+      set({ nextctlAvailable: false });
       trackTiming("nextctl_update_failed", startedAt);
       if (isNextctlRateLimit(reason)) {
         await recordNextctlUpdateAttempt({ rateLimitedUntil: now() + NEXTCTL_UPDATE_RATE_LIMIT_MS });
       } else {
         await recordNextctlUpdateAttempt();
+      }
+      if (willRetry) {
         scheduleRetry(retryAttempt + 1);
+      } else {
+        set({ nextctlUpdateStatus: nextctlUpdateErrorMessage(reason) });
       }
       return false;
     } finally {
