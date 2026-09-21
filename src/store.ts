@@ -457,6 +457,12 @@ interface State {
   activeWorkspaceId?: string;
   workspacesLoaded: boolean;
   workspaceSetupRequired: boolean;
+  /**
+   * Automatic first-run setup state. "pending" before the first attempt,
+   * "running" while defaults are being created, "done" once complete, and
+   * "failed" to fall back to the manual WorkspaceSetupGate.
+   */
+  workspaceSetupAuto: "pending" | "running" | "done" | "failed";
   activeConvId: Record<string, string>;
   tab: AppTab;
   skillState: Record<string, SkillApplyState | string>;
@@ -596,6 +602,9 @@ interface State {
   selectWorkspace: (id: string) => void;
   deleteWorkspace: (id: string) => Promise<void>;
   completeWorkspaceSetup: () => void;
+  /** Create a default workspace, project, and one profile per toolset without
+   *  showing the setup modal. Falls back to the gate only if it fails. */
+  ensureDefaultWorkspaceSetup: () => Promise<void>;
 
   conversationsForAgent: (agentId: string) => Conversation[];
   activeConversation: () => Conversation | undefined;
@@ -713,6 +722,14 @@ let nextctlDailyUpdateTimer: ReturnType<typeof setInterval> | null = null;
 let nextctlUpdateRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let vpsSetupReservations = 0;
 let localNextctlOperations = 0;
+let defaultSetupInFlight = false;
+
+// One default profile per browser toolset for a brand-new account.
+const DEFAULT_WORKSPACE_TOOLSETS: { runtime: BrowserToolset; name: string }[] = [
+  { runtime: "clawbrowser", name: "ClawBrowser profile" },
+  { runtime: "dasbrowser", name: "DasBrowser profile" },
+  { runtime: "camoufox", name: "Camoufox profile" },
+];
 // Guard bootstrap against re-entry. React StrictMode invokes effects twice in
 // dev, and without this each agent:* listener would be registered again, so a
 // single agent reply would be appended once per registration (duplicate output).
@@ -1665,6 +1682,7 @@ export const useStore = create<State>((set, get) => {
   activeWorkspaceId: localStorage.getItem("activeWorkspaceId") ?? undefined,
   workspacesLoaded: false,
   workspaceSetupRequired: false,
+  workspaceSetupAuto: "pending",
   activeConvId: {},
   tab: "chat",
   skillState: {},
@@ -2788,6 +2806,7 @@ export const useStore = create<State>((set, get) => {
         projectRevisions: {},
         workspaceRevisions: {},
         workspaceSetupRequired: false,
+        workspaceSetupAuto: "pending",
         selectedProfile: undefined,
         defaultSession: undefined,
         skillState: {},
@@ -4362,6 +4381,66 @@ export const useStore = create<State>((set, get) => {
   completeWorkspaceSetup: () => {
     localStorage.setItem("workspaceSetupComplete", "true");
     set({ workspaceSetupRequired: false });
+  },
+
+  // New users used to hit a three-step "Create your workspace" modal before
+  // they could do anything. Create the defaults silently instead: a workspace,
+  // a first project, and one profile per browser toolset. The manual gate is
+  // kept only as a fallback when this cannot complete.
+  ensureDefaultWorkspaceSetup: async () => {
+    if (!get().authed || !get().nextctlAvailable || pendingTarget(get(), "vps")) return;
+    if (defaultSetupInFlight) return;
+    if (!get().workspaceSetupRequired) {
+      set({ workspaceSetupAuto: "done" });
+      return;
+    }
+    defaultSetupInFlight = true;
+    set({ workspaceSetupAuto: "running" });
+    try {
+      // A workspace mutation is rejected while a cloud sync is in flight.
+      const deadline = now() + 30_000;
+      while (get().projectsSyncing && now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      let workspace = get().workspaces.find((item) => item.id === get().activeWorkspaceId) ?? get().workspaces[0];
+      if (!workspace) {
+        await get().createWorkspace("My workspace");
+        workspace = get().workspaces.find((item) => item.id === get().activeWorkspaceId) ?? get().workspaces[0];
+      }
+      if (!workspace) throw new Error("Could not create a default workspace.");
+      const workspaceId = workspace.id;
+      if (!get().conversations.some((conversation) => conversation.workspaceId === workspaceId)) {
+        const projectId = get().createProject("First project", "chat");
+        if (projectId && typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("nextbrowser:project-created", { detail: { id: projectId } }));
+        }
+      }
+      for (const { runtime, name } of DEFAULT_WORKSPACE_TOOLSETS) {
+        const current = get().workspaces.find((item) => item.id === workspaceId);
+        const alreadyAssigned = Object.values(current?.profileToolsets ?? {}).includes(runtime);
+        if (alreadyAssigned) continue;
+        try {
+          if (!get().profiles.some((profile) => profile.name === name)) {
+            await get().createManagedProfile(name, "US", { runtime });
+          }
+          await get().assignProfileToProject(name, runtime, workspaceId);
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("nextbrowser:profile-created", { detail: { name } }));
+          }
+        } catch (error) {
+          console.warn("[AUTO_SETUP_PROFILE_FAILED]", runtime, error);
+        }
+      }
+      await get().loadProfiles();
+      const state = get();
+      const stillRequired = requiresWorkspaceSetup(state.workspaces, state.conversations, state.activeWorkspaceId);
+      set({ workspaceSetupRequired: stillRequired, workspaceSetupAuto: stillRequired ? "failed" : "done" });
+    } catch (error) {
+      console.error("[AUTO_SETUP_FAILED]", error);
+      set({ workspaceSetupAuto: "failed" });
+    } finally {
+      defaultSetupInFlight = false;
+    }
   },
 
   newChat: () => {
