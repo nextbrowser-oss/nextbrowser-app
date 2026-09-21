@@ -6683,6 +6683,10 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .markdown th { background: var(--surface-2); }
 .markdown hr { margin: 14px 0; border: 0; border-top: 1px solid var(--line-strong); }
 .markdown strong { font-weight: 700; }
+/* A screenshot the agent embeds inline (e.g. a live-view capture) has no
+   natural relationship to the chat column's width — without this it renders
+   at its native pixel size and blows the column out sideways. */
+.markdown img { display: block; max-width: 100%; height: auto; margin: 10px 0; border: 1px solid var(--line); border-radius: 8px; }
 .local-file-card {
   display: inline-flex;
   align-items: center;
