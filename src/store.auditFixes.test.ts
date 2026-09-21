@@ -244,3 +244,33 @@ it("ignores a second sign-in request while one is already in flight", async () =
   await useStore.getState().loginAgent();
   expect(bridge.invoke.mock.calls.some(([command]) => command === "open_terminal_login")).toBe(false);
 });
+
+it("drops queued replies when the chat is cleared", async () => {
+  const { useStore } = await import("./store");
+  const project = { id: "c1", title: "C", agent: "claude", messages: [], createdAt: 1, updatedAt: 1, executionTarget: "local" as const };
+  const runtime = useStore.getState().runtime;
+  useStore.setState({
+    conversations: [project],
+    activeConvId: { claude: "c1" },
+    runtime: { ...runtime, claude: { ...runtime.claude, queue: [{ conversationId: "c1", rawText: "hi", replyId: "q1", executionTarget: "local" as const }] } },
+  });
+  useStore.getState().clearChat();
+  expect(useStore.getState().runtime.claude.queue).toEqual([]);
+});
+
+it("deletes the private cloud copy of a custom script", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({
+    customScripts: [{ id: "s1", title: "S", domain: "x.com", instructions: "i", createdAt: 1, updatedAt: 1, serverSlug: "s1.script" } as never],
+  });
+  bridge.invoke.mockImplementation((command: string) => {
+    if (command === "nextctl_run") return Promise.resolve({ code: 0, stdout: JSON.stringify({ ok: true }), stderr: "" });
+    return Promise.resolve(null);
+  });
+  await useStore.getState().deleteCustomScript("s1");
+  expect(useStore.getState().customScripts).toEqual([]);
+  const deletedCloud = bridge.invoke.mock.calls.some(([command, args]) =>
+    command === "nextctl_run" && Array.isArray((args as { args?: string[] })?.args)
+      && (args as { args: string[] }).args[0] === "skill" && (args as { args: string[] }).args[1] === "delete");
+  expect(deletedCloud).toBe(true);
+});

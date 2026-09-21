@@ -104,7 +104,10 @@ export function ChatView() {
   const agentDetected = !!s.agentVersion();
   const agentNeedsLogin = agentDetected && s.agentLoggedIn() === false;
   const agentError = s.agentError();
-  const running = s.hasRunning();
+  // Scope the running state to the active conversation: an agent-global reply
+  // in another chat must not hide this composer's Send button.
+  const runningReplyId = s.runtime[agentId]?.runningReplyId;
+  const running = !!runningReplyId && messages.some((message) => message.id === runningReplyId);
   const latestCompletedAssistantId = [...messages].reverse().find((message) =>
     message.role === "assistant" && message.status === "done" && message.text.trim(),
   )?.id;
@@ -161,6 +164,7 @@ export function ChatView() {
   const chatMessagesSharedWithTerminal = useRef(new Map<string, number>());
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const scriptWrapRef = useRef<HTMLDivElement>(null);
   const conversationKey = `${agentId}:${conv?.id ?? "new"}`;
 
   useEffect(() => {
@@ -171,6 +175,10 @@ export function ChatView() {
     setAttachments([]);
     setDraft("");
     setGuideDraftLoaded(false);
+    // Menus and workflow modals belong to the chat they were opened in.
+    setScriptOpen(false);
+    setWorkflowDraft(null);
+    setWorkflowRejection(null);
     // Opening another project is not a chat/terminal handoff.
     previousTerminalChat.current = s.terminalChat;
     setTerminalMounted(s.terminalChat);
@@ -198,6 +206,25 @@ export function ChatView() {
     window.addEventListener("keydown", dismiss);
     return () => window.removeEventListener("keydown", dismiss);
   }, [promptDetail]);
+
+  useEffect(() => {
+    if (!scriptOpen) return;
+    const dismissOutside = (event: PointerEvent) => {
+      if (scriptWrapRef.current?.contains(event.target as Node)) return;
+      setScriptOpen(false);
+    };
+    const dismissWithEscape = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setScriptOpen(false);
+    };
+    document.addEventListener("pointerdown", dismissOutside);
+    window.addEventListener("keydown", dismissWithEscape);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOutside);
+      window.removeEventListener("keydown", dismissWithEscape);
+    };
+  }, [scriptOpen]);
 
   useEffect(() => {
     const wasTerminalChat = previousTerminalChat.current;
@@ -695,11 +722,13 @@ export function ChatView() {
             >
               <Icon name="paperclip" size={19} />
             </button>
-            <div className="script-wrap">
+            <div className="script-wrap" ref={scriptWrapRef}>
               <button
                 className="plain-icon-btn"
                 title="Open scripts menu"
                 aria-label="Open scripts menu"
+                aria-haspopup="true"
+                aria-expanded={scriptOpen}
                 onClick={() => setScriptOpen((o) => !o)}
               >
                 <Icon name="scroll" size={20} />

@@ -318,12 +318,22 @@ async function attachAutomationPageRecording(recordingId) {
   if (state.attaching) return await state.attaching;
   state.attaching = (async () => {
     const client = createMCPClient(state.clientOptions);
+    // Stop may run while this attach is awaiting initialize()/callTool. Never
+    // leave a leaked MCP client or polling timer behind when that happens.
+    const abandoned = () => {
+      client.close();
+      state.client = null;
+      return { attached: false, url: state.currentUrl, title: state.title };
+    };
     try {
       await client.initialize();
+      if (state.closed) return abandoned();
       const initialState = resultFromMCP(await client.callTool("state", {}, RECORDER_CALL_TIMEOUT_MS));
+      if (state.closed) return abandoned();
       state.currentPageId = String(initialState?.page?.id || "");
       state.client = client;
       await collect(state);
+      if (state.closed) return abandoned();
       state.timer = setInterval(() => void collect(state), POLL_MS);
       return { attached: true, url: state.currentUrl, title: state.title };
     } catch (error) {

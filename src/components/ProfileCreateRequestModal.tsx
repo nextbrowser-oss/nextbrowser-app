@@ -21,30 +21,27 @@ export function ProfileCreateRequestModal() {
   // bare `busy`/`error` would then attach to whatever request is now first,
   // letting someone approve a request they never actually looked at.
   const [busyRequestId, setBusyRequestId] = useState<string | undefined>(undefined);
+  const [busyAction, setBusyAction] = useState<"approve" | "reject" | undefined>(undefined);
+  const [dismissedId, setDismissedId] = useState<string | undefined>(undefined);
   const [errorFor, setErrorFor] = useState<{ id: string; message: string } | undefined>(undefined);
 
   const request = requests[0];
   const busy = !!request && busyRequestId === request.id;
 
+  // Escape only hides the prompt: it must never record a decision on the
+  // agent's behalf, so a neutral dismiss leaves the request pending.
   useEffect(() => {
-    if (!request || busy) return;
+    if (!request) return;
     const dismiss = (event: KeyboardEvent) => {
       if (!shouldDismissModalWithEscape(event)) return;
       event.preventDefault();
-      const id = request.id;
-      setBusyRequestId(id);
-      setErrorFor(undefined);
-      void reject(id).catch((e) => {
-        setErrorFor({ id, message: e instanceof Error ? e.message : "Could not decline this request. Try again." });
-      }).finally(() => {
-        setBusyRequestId((current) => (current === id ? undefined : current));
-      });
+      setDismissedId(request.id);
     };
     window.addEventListener("keydown", dismiss);
     return () => window.removeEventListener("keydown", dismiss);
-  }, [busy, reject, request]);
+  }, [request]);
 
-  if (!request) return null;
+  if (!request || dismissedId === request.id) return null;
   const error = errorFor?.id === request.id ? errorFor.message : undefined;
 
   const names = Array.from({ length: Math.min(request.quantity, 5) }, (_, i) => `${request.name_prefix}-${i + 1}`);
@@ -53,6 +50,7 @@ export function ProfileCreateRequestModal() {
   const onApprove = async () => {
     const id = request.id;
     setBusyRequestId(id);
+    setBusyAction("approve");
     setErrorFor(undefined);
     try {
       await approve(id);
@@ -60,12 +58,14 @@ export function ProfileCreateRequestModal() {
       setErrorFor({ id, message: e instanceof Error ? e.message : "Could not create these profiles. Try again." });
     } finally {
       setBusyRequestId((current) => (current === id ? undefined : current));
+      setBusyAction(undefined);
     }
   };
 
   const onDecline = async () => {
     const id = request.id;
     setBusyRequestId(id);
+    setBusyAction("reject");
     setErrorFor(undefined);
     try {
       await reject(id);
@@ -73,6 +73,7 @@ export function ProfileCreateRequestModal() {
       setErrorFor({ id, message: e instanceof Error ? e.message : "Could not decline this request. Try again." });
     } finally {
       setBusyRequestId((current) => (current === id ? undefined : current));
+      setBusyAction(undefined);
     }
   };
 
@@ -113,11 +114,11 @@ export function ProfileCreateRequestModal() {
         <div className="modal-actions">
           <button className="btn-bordered" type="button" disabled={busy} autoFocus onClick={onDecline}>
             <Icon name="xmark" size={13} />
-            Decline
+            {busy && busyAction === "reject" ? "Declining…" : "Decline"}
           </button>
           <button className="primary" type="button" disabled={busy} onClick={onApprove}>
             <Icon name="checkmark" size={13} />
-            {busy ? "Creating…" : `Create ${request.quantity}`}
+            {busy && busyAction === "approve" ? "Approving…" : `Create ${request.quantity}`}
           </button>
         </div>
       </section>

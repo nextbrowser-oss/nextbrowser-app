@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useStore } from "../store";
+import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { WEEKDAY_ORDER, weekdayShortName, weekdaysSummary } from "../types";
 import type { ScheduledRun } from "../types";
 
@@ -31,6 +32,17 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
   useEffect(() => {
     if (menuRunId) menuRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [menuRunId]);
+
+  useEffect(() => {
+    if (!pendingDelete) return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setPendingDelete(null);
+    };
+    window.addEventListener("keydown", dismiss);
+    return () => window.removeEventListener("keydown", dismiss);
+  }, [pendingDelete]);
 
   const editorAgent = editor && editor !== "new" ? editor.agent : currentAgent;
   const editorConversations = conversations
@@ -146,11 +158,11 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
 
       {pendingDelete && (
         <div className="modal-overlay">
-          <div className="modal-card">
-            <p>Delete “{pendingDelete.title}”?</p>
+          <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="schedule-delete-title">
+            <p id="schedule-delete-title">Delete “{pendingDelete.title}”?</p>
             <p className="muted small">This schedule will stop running. Existing chats are kept.</p>
             <div className="row" style={{ marginTop: 12, gap: 8 }}>
-              <button className="secondary" onClick={() => setPendingDelete(null)}>
+              <button className="secondary" autoFocus onClick={() => setPendingDelete(null)}>
                 Cancel
               </button>
               <button
@@ -191,15 +203,26 @@ function ScheduleEditor({
   const [conversationId, setConversationId] = useState<string | undefined>(
     run?.conversationId,
   );
+  const titleId = useId();
 
   const toggleDay = (d: number) => {
     setWeekdays((w) => (w.includes(d) ? w.filter((x) => x !== d) : [...w, d]));
   };
 
+  useEffect(() => {
+    const dismiss = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", dismiss);
+    return () => window.removeEventListener("keydown", dismiss);
+  }, [onClose]);
+
   return (
     <div className="modal-overlay">
-      <div className="modal-card schedule-editor">
-        <h3>{run ? "Edit scheduled run" : "New scheduled run"}</h3>
+      <div className="modal-card schedule-editor" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <h3 id={titleId}>{run ? "Edit scheduled run" : "New scheduled run"}</h3>
         <p className="muted small">Runs while NextBrowser is open, for {agentName}.</p>
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Daily listing check" autoFocus />
         <textarea
@@ -239,6 +262,7 @@ function ScheduleEditor({
               key={d}
               type="button"
               className={"weekday-btn" + (weekdays.includes(d) ? " on" : "")}
+              aria-pressed={weekdays.includes(d)}
               onClick={() => toggleDay(d)}
             >
               {weekdayShortName(d)}

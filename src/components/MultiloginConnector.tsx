@@ -59,6 +59,7 @@ interface MultiloginConnectorViewProps {
   onTokenSourceChange: (source: MultiloginTokenSource) => void;
   onSelectProfile: (kind: MultiloginProfileKind, profile: MultiloginProfileSummary) => void;
   onClearSelection: () => void;
+  onRetryStatus?: () => void;
 }
 
 function connectionLabel(status: MultiloginConnectionStatus | null, checking: boolean): string {
@@ -104,6 +105,7 @@ export function MultiloginConnectorView({
   onTokenSourceChange,
   onSelectProfile,
   onClearSelection,
+  onRetryStatus,
 }: MultiloginConnectorViewProps) {
   const workspaceLabel = multiloginWorkspaceLabel(status?.account);
   const kindFolders = folders.filter((folder) => folder.kind === profileKind);
@@ -134,13 +136,24 @@ export function MultiloginConnectorView({
         <button
           type="button"
           className={connected ? "secondary connector-action" : "primary connector-action"}
-          disabled={checking || !status?.secureStorageAvailable}
+          disabled={checking || (!status?.secureStorageAvailable && !visibleError)}
           onClick={onOpen}
         >
           {connected ? "Manage" : needsReconnect ? "Reconnect" : "Connect"}
         </button>
         {status && !status.secureStorageAvailable && (
           <span className="error small connector-card-error">Unlock your system credential store, then reopen NextBrowser.</span>
+        )}
+        {!checking && visibleError && (
+          <span className="error small connector-card-error" role="alert">
+            {visibleError}
+            {onRetryStatus && (
+              <>
+                {" "}
+                <button type="button" className="connector-text-link" onClick={onRetryStatus}>Retry</button>
+              </>
+            )}
+          </span>
         )}
       </div>
 
@@ -483,6 +496,7 @@ export function MultiloginConnector({
   const selectionWorkspace = workspace ?? previewWorkspace;
   const [status, setStatus] = useState<MultiloginConnectionStatus | null>(() => preview ? previewMultiloginConnectionStatus() : null);
   const [checking, setChecking] = useState(!preview);
+  const [statusRetry, setStatusRetry] = useState(0);
   const [busy, setBusy] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [bearerToken, setBearerToken] = useState("");
@@ -509,6 +523,7 @@ export function MultiloginConnector({
   useEffect(() => {
     if (preview) return undefined;
     let cancelled = false;
+    setChecking(true);
     invoke<MultiloginConnectionStatus>("multilogin_status")
       .then((nextStatus) => {
         if (!cancelled) setStatus(nextStatus);
@@ -520,7 +535,7 @@ export function MultiloginConnector({
         if (!cancelled) setChecking(false);
       });
     return () => { cancelled = true; };
-  }, [preview]);
+  }, [preview, statusRetry]);
 
   // Folders are only needed once the dialog is open, and only for a live connection.
   useEffect(() => {
@@ -644,6 +659,7 @@ export function MultiloginConnector({
       onTokenSourceChange={setTokenSource}
       onSelectProfile={selectProfile}
       onClearSelection={clearSelection}
+      onRetryStatus={() => { setError(undefined); setStatusRetry((count) => count + 1); }}
     />
   );
 }

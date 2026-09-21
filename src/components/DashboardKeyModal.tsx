@@ -16,6 +16,7 @@ export function DashboardKeyModal() {
   const loading = useStore((s) => s.isLoggingIn);
   const resumeOnboarding = useStore((s) => s.resumeOnboardingAfterSetup);
   const startAttempted = useRef(false);
+  const pairingFailed = pairing?.status === "expired" || pairing?.status === "rejected";
 
   useEffect(() => {
     if (!open) {
@@ -28,7 +29,7 @@ export function DashboardKeyModal() {
   }, [loading, open, pairing, startPairing]);
 
   useEffect(() => {
-    if (!open || !pairing) return undefined;
+    if (!open || !pairing || pairingFailed) return undefined;
     const timer = window.setInterval(() => {
       void pollPairing();
     }, 2_000);
@@ -45,7 +46,7 @@ export function DashboardKeyModal() {
       window.removeEventListener("focus", pollNow);
       document.removeEventListener("visibilitychange", pollNow);
     };
-  }, [open, pairing?.pairingId, pollPairing]);
+  }, [open, pairing?.pairingId, pairingFailed, pollPairing]);
 
   useEffect(() => {
     if (!open) return;
@@ -68,6 +69,11 @@ export function DashboardKeyModal() {
     resumeOnboarding();
   };
 
+  const startAgain = () => {
+    cancelPairing();
+    void startPairing();
+  };
+
   return (
     <div className="modal-overlay" onMouseDown={close}>
       <div className="modal-card dashboard-key-modal" role="dialog" aria-modal="true" aria-labelledby="dashboard-key-title" onMouseDown={(e) => e.stopPropagation()}>
@@ -86,16 +92,29 @@ export function DashboardKeyModal() {
             <div className="pairing-copy">
               <strong>{pairing.status === "pending" ? "Waiting for browser sign-in…" : pairing.status}</strong>
               <p className="muted small">NextBrowser connects automatically when you finish in the browser.</p>
-              <button
-                type="button"
-                className="pairing-reopen"
-                disabled={loading}
-                onClick={() => void reopenPairing()}
-                title="Open the sign-in page again"
-              >
-                <Icon name="arrow.clockwise" size={13} />
-                Reopen sign-in page
-              </button>
+              {pairingFailed ? (
+                <button
+                  type="button"
+                  className="pairing-reopen"
+                  disabled={loading}
+                  onClick={startAgain}
+                  title="Start a new sign-in request"
+                >
+                  <Icon name="arrow.clockwise" size={13} />
+                  Start again
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="pairing-reopen"
+                  disabled={loading}
+                  onClick={() => void reopenPairing()}
+                  title="Open the sign-in page again"
+                >
+                  <Icon name="arrow.clockwise" size={13} />
+                  Reopen sign-in page
+                </button>
+              )}
             </div>
           ) : (
             <div className="pairing-copy">

@@ -16,6 +16,8 @@ export interface CapturedRun {
   evidence: string;
   conversationTitle: string;
   captureSource?: "tool-trace" | "structured-recipe" | "manual" | "hybrid";
+  /** Set when the page recorder reported a capture failure, so callers can warn the user. */
+  captureError?: string;
 }
 
 export interface ManualBrowserRecording {
@@ -68,6 +70,7 @@ export function capturedRunFromManualRecording(id: string, recording: ManualBrow
     evidence,
     conversationTitle: recording.title || `Manual recording — ${domain}`,
     captureSource: "manual",
+    ...(recording.error ? { captureError: recording.error } : {}),
   };
 }
 
@@ -120,10 +123,14 @@ export function capturedRunFromHybridRecording(id: string, recording: ManualBrow
       return kept;
     }, []);
   const requestedArtifact = artifactActionFromTask(agentRun.task);
-  if (requestedArtifact && !mergedActions.some((action) => action.tool === "save_artifact")) {
-    mergedActions.push({ ...requestedArtifact, at: (mergedActions.at(-1)?.at || agentRun.answer.createdAt) + 1 });
+  const needsArtifact = !!requestedArtifact && !mergedActions.some((action) => action.tool === "save_artifact");
+  // Reserve a slot for the inferred save_artifact step so a full manual/agent
+  // recipe cannot push it past the 100-action cap.
+  const cappedActions = mergedActions.slice(0, needsArtifact ? 99 : 100);
+  if (needsArtifact && requestedArtifact) {
+    cappedActions.push({ ...requestedArtifact, at: (cappedActions.at(-1)?.at || agentRun.answer.createdAt) + 1 });
   }
-  const actions = mergedActions.slice(0, 100).map(({ tool, arguments: arguments_ }) => ({ tool, arguments: arguments_ }));
+  const actions = cappedActions.map(({ tool, arguments: arguments_ }) => ({ tool, arguments: arguments_ }));
   const merged = capturedRunFromManualRecording(id, { ...recording, actions });
   if (!merged) return agentRun;
   return {

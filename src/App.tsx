@@ -901,7 +901,7 @@ export function App() {
     });
   };
   const dismissBrowserRuntimeUpdatePrompt = () => {
-    if (runtimeUpdatePrompt) setRuntimeUpdatePromptDismissed(browserRuntimeUpdateSignature(runtimeUpdatePrompt));
+    if (runtimeUpdatePrompt) setRuntimeUpdatePromptDismissed(browserRuntimeUpdateSignature(browserRuntimeUpdates.runtimes));
     setRuntimeUpdatePrompt(undefined);
   };
   const installBrowserRuntimeUpdates = (requestedRuntimes?: unknown) => {
