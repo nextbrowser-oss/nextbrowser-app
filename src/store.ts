@@ -246,7 +246,16 @@ const NEXTCTL_UPDATE_ERROR = "We couldn't update the NextBrowser CLI (nextctl). 
 const NEXTCTL_UPDATE_ERROR_DETAIL_LIMIT = 160;
 
 function nextctlUpdateErrorMessage(reason?: string): string {
-  const detail = String(reason ?? "").replace(/\s+/g, " ").trim().slice(0, NEXTCTL_UPDATE_ERROR_DETAIL_LIMIT);
+  // The CLI reason can embed a long request URL (for example the GitHub API
+  // releases endpoint). Drop URLs and collapse whitespace so the footer stays
+  // readable, then cap the length.
+  const detail = String(reason ?? "")
+    // Stop before a trailing ":"/" "/end so the sentence keeps its separator.
+    .replace(/https?:\/\/\S+?(?=[:\s]|$)/g, "")
+    .replace(/\s+([:;,])/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, NEXTCTL_UPDATE_ERROR_DETAIL_LIMIT);
   return detail ? `${NEXTCTL_UPDATE_ERROR} (${detail})` : NEXTCTL_UPDATE_ERROR;
 }
 

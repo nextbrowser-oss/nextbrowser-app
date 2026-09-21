@@ -1171,6 +1171,26 @@ describe("local component and profile lifecycle", () => {
     }
   });
 
+  it("strips request URLs from the nextctl update error", async () => {
+    useStore.setState({ nextctlAvailable: true });
+    bridge.invoke.mockImplementation((command) => {
+      if (command === "nextctl_run") {
+        return Promise.resolve({
+          code: 1,
+          stdout: "",
+          stderr: "fetch releases/latest https://api.github.com/repos/nextbrowser-oss/nbc_releases/releases/latest: unexpected status 403 Forbidden",
+        });
+      }
+      return Promise.resolve(null);
+    });
+
+    await useStore.getState().checkNextctlUpdate();
+
+    const status = useStore.getState().nextctlUpdateStatus ?? "";
+    expect(status).toContain("(fetch releases/latest: unexpected status 403 Forbidden)");
+    expect(status).not.toContain("api.github.com");
+  });
+
   it("treats a successful nextctl install as success even when the command exits non-zero", async () => {
     vi.useFakeTimers();
     try {
