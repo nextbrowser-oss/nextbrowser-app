@@ -1213,6 +1213,14 @@ describe("local component and profile lifecycle", () => {
       // A rate limit must not trigger the five-minute retries.
       await vi.advanceTimersByTimeAsync(30 * 60 * 1000);
       expect(localNextctlCalls()).toHaveLength(1);
+
+      // It records a one-hour backoff so the daily tick waits it out.
+      const write = bridge.invoke.mock.calls
+        .filter(([command, args]) => command === "app_data_write" && (args as { name?: string })?.name === "nextctl-update.json")
+        .at(-1);
+      expect(write).toBeTruthy();
+      const saved = JSON.parse((write![1] as { content: string }).content) as { lastAutoCheckAt: number; rateLimitedUntil: number };
+      expect(saved.rateLimitedUntil - saved.lastAutoCheckAt).toBe(60 * 60 * 1000);
     } finally {
       vi.useRealTimers();
     }
