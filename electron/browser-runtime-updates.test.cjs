@@ -48,6 +48,13 @@ test("builds official platform release URLs without using the GitHub API", () =>
   });
   assert.equal(clawbrowserReleaseAsset("win32", "x64", "1.0.4").assetName, "clawbrowser-win-amd64.zip");
   assert.throws(() => clawbrowserReleaseAsset("darwin", "x64", "1.0.4"), /not available/);
+  // Platform-suffixed releases use a "v"-prefixed tag (e.g. v1.0.6-windows).
+  // The asset URL must keep that tag or the download 404s and the app wrongly
+  // reports the platform asset as unavailable.
+  assert.equal(
+    clawbrowserReleaseAsset("darwin", "arm64", "1.0.6-windows").url,
+    "https://github.com/clawbrowser/clawbrowser/releases/download/v1.0.6-windows/clawbrowser-macos-arm64.tar.gz",
+  );
 });
 
 test("installs only explicitly confirmed updates or missing toolsets", () => {
