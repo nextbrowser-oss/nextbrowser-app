@@ -3,15 +3,17 @@ name: Proxy canary
 # Real-browser, real-proxy core check. Starts a managed-proxy profile per
 # country on a Linux runner and requires a green verification with a matching
 # egress country. One attempt per country by default; any single failure fails
-# the job. It uses a dedicated canary account (CLAWBROWSER_API_KEY) and
-# therefore never runs for fork pull requests.
+# the job. It uses a dedicated canary account (CLAWBROWSER_API_KEY), which is
+# only available to same-repository pull requests, so fork PRs are skipped.
+#
+# Runs on every pull request into main and on manual dispatch. It consumes the
+# canary account's metered proxy traffic, so keep the country/run inputs small.
 #
 # See scripts/test_before_release.sh for the local variant.
 
 on:
-  schedule:
-    # Nightly at 03:00 UTC.
-    - cron: "0 3 * * *"
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       countries:
@@ -45,8 +47,11 @@ concurrency:
 
 jobs:
   canary:
-    # The secret only exists for trusted refs; never run for forks.
-    if: github.repository == 'nextbrowser-oss/nextbrowser-app'
+    # The secret only exists for trusted refs; skip fork pull requests (where
+    # secrets are unavailable) and other repositories.
+    if: >-
+      github.repository == 'nextbrowser-oss/nextbrowser-app' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
