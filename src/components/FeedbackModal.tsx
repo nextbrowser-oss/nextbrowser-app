@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "../electronBridge";
+import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { Icon, Spinner } from "./Icon";
 
 const RATING_LABELS = ["Very poor", "Poor", "Okay", "Good", "Excellent"];
@@ -11,6 +12,16 @@ export function FeedbackModal({ onClose, onSubmitted }: { onClose: () => void; o
   const [status, setStatus] = useState<"idle" | "sending" | "sent">("idle");
   const [error, setError] = useState("");
   const displayedRating = hoverRating ?? rating;
+
+  useEffect(() => {
+    const dismiss = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event) || status === "sending") return;
+      event.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", dismiss);
+    return () => window.removeEventListener("keydown", dismiss);
+  }, [onClose, status]);
 
   const submit = async () => {
     if (!rating || status === "sending") return;
@@ -36,7 +47,7 @@ export function FeedbackModal({ onClose, onSubmitted }: { onClose: () => void; o
             <div className="muted small">Your signed-in email, rating, and note go directly to the product team.</div>
           </div>
           <span className="spacer" />
-          {status !== "sending" && <button className="plain-icon-btn" onClick={onClose} aria-label="Close feedback"><Icon name="xmark" size={16} /></button>}
+          {status !== "sending" && <button className="plain-icon-btn" autoFocus onClick={onClose} aria-label="Close feedback"><Icon name="xmark" size={16} /></button>}
         </div>
         {status === "sent" ? (
           <div className="feedback-success" role="status">

@@ -883,6 +883,12 @@ function emptyAccountOwnedCaches(): Partial<State> {
     watchlistProfiles: {},
     watchlistDevices: {},
     watchlistSignIns: {},
+    // Per-handle watch state and the selected profile are account-scoped too;
+    // a non-logout re-auth (token expiry -> sign in as another account) must
+    // not leave the previous account's reports or "Runs in ..." selection.
+    watchReports: {},
+    watchPublishers: {},
+    selectedProfile: undefined,
     xReplyState: normalizeXReplyState(null),
   };
 }
@@ -2097,6 +2103,11 @@ export const useStore = create<State>((set, get) => {
           });
         }
         enqueueWithTarget(run.prompt, undefined, cid, [], scheduledTarget);
+      } catch (error) {
+        // One failing schedule must not abort the rest of this tick. The timer
+        // calls this without awaiting, so swallow here instead of letting an
+        // unhandled rejection surface as a global renderer error.
+        console.warn("[SCHEDULED_RUN_FAILED]", run.id, error);
       } finally {
         if (scheduledTarget === "vps") vpsSetupReservations = Math.max(0, vpsSetupReservations - 1);
         get().switchAgent(prev);
@@ -2736,7 +2747,9 @@ export const useStore = create<State>((set, get) => {
       if (sessionPollTimer) clearInterval(sessionPollTimer);
       if (profileCreateRequestTimer) clearInterval(profileCreateRequestTimer);
       if (nextctlUpdateRetryTimer) clearTimeout(nextctlUpdateRetryTimer);
+      if (nextctlDailyUpdateTimer) clearInterval(nextctlDailyUpdateTimer);
       nextctlUpdateRetryTimer = null;
+      nextctlDailyUpdateTimer = null;
       proxyTimer = profileStatusTimer = scheduleTimer = sessionPollTimer = profileCreateRequestTimer = null;
       // These are keyed by profile name, not account. Leaving a stale entry
       // behind would let the next account's operation on a same-named profile
@@ -2971,14 +2984,16 @@ export const useStore = create<State>((set, get) => {
 
   approveProfileCreateRequest: async (id: string) => {
     trackEvent("profile_create_request_approved", { request_id: id });
-    await nextctlRun(["profiles", "requests", "approve", id]);
+    // Throw on a non-zero exit; otherwise a failed approve looked successful,
+    // dismissed the request, and it reappeared on the next poll with no error.
+    await nextctlRunChecked(["profiles", "requests", "approve", id]);
     set({ pendingProfileCreateRequests: get().pendingProfileCreateRequests.filter((r) => r.id !== id) });
     await get().loadProfiles();
   },
 
   rejectProfileCreateRequest: async (id: string, reason?: string) => {
     trackEvent("profile_create_request_rejected", { request_id: id });
-    await nextctlRun(["profiles", "requests", "reject", id, ...(reason ? ["--reason", reason] : [])]);
+    await nextctlRunChecked(["profiles", "requests", "reject", id, ...(reason ? ["--reason", reason] : [])]);
     set({ pendingProfileCreateRequests: get().pendingProfileCreateRequests.filter((r) => r.id !== id) });
   },
 
@@ -3412,7 +3427,11 @@ export const useStore = create<State>((set, get) => {
     const name = rawName.trim();
     if (!name) throw new Error("Profile name is required.");
     const status = get().statuses[name] ?? "stopped";
-    if (["running", "starting", "stopping", "rotating"].includes(status)) {
+    // A transient status-fetch failure leaves statuses[name] as "unknown" while
+    // profileSessions may still report the profile running. Never mutate a live
+    // session's proxy/identity, so consult the last known session too.
+    const sessionRunning = get().profileSessions[name]?.status === "running";
+    if (sessionRunning || ["running", "starting", "stopping", "rotating"].includes(status)) {
       throw new Error("Stop the profile before changing its connection.");
     }
     if (connection === "direct" && get().profiles.find((p) => p.name === name)?.proxy_mode !== "direct") {
@@ -3494,6 +3513,13 @@ export const useStore = create<State>((set, get) => {
       }
     };
 
+    // A failed removal must not leave the transient "stopping" marker: it
+    // pauses status polling for every profile and disables this row's controls.
+    const settleDeleteFailure = async () => {
+      await get().loadProfiles().catch(() => undefined);
+      set((s) => (s.statuses[n] === "stopping" ? { statuses: { ...s.statuses, [n]: "unknown" } } : {}));
+    };
+
     if (previousStatus !== "stopped") {
       await stopForDelete();
     }
@@ -3504,9 +3530,17 @@ export const useStore = create<State>((set, get) => {
       const message = error instanceof Error ? error.message : String(error);
       // The UI status may have been stale while an external browser session was
       // still alive. Stop it with the saved runtime, then retry removal once.
-      if (!/SESSION_ACTIVE|active browser session/i.test(message)) throw error;
-      await stopForDelete();
-      await nextctlRunChecked(["profiles", "rm", n, "--format", "json"]);
+      if (!/SESSION_ACTIVE|active browser session/i.test(message)) {
+        await settleDeleteFailure();
+        throw error;
+      }
+      try {
+        await stopForDelete();
+        await nextctlRunChecked(["profiles", "rm", n, "--format", "json"]);
+      } catch (retryError) {
+        await settleDeleteFailure();
+        throw retryError;
+      }
     }
     if (get().selectedProfile === n) set({ selectedProfile: undefined });
     const statuses = { ...get().statuses };
@@ -4010,12 +4044,19 @@ export const useStore = create<State>((set, get) => {
         return false;
       }
       if (pendingTarget(get(), "vps")) return true;
-      const ver = await invoke<string>("nextctl_version");
-      if (pendingTarget(get(), "vps")) return true;
-      const supportsSkill = await invoke<boolean>("nextctl_supports_skill");
-      if (pendingTarget(get(), "vps")) return true;
-      set({ nextctlVersion: normalizeNextctlVersion(ver), nextctlSupportsSkill: supportsSkill, nextctlAvailable: true, nextctlCompatibilityError: undefined });
-      trackTiming("nextctl_update_completed", startedAt, { supports_skill: supportsSkill });
+      // The update already succeeded; refreshing metadata is best-effort and
+      // must not turn it into a reported failure (a transient IPC error or a
+      // briefly locked just-replaced binary used to do exactly that).
+      try {
+        const ver = await invoke<string>("nextctl_version");
+        if (pendingTarget(get(), "vps")) return true;
+        const supportsSkill = await invoke<boolean>("nextctl_supports_skill");
+        if (pendingTarget(get(), "vps")) return true;
+        set({ nextctlVersion: normalizeNextctlVersion(ver), nextctlSupportsSkill: supportsSkill, nextctlAvailable: true, nextctlCompatibilityError: undefined });
+      } catch (metadataError) {
+        console.warn("[NEXTCTL_METADATA_REFRESH_FAILED]", metadataError);
+      }
+      trackTiming("nextctl_update_completed", startedAt, { supports_skill: get().nextctlSupportsSkill });
       return true;
     } catch (error) {
       console.error("[NEXTCTL_UPDATE_FAILED] nextctl update failed:", error);
@@ -4637,11 +4678,26 @@ export const useStore = create<State>((set, get) => {
     delete projectRevisions[id];
     set((s) => {
       const runtime = { ...s.runtime };
-      if (removedReplyIds.size) {
-        for (const [key, value] of Object.entries(runtime)) {
-          if (value.runningReplyId && removedReplyIds.has(value.runningReplyId)) {
-            runtime[key] = { ...value, runningReplyId: undefined, pendingStop: false };
+      const removedQueueReplyIds = new Set<string>();
+      for (const [key, value] of Object.entries(runtime)) {
+        // Drop queued replies for the deleted chat too. If one is dequeued
+        // later it sets runningReplyId, and finishAgentRun cannot clear it once
+        // the owning conversation is gone — leaving the composer stuck on Stop.
+        const queue = value.queue.filter((item) => {
+          if (item.conversationId === id) {
+            removedQueueReplyIds.add(item.replyId);
+            return false;
           }
+          return true;
+        });
+        const runningRemoved = !!value.runningReplyId
+          && (removedReplyIds.has(value.runningReplyId) || removedQueueReplyIds.has(value.runningReplyId));
+        if (queue.length !== value.queue.length || runningRemoved) {
+          runtime[key] = {
+            ...value,
+            queue,
+            ...(runningRemoved ? { runningReplyId: undefined, pendingStop: false } : {}),
+          };
         }
       }
       return { conversations, activeConvId, projectRevisions, runtime };

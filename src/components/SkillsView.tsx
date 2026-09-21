@@ -409,6 +409,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                   <CustomScriptCard
                     key={cs.id}
                     script={cs}
+                    ready={ready}
                     sync={s.scriptSync[cs.id]}
                     sessionName={sessionName}
                     onEdit={() => setScriptEditor(cs)}
@@ -581,6 +582,7 @@ function LocalSkillDetails({ skill, onClose }: { skill: BrowserWorkflowSkill; on
 
 function CustomScriptCard({
   script,
+  ready,
   sync,
   sessionName,
   onEdit,
@@ -589,6 +591,7 @@ function CustomScriptCard({
   onSync,
 }: {
   script: CustomScript;
+  ready: boolean;
   sync?: string;
   sessionName: string;
   onEdit: () => void;
@@ -607,7 +610,7 @@ function CustomScriptCard({
       {sync === "synced" && <span className="ok small"><Icon name="lock.fill" size={11} /> Private cloud backup</span>}
       {sync === "failed" && <button className="link small" onClick={onSync}>Backup failed · Retry</button>}
       <div className="skill-actions">
-        <button className="btn-bordered-prominent full" title={`Use ${script.title} in chat`} onClick={onUse}>
+        <button className="btn-bordered-prominent full" disabled={!ready} title={ready ? `Use ${script.title} in chat` : "Connect an agent to use this script"} onClick={onUse}>
           Use
         </button>
         <button className="btn-bordered full" title={`Edit ${script.title}`} onClick={onEdit}>

@@ -289,6 +289,10 @@ export function AutomationStudio() {
 
   const lastSelectedWorkflowId = useRef<string | undefined>(undefined);
   const draftDirtyRef = useRef(false);
+  // The recording PUT returns the authoritative revision. Remember it per
+  // recording so a save retry can advance past a partial save instead of
+  // replaying base_revision 0 and always conflicting.
+  const recordingSaveRevisions = useRef<Record<string, number>>({});
   draftDirtyRef.current = draftDirty;
   useEffect(() => {
     const selected = workflows.find((skill) => skill.id === selectedWorkflowId);
@@ -619,11 +623,22 @@ export function AutomationStudio() {
         });
       }
     }
-    finally { setRecordingStopping(false); }
+    finally {
+      // A failed Stop (recorder already gone, IPC failure, or cancellation)
+      // must never leave the banner stuck. Always release the recording state
+      // so a new recording can start; the error is surfaced by reportError or
+      // by the save-retry review above.
+      clearActiveAutomationRecording();
+      setRecordingSince(0);
+      setRecordingDestination("recording");
+      setRecordingStopping(false);
+    }
   };
 
   const saveCompletedRecording = async (active: ActiveAutomationRecording, captured: CapturedRun) => {
-        await invoke("automation_recording_put", { recording: { id: active.id, status: "completed", document: { run: captured }, base_revision: 0 } });
+        const baseRevision = recordingSaveRevisions.current[active.id] ?? 0;
+        const saved = await invoke<BackendRecording>("automation_recording_put", { recording: { id: active.id, status: "completed", document: { run: captured }, base_revision: baseRevision } });
+        recordingSaveRevisions.current[active.id] = typeof saved?.revision === "number" ? saved.revision : baseRevision + 1;
         let savedWorkflow: BrowserWorkflowSkill | undefined;
         if (active.destination === "workflow") {
           const domain = capturedWorkflowDomain(captured.task, captured.evidence);
@@ -649,6 +664,7 @@ export function AutomationStudio() {
         } else {
           setNotice("Recording stopped and saved. Review it below or turn it into a workflow.");
         }
+        delete recordingSaveRevisions.current[active.id];
   };
 
   const saveRecordingReview = async () => {
@@ -813,8 +829,8 @@ export function AutomationStudio() {
         fieldName,
         container: mode === "field" ? action.arguments.container : undefined,
         openUrl: previewUrl(),
-        profile: s.selectedProfile,
-        runtime: selectedBrowserRuntime(),
+        profile: automationProfile,
+        runtime: selectedBrowserRuntime(automationProfile),
       });
       if (result.cancelled) return setNotice("Element selection cancelled. No workflow step was changed.");
       if (!result.selector) throw new Error("The selected element did not produce a reusable locator.");

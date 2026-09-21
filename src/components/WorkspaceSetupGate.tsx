@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { ROTATION_COUNTRIES } from "../lib/countryFlag";
 import { internalError } from "../lib/userFacingError";
 import { useStore } from "../store";
@@ -19,6 +19,9 @@ export function WorkspaceSetupGate() {
   const [toolset, setToolset] = useState<"clawbrowser" | "dasbrowser" | "camoufox">("clawbrowser");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
+  // The backend keeps a created profile even when the follow-up assignment
+  // fails, so a retry must not try to create it again.
+  const createdProfileRef = useRef<string | null>(null);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -32,7 +35,10 @@ export function WorkspaceSetupGate() {
         if (projectId) window.dispatchEvent(new CustomEvent("nextbrowser:project-created", { detail: { id: projectId } }));
       } else {
         const name = validateEntityName("profile", profileName);
-        await s.createManagedProfile(name, country, { runtime: toolset, direct });
+        if (createdProfileRef.current !== name) {
+          await s.createManagedProfile(name, country, { runtime: toolset, direct });
+          createdProfileRef.current = name;
+        }
         // Await the assignment: otherwise setup reports success before the
         // profile is actually in the workspace, and a rejected assignment
         // escapes as an unhandled global error.

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useStore } from "../store";
+import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { Icon } from "./Icon";
 
 /**
@@ -23,8 +24,27 @@ export function ProfileCreateRequestModal() {
   const [errorFor, setErrorFor] = useState<{ id: string; message: string } | undefined>(undefined);
 
   const request = requests[0];
+  const busy = !!request && busyRequestId === request.id;
+
+  useEffect(() => {
+    if (!request || busy) return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      const id = request.id;
+      setBusyRequestId(id);
+      setErrorFor(undefined);
+      void reject(id).catch((e) => {
+        setErrorFor({ id, message: e instanceof Error ? e.message : "Could not decline this request. Try again." });
+      }).finally(() => {
+        setBusyRequestId((current) => (current === id ? undefined : current));
+      });
+    };
+    window.addEventListener("keydown", dismiss);
+    return () => window.removeEventListener("keydown", dismiss);
+  }, [busy, reject, request]);
+
   if (!request) return null;
-  const busy = busyRequestId === request.id;
   const error = errorFor?.id === request.id ? errorFor.message : undefined;
 
   const names = Array.from({ length: Math.min(request.quantity, 5) }, (_, i) => `${request.name_prefix}-${i + 1}`);
@@ -91,7 +111,7 @@ export function ProfileCreateRequestModal() {
           </div>
         )}
         <div className="modal-actions">
-          <button className="btn-bordered" type="button" disabled={busy} onClick={onDecline}>
+          <button className="btn-bordered" type="button" disabled={busy} autoFocus onClick={onDecline}>
             <Icon name="xmark" size={13} />
             Decline
           </button>

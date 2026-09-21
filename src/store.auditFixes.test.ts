@@ -197,6 +197,46 @@ it("terminates an in-flight reply and clears its marker when its chat is deleted
   expect(bridge.invoke.mock.calls.some(([command, args]) => command === "agent_terminate" && (args as { replyId?: string })?.replyId === "r1")).toBe(true);
 });
 
+it("drops queued replies when their chat is deleted", async () => {
+  const { useStore } = await import("./store");
+  const project = { id: "c1", title: "C", agent: "claude", messages: [], createdAt: 1, updatedAt: 1, executionTarget: "local" as const };
+  const runtime = useStore.getState().runtime;
+  useStore.setState({
+    conversations: [project],
+    activeConvId: { claude: "c1" },
+    runtime: {
+      ...runtime,
+      claude: { ...runtime.claude, queue: [{ conversationId: "c1", rawText: "hi", replyId: "q1", executionTarget: "local" as const }] },
+    },
+  });
+  useStore.getState().deleteConversation("c1");
+  // An orphaned queued item would run later and wedge the composer on Stop.
+  expect(useStore.getState().runtime.claude.queue).toEqual([]);
+});
+
+it("clears a stuck stopping status when profile removal fails", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({ statuses: { p: "running" } });
+  bridge.invoke.mockImplementation((command: string) => {
+    if (command === "nextctl_run") return Promise.resolve({ code: 1, stdout: "", stderr: "cli down" });
+    if (command === "nextctl_cancel") return Promise.resolve(false);
+    return Promise.resolve(null);
+  });
+  await expect(useStore.getState().deleteProfile("p")).rejects.toThrow();
+  expect(useStore.getState().statuses.p).not.toBe("stopping");
+});
+
+it("reports a failed profile-request approval instead of dismissing it", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({ pendingProfileCreateRequests: [{ id: "req1" }] as never });
+  bridge.invoke.mockImplementation((command: string) => {
+    if (command === "nextctl_run") return Promise.resolve({ code: 1, stdout: "", stderr: "backend down" });
+    return Promise.resolve(null);
+  });
+  await expect(useStore.getState().approveProfileCreateRequest("req1")).rejects.toThrow();
+  expect(useStore.getState().pendingProfileCreateRequests).toHaveLength(1);
+});
+
 it("ignores a second sign-in request while one is already in flight", async () => {
   const { useStore } = await import("./store");
   const runtime = useStore.getState().runtime;
