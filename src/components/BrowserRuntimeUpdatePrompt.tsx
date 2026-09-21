@@ -31,7 +31,7 @@ export function BrowserRuntimeUpdatePrompt({ runtimes, onLater, onConfirm }: {
           <Icon name="arrow.down.circle" size={19} className="warn" />
           <div>
             <strong id="runtime-update-title">{isFirstInstall ? "Install browser toolset" : "Browser toolset update available"}</strong>
-            <div className="muted small">{isFirstInstall ? "NextBrowser will download and prepare it for a new profile." : "Choose when NextBrowser may install it."}</div>
+            <div className="muted small">{isFirstInstall ? "Nextbrowser will download and prepare it for a new profile." : "Choose when Nextbrowser may install it."}</div>
           </div>
         </div>
         <div className="runtime-update-prompt-list">
@@ -42,8 +42,8 @@ export function BrowserRuntimeUpdatePrompt({ runtimes, onLater, onConfirm }: {
             </div>
           ))}
         </div>
-        <p className="muted small">Installation starts only after you confirm and continues in the background. Keep NextBrowser open until it finishes.</p>
-        {runtimes.some((runtime) => runtime.runtime === "clawbrowser") && <p className="muted small">Stop running ClawBrowser profiles first; NextBrowser won’t close them automatically.</p>}
+        <p className="muted small">Installation starts only after you confirm and continues in the background. Keep Nextbrowser open until it finishes.</p>
+        {runtimes.some((runtime) => runtime.runtime === "clawbrowser") && <p className="muted small">Stop running Clawbrowser profiles first; Nextbrowser won’t close them automatically.</p>}
         <div className="row settings-actions">
           <button className="secondary" autoFocus onClick={onLater}>Later</button>
           <span className="spacer" />

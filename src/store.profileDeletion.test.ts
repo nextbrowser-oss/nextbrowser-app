@@ -135,7 +135,7 @@ describe("profile deletion", () => {
 });
 
 describe("profile lifecycle", () => {
-  it("rotates a DasBrowser country without requesting ClawBrowser verification", async () => {
+  it("rotates a DasBrowser country without requesting Clawbrowser verification", async () => {
     bridge.invoke.mockImplementation(async (command: string, payload?: { args?: string[] }) => {
       if (command === "app_data_write") return undefined;
       if (command !== "nextctl_run") return null;

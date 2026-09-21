@@ -79,7 +79,7 @@ export function DashboardKeyModal() {
       <div className="modal-card dashboard-key-modal" role="dialog" aria-modal="true" aria-labelledby="dashboard-key-title" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-title-row">
           <Icon name="lock.open" size={18} />
-          <strong id="dashboard-key-title">Sign in to NextBrowser</strong>
+          <strong id="dashboard-key-title">Sign in to Nextbrowser</strong>
         </div>
         <p className="muted small">
           Managed profiles, proxy traffic, Remote Control, and skills need a connected account.
@@ -91,7 +91,7 @@ export function DashboardKeyModal() {
           {pairing ? (
             <div className="pairing-copy">
               <strong>{pairing.status === "pending" ? "Waiting for browser sign-in…" : pairing.status}</strong>
-              <p className="muted small">NextBrowser connects automatically when you finish in the browser.</p>
+              <p className="muted small">Nextbrowser connects automatically when you finish in the browser.</p>
               {pairingFailed ? (
                 <button
                   type="button"

@@ -128,7 +128,7 @@ export function activeAutomationExecution(): AutomationExecution | undefined {
         ...execution,
         phase: "failed",
         progress: 100,
-        detail: "This automation was interrupted when NextBrowser closed. Run it again to restart from the beginning.",
+        detail: "This automation was interrupted when Nextbrowser closed. Run it again to restart from the beginning.",
         error: "The previous app session ended before automation completed.",
       };
       localStorage.setItem(STATE_KEY, JSON.stringify(interrupted));

@@ -16,7 +16,7 @@ const {
 } = require("./runtime-config.cjs");
 
 const homeDir = "/home/u";
-const runtimeRoot = "/data/NextBrowser/runtime";
+const runtimeRoot = "/data/Nextbrowser/runtime";
 const isolatedConfig = path.join(runtimeRoot, "config", "config.json");
 // Build legacy paths through the module's own resolvers so expectations match
 // the code's path.join output on every OS (Windows uses backslashes).
@@ -82,7 +82,7 @@ test("no-op when there is no legacy config", () => {
   assert.deepEqual(plan({}), []);
 });
 
-test("does not import a non-NextBrowser (e.g. Clawbrowser) key or its profiles", () => {
+test("does not import a non-Nextbrowser (e.g. Clawbrowser) key or its profiles", () => {
   const steps = plan({ [legacyConfig]: JSON.stringify({ api_key: "claw_live_xyz" }), [legacyProfiles]: "" });
   assert.deepEqual(steps, []);
 });

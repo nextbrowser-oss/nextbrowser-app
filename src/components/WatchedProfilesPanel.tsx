@@ -539,7 +539,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                 {busy && step ? `${step}…`
                   : run?.enabled
                     ? `Next check ${until(run.nextRunAt)}${engineState.lastPassSummary ? ` · ${engineState.lastPassSummary}` : ""}`
-                    : engineState.lastPassSummary || "Checks the list on a schedule while NextBrowser is open."}
+                    : engineState.lastPassSummary || "Checks the list on a schedule while Nextbrowser is open."}
               </div>
               {/* The counted summary says a post failed; only these say why, and
                   without them a broken pass is indistinguishable from a quiet one. */}

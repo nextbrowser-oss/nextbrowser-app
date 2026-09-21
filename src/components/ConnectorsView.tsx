@@ -12,7 +12,7 @@ export function ConnectorsView() {
       <div className="connectors-page-head">
         <div>
           <h2>Connectors</h2>
-          <p className="muted">Connect external browser platforms to NextBrowser.</p>
+          <p className="muted">Connect external browser platforms to Nextbrowser.</p>
         </div>
       </div>
       <div className="connectors-grid">

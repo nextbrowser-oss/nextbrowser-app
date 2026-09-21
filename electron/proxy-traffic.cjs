@@ -23,10 +23,10 @@ function configPath({
 function normalizeAPIBaseURL(raw) {
   const parsed = new URL(String(raw || DEFAULT_API_BASE_URL).trim());
   if (!["http:", "https:"].includes(parsed.protocol)) {
-    throw new Error("Unsupported NextBrowser API URL.");
+    throw new Error("Unsupported Nextbrowser API URL.");
   }
   if (parsed.username || parsed.password) {
-    throw new Error("Unsupported NextBrowser API URL.");
+    throw new Error("Unsupported Nextbrowser API URL.");
   }
   if (parsed.hostname.toLowerCase() === "app.nextbrowser.com") {
     parsed.hostname = "api.nextbrowser.com";
@@ -47,12 +47,12 @@ async function loadBackendConfig({
   try {
     payload = JSON.parse(await fsApi.readFile(configPath({ env, homeDir, platform }), "utf8"));
   } catch {
-    throw new Error("NextBrowser account configuration is unavailable.");
+    throw new Error("Nextbrowser account configuration is unavailable.");
   }
 
   const apiKey = typeof payload.api_key === "string" ? payload.api_key.trim() : "";
   if (!apiKey) {
-    throw new Error("NextBrowser account is not connected.");
+    throw new Error("Nextbrowser account is not connected.");
   }
 
   const configuredBaseURL = env.NEXTBROWSER_DEV_API_BASE_URL

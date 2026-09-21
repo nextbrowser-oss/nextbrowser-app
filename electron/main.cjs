@@ -204,7 +204,7 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
     // Codex profiles layer on top of the user's base config. A legacy manual
     // `mcp_servers.clawbrowser` entry would otherwise still start alongside
     // the app-owned server and can close during initialize. Restrict this
-    // NextBrowser-launched process to the MCP server configured below without
+    // Nextbrowser-launched process to the MCP server configured below without
     // reading, editing, or deleting the user's persistent Codex config.
     // Both known plugin installs (the legacy clawctl-local and the current
     // nbc-local one) declare their own nested mcp_servers.clawbrowser entry;
@@ -269,7 +269,7 @@ function clawbrowserWritableDirs() {
 
 const TERMINAL_AGENTS = {
   claude: { binary: "claude", envVar: "CLAUDE_BIN" },
-  // Terminal chat runs inside NextBrowser's dedicated workspace. Let Codex use
+  // Terminal chat runs inside Nextbrowser's dedicated workspace. Let Codex use
   // browser MCP tools without prompting on every call, while retaining a
   // workspace-write filesystem sandbox.
   codex: {
@@ -575,7 +575,7 @@ async function executeNextctlRaw(commandArgs, options = {}) {
   let adaptedArgs = commandArgs;
   const browserRuntime = requestedBrowserRuntime(adaptedArgs);
   if (browserRuntime === "clawbrowser" && requiresBrowserRuntime(adaptedArgs) && clawbrowserRuntimeUpdateActive) {
-    throw new Error("ClawBrowser cannot start while its runtime update is being installed. Retry after the update finishes.");
+    throw new Error("Clawbrowser cannot start while its runtime update is being installed. Retry after the update finishes.");
   }
   const clawbrowserLaunch = browserRuntime === "clawbrowser" && requiresBrowserRuntime(adaptedArgs);
   if (clawbrowserLaunch) clawbrowserRuntimeLaunches += 1;
@@ -1231,10 +1231,10 @@ function camoufoxVenvPython() {
 }
 async function downloadFileStreaming(url, target) {
   const response = await fetch(url, {
-    headers: { "User-Agent": "NextBrowser-runtime-updater" },
+    headers: { "User-Agent": "Nextbrowser-runtime-updater" },
     signal: AbortSignal.timeout(60 * 60 * 1000),
   });
-  if (!response.ok || !response.body) throw new Error(`ClawBrowser download failed (${response.status}).`);
+  if (!response.ok || !response.body) throw new Error(`Clawbrowser download failed (${response.status}).`);
   await pipeline(Readable.fromWeb(response.body), fsSync.createWriteStream(target, { mode: 0o600 }));
 }
 async function findClawbrowserReleaseAsset(root) {
@@ -1265,7 +1265,7 @@ async function replaceClawbrowserRelease(source, release, options = {}) {
     if (isBundle) {
       await fs.cp(source, staged, dasbrowserAppCopyOptions());
       const signature = await run("codesign", ["--verify", "--deep", "--strict", staged], {}, { timeoutMs: 120_000 });
-      if (signature.code !== 0) throw new Error("The downloaded ClawBrowser app failed macOS signature verification.");
+      if (signature.code !== 0) throw new Error("The downloaded Clawbrowser app failed macOS signature verification.");
     } else {
       await fs.copyFile(source, staged);
       if (process.platform !== "win32") await fs.chmod(staged, 0o755);
@@ -1312,13 +1312,13 @@ async function clawbrowserRuntimeSessionNames() {
     const entries = await fs.readdir(path.join(nextbrowserRuntimeRoot(), "state"), { withFileTypes: true });
     for (const entry of entries) if (entry.isDirectory()) names.add(entry.name);
   } catch (error) {
-    if (error?.code !== "ENOENT") throw new Error("ClawBrowser session status is unavailable.");
+    if (error?.code !== "ENOENT") throw new Error("Clawbrowser session status is unavailable.");
   }
   return [...names];
 }
 async function assertClawbrowserRuntimeIdle(nextctlBin) {
   if (clawbrowserRuntimeLaunches > 0) {
-    throw new Error("ClawBrowser profiles are still starting. Wait for them to finish, then stop them before installing the update.");
+    throw new Error("Clawbrowser profiles are still starting. Wait for them to finish, then stop them before installing the update.");
   }
   await assertClawbrowserSessionsStopped({
     sessionNames: await clawbrowserRuntimeSessionNames(),
@@ -1346,7 +1346,7 @@ async function updateClawbrowserRuntime(latestVersion) {
     // profile may have been started while the archive was in flight.
     await assertClawbrowserRuntimeIdle(nextctlBin);
     return await installRuntimeUpdateWithVerification({
-      label: "ClawBrowser",
+      label: "Clawbrowser",
       expectedVersion: latestVersion,
       install: async () => {
         const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-clawbrowser-update-"));
@@ -1356,7 +1356,7 @@ async function updateClawbrowserRuntime(latestVersion) {
           await downloadFileStreaming(release.url, archive);
           await extractArchive(archive, release.kind, extracted);
           const source = await findClawbrowserReleaseAsset(extracted);
-          if (!source) throw new Error("The ClawBrowser release did not contain a browser executable.");
+          if (!source) throw new Error("The Clawbrowser release did not contain a browser executable.");
           await replaceClawbrowserRelease(source, release, {
             beforeActivate: () => assertClawbrowserRuntimeIdle(nextctlBin),
           });
@@ -1675,7 +1675,7 @@ async function invokeCommand(command, args = {}, sender) {
     case "nextctl_resolve": return await resolveOrInstallNextctl();
     case "nextctl_install_status": return nextctlInstallStatus;
     case "nextctl_reinstall": {
-      if (process.env.NEXTCTL_BIN) throw new Error("Update the CLI selected by NEXTCTL_BIN, then restart NextBrowser.");
+      if (process.env.NEXTCTL_BIN) throw new Error("Update the CLI selected by NEXTCTL_BIN, then restart Nextbrowser.");
       const installed = await installManagedNextctl();
       await requireVerificationCapableCLI(installed, run);
       verifiedNextctlBin = installed;
@@ -1723,7 +1723,7 @@ async function invokeCommand(command, args = {}, sender) {
           },
         }, { env: childEnv() });
       } catch (error) {
-        if (error?.status === 401) throw new Error("Sign in to your NextBrowser account before sending feedback.");
+        if (error?.status === 401) throw new Error("Sign in to your Nextbrowser account before sending feedback.");
         throw error;
       }
     }
@@ -1736,13 +1736,13 @@ async function invokeCommand(command, args = {}, sender) {
       return apiFetchJSON(args.apiBaseUrl, "/v1/pairing-requests/browser", {
         method: "POST",
         body: JSON.stringify({
-          display_name: args.displayName || os.hostname() || "NextBrowser Desktop",
+          display_name: args.displayName || os.hostname() || "Nextbrowser Desktop",
           runtime_name: "nextbrowser-desktop",
           version: args.version || app.getVersion(),
           platform: process.platform,
           os: `${process.platform} ${os.release()}`,
           hostname: os.hostname(),
-          metadata: { app: "NextBrowser" },
+          metadata: { app: "Nextbrowser" },
         }),
       });
     }
@@ -1769,6 +1769,16 @@ async function invokeCommand(command, args = {}, sender) {
       }
       return null;
     }
+    case "app_set_zoom_factor": {
+      // Chromium's native page zoom (not the CSS `zoom` property): it
+      // recalculates layout, scroll, and fixed positioning the same way a
+      // real Ctrl/Cmd+ zoom does, instead of naively scaling pixel values
+      // that were never meant to grow past the window's own size.
+      const factor = Number(args.factor);
+      if (!Number.isFinite(factor) || factor < 0.5 || factor > 2) throw new Error("Zoom factor out of range.");
+      if (sender && !sender.isDestroyed()) sender.setZoomFactor(factor);
+      return null;
+    }
     case "agent_authorize": {
       const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} executable not found.`);
       const r = await run(bin, ["--version"]); if (r.code !== 0) throw new Error(`${args.binary} is not ready: ${(r.stdout + r.stderr).trim()}`);
@@ -1786,7 +1796,7 @@ async function invokeCommand(command, args = {}, sender) {
         const cmd = [bin, ...loginArgs].map(quotePosix).join(" ").replaceAll("\\", "\\\\").replaceAll('"', '\\"');
         spawn("osascript", ["-e", `tell application "Terminal"\nactivate\ndo script "${cmd}"\nend tell`], { detached: true, stdio: "ignore" }).unref();
       } else if (process.platform === "win32") {
-        spawn("cmd.exe", ["/D", "/S", "/C", "start", "NextBrowser agent login", "cmd", "/k", bin, ...loginArgs], { detached: true, stdio: "ignore", windowsHide: false }).unref();
+        spawn("cmd.exe", ["/D", "/S", "/C", "start", "Nextbrowser agent login", "cmd", "/k", bin, ...loginArgs], { detached: true, stdio: "ignore", windowsHide: false }).unref();
       } else {
         const commandText = [bin, ...loginArgs].map(quotePosix).join(" ");
         let started = false;
@@ -1922,7 +1932,7 @@ async function invokeCommand(command, args = {}, sender) {
     case "automation_run_update": return await updateAutomationRun(String(args.id || ""), args.update || {}, { env: childEnv() });
     case "automation_recipe_execute": {
       const binary = await resolveOrInstallNextctl();
-      if (!binary) throw new Error("NextBrowser browser runtime is unavailable.");
+      if (!binary) throw new Error("Nextbrowser browser runtime is unavailable.");
       const requestedRuntime = ["clawbrowser", "dasbrowser", "camoufox", "multilogin"].includes(args.runtime) ? args.runtime : "clawbrowser";
       if (requestedRuntime === "multilogin") await initializeMultiloginCredential();
       const runtimeBin = requestedRuntime === "dasbrowser" ? await ensureDasbrowserRuntime() : undefined;
@@ -1950,7 +1960,7 @@ async function invokeCommand(command, args = {}, sender) {
     case "automation_recipe_cancel": return cancelAutomationRecipe(String(args.executionId || ""));
     case "automation_page_recording_start": {
       const binary = await resolveOrInstallNextctl();
-      if (!binary) throw new Error("NextBrowser browser runtime is unavailable.");
+      if (!binary) throw new Error("Nextbrowser browser runtime is unavailable.");
       const requestedRuntime = ["clawbrowser", "dasbrowser", "camoufox", "multilogin"].includes(args.runtime) ? args.runtime : "clawbrowser";
       if (requestedRuntime === "multilogin") await initializeMultiloginCredential();
       const runtimeBin = requestedRuntime === "dasbrowser" ? await ensureDasbrowserRuntime() : undefined;
@@ -1966,7 +1976,7 @@ async function invokeCommand(command, args = {}, sender) {
     case "automation_page_recording_stop": return await stopAutomationPageRecording(String(args.recordingId || ""));
     case "automation_element_pick": {
       const binary = await resolveOrInstallNextctl();
-      if (!binary) throw new Error("NextBrowser browser runtime is unavailable.");
+      if (!binary) throw new Error("Nextbrowser browser runtime is unavailable.");
       const requestedRuntime = ["clawbrowser", "dasbrowser", "camoufox", "multilogin"].includes(args.runtime) ? args.runtime : "clawbrowser";
       if (requestedRuntime === "multilogin") await initializeMultiloginCredential();
       const runtimeBin = requestedRuntime === "dasbrowser" ? await ensureDasbrowserRuntime() : undefined;
@@ -2104,7 +2114,7 @@ async function invokeCommand(command, args = {}, sender) {
       // Keep coding-agent discovery outside ~/Library/Application Support.
       // Agents walk parent directories for config/instruction files; inside
       // Library that can make macOS attribute unrelated TCC access requests
-      // (Music, other apps' data, protected folders) to NextBrowser.
+      // (Music, other apps' data, protected folders) to Nextbrowser.
       const dir = agentWorkspaceDir(home());
       await fs.mkdir(dir, { recursive: true });
       await ensureWorkspaceInstructions(dir);
@@ -2231,7 +2241,7 @@ async function invokeCommand(command, args = {}, sender) {
       const requestedAgentId = String(args.agentId || "").trim();
       const resolvedAgentId = terminalAgentId(requestedAgentId);
       const agent = TERMINAL_AGENTS[resolvedAgentId];
-      if (!agent) throw new Error(`Terminal support for “${requestedAgentId || "this agent"}” is unavailable in the running NextBrowser ${app.getVersion()} build. Restart NextBrowser to complete its update, then try again. [TERMINAL_AGENT_UNAVAILABLE]`);
+      if (!agent) throw new Error(`Terminal support for “${requestedAgentId || "this agent"}” is unavailable in the running Nextbrowser ${app.getVersion()} build. Restart Nextbrowser to complete its update, then try again. [TERMINAL_AGENT_UNAVAILABLE]`);
       const bin = resolveBinary(agent.binary, agent.envVar);
       if (!bin) throw new Error(`${agent.binary} CLI not found.`);
       const id = randomUUID();
@@ -2426,7 +2436,7 @@ async function invokeCommand(command, args = {}, sender) {
     case "cdp_page_ws_url": {
       const response = await fetch(`${String(args.httpBase).replace(/\/$/, "")}/json/list`); if (!response.ok) throw new Error(`CDP target request failed (${response.status}).`);
       const targets = await response.json(); const target = targets.find((t) => t.type === "page" && t.webSocketDebuggerUrl) || targets.find((t) => t.webSocketDebuggerUrl);
-      if (!target?.webSocketDebuggerUrl) throw new Error("No page targets found. Open a tab in NextBrowser first."); return target.webSocketDebuggerUrl;
+      if (!target?.webSocketDebuggerUrl) throw new Error("No page targets found. Open a tab in Nextbrowser first."); return target.webSocketDebuggerUrl;
     }
     case "remote_signal_open": {
       const id = randomUUID();
@@ -2489,7 +2499,7 @@ function applyAppIcon() {
 function createWindow() {
   const icon = loadAppIcon();
   const window = new BrowserWindow({
-    title: "NextBrowser", width: 1180, height: 760, minWidth: 960, minHeight: 640,
+    title: "Nextbrowser", width: 1180, height: 760, minWidth: 960, minHeight: 640,
     backgroundColor: "#0e0e0e", show: false,
     // The native menu looks like Electron chrome in the Windows product UI.
     // Keep keyboard access through Alt without reserving visual space for it.
@@ -2553,7 +2563,7 @@ if (!gotLock) {
     // never needs to own `nextbrowser://`. On macOS LaunchServices associates a
     // dev registration with Electron.app itself and silently drops the script
     // argument; a browser callback then opens Electron's generic welcome window
-    // instead of the running NextBrowser app. Clean up only that stale dev
+    // instead of the running Nextbrowser app. Clean up only that stale dev
     // handler. Packaged builds keep the normal protocol registration.
     if (devStorage) {
       // Isolated QA must not change the user's protocol handler, even cleanup.

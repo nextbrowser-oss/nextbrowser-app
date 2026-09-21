@@ -96,10 +96,61 @@ interface BrowserRuntimeUpdateInstallStatus {
   }[];
 }
 
-const APP_UPDATE_ERROR = "We couldn't update the NextBrowser app. Please retry.";
+const APP_UPDATE_ERROR = "We couldn't update the Nextbrowser app. Please retry.";
+
+const UI_SCALE_MIN = 0.8;
+const UI_SCALE_MAX = 1.3;
+const UI_SCALE_STEP = 0.1;
+
+function clampUiScale(value: number): number {
+  return Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, Math.round(value * 100) / 100));
+}
+
+function UIScaleSlider({ value, onChange }: { value: number; onChange: (next: number) => void }) {
+  return (
+    <>
+      <button
+        className="plain-icon-btn plain-icon-btn-compact"
+        onClick={() => onChange(clampUiScale(value - UI_SCALE_STEP))}
+        disabled={value <= UI_SCALE_MIN}
+        title="Decrease interface size"
+        aria-label="Decrease interface size"
+      >
+        <Icon name="minus" size={12} />
+      </button>
+      <span className="muted small ui-scale-value">{Math.round(value * 100)}%</span>
+      <button
+        className="plain-icon-btn plain-icon-btn-compact"
+        onClick={() => onChange(clampUiScale(value + UI_SCALE_STEP))}
+        disabled={value >= UI_SCALE_MAX}
+        title="Increase interface size"
+        aria-label="Increase interface size"
+      >
+        <Icon name="plus" size={12} />
+      </button>
+    </>
+  );
+}
+
+function UIScaleControl({ value, onChange, onDismiss }: { value: number; onChange: (next: number) => void; onDismiss: () => void }) {
+  return (
+    <div className="ui-scale-control" title="Interface size">
+      <Icon name="magnifyingglass" size={13} />
+      <UIScaleSlider value={value} onChange={onChange} />
+      <button
+        className="plain-icon-btn plain-icon-btn-compact ui-scale-dismiss"
+        onClick={onDismiss}
+        title="Hide this control (it stays in Settings)"
+        aria-label="Hide the interface size control"
+      >
+        <Icon name="xmark" size={11} />
+      </button>
+    </div>
+  );
+}
 
 function BrowserRuntimeInstallModal({ status, onCancel }: { status: BrowserRuntimeInstallStatus; onCancel: () => void }) {
-  const name = status.runtime === "dasbrowser" ? "DasBrowser" : status.runtime === "camoufox" ? "Camoufox" : "ClawBrowser";
+  const name = status.runtime === "dasbrowser" ? "DasBrowser" : status.runtime === "camoufox" ? "Camoufox" : "Clawbrowser";
   const installing = status.status === "installing";
   return (
     <div className="browser-install-overlay" role="status" aria-live="polite">
@@ -114,7 +165,7 @@ function BrowserRuntimeInstallModal({ status, onCancel }: { status: BrowserRunti
           </p>
         </div>
         <InstallationProgress label={installing ? `Installing ${name}` : `Downloading ${name}`} />
-        <p className="muted browser-install-note">Keep NextBrowser open until setup is complete.</p>
+        <p className="muted browser-install-note">Keep Nextbrowser open until setup is complete.</p>
         {status.requestId && <div className="modal-actions"><button className="secondary danger-text" type="button" onClick={onCancel}><Icon name="stop.fill" size={12} /> Stop download</button></div>}
       </div>
     </div>
@@ -131,16 +182,17 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onRetry, onOpenManualGu
   const installing = status.status === "installing";
   const failed = status.status === "failed";
   const partial = status.status === "partial";
+  const needsAttention = failed || partial;
   const errors = status.errors ?? [];
   const retryRuntimes = status.runtimes ?? [];
   // A failure with no per-runtime detail (for example the initial update check
   // could not reach the network) still needs an actionable retry.
   const canRetry = failed && errors.length === 0 && retryRuntimes.length > 0;
-  return (
-    <div className="runtime-update-progress-card" role="status" aria-live="polite">
+  const card = (
+    <div className={"runtime-update-progress-card" + (needsAttention ? " needs-attention" : "")} role="status" aria-live="polite">
       {installing ? <InstallationSpinner /> : (
-        <div className={"runtime-update-progress-mark" + (failed || partial ? " is-error" : " is-ready")}>
-          <Icon name={failed || partial ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"} size={18} />
+        <div className={"runtime-update-progress-mark" + (needsAttention ? " is-error" : " is-ready")}>
+          <Icon name={needsAttention ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"} size={needsAttention ? 15 : 18} />
         </div>
       )}
       <div className="runtime-update-progress-copy">
@@ -151,12 +203,13 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onRetry, onOpenManualGu
             {errors.map((error) => (
               <section className="runtime-update-error" key={error.runtime}>
                 <div className="runtime-update-error-heading">
-                  <strong>{error.name} couldn’t update</strong>
-                  {error.code && <code>{error.code}</code>}
+                  <span>{error.name} couldn’t update</span>
+                  {error.code && <span className="runtime-update-error-code" title={error.code}>{error.category ?? "Update could not finish"}</span>}
                 </div>
-                <span className="error small">{error.category ?? "Update could not finish"}</span>
-                <p className="muted small">{error.message}</p>
-                <p className="runtime-update-recovery">{error.recovery ?? "Keep NextBrowser open, then try again."}</p>
+                {/* The next step is what the user needs first; the raw message is
+                    supporting detail, not the headline. */}
+                <p className="runtime-update-recovery">{error.recovery ?? "Keep Nextbrowser open, then try again."}</p>
+                <p className="muted small runtime-update-detail">{error.message}</p>
                 <div className="row runtime-update-error-actions">
                   {error.retryable !== false && <button className="secondary small" onClick={() => onRetry([error.runtime])}>Retry {error.name}</button>}
                   <button className="secondary small" onClick={() => onOpenManualGuide(error.releasePage)}>Update manually</button>
@@ -170,7 +223,7 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onRetry, onOpenManualGu
             <button className="secondary small" onClick={() => onRetry(retryRuntimes)}>Retry</button>
           </div>
         )}
-        {(failed || partial) && <p className="runtime-update-requirements">Before retrying: keep NextBrowser open, use a stable connection, make sure there is free disk space, and close any running browser toolset.</p>}
+        {needsAttention && <p className="runtime-update-requirements">Before retrying: keep Nextbrowser open, use a stable connection, make sure there is free disk space, and close any running browser toolset.</p>}
       </div>
       {installing && <InstallationProgress label={`Updating ${status.currentName ?? "browser toolsets"}`} />}
       {!installing && (
@@ -178,6 +231,16 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onRetry, onOpenManualGu
           <Icon name="xmark" size={12} />
         </button>
       )}
+    </div>
+  );
+  // A transient status (installing, or a clean success) is ambient and stays
+  // out of the way as a floating card. Once it needs a decision, give it a
+  // real backdrop instead of floating on top of whatever else is open —
+  // otherwise it visually collides with any other open modal.
+  if (!needsAttention) return card;
+  return (
+    <div className="runtime-update-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      {card}
     </div>
   );
 }
@@ -230,7 +293,7 @@ function updateLabel(status?: AppUpdateStatus | null): string {
     // instead of a generic message that hides what actually failed.
     const detail = status.message?.trim();
     if (!detail || detail === APP_UPDATE_ERROR) return APP_UPDATE_ERROR;
-    return `We couldn't update the NextBrowser app: ${detail}`;
+    return `We couldn't update the Nextbrowser app: ${detail}`;
   }
   return "Check for updates";
 }
@@ -294,7 +357,7 @@ function formatStars(count?: number | null): string {
 const GITHUB_STARS_FALLBACK = 17;
 
 function GithubStarButton({ stars }: { stars?: number | null }) {
-  const label = "Star NextBrowser on GitHub";
+  const label = "Star Nextbrowser on GitHub";
   return (
     <button
       className="social-button github-star-btn"
@@ -316,8 +379,8 @@ function DiscordButton() {
     <button
       className="social-button discord-button"
       onClick={() => window.open(discordUrl, "_blank", "noopener,noreferrer")}
-      title="Join NextBrowser on Discord"
-      aria-label="Join NextBrowser on Discord"
+      title="Join Nextbrowser on Discord"
+      aria-label="Join Nextbrowser on Discord"
     >
       <DiscordMark size={18} />
     </button>
@@ -392,7 +455,7 @@ function ManualReleaseDownload({ onOpen }: { onOpen: () => Promise<void> }) {
       {state === "opening" && <Spinner size={12} />}
       {state === "opening" ? "Opening download…" : "Download update"}
     </button>
-    {state === "opened" && <p className="muted small" role="status">Download opened in your browser. When it finishes, open the DMG from Downloads and drag NextBrowser into Applications.</p>}
+    {state === "opened" && <p className="muted small" role="status">Download opened in your browser. When it finishes, open the DMG from Downloads and drag Nextbrowser into Applications.</p>}
     {state === "error" && <p className="error small" role="alert">Could not open the download. Please try again.</p>}
   </div>;
 }
@@ -411,6 +474,10 @@ function SettingsModal({
   onInstallUpdate,
   onOpenRelease,
   onRequestBrowserRuntimeUpdate,
+  uiScale,
+  onUiScaleChange,
+  uiScaleFloatingHidden,
+  onRestoreFloatingScale,
 }: {
   onClose: () => void;
   onOpenUsage: () => void;
@@ -425,6 +492,10 @@ function SettingsModal({
   onInstallUpdate: () => void;
   onOpenRelease: () => Promise<void>;
   onRequestBrowserRuntimeUpdate: (runtime: BrowserRuntimeUpdateEntry) => void;
+  uiScale: number;
+  onUiScaleChange: (next: number) => void;
+  uiScaleFloatingHidden: boolean;
+  onRestoreFloatingScale: () => void;
 }) {
   const [agentLogoutPending, setAgentLogoutPending] = useState(false);
   const nextctlVersion = useStore((s) => s.nextctlVersion);
@@ -476,7 +547,7 @@ function SettingsModal({
         </div>
         <div className="settings-section">
           <div className="settings-row">
-            <span className="muted small">NextBrowser</span>
+            <span className="muted small">Nextbrowser</span>
             <div className="settings-version-cell">
               <button
                 className="plain-icon-btn plain-icon-btn-compact"
@@ -488,6 +559,22 @@ function SettingsModal({
                 {appUpdate.status === "checking" ? <Spinner size={12} /> : <Icon name="arrow.clockwise" size={12} />}
               </button>
               <strong>{__APP_VERSION__}</strong>
+            </div>
+          </div>
+          <div className="settings-row">
+            <span className="muted small">Interface size</span>
+            <div className="ui-scale-control ui-scale-control-settings">
+              <UIScaleSlider value={uiScale} onChange={onUiScaleChange} />
+              {uiScaleFloatingHidden && (
+                <button
+                  className="plain-icon-btn plain-icon-btn-compact"
+                  onClick={onRestoreFloatingScale}
+                  title="Return the quick-access control to the main screen"
+                  aria-label="Return the interface-size quick-access control to the main screen"
+                >
+                  <Icon name="arrow.uturn.left" size={12} />
+                </button>
+              )}
             </div>
           </div>
           <div className="settings-row settings-update-row">
@@ -518,7 +605,7 @@ function SettingsModal({
               )}
             </div>
           </div>
-          {appUpdate.status === "downloading" && <InstallationProgress label={`Downloading NextBrowser ${appUpdate.percent ?? 0}%`} />}
+          {appUpdate.status === "downloading" && <InstallationProgress label={`Downloading Nextbrowser ${appUpdate.percent ?? 0}%`} />}
           <div className="settings-row">
             <span className="muted small">nextctl</span>
             <strong>{nextctlVersion || "not detected"}</strong>
@@ -691,7 +778,7 @@ function AppUpdatePrompt({
         <div className="modal-title-row">
           <Icon name="sparkles" size={18} className="warn" />
           <div>
-            <strong id="app-update-title">New NextBrowser version available</strong>
+            <strong id="app-update-title">New Nextbrowser version available</strong>
             <div className="muted small">
               {status.version ? `Version ${status.version} is ready.` : "A newer build is available."}
             </div>
@@ -706,7 +793,7 @@ function AppUpdatePrompt({
                 ? "Downloading the update — you can keep working."
                 : "Update now, or keep working and install it later from Settings."}
         </p>
-        {downloading && <InstallationProgress label={`Downloading NextBrowser ${status.percent ?? 0}%`} />}
+        {downloading && <InstallationProgress label={`Downloading Nextbrowser ${status.percent ?? 0}%`} />}
         <div className="row settings-actions">
           <button className="secondary" autoFocus onClick={onLater}>Later</button>
           <span className="spacer" />
@@ -736,6 +823,24 @@ export function App() {
     localStorage.getItem("nextbrowser.theme"),
     window.matchMedia("(prefers-color-scheme: light)").matches,
   ));
+  const [uiScale, setUiScale] = useState<number>(() => {
+    const saved = Number(localStorage.getItem("nextbrowser.uiScale"));
+    return Number.isFinite(saved) && saved >= UI_SCALE_MIN && saved <= UI_SCALE_MAX ? saved : 1;
+  });
+  // The floating quick-access control is a convenience on top of the real
+  // setting in Settings; once dismissed there's no reason to keep offering
+  // it back, so the choice is remembered per device like the scale itself.
+  const [uiScaleFloatingHidden, setUiScaleFloatingHidden] = useState(
+    () => localStorage.getItem("nextbrowser.uiScaleFloatingHidden") === "1",
+  );
+  const dismissUiScaleFloating = () => {
+    setUiScaleFloatingHidden(true);
+    localStorage.setItem("nextbrowser.uiScaleFloatingHidden", "1");
+  };
+  const restoreUiScaleFloating = () => {
+    setUiScaleFloatingHidden(false);
+    localStorage.removeItem("nextbrowser.uiScaleFloatingHidden");
+  };
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsFocus, setSettingsFocus] = useState<"agent" | null>(null);
   const [appUpdate, setAppUpdate] = useState<AppUpdateStatus>({ status: "idle" });
@@ -1089,6 +1194,16 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    // Electron's native page zoom (Chromium's own Ctrl/Cmd+ mechanism),
+    // requested through the main process — not the CSS `zoom` property,
+    // which scales pixel values that were never meant to exceed the
+    // window's own size and broke scrolling and fixed-position overlays
+    // (like the Settings modal) at higher scales.
+    void invoke("app_set_zoom_factor", { factor: uiScale }).catch(() => undefined);
+    localStorage.setItem("nextbrowser.uiScale", String(uiScale));
+  }, [uiScale]);
+
+  useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
     localStorage.setItem("nextbrowser.theme", theme);
@@ -1313,6 +1428,10 @@ export function App() {
             onInstallUpdate={installAppUpdate}
             onOpenRelease={openLatestRelease}
             onRequestBrowserRuntimeUpdate={requestBrowserRuntimeUpdate}
+            uiScale={uiScale}
+            onUiScaleChange={setUiScale}
+            uiScaleFloatingHidden={uiScaleFloatingHidden}
+            onRestoreFloatingScale={restoreUiScaleFloating}
           />
         )}
         <div className="splash">
@@ -1430,6 +1549,10 @@ export function App() {
           onInstallUpdate={installAppUpdate}
           onOpenRelease={openLatestRelease}
           onRequestBrowserRuntimeUpdate={requestBrowserRuntimeUpdate}
+          uiScale={uiScale}
+          onUiScaleChange={setUiScale}
+          uiScaleFloatingHidden={uiScaleFloatingHidden}
+          onRestoreFloatingScale={restoreUiScaleFloating}
         />
       )}
       {updateAvailable(appUpdate) && appUpdate.version !== updatePromptDismissedVersion && !settingsOpen && (
@@ -1466,6 +1589,9 @@ export function App() {
       )}
       {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
       {feedbackModal}
+      {!uiScaleFloatingHidden && (
+        <UIScaleControl value={uiScale} onChange={setUiScale} onDismiss={dismissUiScaleFloating} />
+      )}
     </div>
   );
 }

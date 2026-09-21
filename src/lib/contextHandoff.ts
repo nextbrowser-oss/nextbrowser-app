@@ -42,7 +42,7 @@ function handoffMessageText(message: ChatMessage): string | undefined {
 
 export function terminalToChatHandoff(transcript: string, profile?: string): string {
   const recent = tailWithinLimit(clean(transcript).split("\n"));
-  return `Continue this task from Terminal Chat in the regular NextBrowser chat.
+  return `Continue this task from Terminal Chat in the regular Nextbrowser chat.
 ${profile ? `Active browser profile: ${profile}.\n` : ""}Use the existing browser session and do not repeat completed actions. First acknowledge the handoff, then continue from the latest unfinished step.
 
 Recent terminal context:
@@ -59,7 +59,7 @@ export function chatToTerminalHandoff(messages: ChatMessage[], profile?: string)
     return [`${role}: ${text.slice(0, 900)}${tools.length ? `\nBrowser tools used: ${[...new Set(tools)].join(", ")}` : ""}`];
   }).slice(-6);
   const conversation = tailWithinLimit(useful, 5_200);
-  return `Continue this task from the regular NextBrowser chat in Terminal Chat.
+  return `Continue this task from the regular Nextbrowser chat in Terminal Chat.
 ${profile ? `Active browser profile: ${profile}.\n` : ""}Use the existing browser session and do not repeat completed actions. Continue from the latest unfinished step.
 
 Recent chat context:
@@ -106,7 +106,7 @@ export function terminalBrowserScopeContext(
     ? "Camoufox"
     : runtime === "dasbrowser"
       ? "DasBrowser"
-      : "ClawBrowser";
+      : "Clawbrowser";
   const uniqueProfiles = profiles.filter((profile, index) =>
     profiles.findIndex((candidate) => candidate.name === profile.name) === index
   );
@@ -119,7 +119,7 @@ export function terminalBrowserScopeContext(
   const recorderContext = recorderActive
     ? "\nRecorder is active. A reusable recording must contain a successful nextbrowser.navigate_extract, nextbrowser.extract, nextbrowser.paginate_extract, nextbrowser.tabs_extract, or read-only nextbrowser.evaluate call returning the exact final dataset. Prefer navigate_extract when the URL, row container, and fields are known. State is discovery only: use it once when needed, never construct the artifact solely from state output or reasoning, and do not use evaluate for selector or HTML diagnostics. Perform the final deterministic data call after discovery and before Artifact Center save. For evaluate, select the target by stable content, attributes, or headers rather than a numeric querySelectorAll position, and throw unless the requested row count and fields are populated. If the final dataset comes from a public JSON endpoint, use its replayable GET form when available: open that exact API URL in the listed browser profile, then evaluate the JSON body. Never leave the final request hidden in curl, fetch, or an uncaptured shell action, because Recorder cannot replay it. Save the final dataset once with nextbrowser.save_artifact. Do not finish with only open, state, and save_artifact."
     : "";
-  return `NextBrowser workspace browser access (not project chat history):\n${rows.join("\n")}\nUse an explicit profile name exactly; otherwise use the selected or sole profile. If several profiles are plausible, ask which one to use. Ignore profile names from older turns. Never invent, clone, create, start, or substitute an unlisted profile, and do not use another browser-control integration. A runtime label such as ClawBrowser, Camoufox, or DasBrowser is not a profile name and must never be passed as one.${startCommands.length ? `\nAuthorized recovery commands (available even when status says running because the user may close the browser manually; copy only the matching command and never replace its profile value):\n${startCommands.join("\n")}` : ""}\nIf the chosen listed profile is stopped, or a page tool reports that its session is missing, closed, refused, or unreachable, run its exact authorized host start command once. On Windows use curl.exe. The successful response contains the canonical session name; retry the original page action once with that exact name. If either attempt fails, report that error without trying another name. Save requested files with nextbrowser.save_artifact in one call containing name, format, and the complete non-empty content. This saves directly to the current workspace's local Artifact Center; do not use shell, curl, or temporary files for artifacts.${recorderContext}`;
+  return `Nextbrowser workspace browser access (not project chat history):\n${rows.join("\n")}\nUse an explicit profile name exactly; otherwise use the selected or sole profile. If several profiles are plausible, ask which one to use. Ignore profile names from older turns. Never invent, clone, create, start, or substitute an unlisted profile, and do not use another browser-control integration. A runtime label such as Clawbrowser, Camoufox, or DasBrowser is not a profile name and must never be passed as one.${startCommands.length ? `\nAuthorized recovery commands (available even when status says running because the user may close the browser manually; copy only the matching command and never replace its profile value):\n${startCommands.join("\n")}` : ""}\nIf the chosen listed profile is stopped, or a page tool reports that its session is missing, closed, refused, or unreachable, run its exact authorized host start command once. On Windows use curl.exe. The successful response contains the canonical session name; retry the original page action once with that exact name. If either attempt fails, report that error without trying another name. Save requested files with nextbrowser.save_artifact in one call containing name, format, and the complete non-empty content. This saves directly to the current workspace's local Artifact Center; do not use shell, curl, or temporary files for artifacts.${recorderContext}`;
 }
 
 export function terminalLineBufferAfter(current: string, data: string): string {

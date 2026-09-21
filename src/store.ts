@@ -148,7 +148,7 @@ function privateSkillContext(skills: BrowserWorkflowSkill[], text: string): stri
     .filter((skill) => skill.domain && lower.includes(skill.domain.toLowerCase()))
     .sort((a, b) => Number(b.capability === intent) - Number(a.capability === intent) || b.updatedAt - a.updatedAt)[0];
   if (!match || (match.capability !== intent && intent !== "other")) return "";
-  return `\n\nA private skill owned by this user matches the domain and intent. Execute its structured recipe first; fall back to its prose workflow only if the page changed. Do not repeat start/prepare because NextBrowser owns session setup.\nPrivate skill: ${match.title}\nRecipe: ${JSON.stringify(match.recipe)}\nFallback: ${match.instructions}`;
+  return `\n\nA private skill owned by this user matches the domain and intent. Execute its structured recipe first; fall back to its prose workflow only if the page changed. Do not repeat start/prepare because Nextbrowser owns session setup.\nPrivate skill: ${match.title}\nRecipe: ${JSON.stringify(match.recipe)}\nFallback: ${match.instructions}`;
 }
 
 export interface ManualProxyProfileInput {
@@ -259,7 +259,7 @@ function nextctlUpdateRetryDelay(attempt: number): number {
 // daily background check tries again.
 const NEXTCTL_UPDATE_RATE_LIMIT_MS = 60 * 60 * 1000;
 const NEXTCTL_UPDATE_STATE_FILE = "nextctl-update.json";
-const NEXTCTL_UPDATE_ERROR = "We couldn't update the NextBrowser CLI (nextctl). Please retry.";
+const NEXTCTL_UPDATE_ERROR = "We couldn't update the Nextbrowser CLI (nextctl). Please retry.";
 const NEXTCTL_UPDATE_ERROR_DETAIL_LIMIT = 160;
 
 function nextctlUpdateErrorMessage(reason?: string): string {
@@ -342,7 +342,7 @@ function showNextctlUpdateNotice(message: string): void {
 }
 
 function nextBrowserInstallPrompt(agentAdapter: string): string {
-  return `NextBrowser needs to finish installing its local browser components before browser work can start.
+  return `Nextbrowser needs to finish installing its local browser components before browser work can start.
 
 Use the official nextctl release bootstrap, then install the browser runtime and this agent integration.
 
@@ -400,7 +400,7 @@ function skillKey(agentId: string, entryId: string) {
 function pageReadyNote(openedHost?: string, directFallback = false): string {
   const direct = directFallback ? " Use the selected direct profile explicitly approved by the user; do not switch back to the failed proxy profile." : "";
   if (!openedHost) return direct;
-  return ` The page ${openedHost} is already open in the active NextBrowser profile — work there and don't navigate away unless the steps require it.${direct}`;
+  return ` The page ${openedHost} is already open in the active Nextbrowser profile — work there and don't navigate away unless the steps require it.${direct}`;
 }
 
 function skillAgentPrompt(
@@ -417,7 +417,7 @@ function skillAgentPrompt(
     ? `${pageReadyNote(undefined, directFallback)} Keep the current browser tab active; do not open a different website unless the user explicitly asks.`
     : openedHost
     ? pageReadyNote(openedHost, directFallback)
-    : ` Start by opening ${target} in the active NextBrowser profile.${pageReadyNote(undefined, directFallback)}`;
+    : ` Start by opening ${target} in the active Nextbrowser profile.${pageReadyNote(undefined, directFallback)}`;
   // The task is the app's own instruction for this run, so it precedes the
   // skill text: the workflow explains how, the task says what.
   const thisRun = task?.trim() ? `\n\nTask for this run:\n${task.trim()}` : "";
@@ -787,7 +787,7 @@ let defaultSetupInFlight = false;
 
 // One default profile per browser toolset for a brand-new account.
 const DEFAULT_WORKSPACE_TOOLSETS: { runtime: BrowserToolset; name: string }[] = [
-  { runtime: "clawbrowser", name: "ClawBrowser profile" },
+  { runtime: "clawbrowser", name: "Clawbrowser profile" },
   { runtime: "dasbrowser", name: "DasBrowser profile" },
   { runtime: "camoufox", name: "Camoufox profile" },
 ];
@@ -1260,7 +1260,7 @@ function proxyTunnelLost(message: string): boolean {
 function friendlyXReplyError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   if (sessionLost(message)) return "The browser session was lost. Press Start again to reopen it.";
-  if (/API_KEY|not authorized|unauthorized/i.test(message)) return "NextBrowser could not authenticate. Reconnect your account.";
+  if (/API_KEY|not authorized|unauthorized/i.test(message)) return "Nextbrowser could not authenticate. Reconnect your account.";
   return message.replace(/\s+/g, " ").trim().slice(0, 160);
 }
 
@@ -2038,7 +2038,7 @@ export const useStore = create<State>((set, get) => {
         conversation_count: get().conversations.length,
       });
     })().catch(() => {
-      set({ checking: false, startupError: "NextBrowser couldn't finish startup. Restart the check to try again." });
+      set({ checking: false, startupError: "Nextbrowser couldn't finish startup. Restart the check to try again." });
       trackTiming("bootstrap_failed", startedAt, { phase: get().startupPhase });
     }).finally(() => {
       if (startupTimer) clearTimeout(startupTimer);
@@ -2476,7 +2476,7 @@ export const useStore = create<State>((set, get) => {
     const activeProfile = get().selectedProfile;
     const recording = activeAutomationRecording();
     const recorderContext = recording?.phase === "recording" && recording.workspaceId === conversationWorkspaceId
-      ? `\n\nNextBrowser Recorder is active for this task. The final reusable dataset must come from a deterministic browser tool call, not from reading state and transforming it only in your reasoning. Prefer navigate_extract when the URL, row container, and fields are known because it combines navigation, readiness, and extraction in one recorded call. Otherwise, after using state once to discover the page, call extract or paginate_extract with the exact fields and limit. Do not use evaluate for selector or HTML diagnostics: state is the discovery tool. If the dynamic page cannot be represented by extraction tools, call evaluate once with a read-only expression that returns the exact structured dataset; it must not read cookies/storage, use network APIs, click/submit, or mutate the DOM. Select targets by stable content, attributes, or headers instead of a numeric querySelectorAll position, and make the expression throw unless the requested number of rows and requested fields are populated. If the final dataset comes from a public JSON endpoint, use its replayable GET form when available: open that exact API URL in the listed browser profile, then evaluate the JSON body. Never leave the final request hidden in curl, fetch, or an uncaptured shell action, because Recorder cannot replay it. If the user requested an Artifact Center file, pass that deterministic call's returned dataset to nextbrowser.save_artifact once. Do not finish with state as the only data-collection step.`
+      ? `\n\nNextbrowser Recorder is active for this task. The final reusable dataset must come from a deterministic browser tool call, not from reading state and transforming it only in your reasoning. Prefer navigate_extract when the URL, row container, and fields are known because it combines navigation, readiness, and extraction in one recorded call. Otherwise, after using state once to discover the page, call extract or paginate_extract with the exact fields and limit. Do not use evaluate for selector or HTML diagnostics: state is the discovery tool. If the dynamic page cannot be represented by extraction tools, call evaluate once with a read-only expression that returns the exact structured dataset; it must not read cookies/storage, use network APIs, click/submit, or mutate the DOM. Select targets by stable content, attributes, or headers instead of a numeric querySelectorAll position, and make the expression throw unless the requested number of rows and requested fields are populated. If the final dataset comes from a public JSON endpoint, use its replayable GET form when available: open that exact API URL in the listed browser profile, then evaluate the JSON body. Never leave the final request hidden in curl, fetch, or an uncaptured shell action, because Recorder cannot replay it. If the user requested an Artifact Center file, pass that deterministic call's returned dataset to nextbrowser.save_artifact once. Do not finish with state as the only data-collection step.`
       : "";
     const browserContext = browserProfileContext(
       get().workspaces,
@@ -2744,7 +2744,7 @@ export const useStore = create<State>((set, get) => {
       const response = await invoke<PairingStartResponse>("pairing_start", {
         apiBaseUrl,
         version: __APP_VERSION__,
-        displayName: "NextBrowser Desktop",
+        displayName: "Nextbrowser Desktop",
       });
       const verificationUrl = accountLoginURL(response.verification_url);
       set({
@@ -3032,7 +3032,7 @@ export const useStore = create<State>((set, get) => {
           if (st.status === "running") {
             // Status refresh must never navigate the user's active browser.
             // The old implementation called `verify` for every running
-            // ClawBrowser profile, which could replace a page the agent was
+            // Clawbrowser profile, which could replace a page the agent was
             // actively scraping with clawbrowser://verify. Reuse the identity
             // captured at an explicit lifecycle action and fall back to the
             // saved country label without touching the page.
@@ -3065,7 +3065,7 @@ export const useStore = create<State>((set, get) => {
     }
   },
 
-  // Agents cannot create profiles directly inside a NextBrowser workspace
+  // Agents cannot create profiles directly inside a Nextbrowser workspace
   // (nbc's mcp_workspace_scope.go refuses profiles_create there); instead an
   // agent files a batch request with profiles_create_request, and the person
   // using the app approves or declines it here. Polled on a timer from
@@ -3778,7 +3778,7 @@ export const useStore = create<State>((set, get) => {
         }
         const conv = get().activeConversation();
         const alreadyQueued = conv?.messages.some((message) =>
-          message.text.includes("NextBrowser needs to finish installing its local browser components"),
+          message.text.includes("Nextbrowser needs to finish installing its local browser components"),
         );
         if (!alreadyQueued) get().enqueue(nextBrowserInstallPrompt(adapter));
         trackEvent("install_prompt_sent", { agent: agentId, adapter });
@@ -4331,7 +4331,7 @@ export const useStore = create<State>((set, get) => {
         // again and would recreate the cross-account 409 loop.
         workspaces = workspaces.filter((workspace) => !unownedWorkspaceIds.includes(workspace.id));
         conversations = conversations.filter((conversation) => !conversation.workspaceId || !unownedWorkspaceIds.includes(conversation.workspaceId));
-        console.warn(`[workspace_sync] removed ${unownedWorkspaces.length} workspace(s) owned by another NextBrowser account: ${unownedWorkspaces.join(", ")}`);
+        console.warn(`[workspace_sync] removed ${unownedWorkspaces.length} workspace(s) owned by another Nextbrowser account: ${unownedWorkspaces.join(", ")}`);
       }
       const response = await invoke<{ projects?: Array<{
         id: string; title: string; agent: string; chat_mode: "chat" | "terminal";
@@ -4417,7 +4417,7 @@ export const useStore = create<State>((set, get) => {
         } catch (error) {
           if (!isProjectRevisionConflict(error)) throw error;
           // Another device may have advanced the chat, or its id may belong to a
-          // different NextBrowser account, where no revision can ever match.
+          // different Nextbrowser account, where no revision can ever match.
           // Retry against the refreshed revision or as a create, and keep the
           // chat on this device instead of failing the whole sync.
           const refreshed = await invoke<{ projects?: Array<{
@@ -4438,7 +4438,7 @@ export const useStore = create<State>((set, get) => {
       }
       if (unownedChats.length) {
         conversations = conversations.filter((conversation) => !unownedChatIds.includes(conversation.id));
-        console.warn(`[project_sync] removed ${unownedChats.length} chat(s) owned by another NextBrowser account`);
+        console.warn(`[project_sync] removed ${unownedChats.length} chat(s) owned by another Nextbrowser account`);
       }
       if (unownedWorkspaces.length || unownedChats.length) {
         conversations = conversations.filter((conversation) =>
@@ -5346,8 +5346,8 @@ export const useStore = create<State>((set, get) => {
       const chip: UserCommandChip = { kind: "skill", title: entry.title, detail: target };
       const thisRun = task?.trim() ? `\n\nTask for this run:\n${task.trim()}` : "";
       const prompt = entry.instructions
-        ? `Use the "${entry.title}" repository skill for ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local NextBrowser session.${thisRun}\n\nFollow this SKILL.md exactly:\n\n${entry.instructions}`
-        : `Use the "${entry.title}" skill for ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local NextBrowser session. Use only skill instructions and browser tooling that are already available on the VPS; if the skill is missing there, report that without installing it.${entry.description ? `\n\nSkill description: ${entry.description}` : ""}${thisRun}`;
+        ? `Use the "${entry.title}" repository skill for ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local Nextbrowser session.${thisRun}\n\nFollow this SKILL.md exactly:\n\n${entry.instructions}`
+        : `Use the "${entry.title}" skill for ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local Nextbrowser session. Use only skill instructions and browser tooling that are already available on the VPS; if the skill is missing there, report that without installing it.${entry.description ? `\n\nSkill description: ${entry.description}` : ""}${thisRun}`;
       get().enqueue(prompt, chip, cid);
       return;
     }
@@ -5894,7 +5894,7 @@ export const useStore = create<State>((set, get) => {
       const scriptBody = entry.js
         ? `Run this JavaScript through the already-installed remote nextctl browser evaluation command:\n\n\`\`\`javascript\n${entry.js}\n\`\`\``
         : `Use the already-available remote script or skill identified by ${entry.selector.value}. If it is missing on the VPS, report that without installing it.`;
-      const prompt = `Run "${entry.title}" ${where} on the selected VPS only. Do not prepare, open, inspect, evaluate, or change any local NextBrowser session. ${scriptBody}`;
+      const prompt = `Run "${entry.title}" ${where} on the selected VPS only. Do not prepare, open, inspect, evaluate, or change any local Nextbrowser session. ${scriptBody}`;
       get().enqueue(prompt, {
         kind: "script",
         title: entry.title,
@@ -6039,7 +6039,7 @@ export const useStore = create<State>((set, get) => {
     }
     const where = onHost
       ? `on ${onHost}`
-      : `in the active NextBrowser session (${get().currentSessionDisplayName()})`;
+      : `in the active Nextbrowser session (${get().currentSessionDisplayName()})`;
     const md = await installedSkillMarkdown(ref);
     const prompt = scriptAgentPrompt(
       entry.title,
@@ -6194,7 +6194,7 @@ export const useStore = create<State>((set, get) => {
         title: script.title,
         detail: domain || "VPS",
       };
-      const prompt = `Run my custom script "${script.title}" on ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local NextBrowser session. Follow these steps exactly using only the already-installed remote browser tooling:\n\n${script.instructions}`;
+      const prompt = `Run my custom script "${script.title}" on ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local Nextbrowser session. Follow these steps exactly using only the already-installed remote browser tooling:\n\n${script.instructions}`;
       get().enqueue(prompt, chip, cid);
       return;
     }
@@ -6214,14 +6214,14 @@ export const useStore = create<State>((set, get) => {
       return;
     }
     if (!get().agentReady()) return;
-    const target = domain || `the active NextBrowser session (${get().currentSessionDisplayName()})`;
+    const target = domain || `the active Nextbrowser session (${get().currentSessionDisplayName()})`;
     const chip: UserCommandChip = {
       kind: "script",
       title: script.title,
       detail: domain || get().currentSessionDisplayName(),
     };
     const note = pageReadyNote(prep.host, prep.directFallback);
-    const prompt = `Run my custom script "${script.title}" on ${target} in the active NextBrowser session.${note}\nFollow these steps exactly:\n\n${script.instructions}`;
+    const prompt = `Run my custom script "${script.title}" on ${target} in the active Nextbrowser session.${note}\nFollow these steps exactly:\n\n${script.instructions}`;
     get().enqueue(prompt, chip, cid);
   },
 
@@ -6283,7 +6283,7 @@ export const useStore = create<State>((set, get) => {
     const { backendRunId, ...recipeParameters } = parameters;
     const activeConversation = get().activeConversation();
     if (activeConversation?.executionTarget === "vps") {
-      throw new Error("Deterministic replay currently requires a local NextBrowser profile.");
+      throw new Error("Deterministic replay currently requires a local Nextbrowser profile.");
     }
     // Deterministic replay deliberately skips the conversational preflight,
     // but MCP page actions still require a live CDP session. Start or reattach
@@ -6348,7 +6348,7 @@ export const useStore = create<State>((set, get) => {
     const chip: UserCommandChip = { kind: "skill", title: skill.title, detail: skill.domain || "Local skill" };
     if (remoteOnly) {
       return get().enqueue(
-        `Use my local browser skill "${skill.title}" for ${target} on the selected VPS only. Do not prepare or change any local NextBrowser session.\n\nTask for this run:\n${task}\n\nWorkflow instructions:\n${skill.instructions}`,
+        `Use my local browser skill "${skill.title}" for ${target} on the selected VPS only. Do not prepare or change any local Nextbrowser session.\n\nTask for this run:\n${task}\n\nWorkflow instructions:\n${skill.instructions}`,
         chip, cid,
       );
     }
@@ -6370,7 +6370,7 @@ export const useStore = create<State>((set, get) => {
     if (!get().agentReady()) return;
     const note = pageReadyNote(prep.host, prep.directFallback);
     const replyId = get().enqueue(
-      `Use my local browser skill "${skill.title}" for ${target} in the active verified NextBrowser session.${note}\nThe app already prepared the session, verified the selected proxy, and opened the website. Do not run saved start/prepare operations again. Begin with the first task-specific action. Reuse the proven recipe, adapting selectors only if the page changed.\n\nTask for this run:\n${task}\n\nStructured recipe (execute first):\n${JSON.stringify(skill.recipe, null, 2)}\n\nWorkflow fallback:\n${skill.instructions}`,
+      `Use my local browser skill "${skill.title}" for ${target} in the active verified Nextbrowser session.${note}\nThe app already prepared the session, verified the selected proxy, and opened the website. Do not run saved start/prepare operations again. Begin with the first task-specific action. Reuse the proven recipe, adapting selectors only if the page changed.\n\nTask for this run:\n${task}\n\nStructured recipe (execute first):\n${JSON.stringify(skill.recipe, null, 2)}\n\nWorkflow fallback:\n${skill.instructions}`,
       chip,
       cid,
     );

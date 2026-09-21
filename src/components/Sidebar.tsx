@@ -71,7 +71,7 @@ function multiloginCreationError(error: unknown, kind: MultiloginProfileKind): s
   const message = error instanceof Error ? error.message : String(error);
   if (/workspace has no .*Default folder|workspace has multiple .*Default folder/i.test(message)) {
     const item = kind === "mobile" ? "cloud-phone" : "browser";
-    return `This Multilogin workspace needs one ${item} folder named “Default” before NextBrowser can create a new ${kind === "mobile" ? "cloud phone" : "browser profile"}. Create or rename that folder in Multilogin, then refresh here. You can still choose an existing shared profile.`;
+    return `This Multilogin workspace needs one ${item} folder named “Default” before Nextbrowser can create a new ${kind === "mobile" ? "cloud phone" : "browser profile"}. Create or rename that folder in Multilogin, then refresh here. You can still choose an existing shared profile.`;
   }
   return /timed out/i.test(message)
     ? "Multilogin profile creation took too long and was stopped. Check your connection, then try again."
@@ -1538,8 +1538,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         {s.authed ? (
           <button
             className="plain-icon-btn plain-icon-btn-compact"
-            title="Sign out of NextBrowser"
-            aria-label="Sign out of NextBrowser"
+            title="Sign out of Nextbrowser"
+            aria-label="Sign out of Nextbrowser"
             disabled={logoutPending}
             onClick={() => void logout()}
           >
@@ -1724,7 +1724,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               <label className={"project-mode-option" + (profileToolset === "clawbrowser" ? " is-selected" : "")}>
                 <input type="radio" name="profile-toolset" checked={profileToolset === "clawbrowser"} onChange={() => setProfileToolset("clawbrowser")} />
                 <Icon name="globe" size={16} />
-                <span><strong>ClawBrowser</strong><small>Managed identity and proxy</small></span>
+                <span><strong>Clawbrowser</strong><small>Managed identity and proxy</small></span>
               </label>
               <label className={"project-mode-option" + (profileToolset === "dasbrowser" ? " is-selected" : "")}>
                 <input type="radio" name="profile-toolset" checked={profileToolset === "dasbrowser"} onChange={() => setProfileToolset("dasbrowser")} />
@@ -2031,8 +2031,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       {pendingRuntimeInstall && createPortal((
         <div className="modal-overlay" role="presentation" onMouseDown={() => setPendingRuntimeInstall(undefined)}>
           <section className="modal-card runtime-install-confirm" role="dialog" aria-modal="true" aria-labelledby="runtime-install-confirm-title" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="profile-menu-head"><Icon name="arrow.down.circle.fill" size={17} /><strong id="runtime-install-confirm-title">Download {pendingRuntimeInstall.runtime === "camoufox" ? "Camoufox" : pendingRuntimeInstall.runtime === "dasbrowser" ? "DasBrowser" : "ClawBrowser"}?</strong></div>
-            <p className="muted small">This browser toolset is required to start “{pendingRuntimeInstall.profile}”. NextBrowser will download it in the background and show progress. You can stop the download at any time.</p>
+            <div className="profile-menu-head"><Icon name="arrow.down.circle.fill" size={17} /><strong id="runtime-install-confirm-title">Download {pendingRuntimeInstall.runtime === "camoufox" ? "Camoufox" : pendingRuntimeInstall.runtime === "dasbrowser" ? "DasBrowser" : "Clawbrowser"}?</strong></div>
+            <p className="muted small">This browser toolset is required to start “{pendingRuntimeInstall.profile}”. Nextbrowser will download it in the background and show progress. You can stop the download at any time.</p>
             <div className="modal-actions"><button className="secondary" type="button" autoFocus onClick={() => setPendingRuntimeInstall(undefined)}>Cancel</button><button className="primary" type="button" onClick={() => { const request = pendingRuntimeInstall; setPendingRuntimeInstall(undefined); runProfileAction(`We couldn't start “${request.profile}”.`, "PROFILE_START_FAILED", () => s.startProfile(request.profile)); }}><Icon name="arrow.down.circle.fill" size={13} /> Download &amp; start</button></div>
           </section>
         </div>
@@ -2433,7 +2433,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               </form>
             ) : (
               <>
-                <p className="muted personal-proxy-note">Encrypted in your NextBrowser account and available on every signed-in device.</p>
+                <p className="muted personal-proxy-note">Encrypted in your Nextbrowser account and available on every signed-in device.</p>
                 {s.personalProxies.length ? (
                   <div className="personal-proxy-list">
                     {s.personalProxies.map((proxy) => {
@@ -2668,7 +2668,7 @@ function ProfileRow({
   draggable?: boolean;
   dragOver?: boolean;
   projectId?: string;
-  // Profiles NextBrowser doesn't itself start/stop (e.g. a Multilogin cloud
+  // Profiles Nextbrowser doesn't itself start/stop (e.g. a Multilogin cloud
   // resource): keep the same row shell, but swap the lifecycle actions for a
   // single "open" + "remove" pair instead of start/stop/menu.
   external?: boolean;
@@ -2683,7 +2683,7 @@ function ProfileRow({
   onRemove?: () => void;
   removeTitle?: string;
 }) {
-  const toolsetLabel = toolset === "clawbrowser" ? "ClawBrowser" : toolset === "dasbrowser" ? "DasBrowser" : toolset === "multilogin" ? "Multilogin" : "Camoufox";
+  const toolsetLabel = toolset === "clawbrowser" ? "Clawbrowser" : toolset === "dasbrowser" ? "DasBrowser" : toolset === "multilogin" ? "Multilogin" : "Camoufox";
   const toolsetIcon = toolset === "clawbrowser" ? "./clawbrowser-icon.png" : toolset === "dasbrowser" ? "./dasbrowser-icon.png" : toolset === "multilogin" ? "./multilogin-icon.svg" : "./camoufox-icon.svg";
   return (
     <div

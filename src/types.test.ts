@@ -54,7 +54,7 @@ describe("Swift-compatible model helpers", () => {
 
 describe("watched profile handles", () => {
   it("accepts what a user actually pastes and rejects the rest", () => {
-    expect(normalizeWatchHandle(" @NextBrowser ")).toBe("NextBrowser");
+    expect(normalizeWatchHandle(" @Nextbrowser ")).toBe("Nextbrowser");
     expect(normalizeWatchHandle("https://x.com/nextbrowser")).toBe("nextbrowser");
     expect(normalizeWatchHandle("https://x.com/@nextbrowser/")).toBe("nextbrowser");
     expect(normalizeWatchHandle("x.com/nextbrowser?lang=en")).toBe("nextbrowser");
@@ -91,13 +91,13 @@ describe("agent watch state file", () => {
     const { reports } = parseWatchState(JSON.stringify({
       version: 1,
       handles: [
-        { handle: "@NextBrowser", following: true, notifications: true, last_post_id: "1899", last_checked_at: "2026-08-25T09:40:00Z", replies_sent: 3, last_reply_url: "https://x.com/me/status/1900" },
+        { handle: "@Nextbrowser", following: true, notifications: true, last_post_id: "1899", last_checked_at: "2026-08-25T09:40:00Z", replies_sent: 3, last_reply_url: "https://x.com/me/status/1900" },
         { handle: "not a handle", notifications: true },
       ],
     }));
     expect(Object.keys(reports)).toEqual(["nextbrowser"]);
     expect(reports.nextbrowser).toMatchObject({
-      handle: "NextBrowser",
+      handle: "Nextbrowser",
       following: true,
       notifications: true,
       lastPostId: "1899",

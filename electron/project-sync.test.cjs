@@ -163,7 +163,7 @@ test("explains when the entity backend cannot be reached", async (t) => {
   await assert.rejects(
     listProjects(deps),
     (error) => error.code === "NEXTBROWSER_BACKEND_UNAVAILABLE"
-      && error.message === "NextBrowser could not connect to the service. Check your internet connection and try again."
+      && error.message === "Nextbrowser could not connect to the service. Check your internet connection and try again."
       && error.cause?.message === "fetch failed",
   );
   assert.equal(calls, 2);

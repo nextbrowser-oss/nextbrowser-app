@@ -142,7 +142,7 @@ export function MultiloginConnectorView({
           {connected ? "Manage" : needsReconnect ? "Reconnect" : "Connect"}
         </button>
         {status && !status.secureStorageAvailable && (
-          <span className="error small connector-card-error">Unlock your system credential store, then reopen NextBrowser.</span>
+          <span className="error small connector-card-error">Unlock your system credential store, then reopen Nextbrowser.</span>
         )}
         {!checking && visibleError && (
           <span className="error small connector-card-error" role="alert">

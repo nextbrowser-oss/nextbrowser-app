@@ -214,7 +214,7 @@ describe("proxy traffic warning", () => {
 describe("launch refused by proxy traffic", () => {
   it("recognises the nextctl exhausted-traffic error", () => {
     expect(isProxyTrafficExhaustedError(new Error(
-      "Proxy traffic limit reached [PROXY_TRAFFIC_EXHAUSTED] — Ask the user to request more free traffic in the NextBrowser Discord, then retry.",
+      "Proxy traffic limit reached [PROXY_TRAFFIC_EXHAUSTED] — Ask the user to request more free traffic in the Nextbrowser Discord, then retry.",
     ))).toBe(true);
     expect(isProxyTrafficExhaustedError(new Error("Launch failed [LAUNCH_FAILED]"))).toBe(false);
     expect(isProxyTrafficExhaustedError(undefined)).toBe(false);

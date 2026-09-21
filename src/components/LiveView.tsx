@@ -546,8 +546,8 @@ export function LiveView({ active }: { active: boolean }) {
       {state === "live" && (
         <div className="live-hint muted small">
           {inputWarning || (nativeViewer
-            ? "Remote Control is running natively in NextBrowser. Click, scroll, type, or use the tab bar above."
-            : "Remote Control is embedded in NextBrowser through the backend dashboard viewer.")}
+            ? "Remote Control is running natively in Nextbrowser. Click, scroll, type, or use the tab bar above."
+            : "Remote Control is embedded in Nextbrowser through the backend dashboard viewer.")}
         </div>
       )}
     </div>

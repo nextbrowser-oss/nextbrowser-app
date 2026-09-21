@@ -263,7 +263,7 @@ export function OnboardingView() {
 
             {current.id === "workspace" && (
               <div className="onboarding-step-content">
-                <div className="onboarding-flow" aria-label="How a NextBrowser task works">
+                <div className="onboarding-flow" aria-label="How a Nextbrowser task works">
                   {[
                     { icon: "person.crop.circle", title: "You", text: "Set the goal" },
                     { icon: "cpu.fill", title: "Agent", text: "Does the work" },

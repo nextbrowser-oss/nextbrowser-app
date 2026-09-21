@@ -41,6 +41,7 @@ import {
   Pencil,
   Clapperboard,
   Plus,
+  Minus,
   PlusCircle,
   RefreshCw,
   ScrollText,
@@ -76,6 +77,7 @@ import {
   Sun,
   ThumbsUp,
   ThumbsDown,
+  Undo2,
 } from "lucide-react";
 
 /** Maps Swift SF Symbol names → Lucide icons for visual parity. */
@@ -147,6 +149,7 @@ const SF_MAP: Record<string, LucideIcon> = {
   network: Network,
   "checkmark.shield.fill": ShieldCheck,
   "checkmark.shield": ShieldCheck,
+  "arrow.uturn.left": Undo2,
   "arrow.right": ArrowRight,
   "arrow.up.right": ArrowUpRight,
   "arrow.right.circle": ArrowRightCircle,
@@ -156,6 +159,7 @@ const SF_MAP: Record<string, LucideIcon> = {
   lock: Lock,
   "lock.open": LockOpen,
   plus: Plus,
+  minus: Minus,
   "arrow.down.circle": ArrowDownCircle,
   play: CirclePlay,
   "play.fill": Play,
