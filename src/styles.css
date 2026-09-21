@@ -8447,3 +8447,13 @@ pre,
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+/* Set apart from the +/- controls so it reads as "close this", not "adjust this". */
+.ui-scale-dismiss {
+  margin-left: 2px;
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
+}
+.ui-scale-dismiss:hover {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+}

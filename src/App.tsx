@@ -137,7 +137,12 @@ function UIScaleControl({ value, onChange, onDismiss }: { value: number; onChang
     <div className="ui-scale-control" title="Interface size">
       <Icon name="magnifyingglass" size={13} />
       <UIScaleSlider value={value} onChange={onChange} />
-      <button className="plain-icon-btn plain-icon-btn-compact" onClick={onDismiss} title="Hide this control (it stays in Settings)" aria-label="Hide the interface size control">
+      <button
+        className="plain-icon-btn plain-icon-btn-compact ui-scale-dismiss"
+        onClick={onDismiss}
+        title="Hide this control (it stays in Settings)"
+        aria-label="Hide the interface size control"
+      >
         <Icon name="xmark" size={11} />
       </button>
     </div>
