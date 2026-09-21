@@ -4706,6 +4706,8 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   background: var(--accent-soft);
   color: var(--accent-text);
 }
+.proxy-test-ok { color: var(--success); }
+.proxy-test-fail { color: var(--red); }
 .personal-proxy-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
 .personal-proxy-copy strong,
 .personal-proxy-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
