@@ -1192,6 +1192,32 @@ describe("local component and profile lifecycle", () => {
     expect(status).not.toContain("fetch releases/latest");
   });
 
+  it("does not schedule short retries when the nextctl update is rate-limited", async () => {
+    vi.useFakeTimers();
+    try {
+      useStore.setState({ nextctlAvailable: true });
+      bridge.invoke.mockImplementation((command) => {
+        if (command === "nextctl_run") {
+          return Promise.resolve({
+            code: 1,
+            stdout: "",
+            stderr: "fetch releases/latest https://api.github.com/repos/nextbrowser-oss/nbc_releases/releases/latest: unexpected status 403 Forbidden",
+          });
+        }
+        return Promise.resolve(null);
+      });
+
+      await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(false);
+      expect(localNextctlCalls()).toHaveLength(1);
+
+      // A rate limit must not trigger the five-minute retries.
+      await vi.advanceTimersByTimeAsync(30 * 60 * 1000);
+      expect(localNextctlCalls()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("treats a successful nextctl install as success even when the command exits non-zero", async () => {
     vi.useFakeTimers();
     try {
