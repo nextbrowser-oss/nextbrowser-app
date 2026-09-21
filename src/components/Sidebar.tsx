@@ -113,6 +113,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [manualProxyEditing, setManualProxyEditing] = useState(false);
   const [manualProxyDeleting, setManualProxyDeleting] = useState<string | null>(null);
   const [manualProxyDeletePending, setManualProxyDeletePending] = useState(false);
+  const [proxyTestResults, setProxyTestResults] = useState<Record<string, { status: "testing" | "ok" | "fail"; detail: string }>>({});
   const [createProfileOpen, setCreateProfileOpen] = useState(false);
   const [vpsSetupOpen, setVPSSetupOpen] = useState(false);
   const [profileName, setProfileName] = useState("");
@@ -826,6 +827,22 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     setManualUsername("");
     setManualPassword("");
     setManualError(null);
+  };
+
+  const runProxyTest = (id: string) => {
+    if (proxyTestResults[id]?.status === "testing") return;
+    setProxyTestResults((current) => ({ ...current, [id]: { status: "testing", detail: "" } }));
+    s.testPersonalProxy(id)
+      .then((result) => {
+        setProxyTestResults((current) => ({
+          ...current,
+          [id]: { status: "ok", detail: result.ip ? `Alive · ${result.ip} · ${result.latencyMs}ms` : `Alive · ${result.latencyMs}ms` },
+        }));
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setProxyTestResults((current) => ({ ...current, [id]: { status: "fail", detail: message } }));
+      });
   };
 
   const logout = async () => {
@@ -2404,24 +2421,44 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 <p className="muted personal-proxy-note">Encrypted in your NextBrowser account and available on every signed-in device.</p>
                 {s.personalProxies.length ? (
                   <div className="personal-proxy-list">
-                    {s.personalProxies.map((proxy) => (
-                      <div className="personal-proxy-row" key={proxy.id}>
-                        <span className="personal-proxy-icon"><Icon name="network" size={13} /></span>
-                        <span className="personal-proxy-copy">
-                          <strong>{proxy.name}</strong>
-                          <small>{proxy.scheme.toUpperCase()} · {proxy.host}:{proxy.port}</small>
-                        </span>
-                        <button
-                          type="button"
-                          className="plain-icon-btn plain-icon-btn-compact"
-                          title={`Delete ${proxy.name}`}
-                          aria-label={`Delete ${proxy.name}`}
-                          onClick={() => setManualProxyDeleting(proxy.id)}
-                        >
-                          <Icon name="trash" size={13} />
-                        </button>
-                      </div>
-                    ))}
+                    {s.personalProxies.map((proxy) => {
+                      const test = proxyTestResults[proxy.id];
+                      const testTitle = test?.status === "testing"
+                        ? "Testing…"
+                        : test
+                          ? test.detail
+                          : `Test ${proxy.name}`;
+                      return (
+                        <div className="personal-proxy-row" key={proxy.id}>
+                          <span className="personal-proxy-icon"><Icon name="network" size={13} /></span>
+                          <span className="personal-proxy-copy">
+                            <strong>{proxy.name}</strong>
+                            <small>{proxy.scheme.toUpperCase()} · {proxy.host}:{proxy.port}</small>
+                          </span>
+                          <button
+                            type="button"
+                            className={"plain-icon-btn plain-icon-btn-compact proxy-test-btn" + (test ? ` proxy-test-${test.status}` : "")}
+                            title={testTitle}
+                            aria-label={testTitle}
+                            disabled={test?.status === "testing"}
+                            onClick={() => runProxyTest(proxy.id)}
+                          >
+                            {test?.status === "testing"
+                              ? <Spinner size={13} />
+                              : <Icon name={test?.status === "ok" ? "checkmark.circle.fill" : test?.status === "fail" ? "exclamationmark.triangle.fill" : "bolt.fill"} size={13} />}
+                          </button>
+                          <button
+                            type="button"
+                            className="plain-icon-btn plain-icon-btn-compact"
+                            title={`Delete ${proxy.name}`}
+                            aria-label={`Delete ${proxy.name}`}
+                            onClick={() => setManualProxyDeleting(proxy.id)}
+                          >
+                            <Icon name="trash" size={13} />
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="personal-proxy-empty">

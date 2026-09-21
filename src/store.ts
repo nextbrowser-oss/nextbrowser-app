@@ -165,6 +165,12 @@ export interface ManualProxyBatchSaveResult {
   failed: Array<{ index: number; message: string }>;
 }
 
+export interface PersonalProxyTestResult {
+  ok: true;
+  ip?: string;
+  latencyMs: number;
+}
+
 interface AgentRuntime {
   ready: boolean;
   authorizing: boolean;
@@ -599,6 +605,7 @@ interface State {
   savePersonalProxy: (input: ManualProxyProfileInput) => Promise<PersonalProxy>;
   savePersonalProxies: (inputs: ManualProxyProfileInput[]) => Promise<ManualProxyBatchSaveResult>;
   deletePersonalProxy: (id: string) => Promise<void>;
+  testPersonalProxy: (id: string) => Promise<PersonalProxyTestResult>;
   createPersonalProxyProfile: (
     name: string,
     proxyId: string,
@@ -3487,6 +3494,8 @@ export const useStore = create<State>((set, get) => {
       await get().loadPersonalProxies().catch(() => undefined);
     }
   },
+
+  testPersonalProxy: async (id) => invoke<PersonalProxyTestResult>("manual_proxy_test", { id }),
 
   createPersonalProxyProfile: async (rawName, proxyId, options) => {
     const startedAt = performance.now();
