@@ -1158,7 +1158,7 @@ describe("local component and profile lifecycle", () => {
 
       await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(false);
       expect(localNextctlCalls()).toHaveLength(1);
-      expect(useStore.getState().nextctlUpdateStatus).toBe("We couldn't update the NextBrowser CLI (nextctl). Please retry. (offline)");
+      expect(useStore.getState().nextctlUpdateStatus).toBe("We couldn't update the NextBrowser CLI (nextctl). Please retry. offline");
 
       await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
       expect(localNextctlCalls()).toHaveLength(2);
@@ -1171,7 +1171,7 @@ describe("local component and profile lifecycle", () => {
     }
   });
 
-  it("strips request URLs from the nextctl update error", async () => {
+  it("reduces a request failure to just the HTTP status", async () => {
     useStore.setState({ nextctlAvailable: true });
     bridge.invoke.mockImplementation((command) => {
       if (command === "nextctl_run") {
@@ -1187,8 +1187,9 @@ describe("local component and profile lifecycle", () => {
     await useStore.getState().checkNextctlUpdate();
 
     const status = useStore.getState().nextctlUpdateStatus ?? "";
-    expect(status).toContain("(fetch releases/latest: unexpected status 403 Forbidden)");
+    expect(status).toBe("We couldn't update the NextBrowser CLI (nextctl). Please retry. 403 Forbidden");
     expect(status).not.toContain("api.github.com");
+    expect(status).not.toContain("fetch releases/latest");
   });
 
   it("treats a successful nextctl install as success even when the command exits non-zero", async () => {
