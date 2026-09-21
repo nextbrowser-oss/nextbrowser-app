@@ -87,7 +87,10 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
   const sessionStarting = session.state === "starting";
   const sessionProfileLabel = session.profile === "__default" ? "default profile" : session.profile ?? undefined;
   const conversationCount = useStore((s) =>
-    s.conversations.filter((conversation) => conversation.agent === s.agentId).length,
+    s.conversations.filter((conversation) => (
+      conversation.agent === s.agentId
+      && (!s.activeWorkspaceId || conversation.workspaceId === s.activeWorkspaceId)
+    )).length,
   );
   const [pendingAction, setPendingAction] = useState<{
     action: GuideAction;

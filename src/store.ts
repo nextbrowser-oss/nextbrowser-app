@@ -1020,6 +1020,9 @@ let conversationWriteTail: Promise<void> = Promise.resolve();
 let projectSyncTimer: ReturnType<typeof setTimeout> | undefined;
 let applyingCloudProjects = false;
 let profileRefreshGeneration = 0;
+// Bumped on logout so an account-scoped load that started before sign-out
+// cannot repopulate the cleared state afterwards.
+let accountEpoch = 0;
 const PROJECT_SYNC_DELAY_MS = 750;
 
 function runScheduledProjectSync() {
@@ -1512,6 +1515,15 @@ async function settleRotateFailure(name: string): Promise<void> {
   );
 }
 
+// loadProfiles swallows its own errors, so a start/stop/rotate that succeeded
+// but could not refresh keeps a transient marker forever (and that marker
+// pauses status polling for every profile). Clear it when the refresh failed.
+function settleTransientStatus(name: string, transient: string): void {
+  useStore.setState((s) =>
+    s.statuses[name] === transient ? { statuses: { ...s.statuses, [name]: "unknown" } } : {},
+  );
+}
+
 export const useStore = create<State>((set, get) => {
   const enqueueWithTarget = (
     text: string,
@@ -1529,10 +1541,14 @@ export const useStore = create<State>((set, get) => {
       void get().loginAgent();
       return;
     }
-    if (!get().agentReady()) return;
-    const agentId = get().agentId;
     const cid = into ?? get().activeConversation()?.id ?? get().newChat();
     const targetConversation = get().conversations.find((conversation) => conversation.id === cid);
+    // Queue under the conversation's agent, not whichever agent is currently
+    // selected: a watchlist/skill pass can fire after the user switched agents,
+    // and the reply must run as (and land in) the conversation's own agent.
+    const agentId = targetConversation?.agent ?? get().agentId;
+    const targetRuntime = get().runtime[agentId];
+    if (!targetRuntime?.ready || targetRuntime.loggedIn === false) return;
     const executionTarget = privilegedTarget ?? executionTargetForTurn(targetConversation);
     const replyId = uid();
     const userMsg: ChatMessage = {
@@ -2768,6 +2784,10 @@ export const useStore = create<State>((set, get) => {
       if (nextctlDailyUpdateTimer) clearInterval(nextctlDailyUpdateTimer);
       nextctlUpdateRetryTimer = null;
       nextctlDailyUpdateTimer = null;
+      // Invalidate any account-scoped load that started before sign-out so it
+      // cannot repopulate the cleared state (profiles, proxy, skills) later.
+      profileRefreshGeneration += 1;
+      accountEpoch += 1;
       proxyTimer = profileStatusTimer = scheduleTimer = sessionPollTimer = profileCreateRequestTimer = null;
       // These are keyed by profile name, not account. Leaving a stale entry
       // behind would let the next account's operation on a same-named profile
@@ -2881,7 +2901,9 @@ export const useStore = create<State>((set, get) => {
   },
 
   loadProxy: async () => {
+    const epoch = accountEpoch;
     const wrap = await nextctlJson<{ proxy_traffic: ProxyTraffic }>(["proxy-traffic"]);
+    if (epoch !== accountEpoch) return;
     const p = wrap.proxy_traffic;
     const proxyWarning = proxyTrafficWarning(p);
     // A gated account is shown the full free allowance, so it has no way to
@@ -3026,8 +3048,10 @@ export const useStore = create<State>((set, get) => {
   },
 
   loadDefaultSession: async () => {
+    const epoch = accountEpoch;
     try {
       const st = await nextctlJson<SessionStatus>(["status"]);
+      if (epoch !== accountEpoch) return;
       set({ defaultSession: st });
       // A passive refresh must not navigate the default browser to its
       // verification page. Keep any identity captured by an explicit launch
@@ -3043,8 +3067,10 @@ export const useStore = create<State>((set, get) => {
       set({ skillCategories: REPOSITORY_SKILL_CATEGORIES });
       return;
     }
+    const epoch = accountEpoch;
     try {
       const catalog = await nextctlJson<{ categories: Array<{ id: string; title: string; icon: string; order: number; skills: SkillRef[] }> }>(["skill", "list"]);
+      if (epoch !== accountEpoch) return;
       const backendScripts: SkillEntry[] = [];
       const privateCloudSkills: SkillEntry[] = [];
       const skillCategories: SkillCategory[] = catalog.categories.map((category) => ({
@@ -3080,6 +3106,7 @@ export const useStore = create<State>((set, get) => {
         skill_count: catalog.categories.reduce((total, category) => total + category.skills.length, 0),
       });
     } catch {
+      if (epoch !== accountEpoch) return;
       set({ skillCategories: REPOSITORY_SKILL_CATEGORIES });
       trackEvent("skill_catalog_failed");
     }
@@ -3173,6 +3200,7 @@ export const useStore = create<State>((set, get) => {
         if (profileOperationEpoch.get(n) !== operation) return;
         verifyingProfileStarts.delete(n);
         await get().loadProfiles();
+        settleTransientStatus(n, "starting");
         trackTiming("profile_start_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
       } catch (error) {
         if (profileOperationEpoch.get(n) !== operation) return;
@@ -3232,6 +3260,7 @@ export const useStore = create<State>((set, get) => {
       }
     }
     await get().loadProfiles();
+    settleTransientStatus(n, "stopping");
     if (profileOperationEpoch.get(n) !== operation) return;
     set((s) => {
       const profileChatOwners = { ...s.profileChatOwners };
@@ -3260,6 +3289,7 @@ export const useStore = create<State>((set, get) => {
         "json",
       ]);
       await get().loadProfiles();
+      settleTransientStatus(n, "rotating");
       await get().loadProxy().catch(() => {});
       const after = runtime === "clawbrowser"
         ? await verifyProxyIdentity(n)
@@ -3294,6 +3324,7 @@ export const useStore = create<State>((set, get) => {
         "json",
       ]);
       await get().loadProfiles();
+      settleTransientStatus(n, "rotating");
       await get().loadProxy().catch(() => {});
       const after = runtime === "clawbrowser" ? await verifyProxyIdentity(n) : { country };
       if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
@@ -3397,22 +3428,27 @@ export const useStore = create<State>((set, get) => {
 
   deletePersonalProxy: async (id) => {
     await invoke<void>("manual_proxy_delete", { id });
-    const previousWorkspaces = get().workspaces;
-    const workspaces = previousWorkspaces.map((workspace) => {
-      const current = workspace.profileProxyIds ?? {};
-      const profileProxyIds = Object.fromEntries(
-        Object.entries(current).filter(([, proxyId]) => proxyId !== id),
-      );
-      return Object.keys(profileProxyIds).length === Object.keys(current).length
-        ? workspace
-        : { ...workspace, profileProxyIds, updatedAt: now() };
-    });
-    if (workspaces.some((workspace, index) => workspace !== previousWorkspaces[index])) {
-      await saveWorkspaces(workspaces);
-      set({ workspaces });
-      await get().syncProjects().catch(() => {});
+    try {
+      const previousWorkspaces = get().workspaces;
+      const workspaces = previousWorkspaces.map((workspace) => {
+        const current = workspace.profileProxyIds ?? {};
+        const profileProxyIds = Object.fromEntries(
+          Object.entries(current).filter(([, proxyId]) => proxyId !== id),
+        );
+        return Object.keys(profileProxyIds).length === Object.keys(current).length
+          ? workspace
+          : { ...workspace, profileProxyIds, updatedAt: now() };
+      });
+      if (workspaces.some((workspace, index) => workspace !== previousWorkspaces[index])) {
+        await saveWorkspaces(workspaces);
+        set({ workspaces });
+        await get().syncProjects().catch(() => {});
+      }
+    } finally {
+      // Always refresh: the proxy is already deleted on the backend, so the list
+      // must not keep showing it even if the workspace write failed.
+      await get().loadPersonalProxies().catch(() => undefined);
     }
-    await get().loadPersonalProxies();
   },
 
   createPersonalProxyProfile: async (rawName, proxyId, options) => {
@@ -3564,7 +3600,9 @@ export const useStore = create<State>((set, get) => {
     if (get().selectedProfile === n) set({ selectedProfile: undefined });
     const statuses = { ...get().statuses };
     delete statuses[n];
-    set({ statuses });
+    const profileChatOwners = { ...get().profileChatOwners };
+    delete profileChatOwners[n];
+    set({ statuses, profileChatOwners });
     try {
       await persistWorkspaceMutation((previous) => previous.map((workspace) => {
         const profileToolsets = { ...workspace.profileToolsets };
@@ -3841,8 +3879,11 @@ export const useStore = create<State>((set, get) => {
     const agentId = get().agentId;
     const a = agentById(agentId);
     if (!a.logoutArgs.length) return;
+    // Ignore re-entry: repeated clicks open several sign-out terminals and
+    // start several poll loops.
+    if (get().runtime[agentId]?.authorizing) return;
     trackEvent("agent_logout_started", { agent: agentId });
-    set((s) => ({ runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], error: undefined } } }));
+    set((s) => ({ runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], authorizing: true, error: undefined } } }));
     let signOutOpened = false;
     try {
       await invoke("open_terminal_login", {
@@ -3895,6 +3936,8 @@ export const useStore = create<State>((set, get) => {
           [agentId]: { ...s.runtime[agentId], error: internalError(signOutOpened ? `We couldn't confirm ${a.name} sign-out. Check Terminal and try again.` : `We couldn't open ${a.name} sign-out.`, signOutOpened ? "AGENT_SIGN_OUT_CHECK_FAILED" : "AGENT_SIGN_OUT_OPEN_FAILED") },
         },
       }));
+    } finally {
+      set((s) => ({ runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], authorizing: false } } }));
     }
   },
 
@@ -4779,7 +4822,13 @@ export const useStore = create<State>((set, get) => {
           };
         }
       }
-      return { conversations, activeConvId, projectRevisions, runtime };
+      // Drop profile ownership that pointed at the deleted chat, or a later
+      // same-named profile advertises "In use · <old chat>".
+      const profileChatOwners = { ...s.profileChatOwners };
+      for (const [profileName, ownerConversationId] of Object.entries(profileChatOwners)) {
+        if (ownerConversationId === id) delete profileChatOwners[profileName];
+      }
+      return { conversations, activeConvId, projectRevisions, runtime, profileChatOwners };
     });
     trackEvent("chat_deleted", { agent: agentId, conversation_count: conversations.length });
   },
@@ -4804,6 +4853,12 @@ export const useStore = create<State>((set, get) => {
       executionTarget: conv.executionTarget,
       vpsConnectionInstructions: conv.vpsConnectionInstructions,
       vpsConnectionLabel: conv.vpsConnectionLabel,
+      // Without these the fork is invisible in the workspace-filtered chat pane
+      // and loses terminal mode.
+      workspaceId: conv.workspaceId,
+      chatMode: conv.chatMode,
+      profileNames: conv.profileNames,
+      profileToolsets: conv.profileToolsets,
     };
     const conversations = [...get().conversations, fork];
     persistConvs(conversations);
@@ -4826,7 +4881,14 @@ export const useStore = create<State>((set, get) => {
       );
       persistConvs(conversations);
       trackEvent("chat_cleared", { agent: get().agentId });
-      return { conversations };
+      // Drop queued replies for the cleared chat: an orphaned item would run
+      // later, set runningReplyId, and stick the composer on Stop.
+      const runtime = { ...s.runtime };
+      for (const [key, value] of Object.entries(runtime)) {
+        const queue = value.queue.filter((item) => item.conversationId !== cid);
+        if (queue.length !== value.queue.length) runtime[key] = { ...value, queue };
+      }
+      return { conversations, runtime };
     });
   },
 
@@ -6011,6 +6073,13 @@ export const useStore = create<State>((set, get) => {
   },
 
   deleteCustomScript: async (id) => {
+    const script = get().customScripts.find((item) => item.id === id);
+    if (script?.serverSlug) {
+      // The script was published as a private cloud skill. Remove that copy too,
+      // or it reappears under My skills / Scripts on the next catalog load.
+      const { res } = await nextctlEnvelope(["skill", "delete", script.serverSlug]);
+      if (res.code !== 0) throw new Error(nextctlErrorMessage(res));
+    }
     const customScripts = get().customScripts.filter((s) => s.id !== id);
     await invoke("app_data_write", { name: "custom-scripts.json", content: JSON.stringify(serializeScripts(customScripts), null, 2) });
     set({ customScripts });
@@ -6076,10 +6145,12 @@ export const useStore = create<State>((set, get) => {
     const slug = `workflow-${skill.id.slice(0, 8)}`;
     const description = `Reusable private ${skill.capability} browser workflow${skill.domain ? ` for ${skill.domain}` : ""}.`;
     const body = `---\nname: ${JSON.stringify(skill.title)}\ndescription: ${JSON.stringify(description)}\n---\n\n# ${skill.title}\n\n## Workflow\n\n${skill.instructions}\n\n## Inputs\n\n\`\`\`json\n${JSON.stringify(skill.parametersSchema, null, 2)}\n\`\`\`\n\n## Output\n\n\`\`\`json\n${JSON.stringify(skill.outputSchema, null, 2)}\n\`\`\`\n\n## Recipe\n\nExecute these task-specific actions first. The app prepares the browser session separately. If a selector is stale, resolve it again and continue.\n\n\`\`\`json\n${JSON.stringify(skill.recipe, null, 2)}\n\`\`\`\n`;
-    await invoke<string>("write_local_skill", { slug, content: body });
     set((state) => ({ localSkillSync: { ...state.localSkillSync, [skill.id]: "syncing" } }));
     let tempPath: string | undefined;
     try {
+      // Keep the local write inside the try: a disk failure must mark the sync
+      // as failed instead of rejecting into a global error notice.
+      await invoke<string>("write_local_skill", { slug, content: body });
       tempPath = await invoke<string>("write_temp_skill", { slug, content: body });
       const { env, res } = await nextctlEnvelope<SkillRef>([
         "skill", "add", "--domain", skill.domain, "--private", "--slug", slug,

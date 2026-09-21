@@ -9,15 +9,39 @@ const DURATION = 4.8;
 function useDemoPhase(duration = DURATION) {
   const [phase, setPhase] = useState(0);
   useEffect(() => {
-    const start = performance.now();
+    if (typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setPhase(0);
+      return undefined;
+    }
     let raf = 0;
+    let last = performance.now();
+    let elapsed = 0;
     const tick = (now: number) => {
-      const t = (now - start) / 1000;
-      setPhase((t % duration) / duration);
+      elapsed += (now - last) / 1000;
+      last = now;
+      setPhase((elapsed % duration) / duration);
       raf = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    const start = () => {
+      if (raf) return;
+      last = performance.now();
+      raf = requestAnimationFrame(tick);
+    };
+    const stop = () => {
+      if (!raf) return;
+      cancelAnimationFrame(raf);
+      raf = 0;
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") start();
+      else stop();
+    };
+    if (document.visibilityState === "visible") start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [duration]);
   return phase;
 }

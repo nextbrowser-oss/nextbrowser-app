@@ -1,5 +1,5 @@
 import { useState, type MouseEvent, type ReactNode } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { invoke } from "../electronBridge";
 import { Icon } from "./Icon";
@@ -39,6 +39,13 @@ export function fileNameFromPath(filePath: string): string {
 
 function isLocalPath(value: string): boolean {
   return value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\");
+}
+
+// react-markdown's default transform strips local file destinations (e.g.
+// `C:\Users\me\report.txt`) because they have no safe protocol. Preserve them
+// so the LocalFileCard can render instead of collapsing to an empty href.
+function localFileUrlTransform(url: string): string {
+  return isLocalPath(url) ? url : defaultUrlTransform(url);
 }
 
 function childText(children: ReactNode): string {
@@ -94,7 +101,7 @@ const markdownComponents: Components = {
 export function MarkdownText({ text }: { text: string }) {
   return (
     <div className="markdown">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents} urlTransform={localFileUrlTransform}>
         {text}
       </ReactMarkdown>
     </div>

@@ -218,6 +218,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       if (!shouldDismissModalWithEscape(event)) return;
       event.preventDefault();
       setWorkspaceCreatorOpen(false);
+      setWorkspaceError(null);
     };
     window.addEventListener("keydown", dismissWorkspaceCreator);
     return () => window.removeEventListener("keydown", dismissWorkspaceCreator);
@@ -229,6 +230,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       if (!shouldDismissModalWithEscape(event)) return;
       event.preventDefault();
       setManualProxyOpen(false);
+      setManualProxyDeleting(null);
     };
     window.addEventListener("keydown", dismissManualProxy);
     return () => window.removeEventListener("keydown", dismissManualProxy);
@@ -390,12 +392,16 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let disposed = false;
     void listen<AutomationRecipeProgress>("automation:recipe-progress", ({ payload }) => {
       const current = activeAutomationExecution();
       if (!current || current.executionId !== payload.executionId) return;
       setActiveAutomationExecution(executionWithRecipeProgress(current, payload));
-    }).then((dispose) => { unlisten = dispose; });
-    return () => unlisten?.();
+    }).then((dispose) => {
+      if (disposed) dispose();
+      else unlisten = dispose;
+    }).catch(() => undefined);
+    return () => { disposed = true; unlisten?.(); };
   }, []);
 
   useEffect(() => {
@@ -1275,6 +1281,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               aria-label="Create workspace"
               onClick={() => {
                 setWorkspaceName("");
+                setWorkspaceError(null);
                 setWorkspaceMenuOpen(false);
                 setWorkspaceCreatorOpen(true);
               }}
@@ -1411,6 +1418,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       return (
                         <ProfileRow
                           key={p.name} name={p.name} status={status} running={running} busy={busy || occupiedByOther} selected={selected}
+                          startDisabled={!activeProject}
                           country={p.country ?? identity?.country} city={p.city ?? identity?.city} ip={identity?.ip}
                           toolset={toolset} searchQuery={searchQuery}
                           occupiedBy={occupiedByOther ? owner?.title ?? "Another chat" : undefined}
@@ -1670,7 +1678,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                     disabled={profileSaving}
                     ariaLabel="Personal proxy"
                     onChange={setProfilePersonalProxyId}
-                    onAdd={() => { resetManualProxyForm(); setManualProxyEditing(true); setManualProxyOpen(true); }}
+                    onAdd={() => { resetManualProxyForm(); setManualProxyDeleting(null); setManualProxyEditing(true); setManualProxyOpen(true); }}
                   />
                 ) : (
                   <button
@@ -1678,6 +1686,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                     className="personal-proxy-empty-action"
                     onClick={() => {
                       resetManualProxyForm();
+                      setManualProxyDeleting(null);
                       setManualProxyEditing(true);
                       setManualProxyOpen(true);
                     }}
@@ -1946,7 +1955,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       ), document.body)}
 
       {workspaceCreatorOpen && createPortal((
-        <div className="modal-overlay" onMouseDown={() => { if (!workspaceSaving) setWorkspaceCreatorOpen(false); }}>
+        <div className="modal-overlay" onMouseDown={() => { if (!workspaceSaving) { setWorkspaceCreatorOpen(false); setWorkspaceError(null); } }}>
           <form
             className="modal-card workspace-create-modal"
             onMouseDown={(event) => event.stopPropagation()}
@@ -1976,7 +1985,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               <Icon name="square.grid.2x2.fill" size={15} />
               <span className="profile-menu-name">Create workspace</span>
               <span className="spacer" />
-              <button type="button" className="plain-icon-btn" title="Close" disabled={workspaceSaving} onClick={() => setWorkspaceCreatorOpen(false)}>
+              <button type="button" className="plain-icon-btn" title="Close" disabled={workspaceSaving} onClick={() => { setWorkspaceCreatorOpen(false); setWorkspaceError(null); }}>
                 <Icon name="xmark.circle.fill" size={18} />
               </button>
             </div>
@@ -1987,7 +1996,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             <p className="muted small workspace-create-note">Chats and profiles created here stay inside this workspace.</p>
             {workspaceError && <div className="error small">{workspaceError}</div>}
             <div className="modal-actions">
-              <button type="button" className="secondary" disabled={workspaceSaving} onClick={() => setWorkspaceCreatorOpen(false)}>Cancel</button>
+              <button type="button" className="secondary" disabled={workspaceSaving} onClick={() => { setWorkspaceCreatorOpen(false); setWorkspaceError(null); }}>Cancel</button>
               <button type="submit" className="primary" disabled={workspaceSaving || !workspaceName.trim()}>
                 {workspaceSaving ? <Spinner size={13} /> : <Icon name="plus" size={13} />} Create workspace
               </button>
@@ -2205,8 +2214,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             </fieldset>
             {profileConnectionEditor.connection === "managed" && <div className="modal-field profile-proxy-country-field"><span>Proxy country</span><CountrySelect countries={proxyCountries} value={profileConnectionEditor.country} disabled={profileConnectionSaving} ariaLabel="Proxy country" onChange={(country) => setProfileConnectionEditor({ ...profileConnectionEditor, country })} /></div>}
             {profileConnectionEditor.connection === "personal" && <div className="modal-field profile-personal-proxy-field">
-              <span className="profile-field-heading"><span>Personal proxy</span><button type="button" className="link" onClick={() => { resetManualProxyForm(); setManualProxyEditing(s.personalProxies.length === 0); setManualProxyOpen(true); }}>Manage</button></span>
-              {s.personalProxies.length ? <PersonalProxySelect value={profileConnectionEditor.proxyId} proxies={s.personalProxies} disabled={profileConnectionSaving} onChange={(proxyId) => setProfileConnectionEditor({ ...profileConnectionEditor, proxyId })} onAdd={() => { resetManualProxyForm(); setManualProxyEditing(true); setManualProxyOpen(true); }} /> : <button type="button" className="personal-proxy-empty-action" onClick={() => { resetManualProxyForm(); setManualProxyEditing(true); setManualProxyOpen(true); }}><Icon name="plus" size={13} /> Create your first proxy</button>}
+              <span className="profile-field-heading"><span>Personal proxy</span><button type="button" className="link" onClick={() => { resetManualProxyForm(); setManualProxyDeleting(null); setManualProxyEditing(s.personalProxies.length === 0); setManualProxyOpen(true); }}>Manage</button></span>
+              {s.personalProxies.length ? <PersonalProxySelect value={profileConnectionEditor.proxyId} proxies={s.personalProxies} disabled={profileConnectionSaving} onChange={(proxyId) => setProfileConnectionEditor({ ...profileConnectionEditor, proxyId })} onAdd={() => { resetManualProxyForm(); setManualProxyDeleting(null); setManualProxyEditing(true); setManualProxyOpen(true); }} /> : <button type="button" className="personal-proxy-empty-action" onClick={() => { resetManualProxyForm(); setManualProxyDeleting(null); setManualProxyEditing(true); setManualProxyOpen(true); }}><Icon name="plus" size={13} /> Create your first proxy</button>}
             </div>}
             {profileConnectionError && <div className="error small" role="alert">{profileConnectionError}</div>}
             <div className="modal-actions"><button type="button" className="secondary" disabled={profileConnectionSaving} onClick={() => setProfileConnectionEditor(null)}>Cancel</button><button type="submit" className="primary" disabled={profileConnectionSaving || (profileConnectionEditor.connection === "personal" && !profileConnectionEditor.proxyId)}>{profileConnectionSaving ? <Spinner size={13} /> : <Icon name="checkmark" size={13} />}{profileConnectionSaving ? "Saving…" : "Save connection"}</button></div>
@@ -2217,7 +2226,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       {vpsSetupOpen && <VPSSetupModal onClose={() => setVPSSetupOpen(false)} />}
 
       {manualProxyOpen && createPortal((
-        <div className="modal-overlay" onMouseDown={() => !manualSaving && !manualProxyDeletePending && setManualProxyOpen(false)}>
+        <div className="modal-overlay" onMouseDown={() => { if (!manualSaving && !manualProxyDeletePending) { setManualProxyOpen(false); setManualProxyDeleting(null); } }}>
           <div className="modal-card manual-proxy-modal" onMouseDown={(e) => e.stopPropagation()}>
             <div className="profile-menu-head">
               <Icon name="network" size={16} className="accent-icon" />
@@ -2228,7 +2237,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 className="plain-icon-btn"
                 title="Close"
                 disabled={manualSaving || manualProxyDeletePending}
-                onClick={() => setManualProxyOpen(false)}
+                onClick={() => { setManualProxyOpen(false); setManualProxyDeleting(null); }}
               >
                 <Icon name="xmark.circle.fill" size={18} />
               </button>
@@ -2449,7 +2458,11 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                                 if (profilePersonalProxyId === proxy.id) setProfilePersonalProxyId("");
                                 setManualProxyDeleting(null);
                               })
-                              .catch(() => setManualError(internalError("We couldn't delete the proxy.", "PERSONAL_PROXY_DELETE_FAILED")))
+                              .catch((error: unknown) => {
+                                console.error("[PERSONAL_PROXY_DELETE_FAILED]", error);
+                                setManualError(internalError("We couldn't delete the proxy.", "PERSONAL_PROXY_DELETE_FAILED"));
+                                void s.loadPersonalProxies().catch(() => undefined);
+                              })
                               .finally(() => setManualProxyDeletePending(false));
                           }}
                         >
@@ -2465,7 +2478,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   </div>
                 )}
                 <div className="modal-actions">
-                  <button type="button" className="secondary" onClick={() => setManualProxyOpen(false)}>Close</button>
+                  <button type="button" className="secondary" onClick={() => { setManualProxyOpen(false); setManualProxyDeleting(null); }}>Close</button>
                   <button type="button" className="primary" onClick={() => {
                     resetManualProxyForm();
                     setManualProxyEditing(true);
@@ -2569,6 +2582,7 @@ function ProfileRow({
   running,
   busy,
   selected,
+  startDisabled,
   country,
   city,
   ip,
@@ -2594,6 +2608,7 @@ function ProfileRow({
   running: boolean;
   busy: boolean;
   selected: boolean;
+  startDisabled?: boolean;
   country?: string | null;
   city?: string | null;
   ip?: string | null;
@@ -2617,16 +2632,6 @@ function ProfileRow({
   return (
     <div
       className={"profile-row" + (selected ? " selected" : "") + (occupiedBy ? " is-occupied" : "") + (draggable ? " is-draggable" : "") + (dragOver ? " is-drag-over" : "")}
-      role="button"
-      tabIndex={0}
-      aria-label={`Select profile ${name}`}
-      onClick={onSelect}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        onSelect();
-      }}
       draggable={draggable}
       onDragStart={(event) => {
         if (!draggable) return;
@@ -2639,6 +2644,14 @@ function ProfileRow({
       onDragLeave={onDragLeaveProfile}
       onDrop={onDropProfile}
     >
+      <button
+        type="button"
+        className="profile-select"
+        aria-label={`Select profile ${name}`}
+        aria-pressed={selected}
+        onClick={onSelect}
+        style={{ background: "none", border: "none", padding: 0, color: "inherit", textAlign: "left", display: "flex", alignItems: "center", gap: 7, flex: "1 1 auto", minWidth: 0, cursor: "pointer" }}
+      >
       <span className={"dot " + (running ? "green" : busy ? "orange" : "gray")} title={status} />
       <span className="profile-main">
         <span className="profile-title-line">
@@ -2675,6 +2688,7 @@ function ProfileRow({
           </span>
         )}
       </span>
+      </button>
       <div className="profile-actions">
         {running ? (
           <>
@@ -2707,10 +2721,10 @@ function ProfileRow({
         ) : (
           <button
             className="plain-icon-btn"
-            title="Start"
+            title={startDisabled ? "Create a project first" : "Start"}
             aria-label={`Start ${name}`}
             data-tooltip="Start"
-            disabled={busy}
+            disabled={busy || startDisabled}
             onClick={(event) => {
               event.stopPropagation();
               void onStart();

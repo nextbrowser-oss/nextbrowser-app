@@ -393,7 +393,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
         // authoritative nextctl status instead of leaving it visually stopped.
         const observed = terminalBrowserSession(
           startupOutput.slice(-8_000),
-          browserProfiles?.map((profile) => profile.name) ?? [],
+          browserProfilesRef.current?.map((profile) => profile.name) ?? [],
         );
         if (observed && observed.signal !== lastObservedBrowserSession) {
           lastObservedBrowserSession = observed.signal;
