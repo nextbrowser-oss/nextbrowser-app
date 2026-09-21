@@ -1242,6 +1242,35 @@ describe("local component and profile lifecycle", () => {
     }
   });
 
+  it("backs off until nextctl's reported rate-limit reset time instead of guessing an hour", async () => {
+    vi.useFakeTimers();
+    try {
+      useStore.setState({ nextctlAvailable: true });
+      bridge.invoke.mockImplementation((command) => {
+        if (command === "nextctl_run") {
+          return Promise.resolve({
+            code: 1,
+            stdout: "",
+            stderr: "fetch releases/latest https://api.github.com/repos/nextbrowser-oss/nbc_releases/releases/latest: unexpected status 403 Forbidden (rate limit resets at 2026-09-21T20:15:00Z)",
+          });
+        }
+        return Promise.resolve(null);
+      });
+
+      await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(false);
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+
+      const write = bridge.invoke.mock.calls
+        .filter(([command, args]) => command === "app_data_write" && (args as { name?: string })?.name === "nextctl-update.json")
+        .at(-1);
+      expect(write).toBeTruthy();
+      const saved = JSON.parse((write![1] as { content: string }).content) as { rateLimitedUntil: number };
+      expect(saved.rateLimitedUntil).toBe(Date.parse("2026-09-21T20:15:00Z"));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("treats a successful nextctl install as success even when the command exits non-zero", async () => {
     vi.useFakeTimers();
     try {

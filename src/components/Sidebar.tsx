@@ -829,19 +829,35 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     setManualError(null);
   };
 
+  const proxyTestRevertTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  useEffect(() => () => {
+    for (const timer of Object.values(proxyTestRevertTimers.current)) clearTimeout(timer);
+  }, []);
+
   const runProxyTest = (id: string) => {
     if (proxyTestResults[id]?.status === "testing") return;
+    clearTimeout(proxyTestRevertTimers.current[id]);
     setProxyTestResults((current) => ({ ...current, [id]: { status: "testing", detail: "" } }));
+    const revertAfter = () => {
+      proxyTestRevertTimers.current[id] = setTimeout(() => {
+        setProxyTestResults((current) => {
+          const { [id]: _removed, ...rest } = current;
+          return rest;
+        });
+      }, 10_000);
+    };
     s.testPersonalProxy(id)
       .then((result) => {
         setProxyTestResults((current) => ({
           ...current,
           [id]: { status: "ok", detail: result.ip ? `Alive · ${result.ip} · ${result.latencyMs}ms` : `Alive · ${result.latencyMs}ms` },
         }));
+        revertAfter();
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
         setProxyTestResults((current) => ({ ...current, [id]: { status: "fail", detail: message } }));
+        revertAfter();
       });
   };
 
