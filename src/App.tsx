@@ -102,10 +102,9 @@ const UI_SCALE_MIN = 0.8;
 const UI_SCALE_MAX = 1.3;
 const UI_SCALE_STEP = 0.1;
 
-function UIScaleControl({ value, onChange }: { value: number; onChange: (next: number) => void }) {
+function UIScaleSlider({ value, onChange }: { value: number; onChange: (next: number) => void }) {
   return (
-    <div className="ui-scale-control" title="Interface size">
-      <Icon name="magnifyingglass" size={13} />
+    <>
       <input
         type="range"
         min={UI_SCALE_MIN}
@@ -116,6 +115,18 @@ function UIScaleControl({ value, onChange }: { value: number; onChange: (next: n
         aria-label="Interface size"
       />
       <span className="muted small ui-scale-value">{Math.round(value * 100)}%</span>
+    </>
+  );
+}
+
+function UIScaleControl({ value, onChange, onDismiss }: { value: number; onChange: (next: number) => void; onDismiss: () => void }) {
+  return (
+    <div className="ui-scale-control" title="Interface size">
+      <Icon name="magnifyingglass" size={13} />
+      <UIScaleSlider value={value} onChange={onChange} />
+      <button className="plain-icon-btn plain-icon-btn-compact" onClick={onDismiss} title="Hide this control (it stays in Settings)" aria-label="Hide the interface size control">
+        <Icon name="xmark" size={11} />
+      </button>
     </div>
   );
 }
@@ -445,6 +456,8 @@ function SettingsModal({
   onInstallUpdate,
   onOpenRelease,
   onRequestBrowserRuntimeUpdate,
+  uiScale,
+  onUiScaleChange,
 }: {
   onClose: () => void;
   onOpenUsage: () => void;
@@ -459,6 +472,8 @@ function SettingsModal({
   onInstallUpdate: () => void;
   onOpenRelease: () => Promise<void>;
   onRequestBrowserRuntimeUpdate: (runtime: BrowserRuntimeUpdateEntry) => void;
+  uiScale: number;
+  onUiScaleChange: (next: number) => void;
 }) {
   const [agentLogoutPending, setAgentLogoutPending] = useState(false);
   const nextctlVersion = useStore((s) => s.nextctlVersion);
@@ -522,6 +537,12 @@ function SettingsModal({
                 {appUpdate.status === "checking" ? <Spinner size={12} /> : <Icon name="arrow.clockwise" size={12} />}
               </button>
               <strong>{__APP_VERSION__}</strong>
+            </div>
+          </div>
+          <div className="settings-row">
+            <span className="muted small">Interface size</span>
+            <div className="ui-scale-control ui-scale-control-settings">
+              <UIScaleSlider value={uiScale} onChange={onUiScaleChange} />
             </div>
           </div>
           <div className="settings-row settings-update-row">
@@ -774,6 +795,16 @@ export function App() {
     const saved = Number(localStorage.getItem("nextbrowser.uiScale"));
     return Number.isFinite(saved) && saved >= UI_SCALE_MIN && saved <= UI_SCALE_MAX ? saved : 1;
   });
+  // The floating quick-access control is a convenience on top of the real
+  // setting in Settings; once dismissed there's no reason to keep offering
+  // it back, so the choice is remembered per device like the scale itself.
+  const [uiScaleFloatingHidden, setUiScaleFloatingHidden] = useState(
+    () => localStorage.getItem("nextbrowser.uiScaleFloatingHidden") === "1",
+  );
+  const dismissUiScaleFloating = () => {
+    setUiScaleFloatingHidden(true);
+    localStorage.setItem("nextbrowser.uiScaleFloatingHidden", "1");
+  };
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsFocus, setSettingsFocus] = useState<"agent" | null>(null);
   const [appUpdate, setAppUpdate] = useState<AppUpdateStatus>({ status: "idle" });
@@ -1358,6 +1389,8 @@ export function App() {
             onInstallUpdate={installAppUpdate}
             onOpenRelease={openLatestRelease}
             onRequestBrowserRuntimeUpdate={requestBrowserRuntimeUpdate}
+            uiScale={uiScale}
+            onUiScaleChange={setUiScale}
           />
         )}
         <div className="splash">
@@ -1475,6 +1508,8 @@ export function App() {
           onInstallUpdate={installAppUpdate}
           onOpenRelease={openLatestRelease}
           onRequestBrowserRuntimeUpdate={requestBrowserRuntimeUpdate}
+          uiScale={uiScale}
+          onUiScaleChange={setUiScale}
         />
       )}
       {updateAvailable(appUpdate) && appUpdate.version !== updatePromptDismissedVersion && !settingsOpen && (
@@ -1511,7 +1546,9 @@ export function App() {
       )}
       {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
       {feedbackModal}
-      <UIScaleControl value={uiScale} onChange={setUiScale} />
+      {!uiScaleFloatingHidden && (
+        <UIScaleControl value={uiScale} onChange={setUiScale} onDismiss={dismissUiScaleFloating} />
+      )}
     </div>
   );
 }
