@@ -238,8 +238,19 @@ async function installSelectedRuntimeUpdates({ requestedRuntimes, checkForUpdate
   return result;
 }
 
+// ClawBrowser publishes platform-suffixed releases under a "v"-prefixed tag
+// (e.g. v1.0.6-windows) while older plain versions use the bare tag (1.0.5).
+// The asset URL must use the exact tag, but normalizeVersion strips the leading
+// "v", which previously produced a 404 and a false "not available for this
+// system" even though the platform asset existed.
+function clawbrowserReleaseTag(version) {
+  const release = assertRuntimeReleaseVersion(version);
+  return /^\d+\.\d+(?:\.\d+)?-[a-z]/i.test(release) ? `v${release}` : release;
+}
+
 function clawbrowserReleaseAsset(platform, arch, version) {
   const release = assertRuntimeReleaseVersion(version);
+  const tag = clawbrowserReleaseTag(release);
   let assetName = "";
   let kind = "tar";
   if (platform === "darwin" && arch === "arm64") assetName = "clawbrowser-macos-arm64.tar.gz";
@@ -253,7 +264,7 @@ function clawbrowserReleaseAsset(platform, arch, version) {
   return {
     assetName,
     kind,
-    url: `https://github.com/clawbrowser/clawbrowser/releases/download/${release}/${assetName}`,
+    url: `https://github.com/clawbrowser/clawbrowser/releases/download/${tag}/${assetName}`,
     version: release,
   };
 }
