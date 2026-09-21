@@ -1769,6 +1769,16 @@ async function invokeCommand(command, args = {}, sender) {
       }
       return null;
     }
+    case "app_set_zoom_factor": {
+      // Chromium's native page zoom (not the CSS `zoom` property): it
+      // recalculates layout, scroll, and fixed positioning the same way a
+      // real Ctrl/Cmd+ zoom does, instead of naively scaling pixel values
+      // that were never meant to grow past the window's own size.
+      const factor = Number(args.factor);
+      if (!Number.isFinite(factor) || factor < 0.5 || factor > 2) throw new Error("Zoom factor out of range.");
+      if (sender && !sender.isDestroyed()) sender.setZoomFactor(factor);
+      return null;
+    }
     case "agent_authorize": {
       const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw new Error(`${args.binary} executable not found.`);
       const r = await run(bin, ["--version"]); if (r.code !== 0) throw new Error(`${args.binary} is not ready: ${(r.stdout + r.stderr).trim()}`);

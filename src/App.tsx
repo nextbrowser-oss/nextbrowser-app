@@ -1158,9 +1158,12 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    // Chromium's own `zoom` property scales layout, fixed-position overlays,
-    // and text together, unlike a transform that needs manual size math.
-    document.documentElement.style.zoom = String(uiScale);
+    // Electron's native page zoom (Chromium's own Ctrl/Cmd+ mechanism),
+    // requested through the main process — not the CSS `zoom` property,
+    // which scales pixel values that were never meant to exceed the
+    // window's own size and broke scrolling and fixed-position overlays
+    // (like the Settings modal) at higher scales.
+    void invoke("app_set_zoom_factor", { factor: uiScale }).catch(() => undefined);
     localStorage.setItem("nextbrowser.uiScale", String(uiScale));
   }, [uiScale]);
 
