@@ -1,0 +1,167 @@
+name: Proxy canary
+
+# Real-browser, real-proxy core check. Starts a managed-proxy profile per
+# country on a Linux runner and requires a green verification with a matching
+# egress country. One attempt per country by default; any single failure fails
+# the job. It uses a dedicated canary account (CLAWBROWSER_API_KEY) and
+# therefore never runs for fork pull requests.
+#
+# See scripts/test_before_release.sh for the local variant.
+
+on:
+  schedule:
+    # Nightly at 03:00 UTC.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      countries:
+        description: Space-separated ISO 3166-1 alpha-2 country codes
+        default: "US DE GB"
+        required: false
+      runs:
+        description: Attempts per country
+        default: "1"
+        required: false
+  # Allow a release workflow to gate publication on this check later.
+  workflow_call:
+    inputs:
+      countries:
+        type: string
+        default: "US DE GB"
+      runs:
+        type: string
+        default: "1"
+    secrets:
+      CLAWBROWSER_API_KEY:
+        required: true
+
+permissions:
+  contents: read
+
+# Never let two canaries share the canary account's proxy traffic at once.
+concurrency:
+  group: proxy-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    # The secret only exists for trusted refs; never run for forks.
+    if: github.repository == 'nextbrowser-oss/nextbrowser-app'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Install browser dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          # Xvfb and media support are required. The remaining entries are the
+          # usual Chromium runtime libraries; several were renamed with the
+          # Ubuntu 24.04 t64 transition, so install them individually and warn
+          # (do not fail) when a spelling is unavailable.
+          sudo apt-get install -y --no-install-recommends xvfb ffmpeg
+          for pkg in \
+            libnss3 libnspr4 libgbm1 libxkbcommon0 libxcomposite1 libxdamage1 \
+            libxfixes3 libxrandr2 libdrm2 libglu1-mesa libcairo2 \
+            libgtk-3-0t64 libgtk-3-0 \
+            libasound2t64 libasound2 \
+            libatk1.0-0t64 libatk1.0-0 \
+            libatk-bridge2.0-0t64 libatk-bridge2.0-0 \
+            libcups2t64 libcups2 \
+            libpango-1.0-0t64 libpango-1.0-0; do
+            sudo apt-get install -y --no-install-recommends "$pkg" \
+              || echo "::warning::optional package $pkg unavailable"
+          done
+
+      - name: Install latest nextctl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.nextbrowser/bin"
+          # Always the latest published release, never a pinned version.
+          tag="$(gh api repos/nextbrowser-oss/nbc_releases/releases/latest --jq .tag_name)"
+          echo "nextctl release: $tag"
+          gh release download "$tag" --repo nextbrowser-oss/nbc_releases \
+            --pattern 'nbc-linux-amd64.tar.gz' --dir /tmp/nbc --clobber
+          tar -xzf /tmp/nbc/nbc-linux-amd64.tar.gz -C /tmp/nbc
+          bin="$(find /tmp/nbc -type f -name nbc -perm -u+x | head -n1)"
+          install -m 0755 "$bin" "$HOME/.nextbrowser/bin/nextctl"
+          echo "NEXTCTL_BIN=$HOME/.nextbrowser/bin/nextctl" >> "$GITHUB_ENV"
+          "$HOME/.nextbrowser/bin/nextctl" --version || true
+
+      - name: Install latest ClawBrowser
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Pick the newest non-prerelease ClawBrowser release that ships a
+          # Linux x64 archive (the project publishes one release per OS).
+          info="$(gh api 'repos/clawbrowser/clawbrowser/releases?per_page=100' \
+            --jq '[.[]|select(.draft==false and .prerelease==false)|select(any(.assets[];.name|test("^clawbrowser-linux.*\\.tar\\.gz$")))]|sort_by(.published_at)|reverse|.[0]|[.tag_name,([.assets[].name|select(test("^clawbrowser-linux.*\\.tar\\.gz$"))][0])]|@tsv')"
+          tag="$(printf '%s' "$info" | cut -f1)"
+          asset="$(printf '%s' "$info" | cut -f2)"
+          if [ -z "$tag" ] || [ -z "$asset" ]; then
+            echo "::error::no Linux ClawBrowser release found"
+            exit 1
+          fi
+          echo "ClawBrowser release: $tag ($asset)"
+          mkdir -p /tmp/clawbrowser
+          gh release download "$tag" --repo clawbrowser/clawbrowser \
+            --pattern "$asset" --dir /tmp/clawbrowser --clobber
+          tar -xzf "/tmp/clawbrowser/$asset" -C /tmp/clawbrowser
+          launcher="$(find /tmp/clawbrowser -type f -iname clawbrowser -perm -u+x | head -n1)"
+          if [ -z "$launcher" ]; then
+            echo "::error::no clawbrowser launcher inside $asset"
+            exit 1
+          fi
+          chmod +x "$launcher"
+          echo "CLAWBROWSER_BIN=$launcher" >> "$GITHUB_ENV"
+          "$NEXTCTL_BIN" config set --browser-bin "$launcher"
+
+      - name: Configure the canary account
+        env:
+          CLAWBROWSER_API_KEY: ${{ secrets.CLAWBROWSER_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLAWBROWSER_API_KEY:-}" ]; then
+            echo "::error::CLAWBROWSER_API_KEY secret is not set"
+            exit 1
+          fi
+          export NEXTBROWSER_CONFIG_DIR="$HOME/.nextbrowser/runtime/config"
+          mkdir -p "$NEXTBROWSER_CONFIG_DIR"
+          "$NEXTCTL_BIN" config set --api-key "$CLAWBROWSER_API_KEY"
+
+      - name: Allow the Chromium sandbox (Ubuntu 24.04 AppArmor userns restriction)
+        run: |
+          # Chromium cannot create its sandbox when unprivileged user namespaces
+          # are restricted; the ephemeral runner has no other Chrome profiles.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+
+      - name: Proxy canary
+        env:
+          CLAWBROWSER_API_KEY: ${{ secrets.CLAWBROWSER_API_KEY }}
+          COUNTRIES: ${{ inputs.countries || 'US DE GB' }}
+          RUNS: ${{ inputs.runs || '1' }}
+          RUNTIME: clawbrowser
+          SKIP_GATES: "1"
+          # Any single failure fails the job; stop early to save proxy traffic.
+          STOP_ON_FIRST_ERROR: "1"
+        run: |
+          set -o pipefail
+          # The portable runtime runs under a virtual display on headless Linux.
+          xvfb-run -a bash scripts/test_before_release.sh 2>&1 | tee proxy-canary.log
+
+      - name: Upload canary log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-canary-log
+          path: proxy-canary.log
+          if-no-files-found: warn
