@@ -285,6 +285,17 @@ function isNextctlRateLimit(reason: string): boolean {
   return /\b403\b|rate limit|forbidden/i.test(reason);
 }
 
+// nextctl appends "(rate limit resets at <RFC3339>)" when GitHub's
+// X-RateLimit-Reset header was present on the 403 it hit. Prefer that real
+// reset time over the flat one-hour guess below; fall back to the guess when
+// nextctl couldn't read the header (older nextctl, or GitHub omitted it).
+function nextctlRateLimitResetAt(reason: string): number | undefined {
+  const match = reason.match(/rate limit resets at (\S+)\)/);
+  if (!match) return undefined;
+  const parsed = Date.parse(match[1]);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 // Record the attempt (and merge any extra fields) so the daily tick throttles
 // instead of re-running the update every minute.
 async function recordNextctlUpdateAttempt(patch: Partial<NextctlUpdateState> = {}): Promise<void> {
@@ -4153,9 +4164,11 @@ export const useStore = create<State>((set, get) => {
         const reason = nextctlErrorMessage(res);
         trackEvent("nextctl_update_failed", { exit_code: res.code });
         if (isNextctlRateLimit(reason)) {
-          // Once retries are exhausted, back off for the full rate-limit
-          // window so the daily background check doesn't hit it again.
-          await recordNextctlUpdateAttempt({ rateLimitedUntil: now() + NEXTCTL_UPDATE_RATE_LIMIT_MS });
+          // Once retries are exhausted, back off until GitHub's own reset
+          // time when nextctl reported one; otherwise guess a full window so
+          // the daily background check doesn't hit it again right away.
+          const resetAt = nextctlRateLimitResetAt(reason);
+          await recordNextctlUpdateAttempt({ rateLimitedUntil: resetAt ?? now() + NEXTCTL_UPDATE_RATE_LIMIT_MS });
         } else {
           await recordNextctlUpdateAttempt();
         }
@@ -4190,7 +4203,8 @@ export const useStore = create<State>((set, get) => {
       set({ nextctlAvailable: false });
       trackTiming("nextctl_update_failed", startedAt);
       if (isNextctlRateLimit(reason)) {
-        await recordNextctlUpdateAttempt({ rateLimitedUntil: now() + NEXTCTL_UPDATE_RATE_LIMIT_MS });
+        const resetAt = nextctlRateLimitResetAt(reason);
+        await recordNextctlUpdateAttempt({ rateLimitedUntil: resetAt ?? now() + NEXTCTL_UPDATE_RATE_LIMIT_MS });
       } else {
         await recordNextctlUpdateAttempt();
       }
