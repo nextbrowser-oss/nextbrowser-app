@@ -9,7 +9,7 @@ import { withLocalScripts } from "../skillsCatalog";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
 import { guideProfileTarget, guideWorkspaceProfileNames } from "../lib/guideQuickStart";
 import { manualProxyDefaultName, manualProxyLimits, parseManualProxyBatch, parseManualProxyClipboard, validateManualProxyFields, type ManualProxyScheme } from "../lib/manualProxy";
-import { actionFailureMessage, internalError, needsSupportLink } from "../lib/userFacingError";
+import { actionFailureMessage, internalError } from "../lib/userFacingError";
 import { isProxyTrafficExhaustedError, isProxyTrafficGateMessage, proxyTrafficLaunchRefusedMessage } from "../lib/proxyTraffic";
 import { userFacingMultiloginError } from "../lib/userFacingMultiloginError";
 import { entityNameLimits, validateEntityName } from "../lib/entityValidation";
@@ -1562,18 +1562,17 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         <Icon name="terminal" size={12} />
         <span>nextctl {s.nextctlVersion || "..."}</span>
         <button
-          className="plain-icon-btn plain-icon-btn-compact nextctl-refresh"
-          title="Check for a newer nextctl and update"
+          className={"plain-icon-btn plain-icon-btn-compact nextctl-refresh" + (s.nextctlUpdateError ? " is-failed" : "")}
+          title={s.nextctlUpdateError || "Check for a newer nextctl and update"}
+          aria-label={s.nextctlUpdateError || "Check for a newer nextctl and update"}
           disabled={s.nextctlUpdating}
           onClick={() => s.checkNextctlUpdate()}
         >
-          {s.nextctlUpdating ? <Spinner size={12} /> : <Icon name="arrow.triangle.2.circlepath" size={12} />}
+          {s.nextctlUpdating
+            ? <Spinner size={12} />
+            : <Icon name={s.nextctlUpdateError ? "exclamationmark.triangle.fill" : "arrow.triangle.2.circlepath"} size={12} />}
         </button>
-        {s.nextctlUpdateStatus && (
-          <span className={needsSupportLink(s.nextctlUpdateStatus) ? "warn" : ""}>
-            · <UserFacingError message={s.nextctlUpdateStatus} surface="component_update" />
-          </span>
-        )}
+        {s.nextctlUpdateStatus && <span>· {s.nextctlUpdateStatus}</span>}
         {!s.nextctlSupportsSkill && !s.nextctlCompatibilityError && <span className="warn"> · no skill cmd</span>}
         <span className="spacer" />
         <button

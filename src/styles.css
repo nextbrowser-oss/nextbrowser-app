@@ -2184,6 +2184,7 @@ body.is-resizing-sidebar {
   }
 }
 .nextctl-refresh { min-width: 24px !important; min-height: 24px !important; padding: 2px !important; }
+.nextctl-refresh.is-failed { color: var(--warn); }
 
 /* Tab bar — MainView.swift TabBar */
 .tabbar {

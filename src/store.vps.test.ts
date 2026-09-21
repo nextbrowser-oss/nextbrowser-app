@@ -1159,14 +1159,14 @@ describe("local component and profile lifecycle", () => {
       await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(false);
       expect(localNextctlCalls()).toHaveLength(1);
       // Every attempt stays silent until retries are exhausted.
-      expect(useStore.getState().nextctlUpdateStatus).toBeUndefined();
+      expect(useStore.getState().nextctlUpdateError).toBeUndefined();
 
       const pausesSeconds = [90, 100, 110, 120, 130];
       for (const [index, pause] of pausesSeconds.entries()) {
         await vi.advanceTimersByTimeAsync(pause * 1000);
         expect(localNextctlCalls()).toHaveLength(index + 2);
         const isLastRetry = index === pausesSeconds.length - 1;
-        expect(useStore.getState().nextctlUpdateStatus).toBe(
+        expect(useStore.getState().nextctlUpdateError).toBe(
           isLastRetry ? "We couldn't update the NextBrowser CLI (nextctl). Please retry. offline" : undefined,
         );
       }
@@ -1174,6 +1174,8 @@ describe("local component and profile lifecycle", () => {
       // No further retries are scheduled once the fifth one has failed.
       await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
       expect(localNextctlCalls()).toHaveLength(6);
+      // The failure lives in the refresh button's tooltip, never as footer text.
+      expect(useStore.getState().nextctlUpdateStatus).toBeUndefined();
     } finally {
       vi.useRealTimers();
     }
@@ -1188,17 +1190,17 @@ describe("local component and profile lifecycle", () => {
           return Promise.resolve({
             code: 1,
             stdout: "",
-            stderr: "fetch releases/latest https://api.github.com/repos/nextbrowser-oss/nbc_releases/releases/latest: unexpected status 403 Forbidden",
+            stderr: "fetch releases/latest https://api.github.com/repos/nextbrowser-oss/nbc_releases/releases/latest: unexpected status 403 Forbidden\nWarning: fetch release notes failed",
           });
         }
         return Promise.resolve(null);
       });
 
       await useStore.getState().checkNextctlUpdate();
-      expect(useStore.getState().nextctlUpdateStatus).toBeUndefined();
+      expect(useStore.getState().nextctlUpdateError).toBeUndefined();
       await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
 
-      const status = useStore.getState().nextctlUpdateStatus ?? "";
+      const status = useStore.getState().nextctlUpdateError ?? "";
       expect(status).toBe("We couldn't update the NextBrowser CLI (nextctl). Please retry. 403 Forbidden");
       expect(status).not.toContain("api.github.com");
       expect(status).not.toContain("fetch releases/latest");

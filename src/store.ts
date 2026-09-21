@@ -246,7 +246,7 @@ const PROFILE_CREATE_REQUEST_POLL_MS = 10_000;
 const NEXTCTL_DAILY_UPDATE_MS = 20 * 60 * 1000;
 const NEXTCTL_DAILY_UPDATE_POLL_MS = 60 * 1000;
 // Retries stay silent in the background: only the last one surfaces
-// nextctlUpdateStatus, so a transient failure (or GitHub's anonymous API
+// nextctlUpdateError, so a transient failure (or GitHub's anonymous API
 // rate limit) doesn't interrupt the user unless every attempt fails.
 const NEXTCTL_UPDATE_MAX_RETRIES = 5;
 const NEXTCTL_UPDATE_RETRY_BASE_MS = 90 * 1000;
@@ -263,15 +263,18 @@ const NEXTCTL_UPDATE_ERROR = "We couldn't update the NextBrowser CLI (nextctl). 
 const NEXTCTL_UPDATE_ERROR_DETAIL_LIMIT = 160;
 
 function nextctlUpdateErrorMessage(reason?: string): string {
-  const raw = String(reason ?? "").replace(/\s+/g, " ").trim();
+  const raw = String(reason ?? "");
   // A request failure reads like
   // "fetch releases/latest <url>: unexpected status 403 Forbidden". Keep only
-  // the HTTP status so the footer stays short; otherwise drop any request URL
-  // and collapse whitespace.
-  const status = raw.match(/\b\d{3}\s+[A-Za-z][A-Za-z ]*/);
+  // the HTTP status so the message stays short; otherwise drop any request URL
+  // and collapse whitespace. The status must not run past its line: nextctl
+  // prints "Warning: ..." on the next one.
+  const status = raw.match(/\b\d{3}[ \t]+[A-Za-z][A-Za-z \t]*/);
   const detail = (status
     ? status[0].trim()
     : raw
+      .replace(/\s+/g, " ")
+      .trim()
       .replace(/https?:\/\/\S+?(?=[:\s]|$)/g, "")
       .replace(/\s+([:;,])/g, "$1")
       .trim()
@@ -540,6 +543,10 @@ interface State {
   nextctlVersion: string;
   nextctlUpdating: boolean;
   nextctlUpdateStatus?: string;
+  // The last failed update. The footer shows it only as the refresh button's
+  // tooltip: a background check failing must not push a paragraph of text
+  // into the sidebar.
+  nextctlUpdateError?: string;
   nextctlSupportsSkill: boolean;
   nextctlAvailable: boolean;
   nextctlCompatibilityError?: string;
@@ -4129,7 +4136,7 @@ export const useStore = create<State>((set, get) => {
     }
     const startedAt = performance.now();
     trackEvent("nextctl_update_started");
-    set({ nextctlUpdating: true, nextctlUpdateStatus: undefined });
+    set({ nextctlUpdating: true, nextctlUpdateStatus: undefined, nextctlUpdateError: undefined });
     try {
       if (pendingTarget(get(), "vps")) return false;
       if (get().nextctlCompatibilityError) {
@@ -4175,7 +4182,7 @@ export const useStore = create<State>((set, get) => {
         if (willRetry) {
           scheduleRetry(retryAttempt + 1);
         } else {
-          set({ nextctlUpdateStatus: nextctlUpdateErrorMessage(reason) });
+          set({ nextctlUpdateError: nextctlUpdateErrorMessage(reason) });
         }
         return false;
       }
@@ -4211,7 +4218,7 @@ export const useStore = create<State>((set, get) => {
       if (willRetry) {
         scheduleRetry(retryAttempt + 1);
       } else {
-        set({ nextctlUpdateStatus: nextctlUpdateErrorMessage(reason) });
+        set({ nextctlUpdateError: nextctlUpdateErrorMessage(reason) });
       }
       return false;
     } finally {
