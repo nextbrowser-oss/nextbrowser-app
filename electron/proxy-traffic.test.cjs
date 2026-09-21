@@ -31,9 +31,9 @@ test("loads the backend key without exposing it to the renderer", async (t) => {
   });
 });
 
-test("loads the key from the isolated NextBrowser config directory", async (t) => {
+test("loads the key from the isolated Nextbrowser config directory", async (t) => {
   const homeDir = await tempHome(t);
-  const nextbrowserConfigDir = path.join(homeDir, "NextBrowser", "runtime", "config");
+  const nextbrowserConfigDir = path.join(homeDir, "Nextbrowser", "runtime", "config");
   await fs.mkdir(nextbrowserConfigDir, { recursive: true });
   await fs.writeFile(
     path.join(nextbrowserConfigDir, "config.json"),
@@ -53,6 +53,6 @@ test("loads the key from the isolated NextBrowser config directory", async (t) =
 
 test("normalizes the legacy dashboard host and rejects non-http URLs", () => {
   assert.equal(normalizeAPIBaseURL("https://app.nextbrowser.com/"), "https://api.nextbrowser.com");
-  assert.throws(() => normalizeAPIBaseURL("file:///tmp/config.json"), /Unsupported NextBrowser API URL/);
-  assert.throws(() => normalizeAPIBaseURL("https://user:password@api.example.test"), /Unsupported NextBrowser API URL/);
+  assert.throws(() => normalizeAPIBaseURL("file:///tmp/config.json"), /Unsupported Nextbrowser API URL/);
+  assert.throws(() => normalizeAPIBaseURL("https://user:password@api.example.test"), /Unsupported Nextbrowser API URL/);
 });

@@ -91,7 +91,7 @@ export function WorkspaceSetupGate() {
           </fieldset>
           {!direct && <div className="modal-field"><span>Proxy country</span><CountrySelect countries={s.proxyCountries.length ? s.proxyCountries : ROTATION_COUNTRIES} value={country} onChange={setCountry} ariaLabel="Proxy country" /></div>}
           <fieldset className="project-mode-field"><legend>Browser</legend>
-            <label className={"project-mode-option" + (toolset === "clawbrowser" ? " is-selected" : "")}><input type="radio" checked={toolset === "clawbrowser"} onChange={() => setToolset("clawbrowser")} /><Icon name="globe" size={16} /><span><strong>ClawBrowser</strong><small>Managed browser runtime</small></span></label>
+            <label className={"project-mode-option" + (toolset === "clawbrowser" ? " is-selected" : "")}><input type="radio" checked={toolset === "clawbrowser"} onChange={() => setToolset("clawbrowser")} /><Icon name="globe" size={16} /><span><strong>Clawbrowser</strong><small>Managed browser runtime</small></span></label>
             <label className={"project-mode-option" + (toolset === "dasbrowser" ? " is-selected" : "")}><input type="radio" checked={toolset === "dasbrowser"} onChange={() => setToolset("dasbrowser")} /><Icon name="safari" size={16} /><span><strong>DasBrowser</strong><small>Multi-account browser</small></span></label>
             <label className={"project-mode-option" + (toolset === "camoufox" ? " is-selected" : "")}><input type="radio" checked={toolset === "camoufox"} onChange={() => setToolset("camoufox")} /><Icon name="shield" size={16} /><span><strong>Camoufox</strong><small>Firefox anti-detect browser</small></span></label>
           </fieldset>

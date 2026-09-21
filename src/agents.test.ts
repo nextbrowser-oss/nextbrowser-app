@@ -31,7 +31,7 @@ describe("agent invocation parity", () => {
     const message = missingAgentInstallError(error, agentById("claude"));
 
     expect(message).toBe(
-      "Claude Code CLI not found. NextBrowser needs the Claude Code CLI, not the Claude desktop app, to connect. Install the CLI, then try again.",
+      "Claude Code CLI not found. Nextbrowser needs the Claude Code CLI, not the Claude desktop app, to connect. Install the CLI, then try again.",
     );
     expect(isMissingAgentInstallError(message ?? "")).toBe(true);
   });
@@ -43,7 +43,7 @@ describe("agent invocation parity", () => {
     const message = missingAgentInstallError(error, agentById("codex"));
 
     expect(message).toBe(
-      "ChatGPT desktop app with Codex not found. NextBrowser connects through the executable bundled with the app. Install it, then try again.",
+      "ChatGPT desktop app with Codex not found. Nextbrowser connects through the executable bundled with the app. Install it, then try again.",
     );
     expect(isMissingAgentInstallError(message ?? "")).toBe(true);
   });

@@ -549,7 +549,7 @@ export function AutomationStudio() {
   };
 
   const startRecording = async (destination: "recording" | "workflow" = "recording", source: "hybrid" | "agent" = "hybrid") => {
-    if (!s.authed) return setNotice("Connect your NextBrowser account before recording browser actions.");
+    if (!s.authed) return setNotice("Connect your Nextbrowser account before recording browser actions.");
     if (!workspaceId) return setStudioError("Create or select a workspace before recording.");
     try {
       const existing = activeAutomationRecording();
@@ -1288,7 +1288,7 @@ export function AutomationStudio() {
       const message = error instanceof Error ? error.message : String(error);
       if (/artifact (?:file was removed|no longer exists)/i.test(message)) {
         await loadArtifacts();
-        setArtifactError(`${artifact.name} was deleted outside NextBrowser and has been removed from this list.`);
+        setArtifactError(`${artifact.name} was deleted outside Nextbrowser and has been removed from this list.`);
       } else setArtifactError(message);
     }
   };
@@ -1299,7 +1299,7 @@ export function AutomationStudio() {
       const message = error instanceof Error ? error.message : String(error);
       if (/artifact (?:file was removed|no longer exists)/i.test(message)) {
         await loadArtifacts();
-        setArtifactError(`${artifact.name} was deleted outside NextBrowser and has been removed from this list.`);
+        setArtifactError(`${artifact.name} was deleted outside Nextbrowser and has been removed from this list.`);
       } else setArtifactError(message);
     }
   };
@@ -1346,7 +1346,7 @@ export function AutomationStudio() {
       {studioError && <div className="error automation-global-message" role="alert"><strong>Automation couldn’t complete the action.</strong><span>{studioError}</span><button onClick={() => setStudioError(undefined)}>Dismiss</button></div>}
       {notice && <div className="automation-global-message success" role="status"><span>{notice}</span><button onClick={() => setNotice(undefined)}>Dismiss</button></div>}
       {incomingShares.length > 0 && <section className="automation-share-inbox" aria-label="Shared with me"><div><Icon name="person.2.fill" size={15} /><span><strong>Shared with you</strong><small>{incomingShares.length} automation {incomingShares.length === 1 ? "copy is" : "copies are"} ready to add to your library.</small></span></div><div className="automation-share-inbox-items">{incomingShares.map((share) => <article key={share.id}><span><strong>{share.title}</strong><small>{share.source_kind === "workflow" ? "Workflow" : "Recording"}{share.sender_email ? ` · from ${share.sender_email}` : ""}</small></span><div className="automation-inline-actions"><button className="secondary" disabled={shareBusy} onClick={() => void declineShare(share)}>Decline</button><button className="secondary" disabled={shareBusy} onClick={() => void acceptShare(share)}>Add to my automations</button></div></article>)}</div></section>}
-      {sentShares.length > 0 && <section className="automation-share-inbox automation-share-sent" aria-label="Shared by me"><div><Icon name="paperplane.fill" size={15} /><span><strong>Shared by you</strong><small>Track copies sent to other NextBrowser users.</small></span></div><div className="automation-share-inbox-items">{sentShares.map((share) => <article key={share.id}><span><strong>{share.title}</strong><small>{share.source_kind === "workflow" ? "Workflow" : "Recording"}{share.recipient_email ? ` · to ${share.recipient_email}` : ""}</small></span><div className="automation-inline-actions"><span className={`automation-share-status ${share.status}`}>{share.status === "pending" ? "Waiting" : share.status === "accepted" ? "Added" : "Declined"}</span>{share.status === "pending" && <button className="secondary" disabled={shareBusy} onClick={() => void revokeShare(share)}>Revoke</button>}</div></article>)}</div></section>}
+      {sentShares.length > 0 && <section className="automation-share-inbox automation-share-sent" aria-label="Shared by me"><div><Icon name="paperplane.fill" size={15} /><span><strong>Shared by you</strong><small>Track copies sent to other Nextbrowser users.</small></span></div><div className="automation-share-inbox-items">{sentShares.map((share) => <article key={share.id}><span><strong>{share.title}</strong><small>{share.source_kind === "workflow" ? "Workflow" : "Recording"}{share.recipient_email ? ` · to ${share.recipient_email}` : ""}</small></span><div className="automation-inline-actions"><span className={`automation-share-status ${share.status}`}>{share.status === "pending" ? "Waiting" : share.status === "accepted" ? "Added" : "Declined"}</span>{share.status === "pending" && <button className="secondary" disabled={shareBusy} onClick={() => void revokeShare(share)}>Revoke</button>}</div></article>)}</div></section>}
       {playback && playbackView && <div className={`recording-progress-card ${playbackView.phase}`} role="status">
         <div className="recording-progress-head"><span><Icon name={playbackView.phase === "completed" ? "checkmark.circle.fill" : ["failed", "cancelled"].includes(playbackView.phase) ? "xmark.circle.fill" : playbackView.phase === "stopping" ? "stop.fill" : "play.fill"} size={14} /><strong>{playbackView.phase === "completed" ? "Execution completed" : playbackView.phase === "cancelled" ? "Execution stopped" : playbackView.phase === "failed" ? "Execution failed" : playbackView.phase === "stopping" ? "Stopping execution" : playback.engine === "agent" ? "AI is repairing the workflow" : playbackView.phase === "preparing" ? "Preparing execution" : "Running saved steps"}</strong></span><b>{playbackView.progress}%</b></div>
         <div className="recording-progress-track"><i style={{ width: `${playbackView.progress}%` }} /></div>
@@ -1362,7 +1362,7 @@ export function AutomationStudio() {
 
       {section === "recorder" && <section className="automation-panel">
         <div className="automation-panel-head"><div><h2>Recordings</h2><p>Perform a task in the browser once, then replay the captured actions.</p></div>
-          <div className="row">{recordingSince > 0 ? <button className="secondary danger-text" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={12} /> : <Icon name="stop.fill" size={12} />} {recordingModeButtonLabel}</button> : <button className="primary" disabled={!s.authed} title={!s.authed ? "Connect your NextBrowser account to record browser actions." : undefined} onClick={() => void startRecording()}><Icon name="circle.fill" size={12} /> {s.authed ? "Start recording" : "Connect account to record"}</button>}</div>
+          <div className="row">{recordingSince > 0 ? <button className="secondary danger-text" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={12} /> : <Icon name="stop.fill" size={12} />} {recordingModeButtonLabel}</button> : <button className="primary" disabled={!s.authed} title={!s.authed ? "Connect your Nextbrowser account to record browser actions." : undefined} onClick={() => void startRecording()}><Icon name="circle.fill" size={12} /> {s.authed ? "Start recording" : "Connect account to record"}</button>}</div>
         </div>
         {recordingSince > 0 && <div className="recording-banner"><span className="recording-dot" /><span className="recording-banner-copy">{["manual", "hybrid"].includes(activeAutomationRecording()?.source || "agent") ? `Recording your actions and agent browser actions in ${activeAutomationRecording()?.profile || "the default browser"}. Press Stop when finished.` : recordedRun ? "Browser task captured — press Stop to save it." : `Recording is armed in ${recordingModeLabel}. Complete one browser task in Project Chat, then press Stop.`}</span>{["manual", "hybrid"].includes(activeAutomationRecording()?.source || "agent") && <span className="recording-banner-actions"><button className="secondary" onClick={() => s.setTab("live")}><Icon name="play.rectangle.on.rectangle.fill" size={12} /> Open browser</button><button className="secondary" onClick={() => { if (s.terminalChat) s.setTerminalChat(false); s.setTab("chat"); }}><Icon name="bubble.left.and.bubble.right.fill" size={12} /> Open Project Chat</button></span>}</div>}
         <div className="capture-list">
@@ -1521,7 +1521,7 @@ export function AutomationStudio() {
         const trust = automationTrustSummary(pendingExecution.workflow);
         return <div className="modal-overlay trust-preview-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPendingExecution(undefined); }}>
           <section className="modal-card trust-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="trust-preview-title">
-            <div className="trust-preview-title"><span><Icon name="checkmark.shield.fill" size={20} /></span><div><h2 id="trust-preview-title">Review this automation</h2><p>NextBrowser will use the selected browser exactly as shown below.</p></div></div>
+            <div className="trust-preview-title"><span><Icon name="checkmark.shield.fill" size={20} /></span><div><h2 id="trust-preview-title">Review this automation</h2><p>Nextbrowser will use the selected browser exactly as shown below.</p></div></div>
             <dl className="trust-preview-grid"><div><dt>Profile</dt><dd>{automationProfile || "Default browser"}</dd></div><div><dt>Website</dt><dd>{trust.domains.length ? trust.domains.join(", ") : "Current workflow target"}</dd></div><div><dt>Storage</dt><dd>{trust.savesLocalArtifact ? "Artifact Center · local only" : "No artifact output requested"}</dd></div><div><dt>Execution</dt><dd>Fast deterministic steps{pendingExecution.workflow.instructions.trim() ? " · AI repair available" : ""}</dd></div></dl>
             <div className="trust-preview-effects">{trust.effects.map((effect) => <span key={effect} className={["external_upload", "authentication", "publication", "proxy_change"].includes(effect) ? "risk" : ""}><Icon name={["external_upload", "authentication", "publication", "proxy_change"].includes(effect) ? "exclamationmark.triangle.fill" : effect === "local_artifact" ? "tray.full.fill" : "checkmark.circle"} size={12} /> {trustEffectLabel(effect)}</span>)}</div>
             <ul>{trust.explanation.map((line) => <li key={line}>{line}</li>)}</ul>

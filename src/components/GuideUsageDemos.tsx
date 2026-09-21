@@ -239,7 +239,7 @@ export const GUIDE_USAGE_DEMOS: Array<{
     action: {
       kind: "chat",
       prompt:
-        "Using the selected NextBrowser profile, open https://news.ycombinator.com/newest, collect the first 5 story titles and URLs, and save them as hn-newest.json in Artifact Center. Verify that all 5 rows contain a title and an absolute URL.",
+        "Using the selected Nextbrowser profile, open https://news.ycombinator.com/newest, collect the first 5 story titles and URLs, and save them as hn-newest.json in Artifact Center. Verify that all 5 rows contain a title and an absolute URL.",
     },
     actionLabel: "Prepare in Chat",
     Demo: LaunchBrowserDemo,
@@ -251,7 +251,7 @@ export const GUIDE_USAGE_DEMOS: Array<{
     action: {
       kind: "chat",
       prompt:
-        "For the selected NextBrowser profile, rotate its proxy country to ES, start the session if needed, verify the resulting proxy country and IP, then report the result. Stop and report if rotation or verification fails.",
+        "For the selected Nextbrowser profile, rotate its proxy country to ES, start the session if needed, verify the resulting proxy country and IP, then report the result. Stop and report if rotation or verification fails.",
     },
     actionLabel: "Prepare in Chat",
     Demo: SpanishProxyDemo,

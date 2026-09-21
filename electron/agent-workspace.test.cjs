@@ -95,7 +95,7 @@ test("Terminal accepts legacy Antigravity ids and reports an actionable version 
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   assert.match(main, /"antigravity-cli": "antigravity"/);
   assert.match(main, /const resolvedAgentId = terminalAgentId\(requestedAgentId\)/);
-  assert.match(main, /Restart NextBrowser to complete its update/);
+  assert.match(main, /Restart Nextbrowser to complete its update/);
 });
 
 test("Windows hides the Electron menu bar and local proxies fail clearly before ClawBrowser launch", () => {
@@ -127,7 +127,7 @@ test("Terminal Chat restarts onto the active Recorder trace", () => {
 test("active Recorder requires a replayable final data-collection call", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const store = fs.readFileSync(path.join(__dirname, "..", "src", "store.ts"), "utf8");
-  assert.match(store, /NextBrowser Recorder is active for this task/);
+  assert.match(store, /Nextbrowser Recorder is active for this task/);
   assert.match(store, /Prefer navigate_extract/);
   assert.match(store, /call extract or paginate_extract/);
   assert.match(store, /call evaluate once with a read-only expression/);

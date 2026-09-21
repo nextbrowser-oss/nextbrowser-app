@@ -43,7 +43,7 @@ export function FeedbackModal({ onClose, onSubmitted }: { onClose: () => void; o
         <div className="modal-title-row">
           <Icon name="bubble.left.and.bubble.right.fill" size={18} />
           <div>
-            <strong id="feedback-title">How is NextBrowser?</strong>
+            <strong id="feedback-title">How is Nextbrowser?</strong>
             <div className="muted small">Your signed-in email, rating, and note go directly to the product team.</div>
           </div>
           <span className="spacer" />
@@ -61,7 +61,7 @@ export function FeedbackModal({ onClose, onSubmitted }: { onClose: () => void; o
             <div
               className="feedback-rating"
               role="radiogroup"
-              aria-label="Rate NextBrowser from one to five"
+              aria-label="Rate Nextbrowser from one to five"
               onMouseLeave={() => setHoverRating(null)}
             >
               {RATING_LABELS.map((label, index) => {

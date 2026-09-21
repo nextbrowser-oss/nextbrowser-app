@@ -4,7 +4,7 @@ const path = require("node:path");
 const RUNTIME_UPDATE_SOURCES = Object.freeze([
   {
     runtime: "clawbrowser",
-    name: "ClawBrowser",
+    name: "Clawbrowser",
     releasePage: "https://github.com/clawbrowser/clawbrowser/releases/latest",
   },
   {
@@ -53,21 +53,21 @@ function classifyRuntimeUpdateFailure(error) {
     return { code: "UPDATE_DISK_SPACE", category: "Not enough disk space", retryable: false, message, recovery: "Free up disk space, then try again." };
   }
   if (/eacces|eperm|permission denied|operation not permitted|administrator/.test(normalized)) {
-    return { code: "UPDATE_PERMISSION", category: "Permission required", retryable: false, message, recovery: "Check that NextBrowser can write to its application data, then try again." };
+    return { code: "UPDATE_PERMISSION", category: "Permission required", retryable: false, message, recovery: "Check that Nextbrowser can write to its application data, then try again." };
   }
-  if (/could not verify .*session status|session status.*unavailable/.test(normalized)) {
-    return { code: "UPDATE_RUNTIME_STATE_UNKNOWN", category: "Browser status unavailable", retryable: true, message, recovery: "Close every running ClawBrowser profile, then try again." };
+  if (/could not confirm .*closed|could not verify .*session status|session status.*unavailable/.test(normalized)) {
+    return { code: "UPDATE_RUNTIME_STATE_UNKNOWN", category: "Couldn't confirm profiles are closed", retryable: true, message, recovery: "Close every open Clawbrowser profile window, then try again." };
   }
   if (/ebusy|locked|in use|already running|still running|running browser|process.*running/.test(normalized)) {
     return { code: "UPDATE_RUNTIME_IN_USE", category: "Browser is still running", retryable: true, message, recovery: "Close this browser toolset completely, then retry." };
   }
   if (/timeout|timed out|fetch failed|network|econn|enotfound|eai_again|http\s*[45]\d\d|update source returned/.test(normalized)) {
-    return { code: "UPDATE_NETWORK", category: "Connection problem", retryable: true, message, recovery: "Keep NextBrowser open and check your internet connection, then retry." };
+    return { code: "UPDATE_NETWORK", category: "Connection problem", retryable: true, message, recovery: "Keep Nextbrowser open and check your internet connection, then retry." };
   }
   if (/invalid version|signature verification|release did not contain|installed version is still|not available for/.test(normalized)) {
     return { code: "UPDATE_RELEASE_VALIDATION", category: "Release verification failed", retryable: false, message, recovery: "Use the official manual update page below, or try again after a newer release is published." };
   }
-  return { code: "UPDATE_UNKNOWN", category: "Update could not finish", retryable: true, message, recovery: "Keep NextBrowser open, check disk space and your connection, then retry." };
+  return { code: "UPDATE_UNKNOWN", category: "Update could not finish", retryable: true, message, recovery: "Keep Nextbrowser open, check disk space and your connection, then retry." };
 }
 
 function nextctlCommandData(result) {
@@ -82,7 +82,7 @@ function nextctlCommandData(result) {
 }
 
 // Runtime replacement must fail closed when a persisted session cannot be
-// classified. A missing runtime label is treated as ClawBrowser for active
+// classified. A missing runtime label is treated as Clawbrowser for active
 // legacy sessions; stopped sessions and explicitly different runtimes are safe.
 async function assertClawbrowserSessionsStopped({ sessionNames = [], statusSession, processIsAlive = async () => false }) {
   const names = [...new Set(sessionNames.map((name) => String(name || "").trim()).filter(Boolean))].sort();
@@ -117,10 +117,10 @@ async function assertClawbrowserSessionsStopped({ sessionNames = [], statusSessi
   }));
 
   if (unavailable.length) {
-    throw new Error(`NextBrowser could not verify ClawBrowser session status for: ${unavailable.sort().join(", ")}.`);
+    throw new Error(`Nextbrowser could not confirm these profiles are fully closed: ${unavailable.sort().join(", ")}.`);
   }
   if (active.length) {
-    throw new Error(`ClawBrowser is still running in: ${active.sort().join(", ")}. Stop these profiles before installing the update; NextBrowser did not close them automatically.`);
+    throw new Error(`Clawbrowser is still running in: ${active.sort().join(", ")}. Stop these profiles before installing the update; Nextbrowser did not close them automatically.`);
   }
 }
 
@@ -238,7 +238,7 @@ async function installSelectedRuntimeUpdates({ requestedRuntimes, checkForUpdate
   return result;
 }
 
-// ClawBrowser publishes platform-suffixed releases under a "v"-prefixed tag
+// Clawbrowser publishes platform-suffixed releases under a "v"-prefixed tag
 // (e.g. v1.0.6-windows) while older plain versions use the bare tag (1.0.5).
 // The asset URL must use the exact tag, but normalizeVersion strips the leading
 // "v", which previously produced a 404 and a false "not available for this
@@ -260,7 +260,7 @@ function clawbrowserReleaseAsset(platform, arch, version) {
     assetName = "clawbrowser-win-amd64.zip";
     kind = "zip";
   }
-  if (!assetName) throw new Error(`ClawBrowser updates are not available for ${platform}/${arch}.`);
+  if (!assetName) throw new Error(`Clawbrowser updates are not available for ${platform}/${arch}.`);
   return {
     assetName,
     kind,
@@ -359,7 +359,7 @@ async function installedCamoufoxVersion(runtimeRoot) {
 
 async function fetchJSON(fetchImpl, url) {
   const response = await fetchImpl(url, {
-    headers: { Accept: "application/json", "User-Agent": "NextBrowser-runtime-update-checker" },
+    headers: { Accept: "application/json", "User-Agent": "Nextbrowser-runtime-update-checker" },
     signal: AbortSignal.timeout(8_000),
   });
   if (!response.ok) throw new Error(`Update source returned ${response.status}`);
@@ -368,7 +368,7 @@ async function fetchJSON(fetchImpl, url) {
 
 async function fetchText(fetchImpl, url) {
   const response = await fetchImpl(url, {
-    headers: { Accept: "text/html", "User-Agent": "NextBrowser-runtime-update-checker" },
+    headers: { Accept: "text/html", "User-Agent": "Nextbrowser-runtime-update-checker" },
     signal: AbortSignal.timeout(8_000),
   });
   if (!response.ok) throw new Error(`Update source returned ${response.status}`);
@@ -385,7 +385,7 @@ async function latestClawbrowserVersion(fetchImpl) {
     // release redirect remains available and resolves to the same official tag.
   }
   const response = await fetchImpl("https://github.com/clawbrowser/clawbrowser/releases/latest", {
-    headers: { Accept: "text/html", "User-Agent": "NextBrowser-runtime-update-checker" },
+    headers: { Accept: "text/html", "User-Agent": "Nextbrowser-runtime-update-checker" },
     redirect: "follow",
     signal: AbortSignal.timeout(8_000),
   });
@@ -394,7 +394,7 @@ async function latestClawbrowserVersion(fetchImpl) {
   const html = finalTag ? "" : await response.text();
   const htmlTag = html.match(/\/clawbrowser\/clawbrowser\/releases\/tag\/([^"'/?#]+)/i)?.[1];
   const version = normalizeVersion(decodeURIComponent(finalTag || htmlTag || ""));
-  if (!version) throw new Error("Latest ClawBrowser release did not include a version");
+  if (!version) throw new Error("Latest Clawbrowser release did not include a version");
   return version;
 }
 
@@ -407,7 +407,7 @@ function clawbrowserPlatformAsset(platform, arch, version) {
 }
 
 function missingClawbrowserAssetMessage(version, platform, arch) {
-  return `ClawBrowser ${version} does not include a download for ${platform}/${arch} yet.`;
+  return `Clawbrowser ${version} does not include a download for ${platform}/${arch} yet.`;
 }
 
 async function latestClawbrowserRelease(fetchImpl, platform, arch) {
@@ -416,10 +416,10 @@ async function latestClawbrowserRelease(fetchImpl, platform, arch) {
   try {
     release = await fetchJSON(fetchImpl, "https://api.github.com/repos/clawbrowser/clawbrowser/releases/latest");
     version = normalizeVersion(release?.tag_name);
-    if (!version) throw new Error("Latest ClawBrowser release did not include a version");
+    if (!version) throw new Error("Latest Clawbrowser release did not include a version");
   } catch {
     const response = await fetchImpl("https://github.com/clawbrowser/clawbrowser/releases/latest", {
-      headers: { Accept: "text/html", "User-Agent": "NextBrowser-runtime-update-checker" },
+      headers: { Accept: "text/html", "User-Agent": "Nextbrowser-runtime-update-checker" },
       redirect: "follow",
       signal: AbortSignal.timeout(8_000),
     });
@@ -428,12 +428,12 @@ async function latestClawbrowserRelease(fetchImpl, platform, arch) {
     const html = finalTag ? "" : await response.text();
     const htmlTag = html.match(/\/clawbrowser\/clawbrowser\/releases\/tag\/([^"'/?#]+)/i)?.[1];
     version = normalizeVersion(decodeURIComponent(finalTag || htmlTag || ""));
-    if (!version) throw new Error("Latest ClawBrowser release did not include a version");
+    if (!version) throw new Error("Latest Clawbrowser release did not include a version");
   }
 
   const assetName = clawbrowserPlatformAsset(platform, arch, version);
   if (!assetName) {
-    return { version, availability: "unavailable", message: `Automatic ClawBrowser updates are not available for ${platform}/${arch}.` };
+    return { version, availability: "unavailable", message: `Automatic Clawbrowser updates are not available for ${platform}/${arch}.` };
   }
   if (Array.isArray(release?.assets)) {
     return release.assets.some((asset) => asset?.name === assetName)
@@ -447,7 +447,7 @@ async function latestClawbrowserRelease(fetchImpl, platform, arch) {
   const archiveRelease = clawbrowserReleaseAsset(platform, arch, version);
   const response = await fetchImpl(archiveRelease.url, {
     method: "HEAD",
-    headers: { Accept: "application/octet-stream", "User-Agent": "NextBrowser-runtime-update-checker" },
+    headers: { Accept: "application/octet-stream", "User-Agent": "Nextbrowser-runtime-update-checker" },
     redirect: "follow",
     signal: AbortSignal.timeout(8_000),
   });

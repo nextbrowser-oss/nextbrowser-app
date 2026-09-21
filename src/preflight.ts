@@ -229,8 +229,8 @@ export async function prepareSession(opts: {
     checkCancelled();
     try {
       if (!running) {
-        await runChecked([...args, "start", "--format", "json"], "Could not start NextBrowser", opts.selectedProfile ? `profile-start:${opts.selectedProfile}` : undefined);
-        step("Started NextBrowser for verification");
+        await runChecked([...args, "start", "--format", "json"], "Could not start Nextbrowser", opts.selectedProfile ? `profile-start:${opts.selectedProfile}` : undefined);
+        step("Started Nextbrowser for verification");
       } else {
         step("Session running");
       }

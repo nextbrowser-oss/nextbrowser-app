@@ -39,7 +39,7 @@ async function resolvePageWsUrl(httpBase: string): Promise<string> {
       targets.find((t) => t.type === "page" && t.webSocketDebuggerUrl) ??
       targets.find((t) => t.webSocketDebuggerUrl);
     if (!page?.webSocketDebuggerUrl) {
-      throw new Error("No page targets found. Open a tab in NextBrowser first.");
+      throw new Error("No page targets found. Open a tab in Nextbrowser first.");
     }
     return page.webSocketDebuggerUrl;
   }

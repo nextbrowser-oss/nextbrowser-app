@@ -6,13 +6,13 @@ describe("userFacingBrowserError", () => {
     const raw = "detached Remote Control child failed: create Remote Session: unexpected status 404 Not Found: {\"message\":\"Not Found\"}; see log /Users/person/.nextbrowser/runtime/child.log [REMOTE_BACKEND_ERROR]";
     const message = userFacingBrowserError(new Error(raw));
 
-    expect(message).toBe("Remote Control is not available on the connected NextBrowser service. Update NextBrowser and try again. If it continues, contact support.");
+    expect(message).toBe("Remote Control is not available on the connected Nextbrowser service. Update Nextbrowser and try again. If it continues, contact support.");
     expect(message).not.toMatch(/child|\/Users|REMOTE_BACKEND_ERROR|404/);
   });
 
   it("explains authentication and connectivity failures", () => {
     expect(userFacingBrowserError("create Remote Session: 401 Unauthorized [REMOTE_BACKEND_ERROR]"))
-      .toContain("Sign in to NextBrowser again");
+      .toContain("Sign in to Nextbrowser again");
     expect(userFacingBrowserError("detached Remote Control child failed: network timeout [REMOTE_BACKEND_ERROR]"))
       .toContain("Check your internet connection");
   });
@@ -29,19 +29,19 @@ describe("userFacingBrowserError", () => {
 
   it("explains that a local proxy needs a locally configured runtime", () => {
     expect(userFacingBrowserError("[LOCAL_PROXY_UNSUPPORTED] This proxy runs on this computer."))
-      .toBe("This proxy runs on your computer. Use Camoufox or DasBrowser for a localhost proxy; ClawBrowser support for local proxy ports is coming soon.");
+      .toBe("This proxy runs on your computer. Use Camoufox or DasBrowser for a localhost proxy; Clawbrowser support for local proxy ports is coming soon.");
   });
 
   it("reduces a managed-proxy capability refusal to one short action", () => {
-    const raw = "Could not start NextBrowser: VERIFY_FAILED: browser stopped: LAUNCH_FAILED: launch failed (ClawBrowser managed-proxy privacy capability is 1; 2 or newer is required) [VERIFY_FAILED] — Retry the same proxy. A proxy profile cannot continue without its proxy.";
+    const raw = "Could not start Nextbrowser: VERIFY_FAILED: browser stopped: LAUNCH_FAILED: launch failed (Clawbrowser managed-proxy privacy capability is 1; 2 or newer is required) [VERIFY_FAILED] — Retry the same proxy. A proxy profile cannot continue without its proxy.";
     const message = userFacingBrowserError(new Error(raw));
-    expect(message).toBe("This ClawBrowser build can’t run a proxied profile. Update ClawBrowser, then retry.");
+    expect(message).toBe("This Clawbrowser build can’t run a proxied profile. Update Clawbrowser, then retry.");
     expect(message).not.toMatch(/VERIFY_FAILED|LAUNCH_FAILED|capability is 1/i);
   });
 
   it("hides a transient CDP transport error behind a recovery action", () => {
     const message = userFacingBrowserError("cdp Runtime.evaluate: read response: read tcp 127.0.0.1:1->127.0.0.1:2: wsarecv: An established connection was aborted by the software in your host machine");
-    expect(message).toContain("NextBrowser retried once");
+    expect(message).toContain("Nextbrowser retried once");
     expect(message).not.toMatch(/127\.0\.0\.1|wsarecv/i);
   });
 
@@ -56,8 +56,8 @@ describe("userFacingBrowserError", () => {
   });
 
   it("turns a backend fetch failure into a user action without IPC or service internals", () => {
-    const message = userFacingBrowserError("Error invoking remote method 'nextbrowser:invoke': Error: Cannot reach the NextBrowser backend at https://core.nextbrowser.com. Check that the backend is running and try again.");
-    expect(message).toBe("NextBrowser couldn’t connect to the service. Check your internet connection and try again.");
+    const message = userFacingBrowserError("Error invoking remote method 'nextbrowser:invoke': Error: Cannot reach the Nextbrowser backend at https://core.nextbrowser.com. Check that the backend is running and try again.");
+    expect(message).toBe("Nextbrowser couldn’t connect to the service. Check your internet connection and try again.");
     expect(message).not.toMatch(/nextbrowser:invoke|core\.nextbrowser\.com|backend is running/i);
   });
 

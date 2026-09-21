@@ -12,7 +12,7 @@ function confirmButton(node: ReactNode): { onClick: (event: unknown) => void } |
 }
 
 const clawbrowser: BrowserRuntimeUpdateEntry = {
-  runtime: "clawbrowser", name: "ClawBrowser", status: "available", latestVersion: "1.2.3", releasePage: "https://example.test/releases",
+  runtime: "clawbrowser", name: "Clawbrowser", status: "available", latestVersion: "1.2.3", releasePage: "https://example.test/releases",
 };
 
 describe("Update now", () => {

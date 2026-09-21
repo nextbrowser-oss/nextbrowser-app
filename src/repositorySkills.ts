@@ -48,7 +48,7 @@ export function repositorySkillCategories(): SkillCategory[] {
       id: manifest.category.id,
       title: manifest.category.title,
       icon: manifest.category.icon,
-      blurb: "Community-maintained skills shipped with NextBrowser.",
+      blurb: "Community-maintained skills shipped with Nextbrowser.",
       entries: [],
     };
     const entry: SkillEntry = {

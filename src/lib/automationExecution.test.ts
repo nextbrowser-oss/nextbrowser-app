@@ -197,7 +197,7 @@ describe("automation execution indicator", () => {
       expect(activeAutomationExecution()).toMatchObject({
         phase: "failed",
         progress: 100,
-        detail: expect.stringContaining("interrupted when NextBrowser closed"),
+        detail: expect.stringContaining("interrupted when Nextbrowser closed"),
       });
     } finally {
       vi.unstubAllGlobals();

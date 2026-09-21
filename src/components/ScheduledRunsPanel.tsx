@@ -55,7 +55,7 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
         <div className="page-head scheduled-page-head">
           <div>
             <h2>Scheduled runs</h2>
-            <p className="muted">Automate recurring tasks while NextBrowser is open.</p>
+            <p className="muted">Automate recurring tasks while Nextbrowser is open.</p>
           </div>
           <button className="btn-bordered-prominent" onClick={() => { setExpanded(true); setEditor("new"); }}>
             <Icon name="plus" size={14} /> New schedule
@@ -81,7 +81,7 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
           <div className="scheduled-empty-state">
             <span className="scheduled-empty-icon"><Icon name="clock.arrow.circlepath" size={22} /></span>
             <strong>No scheduled runs yet</strong>
-            <span className="muted small">Create a recurring browser task. It will run while NextBrowser is open.</span>
+            <span className="muted small">Create a recurring browser task. It will run while Nextbrowser is open.</span>
           </div>
         ) : (
           runs.map((run) => (
@@ -223,7 +223,7 @@ function ScheduleEditor({
     <div className="modal-overlay">
       <div className="modal-card schedule-editor" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <h3 id={titleId}>{run ? "Edit scheduled run" : "New scheduled run"}</h3>
-        <p className="muted small">Runs while NextBrowser is open, for {agentName}.</p>
+        <p className="muted small">Runs while Nextbrowser is open, for {agentName}.</p>
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Daily listing check" autoFocus />
         <textarea
           value={prompt}

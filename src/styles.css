@@ -3756,6 +3756,25 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   background: linear-gradient(180deg, #252529 0%, #202024 100%);
   border-color: rgba(255, 255, 255, 0.10);
 }
+/* Once the card needs a decision, it moves into .runtime-update-overlay's
+   centered backdrop instead of floating top-right, so it reads as one
+   deliberate dialog rather than a toast competing with whatever's open. */
+.runtime-update-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1001;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--overlay);
+}
+.runtime-update-overlay .runtime-update-progress-card {
+  position: static;
+  width: min(420px, 100%);
+  max-height: 85vh;
+  overflow-y: auto;
+  animation: browser-install-enter 160ms ease-out both;
+}
 .runtime-update-progress-mark {
   display: grid;
   width: 34px;
@@ -3766,7 +3785,9 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   color: var(--accent-text);
 }
 .runtime-update-progress-mark.is-ready { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
-.runtime-update-progress-mark.is-error { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
+/* Deliberately calmer than a hard error color: this state is "needs a
+   decision," not "something is broken/unsafe." */
+.runtime-update-progress-mark.is-error { width: 28px; height: 28px; color: var(--warn); background: var(--warn-soft); }
 .runtime-update-progress-copy { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .runtime-update-progress-copy strong { font-size: 14px; }
 .runtime-update-errors {
@@ -3776,23 +3797,28 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 }
 .runtime-update-error {
   padding: 9px;
-  border: 1px solid color-mix(in srgb, var(--red) 36%, var(--line));
+  border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--red) 6%, var(--surface-2));
+  background: var(--surface-2);
 }
 .runtime-update-error-heading {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
 }
-.runtime-update-error-heading code {
+.runtime-update-error-code {
   flex: none;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 .runtime-update-error p { margin: 4px 0 0; }
-.runtime-update-recovery { color: var(--text); font-size: 12px; }
+/* This is the one line a user actually needs to act on — give it the visual
+   weight the rest of the card otherwise steals with size and red. */
+.runtime-update-recovery { color: var(--text); font-weight: 600; font-size: 13px; margin-top: 2px !important; }
+.runtime-update-detail { margin-top: 4px; }
 .runtime-update-error-actions { gap: 6px; margin-top: 8px; }
 .runtime-update-requirements { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
 .runtime-update-progress-track {
@@ -8388,4 +8414,28 @@ pre,
   background: var(--muted);
   border: 2px solid var(--surface-1);
   border-radius: 8px;
+}
+.ui-scale-control {
+  position: fixed;
+  left: 10px;
+  bottom: 10px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+  color: var(--muted);
+  backdrop-filter: blur(6px);
+}
+.ui-scale-control input[type="range"] {
+  width: 74px;
+  accent-color: var(--accent);
+}
+.ui-scale-value {
+  min-width: 32px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }

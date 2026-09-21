@@ -64,8 +64,8 @@ beforeEach(() => {
 describe("watched profiles", () => {
   it("normalizes a pasted handle, keeps one record per account, and persists the list", async () => {
     const { useStore } = await import("./store");
-    const added = useStore.getState().addWatchedProfile("repository:x-reply-agent", "https://x.com/@NextBrowser");
-    expect(added?.handle).toBe("NextBrowser");
+    const added = useStore.getState().addWatchedProfile("repository:x-reply-agent", "https://x.com/@Nextbrowser");
+    expect(added?.handle).toBe("Nextbrowser");
 
     const again = useStore.getState().addWatchedProfile("repository:x-reply-agent", "@nextbrowser");
     expect(again?.id).toBe(added?.id);

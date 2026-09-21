@@ -756,7 +756,7 @@ describe("VPS execution target isolation", () => {
     await useStore.getState().authorizeAgent();
 
     expect(useStore.getState().agentError()).toBe(
-      "ChatGPT desktop app with Codex not found. NextBrowser connects through the executable bundled with the app. Install it, then try again.",
+      "ChatGPT desktop app with Codex not found. Nextbrowser connects through the executable bundled with the app. Install it, then try again.",
     );
   });
 
@@ -1167,7 +1167,7 @@ describe("local component and profile lifecycle", () => {
         expect(localNextctlCalls()).toHaveLength(index + 2);
         const isLastRetry = index === pausesSeconds.length - 1;
         expect(useStore.getState().nextctlUpdateError).toBe(
-          isLastRetry ? "We couldn't update the NextBrowser CLI (nextctl). Please retry. offline" : undefined,
+          isLastRetry ? "We couldn't update the Nextbrowser CLI (nextctl). Please retry. offline" : undefined,
         );
       }
 
@@ -1201,7 +1201,7 @@ describe("local component and profile lifecycle", () => {
       await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
 
       const status = useStore.getState().nextctlUpdateError ?? "";
-      expect(status).toBe("We couldn't update the NextBrowser CLI (nextctl). Please retry. 403 Forbidden");
+      expect(status).toBe("We couldn't update the Nextbrowser CLI (nextctl). Please retry. 403 Forbidden");
       expect(status).not.toContain("api.github.com");
       expect(status).not.toContain("fetch releases/latest");
     } finally {

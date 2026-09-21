@@ -11,7 +11,7 @@ export function userFacingMultiloginError(error: unknown, kind: "browser" | "mob
   const profiles = kind === "browser" ? "browser profiles" : "cloud phones";
 
   if (/workspace has no "Default folder"/i.test(raw)) {
-    return `The connected Multilogin workspace has no "Default folder" for ${profiles}, so NextBrowser has nowhere to read or create them. Create that folder in Multilogin, or connect a token for a workspace that has one.`;
+    return `The connected Multilogin workspace has no "Default folder" for ${profiles}, so Nextbrowser has nowhere to read or create them. Create that folder in Multilogin, or connect a token for a workspace that has one.`;
   }
   if (/workspace has multiple "Default folder"/i.test(raw)) {
     return `The connected Multilogin workspace has more than one "Default folder" for ${profiles}. Rename all but one in Multilogin, then refresh.`;
