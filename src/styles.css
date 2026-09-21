@@ -8449,9 +8449,7 @@ pre,
 }
 /* Set apart from the +/- controls so it reads as "close this", not "adjust this". */
 .ui-scale-dismiss {
-  margin-left: 2px;
-  padding-left: 8px;
-  border-left: 1px solid var(--line);
+  margin-left: 4px;
 }
 .ui-scale-dismiss:hover {
   color: var(--red);
