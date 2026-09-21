@@ -8442,12 +8442,8 @@ pre,
   background: none;
   backdrop-filter: none;
 }
-.ui-scale-control input[type="range"] {
-  width: 74px;
-  accent-color: var(--accent);
-}
 .ui-scale-value {
   min-width: 32px;
-  text-align: right;
+  text-align: center;
   font-variant-numeric: tabular-nums;
 }

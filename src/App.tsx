@@ -102,19 +102,32 @@ const UI_SCALE_MIN = 0.8;
 const UI_SCALE_MAX = 1.3;
 const UI_SCALE_STEP = 0.1;
 
+function clampUiScale(value: number): number {
+  return Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, Math.round(value * 100) / 100));
+}
+
 function UIScaleSlider({ value, onChange }: { value: number; onChange: (next: number) => void }) {
   return (
     <>
-      <input
-        type="range"
-        min={UI_SCALE_MIN}
-        max={UI_SCALE_MAX}
-        step={UI_SCALE_STEP}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-        aria-label="Interface size"
-      />
+      <button
+        className="plain-icon-btn plain-icon-btn-compact"
+        onClick={() => onChange(clampUiScale(value - UI_SCALE_STEP))}
+        disabled={value <= UI_SCALE_MIN}
+        title="Decrease interface size"
+        aria-label="Decrease interface size"
+      >
+        <Icon name="minus" size={12} />
+      </button>
       <span className="muted small ui-scale-value">{Math.round(value * 100)}%</span>
+      <button
+        className="plain-icon-btn plain-icon-btn-compact"
+        onClick={() => onChange(clampUiScale(value + UI_SCALE_STEP))}
+        disabled={value >= UI_SCALE_MAX}
+        title="Increase interface size"
+        aria-label="Increase interface size"
+      >
+        <Icon name="plus" size={12} />
+      </button>
     </>
   );
 }
@@ -458,6 +471,8 @@ function SettingsModal({
   onRequestBrowserRuntimeUpdate,
   uiScale,
   onUiScaleChange,
+  uiScaleFloatingHidden,
+  onRestoreFloatingScale,
 }: {
   onClose: () => void;
   onOpenUsage: () => void;
@@ -474,6 +489,8 @@ function SettingsModal({
   onRequestBrowserRuntimeUpdate: (runtime: BrowserRuntimeUpdateEntry) => void;
   uiScale: number;
   onUiScaleChange: (next: number) => void;
+  uiScaleFloatingHidden: boolean;
+  onRestoreFloatingScale: () => void;
 }) {
   const [agentLogoutPending, setAgentLogoutPending] = useState(false);
   const nextctlVersion = useStore((s) => s.nextctlVersion);
@@ -543,6 +560,16 @@ function SettingsModal({
             <span className="muted small">Interface size</span>
             <div className="ui-scale-control ui-scale-control-settings">
               <UIScaleSlider value={uiScale} onChange={onUiScaleChange} />
+              {uiScaleFloatingHidden && (
+                <button
+                  className="plain-icon-btn plain-icon-btn-compact"
+                  onClick={onRestoreFloatingScale}
+                  title="Return the quick-access control to the main screen"
+                  aria-label="Return the interface-size quick-access control to the main screen"
+                >
+                  <Icon name="chevrons.left" size={12} />
+                </button>
+              )}
             </div>
           </div>
           <div className="settings-row settings-update-row">
@@ -804,6 +831,10 @@ export function App() {
   const dismissUiScaleFloating = () => {
     setUiScaleFloatingHidden(true);
     localStorage.setItem("nextbrowser.uiScaleFloatingHidden", "1");
+  };
+  const restoreUiScaleFloating = () => {
+    setUiScaleFloatingHidden(false);
+    localStorage.removeItem("nextbrowser.uiScaleFloatingHidden");
   };
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsFocus, setSettingsFocus] = useState<"agent" | null>(null);
@@ -1394,6 +1425,8 @@ export function App() {
             onRequestBrowserRuntimeUpdate={requestBrowserRuntimeUpdate}
             uiScale={uiScale}
             onUiScaleChange={setUiScale}
+            uiScaleFloatingHidden={uiScaleFloatingHidden}
+            onRestoreFloatingScale={restoreUiScaleFloating}
           />
         )}
         <div className="splash">
@@ -1513,6 +1546,8 @@ export function App() {
           onRequestBrowserRuntimeUpdate={requestBrowserRuntimeUpdate}
           uiScale={uiScale}
           onUiScaleChange={setUiScale}
+          uiScaleFloatingHidden={uiScaleFloatingHidden}
+          onRestoreFloatingScale={restoreUiScaleFloating}
         />
       )}
       {updateAvailable(appUpdate) && appUpdate.version !== updatePromptDismissedVersion && !settingsOpen && (
