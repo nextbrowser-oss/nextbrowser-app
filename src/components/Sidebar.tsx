@@ -1460,29 +1460,20 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       );
                 })}
                 {multiloginRow && (
-                  <div className="workspace-multilogin-row">
-                    <button
-                      type="button"
-                      className="workspace-multilogin-open"
-                      title={`${multiloginRow.name} · Multilogin ${multiloginRow.kind === "mobile" ? "cloud phone" : "browser profile"} for this workspace`}
-                      onClick={() => s.setTab("live")}
-                    >
-                      <span className="profile-toolset-logo"><img src="./multilogin-icon.svg" alt="" /></span>
-                      <span>
-                        <strong>{multiloginRow.name}</strong>
-                        <small>Multilogin · {multiloginRow.kind === "mobile" ? "Cloud phone" : "Mimic browser"}</small>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      className="plain-icon-btn plain-icon-btn-compact"
-                      title="Remove this Multilogin profile from the workspace"
-                      aria-label={`Remove ${multiloginRow.name} from this workspace`}
-                      onClick={() => clearMultiloginSelection(s.activeWorkspaceId)}
-                    >
-                      <Icon name="xmark" size={12} />
-                    </button>
-                  </div>
+                  <ProfileRow
+                    key={multiloginRow.id} name={multiloginRow.name} status="Multilogin"
+                    metaOverride={`Multilogin · ${multiloginRow.kind === "mobile" ? "Cloud phone" : "Mimic browser"}`}
+                    running={false} busy={false} selected={false}
+                    toolset="multilogin" searchQuery={searchQuery}
+                    external
+                    onSelect={() => s.setTab("live")}
+                    onStart={() => {}}
+                    onStop={() => {}}
+                    onLive={() => s.setTab("live")}
+                    onMenu={() => {}}
+                    onRemove={() => clearMultiloginSelection(s.activeWorkspaceId)}
+                    removeTitle={`Remove ${multiloginRow.name} from this workspace`}
+                  />
                 )}
                 </div>
               </div>
@@ -2579,6 +2570,7 @@ function HighlightedName({ text, query }: { text: string; query?: string }) {
 function ProfileRow({
   name,
   status,
+  metaOverride,
   running,
   busy,
   selected,
@@ -2594,6 +2586,7 @@ function ProfileRow({
   draggable,
   dragOver,
   projectId,
+  external,
   onDragOverProfile,
   onDropProfile,
   onDragLeaveProfile,
@@ -2602,9 +2595,12 @@ function ProfileRow({
   onStop,
   onLive,
   onMenu,
+  onRemove,
+  removeTitle,
 }: {
   name: string;
   status: string;
+  metaOverride?: string;
   running: boolean;
   busy: boolean;
   selected: boolean;
@@ -2614,12 +2610,16 @@ function ProfileRow({
   ip?: string | null;
   manualScheme?: string | null;
   manualTitle?: string;
-  toolset?: "clawbrowser" | "dasbrowser" | "camoufox";
+  toolset?: "clawbrowser" | "dasbrowser" | "camoufox" | "multilogin";
   occupiedBy?: string;
   searchQuery?: string;
   draggable?: boolean;
   dragOver?: boolean;
   projectId?: string;
+  // Profiles NextBrowser doesn't itself start/stop (e.g. a Multilogin cloud
+  // resource): keep the same row shell, but swap the lifecycle actions for a
+  // single "open" + "remove" pair instead of start/stop/menu.
+  external?: boolean;
   onDragOverProfile?: (event: DragEvent<HTMLDivElement>) => void;
   onDropProfile?: (event: DragEvent<HTMLDivElement>) => void;
   onDragLeaveProfile?: () => void;
@@ -2628,7 +2628,11 @@ function ProfileRow({
   onStop: () => void;
   onLive: () => void;
   onMenu: () => void;
+  onRemove?: () => void;
+  removeTitle?: string;
 }) {
+  const toolsetLabel = toolset === "clawbrowser" ? "ClawBrowser" : toolset === "dasbrowser" ? "DasBrowser" : toolset === "multilogin" ? "Multilogin" : "Camoufox";
+  const toolsetIcon = toolset === "clawbrowser" ? "./clawbrowser-icon.png" : toolset === "dasbrowser" ? "./dasbrowser-icon.png" : toolset === "multilogin" ? "./multilogin-icon.svg" : "./camoufox-icon.svg";
   return (
     <div
       className={"profile-row" + (selected ? " selected" : "") + (occupiedBy ? " is-occupied" : "") + (draggable ? " is-draggable" : "") + (dragOver ? " is-drag-over" : "")}
@@ -2652,13 +2656,13 @@ function ProfileRow({
         onClick={onSelect}
         style={{ background: "none", border: "none", padding: 0, color: "inherit", textAlign: "left", display: "flex", alignItems: "center", gap: 7, flex: "1 1 auto", minWidth: 0, cursor: "pointer" }}
       >
-      <span className={"dot " + (running ? "green" : busy ? "orange" : "gray")} title={status} />
+      <span className={"dot " + (external ? "gray" : running ? "green" : busy ? "orange" : "gray")} title={external ? toolsetLabel : status} />
       <span className="profile-main">
         <span className="profile-title-line">
           <span className="profile-name"><HighlightedName text={name} query={searchQuery} /></span>
         </span>
         <span className="profile-meta">
-          {occupiedBy ? `In use · ${occupiedBy}` : ip ? `${status} · ${ip}` : status}
+          {metaOverride ?? (occupiedBy ? `In use · ${occupiedBy}` : ip ? `${status} · ${ip}` : status)}
         </span>
       </span>
       <span className="profile-badges">
@@ -2671,15 +2675,11 @@ function ProfileRow({
         {toolset && (
           <span
             className="profile-toolset-logo"
-            title={toolset === "clawbrowser" ? "ClawBrowser" : toolset === "dasbrowser" ? "DasBrowser" : "Camoufox"}
+            title={toolsetLabel}
             role="img"
-            aria-label={toolset === "clawbrowser" ? "ClawBrowser" : toolset === "dasbrowser" ? "DasBrowser" : "Camoufox"}
+            aria-label={toolsetLabel}
           >
-            <img
-              src={toolset === "clawbrowser" ? "./clawbrowser-icon.png" : toolset === "dasbrowser" ? "./dasbrowser-icon.png" : "./camoufox-icon.svg"}
-              alt=""
-              draggable={false}
-            />
+            <img src={toolsetIcon} alt="" draggable={false} />
           </span>
         )}
         {manualScheme && (
@@ -2690,7 +2690,36 @@ function ProfileRow({
       </span>
       </button>
       <div className="profile-actions">
-        {running ? (
+        {external ? (
+          <>
+            <button
+              className="plain-icon-btn"
+              title="Live view"
+              aria-label={`Open live view for ${name}`}
+              data-tooltip="Live view"
+              onClick={(event) => {
+                event.stopPropagation();
+                onLive();
+              }}
+            >
+              <Icon name="video.fill" size={16} />
+            </button>
+            {onRemove && (
+              <button
+                className="plain-icon-btn"
+                title={removeTitle ?? "Remove"}
+                aria-label={removeTitle ?? `Remove ${name}`}
+                data-tooltip="Remove"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRemove();
+                }}
+              >
+                <Icon name="xmark" size={16} />
+              </button>
+            )}
+          </>
+        ) : running ? (
           <>
             <button
               className="plain-icon-btn"
@@ -2733,19 +2762,21 @@ function ProfileRow({
             <Icon name="play.fill" size={16} />
           </button>
         )}
-        <button
-          className="plain-icon-btn"
-          title="Profile actions"
-          aria-label={`Profile actions for ${name}`}
-          data-tooltip="Actions"
-          disabled={busy}
-          onClick={(event) => {
-            event.stopPropagation();
-            onMenu();
-          }}
-        >
-          <Icon name="ellipsis.circle" size={18} />
-        </button>
+        {!external && (
+          <button
+            className="plain-icon-btn"
+            title="Profile actions"
+            aria-label={`Profile actions for ${name}`}
+            data-tooltip="Actions"
+            disabled={busy}
+            onClick={(event) => {
+              event.stopPropagation();
+              onMenu();
+            }}
+          >
+            <Icon name="ellipsis.circle" size={18} />
+          </button>
+        )}
       </div>
     </div>
   );
