@@ -262,6 +262,12 @@ function nextctlUpdateErrorMessage(reason?: string): string {
   return detail ? `${NEXTCTL_UPDATE_ERROR} ${detail}` : NEXTCTL_UPDATE_ERROR;
 }
 
+// GitHub's anonymous REST API allows 60 requests/hour per IP and answers 403
+// when exceeded. Retrying within minutes only keeps hitting the limit.
+function isNextctlRateLimit(reason: string): boolean {
+  return /\b403\b|rate limit|forbidden/i.test(reason);
+}
+
 /**
  * Reads the newly installed nextctl version from `nextctl update` output.
  * Supports the current `[nbc-update] Installed vX` line and the legacy
@@ -2077,9 +2083,12 @@ export const useStore = create<State>((set, get) => {
       return;
     }
     if (lastAutoCheckAt > 0 && now() - lastAutoCheckAt < NEXTCTL_DAILY_UPDATE_MS) return;
-    if (!await get().checkNextctlUpdate()) return;
+    const updated = await get().checkNextctlUpdate();
     if (pendingTarget(get(), "vps")) return;
+    // Record the attempt even on failure so the one-minute poll does not re-run
+    // the update immediately; transient failures keep their own retry timer.
     await saveJson(NEXTCTL_UPDATE_STATE_FILE, { lastAutoCheckAt: now() });
+    if (!updated) return;
   },
 
   tickScheduledRuns: async () => {
@@ -4112,9 +4121,16 @@ export const useStore = create<State>((set, get) => {
         trackEvent("nextctl_update_not_available");
       } else {
         clearNextctlUpdateNotice();
-        set({ nextctlUpdateStatus: nextctlUpdateErrorMessage(nextctlErrorMessage(res)) });
+        const reason = nextctlErrorMessage(res);
+        set({ nextctlUpdateStatus: nextctlUpdateErrorMessage(reason) });
         trackEvent("nextctl_update_failed", { exit_code: res.code });
-        scheduleRetry(retryAttempt + 1);
+        if (isNextctlRateLimit(reason)) {
+          // Record the attempt so the one-minute tick waits for the next daily
+          // window instead of re-running the update, and skip the short retries.
+          await saveJson(NEXTCTL_UPDATE_STATE_FILE, { lastAutoCheckAt: now() });
+        } else {
+          scheduleRetry(retryAttempt + 1);
+        }
         return false;
       }
       if (pendingTarget(get(), "vps")) return true;
@@ -4135,12 +4151,17 @@ export const useStore = create<State>((set, get) => {
     } catch (error) {
       console.error("[NEXTCTL_UPDATE_FAILED] nextctl update failed:", error);
       clearNextctlUpdateNotice();
+      const reason = error instanceof Error ? error.message : String(error);
       set({
-        nextctlUpdateStatus: nextctlUpdateErrorMessage(error instanceof Error ? error.message : String(error)),
+        nextctlUpdateStatus: nextctlUpdateErrorMessage(reason),
         nextctlAvailable: false,
       });
       trackTiming("nextctl_update_failed", startedAt);
-      scheduleRetry(retryAttempt + 1);
+      if (isNextctlRateLimit(reason)) {
+        await saveJson(NEXTCTL_UPDATE_STATE_FILE, { lastAutoCheckAt: now() });
+      } else {
+        scheduleRetry(retryAttempt + 1);
+      }
       return false;
     } finally {
       set({ nextctlUpdating: false });

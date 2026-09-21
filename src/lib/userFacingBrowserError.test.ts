@@ -32,6 +32,13 @@ describe("userFacingBrowserError", () => {
       .toBe("This proxy runs on your computer. Use Camoufox or DasBrowser for a localhost proxy; ClawBrowser support for local proxy ports is coming soon.");
   });
 
+  it("reduces a managed-proxy capability refusal to one short action", () => {
+    const raw = "Could not start NextBrowser: VERIFY_FAILED: browser stopped: LAUNCH_FAILED: launch failed (ClawBrowser managed-proxy privacy capability is 1; 2 or newer is required) [VERIFY_FAILED] — Retry the same proxy. A proxy profile cannot continue without its proxy.";
+    const message = userFacingBrowserError(new Error(raw));
+    expect(message).toBe("This ClawBrowser build can’t run a proxied profile. Update ClawBrowser, then retry.");
+    expect(message).not.toMatch(/VERIFY_FAILED|LAUNCH_FAILED|capability is 1/i);
+  });
+
   it("hides a transient CDP transport error behind a recovery action", () => {
     const message = userFacingBrowserError("cdp Runtime.evaluate: read response: read tcp 127.0.0.1:1->127.0.0.1:2: wsarecv: An established connection was aborted by the software in your host machine");
     expect(message).toContain("NextBrowser retried once");

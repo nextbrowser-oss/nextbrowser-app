@@ -45,6 +45,13 @@ export function userFacingBrowserError(error: unknown): string {
     return "This proxy runs on your computer. Use Camoufox or DasBrowser for a localhost proxy; ClawBrowser support for local proxy ports is coming soon.";
   }
 
+  // The installed ClawBrowser build cannot enforce managed-proxy privacy, so
+  // nextctl refuses to launch a proxied profile. Surface one short action
+  // instead of the whole VERIFY_FAILED/LAUNCH_FAILED chain.
+  if (/managed-proxy privacy capability/i.test(raw)) {
+    return "This ClawBrowser build can’t run a proxied profile. Update ClawBrowser, then retry.";
+  }
+
   if (/(?:\bcdp\b.*(?:read response|connection|aborted|closed|reset)|Runtime\.evaluate.*(?:read|connection|aborted|closed|reset)|wsarecv.*(?:aborted|reset)|read tcp.*(?:aborted|reset))/i.test(raw)) {
     return "The browser connection was interrupted. NextBrowser retried once; if it keeps happening, restart the profile and try again.";
   }
