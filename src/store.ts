@@ -241,6 +241,9 @@ const NEXTCTL_DAILY_UPDATE_MS = 20 * 60 * 1000;
 const NEXTCTL_DAILY_UPDATE_POLL_MS = 60 * 1000;
 const NEXTCTL_UPDATE_RETRY_MS = 5 * 60 * 1000;
 const NEXTCTL_UPDATE_MAX_RETRIES = 2;
+// GitHub's anonymous API limit (60 requests/hour per IP) resets within the
+// hour; wait the window out instead of retrying straight into another 403.
+const NEXTCTL_UPDATE_RATE_LIMIT_MS = 60 * 60 * 1000;
 const NEXTCTL_UPDATE_STATE_FILE = "nextctl-update.json";
 const NEXTCTL_UPDATE_ERROR = "We couldn't update the NextBrowser CLI (nextctl). Please retry.";
 const NEXTCTL_UPDATE_ERROR_DETAIL_LIMIT = 160;
@@ -266,6 +269,13 @@ function nextctlUpdateErrorMessage(reason?: string): string {
 // when exceeded. Retrying within minutes only keeps hitting the limit.
 function isNextctlRateLimit(reason: string): boolean {
   return /\b403\b|rate limit|forbidden/i.test(reason);
+}
+
+// Record the attempt (and merge any extra fields) so the daily tick throttles
+// instead of re-running the update every minute.
+async function recordNextctlUpdateAttempt(patch: Partial<NextctlUpdateState> = {}): Promise<void> {
+  const state = await loadJson<NextctlUpdateState>(NEXTCTL_UPDATE_STATE_FILE, {});
+  await saveJson(NEXTCTL_UPDATE_STATE_FILE, { ...state, lastAutoCheckAt: now(), ...patch });
 }
 
 /**
@@ -754,7 +764,7 @@ const DEFAULT_WORKSPACE_TOOLSETS: { runtime: BrowserToolset; name: string }[] = 
 // Mirrors AppState.didBootstrap in the Swift app.
 let didBootstrap = false;
 type AgentDone = { code: number; stderr: string; stdout: string };
-interface NextctlUpdateState { lastAutoCheckAt?: number }
+interface NextctlUpdateState { lastAutoCheckAt?: number; rateLimitedUntil?: number }
 interface APIKeyIdentity {
   valid: boolean;
   key_id?: string;
@@ -2073,6 +2083,8 @@ export const useStore = create<State>((set, get) => {
     }
     const state = await loadJson<NextctlUpdateState>(NEXTCTL_UPDATE_STATE_FILE, {});
     if (pendingTarget(get(), "vps")) return;
+    // Wait out a rate-limit backoff before trying again.
+    if (Number(state.rateLimitedUntil ?? 0) > now()) return;
     const lastAutoCheckAt = Number(state.lastAutoCheckAt ?? 0);
     // A fresh install has just resolved or downloaded nextctl during bootstrap.
     // Treat that as the first successful check instead of immediately running
@@ -2082,13 +2094,9 @@ export const useStore = create<State>((set, get) => {
       await saveJson(NEXTCTL_UPDATE_STATE_FILE, { lastAutoCheckAt: now() });
       return;
     }
-    if (lastAutoCheckAt > 0 && now() - lastAutoCheckAt < NEXTCTL_DAILY_UPDATE_MS) return;
-    const updated = await get().checkNextctlUpdate();
-    if (pendingTarget(get(), "vps")) return;
-    // Record the attempt even on failure so the one-minute poll does not re-run
-    // the update immediately; transient failures keep their own retry timer.
-    await saveJson(NEXTCTL_UPDATE_STATE_FILE, { lastAutoCheckAt: now() });
-    if (!updated) return;
+    if (now() - lastAutoCheckAt < NEXTCTL_DAILY_UPDATE_MS) return;
+    // checkNextctlUpdate records the attempt (and any rate-limit backoff).
+    await get().checkNextctlUpdate();
   },
 
   tickScheduledRuns: async () => {
@@ -4099,6 +4107,7 @@ export const useStore = create<State>((set, get) => {
         await invoke("nextctl_reinstall");
         const authed = await refreshLocalNextctlMetadata();
         set({ authed });
+        await recordNextctlUpdateAttempt({ rateLimitedUntil: 0 });
         return get().nextctlAvailable;
       }
       // Updating also refreshes Clawbrowser and agent assets. On slower or
@@ -4125,10 +4134,10 @@ export const useStore = create<State>((set, get) => {
         set({ nextctlUpdateStatus: nextctlUpdateErrorMessage(reason) });
         trackEvent("nextctl_update_failed", { exit_code: res.code });
         if (isNextctlRateLimit(reason)) {
-          // Record the attempt so the one-minute tick waits for the next daily
-          // window instead of re-running the update, and skip the short retries.
-          await saveJson(NEXTCTL_UPDATE_STATE_FILE, { lastAutoCheckAt: now() });
+          // Back off for the full rate-limit window and skip the short retries.
+          await recordNextctlUpdateAttempt({ rateLimitedUntil: now() + NEXTCTL_UPDATE_RATE_LIMIT_MS });
         } else {
+          await recordNextctlUpdateAttempt();
           scheduleRetry(retryAttempt + 1);
         }
         return false;
@@ -4146,6 +4155,8 @@ export const useStore = create<State>((set, get) => {
       } catch (metadataError) {
         console.warn("[NEXTCTL_METADATA_REFRESH_FAILED]", metadataError);
       }
+      // A successful check clears any rate-limit backoff.
+      await recordNextctlUpdateAttempt({ rateLimitedUntil: 0 });
       trackTiming("nextctl_update_completed", startedAt, { supports_skill: get().nextctlSupportsSkill });
       return true;
     } catch (error) {
@@ -4158,8 +4169,9 @@ export const useStore = create<State>((set, get) => {
       });
       trackTiming("nextctl_update_failed", startedAt);
       if (isNextctlRateLimit(reason)) {
-        await saveJson(NEXTCTL_UPDATE_STATE_FILE, { lastAutoCheckAt: now() });
+        await recordNextctlUpdateAttempt({ rateLimitedUntil: now() + NEXTCTL_UPDATE_RATE_LIMIT_MS });
       } else {
+        await recordNextctlUpdateAttempt();
         scheduleRetry(retryAttempt + 1);
       }
       return false;
