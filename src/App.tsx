@@ -567,7 +567,7 @@ function SettingsModal({
                   title="Return the quick-access control to the main screen"
                   aria-label="Return the interface-size quick-access control to the main screen"
                 >
-                  <Icon name="chevrons.left" size={12} />
+                  <Icon name="arrow.uturn.left" size={12} />
                 </button>
               )}
             </div>
