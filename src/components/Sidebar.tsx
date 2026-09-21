@@ -2445,7 +2445,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                           >
                             {test?.status === "testing"
                               ? <Spinner size={13} />
-                              : <Icon name={test?.status === "ok" ? "checkmark.circle.fill" : test?.status === "fail" ? "exclamationmark.triangle.fill" : "bolt.fill"} size={13} />}
+                              : <Icon name={test?.status === "ok" ? "hand.thumbsup.fill" : test?.status === "fail" ? "hand.thumbsdown.fill" : "bolt.fill"} size={13} />}
                           </button>
                           <button
                             type="button"
