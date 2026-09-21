@@ -1158,7 +1158,7 @@ describe("local component and profile lifecycle", () => {
 
       await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(false);
       expect(localNextctlCalls()).toHaveLength(1);
-      expect(useStore.getState().nextctlUpdateStatus).toBe("We couldn't update the NextBrowser CLI (nextctl). Please retry. (offline)");
+      expect(useStore.getState().nextctlUpdateStatus).toBe("We couldn't update the NextBrowser CLI (nextctl). Please retry. offline");
 
       await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
       expect(localNextctlCalls()).toHaveLength(2);
@@ -1169,6 +1169,27 @@ describe("local component and profile lifecycle", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("reduces a request failure to just the HTTP status", async () => {
+    useStore.setState({ nextctlAvailable: true });
+    bridge.invoke.mockImplementation((command) => {
+      if (command === "nextctl_run") {
+        return Promise.resolve({
+          code: 1,
+          stdout: "",
+          stderr: "fetch releases/latest https://api.github.com/repos/nextbrowser-oss/nbc_releases/releases/latest: unexpected status 403 Forbidden",
+        });
+      }
+      return Promise.resolve(null);
+    });
+
+    await useStore.getState().checkNextctlUpdate();
+
+    const status = useStore.getState().nextctlUpdateStatus ?? "";
+    expect(status).toBe("We couldn't update the NextBrowser CLI (nextctl). Please retry. 403 Forbidden");
+    expect(status).not.toContain("api.github.com");
+    expect(status).not.toContain("fetch releases/latest");
   });
 
   it("treats a successful nextctl install as success even when the command exits non-zero", async () => {

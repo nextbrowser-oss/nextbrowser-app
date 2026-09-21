@@ -246,8 +246,20 @@ const NEXTCTL_UPDATE_ERROR = "We couldn't update the NextBrowser CLI (nextctl). 
 const NEXTCTL_UPDATE_ERROR_DETAIL_LIMIT = 160;
 
 function nextctlUpdateErrorMessage(reason?: string): string {
-  const detail = String(reason ?? "").replace(/\s+/g, " ").trim().slice(0, NEXTCTL_UPDATE_ERROR_DETAIL_LIMIT);
-  return detail ? `${NEXTCTL_UPDATE_ERROR} (${detail})` : NEXTCTL_UPDATE_ERROR;
+  const raw = String(reason ?? "").replace(/\s+/g, " ").trim();
+  // A request failure reads like
+  // "fetch releases/latest <url>: unexpected status 403 Forbidden". Keep only
+  // the HTTP status so the footer stays short; otherwise drop any request URL
+  // and collapse whitespace.
+  const status = raw.match(/\b\d{3}\s+[A-Za-z][A-Za-z ]*/);
+  const detail = (status
+    ? status[0].trim()
+    : raw
+      .replace(/https?:\/\/\S+?(?=[:\s]|$)/g, "")
+      .replace(/\s+([:;,])/g, "$1")
+      .trim()
+  ).slice(0, NEXTCTL_UPDATE_ERROR_DETAIL_LIMIT);
+  return detail ? `${NEXTCTL_UPDATE_ERROR} ${detail}` : NEXTCTL_UPDATE_ERROR;
 }
 
 /**
