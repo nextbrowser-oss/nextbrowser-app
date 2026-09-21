@@ -8433,6 +8433,11 @@ pre,
   background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
   color: var(--muted);
   backdrop-filter: blur(6px);
+  transform-origin: bottom left;
+}
+/* The floating copy only — smaller than the Settings row so it stays unobtrusive. */
+.ui-scale-control:not(.ui-scale-control-settings) {
+  transform: scale(0.82);
 }
 /* Same control, inline as a settings row instead of a floating pill. */
 .ui-scale-control-settings {
