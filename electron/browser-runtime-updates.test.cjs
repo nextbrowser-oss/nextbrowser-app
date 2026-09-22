@@ -321,6 +321,7 @@ test("assertClawbrowserRuntimeIdle closes open profiles itself instead of failin
   const context = vm.createContext({
     clawbrowserRuntimeSessionNames: async () => ["worker"],
     assertClawbrowserSessionsStopped,
+    clawbrowserSessionScanLimiter: (task) => task(),
     run: async (_bin, args) => {
       calls.push(args);
       if (args[0] === "stop") {
@@ -335,4 +336,44 @@ test("assertClawbrowserRuntimeIdle closes open profiles itself instead of failin
     ${extract("stopClawbrowserRuntimeSessions", "async function updateClawbrowserRuntime")}`, context);
   await vm.runInContext('assertClawbrowserRuntimeIdle("nextctl")', context);
   assert.ok(calls.some((args) => args[0] === "stop" && args.includes("worker")), "expected a stop call for the open profile");
+});
+
+test("activeClawbrowserProfileNames lists only the profiles actually running", async () => {
+  const vm = require("node:vm");
+  const source = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  const extract = (name, next) => source.slice(source.indexOf(`async function ${name}(`), source.indexOf(`\n${next}`, source.indexOf(`async function ${name}(`)));
+  const context = vm.createContext({
+    clawbrowserRuntimeSessionNames: async () => ["worker", "idle-one"],
+    clawbrowserSessionScanLimiter: (task) => task(),
+    run: async (_bin, args) => {
+      const profile = args[args.indexOf("--profile") + 1];
+      return nextctlStatus(profile, profile === "worker" ? "running" : "stopped", "clawbrowser");
+    },
+  });
+  vm.runInContext(extract("activeClawbrowserProfileNames", "async function stopClawbrowserRuntimeSessions"), context);
+  const active = await vm.runInContext('activeClawbrowserProfileNames("nextctl")', context);
+  assert.deepEqual([...active], ["worker"]);
+});
+
+test("createConcurrencyLimiter caps how many tasks run at once", async () => {
+  const vm = require("node:vm");
+  const source = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  const start = source.indexOf("function createConcurrencyLimiter(");
+  const body = source.slice(start, source.indexOf("\nconst clawbrowserSessionScanLimiter", start));
+  const context = vm.createContext({});
+  vm.runInContext(body, context);
+  const limit = vm.runInContext("createConcurrencyLimiter(2)", context);
+
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const task = () => new Promise((resolve) => {
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    setTimeout(() => {
+      inFlight -= 1;
+      resolve(inFlight);
+    }, 10);
+  });
+  await Promise.all(Array.from({ length: 6 }, () => limit(task)));
+  assert.equal(maxInFlight, 2);
 });

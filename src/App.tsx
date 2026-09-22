@@ -1,4 +1,4 @@
-import { BrowserRuntimeUpdatePrompt, type BrowserRuntimeUpdateEntry } from "./components/BrowserRuntimeUpdatePrompt";
+import { BrowserRuntimeUpdatePrompt, ClawbrowserCloseProfilesPrompt, type BrowserRuntimeUpdateEntry } from "./components/BrowserRuntimeUpdatePrompt";
 import { InstallationProgress, InstallationSpinner } from "./components/InstallationProgress";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useStore } from "./store";
@@ -848,6 +848,11 @@ export function App() {
   const [updatePromptDismissedVersion, setUpdatePromptDismissedVersion] = useState<string>();
   const [runtimeUpdatePrompt, setRuntimeUpdatePrompt] = useState<BrowserRuntimeUpdateEntry[]>();
   const [runtimeUpdatePromptDismissed, setRuntimeUpdatePromptDismissed] = useState("");
+  const [clawbrowserCloseConfirm, setClawbrowserCloseConfirm] = useState<{
+    runtimes: BrowserRuntimeUpdateEntry["runtime"][];
+    currentName?: string;
+    profileNames: string[];
+  }>();
   const [runtimeUpdateInstall, setRuntimeUpdateInstall] = useState<BrowserRuntimeUpdateInstallStatus>({ status: "idle" });
   const [runtimeUpdateProgressHidden, setRuntimeUpdateProgressHidden] = useState(false);
   const [unexpectedError, setUnexpectedError] = useState<{ reference: string; detail: string }>();
@@ -1009,17 +1014,13 @@ export function App() {
     if (runtimeUpdatePrompt) setRuntimeUpdatePromptDismissed(browserRuntimeUpdateSignature(browserRuntimeUpdates.runtimes));
     setRuntimeUpdatePrompt(undefined);
   };
-  const installBrowserRuntimeUpdates = (requestedRuntimes?: unknown) => {
-    const runtimes = confirmedBrowserRuntimeUpdates(requestedRuntimes, runtimeUpdatePrompt?.map((runtime) => runtime.runtime) ?? []);
-    if (!Array.isArray(runtimes) || !runtimes.length || runtimeUpdateInstall.status === "installing") return;
+  const beginBrowserRuntimeInstall = (runtimes: BrowserRuntimeUpdateEntry["runtime"][], currentName?: string) => {
     setRuntimeUpdateInstall({
       status: "installing",
       runtimes,
-      currentName: runtimeUpdatePrompt?.[0]?.name ?? browserRuntimeUpdates.runtimes.find((runtime) => runtime.runtime === runtimes[0])?.name,
+      currentName,
       message: "Checking the selected toolsets before downloading…",
     });
-    setRuntimeUpdatePromptDismissed(browserRuntimeUpdateSignature(browserRuntimeUpdates.runtimes));
-    setRuntimeUpdatePrompt(undefined);
     setRuntimeUpdateProgressHidden(false);
     // Do not wait for an Electron event before showing feedback. The host first
     // refreshes release availability, which can take several seconds.
@@ -1032,6 +1033,40 @@ export function App() {
         message: error instanceof Error ? error.message : "The browser toolset update could not be installed.",
       }));
   };
+  const installBrowserRuntimeUpdates = (requestedRuntimes?: unknown) => {
+    const runtimes = confirmedBrowserRuntimeUpdates(requestedRuntimes, runtimeUpdatePrompt?.map((runtime) => runtime.runtime) ?? []);
+    if (!Array.isArray(runtimes) || !runtimes.length || runtimeUpdateInstall.status === "installing") return;
+    const currentName = runtimeUpdatePrompt?.[0]?.name ?? browserRuntimeUpdates.runtimes.find((runtime) => runtime.runtime === runtimes[0])?.name;
+    setRuntimeUpdatePromptDismissed(browserRuntimeUpdateSignature(browserRuntimeUpdates.runtimes));
+    setRuntimeUpdatePrompt(undefined);
+    if (runtimes.includes("clawbrowser")) {
+      // A general "update now" click isn't the same as agreeing to have open
+      // profiles closed out from under the user; ask specifically, and only
+      // when there's actually something open to close.
+      void invoke<string[]>("browser_runtime_clawbrowser_active_sessions")
+        .then((profileNames) => {
+          if (Array.isArray(profileNames) && profileNames.length) {
+            setClawbrowserCloseConfirm({ runtimes, currentName, profileNames });
+          } else {
+            beginBrowserRuntimeInstall(runtimes, currentName);
+          }
+        })
+        // Fail open on this informational check: the install path's own
+        // assertClawbrowserRuntimeIdle still safely closes and verifies
+        // profiles either way, so a failed lookup here shouldn't block the
+        // update outright.
+        .catch(() => beginBrowserRuntimeInstall(runtimes, currentName));
+      return;
+    }
+    beginBrowserRuntimeInstall(runtimes, currentName);
+  };
+  const confirmCloseClawbrowserProfiles = () => {
+    if (!clawbrowserCloseConfirm) return;
+    const { runtimes, currentName } = clawbrowserCloseConfirm;
+    setClawbrowserCloseConfirm(undefined);
+    beginBrowserRuntimeInstall(runtimes, currentName);
+  };
+  const cancelCloseClawbrowserProfiles = () => setClawbrowserCloseConfirm(undefined);
   const openSettings = (focus: "agent" | null = null) => {
     if (browserRuntimeUpdates.status === "idle") checkBrowserRuntimeUpdates();
     setSettingsFocus(focus);
@@ -1457,6 +1492,13 @@ export function App() {
             onConfirm={() => installBrowserRuntimeUpdates()}
           />
         )}
+        {clawbrowserCloseConfirm && (
+          <ClawbrowserCloseProfilesPrompt
+            profileNames={clawbrowserCloseConfirm.profileNames}
+            onCancel={cancelCloseClawbrowserProfiles}
+            onConfirm={confirmCloseClawbrowserProfiles}
+          />
+        )}
         {runtimeUpdateInstall.status !== "idle" && !runtimeUpdateProgressHidden && (
           <BrowserRuntimeUpdateProgress status={runtimeUpdateInstall} onClose={() => setRuntimeUpdateProgressHidden(true)} onRetry={installBrowserRuntimeUpdates} onOpenManualGuide={openBrowserRuntimeManualGuide} />
         )}
@@ -1570,6 +1612,13 @@ export function App() {
           runtimes={runtimeUpdatePrompt}
           onLater={dismissBrowserRuntimeUpdatePrompt}
           onConfirm={() => installBrowserRuntimeUpdates()}
+        />
+      )}
+      {clawbrowserCloseConfirm && (
+        <ClawbrowserCloseProfilesPrompt
+          profileNames={clawbrowserCloseConfirm.profileNames}
+          onCancel={cancelCloseClawbrowserProfiles}
+          onConfirm={confirmCloseClawbrowserProfiles}
         />
       )}
       <DashboardKeyModal />

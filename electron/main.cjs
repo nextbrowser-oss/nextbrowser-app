@@ -394,6 +394,29 @@ async function run(binary, args, extraEnv = {}, options = {}) {
     timeoutMs: options.timeoutMs,
   });
 }
+// Scanning every known Clawbrowser profile (a machine can accumulate dozens
+// over time) by spawning one `nbc` process per profile, all at once, can
+// starve the system enough that an actually-running profile's own status or
+// stop call times out under the contention. Route those scans through a
+// shared limiter instead of Promise.all-ing them unbounded.
+function createConcurrencyLimiter(maxConcurrent) {
+  let active = 0;
+  const queue = [];
+  const runNext = () => {
+    if (active >= maxConcurrent || !queue.length) return;
+    active += 1;
+    const { task, resolve, reject } = queue.shift();
+    task().then(resolve, reject).finally(() => {
+      active -= 1;
+      runNext();
+    });
+  };
+  return (task) => new Promise((resolve, reject) => {
+    queue.push({ task, resolve, reject });
+    runNext();
+  });
+}
+const clawbrowserSessionScanLimiter = createConcurrencyLimiter(5);
 async function nextctlHasSkill(binary) {
   const r = await run(binary, ["--help"]); return `${r.stdout}\n${r.stderr}`.includes("\n  skill");
 }
@@ -1341,14 +1364,34 @@ async function clawbrowserRuntimeSessionNames() {
   }
   return [...names];
 }
+async function activeClawbrowserProfileNames(nextctlBin) {
+  const sessionNames = await clawbrowserRuntimeSessionNames();
+  const active = [];
+  await Promise.all(sessionNames.map(async (profile) => {
+    const result = await clawbrowserSessionScanLimiter(() => run(nextctlBin, [
+      "status", "--profile", profile, "--runtime", "clawbrowser", "--format", "json",
+    ], { NBC_AUTO_UPDATE: "0" }, { timeoutMs: 10_000 })).catch(() => null);
+    if (!result || result.code !== 0) return;
+    try {
+      const parsed = JSON.parse(result.stdout || "");
+      const data = parsed?.data && typeof parsed.data === "object" ? parsed.data : parsed;
+      if (String(data?.status || "").trim().toLowerCase() === "running") active.push(profile);
+    } catch {
+      // Unparseable status is treated as "not confirmed running" here; the
+      // install path's own assertClawbrowserSessionsStopped still fails
+      // closed on this exact case, so nothing unsafe slips through.
+    }
+  }));
+  return active.sort();
+}
 async function stopClawbrowserRuntimeSessions(nextctlBin, sessionNames) {
   // The update prompt tells the user Nextbrowser will close any open
   // profiles for them, so do that here instead of just failing when one is
   // still running. `nbc stop` waits for the browser process to actually
   // exit before it returns, so the idle check right after this is reliable.
-  await Promise.all(sessionNames.map((profile) => run(nextctlBin, [
+  await Promise.all(sessionNames.map((profile) => clawbrowserSessionScanLimiter(() => run(nextctlBin, [
     "stop", "--profile", profile, "--runtime", "clawbrowser", "--format", "json",
-  ], { NBC_AUTO_UPDATE: "0" }, { timeoutMs: 15_000 }).catch(() => undefined)));
+  ], { NBC_AUTO_UPDATE: "0" }, { timeoutMs: 15_000 })).catch(() => undefined)));
 }
 async function assertClawbrowserRuntimeIdle(nextctlBin) {
   if (clawbrowserRuntimeLaunches > 0) {
@@ -1364,9 +1407,9 @@ async function assertClawbrowserRuntimeIdle(nextctlBin) {
     // before the actual status check even starts and get misreported as
     // "could not confirm this profile is closed". This check only needs a
     // fast yes/no, so skip nbc's self-update entirely here.
-    statusSession: (profile) => run(nextctlBin, [
+    statusSession: (profile) => clawbrowserSessionScanLimiter(() => run(nextctlBin, [
       "status", "--profile", profile, "--runtime", "clawbrowser", "--format", "json",
-    ], { NBC_AUTO_UPDATE: "0" }, { timeoutMs: 10_000 }),
+    ], { NBC_AUTO_UPDATE: "0" }, { timeoutMs: 10_000 })),
     processIsAlive: async (pid) => {
       try {
         process.kill(pid, 0);
@@ -1602,6 +1645,7 @@ async function invokeCommand(command, args = {}, sender) {
     case "browser_runtime_update_status": return browserRuntimeUpdateStatus;
     case "browser_runtime_check_for_updates": return checkForBrowserRuntimeUpdates();
     case "browser_runtime_update_install_status": return browserRuntimeUpdateInstallStatus;
+    case "browser_runtime_clawbrowser_active_sessions": return activeClawbrowserProfileNames(await resolveOrInstallNextctl());
     case "browser_runtime_install_updates": return installBrowserRuntimeUpdates(args.runtimes || []);
     case "app_check_for_update": {
       await checkForAppUpdate();
