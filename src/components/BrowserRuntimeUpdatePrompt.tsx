@@ -53,3 +53,34 @@ export function BrowserRuntimeUpdatePrompt({ runtimes, onLater, onConfirm }: {
     </div>
   );
 }
+
+export function ClawbrowserCloseProfilesPrompt({ profileNames, onCancel, onConfirm }: {
+  profileNames: string[];
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="modal-overlay"
+      onKeyDown={(event) => {
+        if (!shouldDismissModalWithEscape(event)) return;
+        event.preventDefault();
+        onCancel();
+      }}
+    >
+      <div className="modal-card runtime-update-prompt" role="dialog" aria-modal="true" aria-labelledby="close-profiles-title">
+        <div className="modal-title-row">
+          <Icon name="exclamationmark.triangle.fill" size={19} className="warn" />
+          <strong id="close-profiles-title">
+            You have {profileNames.length === 1 ? "an open session" : "open sessions"} in this toolset. We'll close {profileNames.length === 1 ? "it" : "them all"} before updating.
+          </strong>
+        </div>
+        <div className="row settings-actions">
+          <button className="secondary" autoFocus onClick={onCancel}>Cancel</button>
+          <span className="spacer" />
+          <button className="primary" onClick={onConfirm}>Continue the update</button>
+        </div>
+      </div>
+    </div>
+  );
+}
