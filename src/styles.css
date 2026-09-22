@@ -351,7 +351,7 @@ button, input, textarea, select { color: var(--text); }
 .primary:hover:not(:disabled) { background: var(--primary-action-hover); box-shadow: var(--button-shadow-hover); }
 .btn-bordered:hover:not(:disabled),
 .secondary:hover:not(:disabled),
-.mini:hover:not(:disabled),
+.mini:hover:not(:disabled):not(.primary-mini),
 .weekday-btn:hover:not(:disabled) { background-color: var(--surface-5); border-color: var(--surface-8); }
 .btn-bordered-prominent:active:not(:disabled),
 .btn-bordered:active:not(:disabled),
@@ -7579,7 +7579,7 @@ pre,
 
 .btn-bordered,
 .secondary,
-.mini {
+.mini:not(.primary-mini) {
   border-color: var(--line-strong);
   background: color-mix(in srgb, var(--bg-elevated) 74%, var(--surface-3));
 }
@@ -7804,7 +7804,7 @@ pre,
 
 :root[data-theme="light"] .btn-bordered,
 :root[data-theme="light"] .secondary,
-:root[data-theme="light"] .mini {
+:root[data-theme="light"] .mini:not(.primary-mini) {
   border-color: rgba(169, 164, 198, 0.72);
   background: linear-gradient(180deg, #eeeeed, #e8e8e7);
 }
