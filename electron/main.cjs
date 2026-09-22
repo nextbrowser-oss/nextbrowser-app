@@ -1341,15 +1341,32 @@ async function clawbrowserRuntimeSessionNames() {
   }
   return [...names];
 }
+async function stopClawbrowserRuntimeSessions(nextctlBin, sessionNames) {
+  // The update prompt tells the user Nextbrowser will close any open
+  // profiles for them, so do that here instead of just failing when one is
+  // still running. `nbc stop` waits for the browser process to actually
+  // exit before it returns, so the idle check right after this is reliable.
+  await Promise.all(sessionNames.map((profile) => run(nextctlBin, [
+    "stop", "--profile", profile, "--runtime", "clawbrowser", "--format", "json",
+  ], { NBC_AUTO_UPDATE: "0" }, { timeoutMs: 15_000 }).catch(() => undefined)));
+}
 async function assertClawbrowserRuntimeIdle(nextctlBin) {
   if (clawbrowserRuntimeLaunches > 0) {
     throw new Error("Clawbrowser profiles are still starting. Wait for them to finish, then stop them before installing the update.");
   }
+  const sessionNames = await clawbrowserRuntimeSessionNames();
+  await stopClawbrowserRuntimeSessions(nextctlBin, sessionNames);
   await assertClawbrowserSessionsStopped({
-    sessionNames: await clawbrowserRuntimeSessionNames(),
+    sessionNames,
+    // nbc runs a background self-update check before every command unless
+    // told not to; that check alone can take several seconds (longer under
+    // GitHub rate limiting), which can eat this call's whole timeout budget
+    // before the actual status check even starts and get misreported as
+    // "could not confirm this profile is closed". This check only needs a
+    // fast yes/no, so skip nbc's self-update entirely here.
     statusSession: (profile) => run(nextctlBin, [
       "status", "--profile", profile, "--runtime", "clawbrowser", "--format", "json",
-    ], {}, { timeoutMs: 10_000 }),
+    ], { NBC_AUTO_UPDATE: "0" }, { timeoutMs: 10_000 }),
     processIsAlive: async (pid) => {
       try {
         process.kill(pid, 0);
