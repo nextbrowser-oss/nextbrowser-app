@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { browserProfileContext } from "./browserProfileContext";
+import { HOST_START_FAILURE_GUIDANCE } from "./hostStartFailureGuidance";
 import type { Workspace } from "../types";
 
 describe("browserProfileContext", () => {
@@ -30,6 +31,8 @@ describe("browserProfileContext", () => {
     expect(result).toContain("never invoke @- without stdin");
     expect(result).toContain("NEXTBROWSER_ARTIFACT_JSON");
     expect(result).toContain("rejects profiles outside");
+    // A failed host start is relayed as its readable message, never as JSON.
+    expect(result).toContain(HOST_START_FAILURE_GUIDANCE);
     expect(result).toContain("if it matches the requested country, do not rotate, restart, verify, or inspect");
     expect(result).toContain("short read-only top-N request");
   });

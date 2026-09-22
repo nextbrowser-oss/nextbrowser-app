@@ -99,6 +99,7 @@ const { MULTILOGIN_DOWNLOAD_URL, resolveMultiloginApp } = require("./multilogin-
 const { runAgentProcess } = require("./agent-process.cjs");
 const { assertManualProxyRuntimeSupport } = require("./manual-proxy-runtime.cjs");
 const { testManualProxy } = require("./manual-proxy-test.cjs");
+const { describeProfileRequestRejection, describeProfileStartFailure, logProfileStartFailure } = require("./profile-start-failure.cjs");
 const {
   DASBROWSER_DOWNLOADS,
   adaptDasbrowserArgs,
@@ -612,9 +613,26 @@ function sendControlResponse(response, status, body) {
   response.end(JSON.stringify(body));
 }
 
+// The agent relays this body to the user, so it leads with a readable
+// message and keeps the raw nextctl result under diagnostics. The same Ref
+// is written to profile-start.log beside crash.log.
+function sendHostProfileFailure(response, { action, profile, runtime, startedAt }, { result, error }) {
+  const failure = describeProfileStartFailure({ action, profile, runtime, result, error, durationMs: Date.now() - startedAt });
+  const logFile = logProfileStartFailure(dataDir(), failure, {
+    appVersion: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch,
+  });
+  console.error(`[PROFILE_${action.toUpperCase()}_FAILED] ${failure.error.ref} ${profile} (${runtime}): ${failure.error.code} exit=${failure.diagnostics.exitCode} nextctl=${failure.diagnostics.nextctlCode || "-"} ${failure.diagnostics.nextctlMessage || failure.diagnostics.stderr || ""} — see ${logFile}`);
+  sendControlResponse(response, 500, failure);
+}
+
 async function ensureAgentControlServer() {
   if (agentControlServer) return agentControlURL;
   agentControlServer = http.createServer((request, response) => {
+    // Set once the request names a profile, so a host error thrown while
+    // starting it is still reported for that profile.
+    let hostProfile;
     void (async () => {
       const action = request.url === "/profile/start" ? "start" : request.url === "/profile/stop" ? "stop" : "";
       const artifactSave = request.url === "/artifact/save";
@@ -677,31 +695,38 @@ async function ensureAgentControlServer() {
       const profile = resolveScopedProfile(profileScope, payload.profile);
       const profileAccess = profileScope.get(profile);
       if (!profileAccess) {
-        sendControlResponse(response, 403, { ok: false, error: "profile_outside_workspace" });
+        sendControlResponse(response, 403, describeProfileRequestRejection("profile_outside_workspace", String(payload.profile || "")));
         return;
       }
       const ownerId = agentControlProfileOwners.get(profile) || profileAccess.ownerConversationId;
       if (ownerId && ownerId !== profileAccess.conversationId) {
-        sendControlResponse(response, 409, { ok: false, error: "profile_in_use_by_another_chat" });
+        sendControlResponse(response, 409, describeProfileRequestRejection("profile_in_use_by_another_chat", profile));
         return;
       }
+      hostProfile = { action, profile, runtime: profileAccess.runtime, startedAt: Date.now() };
       const result = await executeNextctl([
         action, "--profile", profile, "--runtime", profileAccess.runtime, "--format", "json",
       ], { timeoutMs: 240_000 });
-      if (result.code === 0) {
-        if (action === "start") agentControlProfileOwners.set(profile, profileAccess.conversationId);
-        else agentControlProfileOwners.delete(profile);
-        emit(action === "start" ? "profile:host-started" : "profile:host-stopped", [profile, profileAccess.conversationId]);
+      if (result.code !== 0) {
+        sendHostProfileFailure(response, hostProfile, { result });
+        return;
       }
+      if (action === "start") agentControlProfileOwners.set(profile, profileAccess.conversationId);
+      else agentControlProfileOwners.delete(profile);
+      emit(action === "start" ? "profile:host-started" : "profile:host-stopped", [profile, profileAccess.conversationId]);
       let output;
       try { output = JSON.parse(result.stdout); } catch { output = undefined; }
-      sendControlResponse(response, result.code === 0 ? 200 : 500, {
-        ok: result.code === 0,
+      sendControlResponse(response, 200, {
+        ok: true,
         code: result.code,
         ...(output ? { data: output.data } : { stdout: result.stdout }),
         stderr: result.stderr,
       });
-    })().catch((error) => sendControlResponse(response, 500, { ok: false, error: error?.message || "start_failed" }));
+    })().catch((error) => {
+      if (response.headersSent) return;
+      if (hostProfile) sendHostProfileFailure(response, hostProfile, { error });
+      else sendControlResponse(response, 500, { ok: false, error: error?.message || "start_failed" });
+    });
   });
   await new Promise((resolve, reject) => {
     agentControlServer.once("error", reject);

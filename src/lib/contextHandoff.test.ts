@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { HOST_START_FAILURE_GUIDANCE } from "./hostStartFailureGuidance";
 import {
   chatPromptWithDeferredContext,
   chatToTerminalHandoff,
@@ -112,6 +113,7 @@ describe("chat context handoff", () => {
     expect(result).toContain("Save requested files with nextbrowser.save_artifact");
     expect(result).toContain("do not use shell, curl, or temporary files for artifacts");
     expect(result).toContain("retry the original page action once with that exact name");
+    expect(result).toContain(HOST_START_FAILURE_GUIDANCE);
     expect(result?.match(/Wiki research: Clawbrowser \(stopped\)/g)).toHaveLength(1);
     expect(result).not.toContain("Reddit scraper");
   });
