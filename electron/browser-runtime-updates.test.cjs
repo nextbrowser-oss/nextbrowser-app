@@ -301,7 +301,7 @@ test("runtime update refuses an in-flight app launch and releases the guard on f
   });
   vm.runInContext(`let clawbrowserRuntimeUpdateActive = false; let clawbrowserRuntimeLaunches = 0;
     ${extract("executeNextctlRaw", "function sendControlResponse")}
-    ${extract("assertClawbrowserRuntimeIdle", "async function updateClawbrowserRuntime")}`, context);
+    ${extract("stopClawbrowserRuntimeSessions", "async function updateClawbrowserRuntime")}`, context);
   const launch = vm.runInContext('executeNextctlRaw(["start"])', context);
   await started;
   await assert.rejects(vm.runInContext('assertClawbrowserRuntimeIdle("nextctl")', context), /still starting/);
@@ -310,4 +310,29 @@ test("runtime update refuses an in-flight app launch and releases the guard on f
   await vm.runInContext('assertClawbrowserRuntimeIdle("nextctl")', context);
   vm.runInContext('clawbrowserRuntimeUpdateActive = true', context);
   await assert.rejects(vm.runInContext('executeNextctlRaw(["start"])', context), /update is being installed/);
+});
+
+test("assertClawbrowserRuntimeIdle closes open profiles itself instead of failing", async () => {
+  const vm = require("node:vm");
+  const source = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  const extract = (name, next) => source.slice(source.indexOf(`async function ${name}(`), source.indexOf(`\n${next}`, source.indexOf(`async function ${name}(`)));
+  const calls = [];
+  let stopped = false;
+  const context = vm.createContext({
+    clawbrowserRuntimeSessionNames: async () => ["worker"],
+    assertClawbrowserSessionsStopped,
+    run: async (_bin, args) => {
+      calls.push(args);
+      if (args[0] === "stop") {
+        stopped = true;
+        return { code: 0, stdout: JSON.stringify({ ok: true, data: { stopped: true } }) };
+      }
+      return nextctlStatus("worker", stopped ? "stopped" : "running", "clawbrowser", stopped ? "" : "4242");
+    },
+    process,
+  });
+  vm.runInContext(`let clawbrowserRuntimeLaunches = 0;
+    ${extract("stopClawbrowserRuntimeSessions", "async function updateClawbrowserRuntime")}`, context);
+  await vm.runInContext('assertClawbrowserRuntimeIdle("nextctl")', context);
+  assert.ok(calls.some((args) => args[0] === "stop" && args.includes("worker")), "expected a stop call for the open profile");
 });

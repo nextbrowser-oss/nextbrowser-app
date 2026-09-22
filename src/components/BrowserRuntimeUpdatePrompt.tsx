@@ -43,7 +43,7 @@ export function BrowserRuntimeUpdatePrompt({ runtimes, onLater, onConfirm }: {
           ))}
         </div>
         <p className="muted small">Installation starts only after you confirm and continues in the background. Keep Nextbrowser open until it finishes.</p>
-        {runtimes.some((runtime) => runtime.runtime === "clawbrowser") && <p className="muted small">Stop running Clawbrowser profiles first; Nextbrowser won’t close them automatically.</p>}
+        {runtimes.some((runtime) => runtime.runtime === "clawbrowser") && <p className="muted small">Nextbrowser will close any open Clawbrowser profiles before installing this update.</p>}
         <div className="row settings-actions">
           <button className="secondary" autoFocus onClick={onLater}>Later</button>
           <span className="spacer" />
