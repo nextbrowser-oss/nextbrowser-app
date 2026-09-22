@@ -1347,9 +1347,15 @@ async function assertClawbrowserRuntimeIdle(nextctlBin) {
   }
   await assertClawbrowserSessionsStopped({
     sessionNames: await clawbrowserRuntimeSessionNames(),
+    // nbc runs a background self-update check before every command unless
+    // told not to; that check can itself take several seconds (longer under
+    // GitHub rate limiting), which can eat this call's whole timeout budget
+    // before the actual status check even starts and get misreported as
+    // "could not confirm this profile is closed". This check only needs a
+    // fast yes/no, so skip nbc's self-update entirely here.
     statusSession: (profile) => run(nextctlBin, [
       "status", "--profile", profile, "--runtime", "clawbrowser", "--format", "json",
-    ], {}, { timeoutMs: 10_000 }),
+    ], { NBC_AUTO_UPDATE: "0" }, { timeoutMs: 10_000 }),
     processIsAlive: async (pid) => {
       try {
         process.kill(pid, 0);
