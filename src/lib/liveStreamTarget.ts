@@ -1,7 +1,7 @@
 import type { MultiloginProfileSelection } from "./multiloginSelection";
 
 export type LiveStreamTarget =
-  | { runtime: "clawbrowser"; profile?: string }
+  | { runtime: "clawbrowser" | "dasbrowser" | "camoufox"; profile?: string }
   | { runtime: "multilogin"; selection: MultiloginProfileSelection };
 
 export function multiloginSessionName(selection: MultiloginProfileSelection): string {
@@ -10,8 +10,8 @@ export function multiloginSessionName(selection: MultiloginProfileSelection): st
 }
 
 export function nextctlRemoteArgs(target: LiveStreamTarget): string[] {
-  if (target.runtime === "clawbrowser") {
-    return ["remote", ...(target.profile ? ["--profile", target.profile] : []), "--include-viewer-url", "--format", "json"];
+  if (target.runtime !== "multilogin") {
+    return ["remote", ...(target.runtime !== "clawbrowser" ? ["--runtime", target.runtime] : []), ...(target.profile ? ["--profile", target.profile] : []), "--include-viewer-url", "--format", "json"];
   }
 
   const { selection } = target;

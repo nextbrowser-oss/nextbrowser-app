@@ -20,6 +20,7 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
   const createNamedChat = useStore((s) => s.createNamedChat);
   const conversations = useStore((s) => s.conversations);
   const currentAgent = useStore((s) => s.agentId);
+  const workspaceId = useStore((s) => s.activeWorkspaceId);
 
   const [editor, setEditor] = useState<ScheduledRun | "new" | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ScheduledRun | null>(null);
@@ -46,7 +47,7 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
 
   const editorAgent = editor && editor !== "new" ? editor.agent : currentAgent;
   const editorConversations = conversations
-    .filter((conversation) => conversation.agent === editorAgent)
+    .filter((conversation) => conversation.agent === editorAgent && conversation.workspaceId === workspaceId)
     .sort((a, b) => b.updatedAt - a.updatedAt);
 
   return (
@@ -89,9 +90,9 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
             <div className="schedule-info">
               <div className="schedule-title">{run.title}</div>
               <div className="muted small">
-                {String(run.hour).padStart(2, "0")}:{String(run.minute).padStart(2, "0")} ·{" "}
-                {weekdaysSummary(run.weekdays)}
+                {run.intervalMinutes ? `Every ${run.intervalMinutes} minute${run.intervalMinutes === 1 ? "" : "s"}` : `${String(run.hour).padStart(2, "0")}:${String(run.minute).padStart(2, "0")} · ${weekdaysSummary(run.weekdays)}`}
               </div>
+              {run.lastError && <div className="error small">Last run failed: {run.lastError}</div>}
               <div className="muted small">
                 {chatTitle(run) ?? "New chat each run"}
               </div>
@@ -199,6 +200,8 @@ function ScheduleEditor({
   const [prompt, setPrompt] = useState(run?.prompt ?? "");
   const [hour, setHour] = useState(run?.hour ?? 9);
   const [minute, setMinute] = useState(run?.minute ?? 0);
+  const [repeat, setRepeat] = useState(run?.intervalMinutes ? (run.intervalMinutes % 60 === 0 ? "hourly" : "minutely") : "daily");
+  const [interval, setInterval] = useState(run?.intervalMinutes ? (run.intervalMinutes % 60 === 0 ? run.intervalMinutes / 60 : run.intervalMinutes) : 1);
   const [weekdays, setWeekdays] = useState<number[]>(run?.weekdays ?? [2, 3, 4, 5, 6]);
   const [conversationId, setConversationId] = useState<string | undefined>(
     run?.conversationId,
@@ -231,7 +234,17 @@ function ScheduleEditor({
           placeholder="Describe what the agent should do each time"
           rows={3}
         />
-        <div className="schedule-time-row">
+        <label>Repeat
+          <select value={repeat} onChange={(event) => setRepeat(event.target.value)}>
+            <option value="daily">Daily / selected days</option>
+            <option value="hourly">Hourly</option>
+            <option value="minutely">Minutely</option>
+          </select>
+        </label>
+        {repeat !== "daily" && <label>Every {repeat === "hourly" ? "hours" : "minutes"}
+          <input type="number" min={1} max={repeat === "hourly" ? 168 : 10080} value={interval} onChange={(event) => setInterval(Math.max(1, Math.min(repeat === "hourly" ? 168 : 10080, Math.floor(Number(event.target.value)) || 1)))} />
+        </label>}
+        {repeat === "daily" && <><div className="schedule-time-row">
           <label className="schedule-time-field">
             Hour
             <input
@@ -249,7 +262,7 @@ function ScheduleEditor({
               type="number"
               min={0}
               max={59}
-              step={15}
+              step={1}
               value={minute}
               onChange={(e) => setMinute(Math.max(0, Math.min(59, Math.trunc(Number(e.target.value)) || 0)))}
             />
@@ -280,6 +293,7 @@ function ScheduleEditor({
             Weekends
           </button>
         </div>
+        </>}
         <div className="field-label">Session (chat)</div>
         <select
           value={conversationId ?? ""}
@@ -306,7 +320,7 @@ function ScheduleEditor({
             className="primary"
             disabled={!weekdays.length || !title.trim() || !prompt.trim()}
             onClick={() =>
-              onSave({ title: title.trim(), prompt: prompt.trim(), hour, minute, weekdays, conversationId })
+              onSave({ title: title.trim(), prompt: prompt.trim(), hour, minute, weekdays, conversationId, intervalMinutes: repeat === "daily" ? undefined : interval * (repeat === "hourly" ? 60 : 1), createdAt: Date.now() })
             }
           >
             {run ? "Save" : "Add"}

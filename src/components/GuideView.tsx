@@ -74,16 +74,18 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
   const defaultSession = useStore((s) => s.defaultSession);
   const workspaceProfileNames = guideWorkspaceProfileNames(activeWorkspaceId, workspaces, profiles);
   const profileCount = workspaceProfileNames.length;
-  const hasDefaultProfile = !!defaultSession && defaultSession.status !== "unknown";
+  const hasDefaultProfile = !!workspaces.find((workspace) => workspace.id === activeWorkspaceId)?.profileNames.includes("__default") && !!defaultSession && defaultSession.status !== "unknown";
   const session = guideBrowserSession(
     workspaceProfileNames,
     selectedProfile,
     statuses,
     profileSessions,
-    defaultSession?.status,
+    hasDefaultProfile ? defaultSession?.status : undefined,
     hasDefaultProfile,
   );
   const sessionRunning = session.state === "running";
+  const accountOwnerId = useStore((s) => s.accountOwnerId);
+  const sessionEverStarted = sessionRunning || (!!accountOwnerId && localStorage.getItem(`guide:session-started:${accountOwnerId}`) === "1");
   const sessionStarting = session.state === "starting";
   const sessionProfileLabel = session.profile === "__default" ? "default profile" : session.profile ?? undefined;
   const conversationCount = useStore((s) =>
@@ -101,7 +103,7 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
   const readiness = [
     authed,
     agentReady,
-    sessionRunning,
+    sessionEverStarted,
     conversationCount > 0,
   ];
   const progress = sequentialProgress(readiness);
@@ -188,11 +190,15 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
         ? "Session running"
         : sessionStarting
           ? "Starting session…"
+        : sessionEverStarted
+          ? "First session completed"
         : session.profile
           ? "Start session"
           : "Create profile",
       detail: progress.states[2] === "locked"
         ? `Complete step ${progress.currentIndex + 1} first`
+        : sessionEverStarted && !sessionRunning && !sessionStarting
+          ? "Ready"
         : sessionProfileLabel
           ? sessionRunning
             ? `${sessionProfileLabel} is running`

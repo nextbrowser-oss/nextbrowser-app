@@ -71,6 +71,7 @@ import {
   serializeScripts,
   serializeUsage,
 } from "./lib/persistence";
+import { scheduleDue } from "./lib/scheduleDue";
 import type {
   AppTab,
   AutomationRecipeResult,
@@ -692,7 +693,7 @@ interface State {
   selectConversation: (id: string) => void;
   renameConversation: (id: string, title: string) => void;
   updateTerminalPreview: (id: string, preview?: string) => void;
-  deleteConversation: (id: string) => void;
+  deleteConversation: (id: string) => Promise<void>;
   forkConversation: (atMessageId?: string) => void;
   clearChat: () => void;
   enqueue: (text: string, chip?: UserCommandChip, into?: string, attachments?: ChatAttachment[], agentPrompt?: string) => string | undefined;
@@ -810,6 +811,8 @@ const replyProfileBaselines = new Map<string, Set<string>>();
 const profileOperationEpoch = new Map<string, number>();
 const pendingProfileLaunches = new Map<string, number>();
 const pendingProfileStarts = new Map<string, Promise<void>>();
+const deletingProjectIds = new Set<string>();
+const deletedProjectIds = new Set<string>();
 const verifyingProfileStarts = new Set<string>();
 const BOOTSTRAP_FOREGROUND_WAIT_MS = 12_000;
 // Stamps which account's data the on-disk caches (workspaces.json and
@@ -987,6 +990,8 @@ async function guardAgainstForeignAccountCache(): Promise<void> {
   if (!ownerId) return;
   const cachedOwnerId = localStorage.getItem(CACHED_ACCOUNT_OWNER_KEY) || undefined;
   if (cachedOwnerId && cachedOwnerId !== ownerId) {
+    accountEpoch += 1;
+    profileRefreshGeneration += 1;
     trackEvent("foreign_account_cache_cleared");
     await clearAccountEntityCache().catch(() => {});
     useStore.setState(emptyAccountOwnedCaches());
@@ -997,6 +1002,10 @@ async function guardAgainstForeignAccountCache(): Promise<void> {
 let workspaceMutationQueue: Promise<unknown> = Promise.resolve();
 function persistWorkspaceMutation(transform: (workspaces: Workspace[]) => Workspace[]): Promise<void> {
   const pending = workspaceMutationQueue.then(async () => {
+    const deadline = Date.now() + 30_000;
+    while (useStore.getState().projectsSyncing && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     const state = useStore.getState();
     if (!state.authed) throw new Error("Sign in before changing workspace data.");
     if (state.projectsSyncing) throw new Error("Cloud sync is in progress. Retry this workspace change when it finishes.");
@@ -1012,11 +1021,9 @@ function persistWorkspaceMutation(transform: (workspaces: Workspace[]) => Worksp
     } catch (error) {
       const ownershipConflict = error instanceof Error && error.message.includes("belongs to another account");
       if (ownershipConflict) {
-        // syncProjects() already recovered: it filtered the foreign workspace
-        // out of local state and persisted that. The mutation the caller
-        // asked for is intact and saved — surfacing this as a rejection
-        // would make an otherwise-successful profile action look failed.
-        return;
+        // Foreign data was removed, but the requested assignment was not saved.
+        // Preserve the cleaned cache and report the failure so callers can retry.
+        throw error;
       }
       if (useStore.getState().workspaces === workspaces) {
         useStore.setState({ workspaces: previous });
@@ -1049,12 +1056,18 @@ async function prepareLocalSession(
     startupVerifies: true,
     runtime: options.runtime ?? selectedRuntime,
     proxyExpected: options.proxyExpected ?? (useStore.getState().profiles.find((p) => p.name === options.selectedProfile)?.proxy_mode !== "direct"),
-    onVerificationFailure: options.onVerificationFailure ?? ((failure) =>
-      invoke<VerificationFailureChoice>("browser_verification_failure_choice", {
+    onVerificationFailure: options.onVerificationFailure ?? ((failure) => {
+      // prepareSession has already confirmed stop before showing this dialog.
+      if (options.selectedProfile) {
+        pendingProfileLaunches.delete(options.selectedProfile);
+        useStore.setState((state) => ({ statuses: { ...state.statuses, [options.selectedProfile!]: "stopped" } }));
+      }
+      return invoke<VerificationFailureChoice>("browser_verification_failure_choice", {
         failedSurfaces: failure.failedSurfaces,
         proxyExpected: failure.proxyExpected,
         attempts: failure.attempts,
-      })),
+      });
+    }),
   }));
   if (result.directFallback) {
     const name = result.profileArgs[result.profileArgs.indexOf("--profile") + 1];
@@ -2137,17 +2150,15 @@ export const useStore = create<State>((set, get) => {
     const d = new Date();
     const hour = d.getHours();
     const minute = d.getMinutes();
-    const weekday = d.getDay() + 1;
     for (const run of get().scheduledRuns) {
-      if (!run.enabled) continue;
-      if (run.hour !== hour || run.minute !== minute || !run.weekdays.includes(weekday)) continue;
+      if (!scheduleDue(run, d.getTime())) continue;
       const scheduledConversation = run.conversationId
         ? get().conversations.find((conversation) => conversation.id === run.conversationId)
         : undefined;
       const scheduledTarget = executionTargetForTurn(scheduledConversation);
       if ((scheduledTarget === "vps" && queuedTarget(get(), "local")) ||
           (scheduledTarget === "local" && pendingTarget(get(), "vps"))) continue;
-      if (run.lastFiredAt) {
+      if (!run.intervalMinutes && run.lastFiredAt) {
         const last = new Date(run.lastFiredAt);
         if (
           last.toDateString() === d.toDateString() &&
@@ -2157,7 +2168,7 @@ export const useStore = create<State>((set, get) => {
           continue;
       }
       const runs = get().scheduledRuns.map((r) =>
-        r.id === run.id ? { ...r, lastFiredAt: now() } : r,
+        r.id === run.id ? { ...r, lastFiredAt: now(), lastError: undefined } : r,
       );
       set({ scheduledRuns: runs });
       persistSchedules(runs);
@@ -2166,8 +2177,15 @@ export const useStore = create<State>((set, get) => {
         has_conversation: !!run.conversationId,
       });
       const prev = get().agentId;
+      const previousWorkspace = get().activeWorkspaceId;
+      const previousActiveConversations = get().activeConvId;
+      const previousProfile = get().selectedProfile;
+      const previousTerminalChat = get().terminalChat;
       if (scheduledTarget === "vps") vpsSetupReservations += 1;
       try {
+        const workspaceId = run.workspaceId ?? scheduledConversation?.workspaceId;
+        if (workspaceId && !get().workspaces.some((workspace) => workspace.id === workspaceId)) throw new Error("The scheduled workspace no longer exists.");
+        if (workspaceId) get().selectWorkspace(workspaceId);
         if (scheduledTarget === "vps") await waitForLocalNextctlIdle(get);
         get().switchAgent(run.agent);
         if (!get().agentReady()) {
@@ -2204,9 +2222,14 @@ export const useStore = create<State>((set, get) => {
         // calls this without awaiting, so swallow here instead of letting an
         // unhandled rejection surface as a global renderer error.
         console.warn("[SCHEDULED_RUN_FAILED]", run.id, error);
+        const failedRuns = get().scheduledRuns.map((item) => item.id === run.id ? { ...item, lastError: error instanceof Error ? error.message : String(error) } : item);
+        set({ scheduledRuns: failedRuns });
+        persistSchedules(failedRuns);
       } finally {
         if (scheduledTarget === "vps") vpsSetupReservations = Math.max(0, vpsSetupReservations - 1);
         get().switchAgent(prev);
+        if (previousWorkspace) get().selectWorkspace(previousWorkspace);
+        set({ activeConvId: previousActiveConversations, selectedProfile: previousProfile, terminalChat: previousTerminalChat });
         if (!pendingTarget(get(), "vps")) {
           for (const [queuedAgentId, runtime] of Object.entries(get().runtime)) {
             if (runtime.ready && runtime.queue.length) get().startConsumer(queuedAgentId);
@@ -3007,10 +3030,11 @@ export const useStore = create<State>((set, get) => {
   },
 
   loadProfiles: async () => {
+    const epoch = accountEpoch;
     const generation = ++profileRefreshGeneration;
     try {
       const list = await nextctlJson<{ profiles: Profile[] }>(["profiles", "ls"]);
-      if (generation !== profileRefreshGeneration) return;
+      if (generation !== profileRefreshGeneration || epoch !== accountEpoch) return;
       // Render the inventory without waiting for every browser status command.
       set({ profiles: list.profiles });
       const statuses: Record<string, string> = {};
@@ -3023,7 +3047,7 @@ export const useStore = create<State>((set, get) => {
         country_count: new Set(list.profiles.map((p) => p.country).filter(Boolean)).size,
       });
       for (const p of list.profiles) {
-        if (generation !== profileRefreshGeneration) return;
+        if (generation !== profileRefreshGeneration || epoch !== accountEpoch) return;
         try {
           const runtime = runtimeForProfile(get().workspaces, p.name);
           const st = await nextctlJson<SessionStatus>(["status", "--profile", p.name, "--runtime", runtime]);
@@ -3047,7 +3071,7 @@ export const useStore = create<State>((set, get) => {
           if (get().profileIdentities[p.name]) profileIdentities[p.name] = get().profileIdentities[p.name];
         }
       }
-      if (generation !== profileRefreshGeneration) return;
+      if (generation !== profileRefreshGeneration || epoch !== accountEpoch) return;
       // A poll can start before a launch and finish while that launch is still
       // preparing the browser. Do not turn Starting into a misleading Stopped
       // (or Unknown), or Running before verification settles. A newer stop/remove
@@ -3058,6 +3082,10 @@ export const useStore = create<State>((set, get) => {
           statuses[name] = get().statuses[name] === "stopping" ? "stopping" : "starting";
           if (profileSessions[name]) profileSessions[name] = { ...profileSessions[name], status: statuses[name] };
         }
+      }
+      const owner = get().accountOwnerId;
+      if (owner && get().workspaces.some((workspace) => workspace.profileNames.some((name) => statuses[name] === "running"))) {
+        localStorage.setItem(`guide:session-started:${owner}`, "1");
       }
       set({ statuses, profileSessions, profileIdentities });
     } catch {
@@ -3077,7 +3105,8 @@ export const useStore = create<State>((set, get) => {
     profileCreateRequestPollInFlight = true;
     try {
       const result = await nextctlJson<{ requests: ProfileCreateRequest[] }>(["profiles", "requests", "list", "--status", "pending"]);
-      set({ pendingProfileCreateRequests: result.requests ?? [] });
+      const awaitingAssignment = get().pendingProfileCreateRequests.filter((request) => request.status === "completed");
+      set({ pendingProfileCreateRequests: [...awaitingAssignment, ...(result.requests ?? []).filter((request) => !awaitingAssignment.some((item) => item.id === request.id))].filter((request) => !request.workspace_id || get().workspaces.some((workspace) => workspace.id === request.workspace_id)) });
     } catch {
       /* non-fatal; retry on the next tick */
     } finally {
@@ -3089,7 +3118,13 @@ export const useStore = create<State>((set, get) => {
     trackEvent("profile_create_request_approved", { request_id: id });
     // Throw on a non-zero exit; otherwise a failed approve looked successful,
     // dismissed the request, and it reappeared on the next poll with no error.
-    await nextctlRunChecked(["profiles", "requests", "approve", id]);
+    const request = get().pendingProfileCreateRequests.find((item) => item.id === id);
+    const workspaceId = request?.workspace_id || get().activeWorkspaceId;
+    if (!workspaceId || !get().workspaces.some((workspace) => workspace.id === workspaceId)) throw new Error("The requesting workspace no longer exists.");
+    const result = request?.status === "completed" ? request : await nextctlJson<ProfileCreateRequest>(["profiles", "requests", "approve", id]);
+    if (result.status !== "completed") throw new Error(result.error || "Profile creation failed.");
+    set({ pendingProfileCreateRequests: get().pendingProfileCreateRequests.map((item) => item.id === id ? { ...item, ...result, workspace_id: workspaceId } : item) });
+    for (const name of result.created_profiles ?? []) await get().assignProfileToProject(name, result.runtime ?? request?.runtime ?? "clawbrowser", workspaceId);
     set({ pendingProfileCreateRequests: get().pendingProfileCreateRequests.filter((r) => r.id !== id) });
     await get().loadProfiles();
   },
@@ -3261,6 +3296,7 @@ export const useStore = create<State>((set, get) => {
         });
         if (profileOperationEpoch.get(n) !== operation) return;
         verifyingProfileStarts.delete(n);
+        if (get().accountOwnerId) localStorage.setItem(`guide:session-started:${get().accountOwnerId}`, "1");
         await get().loadProfiles();
         settleTransientStatus(n, "starting");
         trackTiming("profile_start_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
@@ -3649,11 +3685,12 @@ export const useStore = create<State>((set, get) => {
       const message = error instanceof Error ? error.message : String(error);
       // The UI status may have been stale while an external browser session was
       // still alive. Stop it with the saved runtime, then retry removal once.
-      if (!/SESSION_ACTIVE|active browser session/i.test(message)) {
+      if (/PROFILE_NOT_FOUND/.test(message)) {
+        // Another client already removed it; finish clearing this workspace's reference.
+      } else if (!/SESSION_ACTIVE|active browser session/i.test(message)) {
         await settleDeleteFailure();
         throw error;
-      }
-      try {
+      } else try {
         await stopForDelete();
         await nextctlRunChecked(["profiles", "rm", n, "--format", "json"]);
       } catch (retryError) {
@@ -3757,7 +3794,9 @@ export const useStore = create<State>((set, get) => {
           },
         },
       }));
-      get().ensureConversation(agentId);
+      // Reconnecting an installed agent on startup must not create a project
+      // in an intentionally empty workspace.
+      if (get().conversationsForAgent(agentId).length) get().ensureConversation(agentId);
       get().announceConnect(agentId, version, loggedIn);
       trackTiming("agent_connect_succeeded", startedAt, {
         agent: agentId,
@@ -4231,14 +4270,18 @@ export const useStore = create<State>((set, get) => {
 
   syncProjects: async () => {
     if (!get().authed || get().projectsSyncing) return;
+    const epoch = accountEpoch;
     set({ projectsSyncing: true });
     const initialWorkspaces = get().workspaces;
+    const initialConversations = get().conversations;
+    const initialProjectRevisions = { ...get().projectRevisions };
     let retryWorkspaceSync = false;
     try {
       const workspaceResponse = await invoke<{ workspaces?: Array<{
         id: string; name: string; document: Partial<Workspace>; revision: number; updated_at: string; created_at: string;
       }> }>("workspaces_list");
       const remoteWorkspaces = workspaceResponse?.workspaces ?? [];
+      if (epoch !== accountEpoch || !get().authed) return;
       const remoteWorkspaceById = new Map(remoteWorkspaces.map((workspace) => [workspace.id, workspace]));
       const workspaceRevisions = { ...get().workspaceRevisions };
       let workspaces = [...get().workspaces];
@@ -4263,6 +4306,7 @@ export const useStore = create<State>((set, get) => {
         else if (normalized.updatedAt >= workspaces[index].updatedAt) workspaces[index] = normalized;
       }
       for (const workspace of workspaces) {
+        if (epoch !== accountEpoch || !get().authed) return;
         const cloud = remoteWorkspaceById.get(workspace.id);
         if (cloud && workspace.updatedAt <= Date.parse(cloud.updated_at)) continue;
         const saveWorkspace = (candidate: Workspace, baseRevision: number) => invoke<{ revision: number }>("workspace_put", {
@@ -4338,9 +4382,15 @@ export const useStore = create<State>((set, get) => {
         workspace_id: string; document: Conversation; revision: number; updated_at: string;
       }> }>("projects_list");
       const remote = response?.projects ?? [];
+      if (epoch !== accountEpoch || !get().authed) return;
       const remoteById = new Map(remote.map((project) => [project.id, project]));
+      // A previously synced entity missing from the authoritative list was
+      // deleted on another client. Never upload it again from the local cache.
+      conversations = conversations.filter((item) => !deletedProjectIds.has(item.id)
+        && (!initialProjectRevisions[item.id] || remoteById.has(item.id)));
       const revisions = { ...get().projectRevisions };
       for (const cloud of remote) {
+        if (deletedProjectIds.has(cloud.id)) continue;
         revisions[cloud.id] = cloud.revision;
         const index = conversations.findIndex((conversation) => conversation.id === cloud.id);
         const normalized = normalizeConversation({
@@ -4375,6 +4425,18 @@ export const useStore = create<State>((set, get) => {
           if (!initialById.has(workspace.id) && !workspaces.some((item) => item.id === workspace.id)) workspaces.push(workspace);
         }
       }
+      // Network replies must not discard edits/new messages or resurrect
+      // chats removed while this sync was waiting on the backend.
+      const initialConversationById = new Map(initialConversations.map((item) => [item.id, item]));
+      const currentConversationById = new Map(get().conversations.map((item) => [item.id, item]));
+      conversations = conversations.filter((item) => !deletedProjectIds.has(item.id)
+        && (!initialConversationById.has(item.id) || currentConversationById.has(item.id)));
+      for (const current of currentConversationById.values()) {
+        if (deletedProjectIds.has(current.id) || current === initialConversationById.get(current.id)) continue;
+        const index = conversations.findIndex((item) => item.id === current.id);
+        if (index < 0) conversations.push(current);
+        else conversations[index] = current;
+      }
       let activeWorkspaceId = get().activeWorkspaceId;
       if (!workspaces.some((workspace) => workspace.id === activeWorkspaceId)) activeWorkspaceId = workspaces[0]?.id;
       if (activeWorkspaceId) localStorage.setItem("activeWorkspaceId", activeWorkspaceId);
@@ -4397,6 +4459,8 @@ export const useStore = create<State>((set, get) => {
       });
 
       for (const conversation of conversations) {
+        if (epoch !== accountEpoch || !get().authed) return;
+        if (deletingProjectIds.has(conversation.id) || deletedProjectIds.has(conversation.id)) continue;
         if (!conversation.workspaceId) continue;
         const cloud = remoteById.get(conversation.id);
         if (cloud && conversation.updatedAt <= Date.parse(cloud.updated_at)) continue;
@@ -4470,15 +4534,11 @@ export const useStore = create<State>((set, get) => {
   createWorkspace: async (rawName) => {
     const name = validateEntityName("workspace", rawName);
     const state = get();
-    const migrateLegacyData = state.workspaces.length === 0;
     const workspaceId = uid();
-    const profileNames = migrateLegacyData ? state.profiles.map((profile) => profile.name) : [];
-    const profileToolsets = Object.fromEntries(profileNames.map((profileName) => {
-      const savedToolset = state.conversations.find((conversation) =>
-        conversation.profileToolsets?.[profileName]
-      )?.profileToolsets?.[profileName];
-      return [profileName, savedToolset === "dasbrowser" || savedToolset === "camoufox" ? savedToolset : "clawbrowser"];
-    })) as Record<string, BrowserToolset>;
+    // The machine-wide inventory can contain another account's profiles.
+    // A new workspace never adopts it. First-account defaults are explicit.
+    const profileNames: string[] = [];
+    const profileToolsets: Record<string, BrowserToolset> = {};
     const workspace: Workspace = {
       id: workspaceId,
       name,
@@ -4492,14 +4552,8 @@ export const useStore = create<State>((set, get) => {
       id: workspace.id,
       workspace: { name, document: { profileNames, profileToolsets, profileProxyIds: {} }, base_revision: 0 },
     });
-    const conversations = migrateLegacyData
-      ? state.conversations.map((conversation) => conversation.workspaceId ? conversation : {
-        ...conversation,
-        workspaceId: workspace.id,
-        updatedAt: now(),
-      })
-      : state.conversations;
-    const workspaces = [...state.workspaces, workspace];
+    const conversations = get().conversations;
+    const workspaces = [...get().workspaces, workspace];
     await Promise.all([saveWorkspaces(workspaces), persistConvs(conversations)]);
     set({
       workspaces,
@@ -4565,6 +4619,12 @@ export const useStore = create<State>((set, get) => {
   ensureDefaultWorkspaceSetup: async () => {
     if (!get().authed || !get().nextctlAvailable || pendingTarget(get(), "vps")) return;
     if (defaultSetupInFlight) return;
+    // Defaults belong to first-account setup only. Empty workspaces and
+    // deleted defaults are intentional and must never be repopulated.
+    if (get().workspaces.length > 0) {
+      set({ workspaceSetupRequired: false, workspaceSetupAuto: "done" });
+      return;
+    }
     if (!get().workspaceSetupRequired) {
       set({ workspaceSetupAuto: "done" });
       return;
@@ -4590,14 +4650,15 @@ export const useStore = create<State>((set, get) => {
           window.dispatchEvent(new CustomEvent("nextbrowser:project-created", { detail: { id: projectId } }));
         }
       }
-      for (const { runtime, name } of DEFAULT_WORKSPACE_TOOLSETS) {
+      for (const { runtime, name: defaultName } of DEFAULT_WORKSPACE_TOOLSETS) {
         const current = get().workspaces.find((item) => item.id === workspaceId);
         const alreadyAssigned = Object.values(current?.profileToolsets ?? {}).includes(runtime);
         if (alreadyAssigned) continue;
         try {
-          if (!get().profiles.some((profile) => profile.name === name)) {
-            await get().createManagedProfile(name, "US", { runtime });
-          }
+          // Machine-wide inventory can belong to another account. Never adopt it.
+          let name = defaultName;
+          for (let suffix = 2; get().profiles.some((profile) => profile.name === name); suffix += 1) name = `${defaultName} ${suffix}`;
+          await get().createManagedProfile(name, "US", { runtime });
           await get().assignProfileToProject(name, runtime, workspaceId);
           if (typeof window !== "undefined") {
             window.dispatchEvent(new CustomEvent("nextbrowser:profile-created", { detail: { name } }));
@@ -4862,7 +4923,17 @@ export const useStore = create<State>((set, get) => {
     });
   },
 
-  deleteConversation: (id) => {
+  deleteConversation: async (id) => {
+    if (deletingProjectIds.has(id) || deletedProjectIds.has(id)) return;
+    deletingProjectIds.add(id);
+    try {
+      await invoke("project_delete", { id });
+    } catch (error) {
+      deletingProjectIds.delete(id);
+      throw error;
+    }
+    deletingProjectIds.delete(id);
+    deletedProjectIds.add(id);
     const removed = get().conversations.find((item) => item.id === id);
     const agentId = removed?.agent ?? get().agentId;
     // A streaming reply keeps its process alive after its conversation is
@@ -4885,7 +4956,6 @@ export const useStore = create<State>((set, get) => {
       if (replacement) localStorage.setItem(activeConversationStorageKey(agentId, get().activeWorkspaceId), replacement);
       else localStorage.removeItem(activeConversationStorageKey(agentId, get().activeWorkspaceId));
     }
-    void invoke("project_delete", { id }).catch(() => {});
     persistConvs(conversations);
     const projectRevisions = { ...get().projectRevisions };
     delete projectRevisions[id];
@@ -6067,6 +6137,9 @@ export const useStore = create<State>((set, get) => {
       id: uid(),
       title: partial.title,
       prompt: partial.prompt,
+      workspaceId: get().activeWorkspaceId,
+      intervalMinutes: partial.intervalMinutes,
+      createdAt: now(),
       agent: get().agentId,
       hour: partial.hour,
       minute: partial.minute,

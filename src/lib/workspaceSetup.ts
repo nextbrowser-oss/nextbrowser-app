@@ -1,13 +1,10 @@
 import type { Conversation, Workspace } from "../types";
 
-/** Setup is complete only when the selected workspace has a chat and profile. */
+/** Empty workspaces are valid; only a new account needs initial setup. */
 export function requiresWorkspaceSetup(
   workspaces: Workspace[],
-  conversations: Conversation[],
-  activeWorkspaceId?: string,
+  _conversations: Conversation[],
+  _activeWorkspaceId?: string,
 ): boolean {
-  const workspace = workspaces.find((item) => item.id === activeWorkspaceId) ?? workspaces[0];
-  if (!workspace) return true;
-  return workspace.profileNames.length === 0
-    || !conversations.some((conversation) => conversation.workspaceId === workspace.id);
+  return workspaces.length === 0;
 }

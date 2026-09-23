@@ -12,13 +12,13 @@ function verificationFailureDialogOptions({ failedSurfaces, proxyExpected = true
   return {
     type: "warning",
     title: "Browser verification failed",
-    message: proxyExpected ? "Sorry, the proxy is not working." : "The browser has not passed verification.",
+    message: proxyExpected ? "The browser connection could not be verified." : "The browser has not passed verification.",
     detail: [
       surfaces.length ? `Failed checks: ${surfaces.join(", ")}.` : "The browser verification did not complete successfully.",
       proxyExpected && attempts === 3
         ? "Three attempts with the same proxy failed. The profile is stopped. Continue in a separate session without a proxy? Websites will see your real IP. The original proxy profile and its browser data will not be transferred or changed."
         : proxyExpected
-        ? "The profile is stopped. You can retry after fixing the proxy."
+        ? "The profile is stopped. Resolve the verification failure and retry. The profile will not continue without its proxy."
         : "The browser was stopped because verification failed. No browser actions were allowed.",
     ].join("\n\n"),
     buttons: proxyExpected && attempts === 3 ? ["Cancel", "Continue without proxy"] : ["Cancel"],

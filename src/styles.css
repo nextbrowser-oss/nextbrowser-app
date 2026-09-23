@@ -3456,6 +3456,8 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 }
 .live-stop-btn { color: var(--red); }
 .live-pill {
+  flex: 0 0 auto;
+  display: inline-flex;
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 999px;
@@ -3545,6 +3547,8 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   background: var(--accent);
 }
 .remote-live-embed {
+  user-select: none;
+  touch-action: none;
   position: relative;
   width: 100%;
   height: 100%;
@@ -3561,6 +3565,7 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 .remote-live-video {
+  pointer-events: none;
   display: block;
   width: 100%;
   height: 100%;

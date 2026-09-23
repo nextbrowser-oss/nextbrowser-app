@@ -252,7 +252,8 @@ export async function prepareSession(opts: {
   if (lastError !== undefined) {
     const choice = await opts.onVerificationFailure?.({
       message: lastError instanceof Error ? lastError.message : String(lastError),
-      failedSurfaces: lastError instanceof BrowserVerificationError ? lastError.failedSurfaces : [],
+      failedSurfaces: lastError instanceof BrowserVerificationError ? lastError.failedSurfaces
+        : String(lastError instanceof Error ? lastError.message : lastError).match(/failed browser checks: ([a-zA-Z0-9_, -]+);/)?.[1].split(",").map((surface) => surface.trim()) ?? [],
       proxyExpected,
       attempts: proxyExpected && !opts.startupVerifies ? 3 : 1,
     });

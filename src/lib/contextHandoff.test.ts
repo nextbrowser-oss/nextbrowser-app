@@ -103,7 +103,8 @@ describe("chat context handoff", () => {
     expect(result).toContain("Fox profile: Camoufox (running, selected)");
     expect(result).toContain("Wiki research: Clawbrowser (stopped)");
     expect(result).toContain("workspace browser access (not project chat history)");
-    expect(result).toContain("Never invent, clone, create, start, or substitute an unlisted profile");
+    expect(result).toContain("never invent, clone, create, start, or substitute an unlisted profile");
+    expect(result).toContain("profiles_create_request");
     expect(result).toContain("A runtime label such as Clawbrowser, Camoufox, or DasBrowser is not a profile name");
     expect(result).toContain("$NEXTBROWSER_CONTROL_URL/profile/start");
     expect(result).toContain(`--data '{"profile":"Wiki research"}'`);

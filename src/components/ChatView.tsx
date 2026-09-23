@@ -557,7 +557,7 @@ export function ChatView() {
                   Open Skills
                 </button>
                 {s.proxy ? (
-                  <button className="btn-bordered" title="Start the default browser session" onClick={() => s.startDefaultSession()}>
+                  <button className="btn-bordered" title="Choose a profile in this workspace" onClick={() => window.dispatchEvent(new CustomEvent("nextbrowser:start-selected-profile"))}>
                     <Icon name="play.fill" size={14} />
                     Start session
                   </button>

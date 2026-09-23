@@ -47,6 +47,7 @@ const {
   deletePersonalProxy,
   deleteProject,
   deleteWorkspace,
+  entityBackendURL,
   listPersonalProxies,
   listProjects,
   listWorkspaces,
@@ -196,6 +197,7 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
     "CLAWBROWSER_STATE_ROOT",
     "CLAWBROWSER_SESSION_ROOT",
     "NBC_PROFILE_ROOT",
+    "NBC_SKILL_SERVICE",
     "CLAWBROWSER_API_BASE_URL",
     ...(automationTraceFile ? ["NEXTBROWSER_AUTOMATION_TRACE_FILE"] : []),
   ];
@@ -223,7 +225,7 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
     // Codex starts the MCP server itself. Forward the Recorder's ephemeral
     // trace path from the agent process; putting it only in the parent env is
     // not enough when an explicit MCP env allow-list is configured.
-    "-c", `mcp_servers.nextbrowser.env_vars=${JSON.stringify(["MULTILOGIN_TOKEN", "NEXTBROWSER_AUTOMATION_TRACE_FILE", "NEXTBROWSER_CONTROL_URL", "NEXTBROWSER_CONTROL_TOKEN"])}`,
+    "-c", `mcp_servers.nextbrowser.env_vars=${JSON.stringify(["MULTILOGIN_TOKEN", "NEXTBROWSER_AUTOMATION_TRACE_FILE", "NEXTBROWSER_CONTROL_URL", "NEXTBROWSER_CONTROL_TOKEN", "NEXTBROWSER_WORKSPACE_ID", "NEXTBROWSER_ALLOWED_PROFILES_JSON", "NEXTBROWSER_PROFILE_SCOPE_FILE"])}`,
     "-c", "mcp_servers.nextbrowser.startup_timeout_sec=30",
     "-c", "mcp_servers.nextbrowser.default_tools_approval_mode=approve",
   ];
@@ -362,12 +364,16 @@ function childEnv(extra = {}) {
     CLAWBROWSER_STATE_ROOT: path.join(runtimeRoot, "state"),
     CLAWBROWSER_SESSION_ROOT: path.join(runtimeRoot, "sessions"),
     NBC_PROFILE_ROOT: path.join(runtimeRoot, "profiles"),
+    NBC_SKILL_SERVICE: process.env.NBC_SKILL_SERVICE || entityBackendURL(process.env),
     CLAWBROWSER_API_BASE_URL: runtimeAPIBaseURL(process.env),
     ...(clawbrowserBin ? { CLAWBROWSER_BIN: clawbrowserBin } : {}),
     ...(dasbrowserBin ? { DASBROWSER_BIN: dasbrowserBin } : {}),
     ...(multiloginAutomationToken ? { MULTILOGIN_TOKEN: multiloginAutomationToken } : {}),
     ...extra,
     NEXTBROWSER_REQUIRE_VERIFY: "",
+    // The desktop owns CLI updates. A background CLI self-update must not
+    // replace the verified executable halfway through a profile launch.
+    NBC_AUTO_UPDATE: "0",
     NEXTBROWSER_VERIFY_ON_START_ONLY: "1",
     NEXTBROWSER_PROXY_SAFETY_FILE: "",
   };
@@ -1775,6 +1781,11 @@ async function invokeCommand(command, args = {}, sender) {
       return !!resolveBrowserRuntime({ platform: process.platform, homeDir: home(), env: process.env, runtimeRoot: nextbrowserRuntimeRoot() });
     }
     case "nextctl_run": {
+      // An explicit development executable belongs to its build checkout.
+      // The daily release updater must not overwrite it with a production CLI.
+      if (process.env.NEXTCTL_BIN && args.args?.[0] === "update") {
+        return { code: 0, stdout: "Development CLI pinned by NEXTCTL_BIN; release updates disabled.\n", stderr: "" };
+      }
       return executeNextctl(args.args || [], {
         extraEnv: args.extraEnv || {},
         requestId: args.requestId,
@@ -2273,6 +2284,7 @@ async function invokeCommand(command, args = {}, sender) {
           cwd,
           env: childEnv({
             NEXTBROWSER_CONTROL_URL: controlURL,
+            NEXTBROWSER_WORKSPACE_ID: String(args.workspaceId || ""),
             NEXTBROWSER_CONTROL_TOKEN: controlToken,
             NEXTBROWSER_ALLOWED_PROFILES_JSON: JSON.stringify(mcpProfileScope(profileScope, args.multiloginSelection)),
             NEXTBROWSER_PROFILE_SCOPE_FILE: profileScopeFile,
@@ -2381,6 +2393,7 @@ async function invokeCommand(command, args = {}, sender) {
         cwd: args.workingDir || home(),
         env: terminalEnv({
           NEXTBROWSER_CONTROL_URL: controlURL,
+          NEXTBROWSER_WORKSPACE_ID: String(args.workspaceId || ""),
           NEXTBROWSER_CONTROL_TOKEN: controlToken,
           NEXTBROWSER_ALLOWED_PROFILES_JSON: JSON.stringify(mcpProfileScope(profileScope, args.multiloginSelection)),
           NEXTBROWSER_PROFILE_SCOPE_FILE: profileScopeFile,

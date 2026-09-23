@@ -44,7 +44,7 @@ export function ProfileCreateRequestModal() {
   if (!request || dismissedId === request.id) return null;
   const error = errorFor?.id === request.id ? errorFor.message : undefined;
 
-  const names = Array.from({ length: Math.min(request.quantity, 5) }, (_, i) => `${request.name_prefix}-${i + 1}`);
+  const names = Array.from({ length: Math.min(request.quantity, 5) }, (_, i) => request.quantity === 1 ? request.name_prefix : `${request.name_prefix}-${i + 1}`);
   const namesPreview = names.join(", ") + (request.quantity > names.length ? `, … (+${request.quantity - names.length} more)` : "");
 
   const onApprove = async () => {
@@ -93,14 +93,14 @@ export function ProfileCreateRequestModal() {
             </strong>
             <div className="muted small">
               {namesPreview}
+              {` · ${request.runtime === "camoufox" ? "Camoufox" : request.runtime === "dasbrowser" ? "DasBrowser" : "ClawBrowser"}`}
               {request.country ? ` · ${request.country}` : ""}
               {request.proxy_scheme ? ` · ${request.proxy_scheme}` : ""}
             </div>
           </div>
         </div>
         <p className="traffic-gate-modal-copy">
-          Nothing has been created yet. Approve to create these profiles now, or decline to tell
-          the agent no.
+          {request.status === "completed" ? "The profiles were created. Retry to finish adding them to this workspace." : "Nothing has been created yet. Approve to create these profiles now, or decline to tell the agent no."}
         </p>
         {requests.length > 1 && (
           <div className="muted small">{requests.length - 1} more request{requests.length - 1 === 1 ? "" : "s"} waiting after this one.</div>
