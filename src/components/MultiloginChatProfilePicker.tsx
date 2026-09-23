@@ -224,6 +224,14 @@ export function MultiloginChatProfilePicker({
   }, [workspaceId]);
 
   useEffect(() => {
+    // Load connection status on mount. Without this the view returns null
+    // while status is unknown and no profile is selected, so the trigger never
+    // appears and a connected user can never open the picker.
+    if (!workspaceId) return;
+    void loadStatus();
+  }, [loadStatus, workspaceId]);
+
+  useEffect(() => {
     if (!open) return;
     const closeOnPointerDown = (event: PointerEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false);

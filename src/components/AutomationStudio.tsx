@@ -105,6 +105,32 @@ function revealArtifactLabel() {
   return "Show in folder";
 }
 
+const WORKFLOW_DRAFT_ACTIVE_KEY = "nextbrowser:workflow-draft-active";
+
+function workflowDraftStorageKey(id: string) {
+  return `nextbrowser:workflow-draft:${id}`;
+}
+
+function readStoredWorkflowDraft(id: string): BrowserWorkflowSkill | undefined {
+  try {
+    const raw = localStorage.getItem(workflowDraftStorageKey(id));
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as BrowserWorkflowSkill;
+    return parsed && parsed.id === id ? parsed : undefined;
+  } catch { return undefined; }
+}
+
+function activeStoredWorkflowDraftId(): string | undefined {
+  try { return localStorage.getItem(WORKFLOW_DRAFT_ACTIVE_KEY) || undefined; } catch { return undefined; }
+}
+
+function clearStoredWorkflowDraft(id: string) {
+  try {
+    localStorage.removeItem(workflowDraftStorageKey(id));
+    if (localStorage.getItem(WORKFLOW_DRAFT_ACTIVE_KEY) === id) localStorage.removeItem(WORKFLOW_DRAFT_ACTIVE_KEY);
+  } catch { /* ignore storage failures */ }
+}
+
 const SENSITIVE_WORKFLOW_KEY = /^(?:password|passwd|passcode|secret|token|access_token|refresh_token|api[_-]?key|authorization|cookie|card[_-]?(?:number|no)|cvv|cvc)$/i;
 const WORKFLOW_TEMPLATE = /^\{\{[A-Za-z0-9_.-]+\}\}$/;
 
@@ -118,9 +144,11 @@ function containsStoredSecret(value: unknown, sensitiveContext = false): boolean
       && /password|passcode|security code|credit.?card|card.?number|cvv|cvc|api.?key|auth(?:orization)? token/i.test(item),
   );
   return Object.entries(source).some(([key, item]) => {
-    if (SENSITIVE_WORKFLOW_KEY.test(key) || (context && ["text", "value"].includes(key))) {
-      if (typeof item !== "string" || !WORKFLOW_TEMPLATE.test(item.trim())) return true;
-    }
+    // Only a string value under a sensitive key is a stored secret. A schema
+    // field merely named `token` (an object of locator details) must not block
+    // saving; recurse into it instead.
+    if ((SENSITIVE_WORKFLOW_KEY.test(key) || (context && ["text", "value"].includes(key)))
+      && typeof item === "string" && !WORKFLOW_TEMPLATE.test(item.trim())) return true;
     if (key === "url" && typeof item === "string") {
       try {
         const url = new URL(item);
@@ -194,6 +222,7 @@ export function AutomationStudio() {
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>();
   const [workflowListCollapsed, setWorkflowListCollapsed] = useState(false);
   const [draft, setDraft] = useState<BrowserWorkflowSkill>();
+  const [extractionFieldsDraft, setExtractionFieldsDraft] = useState("");
   const [actionErrors, setActionErrors] = useState<Record<number, string>>({});
   const [saving, setSaving] = useState(false);
   const [workflows, setWorkflows] = useState<BrowserWorkflowSkill[]>([]);
@@ -284,15 +313,51 @@ export function AutomationStudio() {
   }, [playback, playbackView?.phase]);
 
   useEffect(() => {
-    if (!selectedWorkflowId && workflows[0]) setSelectedWorkflowId(workflows[0].id);
+    if (selectedWorkflowId || !workflows.length) return;
+    // Prefer restoring the workflow that still has an unsaved draft so edits
+    // survive an unmount (for example, switching app tabs).
+    const restored = workflows.find((skill) => skill.id === activeStoredWorkflowDraftId() && readStoredWorkflowDraft(skill.id));
+    setSelectedWorkflowId((restored || workflows[0]).id);
   }, [workflows, selectedWorkflowId]);
 
+  const lastSelectedWorkflowId = useRef<string | undefined>(undefined);
+  const draftDirtyRef = useRef(false);
+  // The recording PUT returns the authoritative revision. Remember it per
+  // recording so a save retry can advance past a partial save instead of
+  // replaying base_revision 0 and always conflicting.
+  const recordingSaveRevisions = useRef<Record<string, number>>({});
+  draftDirtyRef.current = draftDirty;
   useEffect(() => {
     const selected = workflows.find((skill) => skill.id === selectedWorkflowId);
-    setDraft(selected ? structuredClone(selected) : undefined);
+    const selectionChanged = lastSelectedWorkflowId.current !== selectedWorkflowId;
+    lastSelectedWorkflowId.current = selectedWorkflowId;
+    // A workflow-list refresh (delete, duplicate, library sync) must not throw
+    // away unsaved edits to the currently selected workflow. Only reload the
+    // draft when the selection changes, or when the current draft is clean.
+    if (!selectionChanged && draftDirtyRef.current) return;
+    setDraft(selected ? readStoredWorkflowDraft(selected.id) || structuredClone(selected) : undefined);
     setSelectedActionIndex(0);
     setActionErrors({});
   }, [selectedWorkflowId, workflows]);
+
+  useEffect(() => {
+    if (!draft) return;
+    const saved = workflows.find((item) => item.id === draft.id);
+    // Only keep a stored draft while it differs from the saved workflow, so a
+    // clean workflow never resurrects a stale draft on the next mount.
+    if (saved && JSON.stringify(draft) === JSON.stringify(saved)) return clearStoredWorkflowDraft(draft.id);
+    try {
+      localStorage.setItem(WORKFLOW_DRAFT_ACTIVE_KEY, draft.id);
+      localStorage.setItem(workflowDraftStorageKey(draft.id), JSON.stringify(draft));
+    } catch { /* ignore storage failures */ }
+  }, [draft, workflows]);
+
+  const selectedExtractionFields = draft?.actions[selectedActionIndex] && ["extract", "paginate_extract"].includes(draft.actions[selectedActionIndex].tool)
+    ? Object.keys(extractionFields(draft.actions[selectedActionIndex])).join(", ")
+    : "";
+  useEffect(() => {
+    setExtractionFieldsDraft(selectedExtractionFields);
+  }, [selectedExtractionFields, selectedWorkflowId, selectedActionIndex]);
 
   const loadWorkflows = async () => {
     try { setWorkflows(await invoke<BrowserWorkflowSkill[]>("automation_workflows_list")); }
@@ -484,7 +549,7 @@ export function AutomationStudio() {
   };
 
   const startRecording = async (destination: "recording" | "workflow" = "recording", source: "hybrid" | "agent" = "hybrid") => {
-    if (!s.authed) return setNotice("Connect your NextBrowser account before recording browser actions.");
+    if (!s.authed) return setNotice("Connect your Nextbrowser account before recording browser actions.");
     if (!workspaceId) return setStudioError("Create or select a workspace before recording.");
     try {
       const existing = activeAutomationRecording();
@@ -569,6 +634,7 @@ export function AutomationStudio() {
         ? capturedRunFromHybridRecording(active.id, await invoke<ManualBrowserRecording>("automation_page_recording_stop", { recordingId: active.id }), agentCaptured)
         : agentCaptured;
       capturedForRetry = captured;
+      if (captured?.captureError) setStudioError(`The browser recorder reported an error during capture: ${captured.captureError}`);
       if (captured) {
         const domain = capturedWorkflowDomain(captured.task, captured.evidence);
         const quality = workflowQuality(captured.task, captured.evidence, domain);
@@ -610,11 +676,22 @@ export function AutomationStudio() {
         });
       }
     }
-    finally { setRecordingStopping(false); }
+    finally {
+      // A failed Stop (recorder already gone, IPC failure, or cancellation)
+      // must never leave the banner stuck. Always release the recording state
+      // so a new recording can start; the error is surfaced by reportError or
+      // by the save-retry review above.
+      clearActiveAutomationRecording();
+      setRecordingSince(0);
+      setRecordingDestination("recording");
+      setRecordingStopping(false);
+    }
   };
 
   const saveCompletedRecording = async (active: ActiveAutomationRecording, captured: CapturedRun) => {
-        await invoke("automation_recording_put", { recording: { id: active.id, status: "completed", document: { run: captured }, base_revision: 0 } });
+        const baseRevision = recordingSaveRevisions.current[active.id] ?? 0;
+        const saved = await invoke<BackendRecording>("automation_recording_put", { recording: { id: active.id, status: "completed", document: { run: captured }, base_revision: baseRevision } });
+        recordingSaveRevisions.current[active.id] = typeof saved?.revision === "number" ? saved.revision : baseRevision + 1;
         let savedWorkflow: BrowserWorkflowSkill | undefined;
         if (active.destination === "workflow") {
           const domain = capturedWorkflowDomain(captured.task, captured.evidence);
@@ -640,6 +717,7 @@ export function AutomationStudio() {
         } else {
           setNotice("Recording stopped and saved. Review it below or turn it into a workflow.");
         }
+        delete recordingSaveRevisions.current[active.id];
   };
 
   const saveRecordingReview = async () => {
@@ -773,6 +851,12 @@ export function AutomationStudio() {
     updateActionArgument(index, "fields", Object.fromEntries(names.map((name) => [name, specs[name] && typeof specs[name] === "object" ? specs[name] : { selector: "" }])));
   };
 
+  const commitExtractionFields = (index: number, raw: string) => {
+    const names = raw.split(",").map((item) => item.trim()).filter(Boolean);
+    updateExtractionFields(index, names);
+    setExtractionFieldsDraft(names.join(", "));
+  };
+
   const previewUrl = () => {
     const step = draft?.actions.find((action) => ["navigate", "open"].includes(action.tool));
     const url = typeof step?.arguments.url === "string" ? step.arguments.url.trim() : "";
@@ -804,8 +888,8 @@ export function AutomationStudio() {
         fieldName,
         container: mode === "field" ? action.arguments.container : undefined,
         openUrl: previewUrl(),
-        profile: s.selectedProfile,
-        runtime: selectedBrowserRuntime(),
+        profile: automationProfile,
+        runtime: selectedBrowserRuntime(automationProfile),
       });
       if (result.cancelled) return setNotice("Element selection cancelled. No workflow step was changed.");
       if (!result.selector) throw new Error("The selected element did not produce a reusable locator.");
@@ -889,6 +973,7 @@ export function AutomationStudio() {
     try {
       const saved = await invoke<BrowserWorkflowSkill>("automation_workflow_put", { workflow: { ...draft, recipe: { ...draft.recipe, actions: draft.actions } } });
       setWorkflows((current) => current.some((item) => item.id === saved.id) ? current.map((item) => item.id === saved.id ? saved : item) : [saved, ...current]);
+      clearStoredWorkflowDraft(saved.id);
       setDraft(saved);
       setStudioError(undefined);
       setNotice("Workflow saved.");
@@ -926,7 +1011,10 @@ export function AutomationStudio() {
         task: edit.task,
         capability: edit.capability,
         actions: edit.actions,
-        recipe: { version: 1, capability: edit.capability, actions: edit.actions },
+        // Keep the seeder's example_key/example_version so the next library sync
+        // recognizes this workflow as up to date instead of restoring the
+        // pristine example over the user's AI edits.
+        recipe: { ...draft.recipe, version: 1, capability: edit.capability, actions: edit.actions },
       };
       const validationError = workflowDraftError(candidate);
       if (validationError) throw new Error(`AI change was not applied: ${validationError}`);
@@ -943,6 +1031,7 @@ export function AutomationStudio() {
 
   const createWorkflow = async () => {
     if (draftDirty && !window.confirm("Discard unsaved workflow changes and create a new workflow?")) return;
+    if (draftDirty && draft) clearStoredWorkflowDraft(draft.id);
     setStudioError(undefined);
     const createdAt = Date.now();
     const action: BrowserWorkflowAction = { tool: "navigate", arguments: { url: "https://example.com" } };
@@ -968,6 +1057,7 @@ export function AutomationStudio() {
     setStudioError(undefined);
     try {
       await invoke("automation_workflow_delete", { id: workflow.id });
+      clearStoredWorkflowDraft(workflow.id);
       setWorkflows((current) => current.filter((item) => item.id !== workflow.id));
       if (selectedWorkflowId === workflow.id) {
         setSelectedWorkflowId(undefined);
@@ -991,6 +1081,7 @@ export function AutomationStudio() {
 
   const selectWorkflow = (id: string) => {
     if (draftDirty && !window.confirm("Discard unsaved workflow changes?")) return;
+    if (draftDirty && draft) clearStoredWorkflowDraft(draft.id);
     setSelectedWorkflowId(id);
     setWorkflowListCollapsed(true);
   };
@@ -1071,7 +1162,12 @@ export function AutomationStudio() {
       setPlayback(finished);
       setActiveAutomationExecution(finished);
       setNotice(undefined);
-      if (backendRunId) await invoke("automation_run_update", { id: backendRunId, update: { status: result.status, output: { engine: "deterministic", steps: result.results.map(({ index, tool, ok, error }) => ({ index, tool, ok, error })), detail } } });
+      if (backendRunId) {
+        // Persisting run history is best-effort: a transient backend failure
+        // must not turn a run that actually succeeded into a reported failure.
+        await invoke("automation_run_update", { id: backendRunId, update: { status: result.status, output: { engine: "deterministic", steps: result.results.map(({ index, tool, ok, error }) => ({ index, tool, ok, error })), detail } } })
+          .catch((error) => console.warn("[AUTOMATION_RUN_HISTORY_UNAVAILABLE] could not persist final run state", error));
+      }
       await Promise.all([loadRuns(), loadArtifacts()]);
       if (result.status === "completed") setNotice("Replay completed successfully.");
       else if (result.status === "failed") {
@@ -1167,8 +1263,22 @@ export function AutomationStudio() {
   const importArtifacts = async () => {
     setArtifactBusy(true);
     setArtifactError(undefined);
-    try { setArtifacts(await invoke<AutomationArtifact[]>("artifact_import", { workspaceId })); }
-    catch (error) { setArtifactError(error instanceof Error ? error.message : String(error)); }
+    try {
+      const result = await invoke<{
+        artifacts: AutomationArtifact[];
+        imported: number;
+        failed: { path: string; error: string }[];
+        skipped: number;
+      }>("artifact_import", { workspaceId });
+      // Always refresh the list, even when some files failed, so successfully
+      // imported files are visible instead of being hidden by one error.
+      setArtifacts(result.artifacts);
+      const problems = [
+        ...(result.failed ?? []).map((item) => `${item.path}: ${item.error}`),
+        ...(result.skipped > 0 ? [`${result.skipped} file(s) skipped (up to 20 per import).`] : []),
+      ];
+      setArtifactError(problems.length ? `Some files could not be imported. ${problems.join("; ")}` : undefined);
+    } catch (error) { setArtifactError(error instanceof Error ? error.message : String(error)); }
     finally { setArtifactBusy(false); }
   };
 
@@ -1178,7 +1288,7 @@ export function AutomationStudio() {
       const message = error instanceof Error ? error.message : String(error);
       if (/artifact (?:file was removed|no longer exists)/i.test(message)) {
         await loadArtifacts();
-        setArtifactError(`${artifact.name} was deleted outside NextBrowser and has been removed from this list.`);
+        setArtifactError(`${artifact.name} was deleted outside Nextbrowser and has been removed from this list.`);
       } else setArtifactError(message);
     }
   };
@@ -1189,7 +1299,7 @@ export function AutomationStudio() {
       const message = error instanceof Error ? error.message : String(error);
       if (/artifact (?:file was removed|no longer exists)/i.test(message)) {
         await loadArtifacts();
-        setArtifactError(`${artifact.name} was deleted outside NextBrowser and has been removed from this list.`);
+        setArtifactError(`${artifact.name} was deleted outside Nextbrowser and has been removed from this list.`);
       } else setArtifactError(message);
     }
   };
@@ -1236,7 +1346,7 @@ export function AutomationStudio() {
       {studioError && <div className="error automation-global-message" role="alert"><strong>Automation couldn’t complete the action.</strong><span>{studioError}</span><button onClick={() => setStudioError(undefined)}>Dismiss</button></div>}
       {notice && <div className="automation-global-message success" role="status"><span>{notice}</span><button onClick={() => setNotice(undefined)}>Dismiss</button></div>}
       {incomingShares.length > 0 && <section className="automation-share-inbox" aria-label="Shared with me"><div><Icon name="person.2.fill" size={15} /><span><strong>Shared with you</strong><small>{incomingShares.length} automation {incomingShares.length === 1 ? "copy is" : "copies are"} ready to add to your library.</small></span></div><div className="automation-share-inbox-items">{incomingShares.map((share) => <article key={share.id}><span><strong>{share.title}</strong><small>{share.source_kind === "workflow" ? "Workflow" : "Recording"}{share.sender_email ? ` · from ${share.sender_email}` : ""}</small></span><div className="automation-inline-actions"><button className="secondary" disabled={shareBusy} onClick={() => void declineShare(share)}>Decline</button><button className="secondary" disabled={shareBusy} onClick={() => void acceptShare(share)}>Add to my automations</button></div></article>)}</div></section>}
-      {sentShares.length > 0 && <section className="automation-share-inbox automation-share-sent" aria-label="Shared by me"><div><Icon name="paperplane.fill" size={15} /><span><strong>Shared by you</strong><small>Track copies sent to other NextBrowser users.</small></span></div><div className="automation-share-inbox-items">{sentShares.map((share) => <article key={share.id}><span><strong>{share.title}</strong><small>{share.source_kind === "workflow" ? "Workflow" : "Recording"}{share.recipient_email ? ` · to ${share.recipient_email}` : ""}</small></span><div className="automation-inline-actions"><span className={`automation-share-status ${share.status}`}>{share.status === "pending" ? "Waiting" : share.status === "accepted" ? "Added" : "Declined"}</span>{share.status === "pending" && <button className="secondary" disabled={shareBusy} onClick={() => void revokeShare(share)}>Revoke</button>}</div></article>)}</div></section>}
+      {sentShares.length > 0 && <section className="automation-share-inbox automation-share-sent" aria-label="Shared by me"><div><Icon name="paperplane.fill" size={15} /><span><strong>Shared by you</strong><small>Track copies sent to other Nextbrowser users.</small></span></div><div className="automation-share-inbox-items">{sentShares.map((share) => <article key={share.id}><span><strong>{share.title}</strong><small>{share.source_kind === "workflow" ? "Workflow" : "Recording"}{share.recipient_email ? ` · to ${share.recipient_email}` : ""}</small></span><div className="automation-inline-actions"><span className={`automation-share-status ${share.status}`}>{share.status === "pending" ? "Waiting" : share.status === "accepted" ? "Added" : "Declined"}</span>{share.status === "pending" && <button className="secondary" disabled={shareBusy} onClick={() => void revokeShare(share)}>Revoke</button>}</div></article>)}</div></section>}
       {playback && playbackView && <div className={`recording-progress-card ${playbackView.phase}`} role="status">
         <div className="recording-progress-head"><span><Icon name={playbackView.phase === "completed" ? "checkmark.circle.fill" : ["failed", "cancelled"].includes(playbackView.phase) ? "xmark.circle.fill" : playbackView.phase === "stopping" ? "stop.fill" : "play.fill"} size={14} /><strong>{playbackView.phase === "completed" ? "Execution completed" : playbackView.phase === "cancelled" ? "Execution stopped" : playbackView.phase === "failed" ? "Execution failed" : playbackView.phase === "stopping" ? "Stopping execution" : playback.engine === "agent" ? "AI is repairing the workflow" : playbackView.phase === "preparing" ? "Preparing execution" : "Running saved steps"}</strong></span><b>{playbackView.progress}%</b></div>
         <div className="recording-progress-track"><i style={{ width: `${playbackView.progress}%` }} /></div>
@@ -1252,7 +1362,7 @@ export function AutomationStudio() {
 
       {section === "recorder" && <section className="automation-panel">
         <div className="automation-panel-head"><div><h2>Recordings</h2><p>Perform a task in the browser once, then replay the captured actions.</p></div>
-          <div className="row">{recordingSince > 0 ? <button className="secondary danger-text" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={12} /> : <Icon name="stop.fill" size={12} />} {recordingModeButtonLabel}</button> : <button className="primary" disabled={!s.authed} title={!s.authed ? "Connect your NextBrowser account to record browser actions." : undefined} onClick={() => void startRecording()}><Icon name="circle.fill" size={12} /> {s.authed ? "Start recording" : "Connect account to record"}</button>}</div>
+          <div className="row">{recordingSince > 0 ? <button className="secondary danger-text" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={12} /> : <Icon name="stop.fill" size={12} />} {recordingModeButtonLabel}</button> : <button className="primary" disabled={!s.authed} title={!s.authed ? "Connect your Nextbrowser account to record browser actions." : undefined} onClick={() => void startRecording()}><Icon name="circle.fill" size={12} /> {s.authed ? "Start recording" : "Connect account to record"}</button>}</div>
         </div>
         {recordingSince > 0 && <div className="recording-banner"><span className="recording-dot" /><span className="recording-banner-copy">{["manual", "hybrid"].includes(activeAutomationRecording()?.source || "agent") ? `Recording your actions and agent browser actions in ${activeAutomationRecording()?.profile || "the default browser"}. Press Stop when finished.` : recordedRun ? "Browser task captured — press Stop to save it." : `Recording is armed in ${recordingModeLabel}. Complete one browser task in Project Chat, then press Stop.`}</span>{["manual", "hybrid"].includes(activeAutomationRecording()?.source || "agent") && <span className="recording-banner-actions"><button className="secondary" onClick={() => s.setTab("live")}><Icon name="play.rectangle.on.rectangle.fill" size={12} /> Open browser</button><button className="secondary" onClick={() => { if (s.terminalChat) s.setTerminalChat(false); s.setTab("chat"); }}><Icon name="bubble.left.and.bubble.right.fill" size={12} /> Open Project Chat</button></span>}</div>}
         <div className="capture-list">
@@ -1363,7 +1473,7 @@ export function AutomationStudio() {
                     {action.tool === "select" && <><label>Target on the page<div className="workflow-visual-target"><span className={actionTarget(action) ? "selected" : ""}>{targetSummary(action)}</span><button type="button" className="secondary" disabled={!!elementPick} onClick={() => void pickElement(index, "target")}><Icon name="cursorarrow" size={12} /> {actionTarget(action) ? "Select again" : "Select on page"}</button></div></label><label>Option value<input value={String(action.arguments.value || "")} onChange={(event) => updateActionArgument(index, "value", event.target.value)} /></label></>}
                     {action.tool === "wait" && <label>Content that means the page is ready<div className="workflow-visual-target"><span className={action.arguments.selector ? "selected" : ""}>{action.arguments.selector ? "Selected page content" : "No content selected"}</span><button type="button" className="secondary" disabled={!!elementPick} onClick={() => void pickElement(index, "target")}><Icon name="cursorarrow" size={12} /> {action.arguments.selector ? "Select again" : "Select on page"}</button></div></label>}
                     {action.tool === "act" && <><label>Interaction<input value={String(action.arguments.action || "click")} placeholder="click, type, or press" onChange={(event) => updateActionArgument(index, "action", event.target.value)} /></label><label>Target on the page <small>Optional</small><div className="workflow-visual-target"><span className={action.arguments.selector ? "selected" : ""}>{action.arguments.selector ? "Selected page element" : "No element selected"}</span><button type="button" className="secondary" disabled={!!elementPick} onClick={() => void pickElement(index, "target")}><Icon name="cursorarrow" size={12} /> {action.arguments.selector ? "Select again" : "Select on page"}</button></div></label>{action.arguments.action === "type" && <label>Text to enter<input value={String(action.arguments.text || "")} onChange={(event) => updateActionArgument(index, "text", event.target.value)} /></label>}</>}
-                    {["extract", "paginate_extract"].includes(action.tool) && <><label>One repeated result row<div className="workflow-visual-target"><span className={action.arguments.container ? "selected" : ""}>{action.arguments.container ? "Result row selected" : "Select one card, row, or search result"}</span><button type="button" className="secondary" disabled={!!elementPick} onClick={() => void pickElement(index, "container")}><Icon name="cursorarrow" size={12} /> {action.arguments.container ? "Select again" : "Select row on page"}</button></div></label><label>Results required <small>The run fails instead of saving a partial file</small><input type="number" min={1} max={1000} value={Number(action.arguments.required_rows || action.arguments.limit || 10)} onChange={(event) => updateExtractionResultCount(index, event.target.value)} /></label><label>Data fields <small>Name what you want to collect</small><input value={Object.keys(extractionFields(action)).join(", ")} placeholder="title, price, url" onChange={(event) => updateExtractionFields(index, event.target.value.split(",").map((item) => item.trim()).filter(Boolean))} /></label>{Object.entries(extractionFields(action)).map(([name, spec]) => <label key={name}>{name}<div className="workflow-visual-target"><span className={spec.selector ? "selected" : ""}>{spec.selector ? `${name} selected${spec.attribute ? ` · ${String(spec.attribute)}` : ""}` : `Select ${name} inside the result row`}</span><button type="button" className="secondary" disabled={!!elementPick || !action.arguments.container} title={!action.arguments.container ? "Select the repeated result row first" : `Select ${name} on page`} onClick={() => void pickElement(index, "field", name)}><Icon name="cursorarrow" size={12} /> {spec.selector ? "Select again" : "Select on page"}</button></div></label>)}{action.tool === "paginate_extract" && <><label>Next page button<div className="workflow-visual-target"><span className={action.arguments.next_selector ? "selected" : ""}>{action.arguments.next_selector ? "Next button selected" : "No Next button selected"}</span><button type="button" className="secondary" disabled={!!elementPick} onClick={() => void pickElement(index, "next")}><Icon name="cursorarrow" size={12} /> {action.arguments.next_selector ? "Select again" : "Select on page"}</button></div></label><label className="workflow-checkbox"><input type="checkbox" checked={action.arguments.scroll === true} onChange={(event) => updateActionArgument(index, "scroll", event.target.checked || undefined)} /> Use infinite scrolling instead</label></>}</>}
+                    {["extract", "paginate_extract"].includes(action.tool) && <><label>One repeated result row<div className="workflow-visual-target"><span className={action.arguments.container ? "selected" : ""}>{action.arguments.container ? "Result row selected" : "Select one card, row, or search result"}</span><button type="button" className="secondary" disabled={!!elementPick} onClick={() => void pickElement(index, "container")}><Icon name="cursorarrow" size={12} /> {action.arguments.container ? "Select again" : "Select row on page"}</button></div></label><label>Results required <small>The run fails instead of saving a partial file</small><input type="number" min={1} max={1000} value={Number(action.arguments.required_rows || action.arguments.limit || 10)} onChange={(event) => updateExtractionResultCount(index, event.target.value)} /></label><label>Data fields <small>Name what you want to collect</small><input value={extractionFieldsDraft} placeholder="title, price, url" onChange={(event) => setExtractionFieldsDraft(event.target.value)} onBlur={(event) => commitExtractionFields(index, event.target.value)} /></label>{Object.entries(extractionFields(action)).map(([name, spec]) => <label key={name}>{name}<div className="workflow-visual-target"><span className={spec.selector ? "selected" : ""}>{spec.selector ? `${name} selected${spec.attribute ? ` · ${String(spec.attribute)}` : ""}` : `Select ${name} inside the result row`}</span><button type="button" className="secondary" disabled={!!elementPick || !action.arguments.container} title={!action.arguments.container ? "Select the repeated result row first" : `Select ${name} on page`} onClick={() => void pickElement(index, "field", name)}><Icon name="cursorarrow" size={12} /> {spec.selector ? "Select again" : "Select on page"}</button></div></label>)}{action.tool === "paginate_extract" && <><label>Next page button<div className="workflow-visual-target"><span className={action.arguments.next_selector ? "selected" : ""}>{action.arguments.next_selector ? "Next button selected" : "No Next button selected"}</span><button type="button" className="secondary" disabled={!!elementPick} onClick={() => void pickElement(index, "next")}><Icon name="cursorarrow" size={12} /> {action.arguments.next_selector ? "Select again" : "Select on page"}</button></div></label><label className="workflow-checkbox"><input type="checkbox" checked={action.arguments.scroll === true} onChange={(event) => updateActionArgument(index, "scroll", event.target.checked || undefined)} /> Use infinite scrolling instead</label></>}</>}
                     {action.tool === "evaluate" && <label>Read-only page data script <small>Captured from the successful run. Use Edit with AI to change what it collects.</small><textarea className="workflow-page-script" rows={8} value={String(action.arguments.expression || "")} spellCheck={false} onChange={(event) => updateActionArgument(index, "expression", event.target.value)} /></label>}
                     {action.tool === "save_artifact" && <div className="workflow-artifact-step"><label>What to save<select value={String(action.arguments.source || "last_result")} onChange={(event) => updateActionArgument(index, "source", event.target.value)}><option value="last_result">Previous step result</option><option value="data_results">Collected data only</option><option value="run_results">All workflow results</option></select></label><label>File format<select value={String(action.arguments.format || "json")} onChange={(event) => updateArtifactFormat(index, event.target.value)}><option value="json">JSON</option><option value="csv">CSV table</option><option value="txt">Plain text</option></select></label><label>File name<input maxLength={180} value={String(action.arguments.name || "")} placeholder="workflow-result.json" onChange={(event) => updateActionArgument(index, "name", event.target.value)} /></label><div className="artifact-local-note"><Icon name="info.circle" size={13} /><span>Created after every successful run and stored only on this computer. Open it later in Artifact Center.</span></div></div>}
                     <details><summary>Advanced JSON</summary><textarea key={JSON.stringify(action.arguments)} defaultValue={JSON.stringify(action.arguments, null, 2)} aria-label={`Step ${index + 1} arguments`} onBlur={(event) => updateAction(index, "arguments", event.target.value)} /></details>{actionErrors[index] && <small className="error">{actionErrors[index]}</small>}
@@ -1411,7 +1521,7 @@ export function AutomationStudio() {
         const trust = automationTrustSummary(pendingExecution.workflow);
         return <div className="modal-overlay trust-preview-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPendingExecution(undefined); }}>
           <section className="modal-card trust-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="trust-preview-title">
-            <div className="trust-preview-title"><span><Icon name="checkmark.shield.fill" size={20} /></span><div><h2 id="trust-preview-title">Review this automation</h2><p>NextBrowser will use the selected browser exactly as shown below.</p></div></div>
+            <div className="trust-preview-title"><span><Icon name="checkmark.shield.fill" size={20} /></span><div><h2 id="trust-preview-title">Review this automation</h2><p>Nextbrowser will use the selected browser exactly as shown below.</p></div></div>
             <dl className="trust-preview-grid"><div><dt>Profile</dt><dd>{automationProfile || "Default browser"}</dd></div><div><dt>Website</dt><dd>{trust.domains.length ? trust.domains.join(", ") : "Current workflow target"}</dd></div><div><dt>Storage</dt><dd>{trust.savesLocalArtifact ? "Artifact Center · local only" : "No artifact output requested"}</dd></div><div><dt>Execution</dt><dd>Fast deterministic steps{pendingExecution.workflow.instructions.trim() ? " · AI repair available" : ""}</dd></div></dl>
             <div className="trust-preview-effects">{trust.effects.map((effect) => <span key={effect} className={["external_upload", "authentication", "publication", "proxy_change"].includes(effect) ? "risk" : ""}><Icon name={["external_upload", "authentication", "publication", "proxy_change"].includes(effect) ? "exclamationmark.triangle.fill" : effect === "local_artifact" ? "tray.full.fill" : "checkmark.circle"} size={12} /> {trustEffectLabel(effect)}</span>)}</div>
             <ul>{trust.explanation.map((line) => <li key={line}>{line}</li>)}</ul>

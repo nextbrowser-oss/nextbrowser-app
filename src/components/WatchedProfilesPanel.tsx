@@ -192,7 +192,11 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
     const known = profiles.some((item) => item.handle.toLowerCase() === handle.toLowerCase());
     addWatchedProfile(entry.id, handle);
     setDraft("");
-    setError(known ? `${prefix}${handle} is already on the list.` : "");
+    if (known) setError(`${prefix}${handle} is already on the list.`);
+    // An engine-backed skill only subscribes the account when a browser profile
+    // is available. Say so instead of adding it silently and never subscribing.
+    else if (engine && !profileAvailable) setError(`Choose a browser profile for this skill to subscribe ${prefix}${handle}.`);
+    else setError("");
     // Confirming an account subscribes it there and then: the bell goes on and
     // the account's current position is recorded, so the first pass answers what
     // comes next rather than the whole visible timeline.
@@ -535,7 +539,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                 {busy && step ? `${step}…`
                   : run?.enabled
                     ? `Next check ${until(run.nextRunAt)}${engineState.lastPassSummary ? ` · ${engineState.lastPassSummary}` : ""}`
-                    : engineState.lastPassSummary || "Checks the list on a schedule while NextBrowser is open."}
+                    : engineState.lastPassSummary || "Checks the list on a schedule while Nextbrowser is open."}
               </div>
               {/* The counted summary says a post failed; only these say why, and
                   without them a broken pass is indistinguishable from a quiet one. */}

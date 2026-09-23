@@ -10,7 +10,7 @@ test("identifies local proxy listeners", () => {
   for (const host of ["proxy.example", "192.0.2.1", "::2"]) assert.equal(isLoopbackProxyHost(host), false, host);
 });
 
-test("blocks a local proxy only for ClawBrowser", () => {
+test("blocks a local proxy only for Clawbrowser", () => {
   assert.throws(
     () => assertManualProxyRuntimeSupport("clawbrowser", { host: "127.0.0.1" }),
     /LOCAL_PROXY_UNSUPPORTED/,

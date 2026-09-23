@@ -60,6 +60,17 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   assert.doesNotMatch(main, /mcpEnvKeys\.push\("MULTILOGIN_TOKEN"\)/);
   assert.match(main, /plugins\."clawbrowser@clawctl-local"\.mcp_servers\.clawbrowser\.enabled=false/);
   assert.match(main, /plugins\."clawbrowser@nbc-local"\.enabled=false/);
+  // nbc-local is the plugin `nbc install codex` actually registers today; its
+  // own nested mcp_servers.clawbrowser entry needs the same explicit disable
+  // as clawctl-local's, or Codex still starts it and the handshake can close
+  // mid-initialize (disabling only the plugin's top-level `enabled` flag is
+  // not enough — see NB MCP startup incomplete reports).
+  assert.match(main, /plugins\."clawbrowser@nbc-local"\.mcp_servers\.clawbrowser\.enabled=false/);
+  // Same fix, mirrored in the static CODEX_TERMINAL_PROFILE_CONTENT TOML that
+  // ensureCodexTerminalProfile() writes to ~/.codex/nextbrowser.config.toml —
+  // the `-c` flags above only cover the one launch, this file is what a
+  // stray direct `codex --profile nextbrowser` invocation would still read.
+  assert.match(main, /\[plugins\."clawbrowser@nbc-local"\.mcp_servers\.clawbrowser\][\s\S]*?enabled = false/);
   assert.match(main, /mcp_servers\.nextbrowser\.default_tools_approval_mode=approve/);
   assert.match(main, /"--add-dir", dir/);
   assert.match(main, /\.cache", "clawbrowser"/);
@@ -84,7 +95,7 @@ test("Terminal accepts legacy Antigravity ids and reports an actionable version 
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   assert.match(main, /"antigravity-cli": "antigravity"/);
   assert.match(main, /const resolvedAgentId = terminalAgentId\(requestedAgentId\)/);
-  assert.match(main, /Restart NextBrowser to complete its update/);
+  assert.match(main, /Restart Nextbrowser to complete its update/);
 });
 
 test("Windows hides the Electron menu bar and local proxies fail clearly before ClawBrowser launch", () => {
@@ -116,7 +127,7 @@ test("Terminal Chat restarts onto the active Recorder trace", () => {
 test("active Recorder requires a replayable final data-collection call", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const store = fs.readFileSync(path.join(__dirname, "..", "src", "store.ts"), "utf8");
-  assert.match(store, /NextBrowser Recorder is active for this task/);
+  assert.match(store, /Nextbrowser Recorder is active for this task/);
   assert.match(store, /Prefer navigate_extract/);
   assert.match(store, /call extract or paginate_extract/);
   assert.match(store, /call evaluate once with a read-only expression/);

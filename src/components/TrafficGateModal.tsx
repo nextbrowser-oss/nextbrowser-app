@@ -1,6 +1,8 @@
+import { useEffect } from "react";
 import { useStore } from "../store";
 import { discordUrl } from "../constants";
 import { trackEvent } from "../lib/analytics";
+import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { freeTrafficAllowanceBytes, trafficGateState } from "../lib/trafficGate";
 import { humanBytes } from "../types";
 import { Icon } from "./Icon";
@@ -17,6 +19,17 @@ export function TrafficGateModal() {
   const proxy = useStore((s) => s.proxy);
   const open = useStore((s) => s.trafficGatePromptOpen);
   const setOpen = useStore((s) => s.setTrafficGatePromptOpen);
+
+  useEffect(() => {
+    if (!open || trafficGateState(proxy) !== "blocked") return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setOpen(false);
+    };
+    window.addEventListener("keydown", dismiss);
+    return () => window.removeEventListener("keydown", dismiss);
+  }, [open, proxy, setOpen]);
 
   // The store only opens this on a gated account, but a grant can land while
   // the modal is up; the moment it does, the pause is over and it should go.
@@ -64,7 +77,7 @@ export function TrafficGateModal() {
           </span>
         </div>
         <div className="modal-actions">
-          <button className="btn-bordered" type="button" onClick={() => setOpen(false)}>
+          <button className="btn-bordered" type="button" autoFocus onClick={() => setOpen(false)}>
             Later
           </button>
           <button className="primary" type="button" onClick={askInDiscord}>

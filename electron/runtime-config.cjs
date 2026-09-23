@@ -3,12 +3,22 @@ const fsSync = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-// NextBrowser runtime tokens are minted by the backend with this prefix
+// Nextbrowser runtime tokens are minted by the backend with this prefix
 // (see GenerateRuntimeToken / VerifyRuntimeToken). A Clawbrowser key never
 // carries it, which lets the migration tell the two apart when they share the
 // legacy config path.
 const NEXTBROWSER_TOKEN_PREFIX = "nb_live_";
 const DEFAULT_RUNTIME_API_BASE_URL = "https://api.nextbrowser.com";
+
+// Explicit host configuration must override the renderer's production default
+// for both halves of account pairing. Runtime routing remains independent.
+function accountAPIBaseURL(raw, env = process.env) {
+  return String(env.NEXTBROWSER_DEV_API_BASE_URL
+    || env.NEXTBROWSER_API_BASE_URL
+    || env.CLAWBROWSER_API_BASE_URL
+    || raw
+    || DEFAULT_RUNTIME_API_BASE_URL).replace(/\/$/, "");
+}
 
 // A development entity service may not expose browser Remote Session routes.
 // Keep runtime traffic independently configurable while the app continues to
@@ -43,10 +53,10 @@ function legacyStateRoot({ homeDir = os.homedir(), env = process.env } = {}) {
 }
 
 // Build the one-time upgrade migration plan (ordered steps to copy). Returns []
-// (no-op) unless this machine has a genuine, not-yet-migrated NextBrowser
+// (no-op) unless this machine has a genuine, not-yet-migrated Nextbrowser
 // session. Safe by construction:
 //   - runs only when the isolated config is absent (i.e. first isolated launch),
-//   - only for a genuine NextBrowser runtime token, so a Clawbrowser key sharing
+//   - only for a genuine Nextbrowser runtime token, so a Clawbrowser key sharing
 //     the legacy path is never imported,
 //   - never overwrites an existing isolated target,
 //   - config.json is copied LAST so it acts as the completion marker: a crash
@@ -143,7 +153,7 @@ async function clearRuntimeCredential({ runtimeRoot }) {
     if (error?.code !== "ENOENT") throw error;
   }
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("NextBrowser config must contain a JSON object");
+    throw new Error("Nextbrowser config must contain a JSON object");
   }
   delete payload.api_key;
   await fs.mkdir(configDir, { recursive: true, mode: 0o700 });
@@ -152,6 +162,7 @@ async function clearRuntimeCredential({ runtimeRoot }) {
 }
 
 module.exports = {
+  accountAPIBaseURL,
   NEXTBROWSER_TOKEN_PREFIX,
   runtimeAPIBaseURL,
   legacyConfigPath,

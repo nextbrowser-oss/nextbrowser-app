@@ -5,6 +5,7 @@ const path = require("node:path");
 const test = require("node:test");
 
 const {
+  assertClawbrowserSessionsStopped,
   assertRuntimeReleaseVersion,
   checkBrowserRuntimeUpdates,
   clawbrowserReleaseAsset,
@@ -47,6 +48,13 @@ test("builds official platform release URLs without using the GitHub API", () =>
   });
   assert.equal(clawbrowserReleaseAsset("win32", "x64", "1.0.4").assetName, "clawbrowser-win-amd64.zip");
   assert.throws(() => clawbrowserReleaseAsset("darwin", "x64", "1.0.4"), /not available/);
+  // Platform-suffixed releases use a "v"-prefixed tag (e.g. v1.0.6-windows).
+  // The asset URL must keep that tag or the download 404s and the app wrongly
+  // reports the platform asset as unavailable.
+  assert.equal(
+    clawbrowserReleaseAsset("darwin", "arm64", "1.0.6-windows").url,
+    "https://github.com/clawbrowser/clawbrowser/releases/download/v1.0.6-windows/clawbrowser-macos-arm64.tar.gz",
+  );
 });
 
 test("installs only explicitly confirmed updates or missing toolsets", () => {
@@ -64,7 +72,7 @@ test("installs only explicitly confirmed updates or missing toolsets", () => {
 test("continues all confirmed toolset updates when one of three fails", async () => {
   const available = {
     runtimes: [
-      { runtime: "clawbrowser", name: "ClawBrowser", latestVersion: "1.0.4", status: "available" },
+      { runtime: "clawbrowser", name: "Clawbrowser", latestVersion: "1.0.4", status: "available" },
       { runtime: "camoufox", name: "Camoufox", latestVersion: "0.5.5", status: "available" },
       { runtime: "dasbrowser", name: "DasBrowser", latestVersion: "144.32", status: "available" },
     ],
@@ -94,7 +102,7 @@ test("continues all confirmed toolset updates when one of three fails", async ()
     category: "Connection problem",
     retryable: true,
     message: "Package mirror timed out",
-    recovery: "Keep NextBrowser open and check your internet connection, then retry.",
+    recovery: "Keep Nextbrowser open and check your internet connection, then retry.",
   }]);
   assert.equal(result.progress, 100);
   assert.equal(statuses.at(-1).message, "Some browser toolsets were updated, but others need attention.");
@@ -104,14 +112,69 @@ test("classifies recovery guidance without exposing an opaque raw failure", () =
   assert.equal(classifyRuntimeUpdateFailure(new Error("ENOSPC: no space left on device")).code, "UPDATE_DISK_SPACE");
   assert.equal(classifyRuntimeUpdateFailure(new Error("EACCES permission denied")).code, "UPDATE_PERMISSION");
   assert.equal(classifyRuntimeUpdateFailure(new Error("runtime is locked by a running browser")).code, "UPDATE_RUNTIME_IN_USE");
+  assert.equal(classifyRuntimeUpdateFailure(new Error("Clawbrowser is still running in: worker")).code, "UPDATE_RUNTIME_IN_USE");
+  assert.equal(classifyRuntimeUpdateFailure(new Error("Clawbrowser session status is unavailable")).code, "UPDATE_RUNTIME_STATE_UNKNOWN");
   assert.equal(classifyRuntimeUpdateFailure(new Error("fetch failed: ETIMEDOUT")).code, "UPDATE_NETWORK");
   assert.equal(classifyRuntimeUpdateFailure(new Error("bad release payload")).code, "UPDATE_UNKNOWN");
+});
+
+function nextctlStatus(name, status, runtime = "clawbrowser", pid = "") {
+  return {
+    code: 0,
+    stdout: JSON.stringify({ ok: true, data: { status, session: { name, runtime }, ...(pid ? { pid } : {}) } }),
+  };
+}
+
+test("allows a Clawbrowser update only when every Clawbrowser session is stopped", async () => {
+  const statuses = {
+    default: nextctlStatus("default", "stopped", ""),
+    research: nextctlStatus("research", "stopped"),
+    firefox: nextctlStatus("firefox", "running", "camoufox"),
+  };
+  await assert.doesNotReject(assertClawbrowserSessionsStopped({
+    sessionNames: ["research", "default", "firefox", "research"],
+    statusSession: async (name) => statuses[name],
+  }));
+});
+
+test("does not require nextctl status when there are no persisted sessions", async () => {
+  await assert.doesNotReject(assertClawbrowserSessionsStopped({
+    sessionNames: [],
+    statusSession: async () => { throw new Error("should not run"); },
+  }));
+});
+
+test("refuses a Clawbrowser update without silently stopping active profiles", async () => {
+  const calls = [];
+  await assert.rejects(assertClawbrowserSessionsStopped({
+    sessionNames: ["worker", "default"],
+    statusSession: async (name) => {
+      calls.push(name);
+      return nextctlStatus(name, name === "worker" ? "running" : "stopped", name === "worker" ? "" : "clawbrowser");
+    },
+  }), /Clawbrowser is still running in: worker.*did not close them automatically/);
+  assert.deepEqual(calls.sort(), ["default", "worker"]);
+});
+
+test("refuses an update while a starting Clawbrowser process is alive but its endpoint is not ready", async () => {
+  await assert.rejects(assertClawbrowserSessionsStopped({
+    sessionNames: ["worker"],
+    statusSession: async () => nextctlStatus("worker", "stopped", "clawbrowser", "4242"),
+    processIsAlive: async (pid) => pid === 4242,
+  }), /Clawbrowser is still running in: worker/);
+});
+
+test("fails closed when a persisted session status cannot be verified", async () => {
+  await assert.rejects(assertClawbrowserSessionsStopped({
+    sessionNames: ["worker"],
+    statusSession: async () => ({ code: 1, stdout: "" }),
+  }), /could not confirm these profiles are fully closed: worker/);
 });
 
 test("retries once when a CLI self-update completes before the browser runtime changes", async () => {
   let installs = 0;
   const installed = await installRuntimeUpdateWithVerification({
-    label: "ClawBrowser",
+    label: "Clawbrowser",
     expectedVersion: "1.0.4",
     attempts: 2,
     install: async () => { installs += 1; },
@@ -123,7 +186,7 @@ test("retries once when a CLI self-update completes before the browser runtime c
 
 test("does not report success when the installed runtime version stays stale", async () => {
   await assert.rejects(installRuntimeUpdateWithVerification({
-    label: "ClawBrowser",
+    label: "Clawbrowser",
     expectedVersion: "1.0.4",
     attempts: 2,
     install: async () => undefined,
@@ -138,7 +201,7 @@ test("detects a Camoufox package in Unix site-packages", async (t) => {
 });
 
 test("marks only older installed runtimes as updateable", () => {
-  const source = { runtime: "clawbrowser", name: "ClawBrowser", releasePage: "https://example.com" };
+  const source = { runtime: "clawbrowser", name: "Clawbrowser", releasePage: "https://example.com" };
   assert.equal(runtimeResult(source, "1.0.3", "1.0.4").status, "available");
   assert.equal(runtimeResult(source, "1.0.4", "1.0.4").status, "up-to-date");
   assert.equal(runtimeResult(source, "", "1.0.4").status, "not-installed");
@@ -163,7 +226,7 @@ test("checks every runtime independently and preserves partial results", async (
   ]);
 });
 
-test("does not offer a Linux update when the latest ClawBrowser release has only macOS and Windows assets", async (t) => {
+test("does not offer a Linux update when the latest Clawbrowser release has only macOS and Windows assets", async (t) => {
   const root = fixture(t);
   fs.mkdirSync(path.join(root, "data"), { recursive: true });
   fs.writeFileSync(path.join(root, "data", ".clawbrowser-browser-release.json"), JSON.stringify({ version: "1.0.3" }));
@@ -175,12 +238,12 @@ test("does not offer a Linux update when the latest ClawBrowser release has only
   const result = await checkBrowserRuntimeUpdates({ fetchImpl, runtimeRoot: root, platform: "linux", arch: "x64", readDasbrowserVersion: async () => "144.32" });
   assert.deepEqual(result.runtimes[0], {
     runtime: "clawbrowser",
-    name: "ClawBrowser",
+    name: "Clawbrowser",
     releasePage: "https://github.com/clawbrowser/clawbrowser/releases/latest",
     status: "unavailable",
     currentVersion: "1.0.3",
     latestVersion: "1.0.4",
-    error: "ClawBrowser 1.0.4 does not include a download for linux/x64 yet.",
+    error: "Clawbrowser 1.0.4 does not include a download for linux/x64 yet.",
   });
 });
 
@@ -199,4 +262,118 @@ test("falls back to the official latest-release redirect when GitHub API is rate
   const result = await checkBrowserRuntimeUpdates({ fetchImpl, runtimeRoot: root, readDasbrowserVersion: async () => "144.32" });
   assert.equal(result.runtimes[0].status, "up-to-date");
   assert.equal(result.runtimes[0].latestVersion, "1.0.4");
+});
+
+
+test("fails closed on an error envelope even with a zero exit code", async () => {
+  await assert.rejects(assertClawbrowserSessionsStopped({
+    sessionNames: ["worker"],
+    statusSession: async () => ({ code: 0, stdout: JSON.stringify({ ok: false, error: "unavailable", data: { status: "stopped" } }) }),
+  }), /could not confirm/);
+});
+
+test("fails closed when process liveness cannot be checked", async () => {
+  await assert.rejects(assertClawbrowserSessionsStopped({
+    sessionNames: ["worker"],
+    statusSession: async () => nextctlStatus("worker", "stopped", "clawbrowser", "4242"),
+    processIsAlive: async () => { throw Object.assign(new Error("denied"), { code: "EPERM" }); },
+  }), /could not confirm/);
+});
+
+
+test("runtime update refuses an in-flight app launch and releases the guard on failure", async () => {
+  const vm = require("node:vm");
+  const source = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  const extract = (name, next) => source.slice(source.indexOf(`async function ${name}(`), source.indexOf(`\n${next}`, source.indexOf(`async function ${name}(`)));
+  let release;
+  const preparing = new Promise((_, reject) => { release = reject; });
+  let entered;
+  const started = new Promise((resolve) => { entered = resolve; });
+  const context = vm.createContext({
+    resolveOrInstallNextctl: async () => "nextctl",
+    requestedBrowserRuntime: () => "clawbrowser",
+    requiresBrowserRuntime: (args) => args[0] === "start",
+    ensureClawbrowserRuntime: () => { entered(); return preparing; },
+    clawbrowserRuntimeSessionNames: async () => [],
+    assertClawbrowserSessionsStopped,
+    run: async () => ({ code: 0 }),
+    process,
+  });
+  vm.runInContext(`let clawbrowserRuntimeUpdateActive = false; let clawbrowserRuntimeLaunches = 0;
+    ${extract("executeNextctlRaw", "function sendControlResponse")}
+    ${extract("stopClawbrowserRuntimeSessions", "async function updateClawbrowserRuntime")}`, context);
+  const launch = vm.runInContext('executeNextctlRaw(["start"])', context);
+  await started;
+  await assert.rejects(vm.runInContext('assertClawbrowserRuntimeIdle("nextctl")', context), /still starting/);
+  release(new Error("setup failed"));
+  await assert.rejects(launch, /setup failed/);
+  await vm.runInContext('assertClawbrowserRuntimeIdle("nextctl")', context);
+  vm.runInContext('clawbrowserRuntimeUpdateActive = true', context);
+  await assert.rejects(vm.runInContext('executeNextctlRaw(["start"])', context), /update is being installed/);
+});
+
+test("assertClawbrowserRuntimeIdle closes open profiles itself instead of failing", async () => {
+  const vm = require("node:vm");
+  const source = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  const extract = (name, next) => source.slice(source.indexOf(`async function ${name}(`), source.indexOf(`\n${next}`, source.indexOf(`async function ${name}(`)));
+  const calls = [];
+  let stopped = false;
+  const context = vm.createContext({
+    clawbrowserRuntimeSessionNames: async () => ["worker"],
+    assertClawbrowserSessionsStopped,
+    clawbrowserSessionScanLimiter: (task) => task(),
+    run: async (_bin, args) => {
+      calls.push(args);
+      if (args[0] === "stop") {
+        stopped = true;
+        return { code: 0, stdout: JSON.stringify({ ok: true, data: { stopped: true } }) };
+      }
+      return nextctlStatus("worker", stopped ? "stopped" : "running", "clawbrowser", stopped ? "" : "4242");
+    },
+    process,
+  });
+  vm.runInContext(`let clawbrowserRuntimeLaunches = 0;
+    ${extract("stopClawbrowserRuntimeSessions", "async function updateClawbrowserRuntime")}`, context);
+  await vm.runInContext('assertClawbrowserRuntimeIdle("nextctl")', context);
+  assert.ok(calls.some((args) => args[0] === "stop" && args.includes("worker")), "expected a stop call for the open profile");
+});
+
+test("activeClawbrowserProfileNames lists only the profiles actually running", async () => {
+  const vm = require("node:vm");
+  const source = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  const extract = (name, next) => source.slice(source.indexOf(`async function ${name}(`), source.indexOf(`\n${next}`, source.indexOf(`async function ${name}(`)));
+  const context = vm.createContext({
+    clawbrowserRuntimeSessionNames: async () => ["worker", "idle-one"],
+    clawbrowserSessionScanLimiter: (task) => task(),
+    run: async (_bin, args) => {
+      const profile = args[args.indexOf("--profile") + 1];
+      return nextctlStatus(profile, profile === "worker" ? "running" : "stopped", "clawbrowser");
+    },
+  });
+  vm.runInContext(extract("activeClawbrowserProfileNames", "async function stopClawbrowserRuntimeSessions"), context);
+  const active = await vm.runInContext('activeClawbrowserProfileNames("nextctl")', context);
+  assert.deepEqual([...active], ["worker"]);
+});
+
+test("createConcurrencyLimiter caps how many tasks run at once", async () => {
+  const vm = require("node:vm");
+  const source = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  const start = source.indexOf("function createConcurrencyLimiter(");
+  const body = source.slice(start, source.indexOf("\nconst clawbrowserSessionScanLimiter", start));
+  const context = vm.createContext({});
+  vm.runInContext(body, context);
+  const limit = vm.runInContext("createConcurrencyLimiter(2)", context);
+
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const task = () => new Promise((resolve) => {
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    setTimeout(() => {
+      inFlight -= 1;
+      resolve(inFlight);
+    }, 10);
+  });
+  await Promise.all(Array.from({ length: 6 }, () => limit(task)));
+  assert.equal(maxInFlight, 2);
 });

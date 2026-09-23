@@ -58,7 +58,7 @@ async function projectRequest(route, options = {}, deps = {}) {
     }
   }
   if (!response) {
-    const error = new Error("NextBrowser could not connect to the service. Check your internet connection and try again.");
+    const error = new Error("Nextbrowser could not connect to the service. Check your internet connection and try again.");
     error.code = "NEXTBROWSER_BACKEND_UNAVAILABLE";
     error.cause = lastCause;
     throw error;
@@ -137,7 +137,7 @@ function resolvePersonalProxy(id, deps) {
 }
 
 // The desktop renderer never receives the account key. The Electron host reads
-// it from the isolated NextBrowser config and sends it only to the authenticated
+// it from the isolated Nextbrowser config and sends it only to the authenticated
 // Signal Router endpoint on the same Core domain used for cloud entities.
 function submitFeedback(feedback, deps) {
   return projectRequest("/signal-router/v1/feedback", {

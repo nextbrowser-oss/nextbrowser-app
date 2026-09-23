@@ -9,15 +9,39 @@ const DURATION = 4.8;
 function useDemoPhase(duration = DURATION) {
   const [phase, setPhase] = useState(0);
   useEffect(() => {
-    const start = performance.now();
+    if (typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setPhase(0);
+      return undefined;
+    }
     let raf = 0;
+    let last = performance.now();
+    let elapsed = 0;
     const tick = (now: number) => {
-      const t = (now - start) / 1000;
-      setPhase((t % duration) / duration);
+      elapsed += (now - last) / 1000;
+      last = now;
+      setPhase((elapsed % duration) / duration);
       raf = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    const start = () => {
+      if (raf) return;
+      last = performance.now();
+      raf = requestAnimationFrame(tick);
+    };
+    const stop = () => {
+      if (!raf) return;
+      cancelAnimationFrame(raf);
+      raf = 0;
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") start();
+      else stop();
+    };
+    if (document.visibilityState === "visible") start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [duration]);
   return phase;
 }
@@ -215,7 +239,7 @@ export const GUIDE_USAGE_DEMOS: Array<{
     action: {
       kind: "chat",
       prompt:
-        "Using the selected NextBrowser profile, open https://news.ycombinator.com/newest, collect the first 5 story titles and URLs, and save them as hn-newest.json in Artifact Center. Verify that all 5 rows contain a title and an absolute URL.",
+        "Using the selected Nextbrowser profile, open https://news.ycombinator.com/newest, collect the first 5 story titles and URLs, and save them as hn-newest.json in Artifact Center. Verify that all 5 rows contain a title and an absolute URL.",
     },
     actionLabel: "Prepare in Chat",
     Demo: LaunchBrowserDemo,
@@ -227,7 +251,7 @@ export const GUIDE_USAGE_DEMOS: Array<{
     action: {
       kind: "chat",
       prompt:
-        "For the selected NextBrowser profile, rotate its proxy country to ES, start the session if needed, verify the resulting proxy country and IP, then report the result. Stop and report if rotation or verification fails.",
+        "For the selected Nextbrowser profile, rotate its proxy country to ES, start the session if needed, verify the resulting proxy country and IP, then report the result. Stop and report if rotation or verification fails.",
     },
     actionLabel: "Prepare in Chat",
     Demo: SpanishProxyDemo,

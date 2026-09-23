@@ -10,7 +10,7 @@ function isLoopbackProxyHost(value) {
 
 function assertManualProxyRuntimeSupport(runtime, proxy) {
   if (runtime === "clawbrowser" && isLoopbackProxyHost(proxy?.host)) {
-    throw new Error("[LOCAL_PROXY_UNSUPPORTED] This proxy runs on this computer. ClawBrowser cannot use local proxy ports yet because its fingerprint service runs remotely. Create the profile with Camoufox or DasBrowser instead.");
+    throw new Error("[LOCAL_PROXY_UNSUPPORTED] This proxy runs on this computer. Clawbrowser cannot use local proxy ports yet because its fingerprint service runs remotely. Create the profile with Camoufox or DasBrowser instead.");
   }
 }
 

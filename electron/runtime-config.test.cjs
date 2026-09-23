@@ -12,10 +12,11 @@ const {
   applyRuntimeRootMigration,
   clearRuntimeCredential,
   runtimeAPIBaseURL,
+  accountAPIBaseURL,
 } = require("./runtime-config.cjs");
 
 const homeDir = "/home/u";
-const runtimeRoot = "/data/NextBrowser/runtime";
+const runtimeRoot = "/data/Nextbrowser/runtime";
 const isolatedConfig = path.join(runtimeRoot, "config", "config.json");
 // Build legacy paths through the module's own resolvers so expectations match
 // the code's path.join output on every OS (Windows uses backslashes).
@@ -39,6 +40,17 @@ function plan(files) {
 }
 
 const nbKey = JSON.stringify({ api_key: "nb_live_abc123", theme: "dark" });
+
+test("pairing host configuration overrides renderer production URL without rerouting runtime", () => {
+  const env = { NEXTBROWSER_DEV_API_BASE_URL: "http://127.0.0.1:18080/" };
+  assert.equal(accountAPIBaseURL("https://api.nextbrowser.com", env), "http://127.0.0.1:18080");
+  assert.equal(runtimeAPIBaseURL(env), "https://api.nextbrowser.com");
+  assert.equal(accountAPIBaseURL(undefined, {}), "https://api.nextbrowser.com");
+  assert.equal(accountAPIBaseURL("https://explicit.example/", {}), "https://explicit.example");
+  assert.equal(accountAPIBaseURL("https://api.nextbrowser.com", {
+    NEXTBROWSER_API_BASE_URL: "https://qa.example/",
+  }), "https://qa.example");
+});
 
 test("keeps browser runtime traffic off an entity-only dev backend", () => {
   assert.equal(runtimeAPIBaseURL({ NEXTBROWSER_DEV_API_BASE_URL: "http://127.0.0.1:18098" }), "https://api.nextbrowser.com");
@@ -70,7 +82,7 @@ test("no-op when there is no legacy config", () => {
   assert.deepEqual(plan({}), []);
 });
 
-test("does not import a non-NextBrowser (e.g. Clawbrowser) key or its profiles", () => {
+test("does not import a non-Nextbrowser (e.g. Clawbrowser) key or its profiles", () => {
   const steps = plan({ [legacyConfig]: JSON.stringify({ api_key: "claw_live_xyz" }), [legacyProfiles]: "" });
   assert.deepEqual(steps, []);
 });

@@ -104,7 +104,10 @@ export function ChatView() {
   const agentDetected = !!s.agentVersion();
   const agentNeedsLogin = agentDetected && s.agentLoggedIn() === false;
   const agentError = s.agentError();
-  const running = s.hasRunning();
+  // Scope the running state to the active conversation: an agent-global reply
+  // in another chat must not hide this composer's Send button.
+  const runningReplyId = s.runtime[agentId]?.runningReplyId;
+  const running = !!runningReplyId && messages.some((message) => message.id === runningReplyId);
   const latestCompletedAssistantId = [...messages].reverse().find((message) =>
     message.role === "assistant" && message.status === "done" && message.text.trim(),
   )?.id;
@@ -115,6 +118,7 @@ export function ChatView() {
   const [scriptOpen, setScriptOpen] = useState(false);
   const [editingReply, setEditingReply] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [actionError, setActionError] = useState<string>();
   const [promptDetail, setPromptDetail] = useState<string | null>(null);
   const [projectCreatorOpen, setProjectCreatorOpen] = useState(false);
   const [projectAgentId, setProjectAgentId] = useState(s.agentId);
@@ -160,16 +164,67 @@ export function ChatView() {
   const chatMessagesSharedWithTerminal = useRef(new Map<string, number>());
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const scriptWrapRef = useRef<HTMLDivElement>(null);
   const conversationKey = `${agentId}:${conv?.id ?? "new"}`;
 
   useEffect(() => {
     setTerminalHandoff(undefined);
     setTerminalToChatRequest(undefined);
     setPendingTerminalContext(undefined);
+    // Pending attachments and an unsent draft belong to the previous chat.
+    setAttachments([]);
+    setDraft("");
+    setGuideDraftLoaded(false);
+    // Menus and workflow modals belong to the chat they were opened in.
+    setScriptOpen(false);
+    setWorkflowDraft(null);
+    setWorkflowRejection(null);
     // Opening another project is not a chat/terminal handoff.
     previousTerminalChat.current = s.terminalChat;
     setTerminalMounted(s.terminalChat);
   }, [conversationKey]);
+
+  useEffect(() => {
+    if (!editingReply) return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setActionError(undefined);
+      setEditingReply(null);
+    };
+    window.addEventListener("keydown", dismiss);
+    return () => window.removeEventListener("keydown", dismiss);
+  }, [editingReply]);
+
+  useEffect(() => {
+    if (promptDetail === null) return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setPromptDetail(null);
+    };
+    window.addEventListener("keydown", dismiss);
+    return () => window.removeEventListener("keydown", dismiss);
+  }, [promptDetail]);
+
+  useEffect(() => {
+    if (!scriptOpen) return;
+    const dismissOutside = (event: PointerEvent) => {
+      if (scriptWrapRef.current?.contains(event.target as Node)) return;
+      setScriptOpen(false);
+    };
+    const dismissWithEscape = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setScriptOpen(false);
+    };
+    document.addEventListener("pointerdown", dismissOutside);
+    window.addEventListener("keydown", dismissWithEscape);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOutside);
+      window.removeEventListener("keydown", dismissWithEscape);
+    };
+  }, [scriptOpen]);
 
   useEffect(() => {
     const wasTerminalChat = previousTerminalChat.current;
@@ -225,19 +280,24 @@ export function ChatView() {
   };
 
   const attachFiles = async () => {
-    const selected = await invoke<ChatAttachment[]>("select_chat_files");
-    trackEvent("chat_files_selected", {
-      attachment_count: selected.length,
-      total_size_bucket: Math.min(
-        100_000_000,
-        Math.ceil(selected.reduce((total, file) => total + file.size, 0) / 1_000_000) * 1_000_000,
-      ),
-    });
-    setAttachments((current) => {
-      const byPath = new Map(current.map((file) => [file.path, file]));
-      for (const file of selected) byPath.set(file.path, file);
-      return [...byPath.values()];
-    });
+    setActionError(undefined);
+    try {
+      const selected = await invoke<ChatAttachment[]>("select_chat_files");
+      trackEvent("chat_files_selected", {
+        attachment_count: selected.length,
+        total_size_bucket: Math.min(
+          100_000_000,
+          Math.ceil(selected.reduce((total, file) => total + file.size, 0) / 1_000_000) * 1_000_000,
+        ),
+      });
+      setAttachments((current) => {
+        const byPath = new Map(current.map((file) => [file.path, file]));
+        for (const file of selected) byPath.set(file.path, file);
+        return [...byPath.values()];
+      });
+    } catch {
+      setActionError("Could not attach files. Try again.");
+    }
   };
 
   const addAttachmentFiles = (files: Iterable<File>, source: "paste" | "drop") => {
@@ -552,6 +612,7 @@ export function ChatView() {
                 const replyIndex = reply ? messages.findIndex((x) => x.id === reply.id) : -1;
                 const user = m.role === "user" ? m : replyIndex > 0 ? messages[replyIndex - 1] : null;
                 if (reply && user) {
+                  setActionError(undefined);
                   setEditingReply(reply.id);
                   setEditText(user.text);
                 }
@@ -629,6 +690,9 @@ export function ChatView() {
             ))}
           </div>
         )}
+        {actionError && !editingReply && (
+          <div className="chat-action-error error small" role="alert">{actionError}</div>
+        )}
         <div className="composer" onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
           <textarea
             ref={composerRef}
@@ -642,7 +706,7 @@ export function ChatView() {
             onChange={(e) => setDraft(e.target.value)}
             onPaste={handlePaste}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
                 e.preventDefault();
                 send();
               }
@@ -658,11 +722,13 @@ export function ChatView() {
             >
               <Icon name="paperclip" size={19} />
             </button>
-            <div className="script-wrap">
+            <div className="script-wrap" ref={scriptWrapRef}>
               <button
                 className="plain-icon-btn"
                 title="Open scripts menu"
                 aria-label="Open scripts menu"
+                aria-haspopup="true"
+                aria-expanded={scriptOpen}
                 onClick={() => setScriptOpen((o) => !o)}
               >
                 <Icon name="scroll" size={20} />
@@ -797,16 +863,21 @@ export function ChatView() {
 
       {editingReply && (
         <div className="modal-overlay">
-          <div className="modal-card">
+          <div className="modal-card" role="dialog" aria-modal="true" aria-label="Edit queued message">
             <textarea value={editText} onChange={(e) => setEditText(e.target.value)} rows={4} />
+            {actionError && <div className="error small" role="alert">{actionError}</div>}
             <div className="row" style={{ marginTop: 8, gap: 8 }}>
-              <button className="secondary" onClick={() => setEditingReply(null)}>
+              <button className="secondary" onClick={() => { setActionError(undefined); setEditingReply(null); }}>
                 Cancel
               </button>
               <button
                 className="primary"
                 onClick={() => {
-                  s.editQueuedReply(editingReply, editText);
+                  if (!s.editQueuedReply(editingReply, editText)) {
+                    setActionError("Could not update this queued message. It may have already started or been removed.");
+                    return;
+                  }
+                  setActionError(undefined);
                   setEditingReply(null);
                 }}
               >
@@ -819,7 +890,7 @@ export function ChatView() {
 
       {promptDetail !== null && (
         <div className="modal-overlay" onMouseDown={() => setPromptDetail(null)}>
-          <div className="modal-card prompt-detail-card" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="modal-card prompt-detail-card" role="dialog" aria-modal="true" aria-label="Prompt sent to agent" onMouseDown={(e) => e.stopPropagation()}>
             <strong>Prompt sent to agent</strong>
             <pre className="prompt-detail-text">{promptDetail}</pre>
             <div className="row" style={{ marginTop: 8, gap: 8 }}>
@@ -870,6 +941,7 @@ export function ChatView() {
 
 function MessageBubble({
   message: m,
+  canQueue,
   onCancel,
   onEdit,
   onStop,
@@ -973,12 +1045,16 @@ function MessageBubble({
             {queuedReplyId && (
               <>
                 <span className="queue-badge">Waiting</span>
-                <button className="plain-icon-btn plain-icon-btn-compact" onClick={onEdit} title="Edit queued message">
-                  <Icon name="pencil" size={12} />
-                </button>
-                <button className="plain-icon-btn plain-icon-btn-compact" onClick={onCancel} title="Remove queued message">
-                  <Icon name="trash" size={12} className="error" />
-                </button>
+                {canQueue && (
+                  <>
+                    <button className="plain-icon-btn plain-icon-btn-compact" onClick={onEdit} title="Edit queued message">
+                      <Icon name="pencil" size={12} />
+                    </button>
+                    <button className="plain-icon-btn plain-icon-btn-compact" onClick={onCancel} title="Remove queued message">
+                      <Icon name="trash" size={12} className="error" />
+                    </button>
+                  </>
+                )}
               </>
             )}
             <button

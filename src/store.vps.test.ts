@@ -756,7 +756,7 @@ describe("VPS execution target isolation", () => {
     await useStore.getState().authorizeAgent();
 
     expect(useStore.getState().agentError()).toBe(
-      "ChatGPT desktop app with Codex not found. NextBrowser connects through the executable bundled with the app. Install it, then try again.",
+      "ChatGPT desktop app with Codex not found. Nextbrowser connects through the executable bundled with the app. Install it, then try again.",
     );
   });
 
@@ -1036,6 +1036,7 @@ describe("browser profile creation", () => {
 
   it("persists the personal proxy association in the workspace document", async () => {
     useStore.setState({
+      authed: true,
       activeWorkspaceId: "workspace",
       workspaces: [{
         id: "workspace",
@@ -1146,7 +1147,7 @@ describe("local component and profile lifecycle", () => {
     expect(restored.updatedAt).toBeGreaterThan(previousUpdatedAt);
   });
 
-  it("retries a failed nextctl update twice at five-minute intervals", async () => {
+  it("retries a failed nextctl update five times with a growing pause before reporting failure", async () => {
     vi.useFakeTimers();
     try {
       useStore.setState({ nextctlAvailable: true });
@@ -1157,14 +1158,164 @@ describe("local component and profile lifecycle", () => {
 
       await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(false);
       expect(localNextctlCalls()).toHaveLength(1);
-      expect(useStore.getState().nextctlUpdateStatus).toBe("We couldn't update NextBrowser. Please retry again.");
+      // Every attempt stays silent until retries are exhausted.
+      expect(useStore.getState().nextctlUpdateError).toBeUndefined();
 
-      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
-      expect(localNextctlCalls()).toHaveLength(2);
-      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
-      expect(localNextctlCalls()).toHaveLength(3);
-      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
-      expect(localNextctlCalls()).toHaveLength(3);
+      const pausesSeconds = [90, 100, 110, 120, 130];
+      for (const [index, pause] of pausesSeconds.entries()) {
+        await vi.advanceTimersByTimeAsync(pause * 1000);
+        expect(localNextctlCalls()).toHaveLength(index + 2);
+        const isLastRetry = index === pausesSeconds.length - 1;
+        expect(useStore.getState().nextctlUpdateError).toBe(
+          isLastRetry ? "We couldn't update the Nextbrowser CLI (nextctl). Please retry. offline" : undefined,
+        );
+      }
+
+      // No further retries are scheduled once the fifth one has failed.
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+      expect(localNextctlCalls()).toHaveLength(6);
+      // The failure lives in the refresh button's tooltip, never as footer text.
+      expect(useStore.getState().nextctlUpdateStatus).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reduces a request failure to just the HTTP status once retries are exhausted", async () => {
+    vi.useFakeTimers();
+    try {
+      useStore.setState({ nextctlAvailable: true });
+      bridge.invoke.mockImplementation((command) => {
+        if (command === "nextctl_run") {
+          return Promise.resolve({
+            code: 1,
+            stdout: "",
+            stderr: "fetch releases/latest https://api.github.com/repos/nextbrowser-oss/nbc_releases/releases/latest: unexpected status 403 Forbidden\nWarning: fetch release notes failed",
+          });
+        }
+        return Promise.resolve(null);
+      });
+
+      await useStore.getState().checkNextctlUpdate();
+      expect(useStore.getState().nextctlUpdateError).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+
+      const status = useStore.getState().nextctlUpdateError ?? "";
+      expect(status).toBe("We couldn't update the Nextbrowser CLI (nextctl). Please retry. 403 Forbidden");
+      expect(status).not.toContain("api.github.com");
+      expect(status).not.toContain("fetch releases/latest");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still retries silently in the background when the nextctl update is rate-limited, then backs off for the daily tick", async () => {
+    vi.useFakeTimers();
+    try {
+      useStore.setState({ nextctlAvailable: true });
+      bridge.invoke.mockImplementation((command) => {
+        if (command === "nextctl_run") {
+          return Promise.resolve({
+            code: 1,
+            stdout: "",
+            stderr: "fetch releases/latest https://api.github.com/repos/nextbrowser-oss/nbc_releases/releases/latest: unexpected status 403 Forbidden",
+          });
+        }
+        return Promise.resolve(null);
+      });
+
+      await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(false);
+      expect(localNextctlCalls()).toHaveLength(1);
+
+      // The five background retries still run for a rate limit, same as any
+      // other failure — only the daily background tick treats it specially.
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+      expect(localNextctlCalls()).toHaveLength(6);
+
+      // Once exhausted, it records a one-hour backoff so the daily tick waits it out.
+      const write = bridge.invoke.mock.calls
+        .filter(([command, args]) => command === "app_data_write" && (args as { name?: string })?.name === "nextctl-update.json")
+        .at(-1);
+      expect(write).toBeTruthy();
+      const saved = JSON.parse((write![1] as { content: string }).content) as { lastAutoCheckAt: number; rateLimitedUntil: number };
+      expect(saved.rateLimitedUntil - saved.lastAutoCheckAt).toBe(60 * 60 * 1000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("backs off until nextctl's reported rate-limit reset time instead of guessing an hour", async () => {
+    vi.useFakeTimers();
+    try {
+      useStore.setState({ nextctlAvailable: true });
+      bridge.invoke.mockImplementation((command) => {
+        if (command === "nextctl_run") {
+          return Promise.resolve({
+            code: 1,
+            stdout: "",
+            stderr: "fetch releases/latest https://api.github.com/repos/nextbrowser-oss/nbc_releases/releases/latest: unexpected status 403 Forbidden (rate limit resets at 2026-09-21T20:15:00Z)",
+          });
+        }
+        return Promise.resolve(null);
+      });
+
+      await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(false);
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+
+      const write = bridge.invoke.mock.calls
+        .filter(([command, args]) => command === "app_data_write" && (args as { name?: string })?.name === "nextctl-update.json")
+        .at(-1);
+      expect(write).toBeTruthy();
+      const saved = JSON.parse((write![1] as { content: string }).content) as { rateLimitedUntil: number };
+      expect(saved.rateLimitedUntil).toBe(Date.parse("2026-09-21T20:15:00Z"));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("treats a successful nextctl install as success even when the command exits non-zero", async () => {
+    vi.useFakeTimers();
+    try {
+      useStore.setState({ nextctlAvailable: true, nextctlCompatibilityError: undefined });
+      bridge.invoke.mockImplementation((command) => {
+        if (command === "nextctl_run") {
+          return Promise.resolve({
+            code: 1,
+            stdout: "[nbc-update] Downloading ...v1.2.15...\n[nbc-update] Installed v1.2.15 to /tmp/managed-nextctl/nextctl\n",
+            stderr: "Warning: download clawbrowser-macos-arm64.tar.gz: unexpected status 404 Not Found\n",
+          });
+        }
+        if (command === "nextctl_version") return Promise.resolve("1.2.15");
+        if (command === "nextctl_supports_skill") return Promise.resolve(true);
+        return Promise.resolve(null);
+      });
+
+      // The optional browser-runtime asset can fail without making the nextctl
+      // install itself a failure.
+      await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(true);
+      expect(useStore.getState().nextctlUpdateStatus).toBe("updated → 1.2.15");
+      expect(useStore.getState().nextctlAvailable).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears the brief nextctl update confirmation on its own", async () => {
+    vi.useFakeTimers();
+    try {
+      useStore.setState({ nextctlAvailable: true, nextctlCompatibilityError: undefined });
+      bridge.invoke.mockImplementation((command) => {
+        if (command === "nextctl_run") return Promise.resolve({ code: 0, stdout: "[nbc-update] Installed v1.2.15 to /tmp/managed-nextctl/nextctl\n", stderr: "" });
+        if (command === "nextctl_version") return Promise.resolve("1.2.15");
+        if (command === "nextctl_supports_skill") return Promise.resolve(true);
+        return Promise.resolve(null);
+      });
+
+      await useStore.getState().checkNextctlUpdate();
+      expect(useStore.getState().nextctlUpdateStatus).toBe("updated → 1.2.15");
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(useStore.getState().nextctlUpdateStatus).toBeUndefined();
     } finally {
       vi.useRealTimers();
     }
@@ -1203,6 +1354,62 @@ describe("local component and profile lifecycle", () => {
     preflight.prepareSession.mockRejectedValueOnce(new Error("browser runtime could not start"));
     await expect(useStore.getState().startProfile("work")).rejects.toThrow("browser runtime could not start");
 
+    expect(useStore.getState().statuses.work).toBe("stopped");
+  });
+
+  it.each(["stopped", "unknown", "running"])("handles a %s poll while the launcher is still pending", async (status) => {
+    let finish!: (value: unknown) => void;
+    const pending = new Promise((resolve) => { finish = resolve; });
+    preflight.prepareSession.mockImplementationOnce(() => pending);
+    bridge.invoke.mockImplementation(async (command, payload) => {
+      if (command !== "nextctl_run") return null;
+      const args = payload.args as string[];
+      if (args.includes("start")) return pending;
+      const value = args.includes("profiles")
+        ? { profiles: [{ name: "work" }] }
+        : { status };
+      return { code: 0, stdout: JSON.stringify({ ok: true, data: value }), stderr: "" };
+    });
+    useStore.setState({ statuses: { work: "stopped" } });
+    const launch = useStore.getState().startProfile("work");
+    try {
+      await useStore.getState().loadProfiles();
+      expect(useStore.getState().statuses.work).toBe("starting");
+    } finally {
+      finish({ code: 0, stdout: "{}", stderr: "" });
+      await launch;
+    }
+    expect(useStore.getState().statuses.work).toBe(status);
+  });
+
+  it("lets a newer stop supersede a pending launch during polling", async () => {
+    let finish!: (value: unknown) => void;
+    const pending = new Promise((resolve) => { finish = resolve; });
+    preflight.prepareSession.mockImplementationOnce(() => pending);
+    bridge.invoke.mockImplementation(async (command, payload) => {
+      if (command !== "nextctl_run") return null;
+      const args = payload.args as string[];
+      if (args.includes("start")) return pending;
+      const data = args.includes("profiles")
+        ? { profiles: [{ name: "work" }] } : { status: "stopped" };
+      return { code: 0, stdout: JSON.stringify({ ok: true, data }), stderr: "" };
+    });
+    useStore.setState({ statuses: { work: "stopped" } });
+    const launch = useStore.getState().startProfile("work");
+    try {
+      const stop = useStore.getState().stopProfile("work");
+      // main now waits for cancellation/settlement of the in-flight start.
+      // A newer stop must stay authoritative while the old launch unwinds.
+      expect(useStore.getState().statuses.work).toBe("stopping");
+      await useStore.getState().loadProfiles();
+      expect(useStore.getState().statuses.work).not.toBe("starting");
+      finish({ code: 0, stdout: "{}", stderr: "" });
+      await stop;
+      expect(useStore.getState().statuses.work).toBe("stopped");
+    } finally {
+      finish({ code: 0, stdout: "{}", stderr: "" });
+      await launch;
+    }
     expect(useStore.getState().statuses.work).toBe("stopped");
   });
 });

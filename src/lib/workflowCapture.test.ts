@@ -242,6 +242,19 @@ Called clawbrowser.extract({"container":"article.product","fields":["title","pri
     expect(workflowQuality("Collect quotes from quotes.toscrape.com", content).reusable).toBe(true);
   });
 
+  it("does not reject a run because the final answer mentions a failed attempt", () => {
+    const content = [
+      'Called clawbrowser.open({"url":"https://example.com/catalog"})',
+      '{"ok":true}',
+      'Called clawbrowser.extract({"container":"article.product"})',
+      '{"count":5}',
+      'Called clawbrowser.save_artifact({"source":"last_result","format":"json","name":"products.json"})',
+      '{"status":"saved"}',
+      'The first selector failed, so I adapted and saved the results.',
+    ].join("\n");
+    expect(workflowQuality("Collect products from example.com", content).reusable).toBe(true);
+  });
+
   it("rejects a JSON body parser when the trace only captured an ordinary HTML page", () => {
     const jsonFromMissingPage = [
       'Called clawbrowser.open({"url":"https://coinmarketcap.com/trending-cryptocurrencies/"})',

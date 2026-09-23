@@ -1,4 +1,4 @@
-export const brandName = "NextBrowser";
+export const brandName = "Nextbrowser";
 
 export const brandAccent = "#8c80ff"; // Swift .tint Color(red: 0.55, green: 0.5, blue: 1.0)
 

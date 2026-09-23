@@ -17,16 +17,16 @@ export function userFacingBrowserError(error: unknown): string {
     return "The selected workspace is no longer available. Select or create a workspace, then try again.";
   }
 
-  if (/Cannot reach the NextBrowser backend|NextBrowser could not connect to the service|NEXTBROWSER_BACKEND_UNAVAILABLE/i.test(raw)) {
-    return "NextBrowser couldn’t connect to the service. Check your internet connection and try again.";
+  if (/Cannot reach the Nextbrowser backend|Nextbrowser could not connect to the service|NEXTBROWSER_BACKEND_UNAVAILABLE/i.test(raw)) {
+    return "Nextbrowser couldn’t connect to the service. Check your internet connection and try again.";
   }
 
   if (REMOTE_BACKEND_CODE.test(raw) || REMOTE_CONTROL_FAILURE.test(raw)) {
     if (/\b404\b|not found/i.test(raw)) {
-      return "Remote Control is not available on the connected NextBrowser service. Update NextBrowser and try again. If it continues, contact support.";
+      return "Remote Control is not available on the connected Nextbrowser service. Update Nextbrowser and try again. If it continues, contact support.";
     }
     if (/\b40[13]\b|unauthorized|forbidden/i.test(raw)) {
-      return "Remote Control could not authenticate. Sign in to NextBrowser again, then retry.";
+      return "Remote Control could not authenticate. Sign in to Nextbrowser again, then retry.";
     }
     if (/\b5\d\d\b|bad gateway|service unavailable/i.test(raw)) {
       return "Remote Control is temporarily unavailable. Try again in a moment.";
@@ -42,11 +42,18 @@ export function userFacingBrowserError(error: unknown): string {
   }
 
   if (/\[LOCAL_PROXY_UNSUPPORTED\]/i.test(raw)) {
-    return "This proxy runs on your computer. Use Camoufox or DasBrowser for a localhost proxy; ClawBrowser support for local proxy ports is coming soon.";
+    return "This proxy runs on your computer. Use Camoufox or DasBrowser for a localhost proxy; Clawbrowser support for local proxy ports is coming soon.";
+  }
+
+  // The installed Clawbrowser build cannot enforce managed-proxy privacy, so
+  // nextctl refuses to launch a proxied profile. Surface one short action
+  // instead of the whole VERIFY_FAILED/LAUNCH_FAILED chain.
+  if (/managed-proxy privacy capability/i.test(raw)) {
+    return "This Clawbrowser build can’t run a proxied profile. Update Clawbrowser, then retry.";
   }
 
   if (/(?:\bcdp\b.*(?:read response|connection|aborted|closed|reset)|Runtime\.evaluate.*(?:read|connection|aborted|closed|reset)|wsarecv.*(?:aborted|reset)|read tcp.*(?:aborted|reset))/i.test(raw)) {
-    return "The browser connection was interrupted. NextBrowser retried once; if it keeps happening, restart the profile and try again.";
+    return "The browser connection was interrupted. Nextbrowser retried once; if it keeps happening, restart the profile and try again.";
   }
 
   if (/ERR_TUNNEL_CONNECTION_FAILED/i.test(raw)) {

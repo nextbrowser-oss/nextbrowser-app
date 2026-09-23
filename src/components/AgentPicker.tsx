@@ -74,6 +74,8 @@ export function AgentPicker({ compact = false, createChatOnSwitch = false, label
         onClick={() => setOpen((value) => !value)}
         title={title}
         aria-label={title}
+        aria-haspopup="listbox"
+        aria-expanded={open}
       >
         {tabLike ? (
           <span className={"tab-pill" + (open ? " tab-pill-active" : "")}>
@@ -102,16 +104,19 @@ export function AgentPicker({ compact = false, createChatOnSwitch = false, label
               <input
                 className="agent-search-input"
                 autoFocus
+                aria-label="Search agents"
                 placeholder="Search agents..."
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
               />
             </div>
-            <div className="agent-picker-list">
+            <div className="agent-picker-list" role="listbox" aria-label="Agents">
               {matches.map((agent) => (
                 <button
                   key={agent.id}
                   className={"agent-row" + (agent.id === agentId ? " agent-row-active" : "")}
+                  role="option"
+                  aria-selected={agent.id === agentId}
                   title={agent.id === agentId ? `${agent.name} is active` : `Switch to ${agent.name}`}
                   onClick={() => choose(agent.id)}
                 >

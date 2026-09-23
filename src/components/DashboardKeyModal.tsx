@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useStore } from "../store";
+import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { Icon } from "./Icon";
 import { UserFacingError } from "./UserFacingError";
 
@@ -15,6 +16,7 @@ export function DashboardKeyModal() {
   const loading = useStore((s) => s.isLoggingIn);
   const resumeOnboarding = useStore((s) => s.resumeOnboardingAfterSetup);
   const startAttempted = useRef(false);
+  const pairingFailed = pairing?.status === "expired" || pairing?.status === "rejected";
 
   useEffect(() => {
     if (!open) {
@@ -27,7 +29,7 @@ export function DashboardKeyModal() {
   }, [loading, open, pairing, startPairing]);
 
   useEffect(() => {
-    if (!open || !pairing) return undefined;
+    if (!open || !pairing || pairingFailed) return undefined;
     const timer = window.setInterval(() => {
       void pollPairing();
     }, 2_000);
@@ -44,7 +46,20 @@ export function DashboardKeyModal() {
       window.removeEventListener("focus", pollNow);
       document.removeEventListener("visibilitychange", pollNow);
     };
-  }, [open, pairing?.pairingId, pollPairing]);
+  }, [open, pairing?.pairingId, pairingFailed, pollPairing]);
+
+  useEffect(() => {
+    if (!open) return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      if (pairing) cancelPairing();
+      setOpen(false);
+      resumeOnboarding();
+    };
+    window.addEventListener("keydown", dismiss);
+    return () => window.removeEventListener("keydown", dismiss);
+  }, [cancelPairing, open, pairing, resumeOnboarding, setOpen]);
 
   if (!open) return null;
 
@@ -54,12 +69,17 @@ export function DashboardKeyModal() {
     resumeOnboarding();
   };
 
+  const startAgain = () => {
+    cancelPairing();
+    void startPairing();
+  };
+
   return (
     <div className="modal-overlay" onMouseDown={close}>
-      <div className="modal-card dashboard-key-modal" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="modal-card dashboard-key-modal" role="dialog" aria-modal="true" aria-labelledby="dashboard-key-title" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-title-row">
           <Icon name="lock.open" size={18} />
-          <strong>Sign in to NextBrowser</strong>
+          <strong id="dashboard-key-title">Sign in to Nextbrowser</strong>
         </div>
         <p className="muted small">
           Managed profiles, proxy traffic, Remote Control, and skills need a connected account.
@@ -71,17 +91,30 @@ export function DashboardKeyModal() {
           {pairing ? (
             <div className="pairing-copy">
               <strong>{pairing.status === "pending" ? "Waiting for browser sign-in…" : pairing.status}</strong>
-              <p className="muted small">NextBrowser connects automatically when you finish in the browser.</p>
-              <button
-                type="button"
-                className="pairing-reopen"
-                disabled={loading}
-                onClick={() => void reopenPairing()}
-                title="Open the sign-in page again"
-              >
-                <Icon name="arrow.clockwise" size={13} />
-                Reopen sign-in page
-              </button>
+              <p className="muted small">Nextbrowser connects automatically when you finish in the browser.</p>
+              {pairingFailed ? (
+                <button
+                  type="button"
+                  className="pairing-reopen"
+                  disabled={loading}
+                  onClick={startAgain}
+                  title="Start a new sign-in request"
+                >
+                  <Icon name="arrow.clockwise" size={13} />
+                  Start again
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="pairing-reopen"
+                  disabled={loading}
+                  onClick={() => void reopenPairing()}
+                  title="Open the sign-in page again"
+                >
+                  <Icon name="arrow.clockwise" size={13} />
+                  Reopen sign-in page
+                </button>
+              )}
             </div>
           ) : (
             <div className="pairing-copy">
@@ -97,7 +130,7 @@ export function DashboardKeyModal() {
         )}
         <div className="row" style={{ marginTop: 12, gap: 8 }}>
           <span className="spacer" />
-          <button className="secondary" onClick={close}>
+          <button className="secondary" autoFocus onClick={close}>
             {pairing ? "Cancel sign-in" : "Cancel"}
           </button>
         </div>

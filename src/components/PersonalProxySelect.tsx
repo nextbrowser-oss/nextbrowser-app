@@ -24,8 +24,10 @@ export function PersonalProxySelect({ value, proxies, disabled = false, ariaLabe
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [open, setOpen] = useState(false);
   const [style, setStyle] = useState<CSSProperties>();
+  const [activeIndex, setActiveIndex] = useState(-1);
   const selected = proxies.find((proxy) => proxy.id === value);
 
   const close = (restoreFocus = false) => {
@@ -51,7 +53,40 @@ export function PersonalProxySelect({ value, proxies, disabled = false, ariaLabe
   const show = () => {
     if (disabled) return;
     position();
+    setActiveIndex(Math.max(0, proxies.findIndex((proxy) => proxy.id === value)));
     setOpen(true);
+  };
+  const focusOption = (index: number) => {
+    if (!proxies.length) return;
+    const next = Math.max(0, Math.min(proxies.length - 1, index));
+    setActiveIndex(next);
+    optionRefs.current[next]?.focus();
+  };
+  const onMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close(true);
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusOption(activeIndex + 1);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusOption(activeIndex - 1);
+      return;
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      focusOption(0);
+      return;
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      focusOption(proxies.length - 1);
+    }
   };
 
   useEffect(() => {
@@ -71,12 +106,21 @@ export function PersonalProxySelect({ value, proxies, disabled = false, ariaLabe
     };
   }, [open]);
 
+  useEffect(() => {
+    if (open && activeIndex >= 0) optionRefs.current[activeIndex]?.focus();
+  }, [open, activeIndex]);
+
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "Escape") { close(true); return; }
+    if (open) {
+      if (event.key === "ArrowDown") { event.preventDefault(); focusOption(activeIndex < 0 ? 0 : activeIndex + 1); return; }
+      if (event.key === "ArrowUp") { event.preventDefault(); focusOption(activeIndex < 0 ? proxies.length - 1 : activeIndex - 1); return; }
+      return;
+    }
     if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) {
       event.preventDefault();
       show();
     }
-    if (event.key === "Escape") close(true);
   };
 
   return (
@@ -86,11 +130,11 @@ export function PersonalProxySelect({ value, proxies, disabled = false, ariaLabe
         <Icon name="chevron.down" size={14} className="personal-proxy-select-chevron" />
       </button>
       {open && createPortal(
-        <div ref={dropdownRef} className="personal-proxy-select-menu" style={style} onMouseDown={(event) => event.stopPropagation()}>
+        <div ref={dropdownRef} className="personal-proxy-select-menu" style={style} onMouseDown={(event) => event.stopPropagation()} onKeyDown={onMenuKeyDown}>
           <div id={`${id}-listbox`} className="personal-proxy-select-options" role="listbox" aria-label={ariaLabel}>
-            {proxies.map((proxy) => {
+            {proxies.map((proxy, index) => {
               const isSelected = proxy.id === value;
-              return <button key={proxy.id} type="button" role="option" aria-selected={isSelected} className={`personal-proxy-select-option${isSelected ? " is-selected" : ""}`} onClick={() => { onChange(proxy.id); close(true); }}>
+              return <button key={proxy.id} type="button" role="option" aria-selected={isSelected} ref={(element) => { optionRefs.current[index] = element; }} className={`personal-proxy-select-option${isSelected ? " is-selected" : ""}`} onClick={() => { onChange(proxy.id); close(true); }}>
                 <span><strong>{proxy.name}</strong><small>{proxy.scheme.toUpperCase()} · {proxy.host}:{proxy.port}</small></span>
                 {isSelected && <Icon name="checkmark" size={14} />}
               </button>;

@@ -220,8 +220,23 @@ function cleanId(value) {
   return id;
 }
 
+function capRecordedActions(actions) {
+  if (actions.length <= MAX_ACTIONS) return actions;
+  // Policy for long recordings: keep the most recent actions so the final
+  // extract/evaluate/save_artifact trace calls are never dropped, but always
+  // preserve the leading navigation step(s) that establish the starting page.
+  const leading = [];
+  for (const action of actions) {
+    if (!["open", "navigate"].includes(action.tool)) break;
+    leading.push(action);
+  }
+  const remaining = MAX_ACTIONS - leading.length;
+  const recent = remaining > 0 ? actions.slice(leading.length).slice(-remaining) : [];
+  return [...leading.slice(0, MAX_ACTIONS), ...recent];
+}
+
 function addAction(state, action) {
-  if (!action || typeof action.tool !== "string" || !action.arguments || state.actions.length >= MAX_ACTIONS) return;
+  if (!action || typeof action.tool !== "string" || !action.arguments) return;
   if (action.eventId && state.seenEventIds.has(action.eventId)) return;
   if (action.eventId) state.seenEventIds.add(action.eventId);
   const previous = state.actions[state.actions.length - 1];
@@ -231,6 +246,7 @@ function addAction(state, action) {
   }
   if (previous?.tool === action.tool && ["select", "click"].includes(action.tool) && JSON.stringify(previous.arguments) === JSON.stringify(action.arguments)) return;
   state.actions.push({ tool: action.tool, arguments: action.arguments, at: Number(action.at) || Date.now() });
+  state.actions = capRecordedActions(state.actions);
   if (["click", "press", "select"].includes(action.tool)) state.lastPageInteractionAt = Number(action.at) || Date.now();
 }
 
@@ -302,12 +318,22 @@ async function attachAutomationPageRecording(recordingId) {
   if (state.attaching) return await state.attaching;
   state.attaching = (async () => {
     const client = createMCPClient(state.clientOptions);
+    // Stop may run while this attach is awaiting initialize()/callTool. Never
+    // leave a leaked MCP client or polling timer behind when that happens.
+    const abandoned = () => {
+      client.close();
+      state.client = null;
+      return { attached: false, url: state.currentUrl, title: state.title };
+    };
     try {
       await client.initialize();
+      if (state.closed) return abandoned();
       const initialState = resultFromMCP(await client.callTool("state", {}, RECORDER_CALL_TIMEOUT_MS));
+      if (state.closed) return abandoned();
       state.currentPageId = String(initialState?.page?.id || "");
       state.client = client;
       await collect(state);
+      if (state.closed) return abandoned();
       state.timer = setInterval(() => void collect(state), POLL_MS);
       return { attached: true, url: state.currentUrl, title: state.title };
     } catch (error) {
@@ -372,7 +398,7 @@ async function stopAutomationPageRecording(recordingId) {
   const toolActions = (await tracedActions(state)).filter((action) => !pageActions.some((pageAction) =>
     pageAction.tool === action.tool && Math.abs(pageAction.at - action.at) <= 3_000,
   ));
-  const actions = [...pageActions, ...toolActions].sort((left, right) => left.at - right.at).slice(0, MAX_ACTIONS);
+  const actions = capRecordedActions([...pageActions, ...toolActions].sort((left, right) => left.at - right.at));
   await fs.rm(state.traceDir, { recursive: true, force: true }).catch(() => undefined);
   const result = { actions: actions.map(({ eventId: _eventId, ...action }) => action), url: state.currentUrl, title: state.title, error: state.lastError || undefined, stoppedAt: Date.now() };
   completedRecorders.set(id, result);

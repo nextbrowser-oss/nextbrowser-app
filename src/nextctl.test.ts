@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cancelNextctlRun, nextctlRun } from "./nextctl";
+import { cancelNextctlRun, nextctlErrorMessage, nextctlRun } from "./nextctl";
 
 const bridge = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -36,5 +36,16 @@ describe("nextctl cancellable commands", () => {
     expect(bridge.invoke).toHaveBeenCalledWith("nextctl_cancel", {
       requestId: "profile-create-demo",
     });
+  });
+});
+
+describe("nextctlErrorMessage", () => {
+  it("reads the error envelope nextctl writes to stdout", () => {
+    const stdout = JSON.stringify({ ok: false, error: { code: "VERIFY_BUSY", message: "verification is running", hint: "Retry when it finishes" } });
+    expect(nextctlErrorMessage({ code: 1, stdout, stderr: "" })).toBe("verification is running [VERIFY_BUSY] — Retry when it finishes");
+  });
+
+  it("keeps the exit code when nextctl fails without any output", () => {
+    expect(nextctlErrorMessage({ code: 1, stdout: "", stderr: "" })).toBe("The NextBrowser CLI exited with code 1 without reporting a reason.");
   });
 });

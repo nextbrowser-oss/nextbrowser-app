@@ -351,7 +351,7 @@ button, input, textarea, select { color: var(--text); }
 .primary:hover:not(:disabled) { background: var(--primary-action-hover); box-shadow: var(--button-shadow-hover); }
 .btn-bordered:hover:not(:disabled),
 .secondary:hover:not(:disabled),
-.mini:hover:not(:disabled),
+.mini:hover:not(:disabled):not(.primary-mini),
 .weekday-btn:hover:not(:disabled) { background-color: var(--surface-5); border-color: var(--surface-8); }
 .btn-bordered-prominent:active:not(:disabled),
 .btn-bordered:active:not(:disabled),
@@ -1881,47 +1881,6 @@ body.is-resizing-sidebar {
   scrollbar-gutter: stable;
 }
 .workspace-empty { padding: 7px; }
-.workspace-multilogin-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 4px 2px 0;
-  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--line));
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
-}
-.workspace-multilogin-open {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  min-height: 34px;
-  padding: 4px 5px 4px 7px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text);
-  text-align: left;
-}
-.workspace-multilogin-open:hover { background: var(--surface-2); }
-.workspace-multilogin-open > span:last-child {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-.workspace-multilogin-open strong {
-  overflow: hidden;
-  font-size: 12px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.workspace-multilogin-open small {
-  color: var(--muted);
-  font-size: 9.5px;
-}
 .workspace-profile-list .profile-row {
   position: relative;
   border-color: var(--line);
@@ -2225,6 +2184,7 @@ body.is-resizing-sidebar {
   }
 }
 .nextctl-refresh { min-width: 24px !important; min-height: 24px !important; padding: 2px !important; }
+.nextctl-refresh.is-failed { color: var(--warn); }
 
 /* Tab bar — MainView.swift TabBar */
 .tabbar {
@@ -3718,6 +3678,9 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   min-width: 0;
   padding: 14px;
   overflow: hidden;
+  /* The overlay is click-through so it never blocks the app behind it; the
+     card must re-enable hit-testing or its Stop button is unclickable. */
+  pointer-events: auto;
   box-shadow: 0 14px 42px color-mix(in srgb, var(--shadow) 65%, transparent);
 }
 .browser-install-mark {
@@ -3793,6 +3756,25 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   background: linear-gradient(180deg, #252529 0%, #202024 100%);
   border-color: rgba(255, 255, 255, 0.10);
 }
+/* Once the card needs a decision, it moves into .runtime-update-overlay's
+   centered backdrop instead of floating top-right, so it reads as one
+   deliberate dialog rather than a toast competing with whatever's open. */
+.runtime-update-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1001;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--overlay);
+}
+.runtime-update-overlay .runtime-update-progress-card {
+  position: static;
+  width: min(420px, 100%);
+  max-height: 85vh;
+  overflow-y: auto;
+  animation: browser-install-enter 160ms ease-out both;
+}
 .runtime-update-progress-mark {
   display: grid;
   width: 34px;
@@ -3803,7 +3785,9 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   color: var(--accent-text);
 }
 .runtime-update-progress-mark.is-ready { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
-.runtime-update-progress-mark.is-error { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
+/* Deliberately calmer than a hard error color: this state is "needs a
+   decision," not "something is broken/unsafe." */
+.runtime-update-progress-mark.is-error { width: 28px; height: 28px; color: var(--warn); background: var(--warn-soft); }
 .runtime-update-progress-copy { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .runtime-update-progress-copy strong { font-size: 14px; }
 .runtime-update-errors {
@@ -3813,23 +3797,28 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 }
 .runtime-update-error {
   padding: 9px;
-  border: 1px solid color-mix(in srgb, var(--red) 36%, var(--line));
+  border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--red) 6%, var(--surface-2));
+  background: var(--surface-2);
 }
 .runtime-update-error-heading {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
 }
-.runtime-update-error-heading code {
+.runtime-update-error-code {
   flex: none;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 .runtime-update-error p { margin: 4px 0 0; }
-.runtime-update-recovery { color: var(--text); font-size: 12px; }
+/* This is the one line a user actually needs to act on — give it the visual
+   weight the rest of the card otherwise steals with size and red. */
+.runtime-update-recovery { color: var(--text); font-weight: 600; font-size: 13px; margin-top: 2px !important; }
+.runtime-update-detail { margin-top: 4px; }
 .runtime-update-error-actions { gap: 6px; margin-top: 8px; }
 .runtime-update-requirements { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
 .runtime-update-progress-track {
@@ -6629,6 +6618,8 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .plain-icon-btn:hover { background: var(--surface-3); color: var(--text); }
 .plain-icon-btn:active:not(:disabled) { transform: scale(0.92); background: var(--surface-5); }
 .plain-icon-btn:disabled { opacity: 0.4; }
+.plain-icon-btn.proxy-test-ok { color: var(--success); }
+.plain-icon-btn.proxy-test-fail { color: var(--red); }
 .send-btn { color: var(--accent); }
 .accent-icon { color: var(--accent); }
 .icon-btn {
@@ -6692,6 +6683,10 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .markdown th { background: var(--surface-2); }
 .markdown hr { margin: 14px 0; border: 0; border-top: 1px solid var(--line-strong); }
 .markdown strong { font-weight: 700; }
+/* A screenshot the agent embeds inline (e.g. a live-view capture) has no
+   natural relationship to the chat column's width — without this it renders
+   at its native pixel size and blows the column out sideways. */
+.markdown img { display: block; max-width: 100%; height: auto; margin: 10px 0; border: 1px solid var(--line); border-radius: 8px; }
 .local-file-card {
   display: inline-flex;
   align-items: center;
@@ -7584,7 +7579,7 @@ pre,
 
 .btn-bordered,
 .secondary,
-.mini {
+.mini:not(.primary-mini) {
   border-color: var(--line-strong);
   background: color-mix(in srgb, var(--bg-elevated) 74%, var(--surface-3));
 }
@@ -7809,7 +7804,7 @@ pre,
 
 :root[data-theme="light"] .btn-bordered,
 :root[data-theme="light"] .secondary,
-:root[data-theme="light"] .mini {
+:root[data-theme="light"] .mini:not(.primary-mini) {
   border-color: rgba(169, 164, 198, 0.72);
   background: linear-gradient(180deg, #eeeeed, #e8e8e7);
 }
@@ -8423,4 +8418,45 @@ pre,
   background: var(--muted);
   border: 2px solid var(--surface-1);
   border-radius: 8px;
+}
+.ui-scale-control {
+  position: fixed;
+  left: 10px;
+  bottom: 10px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+  color: var(--muted);
+  backdrop-filter: blur(6px);
+  transform-origin: bottom left;
+}
+/* The floating copy only — smaller than the Settings row so it stays unobtrusive. */
+.ui-scale-control:not(.ui-scale-control-settings) {
+  transform: scale(0.82);
+}
+/* Same control, inline as a settings row instead of a floating pill. */
+.ui-scale-control-settings {
+  position: static;
+  border: none;
+  padding: 0;
+  background: none;
+  backdrop-filter: none;
+}
+.ui-scale-value {
+  min-width: 32px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+/* Set apart from the +/- controls so it reads as "close this", not "adjust this". */
+.ui-scale-dismiss {
+  margin-left: 4px;
+}
+.ui-scale-dismiss:hover {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 14%, transparent);
 }

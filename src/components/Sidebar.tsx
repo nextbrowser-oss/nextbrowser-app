@@ -9,7 +9,7 @@ import { withLocalScripts } from "../skillsCatalog";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
 import { guideProfileTarget, guideWorkspaceProfileNames } from "../lib/guideQuickStart";
 import { manualProxyDefaultName, manualProxyLimits, parseManualProxyBatch, parseManualProxyClipboard, validateManualProxyFields, type ManualProxyScheme } from "../lib/manualProxy";
-import { internalError, needsSupportLink } from "../lib/userFacingError";
+import { actionFailureMessage, internalError } from "../lib/userFacingError";
 import { isProxyTrafficExhaustedError, isProxyTrafficGateMessage, proxyTrafficLaunchRefusedMessage } from "../lib/proxyTraffic";
 import { userFacingMultiloginError } from "../lib/userFacingMultiloginError";
 import { entityNameLimits, validateEntityName } from "../lib/entityValidation";
@@ -71,7 +71,7 @@ function multiloginCreationError(error: unknown, kind: MultiloginProfileKind): s
   const message = error instanceof Error ? error.message : String(error);
   if (/workspace has no .*Default folder|workspace has multiple .*Default folder/i.test(message)) {
     const item = kind === "mobile" ? "cloud-phone" : "browser";
-    return `This Multilogin workspace needs one ${item} folder named “Default” before NextBrowser can create a new ${kind === "mobile" ? "cloud phone" : "browser profile"}. Create or rename that folder in Multilogin, then refresh here. You can still choose an existing shared profile.`;
+    return `This Multilogin workspace needs one ${item} folder named “Default” before Nextbrowser can create a new ${kind === "mobile" ? "cloud phone" : "browser profile"}. Create or rename that folder in Multilogin, then refresh here. You can still choose an existing shared profile.`;
   }
   return /timed out/i.test(message)
     ? "Multilogin profile creation took too long and was stopped. Check your connection, then try again."
@@ -113,6 +113,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [manualProxyEditing, setManualProxyEditing] = useState(false);
   const [manualProxyDeleting, setManualProxyDeleting] = useState<string | null>(null);
   const [manualProxyDeletePending, setManualProxyDeletePending] = useState(false);
+  const [proxyTestResults, setProxyTestResults] = useState<Record<string, { status: "testing" | "ok" | "fail"; detail: string }>>({});
   const [createProfileOpen, setCreateProfileOpen] = useState(false);
   const [vpsSetupOpen, setVPSSetupOpen] = useState(false);
   const [profileName, setProfileName] = useState("");
@@ -177,7 +178,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       }
       const detail = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
       console.error(`[${code}] ${label}`, detail);
-      setProfileActionError(internalError(label, code));
+      setProfileActionError(actionFailureMessage(label, code, detail));
     });
   };
 
@@ -218,6 +219,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       if (!shouldDismissModalWithEscape(event)) return;
       event.preventDefault();
       setWorkspaceCreatorOpen(false);
+      setWorkspaceError(null);
     };
     window.addEventListener("keydown", dismissWorkspaceCreator);
     return () => window.removeEventListener("keydown", dismissWorkspaceCreator);
@@ -229,10 +231,55 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       if (!shouldDismissModalWithEscape(event)) return;
       event.preventDefault();
       setManualProxyOpen(false);
+      setManualProxyDeleting(null);
     };
     window.addEventListener("keydown", dismissManualProxy);
     return () => window.removeEventListener("keydown", dismissManualProxy);
   }, [manualProxyOpen, manualSaving, manualProxyDeletePending]);
+
+  useEffect(() => {
+    if (!profileConnectionEditor || profileConnectionSaving) return;
+    const dismissProfileConnectionEditor = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setProfileConnectionEditor(null);
+    };
+    window.addEventListener("keydown", dismissProfileConnectionEditor);
+    return () => window.removeEventListener("keydown", dismissProfileConnectionEditor);
+  }, [profileConnectionEditor, profileConnectionSaving]);
+
+  useEffect(() => {
+    if (!pendingRuntimeInstall) return;
+    const dismissRuntimeInstall = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setPendingRuntimeInstall(undefined);
+    };
+    window.addEventListener("keydown", dismissRuntimeInstall);
+    return () => window.removeEventListener("keydown", dismissRuntimeInstall);
+  }, [pendingRuntimeInstall]);
+
+  useEffect(() => {
+    if (!confirmDelete || profileDeleting) return;
+    const dismissProfileDelete = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setConfirmDelete(null);
+    };
+    window.addEventListener("keydown", dismissProfileDelete);
+    return () => window.removeEventListener("keydown", dismissProfileDelete);
+  }, [confirmDelete, profileDeleting]);
+
+  useEffect(() => {
+    if (!confirmDeleteChat) return;
+    const dismissChatDelete = (event: KeyboardEvent) => {
+      if (!shouldDismissModalWithEscape(event)) return;
+      event.preventDefault();
+      setConfirmDeleteChat(null);
+    };
+    window.addEventListener("keydown", dismissChatDelete);
+    return () => window.removeEventListener("keydown", dismissChatDelete);
+  }, [confirmDeleteChat]);
 
   const agentName = agentById(s.agentId).name;
   const ready = s.agentReady();
@@ -346,12 +393,16 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let disposed = false;
     void listen<AutomationRecipeProgress>("automation:recipe-progress", ({ payload }) => {
       const current = activeAutomationExecution();
       if (!current || current.executionId !== payload.executionId) return;
       setActiveAutomationExecution(executionWithRecipeProgress(current, payload));
-    }).then((dispose) => { unlisten = dispose; });
-    return () => unlisten?.();
+    }).then((dispose) => {
+      if (disposed) dispose();
+      else unlisten = dispose;
+    }).catch(() => undefined);
+    return () => { disposed = true; unlisten?.(); };
   }, []);
 
   useEffect(() => {
@@ -776,6 +827,38 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     setManualUsername("");
     setManualPassword("");
     setManualError(null);
+  };
+
+  const proxyTestRevertTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  useEffect(() => () => {
+    for (const timer of Object.values(proxyTestRevertTimers.current)) clearTimeout(timer);
+  }, []);
+
+  const runProxyTest = (id: string) => {
+    if (proxyTestResults[id]?.status === "testing") return;
+    clearTimeout(proxyTestRevertTimers.current[id]);
+    setProxyTestResults((current) => ({ ...current, [id]: { status: "testing", detail: "" } }));
+    const revertAfter = () => {
+      proxyTestRevertTimers.current[id] = setTimeout(() => {
+        setProxyTestResults((current) => {
+          const { [id]: _removed, ...rest } = current;
+          return rest;
+        });
+      }, 10_000);
+    };
+    s.testPersonalProxy(id)
+      .then((result) => {
+        setProxyTestResults((current) => ({
+          ...current,
+          [id]: { status: "ok", detail: result.ip ? `Alive · ${result.ip} · ${result.latencyMs}ms` : `Alive · ${result.latencyMs}ms` },
+        }));
+        revertAfter();
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setProxyTestResults((current) => ({ ...current, [id]: { status: "fail", detail: message } }));
+        revertAfter();
+      });
   };
 
   const logout = async () => {
@@ -1231,6 +1314,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               aria-label="Create workspace"
               onClick={() => {
                 setWorkspaceName("");
+                setWorkspaceError(null);
                 setWorkspaceMenuOpen(false);
                 setWorkspaceCreatorOpen(true);
               }}
@@ -1367,6 +1451,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       return (
                         <ProfileRow
                           key={p.name} name={p.name} status={status} running={running} busy={busy || occupiedByOther} selected={selected}
+                          startDisabled={!activeProject}
                           country={p.country ?? identity?.country} city={p.city ?? identity?.city} ip={identity?.ip}
                           toolset={toolset} searchQuery={searchQuery}
                           occupiedBy={occupiedByOther ? owner?.title ?? "Another chat" : undefined}
@@ -1408,29 +1493,20 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       );
                 })}
                 {multiloginRow && (
-                  <div className="workspace-multilogin-row">
-                    <button
-                      type="button"
-                      className="workspace-multilogin-open"
-                      title={`${multiloginRow.name} · Multilogin ${multiloginRow.kind === "mobile" ? "cloud phone" : "browser profile"} for this workspace`}
-                      onClick={() => s.setTab("live")}
-                    >
-                      <span className="profile-toolset-logo"><img src="./multilogin-icon.svg" alt="" /></span>
-                      <span>
-                        <strong>{multiloginRow.name}</strong>
-                        <small>Multilogin · {multiloginRow.kind === "mobile" ? "Cloud phone" : "Mimic browser"}</small>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      className="plain-icon-btn plain-icon-btn-compact"
-                      title="Remove this Multilogin profile from the workspace"
-                      aria-label={`Remove ${multiloginRow.name} from this workspace`}
-                      onClick={() => clearMultiloginSelection(s.activeWorkspaceId)}
-                    >
-                      <Icon name="xmark" size={12} />
-                    </button>
-                  </div>
+                  <ProfileRow
+                    key={multiloginRow.id} name={multiloginRow.name} status="Multilogin"
+                    metaOverride={`Multilogin · ${multiloginRow.kind === "mobile" ? "Cloud phone" : "Mimic browser"}`}
+                    running={false} busy={false} selected={false}
+                    toolset="multilogin" searchQuery={searchQuery}
+                    external
+                    onSelect={() => s.setTab("live")}
+                    onStart={() => {}}
+                    onStop={() => {}}
+                    onLive={() => s.setTab("live")}
+                    onMenu={() => {}}
+                    onRemove={() => clearMultiloginSelection(s.activeWorkspaceId)}
+                    removeTitle={`Remove ${multiloginRow.name} from this workspace`}
+                  />
                 )}
                 </div>
               </div>
@@ -1462,8 +1538,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         {s.authed ? (
           <button
             className="plain-icon-btn plain-icon-btn-compact"
-            title="Sign out of NextBrowser"
-            aria-label="Sign out of NextBrowser"
+            title="Sign out of Nextbrowser"
+            aria-label="Sign out of Nextbrowser"
             disabled={logoutPending}
             onClick={() => void logout()}
           >
@@ -1486,18 +1562,17 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         <Icon name="terminal" size={12} />
         <span>nextctl {s.nextctlVersion || "..."}</span>
         <button
-          className="plain-icon-btn plain-icon-btn-compact nextctl-refresh"
-          title="Check for a newer nextctl and update"
+          className={"plain-icon-btn plain-icon-btn-compact nextctl-refresh" + (s.nextctlUpdateError ? " is-failed" : "")}
+          title={s.nextctlUpdateError || "Check for a newer nextctl and update"}
+          aria-label={s.nextctlUpdateError || "Check for a newer nextctl and update"}
           disabled={s.nextctlUpdating}
           onClick={() => s.checkNextctlUpdate()}
         >
-          {s.nextctlUpdating ? <Spinner size={12} /> : <Icon name="arrow.triangle.2.circlepath" size={12} />}
+          {s.nextctlUpdating
+            ? <Spinner size={12} />
+            : <Icon name={s.nextctlUpdateError ? "exclamationmark.triangle.fill" : "arrow.triangle.2.circlepath"} size={12} />}
         </button>
-        {s.nextctlUpdateStatus && (
-          <span className={needsSupportLink(s.nextctlUpdateStatus) ? "warn" : ""}>
-            · <UserFacingError message={s.nextctlUpdateStatus} surface="component_update" />
-          </span>
-        )}
+        {s.nextctlUpdateStatus && <span>· {s.nextctlUpdateStatus}</span>}
         {!s.nextctlSupportsSkill && !s.nextctlCompatibilityError && <span className="warn"> · no skill cmd</span>}
         <span className="spacer" />
         <button
@@ -1626,7 +1701,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                     disabled={profileSaving}
                     ariaLabel="Personal proxy"
                     onChange={setProfilePersonalProxyId}
-                    onAdd={() => { resetManualProxyForm(); setManualProxyEditing(true); setManualProxyOpen(true); }}
+                    onAdd={() => { resetManualProxyForm(); setManualProxyDeleting(null); setManualProxyEditing(true); setManualProxyOpen(true); }}
                   />
                 ) : (
                   <button
@@ -1634,6 +1709,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                     className="personal-proxy-empty-action"
                     onClick={() => {
                       resetManualProxyForm();
+                      setManualProxyDeleting(null);
                       setManualProxyEditing(true);
                       setManualProxyOpen(true);
                     }}
@@ -1648,7 +1724,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               <label className={"project-mode-option" + (profileToolset === "clawbrowser" ? " is-selected" : "")}>
                 <input type="radio" name="profile-toolset" checked={profileToolset === "clawbrowser"} onChange={() => setProfileToolset("clawbrowser")} />
                 <Icon name="globe" size={16} />
-                <span><strong>ClawBrowser</strong><small>Managed identity and proxy</small></span>
+                <span><strong>Clawbrowser</strong><small>Managed identity and proxy</small></span>
               </label>
               <label className={"project-mode-option" + (profileToolset === "dasbrowser" ? " is-selected" : "")}>
                 <input type="radio" name="profile-toolset" checked={profileToolset === "dasbrowser"} onChange={() => setProfileToolset("dasbrowser")} />
@@ -1902,7 +1978,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       ), document.body)}
 
       {workspaceCreatorOpen && createPortal((
-        <div className="modal-overlay" onMouseDown={() => { if (!workspaceSaving) setWorkspaceCreatorOpen(false); }}>
+        <div className="modal-overlay" onMouseDown={() => { if (!workspaceSaving) { setWorkspaceCreatorOpen(false); setWorkspaceError(null); } }}>
           <form
             className="modal-card workspace-create-modal"
             onMouseDown={(event) => event.stopPropagation()}
@@ -1932,7 +2008,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               <Icon name="square.grid.2x2.fill" size={15} />
               <span className="profile-menu-name">Create workspace</span>
               <span className="spacer" />
-              <button type="button" className="plain-icon-btn" title="Close" disabled={workspaceSaving} onClick={() => setWorkspaceCreatorOpen(false)}>
+              <button type="button" className="plain-icon-btn" title="Close" disabled={workspaceSaving} onClick={() => { setWorkspaceCreatorOpen(false); setWorkspaceError(null); }}>
                 <Icon name="xmark.circle.fill" size={18} />
               </button>
             </div>
@@ -1943,7 +2019,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             <p className="muted small workspace-create-note">Chats and profiles created here stay inside this workspace.</p>
             {workspaceError && <div className="error small">{workspaceError}</div>}
             <div className="modal-actions">
-              <button type="button" className="secondary" disabled={workspaceSaving} onClick={() => setWorkspaceCreatorOpen(false)}>Cancel</button>
+              <button type="button" className="secondary" disabled={workspaceSaving} onClick={() => { setWorkspaceCreatorOpen(false); setWorkspaceError(null); }}>Cancel</button>
               <button type="submit" className="primary" disabled={workspaceSaving || !workspaceName.trim()}>
                 {workspaceSaving ? <Spinner size={13} /> : <Icon name="plus" size={13} />} Create workspace
               </button>
@@ -1955,9 +2031,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       {pendingRuntimeInstall && createPortal((
         <div className="modal-overlay" role="presentation" onMouseDown={() => setPendingRuntimeInstall(undefined)}>
           <section className="modal-card runtime-install-confirm" role="dialog" aria-modal="true" aria-labelledby="runtime-install-confirm-title" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="profile-menu-head"><Icon name="arrow.down.circle.fill" size={17} /><strong id="runtime-install-confirm-title">Download {pendingRuntimeInstall.runtime === "camoufox" ? "Camoufox" : pendingRuntimeInstall.runtime === "dasbrowser" ? "DasBrowser" : "ClawBrowser"}?</strong></div>
-            <p className="muted small">This browser toolset is required to start “{pendingRuntimeInstall.profile}”. NextBrowser will download it in the background and show progress. You can stop the download at any time.</p>
-            <div className="modal-actions"><button className="secondary" type="button" onClick={() => setPendingRuntimeInstall(undefined)}>Cancel</button><button className="primary" type="button" onClick={() => { const request = pendingRuntimeInstall; setPendingRuntimeInstall(undefined); runProfileAction(`We couldn't start “${request.profile}”.`, "PROFILE_START_FAILED", () => s.startProfile(request.profile)); }}><Icon name="arrow.down.circle.fill" size={13} /> Download &amp; start</button></div>
+            <div className="profile-menu-head"><Icon name="arrow.down.circle.fill" size={17} /><strong id="runtime-install-confirm-title">Download {pendingRuntimeInstall.runtime === "camoufox" ? "Camoufox" : pendingRuntimeInstall.runtime === "dasbrowser" ? "DasBrowser" : "Clawbrowser"}?</strong></div>
+            <p className="muted small">This browser toolset is required to start “{pendingRuntimeInstall.profile}”. Nextbrowser will download it in the background and show progress. You can stop the download at any time.</p>
+            <div className="modal-actions"><button className="secondary" type="button" autoFocus onClick={() => setPendingRuntimeInstall(undefined)}>Cancel</button><button className="primary" type="button" onClick={() => { const request = pendingRuntimeInstall; setPendingRuntimeInstall(undefined); runProfileAction(`We couldn't start “${request.profile}”.`, "PROFILE_START_FAILED", () => s.startProfile(request.profile)); }}><Icon name="arrow.down.circle.fill" size={13} /> Download &amp; start</button></div>
           </section>
         </div>
       ), document.body)}
@@ -2004,8 +2080,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               <button
                 className="full rotate-btn"
                 onClick={() => {
-                  if (isDefaultProfile) s.rotateDefaultSession();
-                  else s.rotateProfile(menuProfile);
+                  const label = manual || direct ? "We couldn't restart the profile." : "We couldn't rotate the profile's IP.";
+                  runProfileAction(label, "PROFILE_ROTATE_FAILED", () => isDefaultProfile ? s.rotateDefaultSession() : s.rotateProfile(menuProfile));
                   setMenuProfile(null);
                 }}
               >
@@ -2021,8 +2097,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                     value={activeCountry ?? ""}
                     ariaLabel="Rotate country"
                     onChange={(country) => {
-                      if (isDefaultProfile) void s.rotateDefaultSessionCountry(country);
-                      else void s.rotateProfileCountry(menuProfile, country);
+                      runProfileAction("We couldn't rotate the profile's country.", "PROFILE_ROTATE_COUNTRY_FAILED", () =>
+                        isDefaultProfile ? s.rotateDefaultSessionCountry(country) : s.rotateProfileCountry(menuProfile, country));
                       setMenuProfile(null);
                     }}
                   />
@@ -2121,6 +2197,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         <div className="modal-overlay" onMouseDown={() => !profileConnectionSaving && setProfileConnectionEditor(null)}>
           <form
             className="modal-card profile-connection-editor"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="profile-connection-editor-title"
             onMouseDown={(event) => event.stopPropagation()}
             onSubmit={(event) => {
               event.preventDefault();
@@ -2137,7 +2216,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           >
             <div className="profile-menu-head">
               <Icon name="network" size={15} className="accent-icon" />
-              <span className="profile-menu-name">Change connection</span>
+              <span id="profile-connection-editor-title" className="profile-menu-name">Change connection</span>
               <span className="spacer" />
               <button type="button" className="plain-icon-btn" title="Close" disabled={profileConnectionSaving} onClick={() => setProfileConnectionEditor(null)}><Icon name="xmark.circle.fill" size={18} /></button>
             </div>
@@ -2148,9 +2227,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 ["direct", "network", "No proxy", "Use your direct internet connection"],
                 ["managed", "globe", "Managed proxy", "Choose a country and rotate IP later"],
                 ["personal", "network", "Personal proxy", "Use one of your saved proxies"],
-              ] as const).filter(([connection]) => connection !== "direct" || s.profiles.find((p) => p.name === profileConnectionEditor.name)?.proxy_mode === "direct").map(([connection, icon, title, description]) => (
+              ] as const).filter(([connection]) => connection !== "direct" || s.profiles.find((p) => p.name === profileConnectionEditor.name)?.proxy_mode === "direct").map(([connection, icon, title, description], index) => (
                 <label key={connection} className={"project-mode-option" + (profileConnectionEditor.connection === connection ? " is-selected" : "")}>
-                  <input type="radio" name="existing-profile-connection" checked={profileConnectionEditor.connection === connection} onChange={() => setProfileConnectionEditor({ ...profileConnectionEditor, connection })} />
+                  <input type="radio" name="existing-profile-connection" autoFocus={index === 0} checked={profileConnectionEditor.connection === connection} onChange={() => setProfileConnectionEditor({ ...profileConnectionEditor, connection })} />
                   <Icon name={icon} size={16} />
                   <span><strong>{title}</strong><small>{description}</small></span>
                 </label>
@@ -2158,8 +2237,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             </fieldset>
             {profileConnectionEditor.connection === "managed" && <div className="modal-field profile-proxy-country-field"><span>Proxy country</span><CountrySelect countries={proxyCountries} value={profileConnectionEditor.country} disabled={profileConnectionSaving} ariaLabel="Proxy country" onChange={(country) => setProfileConnectionEditor({ ...profileConnectionEditor, country })} /></div>}
             {profileConnectionEditor.connection === "personal" && <div className="modal-field profile-personal-proxy-field">
-              <span className="profile-field-heading"><span>Personal proxy</span><button type="button" className="link" onClick={() => { resetManualProxyForm(); setManualProxyEditing(s.personalProxies.length === 0); setManualProxyOpen(true); }}>Manage</button></span>
-              {s.personalProxies.length ? <PersonalProxySelect value={profileConnectionEditor.proxyId} proxies={s.personalProxies} disabled={profileConnectionSaving} onChange={(proxyId) => setProfileConnectionEditor({ ...profileConnectionEditor, proxyId })} onAdd={() => { resetManualProxyForm(); setManualProxyEditing(true); setManualProxyOpen(true); }} /> : <button type="button" className="personal-proxy-empty-action" onClick={() => { resetManualProxyForm(); setManualProxyEditing(true); setManualProxyOpen(true); }}><Icon name="plus" size={13} /> Create your first proxy</button>}
+              <span className="profile-field-heading"><span>Personal proxy</span><button type="button" className="link" onClick={() => { resetManualProxyForm(); setManualProxyDeleting(null); setManualProxyEditing(s.personalProxies.length === 0); setManualProxyOpen(true); }}>Manage</button></span>
+              {s.personalProxies.length ? <PersonalProxySelect value={profileConnectionEditor.proxyId} proxies={s.personalProxies} disabled={profileConnectionSaving} onChange={(proxyId) => setProfileConnectionEditor({ ...profileConnectionEditor, proxyId })} onAdd={() => { resetManualProxyForm(); setManualProxyDeleting(null); setManualProxyEditing(true); setManualProxyOpen(true); }} /> : <button type="button" className="personal-proxy-empty-action" onClick={() => { resetManualProxyForm(); setManualProxyDeleting(null); setManualProxyEditing(true); setManualProxyOpen(true); }}><Icon name="plus" size={13} /> Create your first proxy</button>}
             </div>}
             {profileConnectionError && <div className="error small" role="alert">{profileConnectionError}</div>}
             <div className="modal-actions"><button type="button" className="secondary" disabled={profileConnectionSaving} onClick={() => setProfileConnectionEditor(null)}>Cancel</button><button type="submit" className="primary" disabled={profileConnectionSaving || (profileConnectionEditor.connection === "personal" && !profileConnectionEditor.proxyId)}>{profileConnectionSaving ? <Spinner size={13} /> : <Icon name="checkmark" size={13} />}{profileConnectionSaving ? "Saving…" : "Save connection"}</button></div>
@@ -2170,7 +2249,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       {vpsSetupOpen && <VPSSetupModal onClose={() => setVPSSetupOpen(false)} />}
 
       {manualProxyOpen && createPortal((
-        <div className="modal-overlay" onMouseDown={() => !manualSaving && !manualProxyDeletePending && setManualProxyOpen(false)}>
+        <div className="modal-overlay" onMouseDown={() => { if (!manualSaving && !manualProxyDeletePending) { setManualProxyOpen(false); setManualProxyDeleting(null); } }}>
           <div className="modal-card manual-proxy-modal" onMouseDown={(e) => e.stopPropagation()}>
             <div className="profile-menu-head">
               <Icon name="network" size={16} className="accent-icon" />
@@ -2181,7 +2260,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 className="plain-icon-btn"
                 title="Close"
                 disabled={manualSaving || manualProxyDeletePending}
-                onClick={() => setManualProxyOpen(false)}
+                onClick={() => { setManualProxyOpen(false); setManualProxyDeleting(null); }}
               >
                 <Icon name="xmark.circle.fill" size={18} />
               </button>
@@ -2354,27 +2433,47 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               </form>
             ) : (
               <>
-                <p className="muted personal-proxy-note">Encrypted in your NextBrowser account and available on every signed-in device.</p>
+                <p className="muted personal-proxy-note">Encrypted in your Nextbrowser account and available on every signed-in device.</p>
                 {s.personalProxies.length ? (
                   <div className="personal-proxy-list">
-                    {s.personalProxies.map((proxy) => (
-                      <div className="personal-proxy-row" key={proxy.id}>
-                        <span className="personal-proxy-icon"><Icon name="network" size={13} /></span>
-                        <span className="personal-proxy-copy">
-                          <strong>{proxy.name}</strong>
-                          <small>{proxy.scheme.toUpperCase()} · {proxy.host}:{proxy.port}</small>
-                        </span>
-                        <button
-                          type="button"
-                          className="plain-icon-btn plain-icon-btn-compact"
-                          title={`Delete ${proxy.name}`}
-                          aria-label={`Delete ${proxy.name}`}
-                          onClick={() => setManualProxyDeleting(proxy.id)}
-                        >
-                          <Icon name="trash" size={13} />
-                        </button>
-                      </div>
-                    ))}
+                    {s.personalProxies.map((proxy) => {
+                      const test = proxyTestResults[proxy.id];
+                      const testTitle = test?.status === "testing"
+                        ? "Testing…"
+                        : test
+                          ? test.detail
+                          : `Test ${proxy.name}`;
+                      return (
+                        <div className="personal-proxy-row" key={proxy.id}>
+                          <span className="personal-proxy-icon"><Icon name="network" size={13} /></span>
+                          <span className="personal-proxy-copy">
+                            <strong>{proxy.name}</strong>
+                            <small>{proxy.scheme.toUpperCase()} · {proxy.host}:{proxy.port}</small>
+                          </span>
+                          <button
+                            type="button"
+                            className={"plain-icon-btn plain-icon-btn-compact proxy-test-btn" + (test ? ` proxy-test-${test.status}` : "")}
+                            title={testTitle}
+                            aria-label={testTitle}
+                            disabled={test?.status === "testing"}
+                            onClick={() => runProxyTest(proxy.id)}
+                          >
+                            {test?.status === "testing"
+                              ? <Spinner size={13} />
+                              : <Icon name={test?.status === "ok" ? "hand.thumbsup.fill" : test?.status === "fail" ? "hand.thumbsdown.fill" : "bolt.fill"} size={13} />}
+                          </button>
+                          <button
+                            type="button"
+                            className="plain-icon-btn plain-icon-btn-compact"
+                            title={`Delete ${proxy.name}`}
+                            aria-label={`Delete ${proxy.name}`}
+                            onClick={() => setManualProxyDeleting(proxy.id)}
+                          >
+                            <Icon name="trash" size={13} />
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="personal-proxy-empty">
@@ -2402,7 +2501,11 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                                 if (profilePersonalProxyId === proxy.id) setProfilePersonalProxyId("");
                                 setManualProxyDeleting(null);
                               })
-                              .catch(() => setManualError(internalError("We couldn't delete the proxy.", "PERSONAL_PROXY_DELETE_FAILED")))
+                              .catch((error: unknown) => {
+                                console.error("[PERSONAL_PROXY_DELETE_FAILED]", error);
+                                setManualError(internalError("We couldn't delete the proxy.", "PERSONAL_PROXY_DELETE_FAILED"));
+                                void s.loadPersonalProxies().catch(() => undefined);
+                              })
                               .finally(() => setManualProxyDeletePending(false));
                           }}
                         >
@@ -2418,7 +2521,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                   </div>
                 )}
                 <div className="modal-actions">
-                  <button type="button" className="secondary" onClick={() => setManualProxyOpen(false)}>Close</button>
+                  <button type="button" className="secondary" onClick={() => { setManualProxyOpen(false); setManualProxyDeleting(null); }}>Close</button>
                   <button type="button" className="primary" onClick={() => {
                     resetManualProxyForm();
                     setManualProxyEditing(true);
@@ -2434,15 +2537,15 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
 
       {confirmDelete && createPortal((
         <div className="modal-overlay" onMouseDown={() => !profileDeleting && setConfirmDelete(null)}>
-          <div className="modal-card" onMouseDown={(event) => event.stopPropagation()}>
-            <p>Delete profile "{confirmDelete}"?</p>
+          <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="delete-profile-title" onMouseDown={(event) => event.stopPropagation()}>
+            <p id="delete-profile-title">Delete profile "{confirmDelete}"?</p>
             {profileDeleteError && (
               <div className="error small" role="alert" style={{ marginTop: 10 }}>
                 <UserFacingError message={profileDeleteError} surface="profile_delete" />
               </div>
             )}
             <div className="row" style={{ marginTop: 12, gap: 8 }}>
-              <button className="secondary" disabled={profileDeleting} onClick={() => setConfirmDelete(null)}>
+              <button className="secondary" disabled={profileDeleting} autoFocus onClick={() => setConfirmDelete(null)}>
                 Cancel
               </button>
               <button
@@ -2475,14 +2578,14 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         const runningProfiles = (chat.profileNames ?? []).filter((name) => s.statuses[name] === "running");
         return (
           <div className="modal-overlay" onMouseDown={() => setConfirmDeleteChat(null)}>
-            <div className="modal-card delete-chat-modal" onMouseDown={(event) => event.stopPropagation()}>
-              <h3>Delete “{chat.title}”?</h3>
+            <div className="modal-card delete-chat-modal" role="dialog" aria-modal="true" aria-labelledby="delete-chat-title" onMouseDown={(event) => event.stopPropagation()}>
+              <h3 id="delete-chat-title">Delete “{chat.title}”?</h3>
               <p>This removes the chat and its message history. Profiles stay in the workspace.</p>
               {runningProfiles.length > 0 && (
                 <p className="delete-chat-warning">Stop {runningProfiles.length === 1 ? `“${runningProfiles[0]}”` : "the running profiles"} before deleting this chat.</p>
               )}
               <div className="modal-actions">
-                <button className="secondary" onClick={() => setConfirmDeleteChat(null)}>Cancel</button>
+                <button className="secondary" autoFocus onClick={() => setConfirmDeleteChat(null)}>Cancel</button>
                 <button
                   className="primary danger"
                   disabled={runningProfiles.length > 0}
@@ -2519,9 +2622,11 @@ function HighlightedName({ text, query }: { text: string; query?: string }) {
 function ProfileRow({
   name,
   status,
+  metaOverride,
   running,
   busy,
   selected,
+  startDisabled,
   country,
   city,
   ip,
@@ -2533,6 +2638,7 @@ function ProfileRow({
   draggable,
   dragOver,
   projectId,
+  external,
   onDragOverProfile,
   onDropProfile,
   onDragLeaveProfile,
@@ -2541,23 +2647,31 @@ function ProfileRow({
   onStop,
   onLive,
   onMenu,
+  onRemove,
+  removeTitle,
 }: {
   name: string;
   status: string;
+  metaOverride?: string;
   running: boolean;
   busy: boolean;
   selected: boolean;
+  startDisabled?: boolean;
   country?: string | null;
   city?: string | null;
   ip?: string | null;
   manualScheme?: string | null;
   manualTitle?: string;
-  toolset?: "clawbrowser" | "dasbrowser" | "camoufox";
+  toolset?: "clawbrowser" | "dasbrowser" | "camoufox" | "multilogin";
   occupiedBy?: string;
   searchQuery?: string;
   draggable?: boolean;
   dragOver?: boolean;
   projectId?: string;
+  // Profiles Nextbrowser doesn't itself start/stop (e.g. a Multilogin cloud
+  // resource): keep the same row shell, but swap the lifecycle actions for a
+  // single "open" + "remove" pair instead of start/stop/menu.
+  external?: boolean;
   onDragOverProfile?: (event: DragEvent<HTMLDivElement>) => void;
   onDropProfile?: (event: DragEvent<HTMLDivElement>) => void;
   onDragLeaveProfile?: () => void;
@@ -2566,11 +2680,14 @@ function ProfileRow({
   onStop: () => void;
   onLive: () => void;
   onMenu: () => void;
+  onRemove?: () => void;
+  removeTitle?: string;
 }) {
+  const toolsetLabel = toolset === "clawbrowser" ? "Clawbrowser" : toolset === "dasbrowser" ? "DasBrowser" : toolset === "multilogin" ? "Multilogin" : "Camoufox";
+  const toolsetIcon = toolset === "clawbrowser" ? "./clawbrowser-icon.png" : toolset === "dasbrowser" ? "./dasbrowser-icon.png" : toolset === "multilogin" ? "./multilogin-icon.svg" : "./camoufox-icon.svg";
   return (
     <div
       className={"profile-row" + (selected ? " selected" : "") + (occupiedBy ? " is-occupied" : "") + (draggable ? " is-draggable" : "") + (dragOver ? " is-drag-over" : "")}
-      onClick={onSelect}
       draggable={draggable}
       onDragStart={(event) => {
         if (!draggable) return;
@@ -2583,13 +2700,21 @@ function ProfileRow({
       onDragLeave={onDragLeaveProfile}
       onDrop={onDropProfile}
     >
-      <span className={"dot " + (running ? "green" : busy ? "orange" : "gray")} title={status} />
+      <button
+        type="button"
+        className="profile-select"
+        aria-label={`Select profile ${name}`}
+        aria-pressed={selected}
+        onClick={onSelect}
+        style={{ background: "none", border: "none", padding: 0, color: "inherit", textAlign: "left", display: "flex", alignItems: "center", gap: 7, flex: "1 1 auto", minWidth: 0, cursor: "pointer" }}
+      >
+      <span className={"dot " + (external ? "gray" : running ? "green" : busy ? "orange" : "gray")} title={external ? toolsetLabel : status} />
       <span className="profile-main">
         <span className="profile-title-line">
           <span className="profile-name"><HighlightedName text={name} query={searchQuery} /></span>
         </span>
         <span className="profile-meta">
-          {occupiedBy ? `In use · ${occupiedBy}` : ip ? `${status} · ${ip}` : status}
+          {metaOverride ?? (occupiedBy ? `In use · ${occupiedBy}` : ip ? `${status} · ${ip}` : status)}
         </span>
       </span>
       <span className="profile-badges">
@@ -2602,15 +2727,11 @@ function ProfileRow({
         {toolset && (
           <span
             className="profile-toolset-logo"
-            title={toolset === "clawbrowser" ? "ClawBrowser" : toolset === "dasbrowser" ? "DasBrowser" : "Camoufox"}
+            title={toolsetLabel}
             role="img"
-            aria-label={toolset === "clawbrowser" ? "ClawBrowser" : toolset === "dasbrowser" ? "DasBrowser" : "Camoufox"}
+            aria-label={toolsetLabel}
           >
-            <img
-              src={toolset === "clawbrowser" ? "./clawbrowser-icon.png" : toolset === "dasbrowser" ? "./dasbrowser-icon.png" : "./camoufox-icon.svg"}
-              alt=""
-              draggable={false}
-            />
+            <img src={toolsetIcon} alt="" draggable={false} />
           </span>
         )}
         {manualScheme && (
@@ -2619,8 +2740,38 @@ function ProfileRow({
           </span>
         )}
       </span>
+      </button>
       <div className="profile-actions">
-        {running ? (
+        {external ? (
+          <>
+            <button
+              className="plain-icon-btn"
+              title="Live view"
+              aria-label={`Open live view for ${name}`}
+              data-tooltip="Live view"
+              onClick={(event) => {
+                event.stopPropagation();
+                onLive();
+              }}
+            >
+              <Icon name="video.fill" size={16} />
+            </button>
+            {onRemove && (
+              <button
+                className="plain-icon-btn"
+                title={removeTitle ?? "Remove"}
+                aria-label={removeTitle ?? `Remove ${name}`}
+                data-tooltip="Remove"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRemove();
+                }}
+              >
+                <Icon name="xmark" size={16} />
+              </button>
+            )}
+          </>
+        ) : running ? (
           <>
             <button
               className="plain-icon-btn"
@@ -2651,10 +2802,10 @@ function ProfileRow({
         ) : (
           <button
             className="plain-icon-btn"
-            title="Start"
+            title={startDisabled ? "Create a project first" : "Start"}
             aria-label={`Start ${name}`}
             data-tooltip="Start"
-            disabled={busy}
+            disabled={busy || startDisabled}
             onClick={(event) => {
               event.stopPropagation();
               void onStart();
@@ -2663,19 +2814,21 @@ function ProfileRow({
             <Icon name="play.fill" size={16} />
           </button>
         )}
-        <button
-          className="plain-icon-btn"
-          title="Profile actions"
-          aria-label={`Profile actions for ${name}`}
-          data-tooltip="Actions"
-          disabled={busy}
-          onClick={(event) => {
-            event.stopPropagation();
-            onMenu();
-          }}
-        >
-          <Icon name="ellipsis.circle" size={18} />
-        </button>
+        {!external && (
+          <button
+            className="plain-icon-btn"
+            title="Profile actions"
+            aria-label={`Profile actions for ${name}`}
+            data-tooltip="Actions"
+            disabled={busy}
+            onClick={(event) => {
+              event.stopPropagation();
+              onMenu();
+            }}
+          >
+            <Icon name="ellipsis.circle" size={18} />
+          </button>
+        )}
       </div>
     </div>
   );

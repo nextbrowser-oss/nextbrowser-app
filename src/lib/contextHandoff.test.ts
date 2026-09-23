@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { HOST_START_FAILURE_GUIDANCE } from "./hostStartFailureGuidance";
 import {
   chatPromptWithDeferredContext,
   chatToTerminalHandoff,
@@ -100,10 +101,10 @@ describe("chat context handoff", () => {
       { name: "Wiki research", runtime: "clawbrowser", running: false },
     ]);
     expect(result).toContain("Fox profile: Camoufox (running, selected)");
-    expect(result).toContain("Wiki research: ClawBrowser (stopped)");
+    expect(result).toContain("Wiki research: Clawbrowser (stopped)");
     expect(result).toContain("workspace browser access (not project chat history)");
     expect(result).toContain("Never invent, clone, create, start, or substitute an unlisted profile");
-    expect(result).toContain("A runtime label such as ClawBrowser, Camoufox, or DasBrowser is not a profile name");
+    expect(result).toContain("A runtime label such as Clawbrowser, Camoufox, or DasBrowser is not a profile name");
     expect(result).toContain("$NEXTBROWSER_CONTROL_URL/profile/start");
     expect(result).toContain(`--data '{"profile":"Wiki research"}'`);
     expect(result).toContain(`--data '{"profile":"Fox profile"}'`);
@@ -112,7 +113,8 @@ describe("chat context handoff", () => {
     expect(result).toContain("Save requested files with nextbrowser.save_artifact");
     expect(result).toContain("do not use shell, curl, or temporary files for artifacts");
     expect(result).toContain("retry the original page action once with that exact name");
-    expect(result?.match(/Wiki research: ClawBrowser \(stopped\)/g)).toHaveLength(1);
+    expect(result).toContain(HOST_START_FAILURE_GUIDANCE);
+    expect(result?.match(/Wiki research: Clawbrowser \(stopped\)/g)).toHaveLength(1);
     expect(result).not.toContain("Reddit scraper");
   });
 

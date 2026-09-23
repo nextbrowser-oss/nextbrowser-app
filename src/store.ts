@@ -42,7 +42,7 @@ import { promptWithAttachments } from "./lib/chatAttachments";
 import { normalizeNextctlVersion } from "./lib/version";
 import { isProxyTrafficExhaustedError, proxyTrafficWarning } from "./lib/proxyTraffic";
 import { trafficGateState } from "./lib/trafficGate";
-import { activeAutomationRecording } from "./lib/automationRecording";
+import { activeAutomationRecording, clearActiveAutomationRecording } from "./lib/automationRecording";
 import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
 import { internalError } from "./lib/userFacingError";
 import { agentEmptyReplyMessage } from "./lib/agentRunResult";
@@ -58,7 +58,7 @@ import { accountLoginURL } from "./lib/accountAuth";
 import { requiresWorkspaceSetup } from "./lib/workspaceSetup";
 import { validateEntityName } from "./lib/entityValidation";
 import { moveProfileToWorkspace as moveProfileBetweenWorkspaces } from "./lib/workspaceProfiles";
-import { isWorkspaceRevisionConflict, mergeWorkspaceAfterRevisionConflict } from "./lib/workspaceConflict";
+import { isProjectRevisionConflict, isWorkspaceNotFound, isWorkspaceRevisionConflict, mergeWorkspaceAfterRevisionConflict } from "./lib/workspaceConflict";
 import {
   normalizeConversation,
   normalizeWorkflowSkill,
@@ -80,6 +80,7 @@ import type {
   Conversation,
   CustomScript,
   Profile,
+  ProfileCreateRequest,
   PersonalProxy,
   ProxyTraffic,
   ScheduledRun,
@@ -147,7 +148,7 @@ function privateSkillContext(skills: BrowserWorkflowSkill[], text: string): stri
     .filter((skill) => skill.domain && lower.includes(skill.domain.toLowerCase()))
     .sort((a, b) => Number(b.capability === intent) - Number(a.capability === intent) || b.updatedAt - a.updatedAt)[0];
   if (!match || (match.capability !== intent && intent !== "other")) return "";
-  return `\n\nA private skill owned by this user matches the domain and intent. Execute its structured recipe first; fall back to its prose workflow only if the page changed. Do not repeat start/prepare because NextBrowser owns session setup.\nPrivate skill: ${match.title}\nRecipe: ${JSON.stringify(match.recipe)}\nFallback: ${match.instructions}`;
+  return `\n\nA private skill owned by this user matches the domain and intent. Execute its structured recipe first; fall back to its prose workflow only if the page changed. Do not repeat start/prepare because Nextbrowser owns session setup.\nPrivate skill: ${match.title}\nRecipe: ${JSON.stringify(match.recipe)}\nFallback: ${match.instructions}`;
 }
 
 export interface ManualProxyProfileInput {
@@ -162,6 +163,12 @@ export interface ManualProxyProfileInput {
 export interface ManualProxyBatchSaveResult {
   saved: Array<{ index: number; proxy: PersonalProxy }>;
   failed: Array<{ index: number; message: string }>;
+}
+
+export interface PersonalProxyTestResult {
+  ok: true;
+  ip?: string;
+  latencyMs: number;
 }
 
 interface AgentRuntime {
@@ -235,15 +242,107 @@ const WATCHDOG_MS = 5_000;
 const PROXY_REFRESH_MS = 120_000;
 const PROFILE_STATUS_REFRESH_MS = 15_000;
 const SCHEDULE_TICK_MS = 30_000;
+const PROFILE_CREATE_REQUEST_POLL_MS = 10_000;
 const NEXTCTL_DAILY_UPDATE_MS = 20 * 60 * 1000;
 const NEXTCTL_DAILY_UPDATE_POLL_MS = 60 * 1000;
-const NEXTCTL_UPDATE_RETRY_MS = 5 * 60 * 1000;
-const NEXTCTL_UPDATE_MAX_RETRIES = 2;
+// Retries stay silent in the background: only the last one surfaces
+// nextctlUpdateError, so a transient failure (or GitHub's anonymous API
+// rate limit) doesn't interrupt the user unless every attempt fails.
+const NEXTCTL_UPDATE_MAX_RETRIES = 5;
+const NEXTCTL_UPDATE_RETRY_BASE_MS = 90 * 1000;
+const NEXTCTL_UPDATE_RETRY_STEP_MS = 10 * 1000;
+function nextctlUpdateRetryDelay(attempt: number): number {
+  return NEXTCTL_UPDATE_RETRY_BASE_MS + (attempt - 1) * NEXTCTL_UPDATE_RETRY_STEP_MS;
+}
+// GitHub's anonymous API limit (60 requests/hour per IP) resets within the
+// hour; once the retries above are exhausted, wait the window out before the
+// daily background check tries again.
+const NEXTCTL_UPDATE_RATE_LIMIT_MS = 60 * 60 * 1000;
 const NEXTCTL_UPDATE_STATE_FILE = "nextctl-update.json";
-const NEXTCTL_UPDATE_ERROR = "We couldn't update NextBrowser. Please retry again.";
+const NEXTCTL_UPDATE_ERROR = "We couldn't update the Nextbrowser CLI (nextctl). Please retry.";
+const NEXTCTL_UPDATE_ERROR_DETAIL_LIMIT = 160;
+
+function nextctlUpdateErrorMessage(reason?: string): string {
+  const raw = String(reason ?? "");
+  // A request failure reads like
+  // "fetch releases/latest <url>: unexpected status 403 Forbidden". Keep only
+  // the HTTP status so the message stays short; otherwise drop any request URL
+  // and collapse whitespace. The status must not run past its line: nextctl
+  // prints "Warning: ..." on the next one.
+  const status = raw.match(/\b\d{3}[ \t]+[A-Za-z][A-Za-z \t]*/);
+  const detail = (status
+    ? status[0].trim()
+    : raw
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/https?:\/\/\S+?(?=[:\s]|$)/g, "")
+      .replace(/\s+([:;,])/g, "$1")
+      .trim()
+  ).slice(0, NEXTCTL_UPDATE_ERROR_DETAIL_LIMIT);
+  return detail ? `${NEXTCTL_UPDATE_ERROR} ${detail}` : NEXTCTL_UPDATE_ERROR;
+}
+
+// GitHub's anonymous REST API allows 60 requests/hour per IP and answers 403
+// when exceeded. Retrying within minutes only keeps hitting the limit.
+function isNextctlRateLimit(reason: string): boolean {
+  return /\b403\b|rate limit|forbidden/i.test(reason);
+}
+
+// nextctl appends "(rate limit resets at <RFC3339>)" when GitHub's
+// X-RateLimit-Reset header was present on the 403 it hit. Prefer that real
+// reset time over the flat one-hour guess below; fall back to the guess when
+// nextctl couldn't read the header (older nextctl, or GitHub omitted it).
+function nextctlRateLimitResetAt(reason: string): number | undefined {
+  const match = reason.match(/rate limit resets at (\S+)\)/);
+  if (!match) return undefined;
+  const parsed = Date.parse(match[1]);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+// Record the attempt (and merge any extra fields) so the daily tick throttles
+// instead of re-running the update every minute.
+async function recordNextctlUpdateAttempt(patch: Partial<NextctlUpdateState> = {}): Promise<void> {
+  const state = await loadJson<NextctlUpdateState>(NEXTCTL_UPDATE_STATE_FILE, {});
+  await saveJson(NEXTCTL_UPDATE_STATE_FILE, { ...state, lastAutoCheckAt: now(), ...patch });
+}
+
+/**
+ * Reads the newly installed nextctl version from `nextctl update` output.
+ * Supports the current `[nbc-update] Installed vX` line and the legacy
+ * `nextctl updated: old > new` line. The command can exit non-zero because an
+ * optional browser-runtime asset failed to download even though nextctl
+ * itself was installed, so success must be detected from the output.
+ */
+function nextctlUpdatedVersion(text: string): string | undefined {
+  const legacy = text.split("\n").find((line) => line.includes("nextctl updated:"));
+  if (legacy) return legacy.split(">").pop()?.trim() || undefined;
+  return text.match(/\[nbc-update\]\s+Installed\s+v?([0-9][^\s]*)/i)?.[1];
+}
+
+// The success notice is a brief confirmation, not a permanent state: the
+// footer already shows the version, so "updated → X" must not linger.
+const NEXTCTL_UPDATE_NOTICE_MS = 10_000;
+let nextctlUpdateNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearNextctlUpdateNotice(): void {
+  if (!nextctlUpdateNoticeTimer) return;
+  clearTimeout(nextctlUpdateNoticeTimer);
+  nextctlUpdateNoticeTimer = null;
+}
+
+function showNextctlUpdateNotice(message: string): void {
+  useStore.setState({ nextctlUpdateStatus: message });
+  clearNextctlUpdateNotice();
+  nextctlUpdateNoticeTimer = setTimeout(() => {
+    nextctlUpdateNoticeTimer = null;
+    if (useStore.getState().nextctlUpdateStatus === message) {
+      useStore.setState({ nextctlUpdateStatus: undefined });
+    }
+  }, NEXTCTL_UPDATE_NOTICE_MS);
+}
 
 function nextBrowserInstallPrompt(agentAdapter: string): string {
-  return `NextBrowser needs to finish installing its local browser components before browser work can start.
+  return `Nextbrowser needs to finish installing its local browser components before browser work can start.
 
 Use the official nextctl release bootstrap, then install the browser runtime and this agent integration.
 
@@ -301,7 +400,7 @@ function skillKey(agentId: string, entryId: string) {
 function pageReadyNote(openedHost?: string, directFallback = false): string {
   const direct = directFallback ? " Use the selected direct profile explicitly approved by the user; do not switch back to the failed proxy profile." : "";
   if (!openedHost) return direct;
-  return ` The page ${openedHost} is already open in the active NextBrowser profile — work there and don't navigate away unless the steps require it.${direct}`;
+  return ` The page ${openedHost} is already open in the active Nextbrowser profile — work there and don't navigate away unless the steps require it.${direct}`;
 }
 
 function skillAgentPrompt(
@@ -318,7 +417,7 @@ function skillAgentPrompt(
     ? `${pageReadyNote(undefined, directFallback)} Keep the current browser tab active; do not open a different website unless the user explicitly asks.`
     : openedHost
     ? pageReadyNote(openedHost, directFallback)
-    : ` Start by opening ${target} in the active NextBrowser profile.${pageReadyNote(undefined, directFallback)}`;
+    : ` Start by opening ${target} in the active Nextbrowser profile.${pageReadyNote(undefined, directFallback)}`;
   // The task is the app's own instruction for this run, so it precedes the
   // skill text: the workflow explains how, the task says what.
   const thisRun = task?.trim() ? `\n\nTask for this run:\n${task.trim()}` : "";
@@ -386,6 +485,7 @@ async function pullCatalogInstructions(entry: SkillEntry, preferredAgentId: stri
 interface State {
   authed: boolean;
   accountEmail?: string;
+  accountOwnerId?: string;
   checking: boolean;
   startupPhase: "local" | "account";
   startupError?: string;
@@ -395,6 +495,7 @@ interface State {
   proxyWarning?: string;
   trafficGatePromptOpen: boolean;
   profiles: Profile[];
+  pendingProfileCreateRequests: ProfileCreateRequest[];
   personalProxies: PersonalProxy[];
   proxyCountries: RotationCountry[];
   statuses: Record<string, string>;
@@ -412,6 +513,12 @@ interface State {
   activeWorkspaceId?: string;
   workspacesLoaded: boolean;
   workspaceSetupRequired: boolean;
+  /**
+   * Automatic first-run setup state. "pending" before the first attempt,
+   * "running" while defaults are being created, "done" once complete, and
+   * "failed" to fall back to the manual WorkspaceSetupGate.
+   */
+  workspaceSetupAuto: "pending" | "running" | "done" | "failed";
   activeConvId: Record<string, string>;
   tab: AppTab;
   skillState: Record<string, SkillApplyState | string>;
@@ -436,6 +543,10 @@ interface State {
   nextctlVersion: string;
   nextctlUpdating: boolean;
   nextctlUpdateStatus?: string;
+  // The last failed update. The footer shows it only as the refresh button's
+  // tooltip: a background check failing must not push a paragraph of text
+  // into the sidebar.
+  nextctlUpdateError?: string;
   nextctlSupportsSkill: boolean;
   nextctlAvailable: boolean;
   nextctlCompatibilityError?: string;
@@ -469,6 +580,11 @@ interface State {
   projectRevisions: Record<string, number>;
   workspaceRevisions: Record<string, number>;
   projectsSyncing: boolean;
+  // Background sync runs constantly and is not something the user needs to
+  // see; logout is the one moment a sync becomes user-relevant, since it
+  // blocks the account switch. The sync-status UI only shows while this is
+  // true (see App.tsx), not whenever projectsSyncing/isRefreshing are true.
+  loggingOut: boolean;
 
   bootstrap: () => Promise<void>;
   login: (key: string) => Promise<void>;
@@ -483,6 +599,9 @@ interface State {
   refreshSessions: () => Promise<void>;
   loadProxy: () => Promise<void>;
   loadProfiles: () => Promise<void>;
+  pollProfileCreateRequests: () => Promise<void>;
+  approveProfileCreateRequest: (id: string) => Promise<void>;
+  rejectProfileCreateRequest: (id: string, reason?: string) => Promise<void>;
   loadProxyCountries: () => Promise<void>;
   loadDefaultSession: () => Promise<void>;
   loadSkillCatalog: () => Promise<void>;
@@ -504,6 +623,7 @@ interface State {
   savePersonalProxy: (input: ManualProxyProfileInput) => Promise<PersonalProxy>;
   savePersonalProxies: (inputs: ManualProxyProfileInput[]) => Promise<ManualProxyBatchSaveResult>;
   deletePersonalProxy: (id: string) => Promise<void>;
+  testPersonalProxy: (id: string) => Promise<PersonalProxyTestResult>;
   createPersonalProxyProfile: (
     name: string,
     proxyId: string,
@@ -543,6 +663,9 @@ interface State {
   selectWorkspace: (id: string) => void;
   deleteWorkspace: (id: string) => Promise<void>;
   completeWorkspaceSetup: () => void;
+  /** Create a default workspace, project, and one profile per toolset without
+   *  showing the setup modal. Falls back to the gate only if it fails. */
+  ensureDefaultWorkspaceSetup: () => Promise<void>;
 
   conversationsForAgent: (agentId: string) => Conversation[];
   activeConversation: () => Conversation | undefined;
@@ -652,19 +775,29 @@ let proxyTimer: ReturnType<typeof setInterval> | null = null;
 let profileStatusTimer: ReturnType<typeof setInterval> | null = null;
 let profileStatusRefreshInFlight = false;
 let scheduleTimer: ReturnType<typeof setInterval> | null = null;
+let profileCreateRequestTimer: ReturnType<typeof setInterval> | null = null;
+let profileCreateRequestPollInFlight = false;
 let sessionPollTimer: ReturnType<typeof setInterval> | null = null;
 let sessionPollInFlight = false;
 let nextctlDailyUpdateTimer: ReturnType<typeof setInterval> | null = null;
 let nextctlUpdateRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let vpsSetupReservations = 0;
 let localNextctlOperations = 0;
+let defaultSetupInFlight = false;
+
+// One default profile per browser toolset for a brand-new account.
+const DEFAULT_WORKSPACE_TOOLSETS: { runtime: BrowserToolset; name: string }[] = [
+  { runtime: "clawbrowser", name: "Clawbrowser profile" },
+  { runtime: "dasbrowser", name: "DasBrowser profile" },
+  { runtime: "camoufox", name: "Camoufox profile" },
+];
 // Guard bootstrap against re-entry. React StrictMode invokes effects twice in
 // dev, and without this each agent:* listener would be registered again, so a
 // single agent reply would be appended once per registration (duplicate output).
 // Mirrors AppState.didBootstrap in the Swift app.
 let didBootstrap = false;
 type AgentDone = { code: number; stderr: string; stdout: string };
-interface NextctlUpdateState { lastAutoCheckAt?: number }
+interface NextctlUpdateState { lastAutoCheckAt?: number; rateLimitedUntil?: number }
 interface APIKeyIdentity {
   valid: boolean;
   key_id?: string;
@@ -675,9 +808,16 @@ interface APIKeyIdentity {
 const replyExecutionTargets = new Map<string, ExecutionTarget>();
 const replyProfileBaselines = new Map<string, Set<string>>();
 const profileOperationEpoch = new Map<string, number>();
+const pendingProfileLaunches = new Map<string, number>();
 const pendingProfileStarts = new Map<string, Promise<void>>();
 const verifyingProfileStarts = new Set<string>();
 const BOOTSTRAP_FOREGROUND_WAIT_MS = 12_000;
+// Stamps which account's data the on-disk caches (workspaces.json and
+// friends) belong to. A clean logout clears it along with the files; if it
+// survives to the next bootstrap under a different account (crash, killed
+// process, credential change outside logout()), that tells us the just-loaded
+// caches are foreign and must not reach syncProjects(). See NB-25647DEA.
+const CACHED_ACCOUNT_OWNER_KEY = "cachedAccountOwnerId";
 
 function activeConversationStorageKey(agentId: string, workspaceId?: string): string {
   return `activeConversationId:${agentId}:${workspaceId || "none"}`;
@@ -757,22 +897,134 @@ async function nextctlEnvelope<T>(
 async function saveWorkspaces(workspaces: Workspace[]): Promise<void> {
   await invoke("app_data_write", { name: "workspaces.json", content: JSON.stringify(workspaces, null, 2) });
 }
+
+// Account-owned entities must never survive a successful account switch. The
+// backend is the source of truth; these files are only the active account's
+// working cache and must not be offered to the next account for sync.
+async function clearAccountEntityCache(): Promise<void> {
+  const emptyFiles: Record<string, string> = {
+    "conversations.json": "[]",
+    "workspaces.json": "[]",
+    "scheduled-runs.json": "[]",
+    "custom-scripts.json": "[]",
+    "local-skills.json": "[]",
+    "applied-scripts.json": "[]",
+    "usage-history.json": "[]",
+    "watched-profiles.json": "[]",
+    "watchlist-runs.json": "[]",
+    "watchlist-transports.json": "{}",
+    "watchlist-profiles.json": "{}",
+    "watchlist-devices.json": "{}",
+    "watchlist-sign-ins.json": "{}",
+    [X_REPLY_STATE_FILE]: "null",
+  };
+  await Promise.all(Object.entries(emptyFiles).map(([name, content]) =>
+    invoke("app_data_write", { name, content }),
+  ));
+  for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+    const key = localStorage.key(index);
+    if (key?.startsWith("activeConversationId:") || key === "activeWorkspaceId" || key === CACHED_ACCOUNT_OWNER_KEY) {
+      localStorage.removeItem(key);
+    }
+  }
+  // These live outside the JSON-file caches above, in raw localStorage/
+  // sessionStorage, and are keyed by workspace id (backend-issued, globally
+  // unique) rather than account — but a stray "Recorder is active" banner
+  // surviving a same-session account switch is still worth clearing.
+  clearActiveAutomationRecording();
+}
+
+// The in-memory mirror of the account-owned files above, matching the shape
+// bootstrap() hydrates them into. Used when bootstrap finds the on-disk
+// cache it just loaded belongs to a different account than the one that
+// just authenticated — the files get wiped by clearAccountEntityCache, and
+// this drops the same data from the state that was already set from them.
+function emptyAccountOwnedCaches(): Partial<State> {
+  return {
+    conversations: [],
+    workspaces: [],
+    activeWorkspaceId: undefined,
+    activeConvId: {},
+    scheduledRuns: [],
+    customScripts: [],
+    localSkills: [],
+    appliedScripts: [],
+    // Account-scoped cloud skills must be dropped with the rest of the
+    // account cache; otherwise the previous account's private skills stay
+    // visible after logout or an account switch.
+    privateCloudSkills: [],
+    skillCategories: REPOSITORY_SKILL_CATEGORIES,
+    usageHistory: [],
+    watchedProfiles: [],
+    watchlistRuns: [],
+    watchlistTransports: {},
+    watchlistProfiles: {},
+    watchlistDevices: {},
+    watchlistSignIns: {},
+    // Per-handle watch state and the selected profile are account-scoped too;
+    // a non-logout re-auth (token expiry -> sign in as another account) must
+    // not leave the previous account's reports or "Runs in ..." selection.
+    watchReports: {},
+    watchPublishers: {},
+    selectedProfile: undefined,
+    xReplyState: normalizeXReplyState(null),
+  };
+}
+
+// Drops the account-owned caches if they were stamped for a different
+// account than the one that just authenticated (see CACHED_ACCOUNT_OWNER_KEY
+// and emptyAccountOwnedCaches above). This must run before anything treats
+// the session as authed — a workspace mutation or the queue reconciler can
+// trigger syncProjects() as soon as `authed` flips true, which would push
+// the stale cache at the backend under the new account's key. Runs both at
+// boot (bootstrap(), after a crash/force-quit/non-logout credential change
+// left a foreign cache on disk) and whenever a running session
+// re-authenticates without restarting — a token can expire mid-session and
+// reopen the sign-in modal for a different account without ever going
+// through logout()'s cache wipe.
+async function guardAgainstForeignAccountCache(): Promise<void> {
+  const ownerId = useStore.getState().accountOwnerId;
+  if (!ownerId) return;
+  const cachedOwnerId = localStorage.getItem(CACHED_ACCOUNT_OWNER_KEY) || undefined;
+  if (cachedOwnerId && cachedOwnerId !== ownerId) {
+    trackEvent("foreign_account_cache_cleared");
+    await clearAccountEntityCache().catch(() => {});
+    useStore.setState(emptyAccountOwnedCaches());
+  }
+  localStorage.setItem(CACHED_ACCOUNT_OWNER_KEY, ownerId);
+}
+
 let workspaceMutationQueue: Promise<unknown> = Promise.resolve();
 function persistWorkspaceMutation(transform: (workspaces: Workspace[]) => Workspace[]): Promise<void> {
   const pending = workspaceMutationQueue.then(async () => {
-    const previous = useStore.getState().workspaces;
+    const state = useStore.getState();
+    if (!state.authed) throw new Error("Sign in before changing workspace data.");
+    if (state.projectsSyncing) throw new Error("Cloud sync is in progress. Retry this workspace change when it finishes.");
+    const previous = state.workspaces;
     const workspaces = transform(previous);
     useStore.setState({ workspaces });
     try {
+      // The backend is authoritative. Do not leave a mutation only in the
+      // local cache when its cloud write fails. syncProjects sees the
+      // temporary state and confirms/merges it before we keep the file.
       await saveWorkspaces(workspaces);
-    } catch (error) {
-      if (useStore.getState().workspaces === workspaces) useStore.setState({ workspaces: previous });
-      throw error;
-    }
-    try {
       await useStore.getState().syncProjects();
-    } catch {
-      throw new Error("The profile change was saved on this device, but cloud sync failed. Retry when your connection is restored.");
+    } catch (error) {
+      const ownershipConflict = error instanceof Error && error.message.includes("belongs to another account");
+      if (ownershipConflict) {
+        // syncProjects() already recovered: it filtered the foreign workspace
+        // out of local state and persisted that. The mutation the caller
+        // asked for is intact and saved — surfacing this as a rejection
+        // would make an otherwise-successful profile action look failed.
+        return;
+      }
+      if (useStore.getState().workspaces === workspaces) {
+        useStore.setState({ workspaces: previous });
+        await saveWorkspaces(previous).catch(() => {});
+      }
+      throw error instanceof Error
+        ? error
+        : new Error("Cloud sync failed. Retry when your connection is restored.");
     }
   });
   workspaceMutationQueue = pending.catch(() => undefined);
@@ -829,6 +1081,9 @@ let conversationWriteTail: Promise<void> = Promise.resolve();
 let projectSyncTimer: ReturnType<typeof setTimeout> | undefined;
 let applyingCloudProjects = false;
 let profileRefreshGeneration = 0;
+// Bumped on logout so an account-scoped load that started before sign-out
+// cannot repopulate the cleared state afterwards.
+let accountEpoch = 0;
 const PROJECT_SYNC_DELAY_MS = 750;
 
 function runScheduledProjectSync() {
@@ -1005,7 +1260,7 @@ function proxyTunnelLost(message: string): boolean {
 function friendlyXReplyError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   if (sessionLost(message)) return "The browser session was lost. Press Start again to reopen it.";
-  if (/API_KEY|not authorized|unauthorized/i.test(message)) return "NextBrowser could not authenticate. Reconnect your account.";
+  if (/API_KEY|not authorized|unauthorized/i.test(message)) return "Nextbrowser could not authenticate. Reconnect your account.";
   return message.replace(/\s+/g, " ").trim().slice(0, 160);
 }
 
@@ -1169,7 +1424,7 @@ async function refreshAnalyticsIdentity(): Promise<boolean> {
   const ownerId = valid ? wrap.identity.owner_id?.trim() : undefined;
   const accountEmail = valid ? wrap.identity.email?.trim() : undefined;
   setAnalyticsUserId(ownerId || undefined);
-  useStore.setState({ accountEmail: accountEmail || undefined });
+  useStore.setState({ accountEmail: accountEmail || undefined, accountOwnerId: ownerId || undefined });
   trackEvent("analytics_identity_loaded", {
     valid,
     has_owner_id: !!ownerId,
@@ -1203,7 +1458,7 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
       return valid;
     } catch {
       setAnalyticsUserId(undefined);
-      useStore.setState({ accountEmail: undefined });
+      useStore.setState({ accountEmail: undefined, accountOwnerId: undefined });
       trackEvent("analytics_identity_unavailable", { phase: "bootstrap" });
       return false;
     }
@@ -1212,6 +1467,7 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
     const incompatible = String(error).includes("VERIFY_REQUIRED");
     useStore.setState({
       accountEmail: undefined,
+      accountOwnerId: undefined,
       nextctlVersion: incompatible ? "update required" : "not found",
       nextctlSupportsSkill: false,
       nextctlAvailable: false,
@@ -1250,6 +1506,7 @@ async function refreshCompletedAccountPairing(
       throw new Error("Browser sign-in completed, but the account identity could not be verified.");
     }
   }
+  await guardAgainstForeignAccountCache();
   useStore.setState({
     authed: true,
     nextctlAvailable: true,
@@ -1258,7 +1515,7 @@ async function refreshCompletedAccountPairing(
     loginError: undefined,
   });
   useStore.getState().startTimers();
-  void useStore.getState().refreshAll();
+  void useStore.getState().refreshAll().catch(() => {});
   void useStore.getState().authorizeAgent();
   if (useStore.getState().onboardingReturnPending) {
     useStore.getState().resumeOnboardingAfterSetup();
@@ -1308,6 +1565,26 @@ function requestAccountSignIn(setState: (state: Partial<State>) => void, error: 
   trackEvent("account_signin_required");
 }
 
+// A failed rotate must not leave the profile — or every profile's status poll,
+// which pauses while any profile is "rotating" — stuck forever. Refresh the
+// authoritative status; if the CLI is also unreachable, clear the transient
+// marker so the user can retry.
+async function settleRotateFailure(name: string): Promise<void> {
+  await useStore.getState().loadProfiles();
+  useStore.setState((s) =>
+    s.statuses[name] === "rotating" ? { statuses: { ...s.statuses, [name]: "unknown" } } : {},
+  );
+}
+
+// loadProfiles swallows its own errors, so a start/stop/rotate that succeeded
+// but could not refresh keeps a transient marker forever (and that marker
+// pauses status polling for every profile). Clear it when the refresh failed.
+function settleTransientStatus(name: string, transient: string): void {
+  useStore.setState((s) =>
+    s.statuses[name] === transient ? { statuses: { ...s.statuses, [name]: "unknown" } } : {},
+  );
+}
+
 export const useStore = create<State>((set, get) => {
   const enqueueWithTarget = (
     text: string,
@@ -1325,10 +1602,14 @@ export const useStore = create<State>((set, get) => {
       void get().loginAgent();
       return;
     }
-    if (!get().agentReady()) return;
-    const agentId = get().agentId;
     const cid = into ?? get().activeConversation()?.id ?? get().newChat();
     const targetConversation = get().conversations.find((conversation) => conversation.id === cid);
+    // Queue under the conversation's agent, not whichever agent is currently
+    // selected: a watchlist/skill pass can fire after the user switched agents,
+    // and the reply must run as (and land in) the conversation's own agent.
+    const agentId = targetConversation?.agent ?? get().agentId;
+    const targetRuntime = get().runtime[agentId];
+    if (!targetRuntime?.ready || targetRuntime.loggedIn === false) return;
     const executionTarget = privilegedTarget ?? executionTargetForTurn(targetConversation);
     const replyId = uid();
     const userMsg: ChatMessage = {
@@ -1462,11 +1743,13 @@ export const useStore = create<State>((set, get) => {
   return {
   authed: false,
   accountEmail: undefined,
+  accountOwnerId: undefined,
   checking: true,
   startupPhase: "local",
   startupError: undefined,
   isLoggingIn: false,
   profiles: [],
+  pendingProfileCreateRequests: [],
   personalProxies: [],
   proxyCountries: [],
   statuses: {},
@@ -1482,6 +1765,7 @@ export const useStore = create<State>((set, get) => {
   activeWorkspaceId: localStorage.getItem("activeWorkspaceId") ?? undefined,
   workspacesLoaded: false,
   workspaceSetupRequired: false,
+  workspaceSetupAuto: "pending",
   activeConvId: {},
   tab: "chat",
   skillState: {},
@@ -1525,6 +1809,7 @@ export const useStore = create<State>((set, get) => {
   projectRevisions: {},
   workspaceRevisions: {},
   projectsSyncing: false,
+  loggingOut: false,
 
   conversationsForAgent: (agentId) =>
     get().conversations
@@ -1720,6 +2005,15 @@ export const useStore = create<State>((set, get) => {
       const authenticated = !pendingTarget(get(), "vps")
         ? await refreshLocalNextctlMetadata()
         : false;
+
+      // The caches loaded above were hydrated before identity was known
+      // (a clean logout wipes them, but a crash or a credential change
+      // outside logout() would not). If they were stamped for a different
+      // account, drop them now — before anything treats this session as
+      // authed: a workspace mutation or the queue reconciler can call
+      // syncProjects() as soon as `authed` flips true, which would push the
+      // stale cache at the backend under the new account's key.
+      if (authenticated) await guardAgainstForeignAccountCache();
       set({ authed: authenticated, checking: false, startupError: undefined });
       get().startTimers();
 
@@ -1744,7 +2038,7 @@ export const useStore = create<State>((set, get) => {
         conversation_count: get().conversations.length,
       });
     })().catch(() => {
-      set({ checking: false, startupError: "NextBrowser couldn't finish startup. Restart the check to try again." });
+      set({ checking: false, startupError: "Nextbrowser couldn't finish startup. Restart the check to try again." });
       trackTiming("bootstrap_failed", startedAt, { phase: get().startupPhase });
     }).finally(() => {
       if (startupTimer) clearTimeout(startupTimer);
@@ -1773,6 +2067,12 @@ export const useStore = create<State>((set, get) => {
       () => void get().tickNextctlDailyUpdate(),
       NEXTCTL_DAILY_UPDATE_POLL_MS,
     );
+    if (profileCreateRequestTimer) clearInterval(profileCreateRequestTimer);
+    profileCreateRequestTimer = setInterval(
+      () => void get().pollProfileCreateRequests(),
+      PROFILE_CREATE_REQUEST_POLL_MS,
+    );
+    void get().pollProfileCreateRequests();
   },
 
   refreshProfileStatuses: async () => {
@@ -1795,7 +2095,9 @@ export const useStore = create<State>((set, get) => {
     // Never replace that test binary with the latest published release while
     // the app is running under Vite/Electron development mode.
     if (import.meta.env.DEV) return;
-    if (!get().nextctlAvailable) return;
+    // An incompatible CLI reports nextctlAvailable=false but still needs a
+    // reinstall, so let the tick through for that case.
+    if (!get().nextctlAvailable && !get().nextctlCompatibilityError) return;
     if (get().nextctlUpdating) return;
     if (pendingTarget(get(), "vps")) return;
     // `nextctl update` also refreshes the browser runtime and agent assets. Do
@@ -1806,8 +2108,16 @@ export const useStore = create<State>((set, get) => {
       ...Object.values(get().statuses),
     ].some((status) => status != null && !["stopped", "unknown"].includes(status));
     if (browserSessionActive || get().anyAgentRunning()) return;
+    if (get().nextctlCompatibilityError) {
+      // The old executable cannot run anything, so reinstall it now instead of
+      // waiting for the daily window. Respect an already-scheduled retry.
+      if (!nextctlUpdateRetryTimer) void get().checkNextctlUpdate();
+      return;
+    }
     const state = await loadJson<NextctlUpdateState>(NEXTCTL_UPDATE_STATE_FILE, {});
     if (pendingTarget(get(), "vps")) return;
+    // Wait out a rate-limit backoff before trying again.
+    if (Number(state.rateLimitedUntil ?? 0) > now()) return;
     const lastAutoCheckAt = Number(state.lastAutoCheckAt ?? 0);
     // A fresh install has just resolved or downloaded nextctl during bootstrap.
     // Treat that as the first successful check instead of immediately running
@@ -1817,10 +2127,9 @@ export const useStore = create<State>((set, get) => {
       await saveJson(NEXTCTL_UPDATE_STATE_FILE, { lastAutoCheckAt: now() });
       return;
     }
-    if (lastAutoCheckAt > 0 && now() - lastAutoCheckAt < NEXTCTL_DAILY_UPDATE_MS) return;
-    if (!await get().checkNextctlUpdate()) return;
-    if (pendingTarget(get(), "vps")) return;
-    await saveJson(NEXTCTL_UPDATE_STATE_FILE, { lastAutoCheckAt: now() });
+    if (now() - lastAutoCheckAt < NEXTCTL_DAILY_UPDATE_MS) return;
+    // checkNextctlUpdate records the attempt (and any rate-limit backoff).
+    await get().checkNextctlUpdate();
   },
 
   tickScheduledRuns: async () => {
@@ -1890,6 +2199,11 @@ export const useStore = create<State>((set, get) => {
           });
         }
         enqueueWithTarget(run.prompt, undefined, cid, [], scheduledTarget);
+      } catch (error) {
+        // One failing schedule must not abort the rest of this tick. The timer
+        // calls this without awaiting, so swallow here instead of letting an
+        // unhandled rejection surface as a global renderer error.
+        console.warn("[SCHEDULED_RUN_FAILED]", run.id, error);
       } finally {
         if (scheduledTarget === "vps") vpsSetupReservations = Math.max(0, vpsSetupReservations - 1);
         get().switchAgent(prev);
@@ -2162,7 +2476,7 @@ export const useStore = create<State>((set, get) => {
     const activeProfile = get().selectedProfile;
     const recording = activeAutomationRecording();
     const recorderContext = recording?.phase === "recording" && recording.workspaceId === conversationWorkspaceId
-      ? `\n\nNextBrowser Recorder is active for this task. The final reusable dataset must come from a deterministic browser tool call, not from reading state and transforming it only in your reasoning. Prefer navigate_extract when the URL, row container, and fields are known because it combines navigation, readiness, and extraction in one recorded call. Otherwise, after using state once to discover the page, call extract or paginate_extract with the exact fields and limit. Do not use evaluate for selector or HTML diagnostics: state is the discovery tool. If the dynamic page cannot be represented by extraction tools, call evaluate once with a read-only expression that returns the exact structured dataset; it must not read cookies/storage, use network APIs, click/submit, or mutate the DOM. Select targets by stable content, attributes, or headers instead of a numeric querySelectorAll position, and make the expression throw unless the requested number of rows and requested fields are populated. If the final dataset comes from a public JSON endpoint, use its replayable GET form when available: open that exact API URL in the listed browser profile, then evaluate the JSON body. Never leave the final request hidden in curl, fetch, or an uncaptured shell action, because Recorder cannot replay it. If the user requested an Artifact Center file, pass that deterministic call's returned dataset to nextbrowser.save_artifact once. Do not finish with state as the only data-collection step.`
+      ? `\n\nNextbrowser Recorder is active for this task. The final reusable dataset must come from a deterministic browser tool call, not from reading state and transforming it only in your reasoning. Prefer navigate_extract when the URL, row container, and fields are known because it combines navigation, readiness, and extraction in one recorded call. Otherwise, after using state once to discover the page, call extract or paginate_extract with the exact fields and limit. Do not use evaluate for selector or HTML diagnostics: state is the discovery tool. If the dynamic page cannot be represented by extraction tools, call evaluate once with a read-only expression that returns the exact structured dataset; it must not read cookies/storage, use network APIs, click/submit, or mutate the DOM. Select targets by stable content, attributes, or headers instead of a numeric querySelectorAll position, and make the expression throw unless the requested number of rows and requested fields are populated. If the final dataset comes from a public JSON endpoint, use its replayable GET form when available: open that exact API URL in the listed browser profile, then evaluate the JSON body. Never leave the final request hidden in curl, fetch, or an uncaptured shell action, because Recorder cannot replay it. If the user requested an Artifact Center file, pass that deterministic call's returned dataset to nextbrowser.save_artifact once. Do not finish with state as the only data-collection step.`
       : "";
     const browserContext = browserProfileContext(
       get().workspaces,
@@ -2401,6 +2715,11 @@ export const useStore = create<State>((set, get) => {
     set({ loginError: undefined, isLoggingIn: true });
     try {
       await finishAPIKeyLogin(apiKey);
+      // This can be a re-authentication mid-session (e.g. a token expired,
+      // reopening the sign-in modal) rather than a fresh launch — the
+      // caches already in memory may belong to whatever account was
+      // previously signed in here.
+      await guardAgainstForeignAccountCache();
       await get().loadProxy();
       set({ authed: true, nextctlAvailable: true, accountPairing: undefined });
       get().startTimers();
@@ -2425,7 +2744,7 @@ export const useStore = create<State>((set, get) => {
       const response = await invoke<PairingStartResponse>("pairing_start", {
         apiBaseUrl,
         version: __APP_VERSION__,
-        displayName: "NextBrowser Desktop",
+        displayName: "Nextbrowser Desktop",
       });
       const verificationUrl = accountLoginURL(response.verification_url);
       set({
@@ -2464,6 +2783,13 @@ export const useStore = create<State>((set, get) => {
         pairingId: pairing.pairingId,
         pollToken: pairing.pollToken,
       });
+      // The pairing this poll started for may have been cancelled and
+      // replaced by a new one (e.g. for a different account) while the
+      // request was in flight — cancelAccountPairing() does not, and
+      // cannot, abort it. Applying a stale result here would clobber the
+      // newer pairing's state and, worse, sign the session into whichever
+      // account this stale poll belongs to.
+      if (get().accountPairing?.pairingId !== pairing.pairingId) return;
       set({
         accountPairing: {
           ...pairing,
@@ -2492,35 +2818,98 @@ export const useStore = create<State>((set, get) => {
   },
 
   logout: async () => {
-    await invoke<null>("account_logout");
-    trackEvent("dashboard_logout");
-    setAnalyticsUserId(undefined);
-    if (proxyTimer) clearInterval(proxyTimer);
-    if (scheduleTimer) clearInterval(scheduleTimer);
-    if (sessionPollTimer) clearInterval(sessionPollTimer);
-    if (nextctlUpdateRetryTimer) clearTimeout(nextctlUpdateRetryTimer);
-    nextctlUpdateRetryTimer = null;
-    proxyTimer = scheduleTimer = sessionPollTimer = null;
-    set({
-      authed: false,
-      accountEmail: undefined,
-      runtime: initRuntimes(),
-      connectAnnounced: new Set(),
-      proxy: undefined,
-      proxyWarning: undefined,
-      dashboardKeyPromptOpen: false,
-      trafficGatePromptOpen: false,
-      accountPairing: undefined,
-      profiles: [],
-      statuses: {},
-      profileSessions: {},
-      profileIdentities: {},
-      personalProxies: [],
-      selectedProfile: undefined,
-      defaultSession: undefined,
-      skillState: {},
-      tab: "chat",
-    });
+    // Do not switch accounts while local mutations are still only local. A
+    // successful logout is the ownership boundary: flush and confirm the
+    // current account's cloud state before credentials are cleared.
+    // loggingOut gates the sync-status UI (App.tsx): background sync is
+    // silent the rest of the time, but a sync blocking the account switch
+    // is worth surfacing.
+    set({ loggingOut: true });
+    try {
+      await flushConversations();
+      const syncDeadline = now() + 30_000;
+      while (get().projectsSyncing && now() < syncDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      if (get().projectsSyncing) throw new Error("Cloud sync is still in progress. Wait for it to finish before switching accounts.");
+      await get().syncProjects();
+      await invoke<null>("account_logout");
+      await clearAccountEntityCache();
+      trackEvent("dashboard_logout");
+      setAnalyticsUserId(undefined);
+      if (proxyTimer) clearInterval(proxyTimer);
+      if (profileStatusTimer) clearInterval(profileStatusTimer);
+      if (scheduleTimer) clearInterval(scheduleTimer);
+      if (sessionPollTimer) clearInterval(sessionPollTimer);
+      if (profileCreateRequestTimer) clearInterval(profileCreateRequestTimer);
+      if (nextctlUpdateRetryTimer) clearTimeout(nextctlUpdateRetryTimer);
+      if (nextctlDailyUpdateTimer) clearInterval(nextctlDailyUpdateTimer);
+      nextctlUpdateRetryTimer = null;
+      nextctlDailyUpdateTimer = null;
+      // Invalidate any account-scoped load that started before sign-out so it
+      // cannot repopulate the cleared state (profiles, proxy, skills) later.
+      profileRefreshGeneration += 1;
+      accountEpoch += 1;
+      proxyTimer = profileStatusTimer = scheduleTimer = sessionPollTimer = profileCreateRequestTimer = null;
+      // These are keyed by profile name, not account. Leaving a stale entry
+      // behind would let the next account's operation on a same-named profile
+      // (e.g. both accounts happen to have a "work" profile) piggyback on this
+      // account's now-irrelevant in-flight promise/epoch instead of starting
+      // its own.
+      profileOperationEpoch.clear();
+      pendingProfileLaunches.clear();
+      pendingProfileStarts.clear();
+      verifyingProfileStarts.clear();
+      set({
+        authed: false,
+        accountEmail: undefined,
+        runtime: initRuntimes(),
+        connectAnnounced: new Set(),
+        proxy: undefined,
+        proxyWarning: undefined,
+        dashboardKeyPromptOpen: false,
+        trafficGatePromptOpen: false,
+        accountPairing: undefined,
+        profiles: [],
+        pendingProfileCreateRequests: [],
+        statuses: {},
+        profileSessions: {},
+        profileIdentities: {},
+        personalProxies: [],
+        conversations: [],
+        workspaces: [],
+        activeWorkspaceId: undefined,
+        activeConvId: {},
+        scheduledRuns: [],
+        customScripts: [],
+        localSkills: [],
+        localSkillSync: {},
+        appliedScripts: [],
+        scriptSync: {},
+        privateCloudSkills: [],
+        skillCategories: REPOSITORY_SKILL_CATEGORIES,
+        usageHistory: [],
+        watchedProfiles: [],
+        watchReports: {},
+        watchPublishers: {},
+        watchlistRuns: [],
+        watchlistTransports: {},
+        watchlistProfiles: {},
+        watchlistDevices: {},
+        watchlistSignIns: {},
+        xReplyState: normalizeXReplyState(null),
+        projectRevisions: {},
+        workspaceRevisions: {},
+        workspaceSetupRequired: false,
+        workspaceSetupAuto: "pending",
+        selectedProfile: undefined,
+        defaultSession: undefined,
+        skillState: {},
+        tab: "chat",
+      });
+    } finally {
+      set({ loggingOut: false });
+    }
   },
 
   refreshAll: async () => {
@@ -2574,7 +2963,9 @@ export const useStore = create<State>((set, get) => {
   },
 
   loadProxy: async () => {
+    const epoch = accountEpoch;
     const wrap = await nextctlJson<{ proxy_traffic: ProxyTraffic }>(["proxy-traffic"]);
+    if (epoch !== accountEpoch) return;
     const p = wrap.proxy_traffic;
     const proxyWarning = proxyTrafficWarning(p);
     // A gated account is shown the full free allowance, so it has no way to
@@ -2641,7 +3032,7 @@ export const useStore = create<State>((set, get) => {
           if (st.status === "running") {
             // Status refresh must never navigate the user's active browser.
             // The old implementation called `verify` for every running
-            // ClawBrowser profile, which could replace a page the agent was
+            // Clawbrowser profile, which could replace a page the agent was
             // actively scraping with clawbrowser://verify. Reuse the identity
             // captured at an explicit lifecycle action and fall back to the
             // saved country label without touching the page.
@@ -2657,14 +3048,56 @@ export const useStore = create<State>((set, get) => {
         }
       }
       if (generation !== profileRefreshGeneration) return;
-      for (const name of verifyingProfileStarts) {
-        statuses[name] = get().statuses[name] === "stopping" ? "stopping" : "starting";
-        if (profileSessions[name]) profileSessions[name] = { ...profileSessions[name], status: statuses[name] };
+      // A poll can start before a launch and finish while that launch is still
+      // preparing the browser. Do not turn Starting into a misleading Stopped
+      // (or Unknown), or Running before verification settles. A newer stop/remove
+      // operation takes precedence through the operation epoch.
+      for (const name of Object.keys(statuses)) {
+        const launch = pendingProfileLaunches.get(name);
+        if (launch !== undefined && launch === profileOperationEpoch.get(name)) {
+          statuses[name] = get().statuses[name] === "stopping" ? "stopping" : "starting";
+          if (profileSessions[name]) profileSessions[name] = { ...profileSessions[name], status: statuses[name] };
+        }
       }
       set({ statuses, profileSessions, profileIdentities });
     } catch {
       /* non-fatal */
     }
+  },
+
+  // Agents cannot create profiles directly inside a Nextbrowser workspace
+  // (nbc's mcp_workspace_scope.go refuses profiles_create there); instead an
+  // agent files a batch request with profiles_create_request, and the person
+  // using the app approves or declines it here. Polled on a timer from
+  // startTimers so a pending request surfaces as a modal without the user
+  // having to do anything first.
+  pollProfileCreateRequests: async () => {
+    if (!get().appActive || !get().authed || !get().nextctlAvailable || pendingTarget(get(), "vps")) return;
+    if (profileCreateRequestPollInFlight) return;
+    profileCreateRequestPollInFlight = true;
+    try {
+      const result = await nextctlJson<{ requests: ProfileCreateRequest[] }>(["profiles", "requests", "list", "--status", "pending"]);
+      set({ pendingProfileCreateRequests: result.requests ?? [] });
+    } catch {
+      /* non-fatal; retry on the next tick */
+    } finally {
+      profileCreateRequestPollInFlight = false;
+    }
+  },
+
+  approveProfileCreateRequest: async (id: string) => {
+    trackEvent("profile_create_request_approved", { request_id: id });
+    // Throw on a non-zero exit; otherwise a failed approve looked successful,
+    // dismissed the request, and it reappeared on the next poll with no error.
+    await nextctlRunChecked(["profiles", "requests", "approve", id]);
+    set({ pendingProfileCreateRequests: get().pendingProfileCreateRequests.filter((r) => r.id !== id) });
+    await get().loadProfiles();
+  },
+
+  rejectProfileCreateRequest: async (id: string, reason?: string) => {
+    trackEvent("profile_create_request_rejected", { request_id: id });
+    await nextctlRunChecked(["profiles", "requests", "reject", id, ...(reason ? ["--reason", reason] : [])]);
+    set({ pendingProfileCreateRequests: get().pendingProfileCreateRequests.filter((r) => r.id !== id) });
   },
 
   loadProxyCountries: async () => {
@@ -2677,8 +3110,10 @@ export const useStore = create<State>((set, get) => {
   },
 
   loadDefaultSession: async () => {
+    const epoch = accountEpoch;
     try {
       const st = await nextctlJson<SessionStatus>(["status"]);
+      if (epoch !== accountEpoch) return;
       set({ defaultSession: st });
       // A passive refresh must not navigate the default browser to its
       // verification page. Keep any identity captured by an explicit launch
@@ -2694,8 +3129,10 @@ export const useStore = create<State>((set, get) => {
       set({ skillCategories: REPOSITORY_SKILL_CATEGORIES });
       return;
     }
+    const epoch = accountEpoch;
     try {
       const catalog = await nextctlJson<{ categories: Array<{ id: string; title: string; icon: string; order: number; skills: SkillRef[] }> }>(["skill", "list"]);
+      if (epoch !== accountEpoch) return;
       const backendScripts: SkillEntry[] = [];
       const privateCloudSkills: SkillEntry[] = [];
       const skillCategories: SkillCategory[] = catalog.categories.map((category) => ({
@@ -2731,6 +3168,7 @@ export const useStore = create<State>((set, get) => {
         skill_count: catalog.categories.reduce((total, category) => total + category.skills.length, 0),
       });
     } catch {
+      if (epoch !== accountEpoch) return;
       set({ skillCategories: REPOSITORY_SKILL_CATEGORIES });
       trackEvent("skill_catalog_failed");
     }
@@ -2813,14 +3251,18 @@ export const useStore = create<State>((set, get) => {
       try {
         const runtime = runtimeForProfile(get().workspaces, n);
         const profile = get().profiles.find((item) => item.name === n);
+        pendingProfileLaunches.set(n, operation);
         await prepareLocalSession({
           selectedProfile: n, runtime, statuses: {}, verifyOnly: true,
           proxyExpected: profile?.proxy_mode !== "direct",
           shouldContinue: () => profileOperationEpoch.get(n) === operation,
+        }).finally(() => {
+          if (pendingProfileLaunches.get(n) === operation) pendingProfileLaunches.delete(n);
         });
         if (profileOperationEpoch.get(n) !== operation) return;
         verifyingProfileStarts.delete(n);
         await get().loadProfiles();
+        settleTransientStatus(n, "starting");
         trackTiming("profile_start_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
       } catch (error) {
         if (profileOperationEpoch.get(n) !== operation) return;
@@ -2872,9 +3314,15 @@ export const useStore = create<State>((set, get) => {
       // A user may close the browser window directly. Refresh the authoritative
       // session state and treat stopping an already-closed profile as success.
       await get().loadProfiles().catch(() => undefined);
-      if (get().statuses[n] !== "stopped") throw error;
+      if (get().statuses[n] !== "stopped") {
+        // If the CLI could not confirm a status either, do not leave the
+        // transient "stopping" marker, which pauses every profile's polling.
+        set((s) => (s.statuses[n] === "stopping" ? { statuses: { ...s.statuses, [n]: "unknown" } } : {}));
+        throw error;
+      }
     }
     await get().loadProfiles();
+    settleTransientStatus(n, "stopping");
     if (profileOperationEpoch.get(n) !== operation) return;
     set((s) => {
       const profileChatOwners = { ...s.profileChatOwners };
@@ -2903,6 +3351,7 @@ export const useStore = create<State>((set, get) => {
         "json",
       ]);
       await get().loadProfiles();
+      settleTransientStatus(n, "rotating");
       await get().loadProxy().catch(() => {});
       const after = runtime === "clawbrowser"
         ? await verifyProxyIdentity(n)
@@ -2912,6 +3361,7 @@ export const useStore = create<State>((set, get) => {
       trackTiming("profile_rotate_completed", startedAt, { scope: "named", status: get().statuses[n] ?? "unknown" });
     } catch (error) {
       requestAccountSignIn(set, error);
+      await settleRotateFailure(n);
       throw error;
     }
   },
@@ -2936,6 +3386,7 @@ export const useStore = create<State>((set, get) => {
         "json",
       ]);
       await get().loadProfiles();
+      settleTransientStatus(n, "rotating");
       await get().loadProxy().catch(() => {});
       const after = runtime === "clawbrowser" ? await verifyProxyIdentity(n) : { country };
       if (after) set((s) => ({ profileIdentities: { ...s.profileIdentities, [n]: after } }));
@@ -2943,6 +3394,7 @@ export const useStore = create<State>((set, get) => {
       trackTiming("profile_rotate_completed", startedAt, { scope: "named", country, status: get().statuses[n] ?? "unknown" });
     } catch (error) {
       requestAccountSignIn(set, error);
+      await settleRotateFailure(n);
       throw error;
     }
   },
@@ -3038,23 +3490,30 @@ export const useStore = create<State>((set, get) => {
 
   deletePersonalProxy: async (id) => {
     await invoke<void>("manual_proxy_delete", { id });
-    const previousWorkspaces = get().workspaces;
-    const workspaces = previousWorkspaces.map((workspace) => {
-      const current = workspace.profileProxyIds ?? {};
-      const profileProxyIds = Object.fromEntries(
-        Object.entries(current).filter(([, proxyId]) => proxyId !== id),
-      );
-      return Object.keys(profileProxyIds).length === Object.keys(current).length
-        ? workspace
-        : { ...workspace, profileProxyIds, updatedAt: now() };
-    });
-    if (workspaces.some((workspace, index) => workspace !== previousWorkspaces[index])) {
-      await saveWorkspaces(workspaces);
-      set({ workspaces });
-      await get().syncProjects().catch(() => {});
+    try {
+      const previousWorkspaces = get().workspaces;
+      const workspaces = previousWorkspaces.map((workspace) => {
+        const current = workspace.profileProxyIds ?? {};
+        const profileProxyIds = Object.fromEntries(
+          Object.entries(current).filter(([, proxyId]) => proxyId !== id),
+        );
+        return Object.keys(profileProxyIds).length === Object.keys(current).length
+          ? workspace
+          : { ...workspace, profileProxyIds, updatedAt: now() };
+      });
+      if (workspaces.some((workspace, index) => workspace !== previousWorkspaces[index])) {
+        await saveWorkspaces(workspaces);
+        set({ workspaces });
+        await get().syncProjects().catch(() => {});
+      }
+    } finally {
+      // Always refresh: the proxy is already deleted on the backend, so the list
+      // must not keep showing it even if the workspace write failed.
+      await get().loadPersonalProxies().catch(() => undefined);
     }
-    await get().loadPersonalProxies();
   },
+
+  testPersonalProxy: async (id) => invoke<PersonalProxyTestResult>("manual_proxy_test", { id }),
 
   createPersonalProxyProfile: async (rawName, proxyId, options) => {
     const startedAt = performance.now();
@@ -3087,7 +3546,11 @@ export const useStore = create<State>((set, get) => {
     const name = rawName.trim();
     if (!name) throw new Error("Profile name is required.");
     const status = get().statuses[name] ?? "stopped";
-    if (["running", "starting", "stopping", "rotating"].includes(status)) {
+    // A transient status-fetch failure leaves statuses[name] as "unknown" while
+    // profileSessions may still report the profile running. Never mutate a live
+    // session's proxy/identity, so consult the last known session too.
+    const sessionRunning = get().profileSessions[name]?.status === "running";
+    if (sessionRunning || ["running", "starting", "stopping", "rotating"].includes(status)) {
       throw new Error("Stop the profile before changing its connection.");
     }
     if (connection === "direct" && get().profiles.find((p) => p.name === name)?.proxy_mode !== "direct") {
@@ -3142,10 +3605,17 @@ export const useStore = create<State>((set, get) => {
     const previousStatus = get().statuses[n] ?? "unknown";
     trackEvent("profile_delete_requested", { was_running: previousStatus === "running", runtime });
 
-    // Deleting can race an in-flight launch. Invalidate that operation and ask
-    // the host to cancel it before touching the profile store.
+    // Deleting can race an in-flight launch. Invalidate that operation, ask
+    // the host to cancel it, and — like stopProfile — wait for the launch's
+    // own async work to actually settle before stopping/removing the
+    // profile. Cancellation isn't instantaneous: without this wait, `rm` can
+    // run while nextctl is still mid-launch, at best racing a spurious
+    // SESSION_ACTIVE error and at worst orphaning a browser process for a
+    // profile record that's already gone.
     nextProfileOperation(n);
+    const pendingStart = pendingProfileStarts.get(n);
     await invoke<boolean>("nextctl_cancel", { requestId: `profile-start:${n}` }).catch(() => false);
+    await pendingStart?.catch(() => undefined);
 
     const stopForDelete = async () => {
       set((s) => ({ statuses: { ...s.statuses, [n]: "stopping" } }));
@@ -3155,8 +3625,18 @@ export const useStore = create<State>((set, get) => {
         // Closing the browser window can leave the renderer one refresh behind.
         // Only suppress the stop error when nextctl confirms the session is gone.
         await get().loadProfiles().catch(() => undefined);
-        if (get().statuses[n] !== "stopped") throw error;
+        if (get().statuses[n] !== "stopped") {
+          set((s) => (s.statuses[n] === "stopping" ? { statuses: { ...s.statuses, [n]: "unknown" } } : {}));
+          throw error;
+        }
       }
+    };
+
+    // A failed removal must not leave the transient "stopping" marker: it
+    // pauses status polling for every profile and disables this row's controls.
+    const settleDeleteFailure = async () => {
+      await get().loadProfiles().catch(() => undefined);
+      set((s) => (s.statuses[n] === "stopping" ? { statuses: { ...s.statuses, [n]: "unknown" } } : {}));
     };
 
     if (previousStatus !== "stopped") {
@@ -3169,14 +3649,24 @@ export const useStore = create<State>((set, get) => {
       const message = error instanceof Error ? error.message : String(error);
       // The UI status may have been stale while an external browser session was
       // still alive. Stop it with the saved runtime, then retry removal once.
-      if (!/SESSION_ACTIVE|active browser session/i.test(message)) throw error;
-      await stopForDelete();
-      await nextctlRunChecked(["profiles", "rm", n, "--format", "json"]);
+      if (!/SESSION_ACTIVE|active browser session/i.test(message)) {
+        await settleDeleteFailure();
+        throw error;
+      }
+      try {
+        await stopForDelete();
+        await nextctlRunChecked(["profiles", "rm", n, "--format", "json"]);
+      } catch (retryError) {
+        await settleDeleteFailure();
+        throw retryError;
+      }
     }
     if (get().selectedProfile === n) set({ selectedProfile: undefined });
     const statuses = { ...get().statuses };
     delete statuses[n];
-    set({ statuses });
+    const profileChatOwners = { ...get().profileChatOwners };
+    delete profileChatOwners[n];
+    set({ statuses, profileChatOwners });
     try {
       await persistWorkspaceMutation((previous) => previous.map((workspace) => {
         const profileToolsets = { ...workspace.profileToolsets };
@@ -3221,6 +3711,11 @@ export const useStore = create<State>((set, get) => {
         activeConvId: { ...s.activeConvId, [agentId]: selected.id },
       }));
     }
+    // Keep the terminal/chat mode in step with whichever conversation became
+    // active. Only selectConversation used to do this, so switching agents or
+    // workspaces could leave the previous project's mode applied.
+    const active = get().conversations.find((conversation) => conversation.id === get().activeConvId[agentId]);
+    if (active) set({ terminalChat: active.chatMode === "terminal" });
   },
 
   authorizeAgent: async (options = {}) => {
@@ -3283,7 +3778,7 @@ export const useStore = create<State>((set, get) => {
         }
         const conv = get().activeConversation();
         const alreadyQueued = conv?.messages.some((message) =>
-          message.text.includes("NextBrowser needs to finish installing its local browser components"),
+          message.text.includes("Nextbrowser needs to finish installing its local browser components"),
         );
         if (!alreadyQueued) get().enqueue(nextBrowserInstallPrompt(adapter));
         trackEvent("install_prompt_sent", { agent: agentId, adapter });
@@ -3369,7 +3864,13 @@ export const useStore = create<State>((set, get) => {
   loginAgent: async () => {
     const agentId = get().agentId;
     const a = agentById(agentId);
+    // Ignore re-entry: without this, repeated clicks open several sign-in
+    // terminals and start several 2-minute polls.
+    if (get().runtime[agentId]?.authorizing) return;
     trackEvent("agent_login_started", { agent: agentId });
+    set((s) => ({
+      runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], authorizing: true, error: undefined } },
+    }));
     try {
       await invoke("open_terminal_login", {
         binary: a.binary,
@@ -3413,6 +3914,12 @@ export const useStore = create<State>((set, get) => {
         }
       }
       trackEvent("agent_login_timeout", { agent: agentId });
+      set((s) => ({
+        runtime: {
+          ...s.runtime,
+          [agentId]: { ...s.runtime[agentId], error: internalError(`${a.name} sign-in was not detected. Try again.`, "AGENT_SIGN_IN_TIMEOUT") },
+        },
+      }));
     } catch {
       trackEvent("agent_login_failed", { agent: agentId });
       set((s) => ({
@@ -3420,6 +3927,10 @@ export const useStore = create<State>((set, get) => {
           ...s.runtime,
           [agentId]: { ...s.runtime[agentId], error: internalError(`We couldn't open ${a.name} sign-in.`, "AGENT_SIGN_IN_OPEN_FAILED") },
         },
+      }));
+    } finally {
+      set((s) => ({
+        runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], authorizing: false } },
       }));
     }
   },
@@ -3432,8 +3943,11 @@ export const useStore = create<State>((set, get) => {
     const agentId = get().agentId;
     const a = agentById(agentId);
     if (!a.logoutArgs.length) return;
+    // Ignore re-entry: repeated clicks open several sign-out terminals and
+    // start several poll loops.
+    if (get().runtime[agentId]?.authorizing) return;
     trackEvent("agent_logout_started", { agent: agentId });
-    set((s) => ({ runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], error: undefined } } }));
+    set((s) => ({ runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], authorizing: true, error: undefined } } }));
     let signOutOpened = false;
     try {
       await invoke("open_terminal_login", {
@@ -3486,6 +4000,8 @@ export const useStore = create<State>((set, get) => {
           [agentId]: { ...s.runtime[agentId], error: internalError(signOutOpened ? `We couldn't confirm ${a.name} sign-out. Check Terminal and try again.` : `We couldn't open ${a.name} sign-out.`, signOutOpened ? "AGENT_SIGN_OUT_CHECK_FAILED" : "AGENT_SIGN_OUT_OPEN_FAILED") },
         },
       }));
+    } finally {
+      set((s) => ({ runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], authorizing: false } } }));
     }
   },
 
@@ -3605,8 +4121,11 @@ export const useStore = create<State>((set, get) => {
       nextctlUpdateRetryTimer = setTimeout(() => {
         nextctlUpdateRetryTimer = null;
         void get().checkNextctlUpdate(attempt);
-      }, NEXTCTL_UPDATE_RETRY_MS);
+      }, nextctlUpdateRetryDelay(attempt));
     };
+    // Only the exhausted-retries failure is shown to the user; every attempt
+    // up to and including this one stays silent in the background.
+    const willRetry = retryAttempt < NEXTCTL_UPDATE_MAX_RETRIES;
     if (retryAttempt === 0 && nextctlUpdateRetryTimer) {
       clearTimeout(nextctlUpdateRetryTimer);
       nextctlUpdateRetryTimer = null;
@@ -3617,7 +4136,7 @@ export const useStore = create<State>((set, get) => {
     }
     const startedAt = performance.now();
     trackEvent("nextctl_update_started");
-    set({ nextctlUpdating: true, nextctlUpdateStatus: undefined });
+    set({ nextctlUpdating: true, nextctlUpdateStatus: undefined, nextctlUpdateError: undefined });
     try {
       if (pendingTarget(get(), "vps")) return false;
       if (get().nextctlCompatibilityError) {
@@ -3626,6 +4145,7 @@ export const useStore = create<State>((set, get) => {
         await invoke("nextctl_reinstall");
         const authed = await refreshLocalNextctlMetadata();
         set({ authed });
+        await recordNextctlUpdateAttempt({ rateLimitedUntil: 0 });
         return get().nextctlAvailable;
       }
       // Updating also refreshes Clawbrowser and agent assets. On slower or
@@ -3633,41 +4153,73 @@ export const useStore = create<State>((set, get) => {
       // one-minute command timeout.
       const res = await nextctlRun(["update"], undefined, { timeoutMs: 10 * 60_000 });
       const text = res.stdout + res.stderr;
-      const line = text.split("\n").find((l) => l.includes("nextctl updated:"));
-      if (line) {
-        const to = line.split(">").pop()?.trim() ?? "";
-        set({
-          nextctlUpdateStatus: to
-            ? `updated → ${normalizeNextctlVersion(to)}`
-            : "updated",
-        });
+      const to = nextctlUpdatedVersion(text);
+      if (to) {
+        // nextctl installed successfully. The command can still exit non-zero
+        // because an optional browser-runtime asset failed to download (for
+        // example a missing macOS Clawbrowser archive), which must not be
+        // reported as a failed nextctl update. Show a brief confirmation.
+        showNextctlUpdateNotice(`updated → ${normalizeNextctlVersion(to)}`);
         trackEvent("nextctl_update_available", { updated: true });
       } else if (res.code === 0) {
         // Already current — keep the footer on one line; show nothing.
+        clearNextctlUpdateNotice();
         set({ nextctlUpdateStatus: undefined });
         trackEvent("nextctl_update_not_available");
       } else {
-        set({ nextctlUpdateStatus: NEXTCTL_UPDATE_ERROR });
+        clearNextctlUpdateNotice();
+        const reason = nextctlErrorMessage(res);
         trackEvent("nextctl_update_failed", { exit_code: res.code });
-        scheduleRetry(retryAttempt + 1);
+        if (isNextctlRateLimit(reason)) {
+          // Once retries are exhausted, back off until GitHub's own reset
+          // time when nextctl reported one; otherwise guess a full window so
+          // the daily background check doesn't hit it again right away.
+          const resetAt = nextctlRateLimitResetAt(reason);
+          await recordNextctlUpdateAttempt({ rateLimitedUntil: resetAt ?? now() + NEXTCTL_UPDATE_RATE_LIMIT_MS });
+        } else {
+          await recordNextctlUpdateAttempt();
+        }
+        if (willRetry) {
+          scheduleRetry(retryAttempt + 1);
+        } else {
+          set({ nextctlUpdateError: nextctlUpdateErrorMessage(reason) });
+        }
         return false;
       }
       if (pendingTarget(get(), "vps")) return true;
-      const ver = await invoke<string>("nextctl_version");
-      if (pendingTarget(get(), "vps")) return true;
-      const supportsSkill = await invoke<boolean>("nextctl_supports_skill");
-      if (pendingTarget(get(), "vps")) return true;
-      set({ nextctlVersion: normalizeNextctlVersion(ver), nextctlSupportsSkill: supportsSkill, nextctlAvailable: true, nextctlCompatibilityError: undefined });
-      trackTiming("nextctl_update_completed", startedAt, { supports_skill: supportsSkill });
+      // The update already succeeded; refreshing metadata is best-effort and
+      // must not turn it into a reported failure (a transient IPC error or a
+      // briefly locked just-replaced binary used to do exactly that).
+      try {
+        const ver = await invoke<string>("nextctl_version");
+        if (pendingTarget(get(), "vps")) return true;
+        const supportsSkill = await invoke<boolean>("nextctl_supports_skill");
+        if (pendingTarget(get(), "vps")) return true;
+        set({ nextctlVersion: normalizeNextctlVersion(ver), nextctlSupportsSkill: supportsSkill, nextctlAvailable: true, nextctlCompatibilityError: undefined });
+      } catch (metadataError) {
+        console.warn("[NEXTCTL_METADATA_REFRESH_FAILED]", metadataError);
+      }
+      // A successful check clears any rate-limit backoff.
+      await recordNextctlUpdateAttempt({ rateLimitedUntil: 0 });
+      trackTiming("nextctl_update_completed", startedAt, { supports_skill: get().nextctlSupportsSkill });
       return true;
     } catch (error) {
       console.error("[NEXTCTL_UPDATE_FAILED] nextctl update failed:", error);
-      set({
-        nextctlUpdateStatus: NEXTCTL_UPDATE_ERROR,
-        nextctlAvailable: false,
-      });
+      clearNextctlUpdateNotice();
+      const reason = error instanceof Error ? error.message : String(error);
+      set({ nextctlAvailable: false });
       trackTiming("nextctl_update_failed", startedAt);
-      scheduleRetry(retryAttempt + 1);
+      if (isNextctlRateLimit(reason)) {
+        const resetAt = nextctlRateLimitResetAt(reason);
+        await recordNextctlUpdateAttempt({ rateLimitedUntil: resetAt ?? now() + NEXTCTL_UPDATE_RATE_LIMIT_MS });
+      } else {
+        await recordNextctlUpdateAttempt();
+      }
+      if (willRetry) {
+        scheduleRetry(retryAttempt + 1);
+      } else {
+        set({ nextctlUpdateError: nextctlUpdateErrorMessage(reason) });
+      }
       return false;
     } finally {
       set({ nextctlUpdating: false });
@@ -3686,10 +4238,15 @@ export const useStore = create<State>((set, get) => {
       const workspaceResponse = await invoke<{ workspaces?: Array<{
         id: string; name: string; document: Partial<Workspace>; revision: number; updated_at: string; created_at: string;
       }> }>("workspaces_list");
-      const remoteWorkspaces = workspaceResponse.workspaces ?? [];
+      const remoteWorkspaces = workspaceResponse?.workspaces ?? [];
       const remoteWorkspaceById = new Map(remoteWorkspaces.map((workspace) => [workspace.id, workspace]));
       const workspaceRevisions = { ...get().workspaceRevisions };
       let workspaces = [...get().workspaces];
+      let conversations = [...get().conversations];
+      const unownedWorkspaceIds: string[] = [];
+      const unownedWorkspaces: string[] = [];
+      const unownedChatIds: string[] = [];
+      const unownedChats: string[] = [];
       for (const cloud of remoteWorkspaces) {
         workspaceRevisions[cloud.id] = cloud.revision;
         const normalized: Workspace = {
@@ -3721,11 +4278,14 @@ export const useStore = create<State>((set, get) => {
           },
         });
         let candidate = workspace;
-        let saved: { revision: number };
+        let saved: { revision: number } | undefined;
         try {
           saved = await saveWorkspace(candidate, workspaceRevisions[workspace.id] ?? 0);
         } catch (error) {
-          if (!isWorkspaceRevisionConflict(error)) throw error;
+          // A 404 means the backend has no such workspace for this account.
+          // Handle it like a revision conflict (refresh, then retry as a
+          // create) instead of failing the user's profile action.
+          if (!isWorkspaceRevisionConflict(error) && !isWorkspaceNotFound(error)) throw error;
           // A second device changed the same workspace after our initial list.
           // Refresh once, merge profile associations, and retry against its
           // revision instead of surfacing a background 409 to the user.
@@ -3733,32 +4293,53 @@ export const useStore = create<State>((set, get) => {
             id: string; name: string; document: Partial<Workspace>; revision: number; updated_at: string; created_at: string;
           }> }>("workspaces_list");
           const latest = refreshed.workspaces?.find((item) => item.id === workspace.id);
-          if (!latest) throw error;
-          const remote: Workspace = {
-            id: latest.id,
-            name: latest.name,
-            profileNames: Array.isArray(latest.document?.profileNames) ? latest.document.profileNames : [],
-            profileToolsets: latest.document?.profileToolsets ?? {},
-            profileProxyIds: latest.document?.profileProxyIds ?? {},
-            createdAt: Date.parse(latest.created_at),
-            updatedAt: Date.parse(latest.updated_at),
-          };
-          candidate = mergeWorkspaceAfterRevisionConflict(workspace, remote);
-          const index = workspaces.findIndex((item) => item.id === candidate.id);
-          if (index >= 0) workspaces[index] = candidate;
-          saved = await saveWorkspace(candidate, latest.revision);
+          if (!latest) {
+            // The backend already uses this id, but not for this account: the
+            // primary key is global, so no revision can ever match and the
+            // workspace cannot be created here. Retry once as a create, then
+            // keep it on this device. Aborting instead used to fail every
+            // profile action with a cloud-sync error.
+            try {
+              saved = await saveWorkspace(workspace, 0);
+            } catch (retryError) {
+              if (!isWorkspaceRevisionConflict(retryError) && !isWorkspaceNotFound(retryError)) throw retryError;
+              unownedWorkspaceIds.push(workspace.id);
+              unownedWorkspaces.push(workspace.name);
+              continue;
+            }
+          } else {
+            const remote: Workspace = {
+              id: latest.id,
+              name: latest.name,
+              profileNames: Array.isArray(latest.document?.profileNames) ? latest.document.profileNames : [],
+              profileToolsets: latest.document?.profileToolsets ?? {},
+              profileProxyIds: latest.document?.profileProxyIds ?? {},
+              createdAt: Date.parse(latest.created_at),
+              updatedAt: Date.parse(latest.updated_at),
+            };
+            candidate = mergeWorkspaceAfterRevisionConflict(workspace, remote);
+            const index = workspaces.findIndex((item) => item.id === candidate.id);
+            if (index >= 0) workspaces[index] = candidate;
+            saved = await saveWorkspace(candidate, latest.revision);
+          }
         }
-        workspaceRevisions[workspace.id] = saved.revision;
+        if (saved) workspaceRevisions[workspace.id] = saved.revision;
+      }
+      if (unownedWorkspaces.length) {
+        // A foreign account's entity must never remain in the active cache.
+        // Keeping it locally would make the next mutation try to upload it
+        // again and would recreate the cross-account 409 loop.
+        workspaces = workspaces.filter((workspace) => !unownedWorkspaceIds.includes(workspace.id));
+        conversations = conversations.filter((conversation) => !conversation.workspaceId || !unownedWorkspaceIds.includes(conversation.workspaceId));
+        console.warn(`[workspace_sync] removed ${unownedWorkspaces.length} workspace(s) owned by another Nextbrowser account: ${unownedWorkspaces.join(", ")}`);
       }
       const response = await invoke<{ projects?: Array<{
         id: string; title: string; agent: string; chat_mode: "chat" | "terminal";
         workspace_id: string; document: Conversation; revision: number; updated_at: string;
       }> }>("projects_list");
-      const remote = response.projects ?? [];
+      const remote = response?.projects ?? [];
       const remoteById = new Map(remote.map((project) => [project.id, project]));
       const revisions = { ...get().projectRevisions };
-      let conversations = [...get().conversations];
-
       for (const cloud of remote) {
         revisions[cloud.id] = cloud.revision;
         const index = conversations.findIndex((conversation) => conversation.id === cloud.id);
@@ -3819,7 +4400,7 @@ export const useStore = create<State>((set, get) => {
         if (!conversation.workspaceId) continue;
         const cloud = remoteById.get(conversation.id);
         if (cloud && conversation.updatedAt <= Date.parse(cloud.updated_at)) continue;
-        const saved = await invoke<{ revision: number }>("project_put", {
+        const putProject = (baseRevision: number) => invoke<{ revision: number }>("project_put", {
           id: conversation.id,
           project: {
             title: conversation.title,
@@ -3827,10 +4408,46 @@ export const useStore = create<State>((set, get) => {
             chat_mode: conversation.chatMode === "terminal" ? "terminal" : "chat",
             workspace_id: conversation.workspaceId,
             document: serializeConversations([conversation])[0],
-            base_revision: revisions[conversation.id] ?? 0,
+            base_revision: baseRevision,
           },
         });
-        revisions[conversation.id] = saved.revision;
+        let saved: { revision: number } | undefined;
+        try {
+          saved = await putProject(revisions[conversation.id] ?? 0);
+        } catch (error) {
+          if (!isProjectRevisionConflict(error)) throw error;
+          // Another device may have advanced the chat, or its id may belong to a
+          // different Nextbrowser account, where no revision can ever match.
+          // Retry against the refreshed revision or as a create, and keep the
+          // chat on this device instead of failing the whole sync.
+          const refreshed = await invoke<{ projects?: Array<{
+            id: string; title: string; agent: string; chat_mode: "chat" | "terminal";
+            workspace_id: string; document: Conversation; revision: number; updated_at: string;
+          }> }>("projects_list");
+          const latest = refreshed.projects?.find((item) => item.id === conversation.id);
+          try {
+            saved = await putProject(latest?.revision ?? 0);
+          } catch (retryError) {
+            if (!isProjectRevisionConflict(retryError)) throw retryError;
+            unownedChatIds.push(conversation.id);
+            unownedChats.push(conversation.title);
+            continue;
+          }
+        }
+        if (saved) revisions[conversation.id] = saved.revision;
+      }
+      if (unownedChats.length) {
+        conversations = conversations.filter((conversation) => !unownedChatIds.includes(conversation.id));
+        console.warn(`[project_sync] removed ${unownedChats.length} chat(s) owned by another Nextbrowser account`);
+      }
+      if (unownedWorkspaces.length || unownedChats.length) {
+        conversations = conversations.filter((conversation) =>
+          !conversation.workspaceId || !unownedWorkspaceIds.includes(conversation.workspaceId),
+        );
+        await saveWorkspaces(workspaces);
+        await persistConvs(conversations);
+        set({ workspaces, conversations, projectRevisions: revisions, workspaceRevisions });
+        throw new Error("Some local workspace data belongs to another account. Sign in to its original account before switching accounts.");
       }
       set({ projectRevisions: revisions, workspaceRevisions });
       trackEvent("projects_synced", { project_count: conversations.length });
@@ -3910,6 +4527,7 @@ export const useStore = create<State>((set, get) => {
     else delete activeConvId[agentId];
     set({ activeWorkspaceId: id, activeConvId, selectedProfile: undefined,
       workspaceSetupRequired: requiresWorkspaceSetup(get().workspaces, get().conversations, id),
+      terminalChat: selected?.chatMode === "terminal",
     });
   },
 
@@ -3940,6 +4558,66 @@ export const useStore = create<State>((set, get) => {
     set({ workspaceSetupRequired: false });
   },
 
+  // New users used to hit a three-step "Create your workspace" modal before
+  // they could do anything. Create the defaults silently instead: a workspace,
+  // a first project, and one profile per browser toolset. The manual gate is
+  // kept only as a fallback when this cannot complete.
+  ensureDefaultWorkspaceSetup: async () => {
+    if (!get().authed || !get().nextctlAvailable || pendingTarget(get(), "vps")) return;
+    if (defaultSetupInFlight) return;
+    if (!get().workspaceSetupRequired) {
+      set({ workspaceSetupAuto: "done" });
+      return;
+    }
+    defaultSetupInFlight = true;
+    set({ workspaceSetupAuto: "running" });
+    try {
+      // A workspace mutation is rejected while a cloud sync is in flight.
+      const deadline = now() + 30_000;
+      while (get().projectsSyncing && now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      let workspace = get().workspaces.find((item) => item.id === get().activeWorkspaceId) ?? get().workspaces[0];
+      if (!workspace) {
+        await get().createWorkspace("My workspace");
+        workspace = get().workspaces.find((item) => item.id === get().activeWorkspaceId) ?? get().workspaces[0];
+      }
+      if (!workspace) throw new Error("Could not create a default workspace.");
+      const workspaceId = workspace.id;
+      if (!get().conversations.some((conversation) => conversation.workspaceId === workspaceId)) {
+        const projectId = get().createProject("First project", "chat");
+        if (projectId && typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("nextbrowser:project-created", { detail: { id: projectId } }));
+        }
+      }
+      for (const { runtime, name } of DEFAULT_WORKSPACE_TOOLSETS) {
+        const current = get().workspaces.find((item) => item.id === workspaceId);
+        const alreadyAssigned = Object.values(current?.profileToolsets ?? {}).includes(runtime);
+        if (alreadyAssigned) continue;
+        try {
+          if (!get().profiles.some((profile) => profile.name === name)) {
+            await get().createManagedProfile(name, "US", { runtime });
+          }
+          await get().assignProfileToProject(name, runtime, workspaceId);
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("nextbrowser:profile-created", { detail: { name } }));
+          }
+        } catch (error) {
+          console.warn("[AUTO_SETUP_PROFILE_FAILED]", runtime, error);
+        }
+      }
+      await get().loadProfiles();
+      const state = get();
+      const stillRequired = requiresWorkspaceSetup(state.workspaces, state.conversations, state.activeWorkspaceId);
+      set({ workspaceSetupRequired: stillRequired, workspaceSetupAuto: stillRequired ? "failed" : "done" });
+    } catch (error) {
+      console.error("[AUTO_SETUP_FAILED]", error);
+      set({ workspaceSetupAuto: "failed" });
+    } finally {
+      defaultSetupInFlight = false;
+    }
+  },
+
   newChat: () => {
     const agentId = get().agentId;
     const workspaceId = get().activeWorkspaceId;
@@ -3961,6 +4639,9 @@ export const useStore = create<State>((set, get) => {
     set({
       conversations,
       activeConvId: { ...get().activeConvId, [agentId]: c.id },
+      // A new chat is always chat-mode; without this the previous project's
+      // terminal mode leaks into it.
+      terminalChat: false,
     });
     trackEvent("chat_created", { agent: agentId, conversation_count: conversations.length });
     return c.id;
@@ -4182,7 +4863,18 @@ export const useStore = create<State>((set, get) => {
   },
 
   deleteConversation: (id) => {
-    const agentId = get().conversations.find((item) => item.id === id)?.agent ?? get().agentId;
+    const removed = get().conversations.find((item) => item.id === id);
+    const agentId = removed?.agent ?? get().agentId;
+    // A streaming reply keeps its process alive after its conversation is
+    // gone. finishAgentRun cannot clear it then (the owning message no longer
+    // exists), which would leave the composer stuck on Stop for the rest of
+    // the session. Terminate the run and clear its runtime marker here.
+    const removedReplyIds = new Set(
+      (removed?.messages ?? [])
+        .filter((message) => message.status === "streaming")
+        .map((message) => message.id),
+    );
+    for (const replyId of removedReplyIds) void invoke("agent_terminate", { replyId }).catch(() => {});
     const conversations = get().conversations.filter((c) => c.id !== id);
     const activeConvId = { ...get().activeConvId };
     if (activeConvId[agentId] === id) {
@@ -4197,7 +4889,38 @@ export const useStore = create<State>((set, get) => {
     persistConvs(conversations);
     const projectRevisions = { ...get().projectRevisions };
     delete projectRevisions[id];
-    set({ conversations, activeConvId, projectRevisions });
+    set((s) => {
+      const runtime = { ...s.runtime };
+      const removedQueueReplyIds = new Set<string>();
+      for (const [key, value] of Object.entries(runtime)) {
+        // Drop queued replies for the deleted chat too. If one is dequeued
+        // later it sets runningReplyId, and finishAgentRun cannot clear it once
+        // the owning conversation is gone — leaving the composer stuck on Stop.
+        const queue = value.queue.filter((item) => {
+          if (item.conversationId === id) {
+            removedQueueReplyIds.add(item.replyId);
+            return false;
+          }
+          return true;
+        });
+        const runningRemoved = !!value.runningReplyId
+          && (removedReplyIds.has(value.runningReplyId) || removedQueueReplyIds.has(value.runningReplyId));
+        if (queue.length !== value.queue.length || runningRemoved) {
+          runtime[key] = {
+            ...value,
+            queue,
+            ...(runningRemoved ? { runningReplyId: undefined, pendingStop: false } : {}),
+          };
+        }
+      }
+      // Drop profile ownership that pointed at the deleted chat, or a later
+      // same-named profile advertises "In use · <old chat>".
+      const profileChatOwners = { ...s.profileChatOwners };
+      for (const [profileName, ownerConversationId] of Object.entries(profileChatOwners)) {
+        if (ownerConversationId === id) delete profileChatOwners[profileName];
+      }
+      return { conversations, activeConvId, projectRevisions, runtime, profileChatOwners };
+    });
     trackEvent("chat_deleted", { agent: agentId, conversation_count: conversations.length });
   },
 
@@ -4221,6 +4944,12 @@ export const useStore = create<State>((set, get) => {
       executionTarget: conv.executionTarget,
       vpsConnectionInstructions: conv.vpsConnectionInstructions,
       vpsConnectionLabel: conv.vpsConnectionLabel,
+      // Without these the fork is invisible in the workspace-filtered chat pane
+      // and loses terminal mode.
+      workspaceId: conv.workspaceId,
+      chatMode: conv.chatMode,
+      profileNames: conv.profileNames,
+      profileToolsets: conv.profileToolsets,
     };
     const conversations = [...get().conversations, fork];
     persistConvs(conversations);
@@ -4243,7 +4972,14 @@ export const useStore = create<State>((set, get) => {
       );
       persistConvs(conversations);
       trackEvent("chat_cleared", { agent: get().agentId });
-      return { conversations };
+      // Drop queued replies for the cleared chat: an orphaned item would run
+      // later, set runningReplyId, and stick the composer on Stop.
+      const runtime = { ...s.runtime };
+      for (const [key, value] of Object.entries(runtime)) {
+        const queue = value.queue.filter((item) => item.conversationId !== cid);
+        if (queue.length !== value.queue.length) runtime[key] = { ...value, queue };
+      }
+      return { conversations, runtime };
     });
   },
 
@@ -4610,8 +5346,8 @@ export const useStore = create<State>((set, get) => {
       const chip: UserCommandChip = { kind: "skill", title: entry.title, detail: target };
       const thisRun = task?.trim() ? `\n\nTask for this run:\n${task.trim()}` : "";
       const prompt = entry.instructions
-        ? `Use the "${entry.title}" repository skill for ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local NextBrowser session.${thisRun}\n\nFollow this SKILL.md exactly:\n\n${entry.instructions}`
-        : `Use the "${entry.title}" skill for ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local NextBrowser session. Use only skill instructions and browser tooling that are already available on the VPS; if the skill is missing there, report that without installing it.${entry.description ? `\n\nSkill description: ${entry.description}` : ""}${thisRun}`;
+        ? `Use the "${entry.title}" repository skill for ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local Nextbrowser session.${thisRun}\n\nFollow this SKILL.md exactly:\n\n${entry.instructions}`
+        : `Use the "${entry.title}" skill for ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local Nextbrowser session. Use only skill instructions and browser tooling that are already available on the VPS; if the skill is missing there, report that without installing it.${entry.description ? `\n\nSkill description: ${entry.description}` : ""}${thisRun}`;
       get().enqueue(prompt, chip, cid);
       return;
     }
@@ -5158,7 +5894,7 @@ export const useStore = create<State>((set, get) => {
       const scriptBody = entry.js
         ? `Run this JavaScript through the already-installed remote nextctl browser evaluation command:\n\n\`\`\`javascript\n${entry.js}\n\`\`\``
         : `Use the already-available remote script or skill identified by ${entry.selector.value}. If it is missing on the VPS, report that without installing it.`;
-      const prompt = `Run "${entry.title}" ${where} on the selected VPS only. Do not prepare, open, inspect, evaluate, or change any local NextBrowser session. ${scriptBody}`;
+      const prompt = `Run "${entry.title}" ${where} on the selected VPS only. Do not prepare, open, inspect, evaluate, or change any local Nextbrowser session. ${scriptBody}`;
       get().enqueue(prompt, {
         kind: "script",
         title: entry.title,
@@ -5303,7 +6039,7 @@ export const useStore = create<State>((set, get) => {
     }
     const where = onHost
       ? `on ${onHost}`
-      : `in the active NextBrowser session (${get().currentSessionDisplayName()})`;
+      : `in the active Nextbrowser session (${get().currentSessionDisplayName()})`;
     const md = await installedSkillMarkdown(ref);
     const prompt = scriptAgentPrompt(
       entry.title,
@@ -5428,6 +6164,13 @@ export const useStore = create<State>((set, get) => {
   },
 
   deleteCustomScript: async (id) => {
+    const script = get().customScripts.find((item) => item.id === id);
+    if (script?.serverSlug) {
+      // The script was published as a private cloud skill. Remove that copy too,
+      // or it reappears under My skills / Scripts on the next catalog load.
+      const { res } = await nextctlEnvelope(["skill", "delete", script.serverSlug]);
+      if (res.code !== 0) throw new Error(nextctlErrorMessage(res));
+    }
     const customScripts = get().customScripts.filter((s) => s.id !== id);
     await invoke("app_data_write", { name: "custom-scripts.json", content: JSON.stringify(serializeScripts(customScripts), null, 2) });
     set({ customScripts });
@@ -5451,7 +6194,7 @@ export const useStore = create<State>((set, get) => {
         title: script.title,
         detail: domain || "VPS",
       };
-      const prompt = `Run my custom script "${script.title}" on ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local NextBrowser session. Follow these steps exactly using only the already-installed remote browser tooling:\n\n${script.instructions}`;
+      const prompt = `Run my custom script "${script.title}" on ${target} on the selected VPS only. Do not prepare, open, inspect, or change any local Nextbrowser session. Follow these steps exactly using only the already-installed remote browser tooling:\n\n${script.instructions}`;
       get().enqueue(prompt, chip, cid);
       return;
     }
@@ -5471,14 +6214,14 @@ export const useStore = create<State>((set, get) => {
       return;
     }
     if (!get().agentReady()) return;
-    const target = domain || `the active NextBrowser session (${get().currentSessionDisplayName()})`;
+    const target = domain || `the active Nextbrowser session (${get().currentSessionDisplayName()})`;
     const chip: UserCommandChip = {
       kind: "script",
       title: script.title,
       detail: domain || get().currentSessionDisplayName(),
     };
     const note = pageReadyNote(prep.host, prep.directFallback);
-    const prompt = `Run my custom script "${script.title}" on ${target} in the active NextBrowser session.${note}\nFollow these steps exactly:\n\n${script.instructions}`;
+    const prompt = `Run my custom script "${script.title}" on ${target} in the active Nextbrowser session.${note}\nFollow these steps exactly:\n\n${script.instructions}`;
     get().enqueue(prompt, chip, cid);
   },
 
@@ -5493,10 +6236,12 @@ export const useStore = create<State>((set, get) => {
     const slug = `workflow-${skill.id.slice(0, 8)}`;
     const description = `Reusable private ${skill.capability} browser workflow${skill.domain ? ` for ${skill.domain}` : ""}.`;
     const body = `---\nname: ${JSON.stringify(skill.title)}\ndescription: ${JSON.stringify(description)}\n---\n\n# ${skill.title}\n\n## Workflow\n\n${skill.instructions}\n\n## Inputs\n\n\`\`\`json\n${JSON.stringify(skill.parametersSchema, null, 2)}\n\`\`\`\n\n## Output\n\n\`\`\`json\n${JSON.stringify(skill.outputSchema, null, 2)}\n\`\`\`\n\n## Recipe\n\nExecute these task-specific actions first. The app prepares the browser session separately. If a selector is stale, resolve it again and continue.\n\n\`\`\`json\n${JSON.stringify(skill.recipe, null, 2)}\n\`\`\`\n`;
-    await invoke<string>("write_local_skill", { slug, content: body });
     set((state) => ({ localSkillSync: { ...state.localSkillSync, [skill.id]: "syncing" } }));
     let tempPath: string | undefined;
     try {
+      // Keep the local write inside the try: a disk failure must mark the sync
+      // as failed instead of rejecting into a global error notice.
+      await invoke<string>("write_local_skill", { slug, content: body });
       tempPath = await invoke<string>("write_temp_skill", { slug, content: body });
       const { env, res } = await nextctlEnvelope<SkillRef>([
         "skill", "add", "--domain", skill.domain, "--private", "--slug", slug,
@@ -5538,7 +6283,7 @@ export const useStore = create<State>((set, get) => {
     const { backendRunId, ...recipeParameters } = parameters;
     const activeConversation = get().activeConversation();
     if (activeConversation?.executionTarget === "vps") {
-      throw new Error("Deterministic replay currently requires a local NextBrowser profile.");
+      throw new Error("Deterministic replay currently requires a local Nextbrowser profile.");
     }
     // Deterministic replay deliberately skips the conversational preflight,
     // but MCP page actions still require a live CDP session. Start or reattach
@@ -5603,7 +6348,7 @@ export const useStore = create<State>((set, get) => {
     const chip: UserCommandChip = { kind: "skill", title: skill.title, detail: skill.domain || "Local skill" };
     if (remoteOnly) {
       return get().enqueue(
-        `Use my local browser skill "${skill.title}" for ${target} on the selected VPS only. Do not prepare or change any local NextBrowser session.\n\nTask for this run:\n${task}\n\nWorkflow instructions:\n${skill.instructions}`,
+        `Use my local browser skill "${skill.title}" for ${target} on the selected VPS only. Do not prepare or change any local Nextbrowser session.\n\nTask for this run:\n${task}\n\nWorkflow instructions:\n${skill.instructions}`,
         chip, cid,
       );
     }
@@ -5625,7 +6370,7 @@ export const useStore = create<State>((set, get) => {
     if (!get().agentReady()) return;
     const note = pageReadyNote(prep.host, prep.directFallback);
     const replyId = get().enqueue(
-      `Use my local browser skill "${skill.title}" for ${target} in the active verified NextBrowser session.${note}\nThe app already prepared the session, verified the selected proxy, and opened the website. Do not run saved start/prepare operations again. Begin with the first task-specific action. Reuse the proven recipe, adapting selectors only if the page changed.\n\nTask for this run:\n${task}\n\nStructured recipe (execute first):\n${JSON.stringify(skill.recipe, null, 2)}\n\nWorkflow fallback:\n${skill.instructions}`,
+      `Use my local browser skill "${skill.title}" for ${target} in the active verified Nextbrowser session.${note}\nThe app already prepared the session, verified the selected proxy, and opened the website. Do not run saved start/prepare operations again. Begin with the first task-specific action. Reuse the proven recipe, adapting selectors only if the page changed.\n\nTask for this run:\n${task}\n\nStructured recipe (execute first):\n${JSON.stringify(skill.recipe, null, 2)}\n\nWorkflow fallback:\n${skill.instructions}`,
       chip,
       cid,
     );

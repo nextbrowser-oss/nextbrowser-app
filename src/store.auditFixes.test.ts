@@ -34,37 +34,84 @@ it("clears stale references when the last workspace is deleted", async () => {
 
 it("rejects and rolls back assignment on a desktop write failure, then permits retry", async () => {
   const { useStore } = await import("./store");
-  useStore.setState({ workspaces: [workspace("a")], activeWorkspaceId: "a" });
+  useStore.setState({ authed: true, workspaces: [workspace("a")], activeWorkspaceId: "a" });
   bridge.invoke.mockRejectedValueOnce(new Error("disk full"));
   await expect(useStore.getState().assignProfileToProject("new", "clawbrowser")).rejects.toThrow("disk full");
   expect(useStore.getState().workspaces[0].profileNames).toEqual(["a-profile"]);
   await useStore.getState().assignProfileToProject("new", "clawbrowser");
   expect(useStore.getState().workspaces[0].profileNames).toEqual(["a-profile", "new"]);
-  const write = bridge.invoke.mock.calls.filter(([command]) => command === "app_data_write").at(-1)!;
+  // syncProjects() (folded into this mutation since 283e454) also persists
+  // conversations.json via the same "app_data_write" command — filter by
+  // file name, not just command, or the last call picked up here can be an
+  // unrelated write.
+  const write = bridge.invoke.mock.calls.filter(([command, args]) => command === "app_data_write" && args?.name === "workspaces.json").at(-1)!;
   expect(JSON.parse(write[1].content)[0].profileNames).toEqual(["a-profile", "new"]);
 });
 
 it("serializes simultaneous assignments without dropping either profile", async () => {
   const { useStore } = await import("./store");
-  useStore.setState({ workspaces: [workspace("a")], activeWorkspaceId: "a" });
+  useStore.setState({ authed: true, workspaces: [workspace("a")], activeWorkspaceId: "a" });
   await Promise.all([useStore.getState().assignProfileToProject("one", "clawbrowser"), useStore.getState().assignProfileToProject("two", "camoufox")]);
   expect(useStore.getState().workspaces[0].profileNames).toEqual(["a-profile", "one", "two"]);
 });
 
 it("does not reorder on write failure or insert a profile from another workspace", async () => {
   const { useStore } = await import("./store");
-  useStore.setState({ workspaces: [{ ...workspace("a"), profileNames: ["one", "two"] }] });
+  useStore.setState({ authed: true, workspaces: [{ ...workspace("a"), profileNames: ["one", "two"] }] });
   bridge.invoke.mockRejectedValueOnce(new Error("disk full"));
   await expect(useStore.getState().reorderProfileInProject("a", "two", "one")).rejects.toThrow();
   expect(useStore.getState().workspaces[0].profileNames).toEqual(["one", "two"]);
   await expect(useStore.getState().reorderProfileInProject("a", "outside", "one")).rejects.toThrow("no longer");
 });
 
-it("retains a durable local change and reports a cloud sync failure", async () => {
+it("rolls back and reports a transient cloud sync failure, unlike an unrecoverable ownership conflict", async () => {
+  // Workspace mutations are cloud-authoritative (283e454): a generic sync
+  // failure (offline, backend down) is retryable, so the local change is
+  // rolled back and the real error surfaces — the opposite of the
+  // unrecoverable "belongs to another account" case (see the test above),
+  // where there is no valid revision to ever retry against and the mutation
+  // is deliberately kept instead.
   const { useStore } = await import("./store");
-  useStore.setState({ workspaces: [workspace("a")], activeWorkspaceId: "a", syncProjects: vi.fn().mockRejectedValue(new Error("offline")) });
-  await expect(useStore.getState().assignProfileToProject("new", "clawbrowser")).rejects.toThrow("saved on this device");
-  expect(useStore.getState().workspaces[0].profileNames).toContain("new");
+  useStore.setState({ authed: true, workspaces: [workspace("a")], activeWorkspaceId: "a", syncProjects: vi.fn().mockRejectedValue(new Error("offline")) });
+  await expect(useStore.getState().assignProfileToProject("new", "clawbrowser")).rejects.toThrow("offline");
+  expect(useStore.getState().workspaces[0].profileNames).toEqual(["a-profile"]);
+});
+
+it("keeps a profile usable when a workspace id belongs to another account", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({ authed: true, workspaces: [workspace("mine")], activeWorkspaceId: "mine", conversations: [] });
+  bridge.invoke.mockImplementation((command: string) => {
+    if (command === "workspaces_list") return Promise.resolve({ workspaces: [] });
+    if (command === "workspace_put") return Promise.reject(Object.assign(new Error("workspace revision conflict"), { status: 409 }));
+    if (command === "projects_list") return Promise.resolve({ projects: [] });
+    return Promise.resolve({ revision: 1 });
+  });
+  // The backend owns this id globally, so no revision can ever match. The
+  // assignment must still succeed instead of failing on the cloud sync —
+  // even though that means the only workspace it touched, being unowned,
+  // gets filtered out of local state entirely rather than kept with a
+  // revision that can never sync.
+  await expect(useStore.getState().assignProfileToProject("new", "clawbrowser")).resolves.toBeUndefined();
+  expect(useStore.getState().workspaces).toEqual([]);
+  expect(bridge.invoke.mock.calls.filter(([command]) => command === "workspace_put")).toHaveLength(2);
+  // The sync keeps going instead of aborting on the first unowned workspace.
+  expect(bridge.invoke.mock.calls.some(([command]) => command === "projects_list")).toBe(true);
+  expect(useStore.getState().projectsSyncing).toBe(false);
+});
+
+it("does not fail a profile action when the backend does not know the workspace", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({ authed: true, workspaces: [workspace("mine")], activeWorkspaceId: "mine", conversations: [] });
+  bridge.invoke.mockImplementation((command: string) => {
+    if (command === "workspace_put") return Promise.reject(Object.assign(new Error("workspace not found"), { status: 404 }));
+    if (command === "workspaces_list") return Promise.resolve({ workspaces: [] });
+    if (command === "projects_list") return Promise.resolve({ projects: [] });
+    return Promise.resolve({ revision: 1 });
+  });
+  // A workspace the backend returns 404 for must not block the user's action;
+  // it is dropped locally like a foreign workspace.
+  await expect(useStore.getState().assignProfileToProject("new", "clawbrowser")).resolves.toBeUndefined();
+  expect(useStore.getState().workspaces).toEqual([]);
 });
 
 it("reports refresh failure and releases the loading state", async () => {
@@ -119,4 +166,111 @@ it("does not hide saved instructions when deletion cannot be persisted", async (
   expect(useStore.getState().customScripts).toEqual([script]);
   await useStore.getState().deleteCustomScript("test");
   expect(useStore.getState().customScripts).toEqual([]);
+});
+
+it("clears the rotating marker when an IP rotation fails", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({ statuses: { p: "running" } });
+  bridge.invoke.mockRejectedValue(new Error("cli down"));
+  await expect(useStore.getState().rotateProfile("p")).rejects.toThrow();
+  // A stuck "rotating" status pauses status polling for every profile.
+  expect(useStore.getState().statuses.p).not.toBe("rotating");
+  expect(useStore.getState().statuses.p).toBe("unknown");
+});
+
+it("terminates an in-flight reply and clears its marker when its chat is deleted", async () => {
+  const { useStore } = await import("./store");
+  const project = {
+    id: "c1", title: "C", agent: "claude",
+    messages: [{ id: "r1", role: "assistant" as const, text: "…", status: "streaming" as const, createdAt: 1 }],
+    createdAt: 1, updatedAt: 1, executionTarget: "local" as const,
+  };
+  const runtime = useStore.getState().runtime;
+  useStore.setState({
+    conversations: [project],
+    activeConvId: { claude: "c1" },
+    runtime: { ...runtime, claude: { ...runtime.claude, runningReplyId: "r1" } },
+  });
+  useStore.getState().deleteConversation("c1");
+  expect(useStore.getState().conversations).toEqual([]);
+  expect(useStore.getState().runtime.claude.runningReplyId).toBeUndefined();
+  expect(bridge.invoke.mock.calls.some(([command, args]) => command === "agent_terminate" && (args as { replyId?: string })?.replyId === "r1")).toBe(true);
+});
+
+it("drops queued replies when their chat is deleted", async () => {
+  const { useStore } = await import("./store");
+  const project = { id: "c1", title: "C", agent: "claude", messages: [], createdAt: 1, updatedAt: 1, executionTarget: "local" as const };
+  const runtime = useStore.getState().runtime;
+  useStore.setState({
+    conversations: [project],
+    activeConvId: { claude: "c1" },
+    runtime: {
+      ...runtime,
+      claude: { ...runtime.claude, queue: [{ conversationId: "c1", rawText: "hi", replyId: "q1", executionTarget: "local" as const }] },
+    },
+  });
+  useStore.getState().deleteConversation("c1");
+  // An orphaned queued item would run later and wedge the composer on Stop.
+  expect(useStore.getState().runtime.claude.queue).toEqual([]);
+});
+
+it("clears a stuck stopping status when profile removal fails", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({ statuses: { p: "running" } });
+  bridge.invoke.mockImplementation((command: string) => {
+    if (command === "nextctl_run") return Promise.resolve({ code: 1, stdout: "", stderr: "cli down" });
+    if (command === "nextctl_cancel") return Promise.resolve(false);
+    return Promise.resolve(null);
+  });
+  await expect(useStore.getState().deleteProfile("p")).rejects.toThrow();
+  expect(useStore.getState().statuses.p).not.toBe("stopping");
+});
+
+it("reports a failed profile-request approval instead of dismissing it", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({ pendingProfileCreateRequests: [{ id: "req1" }] as never });
+  bridge.invoke.mockImplementation((command: string) => {
+    if (command === "nextctl_run") return Promise.resolve({ code: 1, stdout: "", stderr: "backend down" });
+    return Promise.resolve(null);
+  });
+  await expect(useStore.getState().approveProfileCreateRequest("req1")).rejects.toThrow();
+  expect(useStore.getState().pendingProfileCreateRequests).toHaveLength(1);
+});
+
+it("ignores a second sign-in request while one is already in flight", async () => {
+  const { useStore } = await import("./store");
+  const runtime = useStore.getState().runtime;
+  useStore.setState({ agentId: "claude", runtime: { ...runtime, claude: { ...runtime.claude, authorizing: true } } });
+  await useStore.getState().loginAgent();
+  expect(bridge.invoke.mock.calls.some(([command]) => command === "open_terminal_login")).toBe(false);
+});
+
+it("drops queued replies when the chat is cleared", async () => {
+  const { useStore } = await import("./store");
+  const project = { id: "c1", title: "C", agent: "claude", messages: [], createdAt: 1, updatedAt: 1, executionTarget: "local" as const };
+  const runtime = useStore.getState().runtime;
+  useStore.setState({
+    conversations: [project],
+    activeConvId: { claude: "c1" },
+    runtime: { ...runtime, claude: { ...runtime.claude, queue: [{ conversationId: "c1", rawText: "hi", replyId: "q1", executionTarget: "local" as const }] } },
+  });
+  useStore.getState().clearChat();
+  expect(useStore.getState().runtime.claude.queue).toEqual([]);
+});
+
+it("deletes the private cloud copy of a custom script", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({
+    customScripts: [{ id: "s1", title: "S", domain: "x.com", instructions: "i", createdAt: 1, updatedAt: 1, serverSlug: "s1.script" } as never],
+  });
+  bridge.invoke.mockImplementation((command: string) => {
+    if (command === "nextctl_run") return Promise.resolve({ code: 0, stdout: JSON.stringify({ ok: true }), stderr: "" });
+    return Promise.resolve(null);
+  });
+  await useStore.getState().deleteCustomScript("s1");
+  expect(useStore.getState().customScripts).toEqual([]);
+  const deletedCloud = bridge.invoke.mock.calls.some(([command, args]) =>
+    command === "nextctl_run" && Array.isArray((args as { args?: string[] })?.args)
+      && (args as { args: string[] }).args[0] === "skill" && (args as { args: string[] }).args[1] === "delete");
+  expect(deletedCloud).toBe(true);
 });

@@ -1,4 +1,5 @@
 import type { BrowserWorkflowSkill, ChatMessage, Conversation } from "../types";
+import { invoke } from "../electronBridge";
 
 /**
  * A workflow and its local Artifact Center output must not be blocked just
@@ -98,6 +99,17 @@ const PROGRESS_TOOLS = new Set([
   "multi_action", "form_fill", "upload", "extract", "paginate_extract", "tabs_extract", "site_recipe_run",
 ]);
 
+/** Marks a backend run row failed when the previous app session died mid-run.
+ * Without this the remote history would stay "running" forever even though the
+ * local execution card already reports the interruption. */
+function markInterruptedBackendRunFailed(execution: AutomationExecution) {
+  if (!execution.backendRunId || typeof window === "undefined") return;
+  void invoke("automation_run_update", {
+    id: execution.backendRunId,
+    update: { status: "failed", output: { engine: execution.engine || "deterministic", error: "The previous app session ended before automation completed." } },
+  }).catch(() => undefined);
+}
+
 export function activeAutomationExecution(): AutomationExecution | undefined {
   try {
     const value = JSON.parse(localStorage.getItem(STATE_KEY) || "null");
@@ -116,10 +128,11 @@ export function activeAutomationExecution(): AutomationExecution | undefined {
         ...execution,
         phase: "failed",
         progress: 100,
-        detail: "This automation was interrupted when NextBrowser closed. Run it again to restart from the beginning.",
+        detail: "This automation was interrupted when Nextbrowser closed. Run it again to restart from the beginning.",
         error: "The previous app session ended before automation completed.",
       };
       localStorage.setItem(STATE_KEY, JSON.stringify(interrupted));
+      markInterruptedBackendRunFailed(interrupted);
       return interrupted;
     }
     return execution;
