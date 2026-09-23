@@ -14,7 +14,7 @@ export function guideWorkspaceProfileNames(
 ): string[] {
   const available = new Set(profiles.map((profile) => profile.name));
   const workspace = workspaces.find((item) => item.id === activeWorkspaceId);
-  const names = workspace?.profileNames ?? profiles.map((profile) => profile.name);
+  const names = workspace?.profileNames ?? [];
   return names.filter((name, index) => available.has(name) && names.indexOf(name) === index);
 }
 

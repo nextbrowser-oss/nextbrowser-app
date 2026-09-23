@@ -208,9 +208,9 @@ it("starts through the verified CLI without a second verification page", async (
 });
 
 it("stops and reports a failed verified startup without retries or opening a site", async () => {
-  nextctl.run.mockResolvedValueOnce({ code: 1, stdout: "", stderr: "VERIFY_FAILED: proxy unavailable" });
+  nextctl.run.mockResolvedValueOnce({ code: 1, stdout: "", stderr: "VERIFY_FAILED: failed browser checks: proxy, timezone; the profile cannot be used" });
   const onVerificationFailure = vi.fn().mockResolvedValue("cancel");
   await expect(prepareSession({ ...options, statuses: {}, startupVerifies: true, onVerificationFailure })).rejects.toThrow("VERIFY_FAILED");
   expect(commands().map(args => args[4])).toEqual(["start", "stop"]);
-  expect(onVerificationFailure).toHaveBeenCalledWith(expect.objectContaining({ attempts: 1, proxyExpected: true }));
+  expect(onVerificationFailure).toHaveBeenCalledWith(expect.objectContaining({ attempts: 1, proxyExpected: true, failedSurfaces: ["proxy", "timezone"] }));
 });

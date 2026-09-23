@@ -77,7 +77,7 @@ it("rolls back and reports a transient cloud sync failure, unlike an unrecoverab
   expect(useStore.getState().workspaces[0].profileNames).toEqual(["a-profile"]);
 });
 
-it("keeps a profile usable when a workspace id belongs to another account", async () => {
+it("reports an unsaved profile assignment when the workspace belongs to another account", async () => {
   const { useStore } = await import("./store");
   useStore.setState({ authed: true, workspaces: [workspace("mine")], activeWorkspaceId: "mine", conversations: [] });
   bridge.invoke.mockImplementation((command: string) => {
@@ -86,12 +86,8 @@ it("keeps a profile usable when a workspace id belongs to another account", asyn
     if (command === "projects_list") return Promise.resolve({ projects: [] });
     return Promise.resolve({ revision: 1 });
   });
-  // The backend owns this id globally, so no revision can ever match. The
-  // assignment must still succeed instead of failing on the cloud sync —
-  // even though that means the only workspace it touched, being unowned,
-  // gets filtered out of local state entirely rather than kept with a
-  // revision that can never sync.
-  await expect(useStore.getState().assignProfileToProject("new", "clawbrowser")).resolves.toBeUndefined();
+  // Removing a foreign workspace is not a successful profile assignment.
+  await expect(useStore.getState().assignProfileToProject("new", "clawbrowser")).rejects.toThrow("belongs to another account");
   expect(useStore.getState().workspaces).toEqual([]);
   expect(bridge.invoke.mock.calls.filter(([command]) => command === "workspace_put")).toHaveLength(2);
   // The sync keeps going instead of aborting on the first unowned workspace.
@@ -99,7 +95,7 @@ it("keeps a profile usable when a workspace id belongs to another account", asyn
   expect(useStore.getState().projectsSyncing).toBe(false);
 });
 
-it("does not fail a profile action when the backend does not know the workspace", async () => {
+it("reports an unsaved assignment when the backend no longer has the workspace", async () => {
   const { useStore } = await import("./store");
   useStore.setState({ authed: true, workspaces: [workspace("mine")], activeWorkspaceId: "mine", conversations: [] });
   bridge.invoke.mockImplementation((command: string) => {
@@ -108,9 +104,8 @@ it("does not fail a profile action when the backend does not know the workspace"
     if (command === "projects_list") return Promise.resolve({ projects: [] });
     return Promise.resolve({ revision: 1 });
   });
-  // A workspace the backend returns 404 for must not block the user's action;
-  // it is dropped locally like a foreign workspace.
-  await expect(useStore.getState().assignProfileToProject("new", "clawbrowser")).resolves.toBeUndefined();
+  // A deleted workspace cannot accept an assignment; do not report success.
+  await expect(useStore.getState().assignProfileToProject("new", "clawbrowser")).rejects.toThrow("belongs to another account");
   expect(useStore.getState().workspaces).toEqual([]);
 });
 
@@ -191,7 +186,7 @@ it("terminates an in-flight reply and clears its marker when its chat is deleted
     activeConvId: { claude: "c1" },
     runtime: { ...runtime, claude: { ...runtime.claude, runningReplyId: "r1" } },
   });
-  useStore.getState().deleteConversation("c1");
+  await useStore.getState().deleteConversation("c1");
   expect(useStore.getState().conversations).toEqual([]);
   expect(useStore.getState().runtime.claude.runningReplyId).toBeUndefined();
   expect(bridge.invoke.mock.calls.some(([command, args]) => command === "agent_terminate" && (args as { replyId?: string })?.replyId === "r1")).toBe(true);
@@ -209,7 +204,7 @@ it("drops queued replies when their chat is deleted", async () => {
       claude: { ...runtime.claude, queue: [{ conversationId: "c1", rawText: "hi", replyId: "q1", executionTarget: "local" as const }] },
     },
   });
-  useStore.getState().deleteConversation("c1");
+  await useStore.getState().deleteConversation("c1");
   // An orphaned queued item would run later and wedge the composer on Stop.
   expect(useStore.getState().runtime.claude.queue).toEqual([]);
 });

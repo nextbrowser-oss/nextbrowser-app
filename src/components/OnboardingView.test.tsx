@@ -54,6 +54,8 @@ describe("agent onboarding step", () => {
     state.runtime.claude.loggedIn = true;
     state.runtime.claude.error = undefined;
     state.profiles = [];
+    state.workspaces = [{ id: "workspace", profileNames: ["work"] }];
+    state.activeWorkspaceId = "workspace";
     state.selectedProfile = undefined;
     state.statuses = {};
   });

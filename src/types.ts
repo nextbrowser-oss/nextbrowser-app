@@ -77,6 +77,8 @@ export interface Profile {
 // workspace; this is the human-approved path instead (see nextctl's
 // mcp_workspace_scope.go and profile_create_requests.go).
 export interface ProfileCreateRequest {
+  runtime?: BrowserToolset;
+  workspace_id?: string;
   id: string;
   name_prefix: string;
   quantity: number;
@@ -267,6 +269,10 @@ export function customPublishSelector(script: CustomScript): string {
 }
 
 export interface ScheduledRun {
+  workspaceId?: string;
+  intervalMinutes?: number;
+  createdAt?: number;
+  lastError?: string;
   id: string;
   title: string;
   prompt: string;

@@ -63,7 +63,7 @@ describe("conversation deletion", () => {
       activeConvId: { codex: deleted.id, claude: otherAgent.id },
     });
 
-    useStore.getState().deleteConversation(deleted.id);
+    await useStore.getState().deleteConversation(deleted.id);
 
     expect(useStore.getState().conversations.map((item) => item.id)).toEqual([
       otherAgent.id,

@@ -144,6 +144,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceSaving, setWorkspaceSaving] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [chatDeleteError, setChatDeleteError] = useState<string | null>(null);
+  const [chatDeleting, setChatDeleting] = useState(false);
   const [openSection, setOpenSection] = useState<"projects" | "profiles" | null>("projects");
   const [dragOverProfileName, setDragOverProfileName] = useState<string | null>(null);
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
@@ -342,7 +344,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       (!!session.session?.endpoint && session.session.endpoint === s.defaultSession?.session?.endpoint)
     ),
   );
-  const showDefaultProfile = defaultKnown &&
+  const showDefaultProfile = !!activeWorkspace?.profileNames.includes("__default") && defaultKnown &&
     !defaultSessionDuplicate &&
     !s.profiles.some((p) => p.name === "default");
   const visibleProfileCount = profileWorkspaceEntries.length;
@@ -754,7 +756,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       focusProfiles();
       s.setProfileSearch("");
       const profile = guideProfileTarget(s.selectedProfile, guideProfileNames, showDefaultProfile);
-      if (!profile) return;
+      if (!profile) { openCreator(); return; }
       if (profile === "__default") {
         s.selectProfile(undefined);
         if (!defaultRunning && !defaultBusy) {
@@ -2581,6 +2583,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             <div className="modal-card delete-chat-modal" role="dialog" aria-modal="true" aria-labelledby="delete-chat-title" onMouseDown={(event) => event.stopPropagation()}>
               <h3 id="delete-chat-title">Delete “{chat.title}”?</h3>
               <p>This removes the chat and its message history. Profiles stay in the workspace.</p>
+              {chatDeleteError && <div className="error small">{chatDeleteError}</div>}
               {runningProfiles.length > 0 && (
                 <p className="delete-chat-warning">Stop {runningProfiles.length === 1 ? `“${runningProfiles[0]}”` : "the running profiles"} before deleting this chat.</p>
               )}
@@ -2588,10 +2591,18 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 <button className="secondary" autoFocus onClick={() => setConfirmDeleteChat(null)}>Cancel</button>
                 <button
                   className="primary danger"
-                  disabled={runningProfiles.length > 0}
-                  onClick={() => {
-                    s.deleteConversation(chat.id);
-                    setConfirmDeleteChat(null);
+                  disabled={chatDeleting || runningProfiles.length > 0}
+                  onClick={async () => {
+                    setChatDeleting(true);
+                    setChatDeleteError(null);
+                    try {
+                      await s.deleteConversation(chat.id);
+                      setConfirmDeleteChat(null);
+                    } catch {
+                      setChatDeleteError("Could not delete this project. Nothing was removed. Please retry.");
+                    } finally {
+                      setChatDeleting(false);
+                    }
                   }}
                 >
                   Delete chat
@@ -2714,7 +2725,7 @@ function ProfileRow({
           <span className="profile-name"><HighlightedName text={name} query={searchQuery} /></span>
         </span>
         <span className="profile-meta">
-          {metaOverride ?? (occupiedBy ? `In use · ${occupiedBy}` : ip ? `${status} · ${ip}` : status)}
+          {metaOverride ?? (occupiedBy ? `In use · ${occupiedBy}` : status === "starting" ? "Starting and verifying" : ip ? `${status} · ${ip}` : status)}
         </span>
       </span>
       <span className="profile-badges">

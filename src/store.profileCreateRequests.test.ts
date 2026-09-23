@@ -66,13 +66,15 @@ it("approving a request calls approve, clears it locally, and refreshes profiles
     authed: true,
     nextctlAvailable: true,
     pendingProfileCreateRequests: [pendingRequest],
+    activeWorkspaceId: "w",
+    workspaces: [{ id: "w", name: "Test", profileNames: [], profileToolsets: {}, createdAt: 1, updatedAt: 1 }],
   });
   const approveCalls: string[][] = [];
   bridge.invoke.mockImplementation((command, { args } = {}) => {
     if (command !== "nextctl_run") return Promise.resolve(null);
     if (args[0] === "profiles" && args[1] === "requests" && args[2] === "approve") {
       approveCalls.push(args);
-      return Promise.resolve(result({}));
+      return Promise.resolve(result({ status: "completed", runtime: "camoufox", created_profiles: ["pixelscan-test-1", "pixelscan-test-2", "pixelscan-test-3"] }));
     }
     if (args[0] === "profiles" && args[1] === "ls") {
       return Promise.resolve(result({
@@ -88,7 +90,8 @@ it("approving a request calls approve, clears it locally, and refreshes profiles
 
   await useStore.getState().approveProfileCreateRequest("req-1");
 
-  expect(approveCalls).toEqual([["profiles", "requests", "approve", "req-1"]]);
+  expect(approveCalls).toEqual([["profiles", "requests", "approve", "req-1", "--format", "json"]]);
+  expect(useStore.getState().workspaces[0].profileToolsets["pixelscan-test-1"]).toBe("camoufox");
   expect(useStore.getState().pendingProfileCreateRequests).toEqual([]);
   expect(useStore.getState().profiles.map((p) => p.name)).toEqual([
     "pixelscan-test-1", "pixelscan-test-2", "pixelscan-test-3",
