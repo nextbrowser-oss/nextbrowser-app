@@ -83,6 +83,7 @@ export interface ProfileCreateRequest {
   name_prefix: string;
   quantity: number;
   country?: string | null;
+  no_proxy?: boolean;
   proxy_scheme?: string | null;
   status: "pending" | "completed" | "rejected" | "failed";
   created_profiles?: string[] | null;
@@ -270,6 +271,7 @@ export function customPublishSelector(script: CustomScript): string {
 
 export interface ScheduledRun {
   workspaceId?: string;
+  profileName?: string;
   intervalMinutes?: number;
   createdAt?: number;
   lastError?: string;

@@ -39,6 +39,7 @@ export type AutomationExecution = {
   repairPersistenceError?: string;
   repairAttempt?: number;
   workflowSnapshot?: BrowserWorkflowSkill;
+  profileName?: string;
   events?: AutomationExecutionEvent[];
 };
 
@@ -164,8 +165,8 @@ export function withAutomationExecutionEvent(execution: AutomationExecution, eve
 
 export function clearActiveAutomationExecution() {
   localStorage.removeItem(STATE_KEY);
-  sessionStorage.removeItem(SESSION_KEY);
-  window.dispatchEvent(new CustomEvent(AUTOMATION_EXECUTION_EVENT));
+  if (typeof sessionStorage !== "undefined") sessionStorage.removeItem(SESSION_KEY);
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(AUTOMATION_EXECUTION_EVENT));
 }
 
 export function executionWithRecipeProgress(execution: AutomationExecution, update: AutomationRecipeProgress): AutomationExecution {

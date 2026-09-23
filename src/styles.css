@@ -1712,6 +1712,7 @@ body.is-resizing-sidebar {
 }
 .workspace-menu button:hover,
 .workspace-menu button.active { background: var(--surface-5); }
+.workspace-menu .workspace-delete-action { color: var(--red); border-top: 1px solid var(--border); }
 .workspace-picker:hover { background: color-mix(in srgb, var(--accent) 8%, var(--surface-3)); }
 .workspace-picker > span { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 1px; }
 .workspace-picker small { color: var(--muted); font-size: 8px; font-weight: 550; text-transform: uppercase; letter-spacing: .05em; }
@@ -3573,6 +3574,17 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   background: #000;
   user-select: none;
   -webkit-user-drag: none;
+}
+.remote-live-keyboard-sink {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+  resize: none;
 }
 .remote-live-webview {
   display: block;

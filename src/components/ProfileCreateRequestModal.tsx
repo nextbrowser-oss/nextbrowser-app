@@ -94,7 +94,7 @@ export function ProfileCreateRequestModal() {
             <div className="muted small">
               {namesPreview}
               {` · ${request.runtime === "camoufox" ? "Camoufox" : request.runtime === "dasbrowser" ? "DasBrowser" : "ClawBrowser"}`}
-              {request.country ? ` · ${request.country}` : ""}
+              {request.no_proxy ? " · No proxy (direct connection)" : request.country ? ` · ${request.country}` : ""}
               {request.proxy_scheme ? ` · ${request.proxy_scheme}` : ""}
             </div>
           </div>

@@ -49,7 +49,7 @@ type CallbackSet = {
   onInputError?: () => void;
 };
 
-type InputEnvelope = {
+export type InputEnvelope = {
   type: "mouse" | "wheel" | "key" | "text";
   payload: Record<string, unknown>;
 };

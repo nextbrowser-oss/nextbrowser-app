@@ -1109,7 +1109,7 @@ export function AutomationStudio() {
       executionId: uid(), sourceId, sourceKind, backendRunId, workspaceId, workflowTitle: workflow.title, task: workflow.task,
       startedAt: Date.now(), expectedActions: workflow.actions.length, actionTools: workflow.actions.map((action) => action.tool),
       engine: "deterministic", phase: "preparing", completedActions: 0, progress: 8,
-      detail: "Preparing the browser session…", workflowSnapshot: workflow,
+      detail: "Preparing the browser session…", workflowSnapshot: workflow, profileName: automationProfile,
       events: [
         { id: "run-approved", at: Date.now(), kind: "system", title: "Run approved", detail: `Using ${automationProfile || "the default browser"}`, state: "success" },
         { id: "runner-preparing", at: Date.now(), kind: "system", title: "Preparing the selected browser", detail: workflow.domain || "Current workflow target", state: "pending" },
@@ -1352,7 +1352,7 @@ export function AutomationStudio() {
         <div className="recording-progress-track"><i style={{ width: `${playbackView.progress}%` }} /></div>
         <small>{playbackView.detail}</small>
         <details className="automation-run-timeline" open={!["completed", "failed", "cancelled"].includes(playbackView.phase)}>
-          <summary>Run timeline <span>{automationProfile || "Default browser"} · {playback.workflowSnapshot?.domain || "Current website"}</span></summary>
+          <summary>Run timeline <span>{playback.profileName || "Default browser"} · {playback.workflowSnapshot?.domain || "Current website"}</span></summary>
           <ol>{playbackTimeline.map((event) => <li key={event.id} className={`${event.kind} ${event.state}`}><Icon name={event.state === "failed" ? "xmark.circle.fill" : event.state === "success" ? "checkmark.circle.fill" : event.kind === "repair" ? "sparkles" : event.kind === "artifact" ? "tray.full.fill" : "circle"} size={12} /><span><strong>{event.title}</strong>{event.detail && <small>{event.detail}</small>}</span></li>)}</ol>
           {playback.repairPersisted && <p className="automation-repair-saved"><Icon name="checkmark.seal.fill" size={12} /> AI repair was verified and saved as the next deterministic revision.</p>}
           {playback.repairPersistenceError && <p className="error">The task completed, but the repaired revision was not saved: {playback.repairPersistenceError}</p>}

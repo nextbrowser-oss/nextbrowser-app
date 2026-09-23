@@ -476,6 +476,7 @@ function runtimeResult(source, currentVersion, latestVersion, error = "", instal
   let status = installed ? "unknown" : "not-installed";
   if (error) status = "error";
   else if (current && latest) status = compareVersions(current, latest) < 0 ? "available" : "up-to-date";
+  else if (installed && latest) status = "available";
   else if (current) status = "unknown";
   return {
     ...source,

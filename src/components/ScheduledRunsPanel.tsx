@@ -21,6 +21,8 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
   const conversations = useStore((s) => s.conversations);
   const currentAgent = useStore((s) => s.agentId);
   const workspaceId = useStore((s) => s.activeWorkspaceId);
+  const workspaces = useStore((s) => s.workspaces);
+  const selectedProfile = useStore((s) => s.selectedProfile);
 
   const [editor, setEditor] = useState<ScheduledRun | "new" | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ScheduledRun | null>(null);
@@ -46,6 +48,8 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
   }, [pendingDelete]);
 
   const editorAgent = editor && editor !== "new" ? editor.agent : currentAgent;
+  const editorWorkspace = workspaces.find((workspace) => workspace.id === (editor && editor !== "new" ? editor.workspaceId : workspaceId));
+  const editorProfiles = editorWorkspace?.profileNames ?? [];
   const editorConversations = conversations
     .filter((conversation) => conversation.agent === editorAgent && conversation.workspaceId === workspaceId)
     .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -96,6 +100,7 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
               <div className="muted small">
                 {chatTitle(run) ?? "New chat each run"}
               </div>
+              <div className="muted small">Profile: {run.profileName || "Unassigned"}</div>
             </div>
             <label className="toggle">
               <input
@@ -142,6 +147,8 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
         <ScheduleEditor
           run={editor === "new" ? null : editor}
           conversations={editorConversations}
+          profiles={editorProfiles}
+          initialProfile={editor === "new" ? selectedProfile : undefined}
           agentName={agentById(editorAgent).name}
           onSave={(data) => {
             let final = data;
@@ -186,12 +193,16 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
 function ScheduleEditor({
   run,
   conversations,
+  profiles,
+  initialProfile,
   agentName,
   onSave,
   onClose,
 }: {
   run: ScheduledRun | null;
   conversations: { id: string; title: string }[];
+  profiles: string[];
+  initialProfile?: string;
   agentName: string;
   onSave: (data: Omit<ScheduledRun, "id" | "agent" | "enabled">) => void;
   onClose: () => void;
@@ -206,6 +217,7 @@ function ScheduleEditor({
   const [conversationId, setConversationId] = useState<string | undefined>(
     run?.conversationId,
   );
+  const [profileName, setProfileName] = useState(run?.profileName ?? (initialProfile && profiles.includes(initialProfile) ? initialProfile : profiles.length === 1 ? profiles[0] : ""));
   const titleId = useId();
 
   const toggleDay = (d: number) => {
@@ -234,6 +246,13 @@ function ScheduleEditor({
           placeholder="Describe what the agent should do each time"
           rows={3}
         />
+        <label>Browser profile
+          <select value={profileName} onChange={(event) => setProfileName(event.target.value)}>
+            <option value="">{profiles.length ? "Choose a profile" : "No profiles in this workspace"}</option>
+            {profiles.map((name) => <option key={name} value={name}>{name}</option>)}
+          </select>
+        </label>
+        {profiles.length > 1 && !profileName && <p className="muted small">Choose the profile this task must use. The current sidebar selection may change before the run.</p>}
         <label>Repeat
           <select value={repeat} onChange={(event) => setRepeat(event.target.value)}>
             <option value="daily">Daily / selected days</option>
@@ -318,9 +337,9 @@ function ScheduleEditor({
           </button>
           <button
             className="primary"
-            disabled={!weekdays.length || !title.trim() || !prompt.trim()}
+            disabled={!weekdays.length || !title.trim() || !prompt.trim() || (profiles.length > 0 && !profileName)}
             onClick={() =>
-              onSave({ title: title.trim(), prompt: prompt.trim(), hour, minute, weekdays, conversationId, intervalMinutes: repeat === "daily" ? undefined : interval * (repeat === "hourly" ? 60 : 1), createdAt: Date.now() })
+              onSave({ title: title.trim(), prompt: prompt.trim(), profileName: profileName || undefined, hour, minute, weekdays, conversationId, intervalMinutes: repeat === "daily" ? undefined : interval * (repeat === "hourly" ? 60 : 1), createdAt: Date.now() })
             }
           >
             {run ? "Save" : "Add"}
