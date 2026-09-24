@@ -2305,7 +2305,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             </div>
             {manualProxyEditing ? (
               <form className="personal-proxy-editor" onSubmit={submitManualProxy}>
-                <p className="muted personal-proxy-note">Save proxies here, then select one for any browser profile.</p>
+                <p className="muted personal-proxy-note">Save proxies here to use with your browser profiles.</p>
                 <div className="manual-proxy-mode" role="tablist" aria-label="Manual proxy input mode">
                   <button
                     type="button"
