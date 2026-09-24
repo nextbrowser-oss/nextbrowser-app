@@ -1,0 +1,29 @@
+[
+  {
+    "task": "On the GitHub sign-in page at https://github.com/login, log me in with my saved 1Password item.",
+    "expects": [
+      "keeps the current GitHub login tab instead of navigating to another domain first",
+      "focuses the GitHub username or password field before triggering 1Password autofill",
+      "uses the 1Password inline icon or toolbar popup instead of typing credentials",
+      "verifies a signed-in GitHub signal before reporting success, or reports the exact blocker"
+    ]
+  },
+  {
+    "task": "On the Google Account sign-in flow at https://accounts.google.com, fill and submit my saved Google login with 1Password.",
+    "expects": [
+      "keeps the current Google login tab and handles Google's multi-step email/password flow",
+      "uses 1Password native autofill for saved credentials instead of reading or typing secrets",
+      "stops and reports mfa_required, captcha_required, vault_locked, or multiple_matches when those states appear",
+      "confirms a Google signed-in signal before reporting filled_and_submitted"
+    ]
+  },
+  {
+    "task": "On the Microsoft sign-in flow at https://login.microsoftonline.com, log me in with my saved 1Password item.",
+    "expects": [
+      "keeps the current Microsoft login tab instead of navigating to GitHub or Google first",
+      "uses 1Password native autofill across Microsoft's email and password steps",
+      "does not attempt to unlock 1Password, guess credentials, solve captcha, or bypass MFA",
+      "verifies a Microsoft signed-in signal before reporting success, or reports the exact blocker"
+    ]
+  }
+]
