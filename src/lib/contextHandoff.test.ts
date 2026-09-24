@@ -17,6 +17,14 @@ describe("chat context handoff", () => {
     expect(result).not.toContain("\x1b");
   });
 
+  it("keeps the latest terminal turn when the transcript exceeds the handoff limit", () => {
+    const transcript = `${Array.from({ length: 120 }, (_, i) => `Earlier response ${i}: ${"x".repeat(60)}`).join("\n")}\nI don't like borsh\nUnderstood, you don't like borsh.`;
+    const result = terminalToChatHandoff(transcript, "qa-profile");
+    expect(result.length).toBeLessThanOrEqual(6_000);
+    expect(result).toContain("I don't like borsh");
+    expect(result).toContain("Understood, you don't like borsh.");
+  });
+
   it("keeps recent chat roles and browser tool names", () => {
     const result = chatToTerminalHandoff([
       { id: "1", role: "user", text: "Find Matiz", status: "done", createdAt: 1 },

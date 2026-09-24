@@ -141,6 +141,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [profileConnectionError, setProfileConnectionError] = useState<string | null>(null);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [workspaceCreatorOpen, setWorkspaceCreatorOpen] = useState(false);
+  const [workspaceDeleteOpen, setWorkspaceDeleteOpen] = useState(false);
+  const [workspaceDeletePending, setWorkspaceDeletePending] = useState(false);
+  const [workspaceDeleteError, setWorkspaceDeleteError] = useState<string | null>(null);
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceSaving, setWorkspaceSaving] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
@@ -1252,7 +1255,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         {recordingError && <small className="sidebar-recording-error" role="alert">{recordingError}</small>}
       </section>}
 
-      {automationExecution && automationExecutionState && <section className={`sidebar-execution-control ${automationExecutionState.phase}`} aria-label="Automation execution status">
+      {s.authed && s.workspaces.some((workspace) => workspace.id === automationExecution?.workspaceId) && automationExecution && automationExecutionState && <section className={`sidebar-execution-control ${automationExecutionState.phase}`} aria-label="Automation execution status">
         <div className="sidebar-execution-status"><span className="sidebar-execution-icon"><Icon name={automationExecutionState.phase === "completed" ? "checkmark.circle.fill" : ["failed", "cancelled"].includes(automationExecutionState.phase) ? "xmark.circle.fill" : automationExecutionState.phase === "stopping" ? "stop.fill" : "play.fill"} size={12} /></span><div><strong>{automationExecutionState.phase === "completed" ? `${automationExecutionLabel} completed` : automationExecutionState.phase === "cancelled" ? `${automationExecutionLabel} stopped` : automationExecutionState.phase === "failed" ? `${automationExecutionLabel} failed` : automationExecutionState.phase === "stopping" ? `Stopping ${automationExecutionLabel.toLowerCase()}` : automationExecutionState.phase === "preparing" ? `Preparing ${automationExecutionLabel.toLowerCase()}` : `${automationExecutionLabel} running`}</strong><small title={automationExecution.workflowTitle}>{automationExecution.workflowTitle} · {automationExecutionWorkspace?.name || "Current workspace"}</small></div><b>{automationExecutionState.progress}%</b></div>
         <div className="sidebar-execution-track"><i style={{ width: `${automationExecutionState.progress}%` }} /></div>
         <small className="sidebar-execution-detail">{automationExecutionState.detail}</small>
@@ -1307,6 +1310,11 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       <span>{workspace.name}</span>
                     </button>
                   ))}
+                  {activeWorkspace && <button className="workspace-delete-action" onClick={() => {
+                    setWorkspaceMenuOpen(false);
+                    setWorkspaceDeleteError(null);
+                    setWorkspaceDeleteOpen(true);
+                  }}><Icon name="trash" size={11} /><span>Delete current workspace…</span></button>}
                 </div>
               )}
             </div>
@@ -2027,6 +2035,26 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               </button>
             </div>
           </form>
+        </div>
+      ), document.body)}
+
+      {workspaceDeleteOpen && activeWorkspace && createPortal((
+        <div className="modal-overlay" onMouseDown={() => { if (!workspaceDeletePending) setWorkspaceDeleteOpen(false); }}>
+          <section className="modal-card workspace-create-modal" role="alertdialog" aria-modal="true" aria-labelledby="workspace-delete-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="profile-menu-head"><Icon name="trash" size={15} /><strong id="workspace-delete-title">Delete “{activeWorkspace.name}”?</strong></div>
+            <p className="muted small">This removes the workspace and its projects. Delete or move its profiles first.</p>
+            {(activeWorkspace.profileNames.length > 0 || projects.length > 0) && <p className="error small">This workspace still has {activeWorkspace.profileNames.length} profile{activeWorkspace.profileNames.length === 1 ? "" : "s"} and {projects.length} project{projects.length === 1 ? "" : "s"}. Remove them before deleting it.</p>}
+            {workspaceDeleteError && <p className="error small" role="alert">{workspaceDeleteError}</p>}
+            <div className="modal-actions">
+              <button type="button" className="secondary" disabled={workspaceDeletePending} onClick={() => setWorkspaceDeleteOpen(false)}>Cancel</button>
+              <button type="button" className="primary" disabled={workspaceDeletePending || activeWorkspace.profileNames.length > 0 || projects.length > 0} onClick={() => {
+                setWorkspaceDeletePending(true);
+                void s.deleteWorkspace(activeWorkspace.id).then(() => setWorkspaceDeleteOpen(false)).catch((error: unknown) => {
+                  setWorkspaceDeleteError(error instanceof Error ? error.message : String(error));
+                }).finally(() => setWorkspaceDeletePending(false));
+              }}>{workspaceDeletePending ? <Spinner size={13} /> : <Icon name="trash" size={13} />} Delete workspace</button>
+            </div>
+          </section>
         </div>
       ), document.body)}
 

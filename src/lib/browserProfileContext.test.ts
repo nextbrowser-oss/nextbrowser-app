@@ -22,6 +22,7 @@ describe("browserProfileContext", () => {
     expect(result).toContain("short-lived host-control URL and token into every chat run");
     expect(result).toContain("Never ask the user to start or reconnect a listed profile manually");
     expect(result).toContain("A runtime label such as ClawBrowser, Camoufox, or DasBrowser is not a profile name");
+    expect(result).toContain("MCP interface for ClawBrowser, Camoufox, DasBrowser, and Multilogin");
     expect(result).toContain("session is missing");
     expect(result).toContain("retry the original page action once");
     expect(result).toContain(`--data '{"profile":"baka"}'`);

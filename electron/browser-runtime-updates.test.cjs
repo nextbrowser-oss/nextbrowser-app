@@ -205,7 +205,7 @@ test("marks only older installed runtimes as updateable", () => {
   assert.equal(runtimeResult(source, "1.0.3", "1.0.4").status, "available");
   assert.equal(runtimeResult(source, "1.0.4", "1.0.4").status, "up-to-date");
   assert.equal(runtimeResult(source, "", "1.0.4").status, "not-installed");
-  assert.equal(runtimeResult(source, "", "1.0.4", "", true).status, "unknown");
+  assert.equal(runtimeResult(source, "", "1.0.4", "", true).status, "available");
 });
 
 test("checks every runtime independently and preserves partial results", async (t) => {

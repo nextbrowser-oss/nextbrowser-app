@@ -278,4 +278,18 @@ Called clawbrowser.extract({"container":"article.product","fields":["title","pri
     ].join("\n");
     expect(workflowQuality("Collect data from example.com", jsonApi).reusable).toBe(true);
   });
+
+  it("keeps a repaired page visit replayable without claiming dynamic extraction", () => {
+    const pageVisit = [
+      'Called clawbrowser.open({"url":"https://github.com/example/repo/commit/abc"})',
+      '{"ok":true}',
+      'Called clawbrowser.wait({"text":"Fix the release"})',
+      '{"ok":true}',
+    ].join("\n");
+    expect(workflowQuality("Open the release commit on github.com", pageVisit)).toEqual({
+      reusable: true,
+      reason: "The page visit and content check can be replayed. No changing page data was extracted.",
+    });
+    expect(workflowQuality("Open the release commit on github.com", pageVisit.replace(/\{"ok":true\}$/, '{"error":"not found"}')).reusable).toBe(false);
+  });
 });

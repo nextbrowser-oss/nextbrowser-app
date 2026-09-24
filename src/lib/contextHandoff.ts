@@ -42,12 +42,13 @@ function handoffMessageText(message: ChatMessage): string | undefined {
 }
 
 export function terminalToChatHandoff(transcript: string, profile?: string): string {
-  const recent = tailWithinLimit(clean(transcript).split("\n"));
-  return `Continue this task from Terminal Chat in the regular Nextbrowser chat.
+  const heading = `Continue this task from Terminal Chat in the regular Nextbrowser chat.
 ${profile ? `Active browser profile: ${profile}.\n` : ""}Use the existing browser session and do not repeat completed actions. First acknowledge the handoff, then continue from the latest unfinished step.
 
 Recent terminal context:
-${recent}`.slice(0, MAX_HANDOFF_CHARS);
+`;
+  const recent = tailWithinLimit(clean(transcript).split("\n"), MAX_HANDOFF_CHARS - heading.length);
+  return heading + recent;
 }
 
 export function chatToTerminalHandoff(messages: ChatMessage[], profile?: string): string {

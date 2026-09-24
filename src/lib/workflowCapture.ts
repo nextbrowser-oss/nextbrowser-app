@@ -384,6 +384,10 @@ export function workflowQuality(task: string, transcript: string, domain = captu
   const interaction = calls.some((call) => ["act", "multi_action", "input", "click", "press", "upload"].includes(call.name));
   const navigation = calls.some((call) => ["start", "prepare", "open", "navigate", "navigate_extract"].includes(call.name));
   if (!navigation) return { reusable: false, reason: "The recording did not capture a starting page. Open the target page while recording so replay can start reliably." };
+  const confirmedPage = calls.some((call) => call.name === "wait" && call.score > 0 && (typeof call.args.text === "string" || typeof call.args.selector === "string"));
+  if (!successfulExtraction && !postingConfirmation && !interaction && confirmedPage) {
+    return { reusable: true, reason: "The page visit and content check can be replayed. No changing page data was extracted." };
+  }
   if (!successfulExtraction && !postingConfirmation && !(interaction && navigation)) {
     return { reusable: false, reason: "No successful extraction, posting confirmation, or complete browser interaction was captured." };
   }

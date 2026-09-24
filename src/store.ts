@@ -43,6 +43,7 @@ import { normalizeNextctlVersion } from "./lib/version";
 import { isProxyTrafficExhaustedError, proxyTrafficWarning } from "./lib/proxyTraffic";
 import { trafficGateState } from "./lib/trafficGate";
 import { activeAutomationRecording, clearActiveAutomationRecording } from "./lib/automationRecording";
+import { clearActiveAutomationExecution } from "./lib/automationExecution";
 import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
 import { internalError } from "./lib/userFacingError";
 import { agentEmptyReplyMessage } from "./lib/agentRunResult";
@@ -72,6 +73,7 @@ import {
   serializeUsage,
 } from "./lib/persistence";
 import { scheduleDue } from "./lib/scheduleDue";
+import { resolveScheduledProfile } from "./lib/scheduleProfile";
 import type {
   AppTab,
   AutomationRecipeResult,
@@ -118,6 +120,7 @@ interface QueuedItem {
   rawText: string;
   replyId: string;
   executionTarget: ExecutionTarget;
+  selectedProfile?: string;
 }
 
 /// How a skill run is placed. A loop tick supplies its own conversation and
@@ -1606,6 +1609,7 @@ export const useStore = create<State>((set, get) => {
     attachments: ChatAttachment[] = [],
     privilegedTarget?: ExecutionTarget,
     agentPrompt?: string,
+    profileSelection?: { name?: string },
   ) => {
     const prompt = text.trim();
     if (!prompt) return;
@@ -1674,6 +1678,7 @@ export const useStore = create<State>((set, get) => {
               rawText: promptWithAttachments(rawPrompt, attachments),
               replyId,
               executionTarget,
+              selectedProfile: profileSelection ? profileSelection.name : state.selectedProfile,
             },
           ],
         },
@@ -2184,7 +2189,9 @@ export const useStore = create<State>((set, get) => {
       if (scheduledTarget === "vps") vpsSetupReservations += 1;
       try {
         const workspaceId = run.workspaceId ?? scheduledConversation?.workspaceId;
-        if (workspaceId && !get().workspaces.some((workspace) => workspace.id === workspaceId)) throw new Error("The scheduled workspace no longer exists.");
+        const scheduledWorkspace = workspaceId ? get().workspaces.find((workspace) => workspace.id === workspaceId) : undefined;
+        if (workspaceId && !scheduledWorkspace) throw new Error("The scheduled workspace no longer exists.");
+        const scheduledProfile = resolveScheduledProfile(run, scheduledWorkspace?.profileNames ?? []);
         if (workspaceId) get().selectWorkspace(workspaceId);
         if (scheduledTarget === "vps") await waitForLocalNextctlIdle(get);
         get().switchAgent(run.agent);
@@ -2216,7 +2223,7 @@ export const useStore = create<State>((set, get) => {
             return { conversations };
           });
         }
-        enqueueWithTarget(run.prompt, undefined, cid, [], scheduledTarget);
+        enqueueWithTarget(run.prompt, undefined, cid, [], scheduledTarget, undefined, { name: scheduledProfile });
       } catch (error) {
         // One failing schedule must not abort the rest of this tick. The timer
         // calls this without awaiting, so swallow here instead of letting an
@@ -2371,6 +2378,7 @@ export const useStore = create<State>((set, get) => {
     replyExecutionTargets.set(item.replyId, item.executionTarget);
     const itemConversation = get().conversations.find((conversation) => conversation.id === item.conversationId);
     const itemWorkspace = get().workspaces.find((workspace) => workspace.id === itemConversation?.workspaceId);
+    const queuedProfileMissing = item.selectedProfile && !(itemWorkspace?.profileNames ?? []).includes(item.selectedProfile);
     replyProfileBaselines.set(item.replyId, new Set(
       (itemWorkspace?.profileNames ?? []).filter((profile) => get().statuses[profile] === "running"),
     ));
@@ -2382,6 +2390,7 @@ export const useStore = create<State>((set, get) => {
       // user prompt a second time.
       await flushConversations();
       if (item.executionTarget === "local") {
+        if (queuedProfileMissing) throw new Error("The selected browser profile is no longer in this workspace.");
         const pendingNames = (itemWorkspace?.profileNames ?? []).filter((name) => pendingProfileStarts.has(name));
         awaitingProfileStart = pendingNames.length > 0;
         await Promise.all(pendingNames.map((name) => pendingProfileStarts.get(name)));
@@ -2397,7 +2406,9 @@ export const useStore = create<State>((set, get) => {
         item.conversationId,
         item.replyId,
         cancelled ? "cancelled" : "failed",
-        cancelled ? "Request cancelled before the agent started." : awaitingProfileStart
+        cancelled ? "Request cancelled before the agent started." : queuedProfileMissing
+          ? "The selected browser profile is no longer in this workspace. Choose a profile and retry."
+          : awaitingProfileStart
           ? "The request was not sent because the browser profile did not pass its startup check. Fix the connection and start the profile again."
           : "The request was not sent because its state could not be saved.",
       );
@@ -2496,7 +2507,7 @@ export const useStore = create<State>((set, get) => {
       return;
     }
 
-    const activeProfile = get().selectedProfile;
+    const activeProfile = item.selectedProfile;
     const recording = activeAutomationRecording();
     const recorderContext = recording?.phase === "recording" && recording.workspaceId === conversationWorkspaceId
       ? `\n\nNextbrowser Recorder is active for this task. The final reusable dataset must come from a deterministic browser tool call, not from reading state and transforming it only in your reasoning. Prefer navigate_extract when the URL, row container, and fields are known because it combines navigation, readiness, and extraction in one recorded call. Otherwise, after using state once to discover the page, call extract or paginate_extract with the exact fields and limit. Do not use evaluate for selector or HTML diagnostics: state is the discovery tool. If the dynamic page cannot be represented by extraction tools, call evaluate once with a read-only expression that returns the exact structured dataset; it must not read cookies/storage, use network APIs, click/submit, or mutate the DOM. Select targets by stable content, attributes, or headers instead of a numeric querySelectorAll position, and make the expression throw unless the requested number of rows and requested fields are populated. If the final dataset comes from a public JSON endpoint, use its replayable GET form when available: open that exact API URL in the listed browser profile, then evaluate the JSON body. Never leave the final request hidden in curl, fetch, or an uncaptured shell action, because Recorder cannot replay it. If the user requested an Artifact Center file, pass that deterministic call's returned dataset to nextbrowser.save_artifact once. Do not finish with state as the only data-collection step.`
@@ -2858,6 +2869,7 @@ export const useStore = create<State>((set, get) => {
       await get().syncProjects();
       await invoke<null>("account_logout");
       await clearAccountEntityCache();
+      clearActiveAutomationExecution();
       trackEvent("dashboard_logout");
       setAnalyticsUserId(undefined);
       if (proxyTimer) clearInterval(proxyTimer);
@@ -6138,6 +6150,7 @@ export const useStore = create<State>((set, get) => {
       title: partial.title,
       prompt: partial.prompt,
       workspaceId: get().activeWorkspaceId,
+      profileName: partial.profileName,
       intervalMinutes: partial.intervalMinutes,
       createdAt: now(),
       agent: get().agentId,
