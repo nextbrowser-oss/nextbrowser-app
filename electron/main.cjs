@@ -125,7 +125,6 @@ function killTerminalsForWebContents(webContentsId) {
   }
 }
 const remoteSignalSockets = new Map();
-const camoufoxLiveSessions = new Map();
 const APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const BROWSER_RUNTIME_UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const NEXTCTL_RELEASE_BASE = "https://github.com/nextbrowser-oss/nbc_releases/releases/latest/download";
@@ -2574,42 +2573,6 @@ async function invokeCommand(command, args = {}, sender) {
       const socket = remoteSignalSockets.get(id);
       if (socket) socket.close();
       remoteSignalSockets.delete(id);
-      return null;
-    }
-    case "camoufox_live_open": {
-      const profile = String(args.profile || "").trim();
-      if (!profile || profile.length > 120) throw new Error("Select a Camoufox profile first.");
-      const status = await executeNextctl(["status", "--profile", profile, "--runtime", "camoufox", "--format", "json"], { timeoutMs: 10_000 });
-      if (status.code !== 0) throw new Error("Camoufox profile status is unavailable.");
-      const envelope = JSON.parse(status.stdout || "{}");
-      const data = envelope.data || envelope;
-      if (data.status !== "running" || data.session?.runtime !== "camoufox") throw new Error("Start the Camoufox profile before opening Live.");
-      const endpoint = new URL(String(data.session?.endpoint || ""));
-      if (endpoint.protocol !== "http:" || endpoint.hostname !== "127.0.0.1") throw new Error("Camoufox bridge endpoint is invalid.");
-      const health = await fetch(new URL("/health", endpoint), { method: "POST", signal: AbortSignal.timeout(3000) });
-      if (!health.ok || !(await health.json()).ok) throw new Error("Camoufox bridge is unavailable.");
-      const id = randomUUID();
-      camoufoxLiveSessions.set(id, { profile, endpoint: endpoint.origin });
-      return { id };
-    }
-    case "camoufox_live_frame":
-    case "camoufox_live_input":
-    case "camoufox_live_tab": {
-      const session = camoufoxLiveSessions.get(String(args.id || ""));
-      if (!session) throw new Error("Camoufox Live session has ended.");
-      const route = command === "camoufox_live_frame" ? "/screenshot" : command === "camoufox_live_tab" ? "/tabs/activate" : "/live_input";
-      const body = command === "camoufox_live_frame" ? { full_page: false }
-        : command === "camoufox_live_tab" ? { id: String(args.targetId || "") }
-          : args.message;
-      const response = await fetch(session.endpoint + route, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body), signal: AbortSignal.timeout(5000),
-      });
-      if (!response.ok) throw new Error("Camoufox Live request failed.");
-      return response.json();
-    }
-    case "camoufox_live_close": {
-      camoufoxLiveSessions.delete(String(args.id || ""));
       return null;
     }
     default: throw new Error(`Unknown Electron IPC command: ${command}`);
