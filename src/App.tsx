@@ -12,6 +12,8 @@ import { ScheduledRunsPanel } from "./components/ScheduledRunsPanel";
 import { OnboardingView } from "./components/OnboardingView";
 import { DashboardKeyModal } from "./components/DashboardKeyModal";
 import { TrafficGateModal } from "./components/TrafficGateModal";
+import { GitHubStarModal } from "./components/GitHubStarReward";
+import { shouldAskForGitHubStar } from "./lib/githubStarReward";
 import { ProfileCreateRequestModal } from "./components/ProfileCreateRequestModal";
 import { BrandLogo } from "./components/BrandLogo";
 import { Icon, Spinner } from "./components/Icon";
@@ -860,6 +862,9 @@ export function App() {
   const [agentGateDismissed, setAgentGateDismissed] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const feedbackPromptEvaluated = useRef(false);
+  const githubStarPromptEvaluated = useRef(false);
+  const githubStar = useStore((s) => s.githubStar);
+  const setGitHubStarPromptOpen = useStore((s) => s.setGitHubStarPromptOpen);
   const preview = getPreviewMode();
   const checking = useStore((s) => s.checking);
   const authed = useStore((s) => s.authed);
@@ -875,6 +880,7 @@ export function App() {
   const bootstrap = useStore((s) => s.bootstrap);
   const showOnboarding = useStore((s) => s.showOnboarding);
   const agentReady = useStore((s) => s.agentReady());
+  const agentGateOpen = !checking && !agentReady && !agentGateDismissed && preview !== "main";
   const workspaceSetupRequired = useStore((s) => {
     return s.authed && s.workspacesLoaded && s.workspaceSetupRequired;
   });
@@ -953,6 +959,17 @@ export function App() {
       trackEvent("feedback_prompt_shown", { trigger: "fifth_open" });
     }
   }, [feedbackAvailable, showOnboarding, workspaceSetupRequired]);
+
+  useEffect(() => {
+    // Once per launch, once the app is usable: a GitHub sign-up that has not
+    // claimed its star reward is asked to star the repository. The prompt can
+    // be closed; the Usage page keeps the same ask next to the proxy traffic.
+    if (githubStarPromptEvaluated.current || !feedbackAvailable || showOnboarding || workspaceSetupRequired) return;
+    // Never on top of the agent connection gate: ask once that is out of the way.
+    if (githubStar === undefined || agentGateOpen) return;
+    githubStarPromptEvaluated.current = true;
+    if (shouldAskForGitHubStar(githubStar)) setGitHubStarPromptOpen(true);
+  }, [feedbackAvailable, showOnboarding, workspaceSetupRequired, githubStar, agentGateOpen, setGitHubStarPromptOpen]);
 
   useEffect(() => {
     if (!feedbackAvailable) setFeedbackOpen(false);
@@ -1623,8 +1640,9 @@ export function App() {
       )}
       <DashboardKeyModal />
       <TrafficGateModal />
+      <GitHubStarModal suppressed={agentGateOpen} />
       <ProfileCreateRequestModal />
-      {!checking && !agentReady && !agentGateDismissed && preview !== "main" && (
+      {agentGateOpen && (
         <AgentConnectionGate onDismiss={() => setAgentGateDismissed(true)} />
       )}
       {showOnboarding && agentReady && !workspaceSetupRequired && <OnboardingView />}

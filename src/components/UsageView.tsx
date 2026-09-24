@@ -35,6 +35,8 @@ import {
 } from "../types";
 import { Icon, Spinner } from "./Icon";
 import { TrafficChart } from "./TrafficChart";
+import { GitHubStarCard } from "./GitHubStarReward";
+import { shouldAskForGitHubStar } from "../lib/githubStarReward";
 
 type RangePreset = ProxyTrafficHistoryPreset | "custom";
 
@@ -125,6 +127,13 @@ export function UsageView() {
   const [handoffLoading, setHandoffLoading] = useState(false);
   const [handoffNotice, setHandoffNotice] = useState<string>();
   const gateState = trafficGateState(s.proxy);
+  // A GitHub sign-up lifts its limit with a star, which replaces the Discord ask.
+  const githubStar = useStore((state) => state.githubStar);
+  const loadGitHubStar = useStore((state) => state.loadGitHubStar);
+  const starAsked = shouldAskForGitHubStar(githubStar);
+  useEffect(() => {
+    if (githubStar === undefined) void loadGitHubStar().catch(() => undefined);
+  }, [githubStar, loadGitHubStar]);
   const allowanceBytes = trafficAllowanceBytes(s.proxy);
   const allowanceRemainingBytes = trafficAllowanceRemainingBytes(s.proxy);
   const fraction = trafficAllowanceFraction(s.proxy);
@@ -306,7 +315,8 @@ export function UsageView() {
                 {s.proxyWarning}
               </div>
             )}
-            {gateState === "blocked" && (
+            <GitHubStarCard />
+            {gateState === "blocked" && !starAsked && (
               <div className="proxy-traffic-gate" role="status">
                 <div className="proxy-traffic-gate-heading">
                   <Icon name="lock.fill" size={16} />

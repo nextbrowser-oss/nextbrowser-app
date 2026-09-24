@@ -34,6 +34,7 @@ const {
 } = require("./binary-resolver.cjs");
 const { applyLegacyRuntimeMigration, applyRuntimeRootMigration, clearRuntimeCredential, runtimeAPIBaseURL, accountAPIBaseURL } = require("./runtime-config.cjs");
 const { fetchGitHubStars, readLocalGitHubStars, writeLocalGitHubStars } = require("./github-stars.cjs");
+const { githubStarStatus, verifyGitHubStar } = require("./github-star-reward.cjs");
 const { ensureWorkspaceInstructions } = require("./workspace-instructions.cjs");
 const pty = require("node-pty");
 const {
@@ -1647,6 +1648,8 @@ async function invokeCommand(command, args = {}, sender) {
       }
       return (await readLocalGitHubStars(githubStarsCachePath())) ?? 17;
     }
+    case "github_star_status": return await githubStarStatus({ env: childEnv() });
+    case "github_star_verify": return await verifyGitHubStar({ env: childEnv() });
     case "app_update_status": return appUpdateStatus;
     case "browser_runtime_update_status": return browserRuntimeUpdateStatus;
     case "browser_runtime_check_for_updates": return checkForBrowserRuntimeUpdates();

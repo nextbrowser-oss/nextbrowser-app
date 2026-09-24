@@ -978,6 +978,58 @@ body.is-resizing-sidebar {
   max-width: 62ch;
   line-height: 1.5;
 }
+.github-star-card {
+  margin-top: 13px;
+  padding: 13px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+}
+.github-star-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.github-star-card-heading svg,
+.github-star-modal .modal-title-row svg {
+  color: #e3b341;
+}
+.github-star-card .github-star-copy {
+  margin: 7px 0 12px;
+  max-width: 62ch;
+}
+.github-star-copy {
+  margin: 0;
+  line-height: 1.55;
+  font-size: 13px;
+}
+.github-star-card-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.github-star-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.github-star-modal .github-star-error { margin-bottom: 0; }
+.github-star-overlay {
+  backdrop-filter: blur(5px);
+}
+.github-star-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(460px, calc(100vw - 32px));
+}
+.github-star-modal .modal-title-row {
+  align-items: flex-start;
+}
 .traffic-gate-overlay {
   backdrop-filter: blur(5px);
 }

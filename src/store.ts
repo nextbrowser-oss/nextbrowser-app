@@ -107,6 +107,7 @@ import {
   sameWatchHandle,
 } from "./types";
 import type { RotationCountry } from "./lib/countryFlag";
+import type { GitHubStarStatus } from "./lib/githubStarReward";
 import { browserProfileContext } from "./lib/browserProfileContext";
 import { CONNECTOR_PROMPT_RESUMED_EVENT, type ConnectorPrompt } from "./connectorsCatalog";
 import { clearMultiloginSelection, multiloginSelectionForWorkspace, type MultiloginProfileSelection } from "./lib/multiloginSelection";
@@ -498,6 +499,9 @@ interface State {
   proxy?: ProxyTraffic;
   proxyWarning?: string;
   trafficGatePromptOpen: boolean;
+  /** Star reward for GitHub sign-ups; undefined until loaded, null when not offered. */
+  githubStar?: GitHubStarStatus | null;
+  githubStarPromptOpen: boolean;
   profiles: Profile[];
   pendingProfileCreateRequests: ProfileCreateRequest[];
   personalProxies: PersonalProxy[];
@@ -600,6 +604,9 @@ interface State {
   refreshAll: () => Promise<void>;
   refreshProxyData: () => Promise<void>;
   setTrafficGatePromptOpen: (open: boolean) => void;
+  loadGitHubStar: () => Promise<void>;
+  verifyGitHubStar: () => Promise<GitHubStarStatus>;
+  setGitHubStarPromptOpen: (open: boolean) => void;
   refreshSessions: () => Promise<void>;
   loadProxy: () => Promise<void>;
   loadProfiles: () => Promise<void>;
@@ -1816,6 +1823,7 @@ export const useStore = create<State>((set, get) => {
   terminalChat: localStorage.getItem("terminalChat") === "true",
   dashboardKeyPromptOpen: false,
   trafficGatePromptOpen: false,
+  githubStarPromptOpen: false,
   accountPairing: undefined,
   nextctlVersion: "",
   nextctlUpdating: false,
@@ -2904,6 +2912,8 @@ export const useStore = create<State>((set, get) => {
         proxyWarning: undefined,
         dashboardKeyPromptOpen: false,
         trafficGatePromptOpen: false,
+        githubStar: undefined,
+        githubStarPromptOpen: false,
         accountPairing: undefined,
         profiles: [],
         pendingProfileCreateRequests: [],
@@ -2954,6 +2964,7 @@ export const useStore = create<State>((set, get) => {
     try {
       await Promise.all([
         get().loadProxy().catch(() => {}),
+        get().loadGitHubStar().catch(() => {}),
         get().loadProxyCountries().catch(() => {}),
         get().loadProfiles(),
         get().loadDefaultSession(),
@@ -3031,7 +3042,11 @@ export const useStore = create<State>((set, get) => {
     if (history.length > 96) history.splice(0, history.length - 96);
     void saveJson("usage-history.json", serializeUsage(history));
     set({ proxy: p, proxyWarning, usageHistory: history });
-    if (gateJustClosed) get().setTrafficGatePromptOpen(true);
+    if (gateJustClosed) {
+      // A GitHub sign-up lifts its limit with a star, not a Discord message.
+      if (get().githubStar?.required) get().setGitHubStarPromptOpen(true);
+      else get().setTrafficGatePromptOpen(true);
+    }
     trackEvent("proxy_loaded", {
       proxy_state: p.state,
       limited: p.limited,
@@ -4108,6 +4123,29 @@ export const useStore = create<State>((set, get) => {
       return { terminalChat: v, conversations };
     });
   },
+  loadGitHubStar: async () => {
+    const epoch = accountEpoch;
+    const status = await invoke<GitHubStarStatus | null>("github_star_status");
+    if (epoch !== accountEpoch) return;
+    set({ githubStar: status });
+  },
+
+  verifyGitHubStar: async () => {
+    const epoch = accountEpoch;
+    const status = await invoke<GitHubStarStatus>("github_star_verify");
+    if (epoch !== accountEpoch) return status;
+    set({ githubStar: status, githubStarPromptOpen: false, trafficGatePromptOpen: false });
+    trackEvent("github_star_reward_claimed", { reward_bytes: status.rewardBytes });
+    await get().loadProxy().catch(() => undefined);
+    return status;
+  },
+
+  setGitHubStarPromptOpen: (open) => {
+    if (get().githubStarPromptOpen === open) return;
+    if (open) trackEvent("github_star_prompt_shown");
+    set({ githubStarPromptOpen: open });
+  },
+
   setTrafficGatePromptOpen: (open) => {
     if (get().trafficGatePromptOpen === open) return;
     trackEvent(open ? "proxy_traffic_gate_prompt_opened" : "proxy_traffic_gate_prompt_closed", {

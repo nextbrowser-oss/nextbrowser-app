@@ -4,6 +4,7 @@ import { discordUrl } from "../constants";
 import { trackEvent } from "../lib/analytics";
 import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { freeTrafficAllowanceBytes, trafficGateState } from "../lib/trafficGate";
+import { shouldAskForGitHubStar } from "../lib/githubStarReward";
 import { humanBytes } from "../types";
 import { Icon } from "./Icon";
 
@@ -19,6 +20,8 @@ export function TrafficGateModal() {
   const proxy = useStore((s) => s.proxy);
   const open = useStore((s) => s.trafficGatePromptOpen);
   const setOpen = useStore((s) => s.setTrafficGatePromptOpen);
+  // A GitHub sign-up lifts its limit with a star; that prompt replaces this one.
+  const starAsked = useStore((s) => shouldAskForGitHubStar(s.githubStar));
 
   useEffect(() => {
     if (!open || trafficGateState(proxy) !== "blocked") return;
@@ -33,7 +36,7 @@ export function TrafficGateModal() {
 
   // The store only opens this on a gated account, but a grant can land while
   // the modal is up; the moment it does, the pause is over and it should go.
-  if (!open || trafficGateState(proxy) !== "blocked") return null;
+  if (!open || starAsked || trafficGateState(proxy) !== "blocked") return null;
 
   const askInDiscord = () => {
     trackEvent("proxy_traffic_gate_discord_opened", {
