@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
 import { RemoteControlClient, type InputEnvelope, type RemoteLiveTab, type RemoteMediaStats, type RemoteStreamInfo } from "../remoteControl";
-import { invoke } from "../electronBridge";
 import { useStore } from "../store";
 import { internalError } from "../lib/userFacingError";
 import {
@@ -14,7 +13,6 @@ import { UserFacingError } from "./UserFacingError";
 
 type LiveState = "idle" | "connecting" | "live" | "error";
 const LIVE_VIEW_BACKGROUND_TTL_MS = 10 * 60 * 1000;
-type CamoufoxFrame = { data: string; width: number; height: number; tabs?: Array<{ id: string; title?: string; url?: string; active?: boolean }> };
 
 function modifierBits(event: MouseEvent | WheelEvent | KeyboardEvent) {
   return (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0);
@@ -65,8 +63,6 @@ export function LiveView({ active }: { active: boolean }) {
   const [pendingRemoteTab, setPendingRemoteTab] = useState("");
   const [mediaStats, setMediaStats] = useState<RemoteMediaStats>({});
   const [remoteMediaStream, setRemoteMediaStream] = useState<MediaStream | null>(null);
-  const [localViewerId, setLocalViewerId] = useState("");
-  const [localFrame, setLocalFrame] = useState("");
   const activeWorkspaceID = s.activeWorkspaceId;
   const workspace = s.workspaces.find((item) => item.id === activeWorkspaceID);
   const workspaceProfiles = s.profiles.filter((profile) => workspace?.profileNames.includes(profile.name));
@@ -76,11 +72,7 @@ export function LiveView({ active }: { active: boolean }) {
   const remoteClientRef = useRef<RemoteControlClient | null>(null);
   const remoteEmbedRef = useRef<HTMLDivElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
-  const localImageRef = useRef<HTMLImageElement | null>(null);
   const keyboardSinkRef = useRef<HTMLTextAreaElement | null>(null);
-  const localViewerIdRef = useRef("");
-  const localFrameTimerRef = useRef<number | null>(null);
-  const localInputTailRef = useRef<Promise<unknown>>(Promise.resolve());
   const streamGeneration = useRef(0);
   const inactiveTimerRef = useRef<number | null>(null);
   const inputWarningTimerRef = useRef<number | null>(null);
@@ -115,12 +107,6 @@ export function LiveView({ active }: { active: boolean }) {
     }
     remoteClientRef.current?.close();
     remoteClientRef.current = null;
-    if (localFrameTimerRef.current !== null) window.clearTimeout(localFrameTimerRef.current);
-    localFrameTimerRef.current = null;
-    if (localViewerIdRef.current) void invoke("camoufox_live_close", { id: localViewerIdRef.current }).catch(() => undefined);
-    localViewerIdRef.current = "";
-    setLocalViewerId("");
-    setLocalFrame("");
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     setRemoteMediaStream(null);
     setStreamInfo(null);
@@ -133,32 +119,7 @@ export function LiveView({ active }: { active: boolean }) {
   };
 
   const sendLiveInput = (message: InputEnvelope) => {
-    const id = localViewerIdRef.current;
-    if (!id) return remoteClientRef.current?.sendInput(message);
-    localInputTailRef.current = localInputTailRef.current.catch(() => undefined)
-      .then(() => invoke("camoufox_live_input", { id, message }))
-      .catch(() => { setInputWarning("Input was not applied. Try again."); });
-  };
-
-  const pollCamoufoxFrame = async (id: string, generation: number) => {
-    if (generation !== streamGeneration.current || localViewerIdRef.current !== id) return;
-    try {
-      const frame = await invoke<CamoufoxFrame>("camoufox_live_frame", { id });
-      if (generation !== streamGeneration.current || localViewerIdRef.current !== id) return;
-      setLocalFrame(`data:image/png;base64,${frame.data}`);
-      setMediaStats({ viewport_width: frame.width, viewport_height: frame.height });
-      setRemoteTabs((frame.tabs || []).map((tab) => ({ target_id: tab.id, title: tab.title, url: tab.url, active: tab.active })));
-      setState("live");
-      localFrameTimerRef.current = window.setTimeout(() => void pollCamoufoxFrame(id, generation), 350);
-    } catch {
-      if (generation !== streamGeneration.current || localViewerIdRef.current !== id) return;
-      localViewerIdRef.current = "";
-      setLocalViewerId("");
-      setLocalFrame("");
-      void invoke("camoufox_live_close", { id }).catch(() => undefined);
-      setError(internalError("We couldn't connect Live View.", "LIVE_VIEW_CONNECT_FAILED"));
-      setState("error");
-    }
+    remoteClientRef.current?.sendInput(message);
   };
 
   const connectRemoteViewer = async (info: RemoteStreamInfo) => {
@@ -217,11 +178,11 @@ export function LiveView({ active }: { active: boolean }) {
 
   useEffect(() => {
     const target = profileOptions.find((option) => option.key === sessionKey)?.target;
-    if ((streamInfo || localViewerId) && target && target.runtime !== "multilogin" && target.profile &&
+    if (streamInfo && target && target.runtime !== "multilogin" && target.profile &&
         ["stopping", "stopped"].includes(s.statuses[target.profile])) stop();
     // A deliberate profile stop also ends its viewer, without a connection error.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [s.statuses, sessionKey, streamInfo, localViewerId]);
+  }, [s.statuses, sessionKey, streamInfo]);
 
   const start = async (requestedKey = sessionKey) => {
     if (state === "connecting") return;
@@ -234,18 +195,6 @@ export function LiveView({ active }: { active: boolean }) {
     try {
       const target = profileOptions.find((option) => option.key === requestedKey)?.target;
       if (!target) throw new Error("Select a profile in this workspace first.");
-      if (target.runtime === "camoufox") {
-        if (!target.profile) throw new Error("Select a Camoufox profile first.");
-        const viewer = await invoke<{ id: string }>("camoufox_live_open", { profile: target.profile });
-        if (generation !== streamGeneration.current || useStore.getState().activeWorkspaceId !== workspaceId) {
-          void invoke("camoufox_live_close", { id: viewer.id }).catch(() => undefined);
-          return;
-        }
-        localViewerIdRef.current = viewer.id;
-        setLocalViewerId(viewer.id);
-        await pollCamoufoxFrame(viewer.id, generation);
-        return;
-      }
       const info = await s.startRemoteStream(target);
       if (generation !== streamGeneration.current || useStore.getState().activeWorkspaceId !== workspaceId) return;
       setStreamInfo(info);
@@ -285,12 +234,6 @@ export function LiveView({ active }: { active: boolean }) {
   const selectRemoteTab = (targetID: string) => {
     if (!targetID) return;
     setPendingRemoteTab(targetID);
-    if (localViewerIdRef.current) {
-      void invoke("camoufox_live_tab", { id: localViewerIdRef.current, targetId: targetID })
-        .then(() => setPendingRemoteTab(""))
-        .catch(() => setInputWarning("Could not switch tabs. Try again."));
-      return;
-    }
     if (!remoteClientRef.current) return;
     remoteClientRef.current.selectTab(targetID);
   };
@@ -298,11 +241,10 @@ export function LiveView({ active }: { active: boolean }) {
   const pointForEvent = (event: MouseEvent | WheelEvent) => {
     const embed = remoteEmbedRef.current;
     const video = remoteVideoRef.current;
-    const image = localImageRef.current;
-    if (!embed || (!video && !image)) return { x: 0, y: 0 };
+    if (!embed || !video) return { x: 0, y: 0 };
     const rect = embed.getBoundingClientRect();
-    const sourceWidth = image?.naturalWidth || video?.videoWidth || 1;
-    const sourceHeight = image?.naturalHeight || video?.videoHeight || 1;
+    const sourceWidth = video.videoWidth || 1;
+    const sourceHeight = video.videoHeight || 1;
     const videoWidth = mediaStats.viewport_width || mediaStats.device_width || sourceWidth;
     const videoHeight = mediaStats.viewport_height || mediaStats.device_height || sourceHeight;
     const renderedScale = Math.min(rect.width / Math.max(1, sourceWidth), rect.height / Math.max(1, sourceHeight));
@@ -334,10 +276,10 @@ export function LiveView({ active }: { active: boolean }) {
       (runningProfile ? clawbrowserTargetKey(runningProfile) : "") ||
       "";
     const targetChanged = current !== sessionKey;
-    if (targetChanged && (remoteClientRef.current || localViewerIdRef.current || streamInfo || state === "connecting")) stop();
+    if (targetChanged && (remoteClientRef.current || streamInfo || state === "connecting")) stop();
     setSessionKey(current);
     if (
-      !remoteClientRef.current && !localViewerIdRef.current &&
+      !remoteClientRef.current &&
       state !== "connecting" &&
       (!streamInfo || targetChanged) &&
       current &&
@@ -359,7 +301,7 @@ export function LiveView({ active }: { active: boolean }) {
       }
       return;
     }
-    if (!remoteClientRef.current && !localViewerIdRef.current && !streamInfo) return;
+    if (!remoteClientRef.current && !streamInfo) return;
     inactiveTimerRef.current = window.setTimeout(() => {
       inactiveTimerRef.current = null;
       stop();
@@ -378,8 +320,6 @@ export function LiveView({ active }: { active: boolean }) {
     if (inactiveTimerRef.current !== null) window.clearTimeout(inactiveTimerRef.current);
     if (inputWarningTimerRef.current !== null) window.clearTimeout(inputWarningTimerRef.current);
     remoteClientRef.current?.close();
-    if (localFrameTimerRef.current !== null) window.clearTimeout(localFrameTimerRef.current);
-    if (localViewerIdRef.current) void invoke("camoufox_live_close", { id: localViewerIdRef.current }).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -537,8 +477,7 @@ export function LiveView({ active }: { active: boolean }) {
           {state === "live" ? "live" : state}
         </span>
         <span className="muted small">
-          {localViewerId ? "Camoufox Live is connected to the local browser."
-            : streamInfo && !nativeViewer
+          {streamInfo && !nativeViewer
             ? "Dashboard Remote Control viewer is embedded for this stream."
             : "Native Remote Control viewer is used when supported."}
         </span>
@@ -602,7 +541,7 @@ export function LiveView({ active }: { active: boolean }) {
             </button>
           </div>
         )}
-        {state === "idle" && !streamInfo && !localViewerId && (
+        {state === "idle" && !streamInfo && (
           <div className="live-empty-panel">
             <Icon name="video.fill" size={34} className="muted" />
             <strong>{runningProfiles.length || multiloginSelection ? "Stream is off" : "No active profiles"}</strong>
@@ -622,7 +561,7 @@ export function LiveView({ active }: { active: boolean }) {
             </button>
           </div>
         )}
-        {(streamInfo || localViewerId) && state !== "error" && (nativeViewer || localViewerId) && (
+        {streamInfo && state !== "error" && nativeViewer && (
           <div
             ref={remoteEmbedRef}
             className="remote-live-embed"
@@ -637,8 +576,7 @@ export function LiveView({ active }: { active: boolean }) {
             onKeyDown={handleKeyDown}
             onKeyUp={handleKeyUp}
           >
-            {nativeViewer && <video ref={remoteVideoRef} className="remote-live-video" autoPlay muted playsInline draggable={false} />}
-            {localViewerId && localFrame && <img ref={localImageRef} className="remote-live-video" src={localFrame} alt="Camoufox browser Live frame" draggable={false} />}
+            <video ref={remoteVideoRef} className="remote-live-video" autoPlay muted playsInline draggable={false} />
             <textarea
               ref={keyboardSinkRef}
               className="remote-live-keyboard-sink"
@@ -660,9 +598,7 @@ export function LiveView({ active }: { active: boolean }) {
       </div>
       {state === "live" && (
         <div className="live-hint muted small">
-          {inputWarning || (localViewerId
-            ? "Camoufox Live is showing the running local profile. Click, scroll, or type in the browser view."
-            : nativeViewer
+          {inputWarning || (nativeViewer
             ? "Remote Control is running natively in Nextbrowser. Click, scroll, type, or use the tab bar above."
             : "Remote Control is embedded in Nextbrowser through the backend dashboard viewer.")}
         </div>
