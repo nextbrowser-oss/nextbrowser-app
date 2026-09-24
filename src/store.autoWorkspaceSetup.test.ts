@@ -88,7 +88,7 @@ it("creates fresh defaults instead of adopting another account's same-named prof
     return { revision: 1 };
   });
   useStore.setState({ ...freshAccount(), profiles: original.map((name) => ({ name, country: "US" })) });
-  const create = vi.spyOn(useStore.getState(), "createManagedProfile").mockImplementation(async (name) => { created.push(name); });
+  const create = vi.spyOn(useStore.getState(), "createManagedProfile").mockImplementation(async (name) => { created.push(name); return name; });
   await useStore.getState().ensureDefaultWorkspaceSetup();
   expect(created).toHaveLength(3);
   expect(created.every((name) => !original.includes(name))).toBe(true);

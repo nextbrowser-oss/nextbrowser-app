@@ -44,6 +44,20 @@ it("polls for pending batch profile-creation requests and surfaces them", async 
   expect(call?.[1].args).toEqual(["profiles", "requests", "list", "--status", "pending", "--format", "json"]);
 });
 
+it("keeps approval requests ready while the app is backgrounded", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({ authed: true, nextctlAvailable: true, appActive: false });
+  bridge.invoke.mockImplementation((command, { args } = {}) => {
+    if (command === "nextctl_run" && args[0] === "profiles" && args[1] === "requests") {
+      return Promise.resolve(result({ requests: [pendingRequest] }));
+    }
+    return Promise.resolve(null);
+  });
+
+  await useStore.getState().pollProfileCreateRequests();
+  expect(useStore.getState().pendingProfileCreateRequests).toEqual([pendingRequest]);
+});
+
 it("does not poll while signed out", async () => {
   const { useStore } = await import("./store");
   useStore.setState({ authed: false, nextctlAvailable: true });

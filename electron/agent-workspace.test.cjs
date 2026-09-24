@@ -54,7 +54,7 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   assert.doesNotMatch(main, /"-c", "mcp_servers\.clawbrowser\.enabled=false"/);
   assert.match(main, /mcp_servers\.nextbrowser\.env_vars=.*NEXTBROWSER_CONTROL_TOKEN/);
   assert.match(main, /nextctlHasAutomationTrace\(nextctlBin\)/);
-  assert.match(main, /codexClawbrowserMCPArgs\(nextctlBin, supportedTraceFile\)/);
+  assert.match(main, /codexClawbrowserMCPArgs\(nextctlBin, supportedTraceFile, String\(args\.workspaceId \|\| ""\)\)/);
   assert.match(main, /automationTraceFile \? \["NEXTBROWSER_AUTOMATION_TRACE_FILE"\] : \[\]/);
   assert.match(main, /automationTraceFile \? \["--automation-trace-file", automationTraceFile\] : \[\]/);
   assert.doesNotMatch(main, /mcpEnvKeys\.push\("MULTILOGIN_TOKEN"\)/);
@@ -111,14 +111,14 @@ test("Codex chat uses the managed Clawbrowser MCP configuration", () => {
   assert.match(main, /case "agent_run":[\s\S]*args\.agentId === "codex"/);
   assert.match(main, /case "agent_run":[\s\S]*resolveOrInstallNextctl\(\)/);
   assert.match(main, /case "agent_run":[\s\S]*nextctlHasAutomationTrace\(nextctlBin\)/);
-  assert.match(main, /case "agent_run":[\s\S]*codexClawbrowserMCPArgs\(nextctlBin, supportedTraceFile\)/);
+  assert.match(main, /case "agent_run":[\s\S]*codexClawbrowserMCPArgs\(nextctlBin, supportedTraceFile, String\(args\.workspaceId \|\| ""\)\)/);
 });
 
 test("Terminal Chat restarts onto the active Recorder trace", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const terminal = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AgentTerminal.tsx"), "utf8");
   assert.match(main, /case "terminal_start":[\s\S]*activeAutomationTraceFile\(\)/);
-  assert.match(main, /case "terminal_start":[\s\S]*codexClawbrowserArgs\(nextctlBin, supportedTraceFile\)/);
+  assert.match(main, /case "terminal_start":[\s\S]*codexClawbrowserArgs\(nextctlBin, supportedTraceFile, String\(args\.workspaceId \|\| ""\)\)/);
   assert.match(terminal, /AUTOMATION_RECORDING_EVENT/);
   assert.match(terminal, /activeAutomationRecording\(\)\?\.id/);
   assert.match(terminal, /setRestartNonce\(\(value\) => value \+ 1\)/);
