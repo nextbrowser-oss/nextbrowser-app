@@ -1539,6 +1539,10 @@ async function refreshCompletedAccountPairing(
     loginError: undefined,
   });
   useStore.getState().startTimers();
+  // A clean logout clears the local workspace/project cache. Restore it on
+  // browser sign-in too, not only on app bootstrap, before presenting an
+  // apparently empty account.
+  await useStore.getState().syncProjects();
   void useStore.getState().refreshAll().catch(() => {});
   void useStore.getState().authorizeAgent();
   if (useStore.getState().onboardingReturnPending) {
@@ -2788,6 +2792,7 @@ export const useStore = create<State>((set, get) => {
       await get().loadProxy();
       set({ authed: true, nextctlAvailable: true, accountPairing: undefined });
       get().startTimers();
+      await get().syncProjects();
       await get().refreshAll();
       await get().authorizeAgent();
       if (!hasCompletedCurrentOnboarding(localStorage)) set({ showOnboarding: true });

@@ -86,3 +86,28 @@ it("applies a pairing_poll result normally when the pairing has not changed", as
 
   expect(useStore.getState().accountPairing?.expiresAt).toBe("2026-01-01T00:10:00Z");
 });
+
+it("restores cloud workspaces and projects after browser sign-in", async () => {
+  const { useStore } = await import("./store");
+  const syncProjects = vi.fn().mockResolvedValue(undefined);
+  useStore.setState({
+    accountPairing: { pairingId: "P1", verificationUrl: "https://example.com/p1", pollToken: "tok1", status: "pending", expiresAt: "2026-01-01T00:00:00Z" },
+    syncProjects,
+    startTimers: vi.fn(),
+    refreshAll: vi.fn().mockResolvedValue(undefined),
+    authorizeAgent: vi.fn().mockResolvedValue(undefined),
+  });
+  bridge.invoke.mockImplementation((command: string, payload?: { args?: string[] }) => {
+    if (command === "pairing_poll") return Promise.resolve({ pairing_id: "P1", kind: "browser", status: "completed", expires_at: "2026-01-01T00:10:00Z", poll_after_ms: 2000, api_key: "qa-key" });
+    if (command === "nextctl_run") {
+      if (payload?.args?.[0] === "identity") return Promise.resolve(jsonResult({ identity: { valid: true, owner_id: "owner-1", email: "a@example.com" } }));
+      return Promise.resolve(jsonResult({}));
+    }
+    return Promise.resolve(null);
+  });
+
+  await useStore.getState().pollAccountPairing();
+
+  expect(useStore.getState().authed).toBe(true);
+  expect(syncProjects).toHaveBeenCalledOnce();
+});
