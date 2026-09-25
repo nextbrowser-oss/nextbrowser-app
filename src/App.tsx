@@ -355,8 +355,9 @@ function formatStars(count?: number | null): string {
   return `${rounded}k`;
 }
 
-// The Electron host resolves GitHub → local on-disk cache → this fallback.
-const GITHUB_STARS_FALLBACK = 17;
+// Updated from the repository's public GitHub API on 2026-09-25. The host
+// prefetches the live value during startup and still keeps its disk cache.
+const GITHUB_STARS_FALLBACK = 21;
 
 function GithubStarButton({ stars }: { stars?: number | null }) {
   const label = "Star Nextbrowser on GitHub";
