@@ -4,7 +4,7 @@ import { useStore } from "../store";
 import { invoke } from "../electronBridge";
 import type { SkillEntry } from "../skillsCatalog";
 import { X_MONITOR_LOG_FILE, followerTrend, isNew } from "../lib/xmonitor/feed";
-import { DEFAULT_MONITOR_INTERVAL_MINUTES } from "../types";
+import { DEFAULT_MONITOR_INTERVAL_MINUTES, formatInterval } from "../types";
 import { IntervalDial } from "./IntervalDial";
 import { Icon } from "./Icon";
 
@@ -100,6 +100,19 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
     try { localStorage.setItem(PROFILE_KEY, name); } catch { /* a view preference */ }
   };
 
+  // Nothing is shown that nothing has been read for: before the first pass the
+  // panel is the profile and the schedule, and the dashboard appears once there
+  // is an account to show. After Stop the schedule comes back on top and what
+  // was read stays below it.
+  const hasData = !!account || feed.posts.length > 0 || !!feed.readAt;
+  const notes = !busy ? lastPass?.notes ?? [] : [];
+  const logLink = (
+    <button className="link small" title="Reveal the monitor's log file"
+      onClick={() => void invoke("app_data_reveal", { name: X_MONITOR_LOG_FILE })}>
+      Show log
+    </button>
+  );
+
   return (
     <>
       <div className="row watchlist-profile">
@@ -127,115 +140,117 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
         <p className="muted small" role="status">Choose a browser profile from this workspace to monitor its X account.</p>
       )}
 
-      <div className="xmon-account">
-        <span className={"xmon-avatar" + (signedIn ? "" : " is-empty")} aria-hidden>
-          {handle ? handle.slice(0, 1).toUpperCase() : <Icon name="person.crop.circle" size={16} />}
-        </span>
-        <div className="xmon-account-text">
-          <strong>{handle ? `@${handle}` : "No account yet"}</strong>
-          <span className="muted small">
-            <span className={"status-dot " + (signedIn ? "ok-dot" : "muted-dot")} />
-            {signedIn
-              ? `Signed in${account?.checkedAt ? ` · checked ${since(account.checkedAt)}` : ""}`
-              : account
-                ? `Not signed in to ${site} — open it and sign in`
-                : "Start monitoring to read the account"}
-          </span>
-        </div>
-      </div>
-
-      <div className="xmon-stats">
-        <div className="xmon-stat xmon-stat-main">
-          <span className="muted small">Followers</span>
-          <div className="xmon-stat-row">
-            <strong className="xmon-value">{count(own?.followers)}</strong>
-            {trend.delta !== undefined && trend.delta !== 0 && (
-              <span className={"xmon-delta " + (trend.delta > 0 ? "up" : "down")}>
-                <Icon name={trend.delta > 0 ? "arrow.up.circle" : "arrow.down.circle"} size={11} />
-                {trend.delta > 0 ? "+" : "−"}{Math.abs(trend.delta).toLocaleString()} · 7d
-              </span>
-            )}
-          </div>
-          {own?.exact === false && <span className="muted small">Rounded by x.com</span>}
-          <Sparkline points={trend.points} label="Followers over time" />
-        </div>
-        <div className="xmon-stat">
-          <span className="muted small">Following</span>
-          <strong className="xmon-value">{count(own?.following)}</strong>
-        </div>
-        <div className="xmon-stat">
-          <span className="muted small">New posts · 24h</span>
-          <strong className="xmon-value">{feed.readAt ? fresh.toLocaleString() : "—"}</strong>
-        </div>
-      </div>
-
-      <div className="xmon-feed">
-        <div className="row xmon-feed-head">
-          <strong className="small">From your Following feed</strong>
-          <span className="spacer" />
-          {feed.readAt && <span className="muted small">Updated {since(feed.readAt)}</span>}
-        </div>
-        {feed.posts.length === 0 ? (
-          <div className="watchlist-empty">
-            <span className="scheduled-empty-icon"><Icon name="list.bullet" size={20} /></span>
-            <strong>No posts yet</strong>
+      {!running && (
+        <div className="xmon-setup">
+          <div className="xmon-setup-head">
+            <strong className="small">Check the account</strong>
             <span className="muted small">
-              Start monitoring to read the latest posts from the accounts you follow and your follower count.
+              {busy && step ? `${step}…` : "Runs on a schedule while Nextbrowser is open, and shows in Scheduled."}
             </span>
           </div>
-        ) : (
-          <div className="xmon-posts">
-            {feed.posts.map((post) => <PostRow key={post.key} post={post} fresh={isNew(feed, post.key, Date.now())} />)}
-          </div>
-        )}
-      </div>
-
-      <div className="watchlist-loop">
-        <div className="watchlist-loop-state">
-          <span className={"status-dot " + (busy ? "warn-dot" : running ? "ok-dot" : "muted-dot")} />
-          <div>
-            <strong className="small">{busy ? "Working" : running ? "Running" : "Stopped"}</strong>
-            <div className="muted small">
-              {busy && step
-                ? `${step}…`
-                : running
-                  ? `Next check ${until(nextRunAt)}${lastPass ? ` · last ${since(lastPass.at)}` : ""}`
-                  : "Runs on a schedule while Nextbrowser is open, and shows in Scheduled."}
-            </div>
-            {!busy && lastPass?.notes.map((text) => (
-              <div key={text} className="small watchlist-pass-note">{text}</div>
-            ))}
-            <button className="link small" title="Reveal the monitor's log file"
-              onClick={() => void invoke("app_data_reveal", { name: X_MONITOR_LOG_FILE })}>
-              Show log
-            </button>
-          </div>
-        </div>
-        <IntervalDial
-          value={running ? schedule?.intervalMinutes ?? interval : interval}
-          onChange={(minutes) => {
-            setIntervalChoice(minutes);
-            if (schedule) setInterval_(entry.id, minutes);
-          }}
-        />
-        <div className="row watchlist-loop-controls">
-          <span className="spacer" />
-          {running ? (
-            <button className="btn-bordered" title="Stop monitoring" onClick={() => stopSchedule(entry.id)}>
-              <Icon name="stop" size={14} /> Stop
-            </button>
-          ) : (
+          <IntervalDial
+            value={interval}
+            onChange={(minutes) => {
+              setIntervalChoice(minutes);
+              if (schedule) setInterval_(entry.id, minutes);
+            }}
+          />
+          {notes.map((text) => <div key={text} className="small watchlist-pass-note">{text}</div>)}
+          <div className="row xmon-setup-actions">
+            {hasData ? logLink : <span />}
+            <span className="spacer" />
             <button
               className="btn-bordered-prominent"
-              disabled={!profileAvailable}
+              disabled={!profileAvailable || busy}
               title="Read the account now and then on this interval"
               onClick={() => void startSchedule(entry, { intervalMinutes: interval, profileName: profile })}
             >
               <Icon name="play.fill" size={13} /> Start
             </button>
-          )}
+          </div>
         </div>
-      </div>
+      )}
+
+      {(running || hasData) && (
+        <div className="xmon-account">
+          <span className={"xmon-avatar" + (signedIn ? "" : " is-empty")} aria-hidden>
+            {handle ? handle.slice(0, 1).toUpperCase() : <Icon name="person.crop.circle" size={16} />}
+          </span>
+          <div className="xmon-account-text">
+            <strong>{handle ? `@${handle}` : "Reading the account…"}</strong>
+            <span className="muted small">
+              <span className={"status-dot " + (signedIn ? "ok-dot" : "muted-dot")} />
+              {signedIn
+                ? `Signed in${account?.checkedAt ? ` · checked ${since(account.checkedAt)}` : ""}`
+                : account
+                  ? `Not signed in to ${site} — open it and sign in`
+                  : "The first check is on its way"}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {hasData && (
+        <div className="xmon-stats">
+          <div className="xmon-stat xmon-stat-main">
+            <span className="muted small">Followers</span>
+            <div className="xmon-stat-row">
+              <strong className="xmon-value">{count(own?.followers)}</strong>
+              {trend.delta !== undefined && trend.delta !== 0 && (
+                <span className={"xmon-delta " + (trend.delta > 0 ? "up" : "down")}>
+                  <Icon name={trend.delta > 0 ? "arrow.up.circle" : "arrow.down.circle"} size={11} />
+                  {trend.delta > 0 ? "+" : "−"}{Math.abs(trend.delta).toLocaleString()} · 7d
+                </span>
+              )}
+            </div>
+            {own?.exact === false && <span className="muted small">Rounded by x.com</span>}
+            <Sparkline points={trend.points} label="Followers over time" />
+          </div>
+          <div className="xmon-stat">
+            <span className="muted small">Following</span>
+            <strong className="xmon-value">{count(own?.following)}</strong>
+          </div>
+          <div className="xmon-stat">
+            <span className="muted small">New posts · 24h</span>
+            <strong className="xmon-value">{feed.readAt ? fresh.toLocaleString() : "—"}</strong>
+          </div>
+        </div>
+      )}
+
+      {hasData && feed.posts.length > 0 && (
+        <div className="xmon-feed">
+          <div className="row xmon-feed-head">
+            <strong className="small">From your Following feed</strong>
+            <span className="spacer" />
+            {feed.readAt && <span className="muted small">Updated {since(feed.readAt)}</span>}
+          </div>
+          <div className="xmon-posts">
+            {feed.posts.map((post) => <PostRow key={post.key} post={post} fresh={isNew(feed, post.key, Date.now())} />)}
+          </div>
+        </div>
+      )}
+
+      {running && (
+        <div className="watchlist-loop xmon-running">
+          <div className="row xmon-running-row">
+            <span className={"status-dot " + (busy ? "warn-dot" : "ok-dot")} />
+            <div className="xmon-running-text">
+              <strong className="small">{busy ? "Working" : `Running · every ${formatInterval(schedule?.intervalMinutes ?? interval)}`}</strong>
+              <span className="muted small">
+                {busy && step
+                  ? `${step}…`
+                  : `Next check ${until(nextRunAt)}${lastPass ? ` · last ${since(lastPass.at)}` : ""}`}
+              </span>
+            </div>
+            <span className="spacer" />
+            {logLink}
+            <button className="btn-bordered" title="Stop monitoring" onClick={() => stopSchedule(entry.id)}>
+              <Icon name="stop" size={14} /> Stop
+            </button>
+          </div>
+          {notes.map((text) => <div key={text} className="small watchlist-pass-note">{text}</div>)}
+        </div>
+      )}
     </>
   );
 }

@@ -3554,6 +3554,22 @@ body.is-resizing-sidebar {
   color: var(--text);
 }
 
+/* The monitoring schedule before it runs: the dial and Start, nothing else. */
+.xmon-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+.xmon-setup-head { display: flex; flex-direction: column; gap: 2px; }
+.xmon-setup-actions { align-items: center; }
+.xmon-running { gap: 6px; }
+.xmon-running-row { align-items: center; gap: 10px; }
+.xmon-running-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+
 /* X monitoring dashboard. */
 /* A skill with two modes keeps one window for both: the same width and the
    same height, with the content scrolling inside, so switching modes never
