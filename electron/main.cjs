@@ -186,8 +186,11 @@ enabled = false
 default_tools_approval_mode = "approve"
 `;
 
-function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
-  const runtimeEnv = childEnv(automationTraceFile ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: automationTraceFile } : {});
+function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "", workspaceId = "") {
+  const runtimeEnv = childEnv({
+    ...(automationTraceFile ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: automationTraceFile } : {}),
+    NEXTBROWSER_WORKSPACE_ID: workspaceId,
+  });
   const mcpEnvKeys = [
     "NEXTBROWSER_REQUIRE_VERIFY",
     "NEXTBROWSER_VERIFY_ON_START_ONLY",
@@ -198,6 +201,7 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
     "CLAWBROWSER_STATE_ROOT",
     "CLAWBROWSER_SESSION_ROOT",
     "NBC_PROFILE_ROOT",
+    "NEXTBROWSER_WORKSPACE_ID",
     "NBC_SKILL_SERVICE",
     "CLAWBROWSER_API_BASE_URL",
     ...(automationTraceFile ? ["NEXTBROWSER_AUTOMATION_TRACE_FILE"] : []),
@@ -232,9 +236,9 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "") {
   ];
 }
 
-function codexClawbrowserArgs(nextctlBin, automationTraceFile = "") {
+function codexClawbrowserArgs(nextctlBin, automationTraceFile = "", workspaceId = "") {
   return [
-    ...codexClawbrowserMCPArgs(nextctlBin, automationTraceFile),
+    ...codexClawbrowserMCPArgs(nextctlBin, automationTraceFile, workspaceId),
     "--ask-for-approval", "never",
     "--sandbox", "workspace-write",
     "-c", "sandbox_workspace_write.network_access=true",
@@ -666,14 +670,15 @@ async function ensureAgentControlServer() {
     void (async () => {
       const action = request.url === "/profile/start" ? "start" : request.url === "/profile/stop" ? "stop" : "";
       const artifactSave = request.url === "/artifact/save";
-      if (request.method !== "POST" || (!action && !artifactSave)) {
+      const projectCreate = request.url === "/project/create";
+      if (request.method !== "POST" || (!action && !artifactSave && !projectCreate)) {
         sendControlResponse(response, 404, { ok: false, error: "not_found" });
         return;
       }
       const token = String(request.headers.authorization || "").replace(/^Bearer\s+/i, "");
       const profileScope = agentControlScopes.get(token);
       const artifactScope = agentControlArtifactScopes.get(token);
-      if ((action && !profileScope) || (artifactSave && !artifactScope)) {
+      if ((action && !profileScope) || ((artifactSave || projectCreate) && !artifactScope)) {
         sendControlResponse(response, 401, { ok: false, error: "unauthorized" });
         return;
       }
@@ -683,6 +688,29 @@ async function ensureAgentControlServer() {
         if (raw.length > (artifactSave ? AGENT_ARTIFACT_BODY_LIMIT : 8192)) throw new Error("request_too_large");
       }
       const payload = JSON.parse(raw || "{}");
+      if (projectCreate) {
+        const title = String(payload.name || "").trim();
+        const mode = payload.mode === "terminal" ? "terminal" : "chat";
+        if (!title || [...title].length > 200) {
+          sendControlResponse(response, 400, { ok: false, error: "invalid_project_name", message: "Project name must contain 1–200 characters." });
+          return;
+        }
+        const id = randomUUID();
+        const timestamp = new Date().toISOString();
+        const document = {
+          id, title, agent: artifactScope.agentId, messages: [],
+          createdAt: timestamp, updatedAt: timestamp, executionTarget: "local",
+          chatMode: mode, profileNames: [], profileToolsets: {},
+          workspaceId: artifactScope.workspaceId,
+        };
+        await putProject(id, {
+          title, agent: document.agent, chat_mode: mode,
+          workspace_id: artifactScope.workspaceId, document, base_revision: 0,
+        }, { env: childEnv() });
+        emit("project:host-created", [id, artifactScope.workspaceId]);
+        sendControlResponse(response, 200, { ok: true, id, name: title, workspace_id: artifactScope.workspaceId });
+        return;
+      }
       if (artifactSave) {
         if (payload.content == null || (typeof payload.content === "string" && !payload.content.trim())) {
           sendControlResponse(response, 400, {
@@ -2253,7 +2281,7 @@ async function invokeCommand(command, args = {}, sender) {
       }
       agentControlScopes.set(controlToken, profileScope);
       const artifactScope = args.workspaceId
-        ? { workspaceId: String(args.workspaceId), conversationId }
+        ? { workspaceId: String(args.workspaceId), conversationId, agentId: String(args.agentId || "codex") }
         : null;
       if (artifactScope) agentControlArtifactScopes.set(controlToken, artifactScope);
       const profileScopeDir = path.join(nextbrowserRuntimeRoot(), "chat-scopes");
@@ -2276,7 +2304,7 @@ async function invokeCommand(command, args = {}, sender) {
         const supportedTraceFile = requestedTraceFile && await nextctlHasAutomationTrace(nextctlBin)
           ? requestedTraceFile
           : "";
-        agentArgs = [...codexClawbrowserMCPArgs(nextctlBin, supportedTraceFile), ...agentArgs];
+        agentArgs = [...codexClawbrowserMCPArgs(nextctlBin, supportedTraceFile, String(args.workspaceId || "")), ...agentArgs];
       }
       const spec = commandSpec(bin, agentArgs);
       try {
@@ -2365,6 +2393,7 @@ async function invokeCommand(command, args = {}, sender) {
       if (args.workspaceId) agentControlArtifactScopes.set(controlToken, {
         workspaceId: String(args.workspaceId),
         conversationId: String(args.conversationId || ""),
+        agentId: resolvedAgentId,
       });
       const profileScopeDir = path.join(nextbrowserRuntimeRoot(), "terminal-scopes");
       const profileScopeFile = path.join(profileScopeDir, `${id}.json`);
@@ -2381,7 +2410,7 @@ async function invokeCommand(command, args = {}, sender) {
         const supportedTraceFile = requestedTraceFile && await nextctlHasAutomationTrace(nextctlBin)
           ? requestedTraceFile
           : "";
-        agentArgs = codexClawbrowserArgs(nextctlBin, supportedTraceFile);
+        agentArgs = codexClawbrowserArgs(nextctlBin, supportedTraceFile, String(args.workspaceId || ""));
       }
       await Promise.all(writableDirs.map((dir) => fs.mkdir(dir, { recursive: true })));
       const terminalArgs = [
@@ -2404,6 +2433,7 @@ async function invokeCommand(command, args = {}, sender) {
       });
       const record = {
         process: terminal,
+        agentId: resolvedAgentId,
         ready: false,
         buffer: [],
         exit: null,
@@ -2478,6 +2508,7 @@ async function invokeCommand(command, args = {}, sender) {
       if (args.workspaceId) agentControlArtifactScopes.set(record.controlToken, {
         workspaceId: String(args.workspaceId),
         conversationId,
+        agentId: String(args.agentId || record.agentId || "codex"),
       });
       else agentControlArtifactScopes.delete(record.controlToken);
       await fs.writeFile(record.profileScopeFile, JSON.stringify(mcpProfileScope(nextScope, args.multiloginSelection)), "utf8");

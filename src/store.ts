@@ -57,6 +57,7 @@ import { appendAppData, loadJson, saveJson } from "./lib/storage";
 import { apiBaseUrl } from "./constants";
 import { accountLoginURL } from "./lib/accountAuth";
 import { requiresWorkspaceSetup } from "./lib/workspaceSetup";
+import { publicScriptJavaScript } from "./lib/scriptCommands";
 import { validateEntityName } from "./lib/entityValidation";
 import { moveProfileToWorkspace as moveProfileBetweenWorkspaces } from "./lib/workspaceProfiles";
 import { isProjectRevisionConflict, isWorkspaceNotFound, isWorkspaceRevisionConflict, mergeWorkspaceAfterRevisionConflict } from "./lib/workspaceConflict";
@@ -628,7 +629,7 @@ interface State {
     name: string,
     country: string,
     options?: NextctlRunOptions & { runtime?: BrowserToolset; direct?: boolean },
-  ) => Promise<void>;
+  ) => Promise<string>;
   createManualProxyProfile: (input: ManualProxyProfileInput) => Promise<void>;
   loadPersonalProxies: () => Promise<void>;
   savePersonalProxy: (input: ManualProxyProfileInput) => Promise<PersonalProxy>;
@@ -639,7 +640,7 @@ interface State {
     name: string,
     proxyId: string,
     options?: NextctlRunOptions & { runtime?: BrowserToolset },
-  ) => Promise<void>;
+  ) => Promise<string>;
   updateProfileConnection: (
     name: string,
     connection: "managed" | "direct" | "personal",
@@ -1567,7 +1568,7 @@ async function nextctlRunChecked(
   args: string[],
   extraEnv?: Record<string, string>,
   options?: NextctlRunOptions,
-): Promise<void> {
+): Promise<RunResult> {
   const result = await nextctlRun(args, extraEnv, options);
   let envelopeFailed = false;
   try {
@@ -1577,6 +1578,16 @@ async function nextctlRunChecked(
     /* plain output is valid for older nextctl builds */
   }
   if (result.code !== 0 || envelopeFailed) throw new Error(nextctlErrorMessage(result));
+  return result;
+}
+
+function createdProfileName(result: RunResult, fallback: string): string {
+  try {
+    const envelope = JSON.parse(result.stdout) as { data?: { profile?: { name?: string } } };
+    return envelope.data?.profile?.name?.trim() || fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function requestAccountSignIn(setState: (state: Partial<State>) => void, error: unknown) {
@@ -1966,6 +1977,18 @@ export const useStore = create<State>((set, get) => {
       });
       get().reconcileQueues();
       set({ startupPhase: "account" });
+
+      await listen<[string, string]>("project:host-created", (event) => {
+        const [, workspaceId] = event.payload;
+        if (get().authed && get().workspaces.some((workspace) => workspace.id === workspaceId)) {
+          void (async () => {
+            for (let attempt = 0; attempt < 30 && get().projectsSyncing; attempt += 1) {
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
+            await get().syncProjects();
+          })().catch((error) => console.warn("[AGENT_PROJECT_SYNC_FAILED]", error));
+        }
+      });
 
       await listen<[string, string]>("agent:chunk", (e) => {
         const [replyId, chunk] = e.payload;
@@ -3127,7 +3150,9 @@ export const useStore = create<State>((set, get) => {
   // startTimers so a pending request surfaces as a modal without the user
   // having to do anything first.
   pollProfileCreateRequests: async () => {
-    if (!get().appActive || !get().authed || !get().nextctlAvailable || pendingTarget(get(), "vps")) return;
+    // Agent work can finish while the window is backgrounded. Keep requests
+    // current so the approval is already visible when the user returns.
+    if (!get().authed || !get().nextctlAvailable) return;
     if (profileCreateRequestPollInFlight) return;
     profileCreateRequestPollInFlight = true;
     try {
@@ -3471,14 +3496,16 @@ export const useStore = create<State>((set, get) => {
     trackEvent("profile_create_requested", { kind: direct ? "direct" : "managed", country });
     try {
       const { runtime = "clawbrowser", direct: _direct, ...runOptions } = options ?? {};
-      await nextctlRunChecked(
+      const result = await nextctlRunChecked(
         ["profiles", "create", name, ...(direct ? ["--no-proxy"] : ["--country", country]), "--runtime", runtime, "--format", "json"],
         undefined,
         runOptions,
       );
+      const identity = createdProfileName(result, name);
       await get().loadProfiles();
-      get().selectProfile(name);
+      get().selectProfile(identity);
       trackTiming("profile_create_completed", startedAt, { kind: direct ? "direct" : "managed", country });
+      return identity;
     } catch (error) {
       requestAccountSignIn(set, error);
       throw error;
@@ -3600,9 +3627,11 @@ export const useStore = create<State>((set, get) => {
       /* plain output is valid for older nextctl builds */
     }
     if (result.code !== 0 || envelopeFailed) throw new Error(nextctlErrorMessage(result));
+    const identity = createdProfileName(result, name);
     await get().loadProfiles();
-    get().selectProfile(name);
+    get().selectProfile(identity);
     trackTiming("profile_create_completed", startedAt, { kind: "personal_proxy", runtime });
+    return identity;
   },
 
   updateProfileConnection: async (rawName, connection, options) => {
@@ -4097,7 +4126,10 @@ export const useStore = create<State>((set, get) => {
   setAppActive: (v) => {
     const wasActive = get().appActive;
     set({ appActive: v });
-    if (v && !wasActive) void get().refreshProfileStatuses();
+    if (v && !wasActive) {
+      void get().refreshProfileStatuses();
+      void get().pollProfileCreateRequests();
+    }
   },
   setProfileSearch: (q) => set({ profileSearch: q }),
   setSidebarWidth: (w) => {
@@ -4708,7 +4740,7 @@ export const useStore = create<State>((set, get) => {
           // Machine-wide inventory can belong to another account. Never adopt it.
           let name = defaultName;
           for (let suffix = 2; get().profiles.some((profile) => profile.name === name); suffix += 1) name = `${defaultName} ${suffix}`;
-          await get().createManagedProfile(name, "US", { runtime });
+          name = await get().createManagedProfile(name, "US", { runtime });
           await get().assignProfileToProject(name, runtime, workspaceId);
           if (typeof window !== "undefined") {
             window.dispatchEvent(new CustomEvent("nextbrowser:profile-created", { detail: { name } }));
@@ -6002,8 +6034,9 @@ export const useStore = create<State>((set, get) => {
 
   runScript: async (entry, host = "") => {
     const onHost = host.trim();
+    const scriptJS = entry.js || publicScriptJavaScript(entry.selector.value);
     trackEvent("script_run_started", {
-      script_type: entry.js ? "local_eval" : "agent_skill",
+      script_type: scriptJS ? "local_eval" : "agent_skill",
       has_host: !!onHost,
       category: entry.category,
     });
@@ -6011,8 +6044,8 @@ export const useStore = create<State>((set, get) => {
     if (activeConversation?.executionTarget === "vps") {
       set({ tab: "chat" });
       const where = onHost ? `on ${onHost}` : "in the remote browser session";
-      const scriptBody = entry.js
-        ? `Run this JavaScript through the already-installed remote nextctl browser evaluation command:\n\n\`\`\`javascript\n${entry.js}\n\`\`\``
+      const scriptBody = scriptJS
+        ? `Run this JavaScript through the already-installed remote nextctl browser evaluation command:\n\n\`\`\`javascript\n${scriptJS}\n\`\`\``
         : `Use the already-available remote script or skill identified by ${entry.selector.value}. If it is missing on the VPS, report that without installing it.`;
       const prompt = `Run "${entry.title}" ${where} on the selected VPS only. Do not prepare, open, inspect, evaluate, or change any local Nextbrowser session. ${scriptBody}`;
       get().enqueue(prompt, {
@@ -6020,10 +6053,10 @@ export const useStore = create<State>((set, get) => {
         title: entry.title,
         detail: onHost || "VPS",
       }, activeConversation.id);
-      trackEvent("script_run_queued", { script_type: entry.js ? "remote_eval" : "remote_agent_skill", has_host: !!onHost });
+      trackEvent("script_run_queued", { script_type: scriptJS ? "remote_eval" : "remote_agent_skill", has_host: !!onHost });
       return;
     }
-    if (entry.js) {
+    if (scriptJS) {
       set({ tab: "chat" });
       const cid = get().activeConversation()?.id ?? get().newChat();
       const detail = onHost || get().currentSessionDisplayName();
@@ -6067,7 +6100,7 @@ export const useStore = create<State>((set, get) => {
         const { env, res } = await nextctlEnvelope<unknown>([
           ...prep.profileArgs,
           "eval",
-          entry.js,
+          scriptJS,
         ]);
         let result: string;
         if (res.code === 0 && env.ok !== false) {

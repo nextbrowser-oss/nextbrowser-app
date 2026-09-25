@@ -64,6 +64,7 @@ export interface PersonalProxy {
 
 export interface Profile {
   name: string;
+  display_name?: string | null;
   country?: string | null;
   city?: string | null;
   proxy_scheme?: string | null;
@@ -73,9 +74,8 @@ export interface Profile {
 }
 
 // A batch profile-creation request an agent filed via the profiles_create_request
-// MCP tool. Agents cannot create profiles directly inside a NextBrowser
-// workspace; this is the human-approved path instead (see nextctl's
-// mcp_workspace_scope.go and profile_create_requests.go).
+// MCP tool. NextBrowser uses this request path for workspace-assigned profile
+// creation, so the desktop can display and complete the approval.
 export interface ProfileCreateRequest {
   runtime?: BrowserToolset;
   workspace_id?: string;

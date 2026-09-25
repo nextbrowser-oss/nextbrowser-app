@@ -21,7 +21,7 @@ export function WorkspaceSetupGate() {
   const [error, setError] = useState<string>();
   // The backend keeps a created profile even when the follow-up assignment
   // fails, so a retry must not try to create it again.
-  const createdProfileRef = useRef<string | null>(null);
+  const createdProfileRef = useRef<{ requested: string; identity: string } | null>(null);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -34,11 +34,14 @@ export function WorkspaceSetupGate() {
         const projectId = s.createProject(validateEntityName("project", chatName), chatMode);
         if (projectId) window.dispatchEvent(new CustomEvent("nextbrowser:project-created", { detail: { id: projectId } }));
       } else {
-        const name = validateEntityName("profile", profileName);
-        if (createdProfileRef.current !== name) {
-          await s.createManagedProfile(name, country, { runtime: toolset, direct });
-          createdProfileRef.current = name;
+        const requestedName = validateEntityName("profile", profileName);
+        if (createdProfileRef.current?.requested !== requestedName) {
+          createdProfileRef.current = {
+            requested: requestedName,
+            identity: await s.createManagedProfile(requestedName, country, { runtime: toolset, direct }),
+          };
         }
+        const name = createdProfileRef.current.identity;
         // Await the assignment: otherwise setup reports success before the
         // profile is actually in the workspace, and a rejected assignment
         // escapes as an unhandled global error.

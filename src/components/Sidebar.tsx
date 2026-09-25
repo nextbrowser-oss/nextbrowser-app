@@ -162,7 +162,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [automationExecutionClock, setAutomationExecutionClock] = useState(Date.now());
   const [automationExecutionError, setAutomationExecutionError] = useState<string>();
   const profileCreateRequestRef = useRef<string | null>(null);
-  const createdProfileRequests = useRef(new Set<string>());
+  const createdProfileRequests = useRef(new Map<string, string>());
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const projectListRef = useRef<HTMLDivElement | null>(null);
   const profileListRef = useRef<HTMLDivElement | null>(null);
@@ -309,11 +309,16 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       toolset: activeWorkspace?.profileToolsets[name] ?? "clawbrowser" as const,
     };
   });
+  const profileDisplayNameCounts = new Map<string, number>();
+  for (const { profile } of profileWorkspaceEntries) {
+    const displayName = profile.display_name || profile.name;
+    profileDisplayNameCounts.set(displayName, (profileDisplayNameCounts.get(displayName) || 0) + 1);
+  }
   const visibleChats = normalizedSearch
     ? projects.filter((project) => project.title.toLowerCase().includes(normalizedSearch))
     : projects;
   const visibleWorkspaceProfiles = normalizedSearch
-    ? profileWorkspaceEntries.filter(({ profile }) => profile.name.toLowerCase().includes(normalizedSearch))
+    ? profileWorkspaceEntries.filter(({ profile }) => (profile.display_name || profile.name).toLowerCase().includes(normalizedSearch))
     : profileWorkspaceEntries;
   // The Guide picks its target from the same list, so a workspace entry whose
   // profile was deleted can never become the profile a Guide step starts.
@@ -916,7 +921,10 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       try {
         const result = await s.savePersonalProxies(inputs);
         const lastSaved = result.saved.at(-1)?.proxy;
-        if (lastSaved) setProfilePersonalProxyId(lastSaved.id);
+        if (lastSaved) {
+          setProfilePersonalProxyId(lastSaved.id);
+          setProfileConnectionEditor((current) => current?.connection === "personal" ? { ...current, proxyId: lastSaved.id } : current);
+        }
         if (!result.failed.length) {
           resetManualProxyForm();
           setManualProxyEditing(false);
@@ -987,6 +995,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     try {
       const saved = await s.savePersonalProxy(input);
       setProfilePersonalProxyId(saved.id);
+      setProfileConnectionEditor((current) => current?.connection === "personal" ? { ...current, proxyId: saved.id } : current);
       resetManualProxyForm();
       setManualProxyEditing(false);
     } catch (error) {
@@ -1132,24 +1141,24 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         : profileConnection === "personal" ? "Applying personal proxy" : "Finalizing profile",
     ), 4_000);
     try {
-      const createdName = profileName.trim();
+      let createdName = createdProfileRequests.current.get(creationKey) || profileName.trim();
       if (!createdProfileRequests.current.has(creationKey)) {
         if (profileConnection === "personal") {
           if (!profilePersonalProxyId) throw new Error("Choose a personal proxy.");
-          await s.createPersonalProxyProfile(createdName, profilePersonalProxyId, {
+          createdName = await s.createPersonalProxyProfile(createdName, profilePersonalProxyId, {
             requestId,
             timeoutMs: PROFILE_CREATE_TIMEOUT_MS,
             runtime: profileToolset,
           });
         } else {
-          await s.createManagedProfile(createdName, profileCountry, {
+          createdName = await s.createManagedProfile(createdName, profileCountry, {
             requestId,
             timeoutMs: PROFILE_CREATE_TIMEOUT_MS,
             runtime: profileToolset,
             direct: profileConnection === "direct",
           });
         }
-        createdProfileRequests.current.add(creationKey);
+        createdProfileRequests.current.set(creationKey, createdName);
       }
       if (profileCreateRequestRef.current !== requestId) return;
       await s.assignProfileToProject(
@@ -1439,9 +1448,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 <span className="spacer" />
                 <button
                   className="workspace-create-action"
-                  title={activeProject ? "Create profile" : "Create a project first"}
+                  title="Create profile"
                   aria-label="Create profile"
-                  disabled={s.isRefreshing || !activeProject}
+                  disabled={s.isRefreshing || profileDeleting}
                   onClick={() => openProfileCreator()}
                 >
                   <Icon name={s.authed ? "plus" : "lock"} size={12} />
@@ -1460,8 +1469,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                       const identity = s.profileIdentities[p.name];
                       return (
                         <ProfileRow
-                          key={p.name} name={p.name} status={status} running={running} busy={busy || occupiedByOther} selected={selected}
-                          startDisabled={!activeProject}
+                          key={p.name} name={p.name} displayName={profileDisplayNameCounts.get(p.display_name || p.name)! > 1 ? p.name : p.display_name || p.name} status={status} running={running} busy={busy || occupiedByOther} selected={selected}
                           country={p.country ?? identity?.country} city={p.city ?? identity?.city} ip={identity?.ip}
                           toolset={toolset} searchQuery={searchQuery}
                           occupiedBy={occupiedByOther ? owner?.title ?? "Another chat" : undefined}
@@ -1488,11 +1496,11 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                           }}
                           onSelect={() => s.selectProfile(selected ? undefined : p.name)}
                           onStart={() => {
-                            if (!activeProject || occupiedByOther) return;
+                            if (occupiedByOther) return;
                             runProfileAction("We couldn’t prepare this profile.", "PROFILE_ASSIGNMENT_FAILED", async () => {
                               await s.assignProfileToProject(p.name, toolset, s.activeWorkspaceId);
                               s.selectProfile(p.name);
-                              s.setTab("chat");
+                              s.setTab(activeProject ? "chat" : "live");
                               await startProfileWithConfirmation(p.name, toolset);
                             });
                           }}
@@ -2297,7 +2305,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
             </div>
             {manualProxyEditing ? (
               <form className="personal-proxy-editor" onSubmit={submitManualProxy}>
-                <p className="muted personal-proxy-note">Save proxies here, then select one for any browser profile.</p>
+                <p className="muted personal-proxy-note">Save proxies here to use with your browser profiles.</p>
                 <div className="manual-proxy-mode" role="tablist" aria-label="Manual proxy input mode">
                   <button
                     type="button"
@@ -2660,6 +2668,7 @@ function HighlightedName({ text, query }: { text: string; query?: string }) {
 
 function ProfileRow({
   name,
+  displayName,
   status,
   metaOverride,
   running,
@@ -2690,6 +2699,7 @@ function ProfileRow({
   removeTitle,
 }: {
   name: string;
+  displayName?: string;
   status: string;
   metaOverride?: string;
   running: boolean;
@@ -2742,7 +2752,7 @@ function ProfileRow({
       <button
         type="button"
         className="profile-select"
-        aria-label={`Select profile ${name}`}
+        aria-label={`Select profile ${displayName || name}`}
         aria-pressed={selected}
         onClick={onSelect}
         style={{ background: "none", border: "none", padding: 0, color: "inherit", textAlign: "left", display: "flex", alignItems: "center", gap: 7, flex: "1 1 auto", minWidth: 0, cursor: "pointer" }}
@@ -2750,7 +2760,7 @@ function ProfileRow({
       <span className={"dot " + (external ? "gray" : running ? "green" : busy ? "orange" : "gray")} title={external ? toolsetLabel : status} />
       <span className="profile-main">
         <span className="profile-title-line">
-          <span className="profile-name"><HighlightedName text={name} query={searchQuery} /></span>
+          <span className="profile-name"><HighlightedName text={displayName || name} query={searchQuery} /></span>
         </span>
         <span className="profile-meta">
           {metaOverride ?? (occupiedBy ? `In use · ${occupiedBy}` : status === "starting" ? "Starting and verifying" : ip ? `${status} · ${ip}` : status)}

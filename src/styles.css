@@ -3495,6 +3495,7 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .live-controls {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 10px 16px;
   flex: none;
@@ -3511,6 +3512,11 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .live-pill {
   flex: 0 0 auto;
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: max-content;
+  white-space: nowrap;
+  line-height: 1.25;
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 999px;

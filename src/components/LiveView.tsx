@@ -78,6 +78,11 @@ export function LiveView({ active }: { active: boolean }) {
   const inputWarningTimerRef = useRef<number | null>(null);
   const pointerDragRef = useRef<{ pointerId: number; button: string; buttons: number; x: number; y: number } | null>(null);
   const runningProfiles = workspaceProfiles.filter((profile) => s.statuses[profile.name] === "running");
+  const displayNameCounts = new Map<string, number>();
+  for (const profile of workspaceProfiles) {
+    const displayName = profile.display_name || profile.name;
+    displayNameCounts.set(displayName, (displayNameCounts.get(displayName) || 0) + 1);
+  }
   const profileOptions = [
     ...(multiloginSelection ? [{
       key: multiloginTargetKey(multiloginSelection),
@@ -87,7 +92,9 @@ export function LiveView({ active }: { active: boolean }) {
     }] : []),
     ...workspaceProfiles.map((profile) => ({
       key: clawbrowserTargetKey(profile.name),
-      label: profile.name,
+      label: displayNameCounts.get(profile.display_name || profile.name)! > 1
+        ? `${profile.display_name || profile.name} · ${workspace?.profileToolsets[profile.name] || "clawbrowser"} (${profile.name})`
+        : profile.display_name || profile.name,
       running: s.statuses[profile.name] === "running",
       target: { runtime: workspace?.profileToolsets[profile.name] ?? "clawbrowser", profile: profile.name } as LiveStreamTarget,
     })),

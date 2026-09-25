@@ -668,6 +668,27 @@ describe("VPS execution target isolation", () => {
     expect(queued?.rawText).toContain("already-installed remote nextctl browser evaluation command");
   });
 
+  it("runs published Hello World on the selected profile without invoking legacy clawctl", async () => {
+    const local = conversation("local", "local");
+    useStore.setState({
+      conversations: [local], activeConvId: { codex: local.id }, selectedProfile: "QA profile",
+      loadDefaultSession: vi.fn().mockResolvedValue(undefined),
+    });
+    preflight.prepareSession.mockResolvedValue({ profileArgs: ["--profile", "QA profile"], host: undefined });
+    bridge.invoke.mockImplementation(async (command) => command === "nextctl_run"
+      ? { code: 0, stdout: JSON.stringify({ ok: true, data: "shown" }), stderr: "" }
+      : null);
+
+    await useStore.getState().runScript(skillEntry({
+      title: "Hello World", selector: { kind: "script", value: "hello-world.script" },
+    }));
+
+    expect(preflight.prepareSession).toHaveBeenCalledWith(expect.objectContaining({ selectedProfile: "QA profile" }));
+    expect(localNextctlCalls()[0]?.[1]?.args).toEqual([
+      "--profile", "QA profile", "eval", expect.stringContaining('Hello, world! 👋'), "--format", "json",
+    ]);
+  });
+
   it("queues a custom script for the VPS without preparing a local session", async () => {
     const remote = conversation("remote", "vps");
     useStore.setState({ conversations: [remote], activeConvId: { codex: remote.id } });
