@@ -4,7 +4,8 @@ import { useStore } from "../store";
 import { invoke } from "../electronBridge";
 import type { SkillEntry } from "../skillsCatalog";
 import { X_MONITOR_LOG_FILE, followerTrend, isNew } from "../lib/xmonitor/feed";
-import { DEFAULT_MONITOR_INTERVAL_MINUTES, MONITOR_INTERVAL_CHOICES } from "../types";
+import { DEFAULT_MONITOR_INTERVAL_MINUTES } from "../types";
+import { IntervalDial } from "./IntervalDial";
 import { Icon } from "./Icon";
 
 const MINUTE = 60_000;
@@ -210,22 +211,14 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
             </button>
           </div>
         </div>
+        <IntervalDial
+          value={running ? schedule?.intervalMinutes ?? interval : interval}
+          onChange={(minutes) => {
+            setIntervalChoice(minutes);
+            if (schedule) setInterval_(entry.id, minutes);
+          }}
+        />
         <div className="row watchlist-loop-controls">
-          <label className="muted small watchlist-interval">
-            Every
-            <select
-              value={running ? schedule?.intervalMinutes ?? interval : interval}
-              onChange={(event) => {
-                const minutes = Number(event.target.value);
-                setIntervalChoice(minutes);
-                if (schedule) setInterval_(entry.id, minutes);
-              }}
-            >
-              {MONITOR_INTERVAL_CHOICES.map((minutes) => (
-                <option key={minutes} value={minutes}>{minutes < 60 ? `${minutes} min` : `${minutes / 60} h`}</option>
-              ))}
-            </select>
-          </label>
           <span className="spacer" />
           {running ? (
             <button className="btn-bordered" title="Stop monitoring" onClick={() => stopSchedule(entry.id)}>

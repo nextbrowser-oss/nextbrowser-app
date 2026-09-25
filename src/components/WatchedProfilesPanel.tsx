@@ -234,7 +234,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
-      <div className="modal-card watchlist-modal" onMouseDown={(event) => event.stopPropagation()}>
+      <div className={"modal-card watchlist-modal" + (monitor ? " has-modes" : "")} onMouseDown={(event) => event.stopPropagation()}>
         <div className="row watchlist-head">
           {entry.logo
             ? <SkillLogo entry={entry} size={32} />

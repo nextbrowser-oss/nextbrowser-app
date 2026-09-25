@@ -117,7 +117,7 @@ import type {
 } from "./types";
 import {
   DEFAULT_MONITOR_INTERVAL_MINUTES,
-  MONITOR_INTERVAL_CHOICES,
+  clampMonitorInterval,
   isMonitorSchedule,
   DEFAULT_WATCHLIST_INTERVAL_MINUTES,
   clampWatchlistInterval,
@@ -5858,7 +5858,7 @@ export const useStore = create<State>((set, get) => {
   startMonitorSchedule: async (entry, options) => {
     if (!entry.watchlist?.monitor) return;
     const existing = get().monitorScheduleFor(entry.id);
-    const intervalMinutes = options.intervalMinutes ?? existing?.intervalMinutes ?? DEFAULT_MONITOR_INTERVAL_MINUTES;
+    const intervalMinutes = clampMonitorInterval(options.intervalMinutes ?? existing?.intervalMinutes ?? DEFAULT_MONITOR_INTERVAL_MINUTES);
     const profileName = options.profileName ?? existing?.profileName;
     // Due at once: the scheduler fires it on this tick, or as soon as a reply
     // pass holding the tab lets go.
@@ -5915,7 +5915,8 @@ export const useStore = create<State>((set, get) => {
 
   setMonitorScheduleInterval: (skillId, intervalMinutes) => {
     const run = get().monitorScheduleFor(skillId);
-    if (!run || !MONITOR_INTERVAL_CHOICES.includes(intervalMinutes as (typeof MONITOR_INTERVAL_CHOICES)[number])) return;
+    if (!run || !Number.isFinite(intervalMinutes)) return;
+    intervalMinutes = clampMonitorInterval(intervalMinutes);
     // Not updateScheduledRun: that forgets when the run last fired, and a
     // monitoring schedule would then read x.com again right away.
     const scheduledRuns = get().scheduledRuns.map((item) => (item.id === run.id ? { ...item, intervalMinutes } : item));

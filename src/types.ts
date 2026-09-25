@@ -293,10 +293,35 @@ export interface ScheduledRun {
   skillId?: string;
 }
 
-/** How often a monitoring schedule may read x.com. Every read is a session on
- *  the account, so the choices start at five minutes. */
-export const MONITOR_INTERVAL_CHOICES = [5, 10, 15, 30, 60] as const;
+/** How often a monitoring schedule may read x.com: any whole number of minutes
+ *  from five — every read is a session on the account — to a week. */
+export const MONITOR_MIN_INTERVAL_MINUTES = 5;
+export const MONITOR_MAX_INTERVAL_MINUTES = 7 * 24 * 60;
 export const DEFAULT_MONITOR_INTERVAL_MINUTES = 10;
+/** The stops of the interval dial, fine where a minute matters and coarse where
+ *  only hours and days do. A custom value between them is kept as typed. */
+export const MONITOR_INTERVAL_STEPS = [
+  5, 10, 15, 20, 30, 45,
+  60, 90, 120, 180, 240, 360, 480, 720, 960,
+  1440, 2160, 2880, 4320, 5760, 7200, 10080,
+] as const;
+
+export function clampMonitorInterval(minutes: number): number {
+  if (!Number.isFinite(minutes)) return DEFAULT_MONITOR_INTERVAL_MINUTES;
+  return Math.min(MONITOR_MAX_INTERVAL_MINUTES, Math.max(MONITOR_MIN_INTERVAL_MINUTES, Math.round(minutes)));
+}
+
+/** formatInterval says an interval the way a person would: minutes under an
+ *  hour, hours (with minutes) up to two days, whole days after that. */
+export function formatInterval(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
+  if (minutes <= 2880 || minutes % 1440 !== 0) {
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    return rest ? `${hours} h ${rest} min` : `${hours} h`;
+  }
+  return `${minutes / 1440} d`;
+}
 
 export function isMonitorSchedule(run: ScheduledRun): boolean {
   return run.kind === "x-monitor";

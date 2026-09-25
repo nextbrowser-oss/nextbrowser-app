@@ -65,3 +65,18 @@ describe("followerTrend", () => {
     expect(followerTrend([], undefined, 0)).toEqual({ points: [] });
   });
 });
+
+describe("monitoring intervals", () => {
+  it("reads the way a person says them", async () => {
+    const { formatInterval, clampMonitorInterval } = await import("../../types");
+    expect(formatInterval(5)).toBe("5 min");
+    expect(formatInterval(90)).toBe("1 h 30 min");
+    expect(formatInterval(1440)).toBe("24 h");
+    expect(formatInterval(2880)).toBe("48 h");
+    expect(formatInterval(4320)).toBe("3 d");
+    expect(formatInterval(2000)).toBe("33 h 20 min");
+    expect(clampMonitorInterval(1)).toBe(5);
+    expect(clampMonitorInterval(99_999)).toBe(10_080);
+    expect(clampMonitorInterval(Number.NaN)).toBe(10);
+  });
+});

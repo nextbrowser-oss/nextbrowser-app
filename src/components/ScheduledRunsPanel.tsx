@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useStore } from "../store";
 import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
-import { WEEKDAY_ORDER, isMonitorSchedule, weekdayShortName, weekdaysSummary } from "../types";
+import { WEEKDAY_ORDER, formatInterval, isMonitorSchedule, weekdayShortName, weekdaysSummary } from "../types";
 import type { ScheduledRun } from "../types";
 import type { SkillEntry } from "../skillsCatalog";
 
@@ -240,7 +240,7 @@ function MonitorScheduleRow({ run, entry, lastPassAt, note, busy, menuOpen, menu
   onDelete: () => void;
 }) {
   const minutes = run.intervalMinutes ?? 0;
-  const every = minutes >= 60 && minutes % 60 === 0 ? `Every ${minutes / 60} h` : `Every ${minutes} min`;
+  const every = `Every ${formatInterval(minutes)}`;
   return (
     <div className="schedule-row schedule-row-monitor">
       {entry && <SkillLogo entry={entry} size={30} />}

@@ -3499,8 +3499,70 @@ body.is-resizing-sidebar {
 .skill-mode-option:hover { color: var(--text); background: var(--surface-3); }
 .skill-mode-option.selected { background: var(--surface-5); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2); }
 
+/* The interval dial: a stepped ring for how often a schedule runs, with
+   presets and an exact field beside it. */
+.interval-dial { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.interval-dial.is-disabled { opacity: 0.55; }
+.interval-dial-ring {
+  flex: none;
+  width: 168px;
+  height: 168px;
+  touch-action: none;
+  cursor: grab;
+  border-radius: 999px;
+  outline: none;
+}
+.interval-dial-ring.is-dragging { cursor: grabbing; }
+.interval-dial-ring:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.interval-dial-track { fill: none; stroke: var(--surface-4); stroke-width: 10; stroke-linecap: round; }
+.interval-dial-fill { fill: none; stroke: var(--accent); stroke-width: 10; stroke-linecap: round; }
+.interval-dial-tick { stroke: var(--line-strong); stroke-width: 1.5; stroke-linecap: round; }
+.interval-dial-tick.is-major { stroke: var(--muted); stroke-width: 2; }
+.interval-dial-label { fill: var(--muted); font-size: 9.5px; font-weight: 600; text-anchor: middle; }
+.interval-dial-knob { fill: var(--text); stroke: var(--accent); stroke-width: 3; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45)); }
+.interval-dial-caption { fill: var(--muted); font-size: 11px; text-anchor: middle; }
+.interval-dial-value { fill: var(--text); font-size: 17px; font-weight: 700; text-anchor: middle; font-variant-numeric: tabular-nums; }
+.interval-dial-side { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 10px; }
+.interval-dial-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.interval-preset {
+  padding: 6px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.interval-preset:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); }
+.interval-preset.selected { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 55%, transparent); color: var(--accent-text); }
+.interval-dial-exact { display: flex; align-items: center; gap: 8px; }
+.interval-dial-exact input {
+  width: 72px;
+  padding: 5px 8px;
+  border: 1px solid var(--surface-7);
+  border-radius: var(--button-radius-compact);
+  background: var(--surface-3);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.interval-dial-exact select {
+  padding: 5px 6px;
+  border: 1px solid var(--surface-7);
+  border-radius: var(--button-radius-compact);
+  background: var(--surface-3);
+  color: var(--text);
+}
+
 /* X monitoring dashboard. */
-.watchlist-modal:has(.xmon-stats) { width: min(640px, calc(100vw - 48px)); max-height: calc(100vh - 64px); overflow-y: auto; }
+/* A skill with two modes keeps one window for both: the same width and the
+   same height, with the content scrolling inside, so switching modes never
+   makes the window jump. */
+.watchlist-modal.has-modes {
+  width: min(640px, calc(100vw - 48px));
+  height: min(860px, 90vh);
+  overflow-y: auto;
+}
 .xmon-account {
   display: flex;
   align-items: center;
