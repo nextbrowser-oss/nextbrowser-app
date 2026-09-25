@@ -931,6 +931,24 @@ function dataDir() { return path.join(app.getPath("userData")); }
 /** How large an append-only app-data file may grow before it is rotated. */
 const APP_DATA_APPEND_LIMIT_BYTES = 16 * 1024 * 1024;
 function githubStarsCachePath() { return path.join(dataDir(), "github-stars.json"); }
+const GITHUB_STARS_FALLBACK = 21;
+let githubStarsPromise;
+function requestGitHubStars() {
+  if (!githubStarsPromise) githubStarsPromise = (async () => {
+    let count = null;
+    try {
+      count = await fetchGitHubStars(fetch, { signal: AbortSignal.timeout(5000) });
+    } catch {
+      // The last successful count, or the bundled fallback, remains useful.
+    }
+    if (typeof count === "number") {
+      await writeLocalGitHubStars(githubStarsCachePath(), count);
+      return count;
+    }
+    return (await readLocalGitHubStars(githubStarsCachePath())) ?? GITHUB_STARS_FALLBACK;
+  })();
+  return githubStarsPromise;
+}
 function localAutomationArtifacts() {
   if (!automationArtifactStore) {
     automationArtifactStore = createLocalArtifactStore({ rootDir: path.join(dataDir(), "automation-artifacts") });
@@ -1664,17 +1682,7 @@ async function apiFetchJSON(baseURL, route, options = {}) {
 async function invokeCommand(command, args = {}, sender) {
   switch (command) {
     case "github_stars": {
-      let count = null;
-      try {
-        count = await fetchGitHubStars(fetch, { signal: AbortSignal.timeout(5000) });
-      } catch {
-        // A local result is still useful when GitHub is unavailable.
-      }
-      if (typeof count === "number") {
-        await writeLocalGitHubStars(githubStarsCachePath(), count);
-        return count;
-      }
-      return (await readLocalGitHubStars(githubStarsCachePath())) ?? 17;
+      return requestGitHubStars();
     }
     case "github_star_status": return await githubStarStatus({ env: childEnv() });
     case "github_star_verify": return await verifyGitHubStar({ env: childEnv() });
@@ -2704,6 +2712,9 @@ if (!gotLock) {
     for (const arg of argv) handleDeepLink(arg);
   });
   app.whenReady().then(() => {
+    // Start the GitHub request before migrations and renderer loading. The
+    // header can consume this same promise as soon as it mounts.
+    void requestGitHubStars();
     return migrateLegacyData();
   }).then(() => {
     return migrateLegacyRuntimeConfig();
