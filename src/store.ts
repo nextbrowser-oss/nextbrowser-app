@@ -34,6 +34,7 @@ import { openNotifications, readPublisher, runPass, subscribeHandle } from "./li
 import { errorText as xReplyErrorText, setXReplyLogSink, xlog } from "./lib/xreply/log";
 import { emptyXReplyState, normalizeXReplyState, type XReplyState } from "./lib/xreply/state";
 import {
+  checkAccount as checkMonitorAccount,
   normalizeState as normalizeMonitorState,
   runPass as runMonitorPass,
   type LogEntry as MonitorLogEntry,
@@ -5898,7 +5899,18 @@ export const useStore = create<State>((set, get) => {
     set({ xReplyBusy: true, xReplyStep: `Opening ${host}` });
     try {
       const profileArgs = await prepareXReplySession(undefined, (step) => set({ xReplyStep: step }), profileName);
-      await cliBrowser(profileArgs).open(`https://${host}/home`);
+      // Opening x.com is also where the panel learns who is signed in, so the
+      // account shows before monitoring has ever run.
+      set({ xReplyStep: "Reading the signed-in account" });
+      const check = await checkMonitorAccount({ browser: cliBrowser(profileArgs), log: xMonitorLog });
+      const previous = get().xMonitorState.account;
+      const handle = check.handle ?? previous?.handle;
+      const xMonitorState: MonitorState = {
+        ...get().xMonitorState,
+        account: { ...(handle ? { handle } : {}), signedIn: check.signedIn, checkedAt: now() },
+      };
+      void saveJson(X_MONITOR_STATE_FILE, xMonitorState);
+      set({ xMonitorState });
     } catch (error) {
       xMonitorLog({ t: new Date().toISOString(), ev: "open.error", error: xReplyErrorText(error) });
     } finally {

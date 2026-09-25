@@ -104,7 +104,8 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
   // panel is the profile and the schedule, and the dashboard appears once there
   // is an account to show. After Stop the schedule comes back on top and what
   // was read stays below it.
-  const hasData = !!account || feed.posts.length > 0 || !!feed.readAt;
+  const hasStats = own?.followers !== undefined || !!feed.readAt;
+  const hasData = !!account || hasStats || feed.posts.length > 0;
   const notes = !busy ? lastPass?.notes ?? [] : [];
   const logLink = (
     <button className="link small" title="Reveal the monitor's log file"
@@ -140,13 +141,38 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
         <p className="muted small" role="status">Choose a browser profile from this workspace to monitor its X account.</p>
       )}
 
+      {(running || hasData) && (
+        <div className="xmon-account">
+          <span className={"xmon-avatar" + (signedIn ? "" : " is-empty")} aria-hidden>
+            {handle ? handle.slice(0, 1).toUpperCase() : <Icon name="person.crop.circle" size={16} />}
+          </span>
+          <div className="xmon-account-text">
+            <strong>{handle ? `@${handle}` : account ? "No X account" : "Reading the account…"}</strong>
+            <span className="muted small">
+              <span className={"status-dot " + (signedIn ? "ok-dot" : "muted-dot")} />
+              {signedIn
+                ? `Signed in${account?.checkedAt ? ` · checked ${since(account.checkedAt)}` : ""}`
+                : account
+                  ? `Not signed in to ${site} — open it and sign in`
+                  : "The first check is on its way"}
+            </span>
+          </div>
+          <span className="spacer" />
+          {!running && (
+            <button className="plain-icon-btn" disabled={busy || !profileAvailable}
+              title="Read the signed-in account again" aria-label="Read the signed-in account again"
+              onClick={() => void openSite(entry, profile)}>
+              <Icon name="arrow.clockwise" size={14} />
+            </button>
+          )}
+        </div>
+      )}
+
       {!running && (
         <div className="xmon-setup">
           <div className="xmon-setup-head">
-            <strong className="small">Check the account</strong>
-            <span className="muted small">
-              {busy && step ? `${step}…` : "Runs on a schedule while Nextbrowser is open, and shows in Scheduled."}
-            </span>
+            <strong className="small">Schedule</strong>
+            {busy && step && <span className="muted small">{`${step}…`}</span>}
           </div>
           <IntervalDial
             value={interval}
@@ -171,26 +197,7 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
         </div>
       )}
 
-      {(running || hasData) && (
-        <div className="xmon-account">
-          <span className={"xmon-avatar" + (signedIn ? "" : " is-empty")} aria-hidden>
-            {handle ? handle.slice(0, 1).toUpperCase() : <Icon name="person.crop.circle" size={16} />}
-          </span>
-          <div className="xmon-account-text">
-            <strong>{handle ? `@${handle}` : "Reading the account…"}</strong>
-            <span className="muted small">
-              <span className={"status-dot " + (signedIn ? "ok-dot" : "muted-dot")} />
-              {signedIn
-                ? `Signed in${account?.checkedAt ? ` · checked ${since(account.checkedAt)}` : ""}`
-                : account
-                  ? `Not signed in to ${site} — open it and sign in`
-                  : "The first check is on its way"}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {hasData && (
+      {hasStats && (
         <div className="xmon-stats">
           <div className="xmon-stat xmon-stat-main">
             <span className="muted small">Followers</span>
