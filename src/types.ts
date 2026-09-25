@@ -285,6 +285,21 @@ export interface ScheduledRun {
   enabled: boolean;
   lastFiredAt?: number;
   conversationId?: string;
+  /** What firing does. A prompt schedule hands its prompt to the agent; an
+   *  x-monitor schedule runs the X monitoring engine on its profile — open the
+   *  browser, read the feed and the follower count — with no agent at all. */
+  kind?: "prompt" | "x-monitor";
+  /** The skill an x-monitor schedule belongs to. */
+  skillId?: string;
+}
+
+/** How often a monitoring schedule may read x.com. Every read is a session on
+ *  the account, so the choices start at five minutes. */
+export const MONITOR_INTERVAL_CHOICES = [5, 10, 15, 30, 60] as const;
+export const DEFAULT_MONITOR_INTERVAL_MINUTES = 10;
+
+export function isMonitorSchedule(run: ScheduledRun): boolean {
+  return run.kind === "x-monitor";
 }
 
 export const WEEKDAY_ORDER = [2, 3, 4, 5, 6, 7, 1] as const;

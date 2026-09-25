@@ -55,7 +55,7 @@ Repository skills are public, reviewed browser workflows that ship in the NextBr
 #### Freelancer quick start
 
 1. Open a **Browser skill contribution** issue with one website, one coherent workflow, and at least three acceptance tasks. Wait for a maintainer to confirm the scope before substantial work.
-2. Create `skills/<skill-id>/` from the latest `upstream/main` and use [`skills/999-car-search/`](skills/999-car-search/) as the model.
+2. Create `skills/<skill-id>/` from the latest `upstream/main` and use [`skills/bitwarden-autofill-login/`](skills/bitwarden-autofill-login/) as the model.
 3. Write `SKILL.md`, `manifest.json`, and `tests/cases.json` as described below.
 4. Run `npm run dev`. If the skill directory was added while the app was already running, restart the dev process. Connect an agent, open **Skills**, find the card marked **Repository**, and press **Run**.
 5. Run every acceptance task in a fresh chat with the required profile and proxy, then run the automated checks and attach redacted evidence to the pull request.
@@ -96,7 +96,7 @@ skills/<skill-id>/
 
 The directory name, manifest `id`, and YAML frontmatter `name` must be identical. Do not add generated output, screenshots, recordings, credentials, cookies, or captured website data to this directory.
 
-Use [`skills/999-car-search/`](skills/999-car-search/) as a complete working example.
+Use [`skills/bitwarden-autofill-login/`](skills/bitwarden-autofill-login/) as a complete working example.
 
 ### 3. Write `SKILL.md`
 

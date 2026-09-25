@@ -1,10 +1,12 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useStore } from "../store";
 import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
-import { WEEKDAY_ORDER, weekdayShortName, weekdaysSummary } from "../types";
+import { WEEKDAY_ORDER, isMonitorSchedule, weekdayShortName, weekdaysSummary } from "../types";
 import type { ScheduledRun } from "../types";
+import type { SkillEntry } from "../skillsCatalog";
 
 import { Icon } from "./Icon";
+import { SkillLogo } from "./SkillLogo";
 import { agentById } from "../agents";
 
 // Sentinel for the "create a dedicated chat" option in the session selector.
@@ -23,6 +25,11 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
   const workspaceId = useStore((s) => s.activeWorkspaceId);
   const workspaces = useStore((s) => s.workspaces);
   const selectedProfile = useStore((s) => s.selectedProfile);
+  const skillEntries = useStore((s) => s.skillCategories).flatMap((category) => category.entries);
+  const monitorState = useStore((s) => s.xMonitorState);
+  const monitorBusy = useStore((s) => s.xReplyBusy);
+  const startMonitor = useStore((s) => s.startMonitorSchedule);
+  const stopMonitor = useStore((s) => s.stopMonitorSchedule);
 
   const [editor, setEditor] = useState<ScheduledRun | "new" | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ScheduledRun | null>(null);
@@ -89,7 +96,23 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
             <span className="muted small">Create a recurring browser task. It will run while Nextbrowser is open.</span>
           </div>
         ) : (
-          runs.map((run) => (
+          runs.map((run) => isMonitorSchedule(run) ? (
+            <MonitorScheduleRow
+              key={run.id}
+              run={run}
+              entry={skillEntries.find((entry) => entry.id === run.skillId)}
+              lastPassAt={monitorState.lastPass?.at}
+              note={monitorState.lastPass?.notes[0]}
+              busy={monitorBusy}
+              menuOpen={menuRunId === run.id}
+              menuRef={menuRef}
+              onMenu={() => setMenuRunId(menuRunId === run.id ? null : run.id)}
+              onCloseMenu={() => setMenuRunId(null)}
+              onStart={(entry) => void startMonitor(entry, { intervalMinutes: run.intervalMinutes, profileName: run.profileName })}
+              onStop={() => run.skillId && stopMonitor(run.skillId)}
+              onDelete={() => { setPendingDelete(run); setMenuRunId(null); }}
+            />
+          ) : (
           <div key={run.id} className="schedule-row">
             <div className="schedule-info">
               <div className="schedule-title">{run.title}</div>
@@ -185,6 +208,76 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function since(timestamp?: number): string {
+  if (!timestamp) return "";
+  const elapsed = Date.now() - timestamp;
+  if (elapsed < 60_000) return "just now";
+  if (elapsed < 3_600_000) return `${Math.round(elapsed / 60_000)}m ago`;
+  if (elapsed < 48 * 3_600_000) return `${Math.round(elapsed / 3_600_000)}h ago`;
+  return `${Math.round(elapsed / 86_400_000)}d ago`;
+}
+
+/// A monitoring schedule reads x.com through its skill's engine rather than
+/// sending a prompt, so its row says what it watches and offers Start and Stop
+/// instead of a prompt to edit.
+function MonitorScheduleRow({ run, entry, lastPassAt, note, busy, menuOpen, menuRef, onMenu, onCloseMenu, onStart, onStop, onDelete }: {
+  run: ScheduledRun;
+  entry?: SkillEntry;
+  lastPassAt?: number;
+  note?: string;
+  busy: boolean;
+  menuOpen: boolean;
+  menuRef: React.RefObject<HTMLDivElement>;
+  onMenu: () => void;
+  onCloseMenu: () => void;
+  onStart: (entry: SkillEntry) => void;
+  onStop: () => void;
+  onDelete: () => void;
+}) {
+  const minutes = run.intervalMinutes ?? 0;
+  const every = minutes >= 60 && minutes % 60 === 0 ? `Every ${minutes / 60} h` : `Every ${minutes} min`;
+  return (
+    <div className="schedule-row schedule-row-monitor">
+      {entry && <SkillLogo entry={entry} size={30} />}
+      <div className="schedule-info">
+        <div className="schedule-title">{run.title}</div>
+        <div className="muted small">
+          {every} · Profile: {run.profileName || "Unassigned"}
+        </div>
+        <div className="muted small">
+          {run.enabled
+            ? (busy ? "Checking now…" : lastPassAt ? `Last check ${since(lastPassAt)}` : "Starting…")
+            : "Stopped"}
+        </div>
+        {note && run.enabled && <div className="small watchlist-pass-note">{note}</div>}
+        {!entry && <div className="error small">The skill for this schedule is not installed.</div>}
+      </div>
+      {run.enabled ? (
+        <button className="btn-bordered schedule-monitor-action" title="Stop monitoring" onClick={onStop}>
+          <Icon name="stop" size={13} /> Stop
+        </button>
+      ) : (
+        <button className="btn-bordered-prominent schedule-monitor-action" disabled={!entry} title="Start monitoring" onClick={() => entry && onStart(entry)}>
+          <Icon name="play.fill" size={12} /> Start
+        </button>
+      )}
+      <button className="plain-icon-btn schedule-menu-button" onClick={onMenu} title="Delete this schedule">
+        <Icon name="ellipsis.circle" size={16} />
+      </button>
+      {menuOpen && (
+        <>
+          <button className="menu-dismiss-layer" aria-label="Close schedule menu" onClick={onCloseMenu} />
+          <div className="schedule-action-menu" ref={menuRef}>
+            <button className="danger-text" onClick={onDelete}>
+              <Icon name="trash" size={13} /> Delete
+            </button>
+          </div>
+        </>
       )}
     </div>
   );

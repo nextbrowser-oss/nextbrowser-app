@@ -6356,6 +6356,9 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   font-weight: 550;
 }
 .schedule-info { flex: 1; min-width: 0; }
+.schedule-row-monitor { align-items: center; gap: 10px; }
+.schedule-row-monitor .skill-logo { border-radius: 8px; }
+.schedule-monitor-action { flex: none; padding: 5px 12px; font-size: 12px; }
 .schedule-title { font-size: 13px; font-weight: 500; }
 .schedule-time-row {
   display: flex;

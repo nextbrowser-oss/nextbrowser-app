@@ -116,6 +116,9 @@ import type {
   Workspace,
 } from "./types";
 import {
+  DEFAULT_MONITOR_INTERVAL_MINUTES,
+  MONITOR_INTERVAL_CHOICES,
+  isMonitorSchedule,
   DEFAULT_WATCHLIST_INTERVAL_MINUTES,
   clampWatchlistInterval,
   normalizeWatchHandle,
@@ -766,7 +769,14 @@ interface State {
   dismissXReplySignIn: () => void;
   subscribeXReplyHandle: (entry: SkillEntry, handle: string) => Promise<void>;
   updateXReplySettings: (patch: Partial<XReplyState>) => void;
-  runXMonitorPass: (entry: SkillEntry) => Promise<void>;
+  runXMonitorPass: (entry: SkillEntry, options?: { profileName?: string }) => Promise<void>;
+  /** The skill's monitoring schedule: one per skill, in the Scheduled list. */
+  monitorScheduleFor: (skillId: string) => ScheduledRun | undefined;
+  startMonitorSchedule: (entry: SkillEntry, options: { intervalMinutes?: number; profileName?: string }) => Promise<void>;
+  stopMonitorSchedule: (skillId: string) => void;
+  /** Opens x.com in the monitoring profile, where the user signs in. */
+  openMonitorSite: (entry: SkillEntry, profileName?: string) => Promise<void>;
+  setMonitorScheduleInterval: (skillId: string, intervalMinutes: number) => void;
   stopWatchlistRun: (skillId: string) => void;
   tickWatchlistRuns: () => Promise<void>;
   startRemoteStream: (target?: LiveStreamTarget) => Promise<RemoteStreamInfo>;
@@ -1330,6 +1340,9 @@ function persistXReplyState(state: XReplyState) {
 /// Set while a pass should wind down. The engine checks it between steps, so
 /// Stop ends the current pass instead of the app waiting it out.
 let xReplyStopRequested = false;
+/// Set while a monitoring pass holds the tab, so stopping the monitoring
+/// schedule ends that pass and never a reply pass that happens to be running.
+let xMonitorPassActive = false;
 /// The draft the engine is waiting on right now, so Stop can end the CLI
 /// process instead of waiting for it to finish on its own.
 let xReplyDraftReplyId: string | undefined;
@@ -1362,9 +1375,10 @@ async function watchlistBrowser(entry: SkillEntry, onStep: (step: string) => voi
 async function prepareXReplySession(
   host: string | undefined,
   onStep: (step: string) => void,
+  profileName?: string,
 ): Promise<string[]> {
   const state = useStore.getState();
-  const profile = state.xReplyState.profileName ?? state.selectedProfile;
+  const profile = profileName ?? state.xReplyState.profileName ?? state.selectedProfile;
   const prepare = async () => {
     const { profileArgs } = await prepareLocalSession({
       host,
@@ -2226,6 +2240,23 @@ export const useStore = create<State>((set, get) => {
     const minute = d.getMinutes();
     for (const run of get().scheduledRuns) {
       if (!scheduleDue(run, d.getTime())) continue;
+      // A monitoring schedule runs the engine, not the agent: it opens the
+      // profile's browser, reads x.com and closes nothing but its own tab. It
+      // shares the tab with the reply engine, so it waits for a reply pass to
+      // finish and fires on the next tick instead.
+      if (isMonitorSchedule(run)) {
+        const entry = get().skillCategories.flatMap((category) => category.entries)
+          .find((candidate) => candidate.id === run.skillId);
+        if (!entry?.watchlist?.monitor || get().xReplyBusy) continue;
+        const firedRuns = get().scheduledRuns.map((r) =>
+          r.id === run.id ? { ...r, lastFiredAt: now(), lastError: undefined } : r,
+        );
+        set({ scheduledRuns: firedRuns });
+        persistSchedules(firedRuns);
+        trackEvent("scheduled_run_fired", { agent: "x-monitor", has_conversation: false });
+        void get().runXMonitorPass(entry, { profileName: run.profileName });
+        continue;
+      }
       const scheduledConversation = run.conversationId
         ? get().conversations.find((conversation) => conversation.id === run.conversationId)
         : undefined;
@@ -5818,15 +5849,90 @@ export const useStore = create<State>((set, get) => {
 
   dismissXReplySignIn: () => set({ xReplySignInNeeded: false }),
 
+  monitorScheduleFor: (skillId) =>
+    get().scheduledRuns.find((run) => isMonitorSchedule(run) && run.skillId === skillId),
+
+  // Monitoring is a schedule like any other, so it lives in the Scheduled list
+  // and is started and stopped there too. Start creates it the first time and
+  // enables it after that; the first read goes out at once.
+  startMonitorSchedule: async (entry, options) => {
+    if (!entry.watchlist?.monitor) return;
+    const existing = get().monitorScheduleFor(entry.id);
+    const intervalMinutes = options.intervalMinutes ?? existing?.intervalMinutes ?? DEFAULT_MONITOR_INTERVAL_MINUTES;
+    const profileName = options.profileName ?? existing?.profileName;
+    // Due at once: the scheduler fires it on this tick, or as soon as a reply
+    // pass holding the tab lets go.
+    const startedAt = now();
+    const dueNow = startedAt - intervalMinutes * 60_000 - 1;
+    const run: ScheduledRun = existing
+      ? { ...existing, enabled: true, intervalMinutes, profileName, lastFiredAt: dueNow, lastError: undefined }
+      : {
+        id: uid(),
+        kind: "x-monitor",
+        skillId: entry.id,
+        title: `${entry.title} monitoring`,
+        prompt: "",
+        workspaceId: get().activeWorkspaceId,
+        profileName,
+        intervalMinutes,
+        createdAt: startedAt,
+        agent: get().agentId,
+        hour: 0,
+        minute: 0,
+        weekdays: [1, 2, 3, 4, 5, 6, 7],
+        enabled: true,
+        lastFiredAt: dueNow,
+      };
+    const scheduledRuns = existing
+      ? get().scheduledRuns.map((item) => (item.id === run.id ? run : item))
+      : [...get().scheduledRuns, run];
+    persistSchedules(scheduledRuns);
+    set({ scheduledRuns });
+    trackEvent("x_monitor_schedule_started", { interval_minutes: intervalMinutes, created: !existing });
+    await get().tickScheduledRuns();
+  },
+
+  openMonitorSite: async (entry, profileName) => {
+    const host = selectorTargetHost(entry.selector);
+    if (!host || get().xReplyBusy) return;
+    set({ xReplyBusy: true, xReplyStep: `Opening ${host}` });
+    try {
+      const profileArgs = await prepareXReplySession(undefined, (step) => set({ xReplyStep: step }), profileName);
+      await cliBrowser(profileArgs).open(`https://${host}/home`);
+    } catch (error) {
+      xMonitorLog({ t: new Date().toISOString(), ev: "open.error", error: xReplyErrorText(error) });
+    } finally {
+      set({ xReplyBusy: false, xReplyStep: undefined });
+    }
+  },
+
+  stopMonitorSchedule: (skillId) => {
+    const run = get().monitorScheduleFor(skillId);
+    if (!run) return;
+    get().setScheduledRunEnabled(run.id, false);
+    if (xMonitorPassActive) xReplyStopRequested = true;
+  },
+
+  setMonitorScheduleInterval: (skillId, intervalMinutes) => {
+    const run = get().monitorScheduleFor(skillId);
+    if (!run || !MONITOR_INTERVAL_CHOICES.includes(intervalMinutes as (typeof MONITOR_INTERVAL_CHOICES)[number])) return;
+    // Not updateScheduledRun: that forgets when the run last fired, and a
+    // monitoring schedule would then read x.com again right away.
+    const scheduledRuns = get().scheduledRuns.map((item) => (item.id === run.id ? { ...item, intervalMinutes } : item));
+    persistSchedules(scheduledRuns);
+    set({ scheduledRuns });
+  },
+
   // One monitoring pass on the reply agent's profile. It reads and never acts,
   // and it takes the same lock as the reply engine, because both drive one tab.
-  runXMonitorPass: async (_entry) => {
+  runXMonitorPass: async (_entry, options) => {
     if (get().xReplyBusy) return;
     xReplyStopRequested = false;
-    set({ xReplyBusy: true, xReplyStep: "Preparing the browser session", xReplySignInNeeded: false });
+    xMonitorPassActive = true;
+    set({ xReplyBusy: true, xReplyStep: "Preparing the browser session" });
     xMonitorLog({ t: new Date().toISOString(), ev: "run.start", profile: get().xReplyState.profileName ?? get().selectedProfile, app: __APP_VERSION__ });
     try {
-      const profileArgs = await prepareXReplySession(undefined, (step) => set({ xReplyStep: step }));
+      const profileArgs = await prepareXReplySession(undefined, (step) => set({ xReplyStep: step }), options?.profileName);
       const result = await runMonitorPass({
         browser: cliBrowser(profileArgs),
         state: get().xMonitorState,
@@ -5842,13 +5948,9 @@ export const useStore = create<State>((set, get) => {
       }, at);
       void saveJson(X_MONITOR_STATE_FILE, result.state);
       void saveJson(X_MONITOR_FEED_FILE, xMonitorFeed);
-      // Who is signed in is the same answer for both modes: they share a profile.
-      const account = result.state.account;
-      const xReplyState: XReplyState = account
-        ? { ...get().xReplyState, publisher: { handle: account.handle, signedIn: account.signedIn, checkedAt: account.checkedAt } }
-        : get().xReplyState;
-      if (account) persistXReplyState(xReplyState);
-      set({ xMonitorState: result.state, xMonitorFeed, xReplyState, xReplySignInNeeded: result.summary.loginRequired });
+      // Monitoring keeps its own record of the account; the reply agent's state
+      // is the reply agent's alone.
+      set({ xMonitorState: result.state, xMonitorFeed });
       trackEvent("x_monitor_pass_finished", {
         new_posts: result.summary.newPosts,
         follower_changes: result.summary.followerChanges,
@@ -5865,6 +5967,7 @@ export const useStore = create<State>((set, get) => {
       set({ xMonitorState });
       trackEvent("x_monitor_pass_failed", {});
     } finally {
+      xMonitorPassActive = false;
       set({ xReplyBusy: false, xReplyStep: undefined });
     }
   },

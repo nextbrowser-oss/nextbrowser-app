@@ -5,12 +5,12 @@ describe("repository skills", () => {
   it("loads validated skills into the application catalog", () => {
     const categories = repositorySkillCategories();
     const skill = categories.flatMap((category) => category.entries)
-      .find((entry) => entry.id === "repository:999-car-search");
+      .find((entry) => entry.id === "repository:bitwarden-autofill-login");
     expect(skill?.source).toBe("repository");
-    expect(skill?.selector).toEqual({ kind: "domain", value: "999.md" });
-    expect(skill?.instructions).toContain("# 999.md car search");
-    expect(skill?.permissions).toEqual(["read_page", "use_page_controls"]);
-    expect(skill?.verification).toBeUndefined();
+    expect(skill?.selector).toEqual({ kind: "current_tab", value: "current tab" });
+    expect(skill?.instructions).toContain("# Bitwarden Autofill Login");
+    expect(skill?.permissions).toEqual(["read_page", "use_page_controls", "login"]);
+    expect(skill?.verification).toBe("community");
   });
 
   it("carries a declared watchlist into the catalog entry", () => {
@@ -41,9 +41,9 @@ describe("repository skills", () => {
       expect(transport.checkTask).toContain("{handles}");
     }
     // Browser skills declare no runtime, so the app keeps preparing a profile for them.
-    const car = repositorySkillCategories().flatMap((category) => category.entries)
-      .find((entry) => entry.id === "repository:999-car-search");
-    expect(car?.runtime).toBeUndefined();
+    const bitwarden = repositorySkillCategories().flatMap((category) => category.entries)
+      .find((entry) => entry.id === "repository:bitwarden-autofill-login");
+    expect(bitwarden?.runtime).toBeUndefined();
   });
 
   it("merges repository and backend skills in the same category", () => {

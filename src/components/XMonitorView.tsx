@@ -4,6 +4,7 @@ import { useStore } from "../store";
 import { invoke } from "../electronBridge";
 import type { SkillEntry } from "../skillsCatalog";
 import { X_MONITOR_LOG_FILE, followerTrend, isNew } from "../lib/xmonitor/feed";
+import { DEFAULT_MONITOR_INTERVAL_MINUTES, MONITOR_INTERVAL_CHOICES } from "../types";
 import { Icon } from "./Icon";
 
 const MINUTE = 60_000;
@@ -26,69 +27,98 @@ function openUrl(url: string) {
   void invoke("open_external", { url }).catch(() => window.open(url, "_blank", "noopener,noreferrer"));
 }
 
+const PROFILE_KEY = "xMonitorProfile";
+
+function storedProfile(): string | undefined {
+  try {
+    return localStorage.getItem(PROFILE_KEY) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function until(timestamp?: number): string {
+  if (!timestamp) return "any moment";
+  const remaining = timestamp - Date.now();
+  if (remaining <= MINUTE) return "any moment";
+  if (remaining < 60 * MINUTE) return `in ${Math.round(remaining / MINUTE)}m`;
+  return `in ${Math.round(remaining / (60 * MINUTE))}h`;
+}
+
 /// The X skill's monitoring mode. Everything on it is read from x.com, never
 /// done there: who is signed in, how many follow the account, and what the
-/// accounts it follows have posted.
+/// accounts it follows have posted. It runs as a schedule, so it also shows in
+/// the Scheduled list, and it keeps its own profile and its own state: the
+/// reply agent's settings are never touched from here.
 export function XMonitorView({ entry }: { entry: SkillEntry }) {
   const monitor = useStore((s) => s.xMonitorState);
   const feed = useStore((s) => s.xMonitorFeed);
-  const replyState = useStore((s) => s.xReplyState);
+  const replyProfile = useStore((s) => s.xReplyState.profileName);
   const busy = useStore((s) => s.xReplyBusy);
   const step = useStore((s) => s.xReplyStep);
   const allBrowserProfiles = useStore((s) => s.profiles);
   const workspaces = useStore((s) => s.workspaces);
   const activeWorkspaceId = useStore((s) => s.activeWorkspaceId);
   const selectedProfile = useStore((s) => s.selectedProfile);
-  const updateSettings = useStore((s) => s.updateXReplySettings);
-  const openSkillSite = useStore((s) => s.openSkillSite);
-  const checkSignIn = useStore((s) => s.checkXReplySignIn);
-  const runPass = useStore((s) => s.runXMonitorPass);
+  const schedule = useStore((s) => s.monitorScheduleFor(entry.id));
+  const startSchedule = useStore((s) => s.startMonitorSchedule);
+  const stopSchedule = useStore((s) => s.stopMonitorSchedule);
+  const setInterval_ = useStore((s) => s.setMonitorScheduleInterval);
+  const openSite = useStore((s) => s.openMonitorSite);
+  const [chosenProfile, setChosenProfile] = useState<string | undefined>(() => storedProfile());
+  const [interval, setIntervalChoice] = useState<number>(schedule?.intervalMinutes ?? DEFAULT_MONITOR_INTERVAL_MINUTES);
   const [, setNowTick] = useState(0);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNowTick((value) => value + 1), 30_000);
+    const timer = window.setInterval(() => setNowTick((value) => value + 1), 20_000);
     return () => window.clearInterval(timer);
   }, []);
 
+  const running = schedule?.enabled === true;
   const workspace = workspaces.find((item) => item.id === activeWorkspaceId);
   const browserProfiles = allBrowserProfiles.filter((profile) => workspace?.profileNames.includes(profile.name));
-  const savedProfile = replyState.profileName;
-  const effectiveProfile = savedProfile ?? selectedProfile;
-  const profileAvailable = browserProfiles.some((profile) => profile.name === effectiveProfile);
-  const selectedInWorkspace = browserProfiles.some((profile) => profile.name === selectedProfile);
+  // The schedule's profile wins once there is one; before that, the choice made
+  // here, and the reply agent's profile only as a first suggestion.
+  const profile = schedule?.profileName ?? chosenProfile ?? replyProfile ?? selectedProfile;
+  const profileAvailable = browserProfiles.some((item) => item.name === profile);
   const site = entry.selector.value;
 
-  // Both modes drive one profile, so whichever read the account last is the
-  // answer: the reply agent's check and a monitoring pass write the same record.
-  const publisher = replyState.publisher;
-  const handle = publisher?.handle ?? monitor.account?.handle;
-  const signedIn = profileAvailable && publisher?.signedIn === true;
+  const account = monitor.account;
+  const handle = account?.handle;
+  const signedIn = account?.signedIn === true;
   const own = handle ? monitor.followers[handle.toLowerCase()] : undefined;
   const trend = followerTrend(own?.history ?? [], own?.followers, Date.now());
   const fresh = feed.announced.filter((item) => Date.now() - item.at < DAY).length;
   const lastPass = monitor.lastPass;
+  const nextRunAt = running && schedule?.lastFiredAt && schedule.intervalMinutes
+    ? schedule.lastFiredAt + schedule.intervalMinutes * MINUTE
+    : undefined;
+
+  const chooseProfile = (name: string) => {
+    setChosenProfile(name || undefined);
+    try { localStorage.setItem(PROFILE_KEY, name); } catch { /* a view preference */ }
+  };
 
   return (
     <>
       <div className="row watchlist-profile">
         <label className="muted small">Profile</label>
         <select
-          value={profileAvailable ? (savedProfile ?? "") : "__choose_profile__"}
-          disabled={busy}
-          title="The browser profile signed in to x.com. The reply agent uses the same one."
-          onChange={(event) => updateSettings({ profileName: event.target.value || undefined, publisher: undefined })}
+          value={profileAvailable ? profile : "__choose_profile__"}
+          disabled={busy || running}
+          title={running ? "Stop monitoring to change the profile" : "The browser profile signed in to x.com"}
+          onChange={(event) => chooseProfile(event.target.value)}
         >
           {!profileAvailable && <option value="__choose_profile__" disabled>Choose a profile in this workspace</option>}
-          {selectedInWorkspace && <option value="">{`Selected · ${selectedProfile}`}</option>}
-          {browserProfiles.map((profile) => (
-            <option key={profile.name} value={profile.name}>
-              {profile.name}{profile.country ? ` · ${profile.country.toUpperCase()}` : ""}
+          {browserProfiles.map((item) => (
+            <option key={item.name} value={item.name}>
+              {item.name}{item.country ? ` · ${item.country.toUpperCase()}` : ""}
             </option>
           ))}
         </select>
         <span className="spacer" />
         <button className="mini" disabled={busy || !profileAvailable} title={`Open ${site} in this profile to sign in or switch account`}
-          onClick={() => void openSkillSite(entry)}>
+          onClick={() => void openSite(entry, profile)}>
           Open {site}
         </button>
       </div>
@@ -105,17 +135,12 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
           <span className="muted small">
             <span className={"status-dot " + (signedIn ? "ok-dot" : "muted-dot")} />
             {signedIn
-              ? `Signed in${publisher?.checkedAt ? ` · checked ${since(publisher.checkedAt)}` : ""}`
-              : publisher
-                ? `Not signed in to ${site}`
-                : "Sign-in not checked yet"}
+              ? `Signed in${account?.checkedAt ? ` · checked ${since(account.checkedAt)}` : ""}`
+              : account
+                ? `Not signed in to ${site} — open it and sign in`
+                : "Start monitoring to read the account"}
           </span>
         </div>
-        <span className="spacer" />
-        <button className="mini" disabled={busy || !profileAvailable} title="Read which account is signed in"
-          onClick={() => void checkSignIn(entry)}>
-          Check
-        </button>
       </div>
 
       <div className="xmon-stats">
@@ -154,7 +179,7 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
             <span className="scheduled-empty-icon"><Icon name="list.bullet" size={20} /></span>
             <strong>No posts yet</strong>
             <span className="muted small">
-              Press Check now to read the latest posts from the accounts you follow and your follower count.
+              Start monitoring to read the latest posts from the accounts you follow and your follower count.
             </span>
           </div>
         ) : (
@@ -166,15 +191,15 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
 
       <div className="watchlist-loop">
         <div className="watchlist-loop-state">
-          <span className={"status-dot " + (busy ? "warn-dot" : "muted-dot")} />
+          <span className={"status-dot " + (busy ? "warn-dot" : running ? "ok-dot" : "muted-dot")} />
           <div>
-            <strong className="small">{busy ? "Working" : lastPass ? `Checked ${since(lastPass.at)}` : "Not checked yet"}</strong>
+            <strong className="small">{busy ? "Working" : running ? "Running" : "Stopped"}</strong>
             <div className="muted small">
               {busy && step
                 ? `${step}…`
-                : lastPass
-                  ? `${lastPass.newPosts} new ${lastPass.newPosts === 1 ? "post" : "posts"} · ${lastPass.followerChanges} follower ${lastPass.followerChanges === 1 ? "change" : "changes"}`
-                  : "Reads x.com only. Nothing is posted, liked, or followed."}
+                : running
+                  ? `Next check ${until(nextRunAt)}${lastPass ? ` · last ${since(lastPass.at)}` : ""}`
+                  : "Runs on a schedule while Nextbrowser is open, and shows in Scheduled."}
             </div>
             {!busy && lastPass?.notes.map((text) => (
               <div key={text} className="small watchlist-pass-note">{text}</div>
@@ -186,15 +211,36 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
           </div>
         </div>
         <div className="row watchlist-loop-controls">
+          <label className="muted small watchlist-interval">
+            Every
+            <select
+              value={running ? schedule?.intervalMinutes ?? interval : interval}
+              onChange={(event) => {
+                const minutes = Number(event.target.value);
+                setIntervalChoice(minutes);
+                if (schedule) setInterval_(entry.id, minutes);
+              }}
+            >
+              {MONITOR_INTERVAL_CHOICES.map((minutes) => (
+                <option key={minutes} value={minutes}>{minutes < 60 ? `${minutes} min` : `${minutes / 60} h`}</option>
+              ))}
+            </select>
+          </label>
           <span className="spacer" />
-          <button
-            className="btn-bordered-prominent"
-            disabled={!profileAvailable || busy}
-            title="Read the feed and the follower count now"
-            onClick={() => void runPass(entry)}
-          >
-            <Icon name="arrow.clockwise" size={13} /> Check now
-          </button>
+          {running ? (
+            <button className="btn-bordered" title="Stop monitoring" onClick={() => stopSchedule(entry.id)}>
+              <Icon name="stop" size={14} /> Stop
+            </button>
+          ) : (
+            <button
+              className="btn-bordered-prominent"
+              disabled={!profileAvailable}
+              title="Read the account now and then on this interval"
+              onClick={() => void startSchedule(entry, { intervalMinutes: interval, profileName: profile })}
+            >
+              <Icon name="play.fill" size={13} /> Start
+            </button>
+          )}
         </div>
       </div>
     </>
