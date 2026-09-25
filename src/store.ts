@@ -2048,6 +2048,31 @@ export const useStore = create<State>((set, get) => {
         }
       });
 
+      await listen<[string, string]>("project:host-deleted", (event) => {
+        const [id, workspaceId] = event.payload;
+        if (!get().authed || !get().workspaces.some((workspace) => workspace.id === workspaceId)) return;
+        // The host already received the backend DELETE response. Tombstone it
+        // before any in-flight sync can put a stale local copy back.
+        deletedProjectIds.add(id);
+        set((state) => {
+          const conversations = state.conversations.filter((conversation) => conversation.id !== id);
+          const projectRevisions = { ...state.projectRevisions };
+          delete projectRevisions[id];
+          const activeConvId = { ...state.activeConvId };
+          for (const [agentId, selectedId] of Object.entries(activeConvId)) {
+            if (selectedId === id) delete activeConvId[agentId];
+          }
+          return { conversations, projectRevisions, activeConvId };
+        });
+        void persistConvs(get().conversations);
+        void (async () => {
+          for (let attempt = 0; attempt < 30 && get().projectsSyncing; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
+          await get().syncProjects();
+        })().catch((error) => console.warn("[AGENT_PROJECT_DELETE_SYNC_FAILED]", error));
+      });
+
       await listen<[string, string]>("agent:chunk", (e) => {
         const [replyId, chunk] = e.payload;
         set((s) => {
