@@ -31,9 +31,10 @@ it("polls for pending batch profile-creation requests and surfaces them", async 
   useStore.setState({ authed: true, nextctlAvailable: true });
   bridge.invoke.mockImplementation((command, { args } = {}) => {
     if (command !== "nextctl_run") return Promise.resolve(null);
-    if (args[0] === "profiles" && args[1] === "requests" && args[2] === "list") {
+    if (args[0] === "profiles" && args[1] === "requests" && args[2] === "list" && args[4] === "pending") {
       return Promise.resolve(result({ requests: [pendingRequest] }));
     }
+    if (args[0] === "profiles" && args[1] === "requests" && args[2] === "list") return Promise.resolve(result({ requests: [] }));
     return Promise.resolve(result({}));
   });
 
@@ -48,14 +49,30 @@ it("keeps approval requests ready while the app is backgrounded", async () => {
   const { useStore } = await import("./store");
   useStore.setState({ authed: true, nextctlAvailable: true, appActive: false });
   bridge.invoke.mockImplementation((command, { args } = {}) => {
-    if (command === "nextctl_run" && args[0] === "profiles" && args[1] === "requests") {
+    if (command === "nextctl_run" && args[0] === "profiles" && args[1] === "requests" && args[4] === "pending") {
       return Promise.resolve(result({ requests: [pendingRequest] }));
     }
+    if (command === "nextctl_run") return Promise.resolve(result({ requests: [] }));
     return Promise.resolve(null);
   });
 
   await useStore.getState().pollProfileCreateRequests();
   expect(useStore.getState().pendingProfileCreateRequests).toEqual([pendingRequest]);
+});
+
+it("recovers an approved request after restart so workspace assignment can finish", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({
+    authed: true, nextctlAvailable: true,
+    workspaces: [{ id: "w", name: "Test", profileNames: [], profileToolsets: {}, createdAt: 1, updatedAt: 1 }],
+  });
+  const approved = { ...pendingRequest, status: "approved" as const, workspace_id: "w", created_profiles: ["Romania-ClawBrowser"] };
+  bridge.invoke.mockImplementation((command, { args } = {}) => {
+    if (command !== "nextctl_run") return Promise.resolve(null);
+    return Promise.resolve(result({ requests: args[4] === "approved" ? [approved] : [] }));
+  });
+  await useStore.getState().pollProfileCreateRequests();
+  expect(useStore.getState().pendingProfileCreateRequests).toEqual([approved]);
 });
 
 it("does not poll while signed out", async () => {
@@ -141,6 +158,59 @@ it("selects exactly one newly approved profile instead of an older selection", a
   await useStore.getState().approveProfileCreateRequest("req-1");
   expect(useStore.getState().selectedProfile).toBe("Romania-ClawBrowser");
   expect(useStore.getState().workspaces[0].profileNames).toEqual(["old-profile", "Romania-ClawBrowser"]);
+});
+
+it("reports completion only after workspace assignment and the running chat scope update", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({
+    authed: true,
+    nextctlAvailable: true,
+    pendingProfileCreateRequests: [{ ...pendingRequest, quantity: 1 }],
+    activeWorkspaceId: "w",
+    workspaces: [{ id: "w", name: "Test", profileNames: [], profileToolsets: {}, createdAt: 1, updatedAt: 1 }],
+  });
+  const events: string[] = [];
+  bridge.invoke.mockImplementation((command, { args } = {}) => {
+    if (command === "workspace_profile_created") { events.push("scope"); return Promise.resolve(null); }
+    if (command !== "nextctl_run") return Promise.resolve(null);
+    if (args[0] === "profiles" && args[2] === "approve") {
+      events.push("approve");
+      return Promise.resolve(result({ status: "approved", runtime: "clawbrowser", created_profiles: ["Romania-ClawBrowser"] }));
+    }
+    if (args[0] === "profiles" && args[2] === "complete") {
+      events.push("complete");
+      return Promise.resolve(result({ status: "completed" }));
+    }
+    if (args[0] === "profiles" && args[1] === "ls") return Promise.resolve(result({ profiles: [{ name: "Romania-ClawBrowser" }] }));
+    return Promise.resolve(result({}));
+  });
+  await useStore.getState().approveProfileCreateRequest("req-1");
+  expect(events).toEqual(["approve", "scope", "complete"]);
+  expect(useStore.getState().pendingProfileCreateRequests).toEqual([]);
+});
+
+it("keeps an approved request recoverable when the chat scope cannot be updated", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({
+    authed: true, nextctlAvailable: true,
+    pendingProfileCreateRequests: [{ ...pendingRequest, quantity: 1 }],
+    activeWorkspaceId: "w",
+    workspaces: [{ id: "w", name: "Test", profileNames: [], profileToolsets: {}, createdAt: 1, updatedAt: 1 }],
+  });
+  const actions: string[] = [];
+  bridge.invoke.mockImplementation((command, { args } = {}) => {
+    if (command === "workspace_profile_created") return Promise.reject(new Error("scope unavailable"));
+    if (command !== "nextctl_run") return Promise.resolve(null);
+    if (args[2] === "approve") {
+      actions.push("approve");
+      return Promise.resolve(result({ status: "approved", runtime: "clawbrowser", created_profiles: ["Romania-ClawBrowser"] }));
+    }
+    if (args[2] === "complete") actions.push("complete");
+    return Promise.resolve(result({}));
+  });
+  await expect(useStore.getState().approveProfileCreateRequest("req-1")).rejects.toThrow("scope unavailable");
+  expect(actions).toEqual(["approve"]);
+  expect(useStore.getState().pendingProfileCreateRequests[0].status).toBe("approved");
 });
 
 it("declining a request calls reject with the reason and clears it locally without creating profiles", async () => {

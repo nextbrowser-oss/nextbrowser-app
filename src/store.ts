@@ -3167,9 +3167,14 @@ export const useStore = create<State>((set, get) => {
     if (profileCreateRequestPollInFlight) return;
     profileCreateRequestPollInFlight = true;
     try {
-      const result = await nextctlJson<{ requests: ProfileCreateRequest[] }>(["profiles", "requests", "list", "--status", "pending"]);
+      const [pending, approved] = await Promise.all([
+        nextctlJson<{ requests: ProfileCreateRequest[] }>(["profiles", "requests", "list", "--status", "pending"]),
+        nextctlJson<{ requests: ProfileCreateRequest[] }>(["profiles", "requests", "list", "--status", "approved"]),
+      ]);
       const awaitingAssignment = get().pendingProfileCreateRequests.filter((request) => request.status === "completed");
-      set({ pendingProfileCreateRequests: [...awaitingAssignment, ...(result.requests ?? []).filter((request) => !awaitingAssignment.some((item) => item.id === request.id))].filter((request) => !request.workspace_id || get().workspaces.some((workspace) => workspace.id === request.workspace_id)) });
+      const current = [...awaitingAssignment, ...(approved.requests ?? []), ...(pending.requests ?? [])];
+      set({ pendingProfileCreateRequests: current.filter((request, index) => current.findIndex((item) => item.id === request.id) === index)
+        .filter((request) => !request.workspace_id || get().workspaces.some((workspace) => workspace.id === request.workspace_id)) });
     } catch {
       /* non-fatal; retry on the next tick */
     } finally {
@@ -3184,13 +3189,17 @@ export const useStore = create<State>((set, get) => {
     const request = get().pendingProfileCreateRequests.find((item) => item.id === id);
     const workspaceId = request?.workspace_id || get().activeWorkspaceId;
     if (!workspaceId || !get().workspaces.some((workspace) => workspace.id === workspaceId)) throw new Error("The requesting workspace no longer exists.");
-    const result = request?.status === "completed" ? request : await nextctlJson<ProfileCreateRequest>(["profiles", "requests", "approve", id]);
-    if (result.status !== "completed") throw new Error(result.error || "Profile creation failed.");
+    const result = request?.status === "approved" || request?.status === "completed"
+      ? request : await nextctlJson<ProfileCreateRequest>(["profiles", "requests", "approve", id]);
+    if (result.status !== "approved" && result.status !== "completed") throw new Error(result.error || "Profile creation failed.");
     set({ pendingProfileCreateRequests: get().pendingProfileCreateRequests.map((item) => item.id === id ? { ...item, ...result, workspace_id: workspaceId } : item) });
     for (const name of result.created_profiles ?? []) {
       const runtime = result.runtime ?? request?.runtime ?? "clawbrowser";
       await get().assignProfileToProject(name, runtime, workspaceId);
       await invoke("workspace_profile_created", { workspaceId, name, runtime });
+    }
+    if (result.status === "approved") {
+      await nextctlJson<ProfileCreateRequest>(["profiles", "requests", "complete", id]);
     }
     set({ pendingProfileCreateRequests: get().pendingProfileCreateRequests.filter((r) => r.id !== id) });
     await get().loadProfiles();

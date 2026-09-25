@@ -85,7 +85,7 @@ export interface ProfileCreateRequest {
   country?: string | null;
   no_proxy?: boolean;
   proxy_scheme?: string | null;
-  status: "pending" | "completed" | "rejected" | "failed";
+  status: "pending" | "approved" | "completed" | "rejected" | "failed";
   created_profiles?: string[] | null;
   error?: string | null;
   rejection_reason?: string | null;
