@@ -8,7 +8,7 @@ import {
 } from "../types";
 
 /** Where the dial's scale starts and ends, in degrees clockwise from the top.
- *  The gap at the bottom keeps "five minutes" and "a week" apart. */
+ *  The gap at the bottom keeps "a minute" and "a week" apart. */
 const START = -140;
 const END = 140;
 const SIZE = 168;
