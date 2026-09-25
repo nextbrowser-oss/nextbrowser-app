@@ -232,7 +232,7 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
             {feed.readAt && <span className="muted small">Updated {since(feed.readAt)}</span>}
           </div>
           <div className="xmon-posts">
-            {feed.posts.map((post) => <PostRow key={post.key} post={post} fresh={isNew(feed, post.key, Date.now())} />)}
+            {feed.posts.map((post) => <PostRow key={post.key} post={post} fresh={isNew(feed, post.key)} />)}
           </div>
         </div>
       )}

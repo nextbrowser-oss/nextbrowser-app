@@ -16,8 +16,8 @@ describe("withPass", () => {
       feedRead: true,
     }, 1000);
     expect(feed.posts.map((item) => item.key)).toEqual(["3", "2", "1"]);
-    expect(isNew(feed, "3", 1000)).toBe(true);
-    expect(isNew(feed, "2", 1000)).toBe(false);
+    expect(isNew(feed, "3")).toBe(true);
+    expect(isNew(feed, "2")).toBe(false);
     expect(feed.readAt).toBe(1000);
   });
 
@@ -28,9 +28,18 @@ describe("withPass", () => {
     expect(after.readAt).toBe(1000);
   });
 
-  it("forgets the new mark after a day", () => {
-    const feed = withPass(emptyXMonitorFeed(), { posts: [], events: [{ type: "new_post", at: 0, post: post("1", 0) }], feedRead: true }, 0);
-    expect(isNew(feed, "1", 25 * 60 * 60 * 1000)).toBe(false);
+  it("keeps the new mark for the latest read only, and still counts the day", () => {
+    const first = withPass(emptyXMonitorFeed(), { posts: [post("1", 100)], events: [{ type: "new_post", at: 0, post: post("1", 100) }], feedRead: true }, 1000);
+    const second = withPass(first, { posts: [post("2", 200), post("1", 100)], events: [{ type: "new_post", at: 0, post: post("2", 200) }], feedRead: true }, 2000);
+    expect(isNew(second, "2")).toBe(true);
+    expect(isNew(second, "1")).toBe(false);
+    expect(second.announced).toHaveLength(2);
+    // A read that brought nothing new clears the mark.
+    const third = withPass(second, { posts: [post("2", 200), post("1", 100)], events: [], feedRead: true }, 3000);
+    expect(third.lastNew).toEqual([]);
+    // A pass that never reached the feed leaves it as it was.
+    const blocked = withPass(second, { posts: [], events: [], feedRead: false }, 4000);
+    expect(isNew(blocked, "2")).toBe(true);
   });
 
   it("leaves a repost where the feed showed it", () => {

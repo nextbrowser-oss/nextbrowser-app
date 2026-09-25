@@ -19,13 +19,16 @@ const MAX_ANNOUNCED = 300;
 
 export interface XMonitorFeed {
   posts: FeedPost[];
-  /** Posts a pass announced as new, and when. */
+  /** Posts a pass announced as new, and when: what the 24-hour count reads. */
   announced: { key: string; at: number }[];
+  /** The posts the latest feed read announced. Only these carry the "new"
+   *  mark; the next read that gets through the feed hands it on. */
+  lastNew: string[];
   readAt?: number;
 }
 
 export function emptyXMonitorFeed(): XMonitorFeed {
-  return { posts: [], announced: [] };
+  return { posts: [], announced: [], lastNew: [] };
 }
 
 /** normalizeXMonitorFeed accepts whatever was on disk. */
@@ -38,9 +41,11 @@ export function normalizeXMonitorFeed(raw: unknown): XMonitorFeed {
   const announced = Array.isArray(record.announced)
     ? record.announced.filter((item) => item && typeof item.key === "string" && Number.isFinite(item.at))
     : [];
+  const lastNew = Array.isArray(record.lastNew) ? record.lastNew.filter((key): key is string => typeof key === "string") : [];
   return {
     posts: posts.slice(0, MAX_POSTS),
     announced: announced.slice(-MAX_ANNOUNCED),
+    lastNew,
     ...(Number.isFinite(record.readAt) ? { readAt: record.readAt } : {}),
   };
 }
@@ -62,13 +67,14 @@ export function withPass(
   return {
     posts: sortNewestFirst(posts).slice(0, MAX_POSTS),
     announced: [...feed.announced.filter((item) => at - item.at < NEW_FOR_MS), ...fresh].slice(-MAX_ANNOUNCED),
+    lastNew: pass.feedRead ? fresh.map((item) => item.key) : feed.lastNew,
     readAt: pass.feedRead ? at : feed.readAt,
   };
 }
 
-/** isNew says whether a post was announced within the last day. */
-export function isNew(feed: XMonitorFeed, key: string, at: number): boolean {
-  return feed.announced.some((item) => item.key === key && at - item.at < NEW_FOR_MS);
+/** isNew says whether the latest feed read announced a post. */
+export function isNew(feed: XMonitorFeed, key: string): boolean {
+  return feed.lastNew.includes(key);
 }
 
 /** Reposts carry the original post's time, so a repost is placed by when the
