@@ -7,6 +7,9 @@ const allowedOperations = new Set(["search", "scrape", "paginate", "post", "comm
 const allowedTargetModes = new Set(["fixed_domain", "current_tab"]);
 const allowedPermissions = new Set(["read_page", "use_page_controls", "save_local_artifact", "upload_file", "login", "publish"]);
 const allowedVerification = new Set(["community", "verified"]);
+// Brand marks the app draws itself. A logo it has no drawing for would render
+// as an empty tile, so the list is closed.
+const allowedLogos = new Set(["x", "reddit"]);
 const failures = [];
 
 for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
@@ -38,6 +41,14 @@ for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
   }
   if (manifest.verification != null && !allowedVerification.has(manifest.verification)) {
     failures.push(`${entry.name}: verification must be community or verified`);
+  }
+  // What the card lists as available inside the skill: a few short labels.
+  if (manifest.features != null && (!Array.isArray(manifest.features) || manifest.features.length > 4
+    || manifest.features.some((feature) => typeof feature !== "string" || !feature.trim() || feature.length > 24))) {
+    failures.push(`${entry.name}: features must be at most four labels of up to 24 characters`);
+  }
+  if (manifest.logo != null && !allowedLogos.has(manifest.logo)) {
+    failures.push(`${entry.name}: logo must be one of ${[...allowedLogos].join(", ")}`);
   }
   if (manifest.min_nextctl_version != null && (typeof manifest.min_nextctl_version !== "string" || !/^>=\d+\.\d+\.\d+$/.test(manifest.min_nextctl_version))) {
     failures.push(`${entry.name}: min_nextctl_version must use the format >=x.y.z`);
@@ -150,6 +161,10 @@ for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
       // the chat path, which is a different product than the manifest promises.
       if (watchlist.engine != null && !["x-reply"].includes(watchlist.engine)) {
         failures.push(`${entry.name}: watchlist.engine is not a built-in engine`);
+      }
+      // A second mode beside the watchlist, driven by its own built-in engine.
+      if (watchlist.monitor != null && (typeof watchlist.monitor !== "object" || !["x-monitor"].includes(watchlist.monitor.engine))) {
+        failures.push(`${entry.name}: watchlist.monitor.engine is not a built-in monitor engine`);
       }
     }
   }

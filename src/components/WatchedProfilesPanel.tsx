@@ -12,6 +12,22 @@ import {
 } from "../types";
 import { replyBudget } from "../lib/xreply/state";
 import { Icon } from "./Icon";
+import { SkillLogo } from "./SkillLogo";
+import { XMonitorView } from "./XMonitorView";
+
+type PanelMode = "reply" | "monitor";
+
+const modeKey = (skillId: string) => `skillPanelMode:${skillId}`;
+
+/** The mode the panel was last left in, per skill. It is a view preference,
+ *  so localStorage is enough; a missing or unreadable value is the reply mode. */
+function storedMode(skillId: string): PanelMode {
+  try {
+    return localStorage.getItem(modeKey(skillId)) === "monitor" ? "monitor" : "reply";
+  } catch {
+    return "reply";
+  }
+}
 
 const MINUTE = 60_000;
 
@@ -93,6 +109,13 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [signInTried, setSignInTried] = useState(false);
   const [, setNowTick] = useState(0);
+  const monitor = watchlist?.monitor;
+  const [mode, setModeState] = useState<PanelMode>(() => (monitor ? storedMode(entry.id) : "reply"));
+  const setMode = (next: PanelMode) => {
+    setModeState(next);
+    try { localStorage.setItem(modeKey(entry.id), next); } catch { /* a view preference */ }
+  };
+  const monitoring = !!monitor && mode === "monitor";
 
   useEffect(() => {
     if (!engine) void loadWatchReports(entry);
@@ -213,13 +236,17 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
     <div className="modal-overlay" onMouseDown={onClose}>
       <div className="modal-card watchlist-modal" onMouseDown={(event) => event.stopPropagation()}>
         <div className="row watchlist-head">
-          <span className="watchlist-head-icon"><Icon name={entry.categoryIcon} size={16} /></span>
+          {entry.logo
+            ? <SkillLogo entry={entry} size={32} />
+            : <span className="watchlist-head-icon"><Icon name={entry.categoryIcon} size={16} /></span>}
           <div className="watchlist-title">
-            <strong>{watchlist.title}</strong>
+            <strong>{monitor ? entry.title : watchlist.title}</strong>
             <span className="muted small">
-              {signedIn && publisher?.handle
-                ? `${prefix}${publisher.handle} · ${activeCount} watched`
-                : `${activeCount || "No"} watched`}
+              {monitoring
+                ? (signedIn && publisher?.handle ? `${prefix}${publisher.handle} · monitoring` : "Feed and followers")
+                : signedIn && publisher?.handle
+                  ? `${prefix}${publisher.handle} · ${activeCount} watched`
+                  : `${activeCount || "No"} watched`}
             </span>
           </div>
           <span className="spacer" />
@@ -233,6 +260,24 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
           </button>
         </div>
 
+        {monitor && (
+          <div className="skill-mode-switch" role="tablist" aria-label="What this skill does">
+            {([["reply", monitor.replyLabel], ["monitor", monitor.label]] as const).map(([value, label]) => (
+              <button
+                key={value}
+                role="tab"
+                aria-selected={mode === value}
+                className={"skill-mode-option" + (mode === value ? " selected" : "")}
+                onClick={() => setMode(value)}
+              >
+                <Icon name={value === "reply" ? "bubble.left.and.bubble.right.fill" : "chart.line.uptrend.xyaxis"} size={13} />
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {monitoring ? <XMonitorView entry={entry} /> : (<>
         {transports.length > 1 && (
           <div className="row watchlist-profile">
             <label className="muted small">Runs on</label>
@@ -627,6 +672,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
           </div>
         </div>
         {!ready && <div className="muted small watchlist-hint">Connect an agent — it writes the replies.</div>}
+        </>)}
       </div>
     </div>
   );

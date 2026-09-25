@@ -12,6 +12,12 @@ gates, the watermarks and the reply limits are the app's, and a model is called
 only to write each reply. Start, stop, the watched accounts and the draft queue
 live in the Skills panel.
 
+The skill has a second mode, Monitoring, that NextBrowser runs itself with
+the open-source engine `@nextbrowser-oss/x-monitoring`. It reads the signed-in
+account's Following feed and its follower count, and it never posts, likes, or
+follows. A chat request for monitoring belongs in that panel: point the user
+there instead of scraping the feed from chat.
+
 Follow the steps below when the workflow is asked for in chat instead — a single
 post to answer, a one-off check, or a machine where the panel is not available.
 The rules are the same either way; in chat you are the one enforcing them.

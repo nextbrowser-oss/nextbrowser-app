@@ -3219,10 +3219,61 @@ body.is-resizing-sidebar {
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 14px;
 }
-.skill-card { display: flex; flex-direction: column; gap: 8px; min-height: 130px; }
+.skill-card { display: flex; flex-direction: column; gap: 10px; min-height: 130px; padding: 16px; }
 .skill-card:hover { border-color: var(--line-strong); background: var(--surface-1); }
-.skill-card-head { display: flex; align-items: flex-start; gap: 8px; }
-.skill-title { font-weight: 600; flex: 1; }
+.skill-card-head { display: flex; align-items: center; gap: 11px; }
+.skill-card-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.skill-card-titles .skill-author { margin: 0; font-size: 11.5px; }
+.skill-title { font-weight: 600; font-size: 15px; line-height: 1.25; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Two lines at most: the card says what the skill is for, the skill itself
+   says how. */
+.skill-desc {
+  color: var(--text-secondary);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.skill-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+/* What a shipped skill offers, named plainly. */
+.skill-features { display: flex; flex-wrap: wrap; gap: 6px; }
+.skill-feature {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.skill-running { flex: none; display: inline-flex; align-items: center; gap: 5px; color: var(--green); font-weight: 600; }
+.skill-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-2) 68%, transparent);
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The skill's face: the site's own mark on its brand colour, or the target's
+   icon on the accent tint for skills without one. */
+.skill-logo {
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.skill-logo-x { background: #000; color: #fff; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14); }
+.skill-logo-reddit { background: #ff4500; color: #fff; }
 .mode-badge {
   font-size: 10px;
   font-weight: 600;
@@ -3421,6 +3472,142 @@ body.is-resizing-sidebar {
 }
 .watchlist-draft-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .watchlist-draft-actions { align-items: center; gap: 8px; }
+/* Reply agent / Monitoring: one skill, two jobs. A full-width segmented
+   control, because the choice changes everything below it. */
+.skill-mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+.skill-mode-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 13px;
+}
+.skill-mode-option:hover { color: var(--text); background: var(--surface-3); }
+.skill-mode-option.selected { background: var(--surface-5); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2); }
+
+/* X monitoring dashboard. */
+.watchlist-modal:has(.xmon-stats) { width: min(640px, calc(100vw - 48px)); max-height: calc(100vh - 64px); overflow-y: auto; }
+.xmon-account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+.xmon-avatar {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 700;
+}
+.xmon-avatar.is-empty { background: var(--surface-3); color: var(--muted); }
+.xmon-account-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.xmon-account-text .muted { display: inline-flex; align-items: center; gap: 6px; }
+.xmon-stats { display: grid; grid-template-columns: 1.6fr 1fr 1fr; gap: 8px; }
+.xmon-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+.xmon-stat-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.xmon-value { font-size: 22px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--text); }
+.xmon-stat-main .xmon-value { font-size: 30px; }
+.xmon-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.xmon-delta.up { background: var(--green-soft); color: var(--green); }
+.xmon-delta.down { background: var(--red-soft); color: var(--red); }
+.xmon-spark { position: relative; height: 40px; margin-top: 4px; }
+.xmon-spark.is-empty { border-bottom: 1px dashed var(--line-strong); height: 20px; }
+.xmon-spark svg { width: 100%; height: 100%; overflow: visible; display: block; }
+.xmon-spark-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.xmon-spark-area { fill: var(--accent-soft); stroke: none; }
+.xmon-spark-cross { stroke: var(--line-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.xmon-spark-dot { fill: var(--accent); stroke: var(--surface-1, #111); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.xmon-spark-tip {
+  position: absolute;
+  top: -22px;
+  right: 0;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--surface-4);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.xmon-feed { display: flex; flex-direction: column; gap: 8px; }
+.xmon-feed-head { align-items: center; }
+.xmon-posts { display: flex; flex-direction: column; gap: 6px; max-height: 360px; overflow-y: auto; padding-right: 2px; }
+.xmon-post {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 10px 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+.xmon-post.is-new { border-color: color-mix(in srgb, var(--green) 35%, var(--line)); }
+.xmon-post-avatar {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--surface-4);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+.xmon-post-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.xmon-post-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.xmon-post-text {
+  color: var(--text);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+@media (max-width: 560px) {
+  .xmon-stats { grid-template-columns: 1fr 1fr; }
+  .xmon-stat-main { grid-column: 1 / -1; }
+}
 .watchlist-loop {
   display: flex;
   flex-direction: column;

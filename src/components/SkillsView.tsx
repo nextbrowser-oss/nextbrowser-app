@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { useStore } from "../store";
 import {
   type SkillEntry,
-  selectorIcon,
   selectorTargetHost,
 } from "../skillsCatalog";
 import type { BrowserWorkflowSkill, CustomScript } from "../types";
@@ -11,6 +10,7 @@ import { internalError } from "../lib/userFacingError";
 import { cloudPhoneFromSelection, cloudPhoneRunsIn } from "../lib/cloudPhoneSkill";
 import { multiloginSelectionForWorkspace } from "../lib/multiloginSelection";
 import { Icon } from "./Icon";
+import { SkillLogo } from "./SkillLogo";
 import { UserFacingError } from "./UserFacingError";
 import { WatchedProfilesPanel } from "./WatchedProfilesPanel";
 
@@ -92,6 +92,15 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
     if (host) return `Runs in ${sessionName} → ${host}`;
     if (e.selector.kind === "captcha" || e.selector.kind === "current_tab") return `Runs in ${sessionName} · current tab`;
     return `Runs in ${sessionName}`;
+  };
+
+  /** The target as one short chip; the full sentence is its tooltip. */
+  const targetChip = (e: SkillEntry) => {
+    const runtime = e.watchlist ? s.watchlistTransportFor(e).runtime : e.runtime;
+    if (runtime === "cloud-phone") return "Cloud phone";
+    const host = selectorTargetHost(e.selector);
+    if (host) return host;
+    return e.selector.kind === "captcha" || e.selector.kind === "current_tab" ? "Current tab" : sessionName;
   };
 
   const applyState = (id: string) => s.skillApplyState(id);
@@ -197,27 +206,47 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
             const applyError = s.skillApplyError(e.id);
             const publishedScript = e.selector.kind === "script" && !e.js;
             const repositorySkill = e.source === "repository";
+            const running = e.watchlist && s.watchlistRunFor(e.id)?.enabled ? s.watchlistRunFor(e.id)?.intervalMinutes : undefined;
             return (
-              <div key={e.id} className="skill-card claw-card">
+              <div key={e.id} className={"skill-card claw-card" + (e.logo ? ` skill-card-${e.logo}` : "")}>
                 <div className="skill-card-head">
-                  <Icon name={selectorIcon(e.selector)} size={16} className="accent-icon" />
-                  <div className="skill-title">{e.title}</div>
+                  <SkillLogo entry={e} />
+                  <div className="skill-card-titles">
+                    <div className="skill-title">{e.title}</div>
+                    {repositorySkill && e.author && <div className="small muted skill-author">by {authorLabel(e.author)}</div>}
+                  </div>
                   {!repositorySkill && (
                     <span className={"mode-badge" + (e.js ? " instant" : " agent")}>
                       <Icon name={e.js ? "bolt.fill" : publishedScript ? "scroll.fill" : "sparkles"} size={10} />
                       {e.js ? "Instant" : publishedScript ? "Script" : "Agent"}
                     </span>
                   )}
+                  {running && (
+                    <span className="skill-running small" title={`Checking every ${running} min`}>
+                      <span className="status-dot ok-dot" /> Running
+                    </span>
+                  )}
                 </div>
-                <div className="muted small">{e.subtitle}</div>
-                {repositorySkill && e.author && <div className="small muted skill-author">by @{e.author}</div>}
-                <div className="target-line small muted">
-                  <Icon
-                    name={selectorTargetHost(e.selector) ? "arrow.right.circle" : "play.circle"}
-                    size={12}
-                  />
-                  {targetText(e)}
-                </div>
+                <div className="skill-desc small">{e.subtitle}</div>
+                {/* A shipped skill says what it offers; where it runs and what it
+                    is allowed to do live inside it, not on the card. */}
+                {repositorySkill ? (
+                  e.features?.length ? (
+                    <div className="skill-features small">
+                      {e.features.map((feature) => <span key={feature} className="skill-feature">{feature}</span>)}
+                    </div>
+                  ) : null
+                ) : (
+                  <div className="skill-meta small">
+                    <span className="skill-meta-chip" title={targetText(e)}>
+                      <Icon
+                        name={selectorTargetHost(e.selector) ? "arrow.right.circle" : "play.circle"}
+                        size={11}
+                      />
+                      {targetChip(e)}
+                    </span>
+                  </div>
+                )}
                 {publishedScript && st === "idle" && <div className="small muted skill-status">Not added</div>}
                 {publishedScript && status[e.id] === "adding to script menu…" && (
                   <div className="small muted skill-status">Adding to script menu…</div>
@@ -227,22 +256,6 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                     <Icon name="checkmark.seal.fill" size={12} />
                     Added to script menu
                   </div>
-                )}
-                {repositorySkill && <div className="small ok skill-status"><Icon name="checkmark.seal.fill" size={12} /> Included with Nextbrowser</div>}
-                {repositorySkill && <div className="skill-contract small muted"><span>{e.verification === "verified" ? "Verified" : "Test contract included"}</span>{e.permissions?.length ? <span>{e.permissions.map((permission) => permission.replace(/_/g, " ")).join(" · ")}</span> : <span>Legacy permissions</span>}</div>}
-                {e.watchlist && (
-                  <button
-                    className="skill-watchlist-summary small"
-                    title={`Manage ${e.watchlist.title.toLowerCase()}`}
-                    onClick={() => setWatchlistSkill(e)}
-                  >
-                    <span className={"status-dot " + (s.watchlistRunFor(e.id)?.enabled ? "ok-dot" : "muted-dot")} />
-                    {watchedSummary(
-                      s.watchedProfilesFor(e.id),
-                      e.watchlist.prefix ?? "",
-                      s.watchlistRunFor(e.id)?.enabled ? s.watchlistRunFor(e.id)?.intervalMinutes : undefined,
-                    )}
-                  </button>
                 )}
                 {!publishedScript && !repositorySkill && (
                   <>
@@ -475,22 +488,10 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
   );
 }
 
-/// The card shows who is being watched, and whether the loop is on, without
-/// opening the manager: both change what pressing Run will do.
-function watchedSummary(
-  profiles: { handle: string; enabled: boolean }[],
-  prefix: string,
-  runningEveryMinutes?: number,
-): string {
-  const active = profiles.filter((profile) => profile.enabled);
-  const cadence = runningEveryMinutes
-    ? ` · every ${runningEveryMinutes < 60 ? `${runningEveryMinutes}m` : `${runningEveryMinutes / 60}h`}`
-    : "";
-  if (!profiles.length) return "No watched profiles yet";
-  if (!active.length) return `${profiles.length} watched · all paused`;
-  const names = active.slice(0, 2).map((profile) => `${prefix}${profile.handle}`).join(", ");
-  const list = active.length > 2 ? `${names} +${active.length - 2}` : names;
-  return `${runningEveryMinutes ? "Running" : "Watching"} ${list}${cadence}`;
+/// A contributor is credited by GitHub handle; a name with a space in it, such
+/// as "NextBrowser Team", is a team and is written out as it is.
+function authorLabel(author: string): string {
+  return /\s/.test(author) ? author : `@${author}`;
 }
 
 function RunLocalSkillSheet({ skill, sessionName, onClose, onRun }: {

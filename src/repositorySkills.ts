@@ -1,6 +1,7 @@
 import type {
   SkillCategory,
   SkillEntry,
+  SkillLogo,
   SkillPermission,
   SkillRuntime,
   SkillVerification,
@@ -21,6 +22,8 @@ interface RepositorySkillManifest {
   permissions?: SkillPermission[];
   min_nextctl_version?: string;
   verification?: SkillVerification;
+  logo?: SkillLogo;
+  features?: string[];
 }
 
 const manifests = import.meta.glob<RepositorySkillManifest>("../skills/*/manifest.json", {
@@ -71,6 +74,8 @@ export function repositorySkillCategories(): SkillCategory[] {
       instructions: skillInstructions,
       author: manifest.author,
       watchlist: manifest.watchlist,
+      logo: manifest.logo === "x" || manifest.logo === "reddit" ? manifest.logo : undefined,
+      features: Array.isArray(manifest.features) ? manifest.features.filter((feature) => typeof feature === "string") : undefined,
     };
     category.entries.push(entry);
     grouped.set(manifest.category.id, category);

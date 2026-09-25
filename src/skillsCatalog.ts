@@ -41,6 +41,16 @@ export interface SkillWatchlist {
   /// whole workflow to the agent. The agent is then called only where a model
   /// is genuinely needed — writing the reply.
   engine?: "x-reply";
+  /// A second mode beside the watchlist: read-only monitoring by its own
+  /// built-in engine. The skill's panel then offers a switch between the two.
+  monitor?: SkillWatchlistMonitor;
+}
+
+export interface SkillWatchlistMonitor {
+  engine: "x-monitor";
+  /// Switch labels, for example "Monitoring" and "Reply agent".
+  label: string;
+  replyLabel: string;
 }
 
 /// Reading the signed-in account is site knowledge, so the skill carries it and
@@ -150,6 +160,9 @@ export function resolveWatchlistTransport(
 /// Multilogin phone, so the app prepares no browser profile for it.
 export type SkillRuntime = "browser" | "cloud-phone";
 
+/// A brand mark the app draws for a skill, in place of the generic globe.
+export type SkillLogo = "x" | "reddit";
+
 export interface SkillEntry {
   id: string;
   title: string;
@@ -169,6 +182,10 @@ export interface SkillEntry {
   permissions?: SkillPermission[];
   minNextctlVersion?: string;
   verification?: SkillVerification;
+  logo?: SkillLogo;
+  /// What is available inside the skill, listed on its card, for example
+  /// "Reply agent" and "Monitoring".
+  features?: string[];
 }
 
 /// fillTemplate substitutes `{name}` placeholders. A placeholder without a

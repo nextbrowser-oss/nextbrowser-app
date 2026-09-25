@@ -1,8 +1,8 @@
 {
   "id": "999-car-search",
   "name": "999.md Car Search",
-  "description": "Search, filter, paginate, and deduplicate car listings on 999.md.",
-  "author": "nextbrowser-oss",
+  "description": "Search and compare car listings on 999.md.",
+  "author": "NextBrowser Team",
   "domains": ["999.md"],
   "operations": ["search", "scrape", "paginate"],
   "target_mode": "fixed_domain",

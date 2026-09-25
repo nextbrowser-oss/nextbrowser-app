@@ -33,6 +33,21 @@ import { cliBrowser } from "./lib/xreply/browser";
 import { openNotifications, readPublisher, runPass, subscribeHandle } from "./lib/xreply/engine";
 import { errorText as xReplyErrorText, setXReplyLogSink, xlog } from "./lib/xreply/log";
 import { emptyXReplyState, normalizeXReplyState, type XReplyState } from "./lib/xreply/state";
+import {
+  normalizeState as normalizeMonitorState,
+  runPass as runMonitorPass,
+  type LogEntry as MonitorLogEntry,
+  type MonitorState,
+} from "@nextbrowser-oss/x-monitoring";
+import {
+  X_MONITOR_FEED_FILE,
+  X_MONITOR_LOG_FILE,
+  X_MONITOR_STATE_FILE,
+  emptyXMonitorFeed,
+  normalizeXMonitorFeed,
+  withPass as withMonitorPass,
+  type XMonitorFeed,
+} from "./lib/xmonitor/feed";
 import { activityFromText, extractToolEvents } from "./lib/activityParser";
 import { composePrompt } from "./lib/composePrompt";
 import { executionTargetForTurn, type ExecutionTarget } from "./lib/executionTarget";
@@ -583,6 +598,11 @@ interface State {
   xReplyStep?: string;
   /** Set when something the user pressed needs a signed-in profile. */
   xReplySignInNeeded: boolean;
+  /** The X skill's monitoring mode: the engine's own state, and the feed the
+   *  dashboard shows. It drives the same profile as the reply agent and takes
+   *  turns with it through xReplyBusy, since both navigate one tab. */
+  xMonitorState: MonitorState;
+  xMonitorFeed: XMonitorFeed;
   appActive: boolean;
   connectAnnounced: Set<string>;
   workingDir: string;
@@ -746,6 +766,7 @@ interface State {
   dismissXReplySignIn: () => void;
   subscribeXReplyHandle: (entry: SkillEntry, handle: string) => Promise<void>;
   updateXReplySettings: (patch: Partial<XReplyState>) => void;
+  runXMonitorPass: (entry: SkillEntry) => Promise<void>;
   stopWatchlistRun: (skillId: string) => void;
   tickWatchlistRuns: () => Promise<void>;
   startRemoteStream: (target?: LiveStreamTarget) => Promise<RemoteStreamInfo>;
@@ -931,6 +952,8 @@ async function clearAccountEntityCache(): Promise<void> {
     "watchlist-devices.json": "{}",
     "watchlist-sign-ins.json": "{}",
     [X_REPLY_STATE_FILE]: "null",
+    [X_MONITOR_STATE_FILE]: "null",
+    [X_MONITOR_FEED_FILE]: "null",
   };
   await Promise.all(Object.entries(emptyFiles).map(([name, content]) =>
     invoke("app_data_write", { name, content }),
@@ -982,6 +1005,8 @@ function emptyAccountOwnedCaches(): Partial<State> {
     watchPublishers: {},
     selectedProfile: undefined,
     xReplyState: normalizeXReplyState(null),
+    xMonitorState: normalizeMonitorState(null),
+    xMonitorFeed: emptyXMonitorFeed(),
   };
 }
 
@@ -1260,6 +1285,13 @@ setXReplyLogSink((entry) => {
     .then(() => appendAppData(X_REPLY_LOG_FILE, `${JSON.stringify(entry)}\n`))
     .catch(() => undefined);
 });
+/** The monitor's log, beside the reply engine's and rotated the same way. */
+let xMonitorLogQueue: Promise<void> = Promise.resolve();
+function xMonitorLog(entry: MonitorLogEntry) {
+  xMonitorLogQueue = xMonitorLogQueue
+    .then(() => appendAppData(X_MONITOR_LOG_FILE, `${JSON.stringify(entry)}\n`))
+    .catch(() => undefined);
+}
 /** How long one draft may take before the agent is killed, ported from the Go
  *  service's DefaultCommandTimeout. A CLI that hangs otherwise holds the panel
  *  busy until the app restarts, and Stop cannot reach it. */
@@ -1817,6 +1849,8 @@ export const useStore = create<State>((set, get) => {
   xReplyState: emptyXReplyState(),
   xReplyBusy: false,
   xReplySignInNeeded: false,
+  xMonitorState: normalizeMonitorState(null),
+  xMonitorFeed: emptyXMonitorFeed(),
   scheduledRuns: [],
   customScripts: [],
   localSkills: [],
@@ -1918,7 +1952,7 @@ export const useStore = create<State>((set, get) => {
       }, BOOTSTRAP_FOREGROUND_WAIT_MS);
     });
     const initialize = (async () => {
-      const [rawConvs, rawWorkspaces, rawSchedules, rawScripts, rawLocalSkills, rawAppliedScripts, rawHistory, rawWatched, rawWatchlistRuns, rawWatchlistTransports, rawWatchlistProfiles, rawWatchlistDevices, rawXReply, wd] = await Promise.all([
+      const [rawConvs, rawWorkspaces, rawSchedules, rawScripts, rawLocalSkills, rawAppliedScripts, rawHistory, rawWatched, rawWatchlistRuns, rawWatchlistTransports, rawWatchlistProfiles, rawWatchlistDevices, rawXReply, rawXMonitor, rawXMonitorFeed, wd] = await Promise.all([
         loadJson<Conversation[]>("conversations.json", []),
         loadJson<Workspace[]>("workspaces.json", []),
         loadJson<ScheduledRun[]>("scheduled-runs.json", []),
@@ -1932,6 +1966,8 @@ export const useStore = create<State>((set, get) => {
         loadJson<Record<string, string>>("watchlist-profiles.json", {}),
         loadJson<Record<string, MultiloginProfileSelection>>("watchlist-devices.json", {}),
         loadJson<unknown>(X_REPLY_STATE_FILE, null),
+        loadJson<unknown>(X_MONITOR_STATE_FILE, null),
+        loadJson<unknown>(X_MONITOR_FEED_FILE, null),
         invoke<string>("working_directory").catch(() => ""),
       ]);
       const convs = rawConvs.map(normalizeConversation);
@@ -1973,6 +2009,8 @@ export const useStore = create<State>((set, get) => {
         watchlistProfiles: rawWatchlistProfiles ?? {},
         watchlistDevices: rawWatchlistDevices ?? {},
         xReplyState: normalizeXReplyState(rawXReply),
+        xMonitorState: normalizeMonitorState(rawXMonitor),
+        xMonitorFeed: normalizeXMonitorFeed(rawXMonitorFeed),
         workingDir: wd,
       });
       get().reconcileQueues();
@@ -2966,6 +3004,8 @@ export const useStore = create<State>((set, get) => {
         watchlistDevices: {},
         watchlistSignIns: {},
         xReplyState: normalizeXReplyState(null),
+        xMonitorState: normalizeMonitorState(null),
+        xMonitorFeed: emptyXMonitorFeed(),
         projectRevisions: {},
         workspaceRevisions: {},
         workspaceSetupRequired: false,
@@ -5777,6 +5817,57 @@ export const useStore = create<State>((set, get) => {
   },
 
   dismissXReplySignIn: () => set({ xReplySignInNeeded: false }),
+
+  // One monitoring pass on the reply agent's profile. It reads and never acts,
+  // and it takes the same lock as the reply engine, because both drive one tab.
+  runXMonitorPass: async (_entry) => {
+    if (get().xReplyBusy) return;
+    xReplyStopRequested = false;
+    set({ xReplyBusy: true, xReplyStep: "Preparing the browser session", xReplySignInNeeded: false });
+    xMonitorLog({ t: new Date().toISOString(), ev: "run.start", profile: get().xReplyState.profileName ?? get().selectedProfile, app: __APP_VERSION__ });
+    try {
+      const profileArgs = await prepareXReplySession(undefined, (step) => set({ xReplyStep: step }));
+      const result = await runMonitorPass({
+        browser: cliBrowser(profileArgs),
+        state: get().xMonitorState,
+        log: xMonitorLog,
+        onStep: (step) => set({ xReplyStep: step }),
+        shouldStop: () => xReplyStopRequested,
+      });
+      const at = result.state.lastPass?.at ?? now();
+      const xMonitorFeed = withMonitorPass(get().xMonitorFeed, {
+        posts: result.posts,
+        events: result.events,
+        feedRead: result.summary.feedRead,
+      }, at);
+      void saveJson(X_MONITOR_STATE_FILE, result.state);
+      void saveJson(X_MONITOR_FEED_FILE, xMonitorFeed);
+      // Who is signed in is the same answer for both modes: they share a profile.
+      const account = result.state.account;
+      const xReplyState: XReplyState = account
+        ? { ...get().xReplyState, publisher: { handle: account.handle, signedIn: account.signedIn, checkedAt: account.checkedAt } }
+        : get().xReplyState;
+      if (account) persistXReplyState(xReplyState);
+      set({ xMonitorState: result.state, xMonitorFeed, xReplyState, xReplySignInNeeded: result.summary.loginRequired });
+      trackEvent("x_monitor_pass_finished", {
+        new_posts: result.summary.newPosts,
+        follower_changes: result.summary.followerChanges,
+        signed_in: result.summary.signedIn,
+      });
+    } catch (error) {
+      xMonitorLog({ t: new Date().toISOString(), ev: "run.error", error: xReplyErrorText(error) });
+      const at = now();
+      const xMonitorState: MonitorState = {
+        ...get().xMonitorState,
+        lastPass: { at, finishedAt: at, newPosts: 0, followerChanges: 0, notes: [friendlyXReplyError(error)] },
+      };
+      void saveJson(X_MONITOR_STATE_FILE, xMonitorState);
+      set({ xMonitorState });
+      trackEvent("x_monitor_pass_failed", {});
+    } finally {
+      set({ xReplyBusy: false, xReplyStep: undefined });
+    }
+  },
 
   // Adding an account subscribes it right away: the bell goes on and the
   // account's current position is recorded, so the first pass answers what

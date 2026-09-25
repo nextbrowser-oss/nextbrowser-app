@@ -1,8 +1,10 @@
 {
   "id": "reddit",
   "name": "Reddit",
-  "description": "Watch subreddits and the inbox, draft one short reply per new item, and post the replies you approved - in a browser profile or in the Reddit Android app on a cloud phone.",
-  "author": "nextbrowser-oss",
+  "description": "Replies to subreddits and your inbox.",
+  "logo": "reddit",
+  "features": ["Reply agent", "Cloud phone"],
+  "author": "NextBrowser Team",
   "domains": [
     "reddit.com"
   ],
