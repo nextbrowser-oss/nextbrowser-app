@@ -16,9 +16,9 @@ const CENTER = SIZE / 2;
 const RADIUS = 66;
 const STEPS: readonly number[] = MONITOR_INTERVAL_STEPS;
 /** Stops that carry a label on the ring. */
-const LABELLED = new Map<number, string>([[5, "5m"], [60, "1h"], [360, "6h"], [1440, "24h"], [2880, "48h"], [10080, "7d"]]);
+const LABELLED = new Map<number, string>([[1, "1m"], [15, "15m"], [60, "1h"], [360, "6h"], [1440, "24h"], [10080, "7d"]]);
 
-const PRESETS = [5, 15, 30, 60, 360, 720, 1440, 2880];
+const PRESETS = [1, 5, 15, 30, 60, 360, 1440, 2880];
 
 type Unit = "min" | "h" | "d";
 const UNIT_MINUTES: Record<Unit, number> = { min: 1, h: 60, d: 1440 };
@@ -197,7 +197,7 @@ export function IntervalDial({ value, onChange, disabled }: {
             <option value="d">days</option>
           </select>
         </label>
-        <span className="muted small">From 5 minutes to 7 days.</span>
+        <span className="muted small">From 1 minute to 7 days.</span>
       </div>
     </div>
   );

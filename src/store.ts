@@ -36,6 +36,7 @@ import { emptyXReplyState, normalizeXReplyState, type XReplyState } from "./lib/
 import {
   checkAccount as checkMonitorAccount,
   normalizeState as normalizeMonitorState,
+  withSettings as withMonitorSettings,
   runPass as runMonitorPass,
   type LogEntry as MonitorLogEntry,
   type MonitorState,
@@ -5948,7 +5949,9 @@ export const useStore = create<State>((set, get) => {
       const profileArgs = await prepareXReplySession(undefined, (step) => set({ xReplyStep: step }), options?.profileName);
       const result = await runMonitorPass({
         browser: cliBrowser(profileArgs),
-        state: get().xMonitorState,
+        // The schedule already says how often to look, so every pass reads
+        // the follower count too instead of waiting out a throttle of its own.
+        state: withMonitorSettings(get().xMonitorState, { followersIntervalMs: 0 }),
         log: xMonitorLog,
         onStep: (step) => set({ xReplyStep: step }),
         shouldStop: () => xReplyStopRequested,

@@ -75,7 +75,8 @@ describe("monitoring intervals", () => {
     expect(formatInterval(2880)).toBe("48 h");
     expect(formatInterval(4320)).toBe("3 d");
     expect(formatInterval(2000)).toBe("33 h 20 min");
-    expect(clampMonitorInterval(1)).toBe(5);
+    expect(clampMonitorInterval(1)).toBe(1);
+    expect(clampMonitorInterval(0)).toBe(1);
     expect(clampMonitorInterval(99_999)).toBe(10_080);
     expect(clampMonitorInterval(Number.NaN)).toBe(10);
   });

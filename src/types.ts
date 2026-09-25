@@ -294,14 +294,15 @@ export interface ScheduledRun {
 }
 
 /** How often a monitoring schedule may read x.com: any whole number of minutes
- *  from five — every read is a session on the account — to a week. */
-export const MONITOR_MIN_INTERVAL_MINUTES = 5;
+ *  from one to a week. A pass that is still running holds the next one back,
+ *  so a short interval never stacks reads. */
+export const MONITOR_MIN_INTERVAL_MINUTES = 1;
 export const MONITOR_MAX_INTERVAL_MINUTES = 7 * 24 * 60;
 export const DEFAULT_MONITOR_INTERVAL_MINUTES = 10;
 /** The stops of the interval dial, fine where a minute matters and coarse where
  *  only hours and days do. A custom value between them is kept as typed. */
 export const MONITOR_INTERVAL_STEPS = [
-  5, 10, 15, 20, 30, 45,
+  1, 2, 3, 5, 10, 15, 20, 30, 45,
   60, 90, 120, 180, 240, 360, 480, 720, 960,
   1440, 2160, 2880, 4320, 5760, 7200, 10080,
 ] as const;
