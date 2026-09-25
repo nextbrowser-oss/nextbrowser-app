@@ -13,7 +13,7 @@ export const X_MONITOR_LOG_FILE = "x-monitor-log.jsonl";
 
 /** How many posts of the feed the dashboard keeps. */
 const MAX_POSTS = 60;
-/** How long a post keeps its "new" mark. */
+/** How long an announced post counts toward "New posts · 24h". */
 const NEW_FOR_MS = 24 * 60 * 60 * 1000;
 const MAX_ANNOUNCED = 300;
 
