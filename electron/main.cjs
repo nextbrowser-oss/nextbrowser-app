@@ -25,6 +25,7 @@ const { Readable } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
 const { agentWorkspaceDir } = require("./agent-workspace.cjs");
 const { resolveScopedProfile } = require("./agent-control-scope.cjs");
+const { workspaceProjects, deleteWorkspaceProject } = require("./agent-project-control.cjs");
 const {
   executableNames,
   expand,
@@ -200,6 +201,7 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "", workspace
     "CLAWBROWSER_STATE_ROOT",
     "CLAWBROWSER_SESSION_ROOT",
     "NBC_PROFILE_ROOT",
+    ...(runtimeEnv.DASBROWSER_BIN ? ["DASBROWSER_BIN"] : []),
     "NEXTBROWSER_WORKSPACE_ID",
     "NBC_SKILL_SERVICE",
     "CLAWBROWSER_API_BASE_URL",
@@ -229,7 +231,7 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "", workspace
     // Codex starts the MCP server itself. Forward the Recorder's ephemeral
     // trace path from the agent process; putting it only in the parent env is
     // not enough when an explicit MCP env allow-list is configured.
-    "-c", `mcp_servers.nextbrowser.env_vars=${JSON.stringify(["MULTILOGIN_TOKEN", "NEXTBROWSER_AUTOMATION_TRACE_FILE", "NEXTBROWSER_CONTROL_URL", "NEXTBROWSER_CONTROL_TOKEN", "NEXTBROWSER_WORKSPACE_ID", "NEXTBROWSER_ALLOWED_PROFILES_JSON", "NEXTBROWSER_PROFILE_SCOPE_FILE"])}`,
+    "-c", `mcp_servers.nextbrowser.env_vars=${JSON.stringify(["MULTILOGIN_TOKEN", "NEXTBROWSER_AUTOMATION_TRACE_FILE", "NEXTBROWSER_CONTROL_URL", "NEXTBROWSER_CONTROL_TOKEN", "NEXTBROWSER_WORKSPACE_ID", "NEXTBROWSER_ALLOWED_PROFILES_JSON", "NEXTBROWSER_PROFILE_SCOPE_FILE", "DASBROWSER_BIN"])}`,
     "-c", "mcp_servers.nextbrowser.startup_timeout_sec=30",
     "-c", "mcp_servers.nextbrowser.default_tools_approval_mode=approve",
   ];
@@ -670,14 +672,16 @@ async function ensureAgentControlServer() {
       const action = request.url === "/profile/start" ? "start" : request.url === "/profile/stop" ? "stop" : "";
       const artifactSave = request.url === "/artifact/save";
       const projectCreate = request.url === "/project/create";
-      if (request.method !== "POST" || (!action && !artifactSave && !projectCreate)) {
+      const projectList = request.url === "/project/list";
+      const projectDelete = request.url === "/project/delete";
+      if (request.method !== "POST" || (!action && !artifactSave && !projectCreate && !projectList && !projectDelete)) {
         sendControlResponse(response, 404, { ok: false, error: "not_found" });
         return;
       }
       const token = String(request.headers.authorization || "").replace(/^Bearer\s+/i, "");
       const profileScope = agentControlScopes.get(token);
       const artifactScope = agentControlArtifactScopes.get(token);
-      if ((action && !profileScope) || ((artifactSave || projectCreate) && !artifactScope)) {
+      if ((action && !profileScope) || ((artifactSave || projectCreate || projectList || projectDelete) && !artifactScope)) {
         sendControlResponse(response, 401, { ok: false, error: "unauthorized" });
         return;
       }
@@ -687,6 +691,25 @@ async function ensureAgentControlServer() {
         if (raw.length > (artifactSave ? AGENT_ARTIFACT_BODY_LIMIT : 8192)) throw new Error("request_too_large");
       }
       const payload = JSON.parse(raw || "{}");
+      if (projectList) {
+        const projects = await workspaceProjects(artifactScope, { env: childEnv() });
+        sendControlResponse(response, 200, { ok: true, projects });
+        return;
+      }
+      if (projectDelete) {
+        let project;
+        try {
+          project = await deleteWorkspaceProject(artifactScope, payload, { env: childEnv() });
+        } catch (error) {
+          const message = String(error?.message || "Project deletion failed.");
+          const invalidSelector = /^(Specify one project|Project not found|More than one project|Project ID and name|The active agent)/.test(message);
+          sendControlResponse(response, invalidSelector ? 400 : 500, { ok: false, error: "project_delete_failed", message });
+          return;
+        }
+        emit("project:host-deleted", [project.id, artifactScope.workspaceId]);
+        sendControlResponse(response, 200, { ok: true, ...project, workspace_id: artifactScope.workspaceId });
+        return;
+      }
       if (projectCreate) {
         const title = String(payload.name || "").trim();
         const mode = payload.mode === "terminal" ? "terminal" : "chat";
