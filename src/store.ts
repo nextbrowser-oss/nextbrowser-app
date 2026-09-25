@@ -1587,6 +1587,10 @@ async function refreshCompletedAccountPairing(
     loginError: undefined,
   });
   useStore.getState().startTimers();
+  // A clean logout clears the local workspace/project cache. Restore it on
+  // browser sign-in too, not only on app bootstrap, before presenting an
+  // apparently empty account.
+  await useStore.getState().syncProjects();
   void useStore.getState().refreshAll().catch(() => {});
   void useStore.getState().authorizeAgent();
   if (useStore.getState().onboardingReturnPending) {
@@ -2859,6 +2863,7 @@ export const useStore = create<State>((set, get) => {
       await get().loadProxy();
       set({ authed: true, nextctlAvailable: true, accountPairing: undefined });
       get().startTimers();
+      await get().syncProjects();
       await get().refreshAll();
       await get().authorizeAgent();
       if (!hasCompletedCurrentOnboarding(localStorage)) set({ showOnboarding: true });
@@ -2997,10 +3002,21 @@ export const useStore = create<State>((set, get) => {
       pendingProfileLaunches.clear();
       pendingProfileStarts.clear();
       verifyingProfileStarts.clear();
+      // Agent CLI sign-in belongs to the local machine, not the NextBrowser
+      // account. Clear its work queue, but retain the connection result so
+      // signing back into NextBrowser does not demand the same agent setup.
+      const runtime = initRuntimes();
+      for (const [id, previous] of Object.entries(get().runtime)) {
+        if (!runtime[id]) continue;
+        runtime[id] = {
+          ...runtime[id], ready: previous.ready, version: previous.version,
+          loggedIn: previous.loggedIn,
+        };
+      }
       set({
         authed: false,
         accountEmail: undefined,
-        runtime: initRuntimes(),
+        runtime,
         connectAnnounced: new Set(),
         proxy: undefined,
         proxyWarning: undefined,
@@ -3229,9 +3245,14 @@ export const useStore = create<State>((set, get) => {
     if (profileCreateRequestPollInFlight) return;
     profileCreateRequestPollInFlight = true;
     try {
-      const result = await nextctlJson<{ requests: ProfileCreateRequest[] }>(["profiles", "requests", "list", "--status", "pending"]);
+      const [pending, approved] = await Promise.all([
+        nextctlJson<{ requests: ProfileCreateRequest[] }>(["profiles", "requests", "list", "--status", "pending"]),
+        nextctlJson<{ requests: ProfileCreateRequest[] }>(["profiles", "requests", "list", "--status", "approved"]),
+      ]);
       const awaitingAssignment = get().pendingProfileCreateRequests.filter((request) => request.status === "completed");
-      set({ pendingProfileCreateRequests: [...awaitingAssignment, ...(result.requests ?? []).filter((request) => !awaitingAssignment.some((item) => item.id === request.id))].filter((request) => !request.workspace_id || get().workspaces.some((workspace) => workspace.id === request.workspace_id)) });
+      const current = [...awaitingAssignment, ...(approved.requests ?? []), ...(pending.requests ?? [])];
+      set({ pendingProfileCreateRequests: current.filter((request, index) => current.findIndex((item) => item.id === request.id) === index)
+        .filter((request) => !request.workspace_id || get().workspaces.some((workspace) => workspace.id === request.workspace_id)) });
     } catch {
       /* non-fatal; retry on the next tick */
     } finally {
@@ -3246,12 +3267,23 @@ export const useStore = create<State>((set, get) => {
     const request = get().pendingProfileCreateRequests.find((item) => item.id === id);
     const workspaceId = request?.workspace_id || get().activeWorkspaceId;
     if (!workspaceId || !get().workspaces.some((workspace) => workspace.id === workspaceId)) throw new Error("The requesting workspace no longer exists.");
-    const result = request?.status === "completed" ? request : await nextctlJson<ProfileCreateRequest>(["profiles", "requests", "approve", id]);
-    if (result.status !== "completed") throw new Error(result.error || "Profile creation failed.");
+    const result = request?.status === "approved" || request?.status === "completed"
+      ? request : await nextctlJson<ProfileCreateRequest>(["profiles", "requests", "approve", id]);
+    if (result.status !== "approved" && result.status !== "completed") throw new Error(result.error || "Profile creation failed.");
     set({ pendingProfileCreateRequests: get().pendingProfileCreateRequests.map((item) => item.id === id ? { ...item, ...result, workspace_id: workspaceId } : item) });
-    for (const name of result.created_profiles ?? []) await get().assignProfileToProject(name, result.runtime ?? request?.runtime ?? "clawbrowser", workspaceId);
+    for (const name of result.created_profiles ?? []) {
+      const runtime = result.runtime ?? request?.runtime ?? "clawbrowser";
+      await get().assignProfileToProject(name, runtime, workspaceId);
+      await invoke("workspace_profile_created", { workspaceId, name, runtime });
+    }
+    if (result.status === "approved") {
+      await nextctlJson<ProfileCreateRequest>(["profiles", "requests", "complete", id]);
+    }
     set({ pendingProfileCreateRequests: get().pendingProfileCreateRequests.filter((r) => r.id !== id) });
     await get().loadProfiles();
+    if (get().activeWorkspaceId === workspaceId && result.created_profiles?.length) {
+      get().selectProfile(result.created_profiles[0]);
+    }
   },
 
   rejectProfileCreateRequest: async (id: string, reason?: string) => {

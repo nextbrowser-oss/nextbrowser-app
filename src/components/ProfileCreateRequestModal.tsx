@@ -100,7 +100,7 @@ export function ProfileCreateRequestModal() {
           </div>
         </div>
         <p className="traffic-gate-modal-copy">
-          {request.status === "completed" ? "The profiles were created. Retry to finish adding them to this workspace." : "Nothing has been created yet. Approve to create these profiles now, or decline to tell the agent no."}
+          {request.status === "approved" || request.status === "completed" ? "The profiles were created. Retry to finish adding them to this workspace." : "Nothing has been created yet. Approve to create these profiles now, or decline to tell the agent no."}
         </p>
         {requests.length > 1 && (
           <div className="muted small">{requests.length - 1} more request{requests.length - 1 === 1 ? "" : "s"} waiting after this one.</div>
@@ -112,13 +112,13 @@ export function ProfileCreateRequestModal() {
           </div>
         )}
         <div className="modal-actions">
-          <button className="btn-bordered" type="button" disabled={busy} autoFocus onClick={onDecline}>
+          {request.status === "pending" && <button className="btn-bordered" type="button" disabled={busy} autoFocus onClick={onDecline}>
             <Icon name="xmark" size={13} />
             {busy && busyAction === "reject" ? "Declining…" : "Decline"}
-          </button>
+          </button>}
           <button className="primary" type="button" disabled={busy} onClick={onApprove}>
             <Icon name="checkmark" size={13} />
-            {busy && busyAction === "approve" ? "Approving…" : `Create ${request.quantity}`}
+          {busy && busyAction === "approve" ? "Finishing…" : request.status === "approved" || request.status === "completed" ? "Finish adding" : `Create ${request.quantity}`}
           </button>
         </div>
       </section>

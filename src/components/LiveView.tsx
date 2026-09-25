@@ -298,7 +298,7 @@ export function LiveView({ active }: { active: boolean }) {
     }
     // The component stays mounted while another app tab is active.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, multiloginSelection, activeWorkspaceID]);
+  }, [active, multiloginSelection, activeWorkspaceID, s.selectedProfile]);
 
   useEffect(() => {
     if (active) {
