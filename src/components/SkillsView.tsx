@@ -206,7 +206,10 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
             const applyError = s.skillApplyError(e.id);
             const publishedScript = e.selector.kind === "script" && !e.js;
             const repositorySkill = e.source === "repository";
-            const running = e.watchlist && s.watchlistRunFor(e.id)?.enabled ? s.watchlistRunFor(e.id)?.intervalMinutes : undefined;
+            const monitorSchedule = e.watchlist?.monitor ? s.monitorScheduleFor(e.id) : undefined;
+            const running = e.watchlist && s.watchlistRunFor(e.id)?.enabled
+              ? s.watchlistRunFor(e.id)?.intervalMinutes
+              : monitorSchedule?.enabled ? monitorSchedule.intervalMinutes : undefined;
             return (
               <div key={e.id} className={"skill-card claw-card" + (e.logo ? ` skill-card-${e.logo}` : "")}>
                 <div className="skill-card-head">
