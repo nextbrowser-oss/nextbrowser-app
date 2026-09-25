@@ -1,5 +1,6 @@
 const { readCLIVersion } = require("./cli-version.cjs");
 const { mcpProfileScope } = require("./mcp-profile-scope.cjs");
+const { addChatWorkspaceProfile } = require("./chat-profile-scope.cjs");
 const { requireVerificationCapableCLI, verificationFailureDialogOptions, verificationFailureDialogChoice } = require("./verification-policy.cjs");
 const { agentLoginStatus } = require("./agent-login-status.cjs");
 const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage } = require("electron");
@@ -132,9 +133,6 @@ const NEXTCTL_RELEASE_BASE = "https://github.com/nextbrowser-oss/nbc_releases/re
 // A workspace state file is read for display only, so it is truncated rather
 // than streamed: a runaway file must not be pulled into the renderer whole.
 const MAX_WORKSPACE_FILE_BYTES = 256 * 1024;
-const DEFAULT_AUTH_BASE_URL = "https://app.nextbrowser.com";
-const DEFAULT_AUTH0_ISSUER_BASE_URL = "https://dev-5v20zhlfh5c7o71v.us.auth0.com";
-const DEFAULT_AUTH0_CLIENT_ID = "E9Net5ggtBdR18nKT08eAqaXeSpbhCKt";
 const DEEP_LINK_PROTOCOL = "nextbrowser";
 let appUpdateStatus = { status: "idle" };
 let appUpdateTimer = null;
@@ -158,6 +156,7 @@ let agentControlURL = "";
 const agentControlScopes = new Map();
 const agentControlArtifactScopes = new Map();
 const agentControlProfileOwners = new Map();
+const activeChatProfileScopes = new Map();
 let multiloginCredentialStore = null;
 let automationArtifactStore = null;
 let multiloginAutomationToken = "";
@@ -1629,17 +1628,6 @@ function startBrowserRuntimeUpdateChecks() {
 function apiBaseURL(raw) {
   return accountAPIBaseURL(raw, process.env);
 }
-function authBaseURL() {
-  return String(process.env.NEXTBROWSER_AUTH_BASE_URL || DEFAULT_AUTH_BASE_URL).replace(/\/$/, "");
-}
-function authLogoutURL() {
-  const issuer = String(process.env.NEXTBROWSER_AUTH0_ISSUER_BASE_URL || DEFAULT_AUTH0_ISSUER_BASE_URL).replace(/\/$/, "");
-  const clientId = String(process.env.NEXTBROWSER_AUTH0_CLIENT_ID || DEFAULT_AUTH0_CLIENT_ID).trim();
-  const url = new URL(`${issuer}/v2/logout`);
-  url.searchParams.set("client_id", clientId);
-  url.searchParams.set("returnTo", `${authBaseURL()}/`);
-  return url.toString();
-}
 async function apiFetchJSON(baseURL, route, options = {}) {
   const response = await fetch(`${apiBaseURL(baseURL)}${route}`, {
     ...options,
@@ -1856,8 +1844,24 @@ async function invokeCommand(command, args = {}, sender) {
       }
     }
     case "account_logout": {
-      await shell.openExternal(authLogoutURL());
       await clearRuntimeCredential({ runtimeRoot: nextbrowserRuntimeRoot() });
+      return null;
+    }
+    case "workspace_profile_created": {
+      const workspaceId = String(args.workspaceId || "");
+      const name = String(args.name || "").trim();
+      const runtime = String(args.runtime || "");
+      if (!workspaceId || !name || !["clawbrowser", "camoufox", "dasbrowser"].includes(runtime)) {
+        throw new Error("A workspace, profile name, and browser runtime are required.");
+      }
+      for (const [token, record] of activeChatProfileScopes) {
+        if (record.workspaceId !== workspaceId) continue;
+        record.update = (record.update || Promise.resolve()).catch(() => undefined).then(async () => {
+          const next = await addChatWorkspaceProfile(record, name, runtime);
+          agentControlScopes.set(token, next);
+        });
+        await record.update;
+      }
       return null;
     }
     case "pairing_start": {
@@ -2293,6 +2297,10 @@ async function invokeCommand(command, args = {}, sender) {
       // its own. The X reply engine drafts this way — what it hands the model
       // is a stranger's post, and that post must not reach a browser tool.
       const plain = args.plain === true;
+      if (!plain && args.workspaceId) activeChatProfileScopes.set(controlToken, {
+        workspaceId: String(args.workspaceId), conversationId, profileScope, profileScopeFile,
+        multiloginSelection: args.multiloginSelection, update: Promise.resolve(),
+      });
       const cwd = plain ? await plainRunDir() : args.workingDir;
       if (!plain && args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
       let agentArgs = args.args || [];
@@ -2331,6 +2339,7 @@ async function invokeCommand(command, args = {}, sender) {
           },
         });
       } finally {
+        activeChatProfileScopes.delete(controlToken);
         agentControlScopes.delete(controlToken);
         agentControlArtifactScopes.delete(controlToken);
         await fs.unlink(profileScopeFile).catch(() => undefined);

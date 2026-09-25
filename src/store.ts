@@ -2926,10 +2926,21 @@ export const useStore = create<State>((set, get) => {
       pendingProfileLaunches.clear();
       pendingProfileStarts.clear();
       verifyingProfileStarts.clear();
+      // Agent CLI sign-in belongs to the local machine, not the NextBrowser
+      // account. Clear its work queue, but retain the connection result so
+      // signing back into NextBrowser does not demand the same agent setup.
+      const runtime = initRuntimes();
+      for (const [id, previous] of Object.entries(get().runtime)) {
+        if (!runtime[id]) continue;
+        runtime[id] = {
+          ...runtime[id], ready: previous.ready, version: previous.version,
+          loggedIn: previous.loggedIn,
+        };
+      }
       set({
         authed: false,
         accountEmail: undefined,
-        runtime: initRuntimes(),
+        runtime,
         connectAnnounced: new Set(),
         proxy: undefined,
         proxyWarning: undefined,
@@ -3176,9 +3187,16 @@ export const useStore = create<State>((set, get) => {
     const result = request?.status === "completed" ? request : await nextctlJson<ProfileCreateRequest>(["profiles", "requests", "approve", id]);
     if (result.status !== "completed") throw new Error(result.error || "Profile creation failed.");
     set({ pendingProfileCreateRequests: get().pendingProfileCreateRequests.map((item) => item.id === id ? { ...item, ...result, workspace_id: workspaceId } : item) });
-    for (const name of result.created_profiles ?? []) await get().assignProfileToProject(name, result.runtime ?? request?.runtime ?? "clawbrowser", workspaceId);
+    for (const name of result.created_profiles ?? []) {
+      const runtime = result.runtime ?? request?.runtime ?? "clawbrowser";
+      await get().assignProfileToProject(name, runtime, workspaceId);
+      await invoke("workspace_profile_created", { workspaceId, name, runtime });
+    }
     set({ pendingProfileCreateRequests: get().pendingProfileCreateRequests.filter((r) => r.id !== id) });
     await get().loadProfiles();
+    if (get().activeWorkspaceId === workspaceId && result.created_profiles?.length) {
+      get().selectProfile(result.created_profiles[0]);
+    }
   },
 
   rejectProfileCreateRequest: async (id: string, reason?: string) => {

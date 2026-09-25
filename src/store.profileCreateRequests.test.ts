@@ -110,6 +110,37 @@ it("approving a request calls approve, clears it locally, and refreshes profiles
   expect(useStore.getState().profiles.map((p) => p.name)).toEqual([
     "pixelscan-test-1", "pixelscan-test-2", "pixelscan-test-3",
   ]);
+  expect(useStore.getState().selectedProfile).toBe("pixelscan-test-1");
+  expect(bridge.invoke.mock.calls.filter(([command]) => command === "workspace_profile_created").map(([, payload]) => payload)).toEqual([
+    { workspaceId: "w", name: "pixelscan-test-1", runtime: "camoufox" },
+    { workspaceId: "w", name: "pixelscan-test-2", runtime: "camoufox" },
+    { workspaceId: "w", name: "pixelscan-test-3", runtime: "camoufox" },
+  ]);
+});
+
+it("selects exactly one newly approved profile instead of an older selection", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({
+    authed: true,
+    nextctlAvailable: true,
+    selectedProfile: "old-profile",
+    pendingProfileCreateRequests: [{ ...pendingRequest, quantity: 1 }],
+    activeWorkspaceId: "w",
+    workspaces: [{ id: "w", name: "Test", profileNames: ["old-profile"], profileToolsets: { "old-profile": "clawbrowser" }, createdAt: 1, updatedAt: 1 }],
+  });
+  bridge.invoke.mockImplementation((command, { args } = {}) => {
+    if (command !== "nextctl_run") return Promise.resolve(null);
+    if (args[0] === "profiles" && args[1] === "requests" && args[2] === "approve") {
+      return Promise.resolve(result({ status: "completed", runtime: "clawbrowser", created_profiles: ["Romania-ClawBrowser"] }));
+    }
+    if (args[0] === "profiles" && args[1] === "ls") {
+      return Promise.resolve(result({ profiles: [{ name: "old-profile" }, { name: "Romania-ClawBrowser" }] }));
+    }
+    return Promise.resolve(result({}));
+  });
+  await useStore.getState().approveProfileCreateRequest("req-1");
+  expect(useStore.getState().selectedProfile).toBe("Romania-ClawBrowser");
+  expect(useStore.getState().workspaces[0].profileNames).toEqual(["old-profile", "Romania-ClawBrowser"]);
 });
 
 it("declining a request calls reject with the reason and clears it locally without creating profiles", async () => {

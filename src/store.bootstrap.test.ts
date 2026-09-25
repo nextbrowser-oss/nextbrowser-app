@@ -155,6 +155,24 @@ describe("desktop account bootstrap", () => {
     });
   });
 
+  it("keeps the local agent connection across NextBrowser account logout", async () => {
+    bridge.invoke.mockResolvedValue(null);
+    const { useStore } = await import("./store");
+    useStore.setState((state) => ({
+      authed: true,
+      runtime: {
+        ...state.runtime,
+        codex: { ...state.runtime.codex, ready: true, loggedIn: true, version: "1.2.3" },
+      },
+      agentId: "codex",
+    }));
+    await useStore.getState().logout();
+    expect(useStore.getState().authed).toBe(false);
+    expect(useStore.getState().agentReady()).toBe(true);
+    expect(useStore.getState().runtime.codex.version).toBe("1.2.3");
+    expect(useStore.getState().runtime.codex.queue).toEqual([]);
+  });
+
   it("stays connected when the saved credential cannot be cleared", async () => {
     bridge.invoke.mockRejectedValue(new Error("permission denied"));
     const { useStore } = await import("./store");

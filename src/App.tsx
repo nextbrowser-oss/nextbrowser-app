@@ -880,7 +880,7 @@ export function App() {
   const bootstrap = useStore((s) => s.bootstrap);
   const showOnboarding = useStore((s) => s.showOnboarding);
   const agentReady = useStore((s) => s.agentReady());
-  const agentGateOpen = !checking && !agentReady && !agentGateDismissed && preview !== "main";
+  const agentGateOpen = !checking && authed && !agentReady && !agentGateDismissed && preview !== "main";
   const workspaceSetupRequired = useStore((s) => {
     return s.authed && s.workspacesLoaded && s.workspaceSetupRequired;
   });
