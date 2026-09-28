@@ -45,6 +45,12 @@ describe("userFacingBrowserError", () => {
     expect(message).not.toMatch(/127\.0\.0\.1|wsarecv/i);
   });
 
+  it("shows a stopped proxy verification failure before a nested CDP transport error", () => {
+    const raw = "Could not start Nextbrowser: VERIFY_FAILED: browser stopped: cdp Runtime.evaluate: read response: read tcp 127.0.0.1:1: connection reset [VERIFY_FAILED] — Retry the same proxy. A proxy profile cannot continue without its proxy.";
+    expect(userFacingBrowserError(raw))
+      .toBe("The profile’s proxy could not be verified, so the browser was stopped. Check or change the proxy, then retry.");
+  });
+
   it("preserves useful ordinary errors while removing local log paths", () => {
     expect(userFacingBrowserError("Could not open page; see log /Users/person/private/child.log"))
       .toBe("Could not open page");
