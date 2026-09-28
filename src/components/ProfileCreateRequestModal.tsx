@@ -15,6 +15,8 @@ export function ProfileCreateRequestModal() {
   const requests = useStore((s) => s.pendingProfileCreateRequests);
   const approve = useStore((s) => s.approveProfileCreateRequest);
   const reject = useStore((s) => s.rejectProfileCreateRequest);
+  const personalProxies = useStore((s) => s.personalProxies);
+  const loadPersonalProxies = useStore((s) => s.loadPersonalProxies);
   // Keyed by request id, not a bare boolean/string: the poll that refreshes
   // `requests` every 10s can reorder or replace the front of the queue while
   // an approve/reject for the PREVIOUS front request is still in flight. A
@@ -26,6 +28,9 @@ export function ProfileCreateRequestModal() {
   const [errorFor, setErrorFor] = useState<{ id: string; message: string } | undefined>(undefined);
 
   const request = requests[0];
+  useEffect(() => {
+    if (request?.personal_proxy_id) void loadPersonalProxies().catch(() => undefined);
+  }, [request?.personal_proxy_id, loadPersonalProxies]);
   const busy = !!request && busyRequestId === request.id;
 
   // Escape only hides the prompt: it must never record a decision on the
@@ -46,6 +51,7 @@ export function ProfileCreateRequestModal() {
 
   const names = Array.from({ length: Math.min(request.quantity, 5) }, (_, i) => request.quantity === 1 ? request.name_prefix : `${request.name_prefix}-${i + 1}`);
   const namesPreview = names.join(", ") + (request.quantity > names.length ? `, … (+${request.quantity - names.length} more)` : "");
+  const selectedProxy = personalProxies?.find((proxy) => proxy.id === request.personal_proxy_id);
 
   const onApprove = async () => {
     const id = request.id;
@@ -94,7 +100,7 @@ export function ProfileCreateRequestModal() {
             <div className="muted small">
               {namesPreview}
               {` · ${request.runtime === "camoufox" ? "Camoufox" : request.runtime === "dasbrowser" ? "DasBrowser" : "ClawBrowser"}`}
-              {request.no_proxy ? " · No proxy (direct connection)" : request.country ? ` · ${request.country}` : ""}
+              {request.personal_proxy_id ? ` · Personal proxy: ${selectedProxy?.name ?? request.personal_proxy_id}` : request.no_proxy ? " · No proxy (direct connection)" : request.country ? ` · ${request.country}` : ""}
               {request.proxy_scheme ? ` · ${request.proxy_scheme}` : ""}
             </div>
           </div>

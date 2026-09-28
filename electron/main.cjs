@@ -673,15 +673,16 @@ async function ensureAgentControlServer() {
       const artifactSave = request.url === "/artifact/save";
       const projectCreate = request.url === "/project/create";
       const projectList = request.url === "/project/list";
+      const personalProxiesList = request.url === "/personal-proxies/list";
       const projectDelete = request.url === "/project/delete";
-      if (request.method !== "POST" || (!action && !artifactSave && !projectCreate && !projectList && !projectDelete)) {
+      if (request.method !== "POST" || (!action && !artifactSave && !projectCreate && !projectList && !projectDelete && !personalProxiesList)) {
         sendControlResponse(response, 404, { ok: false, error: "not_found" });
         return;
       }
       const token = String(request.headers.authorization || "").replace(/^Bearer\s+/i, "");
       const profileScope = agentControlScopes.get(token);
       const artifactScope = agentControlArtifactScopes.get(token);
-      if ((action && !profileScope) || ((artifactSave || projectCreate || projectList || projectDelete) && !artifactScope)) {
+      if ((action && !profileScope) || ((artifactSave || projectCreate || projectList || projectDelete || personalProxiesList) && !artifactScope)) {
         sendControlResponse(response, 401, { ok: false, error: "unauthorized" });
         return;
       }
@@ -691,6 +692,11 @@ async function ensureAgentControlServer() {
         if (raw.length > (artifactSave ? AGENT_ARTIFACT_BODY_LIMIT : 8192)) throw new Error("request_too_large");
       }
       const payload = JSON.parse(raw || "{}");
+      if (personalProxiesList) {
+        const proxies = await listPersonalProxies({ env: childEnv() });
+        sendControlResponse(response, 200, { ok: true, proxies: proxies.map(({ id, name }) => ({ id, name })) });
+        return;
+      }
       if (projectList) {
         const projects = await workspaceProjects(artifactScope, { env: childEnv() });
         sendControlResponse(response, 200, { ok: true, projects });
@@ -1790,6 +1796,22 @@ async function invokeCommand(command, args = {}, sender) {
         requestId: args.requestId,
         timeoutMs: args.timeoutMs,
       });
+    }
+    case "manual_proxy_profile_request_approve": {
+      const requestId = String(args.id || "").trim();
+      const proxyId = String(args.proxyId || "").trim();
+      if (!requestId || !proxyId) throw new Error("Profile request and personal proxy are required.");
+      const proxy = await resolvePersonalProxy(proxyId, { env: childEnv() });
+      assertManualProxyRuntimeSupport(String(args.runtime || "clawbrowser"), proxy);
+      return await executeNextctl([
+        "profiles", "requests", "approve", requestId,
+        "--personal-proxy-id", proxyId,
+        "--proxy-scheme", proxy.scheme,
+        "--proxy-host", proxy.host,
+        "--proxy-port", String(proxy.port),
+        ...(proxy.username ? ["--proxy-username", proxy.username] : []),
+        "--format", "json",
+      ], { extraEnv: proxy.password ? { NBC_PROXY_PASSWORD: proxy.password } : {}, timeoutMs: 60_000 });
     }
     case "manual_proxy_profile_update": {
       const profileName = String(args.profileName || "").trim();

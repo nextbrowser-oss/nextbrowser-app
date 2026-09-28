@@ -7,6 +7,8 @@ const state = vi.hoisted(() => ({
   pendingProfileCreateRequests: [] as ProfileCreateRequest[],
   approveProfileCreateRequest: vi.fn(),
   rejectProfileCreateRequest: vi.fn(),
+  personalProxies: [{ id: "saved-1", name: "My Moldova proxy", scheme: "http" as const, host: "proxy.test", port: 8080, hasPassword: true }],
+  loadPersonalProxies: vi.fn(),
 }));
 
 vi.mock("../store", () => ({
@@ -66,5 +68,12 @@ describe("agent profile-creation request prompt", () => {
     const html = renderToStaticMarkup(<ProfileCreateRequestModal />);
 
     expect(html).toContain("2 more requests waiting after this one");
+  });
+
+  it("shows the exact saved personal proxy instead of a managed country", () => {
+    state.pendingProfileCreateRequests = [request({ quantity: 1, country: undefined, proxy_scheme: undefined, personal_proxy_id: "saved-1" })];
+    const html = renderToStaticMarkup(<ProfileCreateRequestModal />);
+    expect(html).toContain("Personal proxy: My Moldova proxy");
+    expect(html).not.toContain(" · US");
   });
 });

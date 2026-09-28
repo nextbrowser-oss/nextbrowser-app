@@ -3349,13 +3349,23 @@ export const useStore = create<State>((set, get) => {
     const request = get().pendingProfileCreateRequests.find((item) => item.id === id);
     const workspaceId = request?.workspace_id || get().activeWorkspaceId;
     if (!workspaceId || !get().workspaces.some((workspace) => workspace.id === workspaceId)) throw new Error("The requesting workspace no longer exists.");
-    const result = request?.status === "approved" || request?.status === "completed"
-      ? request : await nextctlJson<ProfileCreateRequest>(["profiles", "requests", "approve", id]);
+    let result: ProfileCreateRequest;
+    if (request?.status === "approved" || request?.status === "completed") {
+      result = request;
+    } else if (request?.personal_proxy_id) {
+      const run = await invoke<RunResult>("manual_proxy_profile_request_approve", { id, proxyId: request.personal_proxy_id, runtime: request.runtime ?? "clawbrowser" });
+      if (run.code !== 0) throw new Error(nextctlErrorMessage(run));
+      const envelope = JSON.parse(run.stdout) as { data?: ProfileCreateRequest; error?: { message?: string } };
+      if (!envelope.data) throw new Error(envelope.error?.message || "Profile creation failed.");
+      result = envelope.data;
+    } else {
+      result = await nextctlJson<ProfileCreateRequest>(["profiles", "requests", "approve", id]);
+    }
     if (result.status !== "approved" && result.status !== "completed") throw new Error(result.error || "Profile creation failed.");
     set({ pendingProfileCreateRequests: get().pendingProfileCreateRequests.map((item) => item.id === id ? { ...item, ...result, workspace_id: workspaceId } : item) });
     for (const name of result.created_profiles ?? []) {
       const runtime = result.runtime ?? request?.runtime ?? "clawbrowser";
-      await get().assignProfileToProject(name, runtime, workspaceId);
+      await get().assignProfileToProject(name, runtime, workspaceId, true, result.personal_proxy_id ?? undefined);
       await invoke("workspace_profile_created", { workspaceId, name, runtime });
     }
     if (result.status === "approved") {
