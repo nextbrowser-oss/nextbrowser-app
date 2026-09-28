@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
 import { RemoteControlClient, type InputEnvelope, type RemoteLiveTab, type RemoteMediaStats, type RemoteStreamInfo } from "../remoteControl";
 import { useStore } from "../store";
-import { internalError } from "../lib/userFacingError";
+import { actionFailureMessage, internalError } from "../lib/userFacingError";
 import {
   MULTILOGIN_SELECTION_EVENT,
   multiloginSelectionForWorkspace,
@@ -206,10 +206,10 @@ export function LiveView({ active }: { active: boolean }) {
       if (generation !== streamGeneration.current || useStore.getState().activeWorkspaceId !== workspaceId) return;
       setStreamInfo(info);
       await connectRemoteViewer(info);
-    } catch {
+    } catch (error) {
       if (generation !== streamGeneration.current || useStore.getState().activeWorkspaceId !== workspaceId) return;
       setState("error");
-      setError(internalError("We couldn't start Live View.", "LIVE_VIEW_START_FAILED"));
+      setError(actionFailureMessage("We couldn't start Live View.", "LIVE_VIEW_START_FAILED", error));
     }
   };
 
@@ -232,9 +232,9 @@ export function LiveView({ active }: { active: boolean }) {
       } else {
         throw new Error("Select a profile in this workspace first.");
       }
-    } catch {
+    } catch (error) {
       setState("error");
-      setError(internalError("We couldn't launch the remote session.", "REMOTE_SESSION_LAUNCH_FAILED"));
+      setError(actionFailureMessage("We couldn't launch the remote session.", "REMOTE_SESSION_LAUNCH_FAILED", error));
     }
   };
 

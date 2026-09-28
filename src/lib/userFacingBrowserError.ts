@@ -21,6 +21,10 @@ export function userFacingBrowserError(error: unknown): string {
     return "Nextbrowser couldn’t connect to the service. Check your internet connection and try again.";
   }
 
+  if (/Proxy traffic limit reached|PROXY_TRAFFIC_EXHAUSTED/i.test(raw)) {
+    return "Proxy traffic limit reached. Open Proxy usage to add more traffic, then retry Live View.";
+  }
+
   if (REMOTE_BACKEND_CODE.test(raw) || REMOTE_CONTROL_FAILURE.test(raw)) {
     if (/\b404\b|not found/i.test(raw)) {
       return "Remote Control is not available on the connected Nextbrowser service. Update Nextbrowser and try again. If it continues, contact support.";

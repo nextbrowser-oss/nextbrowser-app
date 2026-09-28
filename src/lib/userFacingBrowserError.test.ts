@@ -17,6 +17,13 @@ describe("userFacingBrowserError", () => {
       .toContain("Check your internet connection");
   });
 
+  it("explains exhausted proxy traffic before generic Remote Control errors", () => {
+    const raw = "detached Remote Control child failed: Proxy traffic limit reached; see log /Users/person/private/child.log";
+    const message = userFacingBrowserError(raw);
+    expect(message).toBe("Proxy traffic limit reached. Open Proxy usage to add more traffic, then retry Live View.");
+    expect(message).not.toMatch(/\/Users|child\.log/);
+  });
+
   it("explains an unreachable browser profile", () => {
     expect(userFacingBrowserError("CDP endpoint is not reachable [CDP_UNREACHABLE]"))
       .toBe("The browser profile stopped responding. Restart the profile and try again.");

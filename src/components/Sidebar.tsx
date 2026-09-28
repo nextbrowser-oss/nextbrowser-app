@@ -2760,7 +2760,7 @@ function ProfileRow({
       <span className={"dot " + (external ? "gray" : running ? "green" : busy ? "orange" : "gray")} title={external ? toolsetLabel : status} />
       <span className="profile-main">
         <span className="profile-title-line">
-          <span className="profile-name"><HighlightedName text={displayName || name} query={searchQuery} /></span>
+          <span className="profile-name" title={displayName || name}><HighlightedName text={displayName || name} query={searchQuery} /></span>
         </span>
         <span className="profile-meta">
           {metaOverride ?? (occupiedBy ? `In use · ${occupiedBy}` : status === "starting" ? "Starting and verifying" : ip ? `${status} · ${ip}` : status)}

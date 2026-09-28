@@ -29,6 +29,6 @@ export function needsSupportLink(message: string): boolean {
 export function actionFailureMessage(action: string, code: string, detail?: unknown): string {
   const context = action.trim() || "The action failed.";
   const safeCode = errorCodePattern.test(code) ? code : "INTERNAL_ERROR";
-  const reason = typeof detail === "string" ? detail.trim() : "";
+  const reason = (detail instanceof Error ? detail.message : typeof detail === "string" ? detail : "").trim();
   return `${context}${reason ? ` ${userFacingBrowserError(reason)}` : ""} Ref: ${errorReference(safeCode)}`;
 }

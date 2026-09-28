@@ -32,6 +32,16 @@ describe("user-facing internal errors", () => {
     expect(errorReference("PROFILE_ASSIGNMENT_FAILED")).toBe("NB-25647DEA");
   });
 
+  it("explains an Error object from a failed Live View command", () => {
+    const message = actionFailureMessage(
+      "We couldn't start Live View.",
+      "LIVE_VIEW_START_FAILED",
+      new Error("detached Remote Control child failed: Proxy traffic limit reached; see log /Users/person/private/child.log"),
+    );
+    expect(message).toContain("Proxy traffic limit reached. Open Proxy usage to add more traffic, then retry Live View.");
+    expect(message).not.toContain("/Users/");
+  });
+
   it("keeps private filesystem locations out of the visible reason", () => {
     const message = actionFailureMessage(
       "We couldn't prepare this profile.",
