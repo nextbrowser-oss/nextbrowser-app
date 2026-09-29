@@ -12,8 +12,11 @@ const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const isDevPackage = app.isPackaged && require("../package.json").nextBrowserBuildChannel === "dev";
+const isDevBuild = !app.isPackaged || isDevPackage;
+if (isDevBuild) app.setName("NextBrowser DEV");
 const { devDataPaths } = require("./dev-data-root.cjs");
-const devStorage = devDataPaths({ isPackaged: app.isPackaged, homeDir: os.homedir() });
+const devStorage = devDataPaths({ isPackaged: app.isPackaged, isDevPackage, homeDir: os.homedir() });
 if (devStorage) {
   fsSync.mkdirSync(devStorage.userData, { recursive: true, mode: 0o700 });
   app.setPath("userData", devStorage.userData);
@@ -1244,6 +1247,7 @@ function setAppUpdateStatus(status, patch = {}) {
 }
 function appUpdatesSupported() {
   return app.isPackaged &&
+    !isDevBuild &&
     ["darwin", "win32"].includes(process.platform) &&
     !app.getVersion().includes("-demo.");
 }
@@ -2692,15 +2696,17 @@ function loadAppIcon() {
 }
 function applyAppIcon() {
   const image = loadAppIcon();
-  if (!image) return null;
-  if (process.platform === "darwin" && app.dock) app.dock.setIcon(image);
+  if (process.platform === "darwin" && app.dock) {
+    if (image) app.dock.setIcon(image);
+    if (isDevBuild) app.dock.setBadge("DEV");
+  }
   return image;
 }
 
 function createWindow() {
   const icon = loadAppIcon();
   const window = new BrowserWindow({
-    title: "Nextbrowser", width: 1180, height: 760, minWidth: 960, minHeight: 640,
+    title: isDevBuild ? "NextBrowser DEV" : "Nextbrowser", width: 1180, height: 760, minWidth: 960, minHeight: 640,
     backgroundColor: "#0e0e0e", show: false,
     // The native menu looks like Electron chrome in the Windows product UI.
     // Keep keyboard access through Alt without reserving visual space for it.
@@ -2787,7 +2793,7 @@ if (!gotLock) {
     // instead of the running Nextbrowser app. Clean up only that stale dev
     // handler. Packaged builds keep the normal protocol registration.
     if (devStorage) {
-      // Isolated QA must not change the user's protocol handler, even cleanup.
+      // Development builds must not change the production protocol handler.
     } else if (!app.isPackaged) {
       if (app.getApplicationNameForProtocol(`${DEEP_LINK_PROTOCOL}://`) === "Electron") {
         app.removeAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);

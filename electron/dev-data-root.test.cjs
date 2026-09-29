@@ -16,6 +16,13 @@ test("development app, runtime and CLI share a dedicated root", () => {
     userData: path.join(root, "app"), runtime: path.join(root, "runtime"), nextctl: path.join(root, "managed-nextctl"),
   });
 });
+test("packaged DEV app uses a separate root by default", () => {
+  assert.deepEqual(devDataPaths({ env: {}, isPackaged: true, isDevPackage: true, homeDir }), {
+    userData: path.join(homeDir, ".nextbrowser-dev", "app"),
+    runtime: path.join(homeDir, ".nextbrowser-dev", "runtime"),
+    nextctl: path.join(homeDir, ".nextbrowser-dev", "managed-nextctl"),
+  });
+});
 test("rejects packaged, relative, empty and broad paths", () => {
   const resolve = (value, isPackaged = false) => devDataPaths({ env: { NEXTBROWSER_DEV_DATA_ROOT: value }, isPackaged, homeDir });
   for (const value of ["", "relative", homeDir, path.parse(root).root, path.join(homeDir, ".nextbrowser")]) {
@@ -31,5 +38,5 @@ test("main wires isolated roots before lock and skips real-data migration and pr
   for (const name of ["migrateLegacyData", "migrateLegacyRuntimeConfig"]) {
     assert.match(main, new RegExp(`async function ${name}\\(\\) \\{\\s*if \\(devStorage\\) return;`));
   }
-  assert.match(main, /if \(devStorage\) \{\s*\/\/ Isolated QA[^\n]*\n\s*\} else if \(!app.isPackaged\)/);
+  assert.match(main, /if \(devStorage\) \{\s*\/\/ Development builds[^\n]*\n\s*\} else if \(!app.isPackaged\)/);
 });
