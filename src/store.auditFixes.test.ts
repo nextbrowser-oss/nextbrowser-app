@@ -44,7 +44,7 @@ it("deletes exclusive profiles, projects, schedules, and artifacts after confirm
     scheduledRuns: [{ id: "a-run", workspaceId: "a" }, { id: "b-run", workspaceId: "b" }],
   } as any);
   await useStore.getState().deleteWorkspace("a");
-  expect(deleteProfile).toHaveBeenCalledExactlyOnceWith("exclusive");
+  expect(deleteProfile).toHaveBeenCalledExactlyOnceWith("exclusive", { deletingWorkspace: true });
   expect(calls.indexOf("profile:exclusive")).toBeLessThan(calls.indexOf("artifact_workspace_delete"));
   expect(calls.indexOf("artifact_workspace_delete")).toBeLessThan(calls.indexOf("workspace_delete"));
   expect(useStore.getState().workspaces.map((item) => item.id)).toEqual(["b"]);
@@ -59,6 +59,29 @@ it("keeps the workspace when a profile cannot be stopped or removed", async () =
   await expect(useStore.getState().deleteWorkspace("a")).rejects.toThrow("browser still running");
   expect(bridge.invoke).not.toHaveBeenCalledWith("workspace_delete", expect.anything());
   expect(useStore.getState().workspaces.map((item) => item.id)).toEqual(["a"]);
+});
+
+it("removes a large workspace without a cloud sync after every profile", async () => {
+  const { useStore } = await import("./store");
+  const syncProjects = vi.fn().mockResolvedValue(undefined);
+  const loadProfiles = vi.fn().mockResolvedValue(undefined);
+  bridge.invoke.mockImplementation(async (command: string) => {
+    if (command === "nextctl_run") return { code: 0, stderr: "", stdout: JSON.stringify({ ok: true, data: {} }) };
+    if (command === "nextctl_cancel") return false;
+    return { revision: 1 };
+  });
+  useStore.setState({
+    authed: true, nextctlAvailable: true, syncProjects, loadProfiles,
+    workspaces: [{ ...workspace("a"), profileNames: ["one", "two", "three"] }],
+    statuses: { one: "stopped", two: "stopped", three: "stopped" },
+    activeWorkspaceId: "a", conversations: [],
+  });
+  const progress: string[] = [];
+  await useStore.getState().deleteWorkspace("a", (message) => progress.push(message));
+  expect(bridge.invoke.mock.calls.filter(([command, args]) => command === "nextctl_run" && args?.args?.[1] === "rm")).toHaveLength(3);
+  expect(syncProjects).not.toHaveBeenCalled();
+  expect(loadProfiles).toHaveBeenCalledOnce();
+  expect(progress).toContain("Stopping and removing profiles 3/3…");
 });
 
 it("does not resurrect a deleted workspace or its projects from a stale sync response", async () => {

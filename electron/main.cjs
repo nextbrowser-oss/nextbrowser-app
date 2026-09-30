@@ -236,7 +236,9 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "", workspace
     // not enough when an explicit MCP env allow-list is configured.
     "-c", `mcp_servers.nextbrowser.env_vars=${JSON.stringify(["MULTILOGIN_TOKEN", "NEXTBROWSER_AUTOMATION_TRACE_FILE", "NEXTBROWSER_CONTROL_URL", "NEXTBROWSER_CONTROL_TOKEN", "NEXTBROWSER_WORKSPACE_ID", "NEXTBROWSER_ALLOWED_PROFILES_JSON", "NEXTBROWSER_PROFILE_SCOPE_FILE", "DASBROWSER_BIN"])}`,
     "-c", "mcp_servers.nextbrowser.startup_timeout_sec=30",
-    "-c", "mcp_servers.nextbrowser.default_tools_approval_mode=approve",
+    // The app-owned MCP server is already scoped to this workspace. Requiring
+    // Codex approval for every call makes normal profile actions unusable.
+    "-c", "mcp_servers.nextbrowser.default_tools_approval_mode=auto",
   ];
 }
 

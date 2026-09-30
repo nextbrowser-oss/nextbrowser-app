@@ -60,7 +60,7 @@ it("keeps approval requests ready while the app is backgrounded", async () => {
   expect(useStore.getState().pendingProfileCreateRequests).toEqual([pendingRequest]);
 });
 
-it("recovers an approved request after restart so workspace assignment can finish", async () => {
+it("automatically finishes an approved workspace request after restart", async () => {
   const { useStore } = await import("./store");
   useStore.setState({
     authed: true, nextctlAvailable: true,
@@ -72,7 +72,24 @@ it("recovers an approved request after restart so workspace assignment can finis
     return Promise.resolve(result({ requests: args[4] === "approved" ? [approved] : [] }));
   });
   await useStore.getState().pollProfileCreateRequests();
-  expect(useStore.getState().pendingProfileCreateRequests).toEqual([approved]);
+  expect(useStore.getState().pendingProfileCreateRequests).toEqual([]);
+  expect(useStore.getState().workspaces[0].profileNames).toContain("Romania-ClawBrowser");
+});
+
+it("automatically processes an in-app agent request without a second approval", async () => {
+  const { useStore } = await import("./store");
+  const approve = vi.fn(async () => undefined);
+  const scoped = { ...pendingRequest, workspace_id: "w" };
+  useStore.setState({
+    authed: true, nextctlAvailable: true, approveProfileCreateRequest: approve,
+    workspaces: [{ id: "w", name: "Test", profileNames: [], profileToolsets: {}, createdAt: 1, updatedAt: 1 }],
+  });
+  bridge.invoke.mockImplementation((command, { args } = {}) => {
+    if (command === "nextctl_run" && args[2] === "list") return Promise.resolve(result({ requests: args[4] === "pending" ? [scoped] : [] }));
+    return Promise.resolve(null);
+  });
+  await useStore.getState().pollProfileCreateRequests();
+  expect(approve).toHaveBeenCalledExactlyOnceWith("req-1");
 });
 
 it("does not poll while signed out", async () => {

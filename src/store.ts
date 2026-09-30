@@ -702,7 +702,7 @@ interface State {
     connection: "managed" | "direct" | "personal",
     options?: { country?: string; proxyId?: string },
   ) => Promise<void>;
-  deleteProfile: (n: string) => Promise<void>;
+  deleteProfile: (n: string, options?: { deletingWorkspace?: boolean }) => Promise<void>;
   selectProfile: (n?: string) => void;
   switchAgent: (id: string) => void;
   authorizeAgent: (options?: AgentAuthorizationOptions) => Promise<void>;
@@ -729,7 +729,7 @@ interface State {
   syncProjects: () => Promise<void>;
   createWorkspace: (name: string) => Promise<string>;
   selectWorkspace: (id: string) => void;
-  deleteWorkspace: (id: string) => Promise<void>;
+  deleteWorkspace: (id: string, onProgress?: (message: string) => void) => Promise<void>;
   completeWorkspaceSetup: () => void;
   /** Create a default workspace, project, and one profile per toolset without
    *  showing the setup modal. Falls back to the gate only if it fails. */
@@ -3417,13 +3417,11 @@ export const useStore = create<State>((set, get) => {
 
   // Agents cannot create profiles directly inside a Nextbrowser workspace
   // (nbc's mcp_workspace_scope.go refuses profiles_create there); instead an
-  // agent files a batch request with profiles_create_request, and the person
-  // using the app approves or declines it here. Polled on a timer from
-  // startTimers so a pending request surfaces as a modal without the user
-  // having to do anything first.
+  // Requests from an in-app agent carry its workspace id and are completed
+  // automatically. Legacy unscoped requests still need a human to choose the
+  // target workspace; the poll leaves those in the approval modal.
   pollProfileCreateRequests: async () => {
-    // Agent work can finish while the window is backgrounded. Keep requests
-    // current so the approval is already visible when the user returns.
+    // Agent work can finish while the window is backgrounded.
     if (!get().authed || !get().nextctlAvailable) return;
     if (profileCreateRequestPollInFlight) return;
     profileCreateRequestPollInFlight = true;
@@ -3434,8 +3432,19 @@ export const useStore = create<State>((set, get) => {
       ]);
       const awaitingAssignment = get().pendingProfileCreateRequests.filter((request) => request.status === "completed");
       const current = [...awaitingAssignment, ...(approved.requests ?? []), ...(pending.requests ?? [])];
-      set({ pendingProfileCreateRequests: current.filter((request, index) => current.findIndex((item) => item.id === request.id) === index)
-        .filter((request) => !request.workspace_id || get().workspaces.some((workspace) => workspace.id === request.workspace_id)) });
+      const requests = current.filter((request, index) => current.findIndex((item) => item.id === request.id) === index)
+        .filter((request) => !request.workspace_id || get().workspaces.some((workspace) => workspace.id === request.workspace_id));
+      set({ pendingProfileCreateRequests: requests });
+      for (const request of requests) {
+        if (!request.workspace_id) continue;
+        try {
+          await get().approveProfileCreateRequest(request.id);
+        } catch (error) {
+          // Keep the request for a later retry. nextctl's request lock makes
+          // approval idempotent if creation succeeded before assignment failed.
+          console.warn(`[profile_create_request] could not complete ${request.id}`, error);
+        }
+      }
     } catch {
       /* non-fatal; retry on the next tick */
     } finally {
@@ -3989,7 +3998,7 @@ export const useStore = create<State>((set, get) => {
     trackEvent("profile_connection_changed", { connection, runtime });
   },
 
-  deleteProfile: async (n) => {
+  deleteProfile: async (n, options) => {
     const startedAt = performance.now();
     const runtime = runtimeForProfile(get().workspaces, n);
     const previousStatus = get().statuses[n] ?? "unknown";
@@ -4012,6 +4021,9 @@ export const useStore = create<State>((set, get) => {
       try {
         await nextctlRunChecked(["stop", "--profile", n, "--runtime", runtime, "--format", "json"]);
       } catch (error) {
+        // A previous workspace-deletion attempt may have removed this record
+        // before a later cloud operation failed. Retrying must be idempotent.
+        if (/PROFILE_NOT_FOUND/.test(error instanceof Error ? error.message : String(error))) return;
         // Closing the browser window can leave the renderer one refresh behind.
         // Only suppress the stop error when nextctl confirms the session is gone.
         await get().loadProfiles().catch(() => undefined);
@@ -4058,6 +4070,13 @@ export const useStore = create<State>((set, get) => {
     const profileChatOwners = { ...get().profileChatOwners };
     delete profileChatOwners[n];
     set({ statuses, profileChatOwners });
+    // Workspace deletion removes the entire cloud row after every browser is
+    // safely stopped and removed. Avoid a full cloud sync and status scan for
+    // every profile in that batch; the final workspace DELETE is atomic.
+    if (options?.deletingWorkspace) {
+      trackTiming("profile_delete_completed", startedAt);
+      return;
+    }
     try {
       await persistWorkspaceMutation((previous) => previous.map((workspace) => {
         const profileToolsets = { ...workspace.profileToolsets };
@@ -4970,11 +4989,12 @@ export const useStore = create<State>((set, get) => {
     });
   },
 
-  deleteWorkspace: async (id) => {
+  deleteWorkspace: async (id, onProgress) => {
     if (!get().workspaces.some((workspace) => workspace.id === id)) throw new Error("The workspace no longer exists.");
     if (deletingWorkspaceIds.has(id)) throw new Error("This workspace is already being deleted.");
     deletingWorkspaceIds.add(id);
     try {
+      onProgress?.("Waiting for workspace changes to finish…");
       // Finish a write or sync that started before confirmation. Otherwise a
       // delayed workspace PUT could recreate the row after the DELETE.
       await workspaceMutationQueue;
@@ -4988,18 +5008,28 @@ export const useStore = create<State>((set, get) => {
       // Profiles are machine-wide. A legacy profile referenced by another
       // workspace must remain there; all exclusive profiles are stopped and
       // removed before the cloud workspace disappears.
-      for (const name of [...new Set(target.profileNames)]) {
-        if (get().workspaces.some((workspace) => workspace.id !== id && workspace.profileNames.includes(name))) continue;
-        await get().deleteProfile(name);
+      const exclusiveNames = [...new Set(target.profileNames)].filter((name) =>
+        !get().workspaces.some((workspace) => workspace.id !== id && workspace.profileNames.includes(name)));
+      try {
+        for (const [index, name] of exclusiveNames.entries()) {
+          onProgress?.(`Stopping and removing profiles ${index + 1}/${exclusiveNames.length}…`);
+          await get().deleteProfile(name, { deletingWorkspace: true });
+        }
+      } finally {
+        // Also refresh after a partial failure so a retry sees the actual
+        // remaining profiles. The next attempt tolerates PROFILE_NOT_FOUND.
+        await get().loadProfiles();
       }
       // Fail before removing the cloud workspace if local artifact cleanup
       // cannot complete. The backend deletes its projects and runs atomically.
+      onProgress?.("Deleting workspace data…");
       await invoke("artifact_workspace_delete", { workspaceId: id });
       await invoke("workspace_delete", { id });
       rememberDeletedWorkspace(id);
     } finally {
       deletingWorkspaceIds.delete(id);
     }
+    onProgress?.("Finishing local cleanup…");
     const removedConversations = get().conversations.filter((conversation) => conversation.workspaceId === id);
     const removedReplyIds = new Set<string>();
     for (const conversation of removedConversations) {

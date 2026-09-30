@@ -40,6 +40,11 @@ describe("agent profile-creation request prompt", () => {
     expect(renderToStaticMarkup(<ProfileCreateRequestModal />)).toBe("");
   });
 
+  it("does not prompt for a request from an in-app workspace agent", () => {
+    state.pendingProfileCreateRequests = [request({ workspace_id: "w" })];
+    expect(renderToStaticMarkup(<ProfileCreateRequestModal />)).toBe("");
+  });
+
   it("names the batch, quantity, and country, and never claims profiles already exist", () => {
     state.pendingProfileCreateRequests = [request({ quantity: 3 })];
 

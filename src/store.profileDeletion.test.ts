@@ -54,6 +54,22 @@ beforeEach(() => {
 });
 
 describe("profile deletion", () => {
+  it("can retry workspace deletion after a profile was already removed", async () => {
+    const missing = { code: 1, stdout: JSON.stringify({ ok: false, error: { code: "PROFILE_NOT_FOUND", message: "profile not found" } }), stderr: "" };
+    bridge.invoke.mockImplementation(async (command: string, payload?: { args?: string[] }) => {
+      if (command === "nextctl_cancel") return false;
+      if (command !== "nextctl_run") return null;
+      if (payload?.args?.[0] === "stop" || payload?.args?.[1] === "rm") return missing;
+      return success({ profiles: [] });
+    });
+    const { useStore } = await import("./store");
+    useStore.setState({
+      workspaces: [{ id: "w", name: "Old", profileNames: ["gone"], profileToolsets: {}, createdAt: 1, updatedAt: 1 }],
+      statuses: { gone: "unknown" },
+    });
+    await expect(useStore.getState().deleteProfile("gone", { deletingWorkspace: true })).resolves.toBeUndefined();
+  });
+
   it("stops a running external profile with its saved runtime before removing it", async () => {
     bridge.invoke.mockImplementation(async (command: string, payload?: { args?: string[] }) => {
       if (command === "nextctl_cancel") return true;

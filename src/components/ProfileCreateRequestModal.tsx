@@ -3,14 +3,8 @@ import { useStore } from "../store";
 import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { Icon } from "./Icon";
 
-/**
- * An agent cannot create browser profiles by itself inside a NextBrowser
- * workspace — profiles map to real proxy allocations, so nbc refuses
- * profiles_create there and routes the agent through profiles_create_request
- * instead. This modal is where that request actually gets a decision: it
- * surfaces the batch the agent asked for (a name prefix and a quantity) and
- * lets the person approve or decline it. Nothing is created until Approve.
- */
+/** Legacy requests without a workspace id still need a target and a decision.
+ * Requests from an in-app agent are processed automatically by the store. */
 export function ProfileCreateRequestModal() {
   const requests = useStore((s) => s.pendingProfileCreateRequests);
   const approve = useStore((s) => s.approveProfileCreateRequest);
@@ -27,7 +21,10 @@ export function ProfileCreateRequestModal() {
   const [dismissedId, setDismissedId] = useState<string | undefined>(undefined);
   const [errorFor, setErrorFor] = useState<{ id: string; message: string } | undefined>(undefined);
 
-  const request = requests[0];
+  // In-app agent requests carry a workspace id and are processed by the
+  // desktop automatically. Only legacy requests without a target need this UI.
+  const manualRequests = requests.filter((item) => !item.workspace_id);
+  const request = manualRequests[0];
   useEffect(() => {
     if (request?.personal_proxy_id) void loadPersonalProxies().catch(() => undefined);
   }, [request?.personal_proxy_id, loadPersonalProxies]);
@@ -108,8 +105,8 @@ export function ProfileCreateRequestModal() {
         <p className="traffic-gate-modal-copy">
           {request.status === "approved" || request.status === "completed" ? "The profiles were created. Retry to finish adding them to this workspace." : "Nothing has been created yet. Approve to create these profiles now, or decline to tell the agent no."}
         </p>
-        {requests.length > 1 && (
-          <div className="muted small">{requests.length - 1} more request{requests.length - 1 === 1 ? "" : "s"} waiting after this one.</div>
+        {manualRequests.length > 1 && (
+          <div className="muted small">{manualRequests.length - 1} more request{manualRequests.length - 1 === 1 ? "" : "s"} waiting after this one.</div>
         )}
         {error && (
           <div className="traffic-gate-modal-effect">

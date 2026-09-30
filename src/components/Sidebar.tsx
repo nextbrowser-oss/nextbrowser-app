@@ -143,6 +143,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [workspaceCreatorOpen, setWorkspaceCreatorOpen] = useState(false);
   const [workspaceDeleteOpen, setWorkspaceDeleteOpen] = useState(false);
   const [workspaceDeletePending, setWorkspaceDeletePending] = useState(false);
+  const [workspaceDeleteProgress, setWorkspaceDeleteProgress] = useState<string | null>(null);
   const [workspaceDeleteError, setWorkspaceDeleteError] = useState<string | null>(null);
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceSaving, setWorkspaceSaving] = useState(false);
@@ -2053,12 +2054,14 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
           <section className="modal-card workspace-create-modal" role="alertdialog" aria-modal="true" aria-labelledby="workspace-delete-title" onMouseDown={(event) => event.stopPropagation()}>
             <div className="profile-menu-head"><Icon name="trash" size={15} /><strong id="workspace-delete-title">Delete “{activeWorkspace.name}”?</strong></div>
             <p className="muted small">This permanently deletes the workspace, its {projects.length} project{projects.length === 1 ? "" : "s"} and chats, scheduled runs, local artifacts, and profiles used only here. Profiles also used by another workspace stay there. This cannot be undone.</p>
+            {workspaceDeletePending && workspaceDeleteProgress && <p className="muted small" role="status" aria-live="polite">{workspaceDeleteProgress}</p>}
             {workspaceDeleteError && <p className="error small" role="alert">{workspaceDeleteError}</p>}
             <div className="modal-actions">
               <button type="button" className="secondary" disabled={workspaceDeletePending} onClick={() => setWorkspaceDeleteOpen(false)}>Cancel</button>
               <button type="button" className="primary" disabled={workspaceDeletePending} onClick={() => {
                 setWorkspaceDeletePending(true);
-                void s.deleteWorkspace(activeWorkspace.id).then(() => setWorkspaceDeleteOpen(false)).catch((error: unknown) => {
+                setWorkspaceDeleteProgress(null);
+                void s.deleteWorkspace(activeWorkspace.id, setWorkspaceDeleteProgress).then(() => setWorkspaceDeleteOpen(false)).catch((error: unknown) => {
                   setWorkspaceDeleteError(error instanceof Error ? error.message : String(error));
                 }).finally(() => setWorkspaceDeletePending(false));
               }}>{workspaceDeletePending ? <Spinner size={13} /> : <Icon name="trash" size={13} />} Delete workspace and contents</button>

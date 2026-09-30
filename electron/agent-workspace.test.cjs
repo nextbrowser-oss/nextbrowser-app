@@ -71,7 +71,7 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   // the `-c` flags above only cover the one launch, this file is what a
   // stray direct `codex --profile nextbrowser` invocation would still read.
   assert.match(main, /\[plugins\."clawbrowser@nbc-local"\.mcp_servers\.clawbrowser\][\s\S]*?enabled = false/);
-  assert.match(main, /mcp_servers\.nextbrowser\.default_tools_approval_mode=approve/);
+  assert.match(main, /mcp_servers\.nextbrowser\.default_tools_approval_mode=auto/);
   assert.match(main, /"--add-dir", dir/);
   assert.match(main, /\.cache", "clawbrowser"/);
   assert.match(main, /\.local", "share", "clawbrowser"/);
