@@ -366,7 +366,7 @@ export function UsageView() {
                 </button>
               </div>
             )}
-            {s.proxy.provider === "nodemaven" && gateState !== "blocked" && (
+            {s.proxy.provider === "nodemaven" && gateState === "open" && (
               <div className={`nodemaven-handoff ${proxyExhausted ? "exhausted" : "ready"}`}>
                 <div className="nodemaven-handoff-copy">
                   <Icon name={proxyExhausted ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"} size={18} />

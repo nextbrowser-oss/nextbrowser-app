@@ -39,4 +39,15 @@ describe("NodeMaven purchase handoff", () => {
     } as ProxyTraffic;
     expect(renderToStaticMarkup(<UsageView />)).not.toContain("Buy traffic in NodeMaven");
   });
+
+  it("keeps the purchase handoff hidden during the human-review gate", () => {
+    state.proxy = {
+      provider: "nodemaven", limited: true, used_bytes: 10_000_000,
+      limit_bytes: 100_000_000, remaining_bytes: 90_000_000, state: "ok",
+      provider_account_email: "customer@example.com",
+    } as ProxyTraffic;
+    const html = renderToStaticMarkup(<UsageView />);
+    expect(html).not.toContain("Your NodeMaven account is ready");
+    expect(html).not.toContain("Buy traffic in NodeMaven");
+  });
 });
