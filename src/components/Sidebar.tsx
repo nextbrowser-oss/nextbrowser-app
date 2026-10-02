@@ -10,6 +10,7 @@ import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFla
 import { guideProfileTarget, guideWorkspaceProfileNames } from "../lib/guideQuickStart";
 import { manualProxyDefaultName, manualProxyLimits, parseManualProxyBatch, parseManualProxyClipboard, validateManualProxyFields, type ManualProxyScheme } from "../lib/manualProxy";
 import { actionFailureMessage, internalError } from "../lib/userFacingError";
+import { userFacingBrowserError } from "../lib/userFacingBrowserError";
 import { isProxyTrafficExhaustedError, isProxyTrafficGateMessage, proxyTrafficLaunchRefusedMessage } from "../lib/proxyTraffic";
 import { userFacingMultiloginError } from "../lib/userFacingMultiloginError";
 import { entityNameLimits, validateEntityName } from "../lib/entityValidation";
@@ -866,9 +867,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         revertAfter();
       })
       .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = userFacingBrowserError(error);
         setProxyTestResults((current) => ({ ...current, [id]: { status: "fail", detail: message } }));
-        revertAfter();
       });
   };
 
@@ -2486,7 +2486,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                           ? test.detail
                           : `Test ${proxy.name}`;
                       return (
-                        <div className="personal-proxy-row" key={proxy.id}>
+                        <div className="personal-proxy-item" key={proxy.id}>
+                        <div className="personal-proxy-row">
                           <span className="personal-proxy-icon"><Icon name="network" size={13} /></span>
                           <span className="personal-proxy-copy">
                             <strong>{proxy.name}</strong>
@@ -2513,6 +2514,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                           >
                             <Icon name="trash" size={13} />
                           </button>
+                        </div>
+                        {test?.status === "fail" && <p className="personal-proxy-test-error" role="alert">{test.detail} <span>Check the proxy details, then press Test to retry.</span></p>}
                         </div>
                       );
                     })}

@@ -262,7 +262,11 @@ async function collect(state) {
       expression: `(() => { const state=window.__nextbrowserPageRecorder; return {missing:!state?.drain,url:location.href,title:document.title,actions:state?.drain?.()||[]}; })()`,
     }, RECORDER_CALL_TIMEOUT_MS));
     let snapshot = evaluated.value;
-    state.cdpEndpoint = localCDPEndpoint(evaluated.session?.endpoint);
+    // Camoufox exposes browser control through Playwright/MCP. Its session
+    // endpoint is not a Chromium DevTools HTTP server: /json/list may return
+    // 501 even while evaluate works. Keep polling the injected page recorder
+    // through MCP for that runtime.
+    state.cdpEndpoint = state.runtime === "camoufox" ? "" : localCDPEndpoint(evaluated.session?.endpoint);
     if (snapshot?.missing) {
       snapshot = resultFromMCP(await state.client.callTool("evaluate", { expression: `(${recorderPageScript.toString()})()` }, RECORDER_CALL_TIMEOUT_MS)) || snapshot;
       snapshot.actions = [];
@@ -299,7 +303,7 @@ async function startAutomationPageRecording(input, deps) {
   const traceDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-recording-"));
   const traceFile = path.join(traceDir, "mcp-actions.jsonl");
   await fs.writeFile(traceFile, "", { mode: 0o600 });
-  const state = { client: null, clientOptions: { binary: deps.binary, args, env: deps.env, spawnImpl: deps.spawnImpl }, profile, actions: [], seenEventIds: new Set(), traceFile, traceDir, currentUrl: "", currentPageId: "", title: "", lastPageInteractionAt: 0, polling: false, stopping: false, closed: false, attaching: null, lastError: "", cdpEndpoint: "", cdpInitialized: false, cdpTargets: new Map() };
+  const state = { client: null, clientOptions: { binary: deps.binary, args, env: deps.env, spawnImpl: deps.spawnImpl }, profile, runtime, actions: [], seenEventIds: new Set(), traceFile, traceDir, currentUrl: "", currentPageId: "", title: "", lastPageInteractionAt: 0, polling: false, stopping: false, closed: false, attaching: null, lastError: "", cdpEndpoint: "", cdpInitialized: false, cdpTargets: new Map() };
   activeRecorders.set(recordingId, state);
   try {
     if (input.attach !== false) await attachAutomationPageRecording(recordingId);

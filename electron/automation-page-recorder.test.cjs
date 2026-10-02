@@ -74,6 +74,35 @@ test("manual recording returns an initial navigation and collected deterministic
   assert.ok(server.calls.filter((call) => call.params?.name).every((call) => call.params.arguments.runtime === "clawbrowser"));
 });
 
+test("Camoufox manual recording uses MCP evaluate instead of probing a Chromium CDP endpoint", async () => {
+  let drained = false;
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    if (message.params.name === "state") return toolResult({ page: { url: "https://example.com/" } });
+    const expression = message.params.arguments.expression;
+    if (expression.includes("function recorderPageScript")) return toolResult({ installed: true, url: "https://example.com/", title: "Example" });
+    if (expression.includes("state?.cleanup")) return toolResult(true);
+    const actions = drained ? [] : [{ tool: "click", arguments: { locator: { role: "link", name: "More" } }, at: Date.now() }];
+    drained = true;
+    return { content: [{ type: "text", text: JSON.stringify({
+      result: { missing: false, url: "https://example.com/", title: "Example", actions },
+      session: { name: "Cam", endpoint: "http://127.0.0.1:12345" },
+    }) }] };
+  });
+  const previousFetch = global.fetch;
+  global.fetch = () => { throw new Error("Chromium CDP must not be queried for Camoufox"); };
+  try {
+    await startAutomationPageRecording({ recordingId: "camoufox-mcp", profile: "Cam", runtime: "camoufox" }, {
+      binary: "nextctl", env: {}, spawnImpl: server.spawnImpl,
+    });
+    const result = await stopAutomationPageRecording("camoufox-mcp");
+    assert.equal(result.error, undefined);
+    assert.deepEqual(result.actions.map(({ tool }) => tool), ["open", "click"]);
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
 test("recording can be armed before a stopped browser profile is launched", async () => {
   const server = fakeMCP((message) => {
     if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };

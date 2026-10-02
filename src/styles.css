@@ -2260,6 +2260,10 @@ body.is-resizing-sidebar {
   align-items: center;
   background: var(--bg);
 }
+@media (max-width: 1100px) {
+  .tabbar { flex-wrap: wrap; row-gap: 6px; }
+  .tabbar-controls { margin-left: auto; }
+}
 :root:not([data-theme="light"]) .tabbar {
   background: #1b1b1b;
   border-bottom: 1px solid rgba(255, 255, 255, 0.055);
@@ -3891,11 +3895,13 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   gap: 12px;
   text-align: center;
   padding: 24px;
+  color: #f5f5f7;
 }
 .live-empty-panel p,
 .live-link-panel p {
   margin: 0;
   line-height: 1.5;
+  color: #bcbac5;
 }
 .live-url {
   max-width: 100%;
@@ -5132,6 +5138,19 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 }
 .personal-proxy-note { margin: 1px 0 12px; font-size: 11px; line-height: 1.45; }
 .personal-proxy-list { display: flex; max-height: 280px; flex-direction: column; gap: 6px; overflow-y: auto; }
+.personal-proxy-item { display: grid; gap: 4px; }
+.personal-proxy-test-error {
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--red) 35%, var(--line));
+  border-radius: 8px;
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 7%, var(--surface-2));
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.personal-proxy-test-error span { display: block; margin-top: 3px; }
 .personal-proxy-row {
   display: flex;
   align-items: center;
@@ -6653,7 +6672,7 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .guide-header h2 { margin: 0; font-size: 28px; font-weight: 700; }
 .guide-header p { margin: 2px 0 0; max-width: 660px; }
 .guide-header .btn-bordered { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.guide-start-section { margin-bottom: 24px; }
+.guide-start-section { margin-bottom: 24px; container-type: inline-size; }
 .guide-section-heading {
   display: flex;
   align-items: end;
@@ -6699,6 +6718,11 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   width: 1px;
   background: var(--line);
   content: "";
+}
+@container (max-width: 850px) {
+  .quick-start { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); }
+  .quick-step { background: var(--surface-1); }
+  .quick-step::after { display: none; }
 }
 .quick-step:hover { background: var(--surface-3); }
 .quick-step:active { transform: scale(.985); }

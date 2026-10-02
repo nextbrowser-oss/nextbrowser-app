@@ -643,12 +643,31 @@ function CustomScriptSheet({
   const [title, setTitle] = useState(script?.title ?? "");
   const [domain, setDomain] = useState(script?.domain ?? "");
   const [instructions, setInstructions] = useState(script?.instructions ?? "");
+  const [validationError, setValidationError] = useState("");
+
+  const save = () => {
+    if (!title.trim() || !instructions.trim()) {
+      setValidationError("Enter a title and instructions before saving the script.");
+      return;
+    }
+    setValidationError("");
+    onSave({
+      id: script?.id ?? uid(),
+      title: title.trim(),
+      domain: domain.trim(),
+      instructions: instructions.trim(),
+      createdAt: script?.createdAt ?? Date.now(),
+      updatedAt: Date.now(),
+      serverSlug: script?.serverSlug,
+      submittedAt: script?.submittedAt,
+    });
+  };
 
   return (
     <div className="modal-overlay">
       <div className="modal-card script-editor">
         <h3>{script ? "Edit script" : "New script"}</h3>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" />
+        <input value={title} onChange={(e) => { setTitle(e.target.value); setValidationError(""); }} placeholder="Title" aria-label="Script title" aria-invalid={!!validationError && !title.trim()} />
         <input
           value={domain}
           onChange={(e) => setDomain(e.target.value)}
@@ -656,28 +675,20 @@ function CustomScriptSheet({
         />
         <textarea
           value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
+          onChange={(e) => { setInstructions(e.target.value); setValidationError(""); }}
           placeholder="Instructions for the agent…"
           rows={8}
+          aria-label="Script instructions"
+          aria-invalid={!!validationError && !instructions.trim()}
         />
+        {validationError && <p className="error-text" role="alert">{validationError}</p>}
         <div className="row" style={{ gap: 8, marginTop: 8 }}>
           <button className="secondary" onClick={onClose}>
             Cancel
           </button>
           <button
             className="primary"
-            onClick={() =>
-              onSave({
-                id: script?.id ?? uid(),
-                title: title.trim() || "Untitled",
-                domain: domain.trim(),
-                instructions: instructions.trim(),
-                createdAt: script?.createdAt ?? Date.now(),
-                updatedAt: Date.now(),
-                serverSlug: script?.serverSlug,
-                submittedAt: script?.submittedAt,
-              })
-            }
+            onClick={save}
           >
             Save
           </button>
