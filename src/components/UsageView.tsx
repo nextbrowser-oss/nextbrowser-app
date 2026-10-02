@@ -266,6 +266,7 @@ export function UsageView() {
   const domainPage = domainsPageByTraffic(topDomains, domainsPage);
   const proxyExhausted = isProxyTrafficExhausted(s.proxy);
   const dashboardReady = handoffInviteSent || s.proxy?.provider_access_method === "email_sent";
+  const canBuyNodeMavenTraffic = gateState === "open" && proxyExhausted;
   const peak = peakPoint(points);
   const averageBytes = points.length ? (history?.total_bytes ?? 0) / points.length : 0;
 
@@ -370,16 +371,17 @@ export function UsageView() {
                 </button>
               </div>
             )}
-            {s.proxy.provider === "nodemaven" && gateState === "open" && (
+            {s.proxy.provider === "nodemaven" && (gateState === "open" || dashboardReady) && (
               <div className={`nodemaven-handoff ${proxyExhausted ? "exhausted" : "ready"}`}>
                 <div className="nodemaven-handoff-copy">
                   <Icon name={proxyExhausted ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"} size={18} />
                   <div>
-                    <strong>{proxyExhausted
+                    <strong>{gateState === "blocked" ? "NodeMaven dashboard access" : proxyExhausted
                       ? dashboardReady ? "Proxy traffic has run out" : "Your free 1 GB has been used"
                       : "Your NodeMaven account is ready"}</strong>
                     <p>
-                      {proxyExhausted
+                      {gateState === "blocked" ? "Your dashboard remains available. Contact support about the paused proxy allowance before continuing browser work."
+                        : proxyExhausted
                         ? dashboardReady
                           ? "Buy more traffic in NodeMaven to continue. Your proxy credentials stay the same."
                           : "Buy more traffic in NodeMaven to continue. We'll email you a link to set your password. Your proxy credentials stay the same."
@@ -403,13 +405,13 @@ export function UsageView() {
                       Set up account access
                     </button>
                   )}
-                  {proxyExhausted && (
+                  {canBuyNodeMavenTraffic && (
                     <button className="btn-bordered-prominent" disabled={handoffLoading} type="button" onClick={() => void buyNodeMavenTraffic()}>
                       {handoffLoading ? <Spinner size={13} /> : <Icon name="arrow.up.right" size={13} />}
                       {dashboardReady ? "Buy more traffic in NodeMaven" : "Buy traffic in NodeMaven"}
                     </button>
                   )}
-                  {proxyExhausted && (
+                  {canBuyNodeMavenTraffic && (
                     <button className="btn-bordered" disabled={s.isRefreshing} type="button" onClick={() => void refreshUsage()}>
                       I’ve added traffic — Refresh
                     </button>

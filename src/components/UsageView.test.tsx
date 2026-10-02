@@ -76,4 +76,16 @@ describe("NodeMaven purchase handoff", () => {
     expect(html).not.toContain("Your NodeMaven account is ready");
     expect(html).not.toContain("Buy traffic in NodeMaven");
   });
+
+  it("keeps the dashboard link visible if a previously invited account is paused", () => {
+    state.proxy = {
+      provider: "nodemaven", limited: true, used_bytes: 100_000_000,
+      limit_bytes: 100_000_000, remaining_bytes: 0, state: "exhausted",
+      provider_access_method: "email_sent",
+      dashboard_url: "https://dashboard.nodemaven.com/dashboard",
+    } as ProxyTraffic;
+    const html = renderToStaticMarkup(<UsageView />);
+    expect(html).toContain("Open NodeMaven dashboard");
+    expect(html).not.toContain("Buy more traffic in NodeMaven");
+  });
 });
