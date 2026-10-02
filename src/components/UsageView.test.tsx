@@ -40,6 +40,32 @@ describe("NodeMaven purchase handoff", () => {
     expect(renderToStaticMarkup(<UsageView />)).not.toContain("Buy traffic in NodeMaven");
   });
 
+  it("keeps dashboard access after an invite, including while traffic remains", () => {
+    state.proxy = {
+      provider: "nodemaven", limited: true, used_bytes: 500_000_000,
+      limit_bytes: 1_000_000_000, remaining_bytes: 500_000_000, state: "ok",
+      provider_access_method: "email_sent",
+      dashboard_url: "https://dashboard.nodemaven.com/dashboard",
+      pricing_url: "https://dashboard.nodemaven.com/pricing",
+    } as ProxyTraffic;
+    const html = renderToStaticMarkup(<UsageView />);
+    expect(html).toContain("Open NodeMaven dashboard");
+    expect(html).not.toContain("Buy traffic in NodeMaven");
+  });
+
+  it("offers another purchase and dashboard access when a later allocation runs out", () => {
+    state.proxy = {
+      provider: "nodemaven", limited: true, used_bytes: 2_000_000_000,
+      limit_bytes: 2_000_000_000, remaining_bytes: 0, state: "exhausted",
+      provider_access_method: "email_sent",
+      dashboard_url: "https://dashboard.nodemaven.com/dashboard",
+      pricing_url: "https://dashboard.nodemaven.com/pricing",
+    } as ProxyTraffic;
+    const html = renderToStaticMarkup(<UsageView />);
+    expect(html).toContain("Open NodeMaven dashboard");
+    expect(html).toContain("Buy more traffic in NodeMaven");
+  });
+
   it("keeps the purchase handoff hidden during the human-review gate", () => {
     state.proxy = {
       provider: "nodemaven", limited: true, used_bytes: 10_000_000,
