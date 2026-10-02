@@ -1957,7 +1957,7 @@ async function invokeCommand(command, args = {}, sender) {
       await shell.openExternal(String(args.url || ""));
       return null;
     }
-    case "nodemaven_send_invite": return sendNodeMavenInvite();
+    case "nodemaven_send_invite": return sendNodeMavenInvite({ env: childEnv() });
     case "app_platform": return { platform: process.platform, arch: process.arch };
     case "app_focus": {
       focusMainWindow();
