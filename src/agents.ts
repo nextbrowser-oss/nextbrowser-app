@@ -65,7 +65,7 @@ export const AGENTS: AgentSpec[] = [
   spec("codex", "Codex", "codex", "codexExec", { primary: true, loginArgs: ["login"], logoutArgs: ["logout"], statusArgs: ["login", "status"], installUrl: "https://chatgpt.com/download/", installKind: "app" }),
   spec("hermes", "Hermes Agent", "hermes", "hermesOneshot", { loginArgs: ["setup"] }),
   spec("kilo", "Kilo Code", "kilo", "runSubcommand", { installUrl: "https://kilo.ai/docs/getting-started/using-kilo-for-free" }),
-  spec("openclaw", "OpenClaw", "openclaw", "openclawAgent", { loginArgs: ["onboard"] }),
+  spec("openclaw", "OpenClaw", "openclaw", "openclawAgent", { loginArgs: ["onboard", "--agent", "main"] }),
   spec("cline", "Cline", "cline", "promptArg", { loginArgs: ["auth"] }),
   spec("pi", "pi", "pi", "promptFlag"),
   spec("gemini", "Gemini CLI", "gemini", "promptFlag"),
