@@ -34,7 +34,9 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-      - run: npm ci
+      - uses: ./.github/actions/npm-ci-private
+        with:
+          token: ${{ secrets.MONITORING_REPOS_READ_TOKEN }}
       - name: Critical feature regressions (mandatory)
         run: npm run test:critical
       - run: npm test

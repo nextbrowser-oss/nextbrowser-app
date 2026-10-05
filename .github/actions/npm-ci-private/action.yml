@@ -1,0 +1,26 @@
+name: Install dependencies with private monitoring access
+description: Install pinned npm dependencies, including the read-only monitoring repositories.
+inputs:
+  token:
+    description: Fine-grained read-only token for the private monitoring repositories.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: npm ci
+      shell: bash
+      env:
+        MONITORING_REPOS_READ_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+        if [ -z "${MONITORING_REPOS_READ_TOKEN}" ]; then
+          echo "MONITORING_REPOS_READ_TOKEN is required to install private monitoring dependencies." >&2
+          exit 1
+        fi
+        # npm's lockfile uses ssh://git@github.com for the private packages.
+        # Give Git a read-only HTTPS rewrite only for this installation process;
+        # do not persist the token in a global config or build artifact.
+        export GIT_CONFIG_COUNT=1
+        export GIT_CONFIG_KEY_0="url.https://x-access-token:${MONITORING_REPOS_READ_TOKEN}@github.com/.insteadOf"
+        export GIT_CONFIG_VALUE_0="ssh://git@github.com/"
+        npm ci
