@@ -61,6 +61,9 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Test font catalog validation
+        run: python3 scripts/validate-font-catalog.test.py
+
       - name: Install browser dependencies
         run: |
           set -euo pipefail
@@ -125,6 +128,10 @@ jobs:
             echo "::error::no clawbrowser launcher inside $asset"
             exit 1
           fi
+          # macOS-created archives can contain AppleDouble ._* companions.
+          # Remove only recognized metadata for manifest-listed fonts, then
+          # require exact catalog membership and every font checksum.
+          python3 scripts/validate-font-catalog.py "$(dirname "$launcher")"
           chmod +x "$launcher"
           echo "CLAWBROWSER_BIN=$launcher" >> "$GITHUB_ENV"
           "$NEXTCTL_BIN" config set --browser-bin "$launcher"
