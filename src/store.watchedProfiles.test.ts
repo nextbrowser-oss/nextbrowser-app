@@ -343,7 +343,7 @@ describe("cloud-phone skills", () => {
     expect(prompt).toContain("cloud phone “Reddit-test” (id phone-1)");
     expect(prompt).toContain("Run one engagement pass over these communities: r/learnprogramming.");
     expect(prompt).toContain("# Reddit on a cloud phone");
-    expect(prompt).toContain("Do not start, open, inspect, or change any NextBrowser browser profile");
+    expect(prompt).toContain("Do not start, open, inspect, or change any Nextbrowser browser profile");
     // No browser session was prepared or touched on the way.
     expect(bridge.invoke.mock.calls.filter(([channel]) => channel === "nextctl_run")).toHaveLength(0);
   });

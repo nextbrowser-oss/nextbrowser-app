@@ -361,7 +361,7 @@ export function UsageView() {
                 </div>
                 <p className="muted small">
                   New accounts pause after the first few dozen megabytes so we can meet the
-                  people using NextBrowser. Say hi in Discord and we unlock the rest of your
+                  people using Nextbrowser. Say hi in Discord and we unlock the rest of your
                   allowance by hand — feedback, repo stars, and pull requests earn more.
                 </p>
                 <button

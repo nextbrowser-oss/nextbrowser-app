@@ -46,6 +46,6 @@ describe("nextctlErrorMessage", () => {
   });
 
   it("keeps the exit code when nextctl fails without any output", () => {
-    expect(nextctlErrorMessage({ code: 1, stdout: "", stderr: "" })).toBe("The NextBrowser CLI exited with code 1 without reporting a reason.");
+    expect(nextctlErrorMessage({ code: 1, stdout: "", stderr: "" })).toBe("The Nextbrowser CLI exited with code 1 without reporting a reason.");
   });
 });

@@ -76,7 +76,7 @@ async function sendNodeMavenInvite(deps = {}) {
       signal: AbortSignal.timeout(10_000),
     });
   } catch {
-    throw new Error("Could not reach NextBrowser to send the NodeMaven email. Try again.");
+    throw new Error("Could not reach Nextbrowser to send the NodeMaven email. Try again.");
   }
   if (!response.ok) {
     const errorBody = typeof response.json === "function" ? await response.json().catch(() => null) : null;
@@ -87,7 +87,7 @@ async function sendNodeMavenInvite(deps = {}) {
     if (response.status === 404 && errorBody?.code === "invite_unavailable") {
       throw new Error("Your NodeMaven account could not be found. Contact support before purchasing traffic.");
     }
-    if (response.status === 401) throw new Error("Sign in to NextBrowser, then try sending the NodeMaven email again.");
+    if (response.status === 401) throw new Error("Sign in to Nextbrowser, then try sending the NodeMaven email again.");
     throw new Error("Could not send the NodeMaven email. Try again or contact support.");
   }
   const result = await response.json().catch(() => null);

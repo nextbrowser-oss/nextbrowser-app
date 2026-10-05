@@ -495,9 +495,9 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
 }
 
 /// A contributor is credited by GitHub handle; a name with a space in it, such
-/// as "NextBrowser Team", is a team and is written out as it is.
+/// as "Nextbrowser Team", is a team and is written out as it is.
 function authorLabel(author: string): string {
-  return /\s/.test(author) ? author : `@${author}`;
+  return /\s/.test(author) ? author.replace(/NextBrowser/g, "Nextbrowser") : `@${author}`;
 }
 
 function RunLocalSkillSheet({ skill, sessionName, onClose, onRun }: {

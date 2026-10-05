@@ -66,7 +66,7 @@ test("maps a silent exit code to a useful fallback and keeps the raw output", ()
 
   assert.equal(failure.error.code, "EXIT_1");
   assert.equal(failure.error.retryable, true);
-  assert.match(failure.error.message, /“pixelscan-fr” couldn't start: the NextBrowser CLI exited with code 1 without reporting a reason\. Retry once\./);
+  assert.match(failure.error.message, /“pixelscan-fr” couldn't start: the Nextbrowser CLI exited with code 1 without reporting a reason\. Retry once\./);
   assert.match(failure.error.ref, /^NB-[0-9A-F]{8}$/);
   assert.equal(failure.diagnostics.exitCode, 1);
   assert.equal(failure.diagnostics.stdout, "");

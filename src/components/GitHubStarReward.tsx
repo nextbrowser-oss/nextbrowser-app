@@ -91,7 +91,7 @@ export function GitHubStarModal({ suppressed = false }: { suppressed?: boolean }
         <div className="modal-title-row">
           <Icon name="star.fill" size={18} />
           <div>
-            <strong id="github-star-title">Star NextBrowser on GitHub to get {githubStarRewardLabel(status)} free</strong>
+            <strong id="github-star-title">Star Nextbrowser on GitHub to get {githubStarRewardLabel(status)} free</strong>
           </div>
         </div>
         <GitHubStarCopy status={status} />
@@ -128,7 +128,7 @@ export function GitHubStarCard() {
     <div className="github-star-card" role="status">
       <div className="github-star-card-heading">
         <Icon name="star.fill" size={16} />
-        <strong>Star NextBrowser on GitHub to get {githubStarRewardLabel(status)} free</strong>
+        <strong>Star Nextbrowser on GitHub to get {githubStarRewardLabel(status)} free</strong>
       </div>
       <GitHubStarCopy status={status} />
       {error && (

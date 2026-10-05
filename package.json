@@ -1,8 +1,8 @@
 {
   "name": "nextbrowser",
   "version": "0.2.59",
-  "description": "NextBrowser desktop agent console for macOS and Windows",
-  "author": "NextBrowser",
+  "description": "Nextbrowser desktop agent console for macOS and Windows",
+  "author": "Nextbrowser",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
@@ -81,7 +81,7 @@
     "artifactName": "NextBrowser-${version}-${arch}.${ext}",
     "protocols": [
       {
-        "name": "NextBrowser Auth",
+        "name": "Nextbrowser Auth",
         "schemes": [
           "nextbrowser"
         ]
@@ -95,7 +95,11 @@
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist"
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "CFBundleDisplayName": "Nextbrowser",
+        "CFBundleName": "Nextbrowser"
+      }
     },
     "win": {
       "target": [

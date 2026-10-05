@@ -180,7 +180,7 @@ SSH command: ${command}
 
 The SSH command uses only the resolved host, user, port, and identity-file path shown above. It deliberately does not load the source SSH config, so config directives such as Match exec, ProxyCommand, KnownHostsCommand, LocalCommand, and Include cannot execute locally.
 
-Connect using the SSH command above. Do not read or print private-key contents. From that point on, run every Clawbrowser, browser, profile, and session operation inside the VPS SSH context. Never run those operations on localhost, never use the local NextBrowser profile/session, and never fall back to local execution.
+Connect using the SSH command above. Do not read or print private-key contents. From that point on, run every Clawbrowser, browser, profile, and session operation inside the VPS SSH context. Never run those operations on localhost, never use the local Nextbrowser profile/session, and never fall back to local execution.
 
 Before doing browser work, perform only this read-only preflight on the VPS:
 1. Run \`command -v nextctl\` on the VPS.

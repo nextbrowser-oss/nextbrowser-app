@@ -4,9 +4,9 @@ const { mergeManagedInstructions, START, END } = require("./workspace-instructio
 
 test("adds browser and secret-handling guidance", () => {
   const result = mergeManagedInstructions("");
-  assert.match(result, /use the connected NextBrowser MCP tools immediately/);
+  assert.match(result, /use the connected Nextbrowser MCP tools immediately/);
   assert.match(result, /Playwright for Camoufox/);
-  assert.match(result, /authoritative NextBrowser profile runtime context/);
+  assert.match(result, /authoritative Nextbrowser profile runtime context/);
   assert.match(result, /use one `paginate_extract` call/);
   assert.match(result, /short read-only top-N request/);
   assert.match(result, /finish immediately/);

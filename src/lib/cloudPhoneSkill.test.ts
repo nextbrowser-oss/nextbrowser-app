@@ -13,7 +13,7 @@ describe("cloud-phone skills", () => {
     const prompt = cloudPhoneSkillPrompt("Reddit on a Cloud Phone", "reddit.com", "# Reddit", { id: "p1", name: "Reddit-test", folderId: "f1" }, "Upvote the top post of r/golang.");
     expect(prompt).toContain("cloud phone “Reddit-test” (id p1, folder f1)");
     expect(prompt).toContain("nbc --runtime multilogin --multilogin-folder-id f1 mobile");
-    expect(prompt).toContain("Do not start, open, inspect, or change any NextBrowser browser profile");
+    expect(prompt).toContain("Do not start, open, inspect, or change any Nextbrowser browser profile");
     expect(prompt.indexOf("Task for this run:\nUpvote the top post")).toBeLessThan(prompt.indexOf("# Reddit"));
   });
 

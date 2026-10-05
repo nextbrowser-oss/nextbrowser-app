@@ -13,7 +13,7 @@ const {
 test("returns the repository star count", async () => {
   const count = await fetchGitHubStars(async (url, options) => {
     assert.equal(url, REPOSITORY_API_URL);
-    assert.equal(options.headers["user-agent"], "NextBrowser");
+    assert.equal(options.headers["user-agent"], "Nextbrowser");
     return {
       ok: true,
       json: async () => ({ stargazers_count: 8 }),

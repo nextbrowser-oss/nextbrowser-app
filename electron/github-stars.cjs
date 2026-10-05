@@ -7,7 +7,7 @@ async function fetchGitHubStars(fetchImpl = globalThis.fetch, options = {}) {
   const response = await fetchImpl(REPOSITORY_API_URL, {
     headers: {
       accept: "application/vnd.github+json",
-      "user-agent": "NextBrowser",
+      "user-agent": "Nextbrowser",
     },
     signal: options.signal,
   });

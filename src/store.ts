@@ -3249,9 +3249,9 @@ export const useStore = create<State>((set, get) => {
       pendingProfileLaunches.clear();
       pendingProfileStarts.clear();
       verifyingProfileStarts.clear();
-      // Agent CLI sign-in belongs to the local machine, not the NextBrowser
+      // Agent CLI sign-in belongs to the local machine, not the Nextbrowser
       // account. Clear its work queue, but retain the connection result so
-      // signing back into NextBrowser does not demand the same agent setup.
+      // signing back into Nextbrowser does not demand the same agent setup.
       const runtime = initRuntimes();
       for (const [id, previous] of Object.entries(get().runtime)) {
         if (!runtime[id]) continue;

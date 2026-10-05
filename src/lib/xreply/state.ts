@@ -97,7 +97,7 @@ export interface XReplyState {
   gifBlocklist: string[];
   /** The account replies must go out from. Empty means whatever is signed in. */
   publisherHandle?: string;
-  /** Which NextBrowser profile the engine drives, with its own cookies and
+  /** Which Nextbrowser profile the engine drives, with its own cookies and
    *  proxy. Empty means the app's currently selected profile. */
   profileName?: string;
   /** Re-queue a failure that never clicked reply. */

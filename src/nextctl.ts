@@ -56,7 +56,7 @@ export function nextctlErrorMessage(res: RunResult): string {
   const o = res.stdout.trim();
   // A silent failure still has its exit code; keep it so the cause can be
   // traced instead of a bare "failed".
-  return o || `The NextBrowser CLI exited with code ${res.code} without reporting a reason.`;
+  return o || `The Nextbrowser CLI exited with code ${res.code} without reporting a reason.`;
 }
 
 /// Run a command in JSON mode and decode the `data` payload.

@@ -14,7 +14,12 @@ const os = require("node:os");
 const path = require("node:path");
 const isDevPackage = app.isPackaged && require("../package.json").nextBrowserBuildChannel === "dev";
 const isDevBuild = !app.isPackaged || isDevPackage;
-if (isDevBuild) app.setName("NextBrowser DEV");
+// Display branding must not move existing account/session storage.
+const existingUserDataPath = app.getPath("userData");
+const existingSessionDataPath = app.getPath("sessionData");
+app.setName(isDevBuild ? "Nextbrowser DEV" : "Nextbrowser");
+app.setPath("userData", existingUserDataPath);
+app.setPath("sessionData", existingSessionDataPath);
 const { devDataPaths } = require("./dev-data-root.cjs");
 const devStorage = devDataPaths({ isPackaged: app.isPackaged, isDevPackage, homeDir: os.homedir() });
 if (devStorage) {
@@ -2719,7 +2724,7 @@ function applyAppIcon() {
 function createWindow() {
   const icon = loadAppIcon();
   const window = new BrowserWindow({
-    title: isDevBuild ? "NextBrowser DEV" : "Nextbrowser", width: 1180, height: 760, minWidth: 960, minHeight: 640,
+    title: isDevBuild ? "Nextbrowser DEV" : "Nextbrowser", width: 1180, height: 760, minWidth: 960, minHeight: 640,
     backgroundColor: "#0e0e0e", show: false,
     // The native menu looks like Electron chrome in the Windows product UI.
     // Keep keyboard access through Alt without reserving visual space for it.

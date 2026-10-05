@@ -445,7 +445,15 @@ function GlobalErrorNotice({ error, onClose }: { error: { reference: string; det
   );
 }
 
-function ManualReleaseDownload({ onOpen }: { onOpen: () => Promise<void> }) {
+function ManualReleaseDownload({ onOpen, version, onLater }: { onOpen: () => Promise<void>; version?: string; onLater?: () => void }) {
+  const [downloadUrl, setDownloadUrl] = useState(latestReleaseUrl);
+  useEffect(() => {
+    let active = true;
+    void invoke<{ platform: string; arch: string }>("app_platform")
+      .then(({ platform, arch }) => { if (active) setDownloadUrl(releaseDownloadUrl(version, platform, arch)); })
+      .catch(() => { if (active) setDownloadUrl(latestReleaseUrl); });
+    return () => { active = false; };
+  }, [version]);
   const [state, setState] = useState<"idle" | "opening" | "opened" | "error">("idle");
   const open = async () => {
     if (state === "opening") return;
@@ -453,11 +461,14 @@ function ManualReleaseDownload({ onOpen }: { onOpen: () => Promise<void> }) {
     try { await onOpen(); setState("opened"); }
     catch { setState("error"); }
   };
-  return <div>
-    <button className="mini primary-mini" disabled={state === "opening"} onClick={() => void open()}>
-      {state === "opening" && <Spinner size={12} />}
-      {state === "opening" ? "Opening download…" : "Download update"}
-    </button>
+  return <div className="manual-release-download">
+    <div className="manual-release-actions">
+      {onLater && <button className="secondary" autoFocus onClick={onLater}>Later</button>}
+      <button className={onLater ? "primary release-download-button" : "mini primary-mini release-download-button"} title={downloadUrl} disabled={state === "opening"} onClick={() => void open()}>
+        {state === "opening" && <Spinner size={12} />}
+        {state === "opening" ? "Opening download…" : "Download update"}
+      </button>
+    </div>
     {state === "opened" && <p className="muted small" role="status">Download opened in your browser. When it finishes, open the DMG from Downloads and drag Nextbrowser into Applications.</p>}
     {state === "error" && <p className="error small" role="alert">Could not open the download. Please try again.</p>}
   </div>;
@@ -590,7 +601,7 @@ function SettingsModal({
               </strong>
               {manualUpdate ? (
                 updateAvailable(appUpdate) ? (
-                  <ManualReleaseDownload onOpen={onOpenRelease} />
+                  <ManualReleaseDownload onOpen={onOpenRelease} version={appUpdate.version} />
                 ) : null
               ) : (
                 <>
@@ -797,12 +808,12 @@ function AppUpdatePrompt({
                 : "Update now, or keep working and install it later from Settings."}
         </p>
         {downloading && <InstallationProgress label={`Downloading Nextbrowser ${status.percent ?? 0}%`} />}
-        <div className="row settings-actions">
-          <button className="secondary" autoFocus onClick={onLater}>Later</button>
-          <span className="spacer" />
-          {manual ? (
-            <ManualReleaseDownload onOpen={onOpenRelease} />
-          ) : (
+        {manual ? (
+          <ManualReleaseDownload onOpen={onOpenRelease} version={status.version} onLater={onLater} />
+        ) : (
+          <div className="row settings-actions">
+            <button className="secondary" autoFocus onClick={onLater}>Later</button>
+            <span className="spacer" />
             <button
               className="primary"
               disabled={downloading}
@@ -814,8 +825,8 @@ function AppUpdatePrompt({
                   ? `Downloading ${status.percent ?? 0}%`
                   : "Download update"}
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

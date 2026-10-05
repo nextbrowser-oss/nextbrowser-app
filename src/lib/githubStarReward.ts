@@ -4,7 +4,7 @@ import { humanBytes } from "../types";
  * The GitHub star reward, as the main process reads it from the backend.
  *
  * An account that signed in with GitHub starts with a tiny proxy limit. It is
- * asked to star the NextBrowser repository; the backend checks the star and
+ * asked to star the Nextbrowser repository; the backend checks the star and
  * raises the limit to `rewardBytes`, once. `required` is true while the
  * account is still below the reward and has not claimed it.
  */

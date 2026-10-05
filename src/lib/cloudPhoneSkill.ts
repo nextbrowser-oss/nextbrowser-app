@@ -47,6 +47,6 @@ export function cloudPhoneSkillPrompt(
   // skill text: the workflow explains how, the task says what.
   const thisRun = task?.trim() ? `\n\nTask for this run:\n${task.trim()}` : "";
   return `Use the "${title}" skill to work with ${target} in its Android app. ${where} `
-    + "Do not start, open, inspect, or change any NextBrowser browser profile for this task: the site is driven on the phone, not in a browser."
+    + "Do not start, open, inspect, or change any Nextbrowser browser profile for this task: the site is driven on the phone, not in a browser."
     + `${thisRun}\n\nFollow this SKILL.md exactly, step by step:\n\n${md}`;
 }

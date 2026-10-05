@@ -159,7 +159,7 @@ describe("desktop account bootstrap", () => {
     });
   });
 
-  it("keeps the local agent connection across NextBrowser account logout", async () => {
+  it("keeps the local agent connection across Nextbrowser account logout", async () => {
     bridge.invoke.mockResolvedValue(null);
     const { useStore } = await import("./store");
     useStore.setState((state) => ({

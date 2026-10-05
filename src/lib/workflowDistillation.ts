@@ -18,7 +18,7 @@ Return exactly one JSON object with fields: title, domain, instructions, reusabl
 
 Rules:
 - Preserve the real domain and only browser tools/arguments present in the cleaned trace.
-- Keep only task-specific website actions through final results. NextBrowser prepares profiles, proxy, and sessions; omit start/prepare lifecycle steps.
+- Keep only task-specific website actions through final results. Nextbrowser prepares profiles, proxy, and sessions; omit start/prepare lifecycle steps.
 - Parameterize user-specific search values when useful, while retaining their current defaults.
 - Separate the proven fast path from fallback behavior.
 - Do not include results, IDs, endpoints, dashboard URLs, timestamps, tokens, or credentials.

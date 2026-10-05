@@ -74,7 +74,7 @@ export interface Profile {
 }
 
 // A batch profile-creation request an agent filed via the profiles_create_request
-// MCP tool. NextBrowser uses this request path for workspace-assigned profile
+// MCP tool. Nextbrowser uses this request path for workspace-assigned profile
 // creation, so the desktop can display and complete the approval.
 export interface ProfileCreateRequest {
   runtime?: BrowserToolset;

@@ -44,7 +44,7 @@ describe("composePrompt VPS mode", () => {
     expect(prompt).toContain("Strict VPS remote-only mode");
     expect(prompt).toContain(VPS_PROMPT_MARKER);
     expect(prompt).not.toContain("local `nextctl`/Clawbrowser components are missing");
-    expect(prompt).not.toContain("Active NextBrowser profile: local-profile");
+    expect(prompt).not.toContain("Active Nextbrowser profile: local-profile");
   });
 
   it("keeps follow-up turns remote and carries the marked SSH instructions forward", () => {
@@ -83,7 +83,7 @@ describe("composePrompt VPS mode", () => {
     expect(prompt).toContain("Open example.com on the browser.");
     expect(prompt).not.toContain("ask the user what browser task to run next");
     expect(prompt).not.toContain("which is already installed");
-    expect(prompt).not.toContain("Active NextBrowser profile: local-profile");
+    expect(prompt).not.toContain("Active Nextbrowser profile: local-profile");
   });
 
   it("uses persisted VPS connection instructions when the setup marker is no longer in history", () => {
@@ -107,7 +107,7 @@ describe("composePrompt VPS mode", () => {
     expect(prompt).toContain("Active VPS connection instructions:");
     expect(prompt).toContain("SSH command: ssh prod");
     expect(prompt).toContain("Remote identity: deploy@prod");
-    expect(prompt).not.toContain("Active NextBrowser profile: local-profile");
+    expect(prompt).not.toContain("Active Nextbrowser profile: local-profile");
   });
 
   it("keeps ordinary conversations on the local profile", () => {
@@ -121,7 +121,7 @@ describe("composePrompt VPS mode", () => {
     );
 
     expect(prompt).toContain("installed Clawbrowser CLI");
-    expect(prompt).toContain("Active NextBrowser profile: work");
+    expect(prompt).toContain("Active Nextbrowser profile: work");
     expect(prompt).toContain("Browser tasks are browser-only");
     expect(prompt).toContain("do not scan the user's home directory");
     expect(prompt).toContain("do not use OS automation for Music");
@@ -181,7 +181,7 @@ describe("composePrompt VPS mode", () => {
     );
 
     expect(prompt).toContain("installed Clawbrowser CLI");
-    expect(prompt).toContain("Active NextBrowser profile: work");
+    expect(prompt).toContain("Active Nextbrowser profile: work");
     expect(prompt).not.toContain("Strict VPS remote-only mode");
     expect(prompt).not.toContain(VPS_PROMPT_MARKER);
   });

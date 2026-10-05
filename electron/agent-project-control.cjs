@@ -1,7 +1,7 @@
 const { listProjects, deleteProject } = require("./project-sync.cjs");
 
 async function workspaceProjects(scope, deps, operations = { listProjects }) {
-  if (!scope?.workspaceId) throw new Error("This agent has no current NextBrowser workspace.");
+  if (!scope?.workspaceId) throw new Error("This agent has no current Nextbrowser workspace.");
   const response = await operations.listProjects(deps);
   return (Array.isArray(response?.projects) ? response.projects : [])
     .filter((project) => project?.workspace_id === scope.workspaceId && typeof project.id === "string")

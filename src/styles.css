@@ -8942,3 +8942,14 @@ pre,
   color: var(--red);
   background: color-mix(in srgb, var(--red) 14%, transparent);
 }
+
+/* Keep update actions aligned when the download instructions appear. */
+.manual-release-download { min-width: 0; width: 100%; }
+.manual-release-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }
+.manual-release-actions > .secondary { margin-right: auto; }
+.manual-release-actions > button { flex: 0 0 auto; }
+.manual-release-download > p { margin: 12px 0 0; overflow-wrap: anywhere; }
+.release-download-button { cursor: pointer; transition: filter 120ms ease, box-shadow 120ms ease; }
+.release-download-button:hover:not(:disabled) { filter: brightness(1.12); box-shadow: 0 0 0 2px var(--accent); }
+.release-download-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.release-download-button:disabled { cursor: wait; }

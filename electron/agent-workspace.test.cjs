@@ -215,7 +215,7 @@ test("terminal attachments are staged inside the sandboxed workspace", () => {
   assert.match(terminal, /Please inspect the attached file\(s\)\./);
 });
 
-test("manual proxy operations use the isolated NextBrowser account configuration", () => {
+test("manual proxy operations use the isolated Nextbrowser account configuration", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   assert.match(main, /listPersonalProxies\(\{ env: childEnv\(\) \}\)/);
   assert.match(main, /createPersonalProxy\(args\.proxy, \{ env: childEnv\(\) \}\)/);

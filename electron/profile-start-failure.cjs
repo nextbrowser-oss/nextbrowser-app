@@ -19,15 +19,15 @@ const REASON_CHARS = 220;
 const LOG_FILE = "profile-start.log";
 const LOG_MAX_BYTES = 1024 * 1024;
 
-const RETRY_ONCE = "Retry once. If it fails again, restart NextBrowser and share the Ref through Send feedback.";
+const RETRY_ONCE = "Retry once. If it fails again, restart Nextbrowser and share the Ref through Send feedback.";
 const RETRY_FEWER = "Retry once. If several profiles are starting at the same time, start fewer at once.";
-const CHECK_PROXY = "Retry once. If it fails again, check or change this profile's proxy in NextBrowser.";
-const SIGN_IN = "Sign in again from the NextBrowser sidebar, then retry.";
-const RESTART_TO_REINSTALL = "Restart NextBrowser so it can reinstall its browser toolset, then retry.";
+const CHECK_PROXY = "Retry once. If it fails again, check or change this profile's proxy in Nextbrowser.";
+const SIGN_IN = "Sign in again from the Nextbrowser sidebar, then retry.";
+const RESTART_TO_REINSTALL = "Restart Nextbrowser so it can reinstall its browser toolset, then retry.";
 const CHECK_CONNECTION = "Check your internet connection, then retry.";
 
 function runtimeLabel(runtime) {
-  return RUNTIME_LABELS[String(runtime || "").toLowerCase()] || "NextBrowser";
+  return RUNTIME_LABELS[String(runtime || "").toLowerCase()] || "Nextbrowser";
 }
 
 function newFailureRef() {
@@ -87,14 +87,14 @@ function rule(code, category, reason, nextAction) {
 
 function classifyByDetail(detail, label) {
   if (/managed-proxy privacy capability/i.test(detail)) {
-    return rule("CLAWBROWSER_OUTDATED", "installation", "the installed ClawBrowser build can't run a proxied profile", "Update ClawBrowser when NextBrowser offers the browser toolset update, then retry.");
+    return rule("CLAWBROWSER_OUTDATED", "installation", "the installed ClawBrowser build can't run a proxied profile", "Update ClawBrowser when Nextbrowser offers the browser toolset update, then retry.");
   }
   const country = detail.match(/Proxy country is ([A-Za-z]{2,}), expected ([A-Za-z]{2,})/);
   if (country) {
     return rule("PROXY_COUNTRY_MISMATCH", "retryable", `its proxy connected from ${country[1].toUpperCase()} instead of ${country[2].toUpperCase()}`, "Retry once to get a new proxy IP. If it fails again, check this profile's proxy country.");
   }
   if (/ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_CONNECTION_FAILED|proxy[^.\n]*(?:refused|unreachable|authentication|\b407\b)/i.test(detail)) {
-    return rule("PROXY_UNREACHABLE", "configuration", "its proxy didn't accept the connection", "Check or change this profile's proxy in NextBrowser, then retry.");
+    return rule("PROXY_UNREACHABLE", "configuration", "its proxy didn't accept the connection", "Check or change this profile's proxy in Nextbrowser, then retry.");
   }
   if (/runtime update is being installed/i.test(detail)) {
     return rule("RUNTIME_UPDATING", "retryable", `the ${label} toolset is being updated`, "Wait for the browser toolset update to finish, then retry.");
@@ -104,7 +104,7 @@ function classifyByDetail(detail, label) {
     return rule("START_TIMEOUT", "retryable", `it didn't finish starting within ${timeout[1]} seconds`, RETRY_FEWER);
   }
   if (/nextctl not found|Install Clawbrowser CLI/i.test(detail)) {
-    return rule("NEXTCTL_MISSING", "installation", "the NextBrowser CLI (nextctl) is missing", RESTART_TO_REINSTALL);
+    return rule("NEXTCTL_MISSING", "installation", "the Nextbrowser CLI (nextctl) is missing", RESTART_TO_REINSTALL);
   }
   if (/Clawbrowser installation failed/i.test(detail)) {
     return rule("RUNTIME_INSTALL_FAILED", "installation", "the ClawBrowser toolset couldn't be installed", RESTART_TO_REINSTALL);
@@ -118,22 +118,22 @@ const NETWORK_FAILURE = /timeout|timed out|connection (?:refused|reset)|no such 
 function classifyByCode(nextctlCode, detail, label, message) {
   switch (nextctlCode) {
     case "PROFILE_NOT_FOUND":
-      return rule(nextctlCode, "configuration", "this profile no longer exists in NextBrowser", "Pick another profile in this workspace, or recreate it in the NextBrowser sidebar.");
+      return rule(nextctlCode, "configuration", "this profile no longer exists in Nextbrowser", "Pick another profile in this workspace, or recreate it in the Nextbrowser sidebar.");
     case "INVALID_ARGUMENT":
-      return rule(nextctlCode, "configuration", humanReason(message) || "the NextBrowser CLI rejected the start request", "Update NextBrowser, then retry.");
+      return rule(nextctlCode, "configuration", humanReason(message) || "the Nextbrowser CLI rejected the start request", "Update Nextbrowser, then retry.");
     case "API_KEY_REQUIRED":
-      return rule(nextctlCode, "configuration", "NextBrowser isn't signed in to its browser account", SIGN_IN);
+      return rule(nextctlCode, "configuration", "Nextbrowser isn't signed in to its browser account", SIGN_IN);
     case "API_KEY_INVALID":
       return rule(nextctlCode, "configuration", "the browser account sign-in is no longer valid", SIGN_IN);
     case "MULTILOGIN_AUTH_INVALID":
     case "MULTILOGIN_FORBIDDEN":
-      return rule(nextctlCode, "configuration", "Multilogin rejected the connection", "Reconnect the Multilogin connector in NextBrowser, then retry.");
+      return rule(nextctlCode, "configuration", "Multilogin rejected the connection", "Reconnect the Multilogin connector in Nextbrowser, then retry.");
     case "PROXY_TRAFFIC_EXHAUSTED":
       return rule(nextctlCode, "configuration", "the account's included proxy traffic is used up", "Add proxy traffic or assign your own proxy to this profile, then retry.");
     case "LOCAL_PROXY_UNSUPPORTED":
       return rule(nextctlCode, "configuration", "ClawBrowser can't use a proxy running on this computer", "Use a Camoufox or DasBrowser profile for a localhost proxy, or choose a remote proxy.");
     case "VERIFY_REQUIRED":
-      return rule(nextctlCode, "configuration", "the profile didn't pass its startup safety check", "Start the profile from the NextBrowser sidebar. If it fails again, check its proxy.");
+      return rule(nextctlCode, "configuration", "the profile didn't pass its startup safety check", "Start the profile from the Nextbrowser sidebar. If it fails again, check its proxy.");
     case "VERIFY_FAILED":
       return rule(nextctlCode, "retryable", "its proxy check didn't pass", CHECK_PROXY);
     case "VERIFY_BUSY":
@@ -158,12 +158,12 @@ function classifyByCode(nextctlCode, detail, label, message) {
     case "UNSUPPORTED_PLATFORM":
       return rule(nextctlCode, "installation", `${label} doesn't support this computer`, "Use a profile with a different browser toolset.");
     case "IO_ERROR":
-      return rule(nextctlCode, "installation", "NextBrowser couldn't read or write its local profile files", "Check free disk space and folder permissions, then retry.");
+      return rule(nextctlCode, "installation", "Nextbrowser couldn't read or write its local profile files", "Check free disk space and folder permissions, then retry.");
     case "REMOTE_BACKEND_ERROR":
       if (/\b40[13]\b|unauthori[sz]ed|forbidden|API key/i.test(detail)) {
-        return rule(nextctlCode, "configuration", "the NextBrowser service rejected this account", SIGN_IN);
+        return rule(nextctlCode, "configuration", "the Nextbrowser service rejected this account", SIGN_IN);
       }
-      return rule(nextctlCode, "retryable", "the NextBrowser service didn't respond", CHECK_CONNECTION);
+      return rule(nextctlCode, "retryable", "the Nextbrowser service didn't respond", CHECK_CONNECTION);
     case "VENDOR_UNAVAILABLE":
       return rule(nextctlCode, "retryable", "the browser provider is temporarily unavailable", "Retry in a minute.");
     default:
@@ -176,20 +176,20 @@ function classifyByExitCode(exitCode) {
   switch (exitCode) {
     case 126:
     case 127:
-      return rule(`EXIT_${exitCode}`, "installation", `the NextBrowser CLI couldn't be executed (exit code ${exitCode})`, RESTART_TO_REINSTALL);
+      return rule(`EXIT_${exitCode}`, "installation", `the Nextbrowser CLI couldn't be executed (exit code ${exitCode})`, RESTART_TO_REINSTALL);
     case 3221225781: // 0xC0000135 STATUS_DLL_NOT_FOUND
-      return rule("EXIT_DLL_NOT_FOUND", "installation", "a system library the browser needs is missing", "Install the latest Windows updates, restart NextBrowser, then retry.");
+      return rule("EXIT_DLL_NOT_FOUND", "installation", "a system library the browser needs is missing", "Install the latest Windows updates, restart Nextbrowser, then retry.");
     case 134:
     case 139:
     case 3221225477: // 0xC0000005 access violation
-      return rule(`EXIT_${exitCode}`, "retryable", `the NextBrowser CLI crashed (exit code ${exitCode})`, RETRY_ONCE);
+      return rule(`EXIT_${exitCode}`, "retryable", `the Nextbrowser CLI crashed (exit code ${exitCode})`, RETRY_ONCE);
     case 137:
     case 143:
       return rule(`EXIT_${exitCode}`, "retryable", "the system stopped the start process, possibly because memory ran low", "Close other profiles or apps, then retry.");
     case -1:
       return rule("PROCESS_ENDED", "retryable", "the start process ended unexpectedly", RETRY_ONCE);
     default:
-      return rule(`EXIT_${exitCode}`, "retryable", `the NextBrowser CLI exited with code ${exitCode} without reporting a reason`, RETRY_ONCE);
+      return rule(`EXIT_${exitCode}`, "retryable", `the Nextbrowser CLI exited with code ${exitCode} without reporting a reason`, RETRY_ONCE);
   }
 }
 
@@ -199,7 +199,7 @@ function classify({ nextctlCode, nextctlMessage, detail, diagnostic, exitCode, l
   const nextAction = NETWORK_FAILURE.test(detail) ? CHECK_CONNECTION : RETRY_ONCE;
   // An unknown nextctl code still carries its own message.
   if (nextctlCode) {
-    return rule(nextctlCode, "retryable", humanReason(nextctlMessage) || `the NextBrowser CLI reported ${nextctlCode}`, nextAction);
+    return rule(nextctlCode, "retryable", humanReason(nextctlMessage) || `the Nextbrowser CLI reported ${nextctlCode}`, nextAction);
   }
   // Without an envelope the first diagnostic line is the best reason left.
   const firstLine = diagnostic.split(/\r?\n/).find((line) => line.trim());
@@ -266,7 +266,7 @@ function describeProfileRequestRejection(code, profile) {
   const name = profile ? `“${profile}”` : "The requested profile";
   const rejection = code === "profile_in_use_by_another_chat"
     ? { message: `${name} is being used by another chat.`, nextAction: "Wait for that chat to finish or stop it, or choose another profile in this workspace." }
-    : { message: `${name} isn't one of this chat's workspace profiles.`, nextAction: "Use a profile listed for this workspace, or add the profile to it in NextBrowser." };
+    : { message: `${name} isn't one of this chat's workspace profiles.`, nextAction: "Use a profile listed for this workspace, or add the profile to it in Nextbrowser." };
   return {
     ok: false,
     profile,
