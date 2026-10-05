@@ -127,6 +127,7 @@ export function UsageView() {
   const [handoffLoading, setHandoffLoading] = useState(false);
   const [handoffNotice, setHandoffNotice] = useState<string>();
   const [handoffInviteSent, setHandoffInviteSent] = useState(false);
+  const [handoffInviteEmail, setHandoffInviteEmail] = useState<string>();
   const [handoffInviteUnavailable, setHandoffInviteUnavailable] = useState(false);
   const gateState = trafficGateState(s.proxy);
   // A GitHub sign-up lifts its limit with a star, which replaces the Discord ask.
@@ -138,6 +139,7 @@ export function UsageView() {
   }, [githubStar, loadGitHubStar]);
   useEffect(() => {
     setHandoffInviteSent(false);
+    setHandoffInviteEmail(undefined);
     setHandoffInviteUnavailable(false);
     setHandoffNotice(undefined);
   }, [s.proxy?.provider_account_email, s.authed]);
@@ -250,8 +252,9 @@ export function UsageView() {
     try {
       const result = await invoke<{ email: string; expiresInDays: number }>("nodemaven_send_invite");
       setHandoffInviteSent(true);
+      setHandoffInviteEmail(result.email);
       setHandoffInviteUnavailable(false);
-      setHandoffNotice(`NodeMaven sent a password setup link to ${result.email}. It expires in ${result.expiresInDays} days. After setting your password, sign in to NodeMaven to buy traffic.`);
+      setHandoffNotice(`The password setup link expires in ${result.expiresInDays} days.`);
       trackEvent("nodemaven_invite_sent", { proxy_state: s.proxy.state });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not send the NodeMaven email. Try again.";
@@ -392,6 +395,16 @@ export function UsageView() {
                     {s.proxy.provider_account_email && <span>NodeMaven account: {s.proxy.provider_account_email}</span>}
                   </div>
                 </div>
+                {dashboardReady && (
+                  <div className="nodemaven-account-email" role="status">
+                    <strong>We've prepared your NodeMaven account</strong>
+                    <p>
+                      A link to set your password has been sent to{" "}
+                      <strong>{handoffInviteEmail || s.proxy.provider_account_email || "your email address"}</strong>.
+                      {" "}Check your inbox and spam folder, set your password, then sign in to NodeMaven to buy traffic.
+                    </p>
+                  </div>
+                )}
                 <div className="nodemaven-handoff-actions">
                   {dashboardReady && isTrustedNodeMavenURL(s.proxy.dashboard_url) && (
                     <button className="btn-bordered" disabled={handoffLoading} type="button" onClick={() => void openNodeMaven("dashboard")}>

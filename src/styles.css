@@ -959,6 +959,18 @@ body.is-resizing-sidebar {
 .nodemaven-handoff-copy span, .nodemaven-handoff-notice { color: var(--muted); font-size: 11px; }
 .nodemaven-handoff-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .nodemaven-handoff-notice { margin: 0; }
+.nodemaven-account-email {
+  padding: 14px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-1));
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.nodemaven-account-email > strong { display: block; font-size: 15px; }
+.nodemaven-account-email p { margin: 6px 0 0; }
 .proxy-usage-card .warning-banner { margin-top: 12px; }
 .proxy-traffic-gate {
   margin-top: 13px;
