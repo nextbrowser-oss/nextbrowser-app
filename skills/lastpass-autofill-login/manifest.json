@@ -1,0 +1,17 @@
+{
+  "id": "lastpass-autofill-login",
+  "name": "LastPass Autofill Login",
+  "description": "Fill a saved LastPass login into a site's sign-in form.",
+  "author": "tomek89wo-ops",
+  "domains": ["github.com", "accounts.google.com", "login.microsoftonline.com"],
+  "operations": ["form"],
+  "target_mode": "current_tab",
+  "permissions": ["read_page", "use_page_controls", "login"],
+  "verification": "community",
+  "category": {
+    "id": "utilities",
+    "title": "Utilities",
+    "icon": "wrench",
+    "order": 10
+  }
+}
