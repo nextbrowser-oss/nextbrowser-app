@@ -1,0 +1,46 @@
+[
+  {
+    "task": "Log me in to this site with 1Password in Firefox.",
+    "expects": [
+      "focuses the login form before triggering 1Password autofill",
+      "uses the 1Password inline icon, toolbar popup, or a user-confirmed shortcut instead of typing credentials",
+      "verifies a signed-in signal before reporting filled_and_submitted",
+      "never displays the password, Secret Key, or username value directly"
+    ]
+  },
+  {
+    "task": "Fill in my saved login on this Firefox page with 1Password, but don't submit it yet.",
+    "expects": [
+      "triggers autofill through 1Password's native Firefox UI",
+      "does not click the sign-in or submit button",
+      "reports filled_only as the final state"
+    ]
+  },
+  {
+    "task": "Sign in to this account for me; if 1Password needs something from me directly, just tell me what.",
+    "expects": [
+      "detects the vault-locked state after opening 1Password autofill",
+      "does not attempt to unlock the vault, satisfy a biometric prompt, or guess a master password or Secret Key",
+      "reports vault_locked and asks the user to unlock 1Password manually",
+      "does not enter a partial or guessed password into the form"
+    ]
+  },
+  {
+    "task": "Log in with my saved 1Password item on this site.",
+    "expects": [
+      "fills username and password via 1Password native autofill",
+      "detects the MFA or verification-code prompt after submission",
+      "does not generate, guess, retrieve, or type a verification code itself",
+      "reports mfa_required when 1Password does not offer the second factor through its own autofill UI"
+    ]
+  },
+  {
+    "task": "Use 1Password to log into my account on this site — I have two logins saved for it.",
+    "expects": [
+      "recognizes multiple matching saved items for the domain",
+      "does not guess between the matching items",
+      "reports multiple_matches with the item names so the user can choose",
+      "does not autofill an arbitrarily chosen item"
+    ]
+  }
+]
