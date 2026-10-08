@@ -13,7 +13,7 @@ import { OnboardingView } from "./components/OnboardingView";
 import { DashboardKeyModal } from "./components/DashboardKeyModal";
 import { TrafficGateModal } from "./components/TrafficGateModal";
 import { GitHubStarModal } from "./components/GitHubStarReward";
-import { shouldAskForGitHubStar } from "./lib/githubStarReward";
+import { GITHUB_STARS_REFRESH_EVENT, shouldAskForGitHubStar } from "./lib/githubStarReward";
 import { ProfileCreateRequestModal } from "./components/ProfileCreateRequestModal";
 import { BrandLogo } from "./components/BrandLogo";
 import { Icon, Spinner } from "./components/Icon";
@@ -386,9 +386,12 @@ function formatStars(count?: number | null): string {
   return `${rounded}k`;
 }
 
-// Updated from the repository's public GitHub API on 2026-09-25. The host
-// prefetches the live value during startup and still keeps its disk cache.
-const GITHUB_STARS_FALLBACK = 21;
+// The host reuses a count for two minutes and answers a refresh no more than
+// every 15 seconds, so polling and focus refreshes cost little.
+const GITHUB_STARS_POLL_MS = 2 * 60 * 1000;
+// A count that just changed on GitHub (the user's own star) can trail the
+// stargazer list by a moment, so a verified star reads it twice.
+const GITHUB_STARS_SETTLE_MS = 20 * 1000;
 
 function GithubStarButton({ stars }: { stars?: number | null }) {
   const label = "Star Nextbrowser on GitHub";
@@ -436,19 +439,38 @@ function FeedbackButton({ onClick }: { onClick: () => void }) {
 }
 
 function SocialButtons() {
-  const [stars, setStars] = useState<number>(GITHUB_STARS_FALLBACK);
+  // No number until the host answers: a stale one would read as a lost star.
+  const [stars, setStars] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    invoke<number | null>("github_stars")
-      .then((count) => {
-        if (!cancelled && typeof count === "number") {
-          setStars(count);
-        }
-      })
-      .catch(() => undefined);
+    let settleTimer: number | undefined;
+    const load = (refresh: boolean) => {
+      invoke<number | null>("github_stars", refresh ? { refresh: true } : {})
+        .then((count) => {
+          if (!cancelled && typeof count === "number") setStars(count);
+        })
+        .catch(() => undefined);
+    };
+    load(false);
+    const poll = window.setInterval(() => {
+      if (document.visibilityState === "visible") load(false);
+    }, GITHUB_STARS_POLL_MS);
+    // Coming back from the repository page is when a star was likely added.
+    const onFocus = () => load(true);
+    const onStarVerified = () => {
+      load(true);
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(() => load(true), GITHUB_STARS_SETTLE_MS);
+    };
+    window.addEventListener("focus", onFocus);
+    window.addEventListener(GITHUB_STARS_REFRESH_EVENT, onStarVerified);
     return () => {
       cancelled = true;
+      window.clearInterval(poll);
+      window.clearTimeout(settleTimer);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener(GITHUB_STARS_REFRESH_EVENT, onStarVerified);
     };
   }, []);
 

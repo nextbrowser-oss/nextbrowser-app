@@ -93,6 +93,10 @@ describe("GitHub star reward", () => {
     await useStore.getState().loadGitHubStar();
     useStore.getState().setGitHubStarPromptOpen(true);
     traffic = { limited: true, used_bytes: 0, limit_bytes: gibibyte, remaining_bytes: gibibyte, state: "ok" };
+    const page = new EventTarget();
+    const starCountRefreshes = vi.fn();
+    page.addEventListener("nextbrowser:github-stars-refresh", starCountRefreshes);
+    vi.stubGlobal("window", page);
 
     await useStore.getState().verifyGitHubStar();
 
@@ -100,6 +104,8 @@ describe("GitHub star reward", () => {
     expect(state.githubStar).toEqual(verifyResult);
     expect(state.githubStarPromptOpen).toBe(false);
     expect(state.proxy?.limit_bytes).toBe(gibibyte);
+    // The header count picks up the verified star without a restart.
+    expect(starCountRefreshes).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the ask when the star is not there yet", async () => {
