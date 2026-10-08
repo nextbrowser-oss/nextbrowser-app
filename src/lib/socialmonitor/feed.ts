@@ -6,8 +6,9 @@
 // The engines keep only what they need to tell new from old. The matches
 // themselves are the app's to keep, for the panel, and nothing here decides
 // what counts as new or how urgent it is. A pass does not replace what is
-// shown: a match stays for a day, or until the user marks it done, so an
-// urgent comment from the morning does not drop off because a feed moved on.
+// shown: a match stays for a day from when it was found, or until the user
+// marks it done, so an urgent comment from the morning does not drop off
+// because a feed moved on.
 //
 // This is the Reddit dashboard's logic (lib/redditmonitor/feed.ts) over the
 // fields every engine's matches share.
@@ -32,6 +33,9 @@ export interface SocialMatch {
   source: { kind: string; name: string };
   keywords: string[];
   triage: { urgency: Urgency; score: number; reasons: string[] };
+  /** When a pass first found it: the feed keeps a match for a day from here.
+   *  Set by the feed, not by the engines. */
+  seenAt?: number;
 }
 
 /** The part of an engine's event the feed reads. */
@@ -84,7 +88,8 @@ export function normalizeSocialFeed(raw: unknown): SocialFeed {
   const record = raw as Partial<SocialFeed>;
   const strings = (value: unknown) => (Array.isArray(value) ? value.filter((key): key is string => typeof key === "string") : []);
   return {
-    matches: (Array.isArray(record.matches) ? record.matches.filter(isMatch) : []).slice(0, MAX_MATCHES),
+    matches: (Array.isArray(record.matches) ? record.matches.filter(isMatch) : []).slice(0, MAX_MATCHES)
+      .map(({ seenAt, ...match }) => (Number.isFinite(seenAt) ? { ...match, seenAt } : match)),
     announced: (Array.isArray(record.announced)
       ? record.announced.filter((item) => item && typeof item.key === "string" && Number.isFinite(item.at) && URGENCIES.includes(item.urgency))
       : []).slice(-MAX_ANNOUNCED),
@@ -102,10 +107,17 @@ export function withPass(feed: SocialFeed, pass: { matches: SocialMatch[]; event
   const byKey = new Map<string, SocialMatch>();
   for (const match of feed.matches) byKey.set(match.item.key, match);
   for (const match of [...pass.matches, ...fresh]) {
-    byKey.set(match.item.key, { item: match.item, source: match.source, keywords: match.keywords, triage: match.triage });
+    // A match keeps the time it was first found. One kept from before the
+    // feed recorded that counts from when it was written, as it did then.
+    const known = byKey.get(match.item.key);
+    const seenAt = known ? known.seenAt ?? known.item.createdAt ?? at : at;
+    byKey.set(match.item.key, { item: match.item, source: match.source, keywords: match.keywords, triage: match.triage, seenAt });
   }
+  // A day from when it was found, not from when it was written: the engines
+  // find what was written up to their own age limit (two days for Instagram),
+  // and a comment from yesterday morning found now still needs a look.
   const matches = [...byKey.values()]
-    .filter((match) => at - (match.item.createdAt ?? at) < KEEP_FOR_MS)
+    .filter((match) => at - (match.seenAt ?? match.item.createdAt ?? at) < KEEP_FOR_MS)
     .sort(byUrgency)
     .slice(0, MAX_MATCHES);
   const kept = new Set(matches.map((match) => match.item.key));

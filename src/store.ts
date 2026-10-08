@@ -182,6 +182,10 @@ interface QueuedItem {
 export interface SkillRunOptions {
   conversationId?: string;
   background?: boolean;
+  /** The browser profile to prepare, when the caller already knows it: a
+   *  monitoring panel's own profile, which the sidebar selection and the
+   *  skill's watchlist profile need not match. */
+  profileName?: string;
 }
 
 type BrowserToolset = "clawbrowser" | "dasbrowser" | "camoufox";
@@ -6079,7 +6083,7 @@ export const useStore = create<State>((set, get) => {
         host: selectorTargetHost(entry.selector),
         // A watchlist skill signs in with its own profile in the panel, so its
         // passes have to run in that one rather than the sidebar's selection.
-        selectedProfile: get().watchlistProfiles[entry.id] ?? get().selectedProfile,
+        selectedProfile: options?.profileName ?? get().watchlistProfiles[entry.id] ?? get().selectedProfile,
         statuses: get().statuses,
         defaultSession: get().defaultSession,
         onStep: (step) => get().appendStep(cid, stepId, step),
@@ -6588,7 +6592,7 @@ export const useStore = create<State>((set, get) => {
     const transports = transportsOf(entry.watchlist, entry.runtime);
     const browser = transports.find((transport) => !transport.runtime) ?? get().watchlistTransportFor(entry);
     trackEvent("reddit_monitor_reply_requested", { urgency: match.triage.urgency, kind: match.item.kind, source: match.source.kind });
-    await get().useSkillInChat(transportEntry(entry, browser), redditReplyTask(match, profileName));
+    await get().useSkillInChat(transportEntry(entry, browser), redditReplyTask(match, profileName), profileName ? { profileName } : undefined);
   },
 
   // One pass of a social monitoring engine on its own profile. It reads and
@@ -6668,7 +6672,9 @@ export const useStore = create<State>((set, get) => {
     const social = socialEngine(entry.watchlist?.monitor?.engine);
     if (!social || !entry.watchlist) return;
     trackEvent(`${social.engine.replace(/-/g, "_")}_reply_requested`, { urgency: match.triage.urgency, kind: match.item.kind, source: match.source.kind });
-    await get().useSkillInChat(entry, social.replyTask(match, profileName));
+    // The reply runs in the profile the panel reads with, which is the one
+    // signed in to the site; the task names it, and the session must match.
+    await get().useSkillInChat(entry, social.replyTask(match, profileName), profileName ? { profileName } : undefined);
   },
 
   // Adding an account subscribes it right away: the bell goes on and the
