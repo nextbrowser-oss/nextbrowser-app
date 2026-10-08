@@ -81,7 +81,7 @@ import {
   type SocialFeed,
   type SocialMatch,
 } from "./lib/socialmonitor/feed";
-import { activityFromText, extractToolEvents } from "./lib/activityParser";
+import { activityFromText, appendAgentStep, extractToolEvents } from "./lib/activityParser";
 import { composePrompt } from "./lib/composePrompt";
 import { executionTargetForTurn, type ExecutionTarget } from "./lib/executionTarget";
 import { shouldApplyRemoteConversation } from "./lib/conversationSync";
@@ -2326,6 +2326,27 @@ export const useStore = create<State>((set, get) => {
         });
       });
 
+      await listen<[string, string]>("agent:step", (e) => {
+        const [replyId, step] = e.payload;
+        set((s) => {
+          const conversations = s.conversations.map((c) => ({
+            ...c,
+            messages: c.messages.map((m) => {
+              if (m.id !== replyId) return m;
+              return {
+                ...m,
+                lastActivityAt: now(),
+                stalled: false,
+                activityLabel: activityFromText(step) ?? m.activityLabel,
+                toolEvents: appendAgentStep(m.toolEvents ?? [], step),
+              };
+            }),
+          }));
+          // Persisted on completion, not per step — see agent:chunk.
+          return { conversations };
+        });
+      });
+
       await listen<[string, number, string, string]>("agent:done", (e) => {
         const [replyId, code, stderr, stdout] = e.payload;
         void finishAgentRun(replyId, { code, stderr, stdout });
@@ -2885,7 +2906,7 @@ export const useStore = create<State>((set, get) => {
       { nextctlAvailable: get().nextctlAvailable, executionTarget: item.executionTarget },
     );
     const a = agentById(agentId);
-    const { args, stdin } = agentInvocation(a, prompt);
+    const { args, stdin, stepFormat } = agentInvocation(a, prompt, { steps: true });
 
     const watchdog = setInterval(() => {
       const conv = get().conversations.find((c) => c.id === item.conversationId);
@@ -2915,6 +2936,7 @@ export const useStore = create<State>((set, get) => {
         binary: a.binary,
         envVar: a.envVar,
         args,
+        stepFormat,
         stdinText: stdin ?? null,
         workingDir: get().workingDir || null,
         conversationId: item.conversationId,

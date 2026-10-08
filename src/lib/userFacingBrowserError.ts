@@ -1,3 +1,5 @@
+import { isMultiloginLauncherDown, MULTILOGIN_APP_NOT_RUNNING } from "./userFacingMultiloginError";
+
 const REMOTE_BACKEND_CODE = /\[REMOTE_BACKEND_ERROR\]/i;
 const REMOTE_CONTROL_FAILURE = /(?:detached\s+)?Remote Control(?: child)? failed|create Remote Session/i;
 
@@ -40,6 +42,8 @@ export function userFacingBrowserError(error: unknown): string {
     }
     return "Remote Control could not start. Restart the browser profile and try again.";
   }
+
+  if (isMultiloginLauncherDown(raw)) return MULTILOGIN_APP_NOT_RUNNING;
 
   if (/\[CDP_UNREACHABLE\]|CDP endpoint is not reachable/i.test(raw)) {
     return "The browser profile stopped responding. Restart the profile and try again.";

@@ -17,6 +17,7 @@ import {
   CirclePause,
   CircleX,
   CircleCheck,
+  CircleStop,
   Circle,
   Compass,
   Cpu,
@@ -137,7 +138,7 @@ const SF_MAP: Record<string, LucideIcon> = {
   "sidebar.leading": Sidebar,
   eraser: EraserIcon,
   "arrow.triangle.branch": GitBranch,
-  "stop.circle.fill": Square,
+  "stop.circle.fill": CircleStop,
   "arrow.up.circle.fill": ArrowUpCircle,
   "arrow.up.circle": ArrowUpCircle,
   "chart.line.uptrend.xyaxis": TrendingUp,
@@ -207,12 +208,13 @@ export function Icon({
 }) {
   const Cmp = SF_MAP[name] ?? Sparkles;
   const resolvedStroke = strokeWidth ?? (size <= 14 ? 1.65 : size <= 18 ? 1.85 : 2);
-  const resolvedFill = fill ?? "none";
+  // An outline square reads as a checkbox; a stop control is a solid square.
+  const resolvedFill = fill ?? (name === "stop.fill" ? "currentColor" : "none");
   return (
     <Cmp
       size={size}
       className={className}
-      strokeWidth={fill != null && fill !== "none" ? 0 : resolvedStroke}
+      strokeWidth={resolvedFill !== "none" ? 0 : resolvedStroke}
       fill={resolvedFill}
       style={style}
       aria-hidden
