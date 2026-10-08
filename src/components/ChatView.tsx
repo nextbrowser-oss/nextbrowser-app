@@ -1099,20 +1099,14 @@ function MessageBubble({
               : statusLabel(m)}
           </span>
           {running && m.status === "streaming" && (
-            <button className="plain-icon-btn plain-icon-btn-compact stop-inline" onClick={onStop}>
-              <Icon name="stop.fill" size={12} className="error" />
+            <button className="stop-inline" onClick={onStop} title="Stop this request" aria-label="Stop this request">
+              <Icon name="stop.fill" size={9} />
+              <span>Stop</span>
             </button>
           )}
         </div>
         {m.toolEvents && m.toolEvents.length > 0 && (
-          <div className="tool-strip">
-            {m.toolEvents.slice(-4).map((t) => (
-              <span key={t.id} className="tool-chip" title={t.detail}>
-                <Icon name={t.name === "nextctl" ? "terminal" : "wrench"} size={10} />
-                {t.detail ?? t.name}
-              </span>
-            ))}
-          </div>
+          <AgentSteps steps={m.toolEvents} live={m.status === "streaming"} />
         )}
         <div className="msg-body">
           {needsSupportLink(visibleText) ? (
@@ -1153,6 +1147,44 @@ function MessageBubble({
           )}
           <span>{formatTime(m.createdAt)}</span>
         </div>
+      )}
+    </div>
+  );
+}
+
+// What the agent is doing, as it does it: the latest step stays visible while
+// the reply runs, and the whole trail opens on demand. Without it a long turn
+// that starts browsers and updates toolsets looks like the app acting alone.
+function AgentSteps({ steps, live }: { steps: NonNullable<ChatMessage["toolEvents"]>; live: boolean }) {
+  const [open, setOpen] = useState(false);
+  const latest = steps[steps.length - 1];
+  const failed = (detail?: string) => /^Failed:/.test(detail ?? "");
+  return (
+    <div className={"agent-steps" + (live ? " is-live" : "")}>
+      <button
+        type="button"
+        className="agent-steps-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        title={open ? "Hide the agent's steps" : "Show every step the agent took"}
+      >
+        <Icon name={open ? "chevron.down" : "chevron.right"} size={11} />
+        <span className="agent-steps-count">{steps.length} {steps.length === 1 ? "step" : "steps"}</span>
+        {!open && (
+          <span className={"agent-steps-latest" + (failed(latest.detail) ? " is-failed" : "")} title={latest.detail}>
+            {latest.detail ?? latest.name}
+          </span>
+        )}
+      </button>
+      {open && (
+        <ol className="agent-steps-list">
+          {steps.map((step) => (
+            <li key={step.id} className={failed(step.detail) ? "is-failed" : undefined} title={step.detail}>
+              <Icon name={step.name === "nextctl" ? "terminal" : step.name === "step" ? "chevron.right" : "wrench"} size={10} />
+              <span>{step.detail ?? step.name}</span>
+            </li>
+          ))}
+        </ol>
       )}
     </div>
   );

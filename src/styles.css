@@ -65,6 +65,8 @@
   --button-radius-compact: 8px;
   --button-shadow: 0 1px 2px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(230, 225, 225, 0.06);
   --button-shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(230, 225, 225, 0.09);
+  --primary-button-shadow: 0 1px 2px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.10);
+  --primary-button-shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.14);
   --shadow-strong: rgba(0, 0, 0, 0.62);
 }
 
@@ -123,6 +125,10 @@
   --demo-bg: linear-gradient(145deg, #f3f4f3, #ffffff);
   --button-shadow: 0 5px 18px rgba(76, 59, 160, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
   --button-shadow-hover: 0 9px 24px rgba(76, 59, 160, 0.10), inset 0 1px 0 rgba(255, 255, 255, 1);
+  /* The near-white top highlight above suits light buttons only; on the
+     purple primary it drew a bright seam that made the button look odd. */
+  --primary-button-shadow: 0 1px 2px rgba(76, 59, 160, 0.22), 0 4px 12px rgba(76, 59, 160, 0.12);
+  --primary-button-shadow-hover: 0 2px 4px rgba(76, 59, 160, 0.24), 0 8px 20px rgba(76, 59, 160, 0.18);
   --shadow-strong: rgba(47, 49, 48, 0.24);
   --brand-gradient: linear-gradient(135deg, #7d6dec, #513db7);
   --radius-sm: 8px;
@@ -278,7 +284,7 @@ button, input, textarea, select { color: var(--text); }
   padding: 7px 14px;
   font-weight: 600;
   min-height: var(--hit);
-  box-shadow: var(--button-shadow);
+  box-shadow: var(--primary-button-shadow);
 }
 .btn-bordered-prominent:disabled { opacity: 0.5; cursor: default; }
 
@@ -310,7 +316,7 @@ button, input, textarea, select { color: var(--text); }
   padding: 7px 14px;
   font-weight: 600;
   min-height: var(--hit);
-  box-shadow: var(--button-shadow);
+  box-shadow: var(--primary-button-shadow);
 }
 .primary:disabled { opacity: 0.5; }
 .primary.small, .secondary.small, .mini { font-size: 12px; }
@@ -348,7 +354,7 @@ button, input, textarea, select { color: var(--text); }
   transition: transform 120ms ease, box-shadow 160ms ease, filter 160ms ease, background-color 160ms ease, border-color 160ms ease;
 }
 .btn-bordered-prominent:hover:not(:disabled),
-.primary:hover:not(:disabled) { background: var(--primary-action-hover); box-shadow: var(--button-shadow-hover); }
+.primary:hover:not(:disabled) { background: var(--primary-action-hover); border-color: var(--primary-action-hover); box-shadow: var(--primary-button-shadow-hover); }
 .btn-bordered:hover:not(:disabled),
 .secondary:hover:not(:disabled),
 .mini:hover:not(:disabled):not(.primary-mini),
@@ -2325,6 +2331,24 @@ body.is-resizing-sidebar {
   align-items: center;
   gap: 8px;
 }
+.background-task-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.background-task-pill span { overflow: hidden; text-overflow: ellipsis; }
+.background-task-pill:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .theme-toggle,
 .settings-toggle {
   align-self: center;
@@ -2892,14 +2916,23 @@ body.is-resizing-sidebar {
   background: var(--green);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 13%, transparent);
 }
-.agent-terminal-host {
+.agent-terminal-frame {
   flex: 1;
+  display: flex;
   min-width: 0;
   min-height: 0;
   padding: 12px 10px 10px;
 }
+/* No padding here: see AgentTerminal — FitAddon reads this element's height. */
+.agent-terminal-host {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
 .agent-terminal-host .xterm { height: 100%; }
 .agent-terminal-host .xterm-viewport { scrollbar-color: var(--surface-8) transparent; }
+/* Beats xterm.css (loaded later) so the remainder below the last row is the theme color. */
+.agent-terminal-host .xterm .xterm-viewport { background-color: var(--terminal-background, #181818); }
 .terminal-attachments {
   display: flex;
   flex-wrap: wrap;
@@ -4124,6 +4157,7 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   animation: browser-install-enter 180ms ease-out both;
 }
 .browser-install-modal {
+  position: relative;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
@@ -4146,7 +4180,15 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   background: var(--accent-soft);
   color: var(--accent-text);
 }
-.browser-install-copy { min-width: 0; }
+.browser-install-copy { min-width: 0; padding-right: 18px; }
+/* Full row: left in the first column, the Stop button widened the icon column
+   and pushed the title halfway across the card. */
+.browser-install-modal .modal-actions { grid-column: 1 / -1; margin-top: 0; }
+.background-card-hide {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
 .browser-install-copy strong { font-size: 16px; }
 .browser-install-copy p { margin: 4px 0 0; line-height: 1.4; }
 .browser-install-progress {
@@ -4213,6 +4255,10 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 /* Once the card needs a decision, it moves into .runtime-update-overlay's
    centered backdrop instead of floating top-right, so it reads as one
    deliberate dialog rather than a toast competing with whatever's open. */
+.runtime-update-progress-card.is-running {
+  width: min(360px, calc(100vw - 36px));
+  padding: 11px 12px;
+}
 .runtime-update-overlay {
   position: fixed;
   inset: 0;
@@ -7118,6 +7164,25 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .icon-btn.primary-icon { color: var(--accent); }
 .icon-btn:disabled { opacity: 0.4; }
 .stop-btn { color: var(--red); }
+/* A labelled pill, not a bare square: an outline square next to "Thinking"
+   reads as a checkbox, and nobody guesses it cancels the request. */
+.stop-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--red) 32%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--red) 9%, transparent);
+  color: var(--red);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+.stop-inline:hover { background: color-mix(in srgb, var(--red) 16%, transparent); }
+.stop-inline:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .msg-meta { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
 .status-badge {
@@ -7134,13 +7199,60 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   background: rgba(255, 91, 91, 0.2);
   color: var(--red);
 }
-.tool-strip { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 4px; }
-.tool-chip {
-  font-size: 10px;
-  background: var(--surface-3);
-  padding: 2px 6px;
-  border-radius: 4px;
+.agent-steps {
+  margin: 2px 0 6px;
+  max-width: 100%;
+  font-size: 11px;
 }
+.agent-steps-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 7px 3px 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agent-steps-toggle:hover { background: var(--surface-3); color: var(--text); }
+.agent-steps-count { flex: none; font-weight: 600; }
+.agent-steps-latest {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.agent-steps.is-live .agent-steps-latest { animation: agent-step-pulse 1.6s ease-in-out infinite; }
+@keyframes agent-step-pulse { 50% { opacity: 0.55; } }
+.agent-steps-list {
+  display: grid;
+  gap: 3px;
+  max-height: 260px;
+  margin: 6px 0 0;
+  padding: 7px 9px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  list-style: none;
+  white-space: normal;
+}
+.agent-steps-list li {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 5px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.agent-steps-list li svg { align-self: center; }
+.agent-steps-list li.is-failed,
+.agent-steps-latest.is-failed { color: var(--red); }
 .command-chip { display: flex; flex-direction: column; gap: 2px; }
 .chip-kind { font-size: 10px; text-transform: uppercase; opacity: 0.8; }
 .markdown { overflow-wrap: anywhere; word-break: break-word; white-space: normal; line-height: 1.5; }
@@ -7496,6 +7608,12 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .create-profile-modal .profile-remote-section + .profile-create-error,
 .create-profile-modal .profile-remote-section + .modal-actions {
   margin-top: 14px;
+}
+.profile-create-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
 }
 .profile-toolset-mark {
   display: grid;
@@ -8067,7 +8185,9 @@ pre,
 
 .btn-bordered-prominent,
 .primary {
-  border-color: color-mix(in srgb, var(--primary-action) 78%, white 10%);
+  /* Same color as the fill: the old 78% + 10% mix left the border translucent
+     and drew a pale ring around every primary button. */
+  border-color: var(--primary-action);
 }
 
 .primary-mini {
@@ -8594,6 +8714,8 @@ pre,
 .automation-mode-note { display: flex; align-items: center; gap: 8px; padding: 10px 20px; border-bottom: 1px solid var(--line); color: var(--muted); background: color-mix(in srgb, var(--accent) 8%, transparent); font-size: 11px; }
 .automation-mode-note strong { color: var(--text); font-size: 11px; }
 .recording-dot { width: 9px; height: 9px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 0 4px color-mix(in srgb, #ef4444 15%, transparent); }
+/* The outline circle icon read as a radio button; a record control is a red dot. */
+.record-button-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.22); }
 .capture-list { display: grid; gap: 0; }
 .capture-card { display: grid; grid-template-columns: 120px minmax(0,1fr) minmax(190px, 220px); align-items: center; gap: 18px; padding: 15px 20px; border-bottom: 1px solid var(--line); }
 .capture-card:last-child { border-bottom: 0; }

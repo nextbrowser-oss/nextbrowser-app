@@ -66,4 +66,23 @@ describe("agent invocation parity", () => {
       ...(stdin === undefined ? {} : { stdin }),
     });
   });
+
+  it("asks Claude for its event stream when the chat shows steps", () => {
+    expect(agentInvocation(agentById("claude"), "hello", { steps: true })).toEqual({
+      args: ["-p", "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose", "hello"],
+      stepFormat: "claude-stream-json",
+    });
+  });
+
+  it("keeps the Codex command and reads its steps from stderr", () => {
+    expect(agentInvocation(agentById("codex"), "hello", { steps: true })).toEqual({
+      args: ["exec", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", "-"],
+      stdin: "hello",
+      stepFormat: "codex-stderr",
+    });
+  });
+
+  it("leaves agents without a step decoder unchanged", () => {
+    expect(agentInvocation(agentById("hermes"), "hello", { steps: true })).toEqual({ args: ["-z", "hello"] });
+  });
 });

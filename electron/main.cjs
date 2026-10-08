@@ -110,6 +110,7 @@ const { parseMultiloginProfiles, parseMultiloginCreatedMobileProfile, parseMulti
 const { multiloginAccountFromTokens } = require("./multilogin-account.cjs");
 const { MULTILOGIN_DOWNLOAD_URL, resolveMultiloginApp } = require("./multilogin-app.cjs");
 const { runAgentProcess } = require("./agent-process.cjs");
+const { createClaudeStreamDecoder, createCodexStepDecoder } = require("./agent-steps.cjs");
 const { assertManualProxyRuntimeSupport } = require("./manual-proxy-runtime.cjs");
 const { testManualProxy } = require("./manual-proxy-test.cjs");
 const { describeProfileRequestRejection, describeProfileStartFailure, logProfileStartFailure } = require("./profile-start-failure.cjs");
@@ -2396,6 +2397,12 @@ async function invokeCommand(command, args = {}, sender) {
         agentArgs = [...codexClawbrowserMCPArgs(nextctlBin, supportedTraceFile, String(args.workspaceId || "")), ...agentArgs];
       }
       const spec = commandSpec(bin, agentArgs);
+      const emitStep = (step) => { if (step) emit("agent:step", [args.replyId, step]); };
+      const emitText = (text) => emit("agent:chunk", [args.replyId, text]);
+      const claudeStream = args.stepFormat === "claude-stream-json"
+        ? createClaudeStreamDecoder({ onText: emitText, onStep: emitStep })
+        : null;
+      const codexSteps = args.stepFormat === "codex-stderr" ? createCodexStepDecoder({ onStep: emitStep }) : null;
       try {
         return await runAgentProcess({
           spawnProcess: spawn,
@@ -2412,10 +2419,20 @@ async function invokeCommand(command, args = {}, sender) {
           }),
           stdinText: args.stdinText,
           onSpawn: (child) => children.set(args.replyId, child),
-          onStdout: (chunk) => emit("agent:chunk", [args.replyId, chunk.toString()]),
-          onStderr: (chunk) => emit("agent:activity", [args.replyId, chunk.toString()]),
+          onStdout: (chunk) => {
+            if (claudeStream) claudeStream.write(chunk);
+            else emitText(chunk.toString());
+          },
+          onStderr: (chunk) => {
+            codexSteps?.write(chunk);
+            emit("agent:activity", [args.replyId, chunk.toString()]);
+          },
           onDone: (result) => {
             children.delete(args.replyId);
+            codexSteps?.end();
+            // The raw stdout is the event stream; the rest of the app reads it
+            // as the reply (empty-reply and sign-in checks included).
+            if (claudeStream) result.stdout = claudeStream.end();
             emit("agent:done", [args.replyId, result.code, result.stderr, result.stdout]);
           },
         });

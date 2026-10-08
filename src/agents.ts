@@ -134,18 +134,30 @@ export function nextctlAgentAdapter(id: string): string {
   return id === "claude" ? "claude-code" : id;
 }
 
-/// Build CLI args (+ optional stdin) for one non-interactive prompt.
+/** How the host turns an agent's progress output into chat steps. */
+export type AgentStepFormat = "claude-stream-json" | "codex-stderr";
+
+/// Build CLI args (+ optional stdin) for one non-interactive prompt. With
+/// `steps`, the agent also reports its progress in a form the host decodes
+/// into step lines (see electron/agent-steps.cjs); the reply text is unchanged.
 export function agentInvocation(
   spec: AgentSpec,
   prompt: string,
-): { args: string[]; stdin?: string } {
+  options: { steps?: boolean } = {},
+): { args: string[]; stdin?: string; stepFormat?: AgentStepFormat } {
   switch (spec.runStyle) {
     case "claudePrint":
-      return { args: ["-p", "--dangerously-skip-permissions", prompt] };
+      return options.steps
+        ? {
+            args: ["-p", "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose", prompt],
+            stepFormat: "claude-stream-json",
+          }
+        : { args: ["-p", "--dangerously-skip-permissions", prompt] };
     case "codexExec":
       return {
         args: ["exec", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", "-"],
         stdin: prompt,
+        ...(options.steps ? { stepFormat: "codex-stderr" as const } : {}),
       };
     case "hermesOneshot":
       return { args: ["-z", prompt] };

@@ -49,6 +49,14 @@ export function activityFromText(text: string): AgentActivity | undefined {
 // hours-long run would otherwise grow this array without bound.
 const MAX_TOOL_EVENTS = 50;
 
+/** Adds one decoded agent step (see electron/agent-steps.cjs) to the reply. */
+export function appendAgentStep(existing: ToolEvent[], step: string): ToolEvent[] {
+  const detail = step.trim();
+  if (!detail) return existing;
+  const found = [...existing, { id: crypto.randomUUID(), name: "step", detail, createdAt: Date.now() }];
+  return found.length > MAX_TOOL_EVENTS ? found.slice(found.length - MAX_TOOL_EVENTS) : found;
+}
+
 export function extractToolEvents(chunk: string, existing: ToolEvent[]): ToolEvent[] {
   const found = [...existing];
   for (const line of chunk.split("\n")) {
