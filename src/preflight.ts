@@ -87,7 +87,8 @@ interface VerificationResult {
   };
 }
 
-export type VerificationFailureChoice = "direct" | "cancel";
+/** "support" stops like "cancel"; the caller also opens the support link. */
+export type VerificationFailureChoice = "direct" | "cancel" | "support";
 
 export interface VerificationFailure {
   message: string;

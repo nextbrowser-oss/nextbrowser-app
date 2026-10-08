@@ -95,14 +95,14 @@ import { clearActiveAutomationExecution } from "./lib/automationExecution";
 import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
 import { internalError } from "./lib/userFacingError";
 import { agentEmptyReplyMessage } from "./lib/agentRunResult";
-import { userFacingBrowserError } from "./lib/userFacingBrowserError";
+import { isBrowserVerificationFailure, userFacingBrowserError } from "./lib/userFacingBrowserError";
 import {
   hasCompletedCurrentOnboarding,
   saveOnboardingCompletion,
 } from "./lib/onboarding";
 import type { RemoteStreamInfo } from "./remoteControl";
 import { appendAppData, loadJson, saveJson } from "./lib/storage";
-import { apiBaseUrl } from "./constants";
+import { apiBaseUrl, discordUrl } from "./constants";
 import { accountLoginURL } from "./lib/accountAuth";
 import { requiresWorkspaceSetup } from "./lib/workspaceSetup";
 import { publicScriptJavaScript } from "./lib/scriptCommands";
@@ -1246,6 +1246,12 @@ async function prepareLocalSession(
         failedSurfaces: failure.failedSurfaces,
         proxyExpected: failure.proxyExpected,
         attempts: failure.attempts,
+      }).then((choice) => {
+        if (choice === "support") {
+          trackEvent("internal_error_support_opened", { surface: "verification_dialog" });
+          window.open(discordUrl, "_blank", "noopener,noreferrer");
+        }
+        return choice;
       });
     }),
   }));
@@ -1474,6 +1480,8 @@ function friendlyXReplyError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   if (sessionLost(message)) return "The browser session was lost. Press Start again to reopen it.";
   if (/API_KEY|not authorized|unauthorized/i.test(message)) return "Nextbrowser could not authenticate. Reconnect your account.";
+  // The Ref makes the panel offer the Discord link, as other internal errors do.
+  if (isBrowserVerificationFailure(message)) return internalError(userFacingBrowserError(message), "VERIFY_FAILED");
   return message.replace(/\s+/g, " ").trim().slice(0, 160);
 }
 
@@ -1793,6 +1801,7 @@ function isAccountRequiredError(error: unknown): boolean {
 function preflightFailureMessage(error: unknown): string {
   console.error("[BROWSER_PREFLIGHT_FAILED]", error);
   const detail = userFacingBrowserError(error);
+  if (isBrowserVerificationFailure(error)) return internalError(`Browser setup stopped. ${detail}`, "VERIFY_FAILED");
   return detail
     ? `Browser setup stopped. ${detail}`
     : "Browser setup stopped. Check the session and try again.";

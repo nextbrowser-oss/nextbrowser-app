@@ -7,28 +7,35 @@ async function requireVerificationCapableCLI(binary, run) {
 }
 module.exports = { requireVerificationCapableCLI };
 
+const SUPPORT_BUTTON = "Get help in Discord";
+
 function verificationFailureDialogOptions({ failedSurfaces, proxyExpected = true, attempts = 0 } = {}) {
   const surfaces = Array.isArray(failedSurfaces) ? failedSurfaces.map(String).map((s) => s.trim()).filter(Boolean).slice(0, 8) : [];
+  const offerDirect = proxyExpected && attempts === 3;
   return {
     type: "warning",
     title: "Browser verification failed",
-    message: proxyExpected ? "The browser connection could not be verified." : "The browser has not passed verification.",
+    message: proxyExpected ? "This profile couldn’t connect through its proxy." : "The browser didn’t pass its safety check.",
     detail: [
-      surfaces.length ? `Failed checks: ${surfaces.join(", ")}.` : "The browser verification did not complete successfully.",
-      proxyExpected && attempts === 3
+      offerDirect
         ? "Three attempts with the same proxy failed. The profile is stopped. Continue in a separate session without a proxy? Websites will see your real IP. The original proxy profile and its browser data will not be transferred or changed."
         : proxyExpected
-        ? "The profile is stopped. Resolve the verification failure and retry. The profile will not continue without its proxy."
-        : "The browser was stopped because verification failed. No browser actions were allowed.",
-    ].join("\n\n"),
-    buttons: proxyExpected && attempts === 3 ? ["Cancel", "Continue without proxy"] : ["Cancel"],
+        ? "The browser was stopped so it never runs without its proxy. This is a problem on our side, not with your setup. Message us in Discord and we’ll sort it out."
+        : "The browser was stopped before any action ran. This is a problem on our side, not with your setup. Message us in Discord and we’ll sort it out.",
+      // Support reads this line off a screenshot; it names what failed.
+      surfaces.length ? `Failed checks: ${surfaces.join(", ")}.` : "",
+    ].filter(Boolean).join("\n\n"),
+    buttons: offerDirect ? ["Cancel", "Continue without proxy", SUPPORT_BUTTON] : ["Cancel", SUPPORT_BUTTON],
     defaultId: 0,
     cancelId: 0,
     noLink: true,
   };
 }
 function verificationFailureDialogChoice(proxyExpected, response, attempts) {
-  return proxyExpected !== false && attempts === 3 && response === 1 ? "direct" : "cancel";
+  const offerDirect = proxyExpected !== false && attempts === 3;
+  if (offerDirect && response === 1) return "direct";
+  if (response === (offerDirect ? 2 : 1)) return "support";
+  return "cancel";
 }
 module.exports.verificationFailureDialogOptions = verificationFailureDialogOptions;
 module.exports.verificationFailureDialogChoice = verificationFailureDialogChoice;

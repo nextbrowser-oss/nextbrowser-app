@@ -17,6 +17,7 @@ import { RedditMonitorView } from "./RedditMonitorView";
 import { SocialMonitorView } from "./SocialMonitorView";
 import { socialEngine } from "../lib/socialmonitor/engines";
 import { XMonitorView } from "./XMonitorView";
+import { UserFacingError } from "./UserFacingError";
 
 type PanelMode = "reply" | "monitor";
 
@@ -370,7 +371,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
             <span className={"status-dot " + (signedIn ? "ok-dot" : "muted-dot")} />
             <span className="muted small">
               {watchlistStep
-                ? watchlistStep
+                ? <UserFacingError message={watchlistStep} surface="watchlist_step" />
                 : signedIn
                   ? (publisher?.handle
                     ? `Signed in as ${signInConfig.handlePrefix ?? ""}${publisher.handle}`
@@ -603,7 +604,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
               {/* The counted summary says a post failed; only these say why, and
                   without them a broken pass is indistinguishable from a quiet one. */}
               {!busy && engineState.lastPassNotes?.map((text) => (
-                <div key={text} className="small watchlist-pass-note">{text}</div>
+                <div key={text} className="small watchlist-pass-note"><UserFacingError message={text} surface="watchlist_pass" /></div>
               ))}
               {/* Three reasons are all the panel keeps. The log keeps every
                   step, every browser call and what each page looked like when

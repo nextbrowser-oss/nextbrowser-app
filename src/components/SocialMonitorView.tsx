@@ -10,6 +10,7 @@ import { IntervalDial } from "./IntervalDial";
 import { Icon } from "./Icon";
 import { TermList, Toggle } from "./RedditMonitorView";
 import { Sparkline } from "./XMonitorView";
+import { UserFacingError } from "./UserFacingError";
 
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
@@ -218,7 +219,7 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
               if (schedule) setInterval_(entry.id, minutes);
             }}
           />
-          {notes.map((text) => <div key={text} className="small watchlist-pass-note">{text}</div>)}
+          {notes.map((text) => <div key={text} className="small watchlist-pass-note"><UserFacingError message={text} surface="social_monitor" /></div>)}
           <div className="row xmon-setup-actions">
             {hasData ? logLink : <span />}
             <span className="spacer" />
@@ -307,7 +308,7 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
               <Icon name="stop" size={14} /> Stop
             </button>
           </div>
-          {notes.map((text) => <div key={text} className="small watchlist-pass-note">{text}</div>)}
+          {notes.map((text) => <div key={text} className="small watchlist-pass-note"><UserFacingError message={text} surface="social_monitor" /></div>)}
         </div>
       )}
     </>
