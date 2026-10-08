@@ -28,7 +28,7 @@
     "@fontsource/inter": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
     "@nextbrowser-oss/facebook-monitoring": "github:nextbrowser-oss/nextbrowser-facebook-monitoring#8b2c7405235e6288af5c594b2385f2538db95e6e",
-    "@nextbrowser-oss/instagram-monitoring": "github:nextbrowser-oss/nextbrowser-instagram-monitoring#7aad689e812e4ee93db1514b543707a42c8564ff",
+    "@nextbrowser-oss/instagram-monitoring": "github:nextbrowser-oss/nextbrowser-instagram-monitoring#edb4117630b1ef04ed3e0b39fedde758d609b85b",
     "@nextbrowser-oss/linkedin-monitoring": "github:nextbrowser-oss/nextbrowser-linkedin-monitoring#0b945f6214232e8799d18b2543973ccdd53a7aed",
     "@nextbrowser-oss/reddit-monitoring": "github:nextbrowser-oss/nextbrowser-reddit-monitoring#431e5bf4b4e22c6f7887490b4055bdd11f128113",
     "@nextbrowser-oss/tiktok-monitoring": "github:nextbrowser-oss/nextbrowser-tiktok-monitoring#67ac8730f9b48b70c896b372a2f4fa09f0299a4c",
