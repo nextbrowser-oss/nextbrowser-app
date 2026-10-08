@@ -21,6 +21,9 @@ export interface GitHubStarStatus {
   rewardBytes: number;
 }
 
+/** Asks the header to read the repository's star count again. */
+export const GITHUB_STARS_REFRESH_EVENT = "nextbrowser:github-stars-refresh";
+
 /** "1 GB", or a neutral fallback when the backend did not say. */
 export function githubStarRewardLabel(status?: GitHubStarStatus | null): string {
   return status && status.rewardBytes > 0 ? humanBytes(status.rewardBytes) : "1 GB";

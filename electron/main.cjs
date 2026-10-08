@@ -43,7 +43,7 @@ const {
   searchDirs,
 } = require("./binary-resolver.cjs");
 const { applyLegacyRuntimeMigration, applyRuntimeRootMigration, clearRuntimeCredential, runtimeAPIBaseURL, accountAPIBaseURL } = require("./runtime-config.cjs");
-const { fetchGitHubStars, readLocalGitHubStars, writeLocalGitHubStars } = require("./github-stars.cjs");
+const { createGitHubStarsSource } = require("./github-stars.cjs");
 const { githubStarStatus, verifyGitHubStar } = require("./github-star-reward.cjs");
 const { sendNodeMavenInvite } = require("./proxy-traffic.cjs");
 const { ensureWorkspaceInstructions } = require("./workspace-instructions.cjs");
@@ -974,23 +974,10 @@ function dataDir() { return path.join(app.getPath("userData")); }
 /** How large an append-only app-data file may grow before it is rotated. */
 const APP_DATA_APPEND_LIMIT_BYTES = 16 * 1024 * 1024;
 function githubStarsCachePath() { return path.join(dataDir(), "github-stars.json"); }
-const GITHUB_STARS_FALLBACK = 21;
-let githubStarsPromise;
-function requestGitHubStars() {
-  if (!githubStarsPromise) githubStarsPromise = (async () => {
-    let count = null;
-    try {
-      count = await fetchGitHubStars(fetch, { signal: AbortSignal.timeout(5000) });
-    } catch {
-      // The last successful count, or the bundled fallback, remains useful.
-    }
-    if (typeof count === "number") {
-      await writeLocalGitHubStars(githubStarsCachePath(), count);
-      return count;
-    }
-    return (await readLocalGitHubStars(githubStarsCachePath())) ?? GITHUB_STARS_FALLBACK;
-  })();
-  return githubStarsPromise;
+let githubStarsSource;
+function requestGitHubStars(options) {
+  if (!githubStarsSource) githubStarsSource = createGitHubStarsSource({ cachePath: githubStarsCachePath() });
+  return githubStarsSource.get(options);
 }
 function localAutomationArtifacts() {
   if (!automationArtifactStore) {
@@ -1721,7 +1708,7 @@ async function apiFetchJSON(baseURL, route, options = {}) {
 async function invokeCommand(command, args = {}, sender) {
   switch (command) {
     case "github_stars": {
-      return requestGitHubStars();
+      return requestGitHubStars({ refresh: args.refresh === true });
     }
     case "github_star_status": return await githubStarStatus({ env: childEnv() });
     case "github_star_verify": return await verifyGitHubStar({ env: childEnv() });
@@ -2797,7 +2784,7 @@ if (!gotLock) {
   });
   app.whenReady().then(() => {
     // Start the GitHub request before migrations and renderer loading. The
-    // header can consume this same promise as soon as it mounts.
+    // header joins this same request when it mounts.
     void requestGitHubStars();
     return migrateLegacyData();
   }).then(() => {

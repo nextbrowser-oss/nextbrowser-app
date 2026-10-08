@@ -159,7 +159,7 @@ import {
   sameWatchHandle,
 } from "./types";
 import type { RotationCountry } from "./lib/countryFlag";
-import { shouldAskForGitHubStar, type GitHubStarStatus } from "./lib/githubStarReward";
+import { GITHUB_STARS_REFRESH_EVENT, shouldAskForGitHubStar, type GitHubStarStatus } from "./lib/githubStarReward";
 import { browserProfileContext } from "./lib/browserProfileContext";
 import { CONNECTOR_PROMPT_RESUMED_EVENT, type ConnectorPrompt } from "./connectorsCatalog";
 import { clearMultiloginSelection, multiloginSelectionForWorkspace, type MultiloginProfileSelection } from "./lib/multiloginSelection";
@@ -4582,6 +4582,8 @@ export const useStore = create<State>((set, get) => {
     const epoch = accountEpoch;
     const restored = get().githubStar?.revoked === true;
     const status = await invoke<GitHubStarStatus>("github_star_verify");
+    // The verified star belongs in the header count right away.
+    if (typeof window !== "undefined") window.dispatchEvent(new Event(GITHUB_STARS_REFRESH_EVENT));
     if (epoch !== accountEpoch) return status;
     set({ githubStar: status, githubStarPromptOpen: false, trafficGatePromptOpen: false });
     trackEvent("github_star_reward_claimed", { reward_bytes: status.rewardBytes, restored });
