@@ -31,6 +31,7 @@ import {
 } from "./skillsCatalog";
 import { REPOSITORY_SKILL_CATEGORIES, mergeSkillCategories } from "./repositorySkills";
 import { cliBrowser } from "./lib/xreply/browser";
+import { signInDone } from "./lib/signInPage";
 import { openNotifications, readPublisher, runPass, subscribeHandle } from "./lib/xreply/engine";
 import { errorText as xReplyErrorText, setXReplyLogSink, xlog } from "./lib/xreply/log";
 import { emptyXReplyState, normalizeXReplyState, type XReplyState } from "./lib/xreply/state";
@@ -812,6 +813,7 @@ interface State {
   setWatchlistDevice: (entry: SkillEntry, device?: MultiloginProfileSelection) => void;
   openWatchlistSite: (entry: SkillEntry) => Promise<void>;
   checkWatchlistSignIn: (entry: SkillEntry) => Promise<boolean>;
+  recheckWatchlistSignIn: (entry: SkillEntry) => Promise<boolean | undefined>;
   startWatchlistRun: (entry: SkillEntry, intervalMinutes?: number) => Promise<void>;
   runXReplyPass: (entry: SkillEntry) => Promise<void>;
   openSkillSite: (entry: SkillEntry) => Promise<void>;
@@ -826,6 +828,10 @@ interface State {
   stopMonitorSchedule: (skillId: string) => void;
   /** Opens x.com in the monitoring profile, where the user signs in. */
   openMonitorSite: (entry: SkillEntry, profileName?: string) => Promise<void>;
+  /** Re-reads who is signed in once the user is back from signing in. Resolves
+   *  undefined when it did not look: the profile is stopped, busy, or its tab
+   *  still shows a sign-in page. */
+  recheckMonitorSignIn: (entry: SkillEntry, profileName?: string) => Promise<boolean | undefined>;
   setMonitorScheduleInterval: (skillId: string, intervalMinutes: number) => void;
   runRedditMonitorPass: (entry: SkillEntry, options?: { profileName?: string }) => Promise<void>;
   updateRedditMonitorSettings: (patch: Partial<RedditMonitorSettings>) => void;
@@ -1548,6 +1554,21 @@ function watchlistSignInFor(state: State, entry: SkillEntry) {
 /** watchlistBrowser binds the CLI to the profile this skill was given, so a
  *  panel action drives the same browser its passes will, not whichever profile
  *  happens to be selected in the sidebar. */
+/** signInFinished says whether a running profile's tab has left the sign-in
+ *  pages and is back on the site, which is when a re-check can safely read the
+ *  account. It never starts a profile: a stopped one answers false. */
+async function signInFinished(profileName: string | undefined, site: string): Promise<boolean> {
+  const state = useStore.getState();
+  if (!profileName || state.statuses[profileName] !== "running") return false;
+  const runtime = runtimeForProfile(state.workspaces, profileName);
+  try {
+    const href = await cliBrowser(["--profile", profileName, ...(runtime ? ["--runtime", runtime] : [])]).evaluate<string>("location.href");
+    return signInDone(String(href), site);
+  } catch {
+    return false;
+  }
+}
+
 async function watchlistBrowser(entry: SkillEntry, onStep: (step: string) => void) {
   const state = useStore.getState();
   const { profileArgs } = await prepareLocalSession({
@@ -6380,6 +6401,12 @@ export const useStore = create<State>((set, get) => {
           const state = social.withAccount(slot()!.state, check, now());
           void saveJson(social.files.state, state);
           setSlot({ state });
+          // The reply agent signs in with the same site; a sign-in read here
+          // answers its "not checked yet" too when both use this profile.
+          const replyProfile = get().watchlistProfiles[entry.id] ?? get().selectedProfile;
+          if (check.signedIn && replyProfile === profile) {
+            set({ watchlistSignIns: { ...get().watchlistSignIns, [entry.id]: { handle: check.handle || undefined, signedIn: true, checkedAt: now() } } });
+          }
         }
       } catch (error) {
         log({ t: new Date().toISOString(), ev: "open.error", error: xReplyErrorText(error) });
@@ -6747,6 +6774,24 @@ export const useStore = create<State>((set, get) => {
   /** openWatchlistSite puts the skill's own profile on the page that names the
    *  signed-in account, which is where a user signs in by hand. The app never
    *  types the credentials: it opens the window and gets out of the way. */
+  recheckMonitorSignIn: async (entry, profileName) => {
+    const social = socialEngine(entry.watchlist?.monitor?.engine);
+    if (!social || get().socialMonitors[social.engine]?.busy) return undefined;
+    const profile = profileName ?? get().watchlistProfiles[entry.id] ?? get().selectedProfile;
+    if (!(await signInFinished(profile, social.site))) return undefined;
+    await get().openMonitorSite(entry, profile);
+    const slot = get().socialMonitors[social.engine];
+    return slot ? social.account(slot.state)?.signedIn === true : undefined;
+  },
+
+  recheckWatchlistSignIn: async (entry) => {
+    const signIn = watchlistSignInFor(get(), entry);
+    if (!signIn || signInIsForDevice(signIn) || get().watchlistBusy) return undefined;
+    const profile = get().watchlistProfiles[entry.id] ?? get().selectedProfile;
+    if (!(await signInFinished(profile, selectorTargetHost(entry.selector) || new URL(signIn.url).hostname))) return undefined;
+    return get().checkWatchlistSignIn(entry);
+  },
+
   openWatchlistSite: async (entry) => {
     const signIn = watchlistSignInFor(get(), entry);
     if (!signIn || get().watchlistBusy) return;
