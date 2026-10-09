@@ -13,6 +13,7 @@
 // day, or until the user marks them done.
 
 import { byUrgency, type Match, type MonitorEvent, type Urgency } from "@nextbrowser-oss/reddit-monitoring";
+import { cliProfile } from "../cliProfile";
 
 export const REDDIT_MONITOR_STATE_FILE = "reddit-monitor-state.json";
 export const REDDIT_MONITOR_FEED_FILE = "reddit-monitor-feed.json";
@@ -147,17 +148,18 @@ export function countTrend(
 export function replyTask(match: Match, profileName?: string): string {
   const { item } = match;
   const profile = profileName ? `the browser profile "${profileName}"` : "the skill's browser profile";
+  const cli = cliProfile(profileName);
   const what = item.kind === "post" ? "post" : item.kind === "comment" ? "comment" : "message";
   const where = item.subreddit ? ` in r/${item.subreddit}` : "";
   const why = match.triage.reasons.length ? ` It was ranked ${match.triage.urgency} because: ${match.triage.reasons.join("; ")}.` : "";
   const post = item.kind === "post"
-    ? `post it on that page with \`nbc reddit comment --profile <profile> "<text>"\``
+    ? `post it on that page with \`nbc reddit comment --profile ${cli} "<text>"\``
     : item.kind === "comment"
-      ? `post it with \`nbc reddit reply --profile <profile> --target ${item.key} "<text>"\` from that page`
+      ? `post it with \`nbc reddit reply --profile ${cli} --target ${item.key} "<text>"\` from that page`
       : "send it from reddit.com's message page";
   return [
     `Draft a reply to this Reddit ${what}${where} that monitoring found, by u/${item.author}: ${item.url} (fullname ${item.key}).${why}`,
-    `Work in ClawBrowser on ${profile}. Open it with \`nbc reddit open --profile <profile> ${item.url}\` and read it and its thread with \`nbc reddit read --profile <profile>\`.`,
+    `Work in ClawBrowser on ${profile}. Open it with \`nbc reddit open --profile ${cli} ${item.url}\` and read it and its thread with \`nbc reddit read --profile ${cli}\`.`,
     "Write one reply that answers this specific item in the account's own voice - never a canned line, and no claim about the product that the thread does not support. Show me the draft and post nothing until I approve it.",
     `Once I approve it, ${post}, and report \`verified\` exactly as the flow returns it.`,
   ].join("\n\n");

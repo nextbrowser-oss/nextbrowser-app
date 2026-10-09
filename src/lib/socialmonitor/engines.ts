@@ -13,6 +13,7 @@ import * as instagram from "@nextbrowser-oss/instagram-monitoring";
 import * as linkedin from "@nextbrowser-oss/linkedin-monitoring";
 import * as tiktok from "@nextbrowser-oss/tiktok-monitoring";
 import type { SocialEvent, SocialMatch } from "./feed";
+import { cliProfile } from "../cliProfile";
 
 export type SocialEngineId = "instagram-monitor" | "tiktok-monitor" | "facebook-monitor" | "linkedin-monitor";
 
@@ -149,10 +150,7 @@ function quote(text: string | undefined, max = 80): string {
 /** The profile as it goes on an nbc command line, quoted when it has to be:
  *  profile names may hold spaces or Cyrillic. Without a name the agent is
  *  left a placeholder to fill in. */
-export function cliProfile(profileName?: string): string {
-  if (!profileName) return "<profile>";
-  return /^[\w.@-]+$/.test(profileName) ? profileName : `'${profileName.replace(/'/g, "'\\''")}'`;
-}
+export { cliProfile };
 
 const APPROVAL = "Write one reply that answers this specific item in the account's own voice - never a canned line, and no claim the thread does not support. Show me the draft and post nothing until I approve it.";
 
