@@ -118,6 +118,21 @@ describe("mandatory proxy startup", () => {
     await expect(prepareSession({ ...options, shouldContinue: () => active })).rejects.toThrow("cancelled");
     expect(commands().map((args) => args[4])).toEqual(["stop"]);
   });
+  it("goes on when the site is open but slow to fire load", async () => {
+    nextctl.run.mockImplementation(async (args: string[]) => args.includes("wait")
+      ? { code: 1, stdout: JSON.stringify({ ok: false, error: { code: "WAIT_TIMEOUT", message: "wait timed out" } }), stderr: "wait timed out [WAIT_TIMEOUT]" }
+      : { code: 0, stdout: "", stderr: "" });
+    const onStep = vi.fn();
+    const result = await prepareSession({ ...options, onStep });
+    expect(result.host).toBe("example.com");
+    expect(onStep).toHaveBeenLastCalledWith("Page still loading");
+  });
+  it("still stops when the load wait fails for another reason", async () => {
+    nextctl.run.mockImplementation(async (args: string[]) => args.includes("wait")
+      ? { code: 1, stdout: "", stderr: "session lost [SESSION_NOT_FOUND]" }
+      : { code: 0, stdout: "", stderr: "" });
+    await expect(prepareSession(options)).rejects.toThrow("Could not finish loading");
+  });
   it("does not report ready if navigation fails after a successful verify", async () => {
     nextctl.run.mockResolvedValue({ code: 1, stdout: "", stderr: "navigation failed" });
     const onStep = vi.fn();
