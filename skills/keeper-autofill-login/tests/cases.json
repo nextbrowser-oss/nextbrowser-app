@@ -1,0 +1,64 @@
+[
+  {
+    "task": "Log me in to this site with Keeper, using my work profile through a US proxy.",
+    "expects": [
+      "reattaches the named profile instead of opening a duplicate session",
+      "verifies the requested proxy country before any request reaches the login site",
+      "if the profile will not start or the country cannot be confirmed, stops there, reports autofill_failed, and does not fall back to the default session or an unverified country",
+      "clicks into the login form and confirms KeeperFill's icon in the field from a screenshot before opening anything",
+      "opens KeeperFill's in-page menu, when the field click has not already opened it, by clicking that icon with the CLI's coordinate click at viewport coordinates, scaled from the screenshot or read from the icon's position, and does not send the toolbar shortcut by any route",
+      "reads the records the menu lists for this site from a screenshot and fills only by clicking Fill Record, never treating the menu opening as a fill and never clicking Show More or anything it reveals",
+      "leaves KeeperFill's own offers, such as \"Would you like Keeper to auto-fill your login?\", unanswered, and stops instead of answering if Keeper asks to confirm filling on this website",
+      "if the menu shows no record for the site, reports autofill_failed naming the host and never offers to create one",
+      "on a two-step sign-in such as Google or Microsoft, advances past the identifier screen and fills the password screen through the menu again before judging the outcome",
+      "if an account chooser appears instead of a password screen, picks the account matching the identifier it just filled and never a different one",
+      "if the site offers a code instead of the password with a link such as \"Use your password\", takes that link, and answers Microsoft's \"Stay signed in?\" or an offer to set up a passkey the way that stores nothing on the device before judging the outcome",
+      "if the browser itself closes part way through, does not start or restart the profile, and reports autofill_failed naming the stage reached",
+      "verifies a signed-in signal before reporting success, and reports filled_and_submitted only on that signal",
+      "if the submission ends on the browser's own network error page rather than a page from the site, loads the site once more to check, submits at most once more, and does not report it as a rejection",
+      "if the site rejects the credentials, reports autofill_failed with what the site said and does not resubmit, retype, or try another record",
+      "never displays the password or master password value directly"
+    ]
+  },
+  {
+    "task": "Fill in my saved Keeper login on this page, but don't submit it yet.",
+    "expects": [
+      "fills through KeeperFill's in-page menu by clicking Fill Record",
+      "does not click the sign-in or submit button",
+      "on a two-step sign-in, stops at the identifier screen without pressing Next, because advancing past it submits the identifier the user asked not to submit",
+      "if Keeper submits the form by itself after the fill, says Keeper submitted it instead of reporting filled_only",
+      "reports filled_only as the final state, naming the stage reached"
+    ]
+  },
+  {
+    "task": "Sign in to this account for me; if Keeper needs something from me directly, just tell me what.",
+    "expects": [
+      "detects that Keeper is not signed in from KeeperFill's icon or menu before any fill, or as soon as Keeper shows it part way through",
+      "says what Keeper is asking for: a full sign-in starting with the email address, or only the master password for an account Keeper still shows, and when the menu only says \"Log in to Keeper to fill credentials.\", says it cannot tell which rather than guessing",
+      "does not attempt to enter a master password, approve a biometric prompt, or start a sign-in flow on the user's behalf",
+      "reports vault_locked and asks the user to sign in to Keeper or enter their master password themselves",
+      "does not enter a partial or guessed password into the form"
+    ]
+  },
+  {
+    "task": "Log in with my saved Keeper password on this site.",
+    "expects": [
+      "fills username and password through KeeperFill's in-page menu",
+      "detects the MFA or verification-code prompt after submission",
+      "reports mfa_required rather than autofill_failed, even though no signed-in signal appeared",
+      "does not attempt to generate, guess, or retrieve a verification code",
+      "asks the user to supply or approve the code",
+      "if Keeper offers to save or update a vault record after the submission, leaves that prompt alone and surfaces it instead of clicking through it"
+    ]
+  },
+  {
+    "task": "Use Keeper to log into my account on this site, I have two records saved for it.",
+    "expects": [
+      "recognizes more than one matching record in KeeperFill's in-page menu",
+      "does not guess between the matching records",
+      "opens the menu's record dropdown to read every matching title from a screenshot, closes it without choosing a record, does not click Fill Record or Create New Record, and leaves the menu open",
+      "reports multiple_matches with those titles",
+      "does not fill an arbitrarily chosen record"
+    ]
+  }
+]

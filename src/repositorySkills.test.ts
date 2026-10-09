@@ -13,6 +13,17 @@ describe("repository skills", () => {
     expect(skill?.verification).toBe("community");
   });
 
+  it("loads the Keeper autofill skill into the application catalog", () => {
+    const skill = repositorySkillCategories().flatMap((category) => category.entries)
+      .find((entry) => entry.id === "repository:keeper-autofill-login");
+    expect(skill?.source).toBe("repository");
+    expect(skill?.selector).toEqual({ kind: "current_tab", value: "current tab" });
+    expect(skill?.instructions).toContain("# Keeper Autofill Login");
+    expect(skill?.permissions).toEqual(["read_page", "use_page_controls", "login"]);
+    expect(skill?.verification).toBe("community");
+    expect(skill?.author).toBe("danielhagever");
+  });
+
   it("carries a declared watchlist into the catalog entry", () => {
     const skill = repositorySkillCategories().flatMap((category) => category.entries)
       .find((entry) => entry.id === "repository:x-reply-agent");
