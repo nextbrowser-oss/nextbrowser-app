@@ -15,6 +15,9 @@ export interface XBrowser {
   evaluate<T>(script: string, label?: string): Promise<T>;
   /** Wait until the active page finishes loading. */
   waitForLoad(timeoutSeconds?: number): Promise<void>;
+  /** Bring the current tab to the front. Facebook loads a group's feed only
+   *  while its page is visible, and a profile window behind others is not. */
+  bringToFront?(): Promise<void>;
   /** Wait until a visible element matches the selector. */
   waitForSelector(selector: string, timeoutSeconds?: number): Promise<void>;
   /** Dispatch a real mouse click at viewport coordinates. React surfaces such
@@ -79,6 +82,14 @@ export function cliBrowser(profileArgs: string[]): XBrowser {
     async waitForLoad(timeoutSeconds = 15) {
       await timed("wait:load", { timeout: timeoutSeconds }, () =>
         nextctlJson<unknown>(args("wait", "--load", "--timeout", `${timeoutSeconds}s`)));
+    },
+    async bringToFront() {
+      await timed("tabs:activate", {}, async () => {
+        const listed = await nextctlJson<{ tabs?: { id?: string; current?: boolean; active?: boolean }[] }>(args("tabs", "list"));
+        const tabs = listed?.tabs ?? [];
+        const tab = tabs.find((item) => item.current) ?? tabs.find((item) => item.active);
+        if (tab?.id) await nextctlJson<unknown>(args("tabs", "activate", tab.id));
+      });
     },
     async waitForSelector(selector, timeoutSeconds = 15) {
       await timed("wait:selector", { selector, timeout: timeoutSeconds }, () =>
