@@ -117,9 +117,9 @@ export interface SocialEngineSpec {
   startHint: string;
   /** What a signed-out account means for this engine. */
   signedOutNote: string;
-  /** The account's own follower count and its history, when the engine
-   *  tracks one. */
-  followers(state: SocialState): { value?: number; history: { at: number; value: number }[] } | undefined;
+  /** The account's own follower count and its history. Engines that do not
+   *  track one leave it out, and the panel draws no Followers tile. */
+  followers?(state: SocialState): { value?: number; history: { at: number; value: number }[] } | undefined;
   /** A short label for where a match was found. */
   where(match: SocialMatch): string;
   /** One line of context: the post or the group a match belongs to. */
@@ -403,7 +403,6 @@ const facebookSpec: SocialEngineSpec = {
   canStart: (settings) => list(settings.groups).length > 0,
   startHint: "Add a group first — only groups this account is a member of can be read",
   signedOutNote: "group posts are only shown to members, so sign in",
-  followers: () => undefined,
   where: (match) => {
     const group = match.item.group as FacebookGroup | undefined;
     return group?.name || match.source.name;
@@ -503,7 +502,6 @@ const linkedinSpec: SocialEngineSpec = {
     || (Array.isArray(settings.accounts) && settings.accounts.length > 0),
   startHint: "Turn on mentions, or add your company, a keyword or an account first",
   signedOutNote: "LinkedIn shows little signed out, so sign in",
-  followers: () => undefined,
   where: (match) => {
     switch (match.source.kind) {
       case "notifications": return "Notifications";

@@ -113,7 +113,10 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
   const account = spec.account(state);
   const handle = account?.handle;
   const signedIn = account?.signedIn === true;
-  const followers = spec.followers(state);
+  // Facebook and LinkedIn track no follower count: a tile there would only
+  // ever say "—".
+  const tracksFollowers = !!spec.followers;
+  const followers = spec.followers?.(state);
   const trend = countTrend(followers?.history ?? [], followers?.value, Date.now());
   const lastPass = state.lastPass;
   const nextRunAt = running && schedule?.lastFiredAt && schedule.intervalMinutes
@@ -251,8 +254,8 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
       )}
 
       {hasStats && (
-        <div className="xmon-stats">
-          <div className="xmon-stat xmon-stat-main">
+        <div className={"xmon-stats" + (tracksFollowers ? "" : " xmon-stats-plain")}>
+          {tracksFollowers && <div className="xmon-stat xmon-stat-main">
             <span className="muted small">Followers</span>
             <div className="xmon-stat-row">
               <strong className="xmon-value">{count(followers?.value)}</strong>
@@ -264,7 +267,7 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
               )}
             </div>
             <Sparkline points={trend.points} label="Followers over time" />
-          </div>
+          </div>}
           <div className="xmon-stat">
             <span className="muted small">New matches · 24h</span>
             <strong className="xmon-value">{feed.readAt ? announcedToday(feed, Date.now()).toLocaleString() : "—"}</strong>

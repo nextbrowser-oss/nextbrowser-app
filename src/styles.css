@@ -3681,6 +3681,7 @@ body.is-resizing-sidebar {
 .xmon-account-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .xmon-account-text .muted { display: inline-flex; align-items: center; gap: 6px; }
 .xmon-stats { display: grid; grid-template-columns: 1.6fr 1fr 1fr; gap: 8px; }
+.xmon-stats.xmon-stats-plain { grid-template-columns: 1fr 1fr; }
 .xmon-stat {
   display: flex;
   flex-direction: column;

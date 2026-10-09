@@ -76,6 +76,11 @@ describe("the engines", () => {
     expect(cliProfile(undefined)).toBe("<profile>");
   });
 
+  it("draws a Followers tile only for engines that track a follower count", () => {
+    const tracked = socialEngines().filter((spec) => spec.followers).map((spec) => spec.engine);
+    expect(tracked).toEqual(["instagram-monitor", "tiktok-monitor"]);
+  });
+
   it.each(socialEngines().map((spec) => [spec.engine, spec] as const))("%s keeps its own files and a normalized state", (_engine, spec) => {
     const files = Object.values(spec.files);
     expect(new Set(files).size).toBe(3);
