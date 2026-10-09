@@ -40,10 +40,13 @@ code itself. Norton is the only thing that ever touches the actual secret.
 
 1. Confirm the currently focused tab shows a recognizable sign-in form (username/email and
    password fields, or a password field alone). If no login form is visible, navigate only
-   if the user named a specific site; otherwise report `no_login_form_found`.
-2. Take a screenshot and locate the Norton icon drawn inside the username (or email)
-   field, at its right edge. If the icon is absent, click once into the username field,
-   wait a moment and screenshot again; Norton draws the icon only for fields it recognizes.
+   if the user named a specific site; otherwise report `no_login_form_found`. If the site
+   already shows a signed-in account, do not open Norton: report `no_login_form_found` and
+   say the account is already signed in.
+2. Click once into the username (or email) field so it has focus, then take a screenshot
+   and locate the Norton icon drawn inside that field, at its right edge. Norton draws the
+   icon, and fills, only for a focused field it recognizes; if the icon is still absent,
+   wait a moment and screenshot again.
 3. Open the picker with one `click-xy` on the icon's centre. A plain click on the field
    through the browser tools may not open it; the coordinate click does.
 4. Wait about one second, then screenshot again and read the picker before touching it.
@@ -64,8 +67,10 @@ code itself. Norton is the only thing that ever touches the actual secret.
 6. Verify the fill: both the username and the password fields now show values (the
    password masked). Never read, log or repeat the values.
 7. If the user asked to fill only, stop here and report `filled_only`.
-8. If the user asked for a full login, click the visible sign-in/submit button. Then check
-   what the site shows:
+8. If the user asked for a full login, click the visible sign-in/submit button. On
+   username-first sites (Microsoft, Google) the password field appears on a second screen:
+   focus it and repeat steps 2 to 6 for it before submitting. Then check what the site
+   shows:
    - A signed-in signal (account name, avatar, dashboard, logout link): report
      `filled_and_submitted`. A submitted form without one of these signals is not a
      confirmed login.
@@ -96,17 +101,19 @@ code itself. Norton is the only thing that ever touches the actual secret.
 
 ## Completion
 
-State the final outcome plainly, using one of: `filled_and_submitted`, `filled_only`,
-`multiple_matches`, `vault_locked`, `mfa_required`, `no_login_form_found`,
-`autofill_failed`, or `captcha_required`. Name the site and what was attempted. Never
+State the final outcome plainly, using exactly one of these names, spelled as written:
+`filled_and_submitted`, `filled_only`, `multiple_matches`, `vault_locked`, `mfa_required`,
+`no_login_form_found`, `autofill_failed`, or `captcha_required`. Do not invent other names
+(for example `signed_in` or `2fa_required`). Name the site and what was attempted. Never
 include the credential values, vault passphrase, or MFA code in the final answer, even in
 redacted or partial form.
 
 ## Supported setup and known limitations
 
 - Norton Password Manager extension on a Chromium runtime profile, tested with the Chrome
-  Web Store build in October 2026; NextBrowser release builds on Windows and macOS. No
-  managed proxy is needed (a direct-connection profile works).
+  Web Store build in October 2026: the NextBrowser release build on Windows 11 with a
+  direct-connection profile, and the development build (`npm run dev`) on Windows 11 with a
+  managed-proxy profile, on GitHub, Google and Microsoft sign-in pages.
 - The coordinate click (`click-xy`) exists in the CLI only; the browser tool set has no
   equivalent, so this skill needs `nextctl` on the agent's PATH.
 - Because the picker is an extension iframe, selectors, element ids and keyboard focus
