@@ -31,7 +31,7 @@
     "@nextbrowser-oss/instagram-monitoring": "github:nextbrowser-oss/nextbrowser-instagram-monitoring#b8f8c7638e9cc167cb227c2638f85dcbb4dd1bde",
     "@nextbrowser-oss/linkedin-monitoring": "github:nextbrowser-oss/nextbrowser-linkedin-monitoring#0b945f6214232e8799d18b2543973ccdd53a7aed",
     "@nextbrowser-oss/reddit-monitoring": "github:nextbrowser-oss/nextbrowser-reddit-monitoring#431e5bf4b4e22c6f7887490b4055bdd11f128113",
-    "@nextbrowser-oss/tiktok-monitoring": "github:nextbrowser-oss/nextbrowser-tiktok-monitoring#67ac8730f9b48b70c896b372a2f4fa09f0299a4c",
+    "@nextbrowser-oss/tiktok-monitoring": "github:nextbrowser-oss/nextbrowser-tiktok-monitoring#d604eb440061d573e180bded7ffb12e1a33214db",
     "@nextbrowser-oss/x-monitoring": "github:nextbrowser-oss/nextbrowser-x-monitoring#356698586ca193698824ef42ece369899ec83c62",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
