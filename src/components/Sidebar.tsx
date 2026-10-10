@@ -12,7 +12,8 @@ import { manualProxyDefaultName, manualProxyLimits, parseManualProxyBatch, parse
 import { actionFailureMessage, internalError } from "../lib/userFacingError";
 import { userFacingBrowserError } from "../lib/userFacingBrowserError";
 import { isProxyTrafficExhaustedError, isProxyTrafficGateMessage, proxyTrafficLaunchRefusedMessage } from "../lib/proxyTraffic";
-import { userFacingMultiloginError } from "../lib/userFacingMultiloginError";
+import { MULTILOGIN_APP_NOT_RUNNING, userFacingMultiloginError } from "../lib/userFacingMultiloginError";
+import { openMultiloginApp } from "../lib/multiloginApp";
 import { entityNameLimits, validateEntityName } from "../lib/entityValidation";
 import { cancelNextctlRun } from "../nextctl";
 import { conversationPreview, type AppTab, type BrowserWorkflowAction, type BrowserWorkflowSkill } from "../types";
@@ -1970,7 +1971,16 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 <Icon name="chevron.right" size={12} className="muted" />
               </button>
             </section>}
-            {profileError && <div className="error small profile-create-error">{profileError}</div>}
+            {profileError && (
+              <div className="error small profile-create-error">
+                <span>{profileError}</span>
+                {profileError === MULTILOGIN_APP_NOT_RUNNING && (
+                  <button type="button" className="secondary small" onClick={() => void openMultiloginApp()}>
+                    Open Multilogin <Icon name="arrow.up.forward.app" size={12} />
+                  </button>
+                )}
+              </div>
+            )}
             {profileSaving && profileCreationStage && (
               <div className="profile-create-progress" role="status" aria-live="polite">
                 {profileCreationStage === "Ready" ? <Icon name="checkmark" size={13} /> : <Spinner size={13} />}

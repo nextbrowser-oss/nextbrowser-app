@@ -16,11 +16,20 @@ test("only the direct button after three proxy failures grants consent", () => {
       const options = verificationFailureDialogOptions({ proxyExpected, attempts });
       assert.equal(options.defaultId, 0);
       assert.equal(options.cancelId, 0);
-      assert.deepEqual(options.buttons, proxyExpected && attempts === 3 ? ["Cancel", "Continue without proxy"] : ["Cancel"]);
-      for (const response of [0, 1, -1, 2, undefined, null]) {
-        assert.equal(verificationFailureDialogChoice(proxyExpected, response, attempts), proxyExpected && attempts === 3 && response === 1 ? "direct" : "cancel");
+      const offerDirect = proxyExpected && attempts === 3;
+      assert.deepEqual(options.buttons, offerDirect ? ["Cancel", "Continue without proxy", "Get help in Discord"] : ["Cancel", "Get help in Discord"]);
+      for (const response of [0, 1, -1, 2, 3, undefined, null]) {
+        const choice = verificationFailureDialogChoice(proxyExpected, response, attempts);
+        assert.equal(choice === "direct", offerDirect && response === 1);
+        assert.equal(choice, options.buttons[response] === "Get help in Discord" ? "support" : options.buttons[response] === "Continue without proxy" ? "direct" : "cancel");
       }
     }
   }
   assert.match(verificationFailureDialogOptions({ proxyExpected: true, attempts: 3 }).detail, /real IP/);
+});
+test("a stopped profile is reported as our problem with the failed checks for support", () => {
+  const options = verificationFailureDialogOptions({ failedSurfaces: ["proxy"], proxyExpected: true, attempts: 1 });
+  assert.match(options.detail, /problem on our side/);
+  assert.match(options.detail, /Failed checks: proxy\./);
+  assert.doesNotMatch(options.detail, /Resolve the verification failure/);
 });

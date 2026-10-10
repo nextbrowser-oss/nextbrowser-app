@@ -245,6 +245,9 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
     terminal.loadAddon(new WebLinksAddon((_event, uri) => openLink(uri)));
     terminal.open(host);
     terminalRef.current = terminal;
+    // Rows rarely fill the host exactly; the remainder must match the theme,
+    // not the black xterm.css viewport default.
+    host.style.setProperty("--terminal-background", activeTerminalTheme().background);
     const reportInputFailure = (reason: unknown) => {
       const message = reason instanceof Error ? reason.message : String(reason);
       setError(message);
@@ -308,6 +311,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
     observer.observe(host);
     const themeObserver = new MutationObserver(() => {
       terminal.options.theme = activeTerminalTheme();
+      host.style.setProperty("--terminal-background", activeTerminalTheme().background);
     });
     themeObserver.observe(document.documentElement, {
       attributes: true,
@@ -599,7 +603,12 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
           {attachmentError}
         </div>
       )}
-      <div ref={hostRef} className="agent-terminal-host" />
+      {/* The padding lives on the frame: FitAddon sizes rows from the host's
+          computed height, which under border-box would include the padding and
+          push the agent's bottom status line out of view. */}
+      <div className="agent-terminal-frame">
+        <div ref={hostRef} className="agent-terminal-host" />
+      </div>
     </section>
   );
 }

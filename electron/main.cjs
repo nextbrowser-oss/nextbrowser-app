@@ -43,7 +43,7 @@ const {
   searchDirs,
 } = require("./binary-resolver.cjs");
 const { applyLegacyRuntimeMigration, applyRuntimeRootMigration, clearRuntimeCredential, runtimeAPIBaseURL, accountAPIBaseURL } = require("./runtime-config.cjs");
-const { fetchGitHubStars, readLocalGitHubStars, writeLocalGitHubStars } = require("./github-stars.cjs");
+const { createGitHubStarsSource } = require("./github-stars.cjs");
 const { githubStarStatus, verifyGitHubStar } = require("./github-star-reward.cjs");
 const { sendNodeMavenInvite } = require("./proxy-traffic.cjs");
 const { ensureWorkspaceInstructions } = require("./workspace-instructions.cjs");
@@ -110,6 +110,7 @@ const { parseMultiloginProfiles, parseMultiloginCreatedMobileProfile, parseMulti
 const { multiloginAccountFromTokens } = require("./multilogin-account.cjs");
 const { MULTILOGIN_DOWNLOAD_URL, resolveMultiloginApp } = require("./multilogin-app.cjs");
 const { runAgentProcess } = require("./agent-process.cjs");
+const { createClaudeStreamDecoder, createCodexStepDecoder } = require("./agent-steps.cjs");
 const { assertManualProxyRuntimeSupport } = require("./manual-proxy-runtime.cjs");
 const { testManualProxy } = require("./manual-proxy-test.cjs");
 const { describeProfileRequestRejection, describeProfileStartFailure, logProfileStartFailure } = require("./profile-start-failure.cjs");
@@ -974,23 +975,10 @@ function dataDir() { return path.join(app.getPath("userData")); }
 /** How large an append-only app-data file may grow before it is rotated. */
 const APP_DATA_APPEND_LIMIT_BYTES = 16 * 1024 * 1024;
 function githubStarsCachePath() { return path.join(dataDir(), "github-stars.json"); }
-const GITHUB_STARS_FALLBACK = 21;
-let githubStarsPromise;
-function requestGitHubStars() {
-  if (!githubStarsPromise) githubStarsPromise = (async () => {
-    let count = null;
-    try {
-      count = await fetchGitHubStars(fetch, { signal: AbortSignal.timeout(5000) });
-    } catch {
-      // The last successful count, or the bundled fallback, remains useful.
-    }
-    if (typeof count === "number") {
-      await writeLocalGitHubStars(githubStarsCachePath(), count);
-      return count;
-    }
-    return (await readLocalGitHubStars(githubStarsCachePath())) ?? GITHUB_STARS_FALLBACK;
-  })();
-  return githubStarsPromise;
+let githubStarsSource;
+function requestGitHubStars(options) {
+  if (!githubStarsSource) githubStarsSource = createGitHubStarsSource({ cachePath: githubStarsCachePath() });
+  return githubStarsSource.get(options);
 }
 function localAutomationArtifacts() {
   if (!automationArtifactStore) {
@@ -1721,7 +1709,7 @@ async function apiFetchJSON(baseURL, route, options = {}) {
 async function invokeCommand(command, args = {}, sender) {
   switch (command) {
     case "github_stars": {
-      return requestGitHubStars();
+      return requestGitHubStars({ refresh: args.refresh === true });
     }
     case "github_star_status": return await githubStarStatus({ env: childEnv() });
     case "github_star_verify": return await verifyGitHubStar({ env: childEnv() });
@@ -2396,6 +2384,12 @@ async function invokeCommand(command, args = {}, sender) {
         agentArgs = [...codexClawbrowserMCPArgs(nextctlBin, supportedTraceFile, String(args.workspaceId || "")), ...agentArgs];
       }
       const spec = commandSpec(bin, agentArgs);
+      const emitStep = (step) => { if (step) emit("agent:step", [args.replyId, step]); };
+      const emitText = (text) => emit("agent:chunk", [args.replyId, text]);
+      const claudeStream = args.stepFormat === "claude-stream-json"
+        ? createClaudeStreamDecoder({ onText: emitText, onStep: emitStep })
+        : null;
+      const codexSteps = args.stepFormat === "codex-stderr" ? createCodexStepDecoder({ onStep: emitStep }) : null;
       try {
         return await runAgentProcess({
           spawnProcess: spawn,
@@ -2412,10 +2406,20 @@ async function invokeCommand(command, args = {}, sender) {
           }),
           stdinText: args.stdinText,
           onSpawn: (child) => children.set(args.replyId, child),
-          onStdout: (chunk) => emit("agent:chunk", [args.replyId, chunk.toString()]),
-          onStderr: (chunk) => emit("agent:activity", [args.replyId, chunk.toString()]),
+          onStdout: (chunk) => {
+            if (claudeStream) claudeStream.write(chunk);
+            else emitText(chunk.toString());
+          },
+          onStderr: (chunk) => {
+            codexSteps?.write(chunk);
+            emit("agent:activity", [args.replyId, chunk.toString()]);
+          },
           onDone: (result) => {
             children.delete(args.replyId);
+            codexSteps?.end();
+            // The raw stdout is the event stream; the rest of the app reads it
+            // as the reply (empty-reply and sign-in checks included).
+            if (claudeStream) result.stdout = claudeStream.end();
             emit("agent:done", [args.replyId, result.code, result.stderr, result.stdout]);
           },
         });
@@ -2797,7 +2801,7 @@ if (!gotLock) {
   });
   app.whenReady().then(() => {
     // Start the GitHub request before migrations and renderer loading. The
-    // header can consume this same promise as soon as it mounts.
+    // header joins this same request when it mounts.
     void requestGitHubStars();
     return migrateLegacyData();
   }).then(() => {

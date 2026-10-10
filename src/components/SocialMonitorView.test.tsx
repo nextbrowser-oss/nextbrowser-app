@@ -40,6 +40,7 @@ beforeEach(() => {
     stopMonitorSchedule: vi.fn(),
     setMonitorScheduleInterval: vi.fn(),
     openMonitorSite: vi.fn(),
+    recheckMonitorSignIn: vi.fn(),
     updateSocialMonitorSettings: vi.fn(),
     setSocialMatchDone: vi.fn(),
     draftSocialReply: vi.fn(),
@@ -54,6 +55,13 @@ describe("SocialMonitorView", () => {
     expect(html).toContain("acme");
     expect(html).toContain("Comments on your posts");
     expect(html).toContain("Open instagram.com");
+  });
+
+  it("shows an account nobody has checked yet, with the way to check it", () => {
+    const html = renderToStaticMarkup(<SocialMonitorView entry={entry} spec={spec} />);
+    expect(html).toContain("Instagram account not checked yet");
+    expect(html).toContain("Open instagram.com to sign in; the panel reads the account when you come back");
+    expect(html).toContain("Read the signed-in account again");
   });
 
   it("lists a match with its urgency, its post and the reasons, and offers a draft", () => {

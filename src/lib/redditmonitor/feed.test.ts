@@ -95,8 +95,11 @@ describe("replyTask", () => {
     expect(post).toContain("https://www.reddit.com/r/webdev/comments/t3_a/");
     expect(post).toContain('browser profile "reddit-us"');
     expect(post).toContain("post nothing until I approve it");
-    expect(post).toContain("nbc reddit comment");
+    expect(post).toContain("nbc reddit comment --profile reddit-us");
+    expect(post).toContain("nbc reddit open --profile reddit-us https://www.reddit.com/r/webdev/comments/t3_a/");
+    expect(post).not.toContain("<profile>");
     const comment = replyTask(match("t1_c", HOUR, "low", { kind: "comment" }));
     expect(comment).toContain("nbc reddit reply --profile <profile> --target t1_c");
+    expect(replyTask(match("t1_d", HOUR, "low", { kind: "comment" }), "my profile")).toContain("nbc reddit reply --profile 'my profile' --target t1_d");
   });
 });

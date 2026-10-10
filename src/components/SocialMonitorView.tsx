@@ -10,6 +10,8 @@ import { IntervalDial } from "./IntervalDial";
 import { Icon } from "./Icon";
 import { TermList, Toggle } from "./RedditMonitorView";
 import { Sparkline } from "./XMonitorView";
+import { UserFacingError } from "./UserFacingError";
+import { useRecheckOnReturn } from "../lib/useRecheckOnReturn";
 
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
@@ -70,6 +72,7 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
   const stopSchedule = useStore((s) => s.stopMonitorSchedule);
   const setInterval_ = useStore((s) => s.setMonitorScheduleInterval);
   const openSite = useStore((s) => s.openMonitorSite);
+  const recheckSignIn = useStore((s) => s.recheckMonitorSignIn);
   const updateSettings = useStore((s) => s.updateSocialMonitorSettings);
   const setDone = useStore((s) => s.setSocialMatchDone);
   const draftReply = useStore((s) => s.draftSocialReply);
@@ -84,22 +87,36 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
     return () => window.clearInterval(timer);
   }, []);
 
+  // The schedule's profile wins once there is one; before that, the choice made
+  // here, and the reply agent's profile only as a first suggestion.
+  const profile = schedule?.profileName ?? chosenProfile ?? replyProfile ?? selectedProfile;
+  // Signing in happens in the profile's window, out of the panel's sight: read
+  // the account again when the user comes back from it.
+  const armRecheck = useRecheckOnReturn(() => recheckSignIn(entry, profile));
+  const accountKnown = !!(slot && spec.account(slot.state));
+  // A profile already sitting on the site answers who is signed in without a
+  // click; a stopped profile or one on a sign-in page is left alone.
+  useEffect(() => {
+    if (!accountKnown) void recheckSignIn(entry, profile);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile]);
+
   if (!slot) return null;
   const { state, feed, busy, step, notice } = slot;
   const settings = state.settings as Record<string, unknown>;
   const running = schedule?.enabled === true;
   const workspace = workspaces.find((item) => item.id === activeWorkspaceId);
   const browserProfiles = allBrowserProfiles.filter((profile) => workspace?.profileNames.includes(profile.name));
-  // The schedule's profile wins once there is one; before that, the choice made
-  // here, and the reply agent's profile only as a first suggestion.
-  const profile = schedule?.profileName ?? chosenProfile ?? replyProfile ?? selectedProfile;
   const profileAvailable = browserProfiles.some((item) => item.name === profile);
   const site = spec.site;
 
   const account = spec.account(state);
   const handle = account?.handle;
   const signedIn = account?.signedIn === true;
-  const followers = spec.followers(state);
+  // Facebook and LinkedIn track no follower count: a tile there would only
+  // ever say "—".
+  const tracksFollowers = !!spec.followers;
+  const followers = spec.followers?.(state);
   const trend = countTrend(followers?.history ?? [], followers?.value, Date.now());
   const lastPass = state.lastPass;
   const nextRunAt = running && schedule?.lastFiredAt && schedule.intervalMinutes
@@ -144,7 +161,7 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
         </select>
         <span className="spacer" />
         <button className="mini" disabled={busy || !profileAvailable} title={`Open ${site} in this profile to sign in or switch account`}
-          onClick={() => void openSite(entry, profile)}>
+          onClick={() => { armRecheck(); void openSite(entry, profile); }}>
           Open {site}
         </button>
       </div>
@@ -152,20 +169,22 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
         <p className="muted small" role="status">Choose a browser profile from this workspace to monitor {spec.name} with.</p>
       )}
 
-      {(running || hasData) && (
+      {(running || hasData || profileAvailable) && (
         <div className="xmon-account">
           <span className={"xmon-avatar" + (signedIn ? "" : " is-empty")} aria-hidden>
             {handle ? handle.slice(0, 1).toUpperCase() : <Icon name="person.crop.circle" size={16} />}
           </span>
           <div className="xmon-account-text">
-            <strong>{handle ? `${spec.handlePrefix}${handle}` : account ? `No ${spec.name} account` : "Reading the account…"}</strong>
+            <strong>{handle ? `${spec.handlePrefix}${handle}` : account ? `No ${spec.name} account` : busy || running ? "Reading the account…" : `${spec.name} account not checked yet`}</strong>
             <span className="muted small">
               <span className={"status-dot " + (signedIn ? "ok-dot" : "muted-dot")} />
               {signedIn
                 ? `Signed in${account?.checkedAt ? ` · checked ${since(account.checkedAt)}` : ""}`
                 : account
                   ? `Not signed in to ${site} — ${spec.signedOutNote}`
-                  : "The first check is on its way"}
+                  : busy || running
+                    ? "The first check is on its way"
+                    : `Open ${site} to sign in; the panel reads the account when you come back`}
             </span>
           </div>
           <span className="spacer" />
@@ -218,7 +237,7 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
               if (schedule) setInterval_(entry.id, minutes);
             }}
           />
-          {notes.map((text) => <div key={text} className="small watchlist-pass-note">{text}</div>)}
+          {notes.map((text) => <div key={text} className="small watchlist-pass-note"><UserFacingError message={text} surface="social_monitor" /></div>)}
           <div className="row xmon-setup-actions">
             {hasData ? logLink : <span />}
             <span className="spacer" />
@@ -235,8 +254,8 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
       )}
 
       {hasStats && (
-        <div className="xmon-stats">
-          <div className="xmon-stat xmon-stat-main">
+        <div className={"xmon-stats" + (tracksFollowers ? "" : " xmon-stats-plain")}>
+          {tracksFollowers && <div className="xmon-stat xmon-stat-main">
             <span className="muted small">Followers</span>
             <div className="xmon-stat-row">
               <strong className="xmon-value">{count(followers?.value)}</strong>
@@ -248,7 +267,7 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
               )}
             </div>
             <Sparkline points={trend.points} label="Followers over time" />
-          </div>
+          </div>}
           <div className="xmon-stat">
             <span className="muted small">New matches · 24h</span>
             <strong className="xmon-value">{feed.readAt ? announcedToday(feed, Date.now()).toLocaleString() : "—"}</strong>
@@ -307,7 +326,7 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
               <Icon name="stop" size={14} /> Stop
             </button>
           </div>
-          {notes.map((text) => <div key={text} className="small watchlist-pass-note">{text}</div>)}
+          {notes.map((text) => <div key={text} className="small watchlist-pass-note"><UserFacingError message={text} surface="social_monitor" /></div>)}
         </div>
       )}
     </>

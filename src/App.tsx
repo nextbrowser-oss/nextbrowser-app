@@ -13,7 +13,7 @@ import { OnboardingView } from "./components/OnboardingView";
 import { DashboardKeyModal } from "./components/DashboardKeyModal";
 import { TrafficGateModal } from "./components/TrafficGateModal";
 import { GitHubStarModal } from "./components/GitHubStarReward";
-import { shouldAskForGitHubStar } from "./lib/githubStarReward";
+import { GITHUB_STARS_REFRESH_EVENT, shouldAskForGitHubStar } from "./lib/githubStarReward";
 import { ProfileCreateRequestModal } from "./components/ProfileCreateRequestModal";
 import { BrandLogo } from "./components/BrandLogo";
 import { Icon, Spinner } from "./components/Icon";
@@ -151,12 +151,28 @@ function UIScaleControl({ value, onChange, onDismiss }: { value: number; onChang
   );
 }
 
-function BrowserRuntimeInstallModal({ status, onCancel }: { status: BrowserRuntimeInstallStatus; onCancel: () => void }) {
-  const name = status.runtime === "dasbrowser" ? "DasBrowser" : status.runtime === "camoufox" ? "Camoufox" : "Clawbrowser";
+function browserRuntimeInstallName(status: BrowserRuntimeInstallStatus): string {
+  return status.runtime === "dasbrowser" ? "DasBrowser" : status.runtime === "camoufox" ? "Camoufox" : "Clawbrowser";
+}
+
+function browserRuntimeInstallKey(status: BrowserRuntimeInstallStatus): string {
+  return status.requestId || status.runtime || "browser";
+}
+
+function BrowserRuntimeInstallModal({ status, onCancel, onHide }: { status: BrowserRuntimeInstallStatus; onCancel: () => void; onHide: () => void }) {
+  const name = browserRuntimeInstallName(status);
   const installing = status.status === "installing";
   return (
     <div className="browser-install-overlay" role="status" aria-live="polite">
       <div className="modal-card browser-install-modal" aria-labelledby="browser-install-title">
+        <button
+          className="plain-icon-btn plain-icon-btn-compact background-card-hide"
+          onClick={onHide}
+          title="Hide — the download keeps running"
+          aria-label={`Hide ${name} download progress`}
+        >
+          <Icon name="xmark" size={12} />
+        </button>
         <InstallationSpinner />
         <div className="browser-install-copy">
           <strong id="browser-install-title">{installing ? `Installing ${name}` : `Downloading ${name}`}</strong>
@@ -175,6 +191,17 @@ function BrowserRuntimeInstallModal({ status, onCancel }: { status: BrowserRunti
 }
 
 
+// A long download or update the user hid keeps a small chip in the top bar, so
+// it is still visibly running and one click brings the full card back.
+function BackgroundTaskPill({ label, onShow }: { label: string; onShow: () => void }) {
+  return (
+    <button type="button" className="background-task-pill" onClick={onShow} title={`${label} — show progress`}>
+      <Spinner size={11} />
+      <span>{label}</span>
+    </button>
+  );
+}
+
 function BrowserRuntimeUpdateProgress({ status, onClose, onRetry, onOpenManualGuide }: {
   status: BrowserRuntimeUpdateInstallStatus;
   onClose: () => void;
@@ -191,7 +218,7 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onRetry, onOpenManualGu
   // could not reach the network) still needs an actionable retry.
   const canRetry = failed && errors.length === 0 && retryRuntimes.length > 0;
   const card = (
-    <div className={"runtime-update-progress-card" + (needsAttention ? " needs-attention" : "")} role="status" aria-live="polite">
+    <div className={"runtime-update-progress-card" + (needsAttention ? " needs-attention" : "") + (installing ? " is-running" : "")} role="status" aria-live="polite">
       {installing ? <InstallationSpinner /> : (
         <div className={"runtime-update-progress-mark" + (needsAttention ? " is-error" : " is-ready")}>
           <Icon name={needsAttention ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"} size={needsAttention ? 15 : 18} />
@@ -227,12 +254,16 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onRetry, onOpenManualGu
         )}
         {needsAttention && <p className="runtime-update-requirements">Before retrying: keep Nextbrowser open, use a stable connection, make sure there is free disk space, and close any running browser toolset.</p>}
       </div>
+      {/* Hiding never cancels: the update keeps running behind a top-bar chip. */}
+      <button
+        className="plain-icon-btn plain-icon-btn-compact"
+        onClick={onClose}
+        title={installing ? "Hide — the update keeps running" : "Dismiss"}
+        aria-label={installing ? "Hide update progress" : "Dismiss update status"}
+      >
+        <Icon name="xmark" size={12} />
+      </button>
       {installing && <InstallationProgress label={`Updating ${status.currentName ?? "browser toolsets"}`} />}
-      {!installing && (
-        <button className="plain-icon-btn plain-icon-btn-compact" onClick={onClose} aria-label="Dismiss update status">
-          <Icon name="xmark" size={12} />
-        </button>
-      )}
     </div>
   );
   // A transient status (installing, or a clean success) is ambient and stays
@@ -355,9 +386,12 @@ function formatStars(count?: number | null): string {
   return `${rounded}k`;
 }
 
-// Updated from the repository's public GitHub API on 2026-09-25. The host
-// prefetches the live value during startup and still keeps its disk cache.
-const GITHUB_STARS_FALLBACK = 21;
+// The host reuses a count for two minutes and answers a refresh no more than
+// every 15 seconds, so polling and focus refreshes cost little.
+const GITHUB_STARS_POLL_MS = 2 * 60 * 1000;
+// A count that just changed on GitHub (the user's own star) can trail the
+// stargazer list by a moment, so a verified star reads it twice.
+const GITHUB_STARS_SETTLE_MS = 20 * 1000;
 
 function GithubStarButton({ stars }: { stars?: number | null }) {
   const label = "Star Nextbrowser on GitHub";
@@ -405,19 +439,38 @@ function FeedbackButton({ onClick }: { onClick: () => void }) {
 }
 
 function SocialButtons() {
-  const [stars, setStars] = useState<number>(GITHUB_STARS_FALLBACK);
+  // No number until the host answers: a stale one would read as a lost star.
+  const [stars, setStars] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    invoke<number | null>("github_stars")
-      .then((count) => {
-        if (!cancelled && typeof count === "number") {
-          setStars(count);
-        }
-      })
-      .catch(() => undefined);
+    let settleTimer: number | undefined;
+    const load = (refresh: boolean) => {
+      invoke<number | null>("github_stars", refresh ? { refresh: true } : {})
+        .then((count) => {
+          if (!cancelled && typeof count === "number") setStars(count);
+        })
+        .catch(() => undefined);
+    };
+    load(false);
+    const poll = window.setInterval(() => {
+      if (document.visibilityState === "visible") load(false);
+    }, GITHUB_STARS_POLL_MS);
+    // Coming back from the repository page is when a star was likely added.
+    const onFocus = () => load(true);
+    const onStarVerified = () => {
+      load(true);
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(() => load(true), GITHUB_STARS_SETTLE_MS);
+    };
+    window.addEventListener("focus", onFocus);
+    window.addEventListener(GITHUB_STARS_REFRESH_EVENT, onStarVerified);
     return () => {
       cancelled = true;
+      window.clearInterval(poll);
+      window.clearTimeout(settleTimer);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener(GITHUB_STARS_REFRESH_EVENT, onStarVerified);
     };
   }, []);
 
@@ -873,6 +926,7 @@ export function App() {
   const [runtimeUpdateProgressHidden, setRuntimeUpdateProgressHidden] = useState(false);
   const [unexpectedError, setUnexpectedError] = useState<{ reference: string; detail: string }>();
   const [browserRuntimeInstall, setBrowserRuntimeInstall] = useState<BrowserRuntimeInstallStatus>();
+  const [browserInstallHiddenKey, setBrowserInstallHiddenKey] = useState<string>();
   const [agentGateDismissed, setAgentGateDismissed] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const feedbackPromptEvaluated = useRef(false);
@@ -1200,9 +1254,15 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    let previous: BrowserRuntimeUpdateInstallStatus["status"] | undefined;
     const applyStatus = (status: BrowserRuntimeUpdateInstallStatus) => {
       setRuntimeUpdateInstall(status);
-      if (status.status === "installing") setRuntimeUpdateProgressHidden(false);
+      // Progress events arrive throughout an update; only a new update or a
+      // result that needs a decision may bring back a card the user hid.
+      if ((status.status === "installing" && previous !== "installing") || status.status === "failed" || status.status === "partial") {
+        setRuntimeUpdateProgressHidden(false);
+      }
+      previous = status.status;
     };
     void invoke<BrowserRuntimeUpdateInstallStatus>("browser_runtime_update_install_status").then(applyStatus).catch(() => undefined);
     let cleanup: (() => void) | undefined;
@@ -1470,6 +1530,23 @@ export function App() {
     };
   }, [checking, sidebarCollapsed, setSidebarWidth]);
 
+  const browserInstallHidden = !!browserRuntimeInstall && browserInstallHiddenKey === browserRuntimeInstallKey(browserRuntimeInstall);
+  const backgroundTaskPills = (
+    <>
+      {runtimeUpdateInstall.status === "installing" && runtimeUpdateProgressHidden && (
+        <BackgroundTaskPill
+          label={`Updating ${runtimeUpdateInstall.currentName ?? "browser toolsets"}`}
+          onShow={() => setRuntimeUpdateProgressHidden(false)}
+        />
+      )}
+      {browserRuntimeInstall && browserInstallHidden && (
+        <BackgroundTaskPill
+          label={`${browserRuntimeInstall.status === "installing" ? "Installing" : "Downloading"} ${browserRuntimeInstallName(browserRuntimeInstall)}`}
+          onShow={() => setBrowserInstallHiddenKey(undefined)}
+        />
+      )}
+    </>
+  );
   const feedbackModal = feedbackAvailable && feedbackOpen ? <FeedbackModal onClose={() => setFeedbackOpen(false)} onSubmitted={(rating) => {
     markFeedbackSubmitted(localStorage);
     trackEvent("feedback_submitted", { rating });
@@ -1479,6 +1556,7 @@ export function App() {
     return (
       <>
         <div className="floating-controls">
+          {backgroundTaskPills}
           <SocialButtons />
           <SettingsButton onClick={() => openSettings()} hasUpdate={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)} />
           <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
@@ -1582,6 +1660,7 @@ export function App() {
           </div>
           <span className="tabbar-spacer" />
           <div className="tabbar-controls">
+            {backgroundTaskPills}
             {feedbackAvailable && <FeedbackButton onClick={() => setFeedbackOpen(true)} />}
             <SocialButtons />
             <SettingsButton onClick={() => openSettings()} hasUpdate={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)} />
@@ -1665,7 +1744,7 @@ export function App() {
       )}
       {showOnboarding && <OnboardingView />}
       {!checking && agentReady && workspaceSetupRequired && workspaceSetupAuto === "failed" && <WorkspaceSetupGate />}
-      {browserRuntimeInstall && <BrowserRuntimeInstallModal status={browserRuntimeInstall} onCancel={() => {
+      {browserRuntimeInstall && !browserInstallHidden && <BrowserRuntimeInstallModal status={browserRuntimeInstall} onHide={() => setBrowserInstallHiddenKey(browserRuntimeInstallKey(browserRuntimeInstall))} onCancel={() => {
         if (browserRuntimeInstall.requestId) void invoke("nextctl_cancel", { requestId: browserRuntimeInstall.requestId });
         setBrowserRuntimeInstall(undefined);
       }} />}

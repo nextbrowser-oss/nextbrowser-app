@@ -4,9 +4,22 @@
  */
 const IPC_PREFIX = /^Error invoking remote method ['"][^'"]+['"]:\s*(?:Error:\s*)?/i;
 
+// The Multilogin desktop app serves its launcher API on launcher.mlx.yt, which
+// resolves to this machine. A refused connection there means the app (its
+// agent) is not running, not that the proxy or the profile is wrong.
+const LAUNCHER_DOWN = /(?:launcher\.mlx\.yt|127\.0\.0\.1:4500\d)[\s\S]*(?:connection refused|actively refused|no connection could be made|connectex)/i;
+
+export const MULTILOGIN_APP_NOT_RUNNING = "The Multilogin app isn’t running on this computer. Open Multilogin, sign in, and keep it running, then try again.";
+
+export function isMultiloginLauncherDown(raw: string): boolean {
+  return LAUNCHER_DOWN.test(raw);
+}
+
 export function userFacingMultiloginError(error: unknown, kind: "browser" | "mobile" = "browser"): string {
   const raw = (error instanceof Error ? error.message : String(error ?? "")).replace(IPC_PREFIX, "").trim();
   if (!raw) return "Multilogin did not respond. Try again.";
+
+  if (LAUNCHER_DOWN.test(raw)) return MULTILOGIN_APP_NOT_RUNNING;
 
   const profiles = kind === "browser" ? "browser profiles" : "cloud phones";
 

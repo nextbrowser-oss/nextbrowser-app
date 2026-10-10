@@ -13,6 +13,7 @@ import * as instagram from "@nextbrowser-oss/instagram-monitoring";
 import * as linkedin from "@nextbrowser-oss/linkedin-monitoring";
 import * as tiktok from "@nextbrowser-oss/tiktok-monitoring";
 import type { SocialEvent, SocialMatch } from "./feed";
+import { cliProfile } from "../cliProfile";
 
 export type SocialEngineId = "instagram-monitor" | "tiktok-monitor" | "facebook-monitor" | "linkedin-monitor";
 
@@ -116,9 +117,9 @@ export interface SocialEngineSpec {
   startHint: string;
   /** What a signed-out account means for this engine. */
   signedOutNote: string;
-  /** The account's own follower count and its history, when the engine
-   *  tracks one. */
-  followers(state: SocialState): { value?: number; history: { at: number; value: number }[] } | undefined;
+  /** The account's own follower count and its history. Engines that do not
+   *  track one leave it out, and the panel draws no Followers tile. */
+  followers?(state: SocialState): { value?: number; history: { at: number; value: number }[] } | undefined;
   /** A short label for where a match was found. */
   where(match: SocialMatch): string;
   /** One line of context: the post or the group a match belongs to. */
@@ -146,6 +147,11 @@ function quote(text: string | undefined, max = 80): string {
 
 /** The approval rule every reply task ends with, word for word, so no engine
  *  can hand the agent a task that posts without asking. */
+/** The profile as it goes on an nbc command line, quoted when it has to be:
+ *  profile names may hold spaces or Cyrillic. Without a name the agent is
+ *  left a placeholder to fill in. */
+export { cliProfile };
+
 const APPROVAL = "Write one reply that answers this specific item in the account's own voice - never a canned line, and no claim the thread does not support. Show me the draft and post nothing until I approve it.";
 
 interface InstagramPost {
@@ -229,7 +235,7 @@ const instagramSpec: SocialEngineSpec = {
       : "Once I approve it, post it with the comment's own Reply button so it lands in the same thread";
     return [
       `Draft a reply to this Instagram ${what} that monitoring found, by @${item.author}: ${item.url}.${why}`,
-      `Work in ClawBrowser on ${profile}, which is signed in to Instagram. Open the link with \`nbc open --profile <profile> ${item.url}\` and read the ${what} and the thread around it.`,
+      `Work in ClawBrowser on ${profile}, which is signed in to Instagram. Open the link with \`nbc open --profile ${cliProfile(profileName)} ${item.url}\` and read the ${what} and the thread around it.`,
       APPROVAL,
       `${how}, follow the Instagram skill's posting steps, and report whether the reply appeared on the page.`,
     ].join("\n\n");
@@ -317,7 +323,7 @@ const tiktokSpec: SocialEngineSpec = {
       : "Once I approve it, post it as a comment on the video";
     return [
       `Draft a reply to ${target}.${why}`,
-      `Work in ClawBrowser on ${profile}, which is signed in to TikTok. Open the video with \`nbc open --profile <profile> ${item.url}\` and read the ${item.kind === "comment" ? "comment and the thread around it" : "video's description and its top comments"}.`,
+      `Work in ClawBrowser on ${profile}, which is signed in to TikTok. Open the video with \`nbc open --profile ${cliProfile(profileName)} ${item.url}\` and read the ${item.kind === "comment" ? "comment and the thread around it" : "video's description and its top comments"}.`,
       APPROVAL,
       `${how}, follow the TikTok skill's posting steps, and report whether the reply appeared on the page. If TikTok shows a captcha, stop and tell me.`,
     ].join("\n\n");
@@ -397,7 +403,6 @@ const facebookSpec: SocialEngineSpec = {
   canStart: (settings) => list(settings.groups).length > 0,
   startHint: "Add a group first — only groups this account is a member of can be read",
   signedOutNote: "group posts are only shown to members, so sign in",
-  followers: () => undefined,
   where: (match) => {
     const group = match.item.group as FacebookGroup | undefined;
     return group?.name || match.source.name;
@@ -419,7 +424,7 @@ const facebookSpec: SocialEngineSpec = {
       : "Once I approve it, post it as a comment on the post";
     return [
       `Draft a reply to this Facebook ${item.kind === "comment" ? "comment" : "post"}${group ? ` in the group "${group}"` : ""}, by ${item.author}: ${item.url}.${why}`,
-      `Work in ClawBrowser on ${profile}, which is signed in to Facebook and a member of the group. Open the link with \`nbc open --profile <profile> ${item.url}\` and read the ${item.kind === "comment" ? "comment, the post and the thread" : "whole post (press See more if it is cut) and its comments"}. Keep to the group's rules.`,
+      `Work in ClawBrowser on ${profile}, which is signed in to Facebook and a member of the group. Open the link with \`nbc open --profile ${cliProfile(profileName)} ${item.url}\` and read the ${item.kind === "comment" ? "comment, the post and the thread" : "whole post (press See more if it is cut) and its comments"}. Keep to the group's rules.`,
       APPROVAL,
       `${how}, follow the Facebook skill's posting steps, and report whether the reply appeared on the page. If Facebook asks for a security check or says the account is temporarily blocked, stop and tell me.`,
     ].join("\n\n");
@@ -497,7 +502,6 @@ const linkedinSpec: SocialEngineSpec = {
     || (Array.isArray(settings.accounts) && settings.accounts.length > 0),
   startHint: "Turn on mentions, or add your company, a keyword or an account first",
   signedOutNote: "LinkedIn shows little signed out, so sign in",
-  followers: () => undefined,
   where: (match) => {
     switch (match.source.kind) {
       case "notifications": return "Notifications";
@@ -524,7 +528,7 @@ const linkedinSpec: SocialEngineSpec = {
       : "Once I approve it, post it as a comment on the post";
     return [
       `Draft a reply to this LinkedIn ${item.kind === "comment" ? "comment" : "post"} by ${item.author}: ${item.url}.${why}`,
-      `Work in ClawBrowser on ${profile}, which is signed in to LinkedIn. Open the link with \`nbc open --profile <profile> ${item.url}\` and read the ${item.kind === "comment" ? "comment, the post and the thread" : "whole post (press …see more if it is cut) and its comments"}. Keep it professional and specific - no sales pitch the thread did not ask for.`,
+      `Work in ClawBrowser on ${profile}, which is signed in to LinkedIn. Open the link with \`nbc open --profile ${cliProfile(profileName)} ${item.url}\` and read the ${item.kind === "comment" ? "comment, the post and the thread" : "whole post (press …see more if it is cut) and its comments"}. Keep it professional and specific - no sales pitch the thread did not ask for.`,
       APPROVAL,
       `${how}, follow the LinkedIn skill's posting steps, and report whether the reply appeared on the page. If LinkedIn asks for a security check, says the account is restricted or shows a usage limit, stop and tell me.`,
     ].join("\n\n");

@@ -87,7 +87,8 @@ interface VerificationResult {
   };
 }
 
-export type VerificationFailureChoice = "direct" | "cancel";
+/** "support" stops like "cancel"; the caller also opens the support link. */
+export type VerificationFailureChoice = "direct" | "cancel" | "support";
 
 export interface VerificationFailure {
   message: string;
@@ -289,11 +290,19 @@ export async function prepareSession(opts: {
       );
       step(`Opened ${rawHost}`);
     }
-    await runChecked(
-      [...args, "wait", "--load", "--timeout", "10s", "--format", "json"],
-      `Could not finish loading ${rawHost}`,
-    );
-    step("Page ready");
+    try {
+      await runChecked(
+        [...args, "wait", "--load", "--timeout", "10s", "--format", "json"],
+        `Could not finish loading ${rawHost}`,
+      );
+      step("Page ready");
+    } catch (error) {
+      // The page is open; a heavy site through a proxy (Facebook) can take
+      // longer than this to fire load, and the agent works with it all the
+      // same. Only a wait that timed out is let through.
+      if (!/WAIT_TIMEOUT/.test(error instanceof Error ? error.message : String(error))) throw error;
+      step("Page still loading");
+    }
   } else if (!(await hasUsablePage(args))) {
     await openBlankActivePage(args);
     step("Opened a blank page");

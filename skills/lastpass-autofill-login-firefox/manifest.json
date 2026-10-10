@@ -1,0 +1,17 @@
+{
+  "id": "lastpass-autofill-login-firefox",
+  "name": "LastPass Autofill Login (Firefox)",
+  "description": "Autofill a saved LastPass login into a website's sign-in form in Firefox using the extension's native in-field menu, reporting locked-vault or MFA states instead of guessing.",
+  "author": "chahalhasanpreetsingh-prog",
+  "domains": ["github.com", "accounts.google.com", "login.microsoftonline.com"],
+  "operations": ["form"],
+  "target_mode": "current_tab",
+  "permissions": ["read_page", "use_page_controls", "login"],
+  "verification": "community",
+  "category": {
+    "id": "utilities",
+    "title": "Utilities",
+    "icon": "wrench",
+    "order": 10
+  }
+}

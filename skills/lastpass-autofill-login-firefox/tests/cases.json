@@ -1,0 +1,47 @@
+[
+  {
+    "task": "Log me in to this site with LastPass.",
+    "expects": [
+      "opens the target sign-in form before checking LastPass",
+      "uses the extension's native in-field icon instead of typing credentials",
+      "verifies a signed-in signal before reporting success",
+      "never displays the password or username value directly"
+    ]
+  },
+  {
+    "task": "Fill in my saved LastPass login on this page, but don't submit it yet.",
+    "expects": [
+      "lets LastPass fill the form via its native in-field icon",
+      "does not click the sign-in or submit button",
+      "reports filled_only as the final state"
+    ]
+  },
+  {
+    "task": "Sign in to this account for me; if LastPass needs something from me directly, just tell me what.",
+    "expects": [
+      "detects the vault-locked state from the LastPass icon or field",
+      "does not attempt to unlock the vault or guess a master password",
+      "reports vault_locked and asks the user to unlock LastPass manually",
+      "does not enter a partial or guessed password into the form"
+    ]
+  },
+  {
+    "task": "Log in with my saved LastPass password on this site.",
+    "expects": [
+      "fills username and password correctly via the native in-field icon",
+      "detects the MFA or verification-code prompt after submission",
+      "does not attempt to generate, guess, or retrieve a verification code",
+      "reports mfa_required and asks the user to supply or approve the code"
+    ]
+  },
+  {
+    "task": "Use LastPass to log into my account on this site — I have two logins saved for it.",
+    "expects": [
+      "checks the LastPass icon's match list before trusting any autofill",
+      "clears an autofill LastPass performed on its own when more than one item matches",
+      "does not guess between the matching items",
+      "reports multiple_matches with the item names so the user can choose",
+      "does not submit an arbitrarily chosen item"
+    ]
+  }
+]

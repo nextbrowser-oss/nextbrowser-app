@@ -31,6 +31,7 @@ import {
 } from "./skillsCatalog";
 import { REPOSITORY_SKILL_CATEGORIES, mergeSkillCategories } from "./repositorySkills";
 import { cliBrowser } from "./lib/xreply/browser";
+import { signInDone } from "./lib/signInPage";
 import { openNotifications, readPublisher, runPass, subscribeHandle } from "./lib/xreply/engine";
 import { errorText as xReplyErrorText, setXReplyLogSink, xlog } from "./lib/xreply/log";
 import { emptyXReplyState, normalizeXReplyState, type XReplyState } from "./lib/xreply/state";
@@ -81,7 +82,7 @@ import {
   type SocialFeed,
   type SocialMatch,
 } from "./lib/socialmonitor/feed";
-import { activityFromText, extractToolEvents } from "./lib/activityParser";
+import { activityFromText, appendAgentStep, extractToolEvents } from "./lib/activityParser";
 import { composePrompt } from "./lib/composePrompt";
 import { executionTargetForTurn, type ExecutionTarget } from "./lib/executionTarget";
 import { shouldApplyRemoteConversation } from "./lib/conversationSync";
@@ -95,14 +96,14 @@ import { clearActiveAutomationExecution } from "./lib/automationExecution";
 import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
 import { internalError } from "./lib/userFacingError";
 import { agentEmptyReplyMessage } from "./lib/agentRunResult";
-import { userFacingBrowserError } from "./lib/userFacingBrowserError";
+import { isBrowserVerificationFailure, userFacingBrowserError } from "./lib/userFacingBrowserError";
 import {
   hasCompletedCurrentOnboarding,
   saveOnboardingCompletion,
 } from "./lib/onboarding";
 import type { RemoteStreamInfo } from "./remoteControl";
 import { appendAppData, loadJson, saveJson } from "./lib/storage";
-import { apiBaseUrl } from "./constants";
+import { apiBaseUrl, discordUrl } from "./constants";
 import { accountLoginURL } from "./lib/accountAuth";
 import { requiresWorkspaceSetup } from "./lib/workspaceSetup";
 import { publicScriptJavaScript } from "./lib/scriptCommands";
@@ -159,7 +160,7 @@ import {
   sameWatchHandle,
 } from "./types";
 import type { RotationCountry } from "./lib/countryFlag";
-import { shouldAskForGitHubStar, type GitHubStarStatus } from "./lib/githubStarReward";
+import { GITHUB_STARS_REFRESH_EVENT, shouldAskForGitHubStar, type GitHubStarStatus } from "./lib/githubStarReward";
 import { browserProfileContext } from "./lib/browserProfileContext";
 import { CONNECTOR_PROMPT_RESUMED_EVENT, type ConnectorPrompt } from "./connectorsCatalog";
 import { clearMultiloginSelection, multiloginSelectionForWorkspace, type MultiloginProfileSelection } from "./lib/multiloginSelection";
@@ -182,6 +183,10 @@ interface QueuedItem {
 export interface SkillRunOptions {
   conversationId?: string;
   background?: boolean;
+  /** The browser profile to prepare, when the caller already knows it: a
+   *  monitoring panel's own profile, which the sidebar selection and the
+   *  skill's watchlist profile need not match. */
+  profileName?: string;
 }
 
 type BrowserToolset = "clawbrowser" | "dasbrowser" | "camoufox";
@@ -808,6 +813,7 @@ interface State {
   setWatchlistDevice: (entry: SkillEntry, device?: MultiloginProfileSelection) => void;
   openWatchlistSite: (entry: SkillEntry) => Promise<void>;
   checkWatchlistSignIn: (entry: SkillEntry) => Promise<boolean>;
+  recheckWatchlistSignIn: (entry: SkillEntry) => Promise<boolean | undefined>;
   startWatchlistRun: (entry: SkillEntry, intervalMinutes?: number) => Promise<void>;
   runXReplyPass: (entry: SkillEntry) => Promise<void>;
   openSkillSite: (entry: SkillEntry) => Promise<void>;
@@ -822,6 +828,10 @@ interface State {
   stopMonitorSchedule: (skillId: string) => void;
   /** Opens x.com in the monitoring profile, where the user signs in. */
   openMonitorSite: (entry: SkillEntry, profileName?: string) => Promise<void>;
+  /** Re-reads who is signed in once the user is back from signing in. Resolves
+   *  undefined when it did not look: the profile is stopped, busy, or its tab
+   *  still shows a sign-in page. */
+  recheckMonitorSignIn: (entry: SkillEntry, profileName?: string) => Promise<boolean | undefined>;
   setMonitorScheduleInterval: (skillId: string, intervalMinutes: number) => void;
   runRedditMonitorPass: (entry: SkillEntry, options?: { profileName?: string }) => Promise<void>;
   updateRedditMonitorSettings: (patch: Partial<RedditMonitorSettings>) => void;
@@ -1246,6 +1256,12 @@ async function prepareLocalSession(
         failedSurfaces: failure.failedSurfaces,
         proxyExpected: failure.proxyExpected,
         attempts: failure.attempts,
+      }).then((choice) => {
+        if (choice === "support") {
+          trackEvent("internal_error_support_opened", { surface: "verification_dialog" });
+          window.open(discordUrl, "_blank", "noopener,noreferrer");
+        }
+        return choice;
       });
     }),
   }));
@@ -1474,6 +1490,8 @@ function friendlyXReplyError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   if (sessionLost(message)) return "The browser session was lost. Press Start again to reopen it.";
   if (/API_KEY|not authorized|unauthorized/i.test(message)) return "Nextbrowser could not authenticate. Reconnect your account.";
+  // The Ref makes the panel offer the Discord link, as other internal errors do.
+  if (isBrowserVerificationFailure(message)) return internalError(userFacingBrowserError(message), "VERIFY_FAILED");
   return message.replace(/\s+/g, " ").trim().slice(0, 160);
 }
 
@@ -1536,6 +1554,21 @@ function watchlistSignInFor(state: State, entry: SkillEntry) {
 /** watchlistBrowser binds the CLI to the profile this skill was given, so a
  *  panel action drives the same browser its passes will, not whichever profile
  *  happens to be selected in the sidebar. */
+/** signInFinished says whether a running profile's tab has left the sign-in
+ *  pages and is back on the site, which is when a re-check can safely read the
+ *  account. It never starts a profile: a stopped one answers false. */
+async function signInFinished(profileName: string | undefined, site: string): Promise<boolean> {
+  const state = useStore.getState();
+  if (!profileName || state.statuses[profileName] !== "running") return false;
+  const runtime = runtimeForProfile(state.workspaces, profileName);
+  try {
+    const href = await cliBrowser(["--profile", profileName, ...(runtime ? ["--runtime", runtime] : [])]).evaluate<string>("location.href");
+    return signInDone(String(href), site);
+  } catch {
+    return false;
+  }
+}
+
 async function watchlistBrowser(entry: SkillEntry, onStep: (step: string) => void) {
   const state = useStore.getState();
   const { profileArgs } = await prepareLocalSession({
@@ -1793,6 +1826,7 @@ function isAccountRequiredError(error: unknown): boolean {
 function preflightFailureMessage(error: unknown): string {
   console.error("[BROWSER_PREFLIGHT_FAILED]", error);
   const detail = userFacingBrowserError(error);
+  if (isBrowserVerificationFailure(error)) return internalError(`Browser setup stopped. ${detail}`, "VERIFY_FAILED");
   return detail
     ? `Browser setup stopped. ${detail}`
     : "Browser setup stopped. Check the session and try again.";
@@ -2322,6 +2356,27 @@ export const useStore = create<State>((set, get) => {
             }),
           }));
           // Persisted on completion, not per chunk — see agent:chunk.
+          return { conversations };
+        });
+      });
+
+      await listen<[string, string]>("agent:step", (e) => {
+        const [replyId, step] = e.payload;
+        set((s) => {
+          const conversations = s.conversations.map((c) => ({
+            ...c,
+            messages: c.messages.map((m) => {
+              if (m.id !== replyId) return m;
+              return {
+                ...m,
+                lastActivityAt: now(),
+                stalled: false,
+                activityLabel: activityFromText(step) ?? m.activityLabel,
+                toolEvents: appendAgentStep(m.toolEvents ?? [], step),
+              };
+            }),
+          }));
+          // Persisted on completion, not per step — see agent:chunk.
           return { conversations };
         });
       });
@@ -2885,7 +2940,7 @@ export const useStore = create<State>((set, get) => {
       { nextctlAvailable: get().nextctlAvailable, executionTarget: item.executionTarget },
     );
     const a = agentById(agentId);
-    const { args, stdin } = agentInvocation(a, prompt);
+    const { args, stdin, stepFormat } = agentInvocation(a, prompt, { steps: true });
 
     const watchdog = setInterval(() => {
       const conv = get().conversations.find((c) => c.id === item.conversationId);
@@ -2915,6 +2970,7 @@ export const useStore = create<State>((set, get) => {
         binary: a.binary,
         envVar: a.envVar,
         args,
+        stepFormat,
         stdinText: stdin ?? null,
         workingDir: get().workingDir || null,
         conversationId: item.conversationId,
@@ -4582,6 +4638,8 @@ export const useStore = create<State>((set, get) => {
     const epoch = accountEpoch;
     const restored = get().githubStar?.revoked === true;
     const status = await invoke<GitHubStarStatus>("github_star_verify");
+    // The verified star belongs in the header count right away.
+    if (typeof window !== "undefined") window.dispatchEvent(new Event(GITHUB_STARS_REFRESH_EVENT));
     if (epoch !== accountEpoch) return status;
     set({ githubStar: status, githubStarPromptOpen: false, trafficGatePromptOpen: false });
     trackEvent("github_star_reward_claimed", { reward_bytes: status.rewardBytes, restored });
@@ -6046,7 +6104,7 @@ export const useStore = create<State>((set, get) => {
         host: selectorTargetHost(entry.selector),
         // A watchlist skill signs in with its own profile in the panel, so its
         // passes have to run in that one rather than the sidebar's selection.
-        selectedProfile: get().watchlistProfiles[entry.id] ?? get().selectedProfile,
+        selectedProfile: options?.profileName ?? get().watchlistProfiles[entry.id] ?? get().selectedProfile,
         statuses: get().statuses,
         defaultSession: get().defaultSession,
         onStep: (step) => get().appendStep(cid, stepId, step),
@@ -6343,6 +6401,12 @@ export const useStore = create<State>((set, get) => {
           const state = social.withAccount(slot()!.state, check, now());
           void saveJson(social.files.state, state);
           setSlot({ state });
+          // The reply agent signs in with the same site; a sign-in read here
+          // answers its "not checked yet" too when both use this profile.
+          const replyProfile = get().watchlistProfiles[entry.id] ?? get().selectedProfile;
+          if (check.signedIn && replyProfile === profile) {
+            set({ watchlistSignIns: { ...get().watchlistSignIns, [entry.id]: { handle: check.handle || undefined, signedIn: true, checkedAt: now() } } });
+          }
         }
       } catch (error) {
         log({ t: new Date().toISOString(), ev: "open.error", error: xReplyErrorText(error) });
@@ -6555,7 +6619,7 @@ export const useStore = create<State>((set, get) => {
     const transports = transportsOf(entry.watchlist, entry.runtime);
     const browser = transports.find((transport) => !transport.runtime) ?? get().watchlistTransportFor(entry);
     trackEvent("reddit_monitor_reply_requested", { urgency: match.triage.urgency, kind: match.item.kind, source: match.source.kind });
-    await get().useSkillInChat(transportEntry(entry, browser), redditReplyTask(match, profileName));
+    await get().useSkillInChat(transportEntry(entry, browser), redditReplyTask(match, profileName), profileName ? { profileName } : undefined);
   },
 
   // One pass of a social monitoring engine on its own profile. It reads and
@@ -6635,7 +6699,9 @@ export const useStore = create<State>((set, get) => {
     const social = socialEngine(entry.watchlist?.monitor?.engine);
     if (!social || !entry.watchlist) return;
     trackEvent(`${social.engine.replace(/-/g, "_")}_reply_requested`, { urgency: match.triage.urgency, kind: match.item.kind, source: match.source.kind });
-    await get().useSkillInChat(entry, social.replyTask(match, profileName));
+    // The reply runs in the profile the panel reads with, which is the one
+    // signed in to the site; the task names it, and the session must match.
+    await get().useSkillInChat(entry, social.replyTask(match, profileName), profileName ? { profileName } : undefined);
   },
 
   // Adding an account subscribes it right away: the bell goes on and the
@@ -6708,6 +6774,24 @@ export const useStore = create<State>((set, get) => {
   /** openWatchlistSite puts the skill's own profile on the page that names the
    *  signed-in account, which is where a user signs in by hand. The app never
    *  types the credentials: it opens the window and gets out of the way. */
+  recheckMonitorSignIn: async (entry, profileName) => {
+    const social = socialEngine(entry.watchlist?.monitor?.engine);
+    if (!social || get().socialMonitors[social.engine]?.busy) return undefined;
+    const profile = profileName ?? get().watchlistProfiles[entry.id] ?? get().selectedProfile;
+    if (!(await signInFinished(profile, social.site))) return undefined;
+    await get().openMonitorSite(entry, profile);
+    const slot = get().socialMonitors[social.engine];
+    return slot ? social.account(slot.state)?.signedIn === true : undefined;
+  },
+
+  recheckWatchlistSignIn: async (entry) => {
+    const signIn = watchlistSignInFor(get(), entry);
+    if (!signIn || signInIsForDevice(signIn) || get().watchlistBusy) return undefined;
+    const profile = get().watchlistProfiles[entry.id] ?? get().selectedProfile;
+    if (!(await signInFinished(profile, selectorTargetHost(entry.selector) || new URL(signIn.url).hostname))) return undefined;
+    return get().checkWatchlistSignIn(entry);
+  },
+
   openWatchlistSite: async (entry) => {
     const signIn = watchlistSignInFor(get(), entry);
     if (!signIn || get().watchlistBusy) return;

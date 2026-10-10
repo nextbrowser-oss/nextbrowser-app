@@ -17,6 +17,8 @@ import { RedditMonitorView } from "./RedditMonitorView";
 import { SocialMonitorView } from "./SocialMonitorView";
 import { socialEngine } from "../lib/socialmonitor/engines";
 import { XMonitorView } from "./XMonitorView";
+import { UserFacingError } from "./UserFacingError";
+import { useRecheckOnReturn } from "../lib/useRecheckOnReturn";
 
 type PanelMode = "reply" | "monitor";
 
@@ -93,6 +95,10 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
   const setWatchlistProfile = useStore((s) => s.setWatchlistProfile);
   const openWatchlistSite = useStore((s) => s.openWatchlistSite);
   const checkWatchlistSignIn = useStore((s) => s.checkWatchlistSignIn);
+  const recheckWatchlistSignIn = useStore((s) => s.recheckWatchlistSignIn);
+  // The user signs in inside the profile's window; read the account again
+  // when they come back to the app instead of waiting for a press on Check.
+  const armRecheck = useRecheckOnReturn(() => recheckWatchlistSignIn(entry));
   const watchlistBusy = useStore((s) => s.watchlistBusy === entry.id);
   const watchlistSignIn = useStore((s) => s.watchlistSignIns[entry.id]);
   const watchlistDevice = useStore((s) => s.watchlistDevices[entry.id]);
@@ -359,7 +365,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
             <span className="spacer" />
             <button className="mini" disabled={watchlistBusy || !profileAvailable}
               title={`Open ${site} in this profile to sign in or switch account`}
-              onClick={() => void openSite(entry)}>
+              onClick={() => { armRecheck(); void openSite(entry); }}>
               Open {site}
             </button>
           </div>
@@ -370,7 +376,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
             <span className={"status-dot " + (signedIn ? "ok-dot" : "muted-dot")} />
             <span className="muted small">
               {watchlistStep
-                ? watchlistStep
+                ? <UserFacingError message={watchlistStep} surface="watchlist_step" />
                 : signedIn
                   ? (publisher?.handle
                     ? `Signed in as ${signInConfig.handlePrefix ?? ""}${publisher.handle}`
@@ -603,7 +609,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
               {/* The counted summary says a post failed; only these say why, and
                   without them a broken pass is indistinguishable from a quiet one. */}
               {!busy && engineState.lastPassNotes?.map((text) => (
-                <div key={text} className="small watchlist-pass-note">{text}</div>
+                <div key={text} className="small watchlist-pass-note"><UserFacingError message={text} surface="watchlist_pass" /></div>
               ))}
               {/* Three reasons are all the panel keeps. The log keeps every
                   step, every browser call and what each page looked like when

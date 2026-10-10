@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { userFacingBrowserError } from "./userFacingBrowserError";
+import { BROWSER_PROXY_UNVERIFIED, isBrowserVerificationFailure, userFacingBrowserError } from "./userFacingBrowserError";
 
 describe("userFacingBrowserError", () => {
   it("turns a Remote Control 404 into an actionable message without internals", () => {
@@ -54,8 +54,21 @@ describe("userFacingBrowserError", () => {
 
   it("shows a stopped proxy verification failure before a nested CDP transport error", () => {
     const raw = "Could not start Nextbrowser: VERIFY_FAILED: browser stopped: cdp Runtime.evaluate: read response: read tcp 127.0.0.1:1: connection reset [VERIFY_FAILED] — Retry the same proxy. A proxy profile cannot continue without its proxy.";
-    expect(userFacingBrowserError(raw))
-      .toBe("The profile’s proxy could not be verified, so the browser was stopped. Check or change the proxy, then retry.");
+    expect(userFacingBrowserError(raw)).toBe(BROWSER_PROXY_UNVERIFIED);
+  });
+
+  it("reports a failed proxy check as our problem, without the CLI chain", () => {
+    const raw = "Could not start Nextbrowser: VERIFY_FAILED: browser stopped: VERIFY_REQUIRED: failed browser checks: proxy; the profile cannot be used [VERIFY_FAILED] — Resolve the verification failure and retry this profile. A proxy profile cannot continue without its proxy.";
+    const message = userFacingBrowserError(raw);
+    expect(message).toBe(BROWSER_PROXY_UNVERIFIED);
+    expect(message).toContain("problem on our side");
+    expect(message).not.toMatch(/VERIFY_|Resolve the verification/);
+    expect(isBrowserVerificationFailure(raw)).toBe(true);
+  });
+
+  it("leaves the outdated-Clawbrowser refusal as an update action, not a support case", () => {
+    const raw = "VERIFY_FAILED: browser stopped: LAUNCH_FAILED: launch failed (Clawbrowser managed-proxy privacy capability is 1; 2 or newer is required)";
+    expect(isBrowserVerificationFailure(raw)).toBe(false);
   });
 
   it("preserves useful ordinary errors while removing local log paths", () => {

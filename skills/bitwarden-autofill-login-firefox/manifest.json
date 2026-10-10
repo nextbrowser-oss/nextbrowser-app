@@ -1,0 +1,17 @@
+{
+  "id": "bitwarden-autofill-login-firefox",
+  "name": "Bitwarden Autofill Login (Firefox)",
+  "description": "Fill a saved Bitwarden login into a site's sign-in form in a Camoufox (Firefox) profile.",
+  "author": "ncrim7",
+  "domains": ["github.com", "accounts.google.com", "login.live.com", "login.microsoftonline.com"],
+  "operations": ["form"],
+  "target_mode": "current_tab",
+  "permissions": ["read_page", "use_page_controls", "login"],
+  "verification": "community",
+  "category": {
+    "id": "utilities",
+    "title": "Utilities",
+    "icon": "wrench",
+    "order": 10
+  }
+}

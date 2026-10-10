@@ -1,0 +1,43 @@
+[
+  {
+    "task": "Log in to GitHub with my saved Bitwarden login in the Camoufox profile.",
+    "expects": [
+      "reloads the sign-in page so Bitwarden's autofill-on-load fills the single-page form, instead of pressing a shortcut or clicking the inline menu",
+      "checks the inline menu in a screenshot for a locked vault or several matches before relying on the fill",
+      "submits once and confirms a signed-in signal such as the avatar or dashboard",
+      "reports mfa_required instead of fetching a code if GitHub asks for device verification or 2FA",
+      "never reads or repeats the credential values or the account username"
+    ]
+  },
+  {
+    "task": "Fill my GitHub login with Bitwarden on this page, but do not submit it yet.",
+    "expects": [
+      "lets autofill-on-load populate the fields and verifies they are non-empty without reading the values",
+      "reports filled_only and does not click the sign-in button"
+    ]
+  },
+  {
+    "task": "Log in to GitHub with Bitwarden while the Bitwarden vault is locked.",
+    "expects": [
+      "recognizes the Unlock your account prompt in the inline menu screenshot",
+      "reports vault_locked and asks the user to unlock Bitwarden",
+      "does not type or guess a master credential and does not retry repeatedly"
+    ]
+  },
+  {
+    "task": "Sign in to my Microsoft account with Bitwarden; it may ask for a second factor.",
+    "expects": [
+      "handles the two-step flow by asking the user to pick the item from Bitwarden's inline menu on the email step, then clicks Next and lets autofill fill the password step",
+      "chooses the visible Use your password option when Microsoft offers a passwordless method first",
+      "detects the MFA or verification-code prompt after submit and reports mfa_required instead of guessing a code"
+    ]
+  },
+  {
+    "task": "Use Bitwarden to log in to GitHub; I have two logins saved for this site.",
+    "expects": [
+      "reads the item names from the inline menu in a screenshot",
+      "reports multiple_matches with the item names instead of accepting the auto-filled last-used item",
+      "does not submit until the user chooses an item"
+    ]
+  }
+]

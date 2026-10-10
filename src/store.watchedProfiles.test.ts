@@ -132,6 +132,27 @@ describe("watched profiles", () => {
     expect(useStore.getState().watchedProfiles[0].subscribeQueuedAt).toBeTruthy();
   });
 
+  it("drafts a monitoring reply in the panel's own profile, not the sidebar's selection", async () => {
+    const { useStore } = await import("./store");
+    const useSkillInChat = vi.fn().mockResolvedValue(undefined);
+    useStore.setState({ useSkillInChat, selectedProfile: "sidebar-profile" });
+    const instagram: SkillEntry = {
+      ...watchlistSkill,
+      id: "repository:instagram",
+      title: "Instagram",
+      selector: { kind: "domain", value: "instagram.com" },
+      watchlist: { title: "Instagram", placeholder: "profile without @", monitor: { engine: "instagram-monitor", label: "Monitoring", only: true } },
+    };
+    const match = {
+      item: { key: "comment:1", kind: "comment", author: "buyer", text: "price?", url: "https://www.instagram.com/p/C0dEx1/c/1/" },
+      source: { kind: "profile_comments", name: "@rival" },
+      keywords: ["price"],
+      triage: { urgency: "low" as const, score: 1, reasons: ["Asks a question"] },
+    };
+    await useStore.getState().draftSocialReply(instagram, match, "signed-in-profile");
+    expect(useSkillInChat).toHaveBeenCalledWith(instagram, expect.stringContaining("nbc open --profile signed-in-profile "), { profileName: "signed-in-profile" });
+  });
+
   it("reads the agent state file and replaces the previous reports of that skill", async () => {
     const { useStore } = await import("./store");
     bridge.invoke.mockImplementation(async (command: string) =>

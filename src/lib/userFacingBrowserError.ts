@@ -1,5 +1,19 @@
+import { isMultiloginLauncherDown, MULTILOGIN_APP_NOT_RUNNING } from "./userFacingMultiloginError";
+
 const REMOTE_BACKEND_CODE = /\[REMOTE_BACKEND_ERROR\]/i;
 const REMOTE_CONTROL_FAILURE = /(?:detached\s+)?Remote Control(?: child)? failed|create Remote Session/i;
+
+export const BROWSER_PROXY_UNVERIFIED =
+  "This profile couldn’t connect through its proxy, so the browser was stopped. This is a problem on our side, not with your setup.";
+export const BROWSER_UNVERIFIED =
+  "The browser didn’t pass its safety check, so the profile was stopped. This is a problem on our side, not with your setup.";
+
+/** True when the error is a browser verification failure: the profile was
+ *  stopped by our own check, so the user needs support rather than a retry. */
+export function isBrowserVerificationFailure(error: unknown): boolean {
+  const raw = rawErrorMessage(error);
+  return /VERIFY_FAILED|VERIFY_REQUIRED/i.test(raw) && !/managed-proxy privacy capability/i.test(raw);
+}
 
 function rawErrorMessage(error: unknown): string {
   return (error instanceof Error ? error.message : String(error ?? "")).trim();
@@ -41,6 +55,8 @@ export function userFacingBrowserError(error: unknown): string {
     return "Remote Control could not start. Restart the browser profile and try again.";
   }
 
+  if (isMultiloginLauncherDown(raw)) return MULTILOGIN_APP_NOT_RUNNING;
+
   if (/\[CDP_UNREACHABLE\]|CDP endpoint is not reachable/i.test(raw)) {
     return "The browser profile stopped responding. Restart the profile and try again.";
   }
@@ -59,11 +75,12 @@ export function userFacingBrowserError(error: unknown): string {
   // Verification failures often contain a nested CDP transport error from the
   // browser we just stopped. Report the failed proxy check, not a transient
   // browser connection that sounds safe to retry without inspecting the proxy.
+  // The user cannot fix either one, so the message points at us, not at them.
   if (/VERIFY_FAILED|VERIFY_REQUIRED/i.test(raw)) {
-    if (/proxy profile cannot continue without its proxy|proxy required|proxy_required/i.test(raw)) {
-      return "The profile’s proxy could not be verified, so the browser was stopped. Check or change the proxy, then retry.";
+    if (/proxy profile cannot continue without its proxy|proxy required|proxy_required|failed browser checks:[^;]*\bproxy\b/i.test(raw)) {
+      return BROWSER_PROXY_UNVERIFIED;
     }
-    return "The browser connection could not be verified, so the profile was stopped. Check its connection, then retry.";
+    return BROWSER_UNVERIFIED;
   }
 
   if (/(?:\bcdp\b.*(?:read response|connection|aborted|closed|reset)|Runtime\.evaluate.*(?:read|connection|aborted|closed|reset)|wsarecv.*(?:aborted|reset)|read tcp.*(?:aborted|reset))/i.test(raw)) {
