@@ -1,6 +1,6 @@
 {
   "id": "keeper-autofill-login-firefox",
-  "name": "Keeper Autofill Login",
+  "name": "Keeper Autofill Login (Firefox)",
   "description": "Fill a saved Keeper login into a site's sign-in form.",
   "author": "jemappellehelene",
   "domains": ["keepersecurity.com", "github.com", "accounts.google.com", "login.live.com"],
