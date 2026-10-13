@@ -150,16 +150,16 @@ multi-factor code itself. Keeper is the only thing that ever touches the actual 
    take that link: it is a choice of sign-in method, not a second factor.
    If an account chooser appears instead, pick the account matching the identifier that was
    just filled, and never a different one; if no entry matches it, report `autofill_failed`
-   rather than choosing for the user. The same record should be offered again, because Keeper
-   matches records on the site's registered domain and Google keeps both screens on it.
-   Microsoft can move a personal account's password screen from login.microsoftonline.com to
-   login.live.com, a different domain, where Keeper lists the record only if it also carries
-   an address on live.com, such as login.live.com or outlook.live.com. If the menu lists
-   nothing on the second screen, do not go looking for the first screen's record by name;
-   report `autofill_failed`, naming the host the password screen moved to, so the person can
-   add that address to the record. Never fill a different record for the second stage. If the
-   password screen never appears, report `autofill_failed` and say which stage was reached,
-   rather than reporting a fill that only entered an address.
+   rather than choosing for the user. The same record should be offered again: Google keeps
+   both screens on one domain, and when Microsoft moves a personal account's password screen
+   from login.microsoftonline.com to login.live.com, KeeperFill still offers the record,
+   because its own list of equivalent domains puts live.com, microsoftonline.com, outlook.com
+   and hotmail.com in one group. If the menu lists nothing on the second screen, do not go
+   looking for the first screen's record by name; report `autofill_failed`, naming the host
+   the password screen moved to, so the person can add that address to the record. Never fill
+   a different record for the second stage. If the password screen never appears, report
+   `autofill_failed` and say which stage was reached, rather than reporting a fill that only
+   entered an address.
 8. If more than one record matched and the user named none, do not choose one. Open the
    dropdown's list as in step 5 and read every record's title off the screenshot. Then
    click the same arrow again to close the list without choosing anything (Escape does not
