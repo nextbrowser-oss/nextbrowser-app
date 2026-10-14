@@ -122,5 +122,36 @@ function parseMultiloginFolders(stdout) {
   return parsed;
 }
 
+const MULTILOGIN_OS_TYPES = ["windows", "macos", "linux"];
+
+// nextctl arguments for a new Mimic profile. A personal proxy replaces the
+// Multilogin country proxy; its password travels in NBC_PROXY_PASSWORD, never
+// on the command line.
+function multiloginProfileCreateArgs({ name, country, osType, folderId, proxy } = {}) {
+  const normalizedCountry = String(country || "").trim().toUpperCase();
+  const normalizedOS = String(osType || "").trim().toLowerCase();
+  const connection = proxy
+    ? [
+      "--manual-proxy",
+      "--proxy-scheme", proxy.scheme,
+      "--proxy-host", proxy.host,
+      "--proxy-port", String(proxy.port),
+      ...(proxy.username ? ["--proxy-username", proxy.username] : []),
+    ]
+    : /^[A-Z]{2}$/.test(normalizedCountry) ? ["--country", normalizedCountry] : [];
+  return {
+    args: [
+      "--runtime", "multilogin",
+      ...(folderId ? ["--multilogin-folder-id", folderId] : []),
+      "profiles", "create", name,
+      ...connection,
+      ...(MULTILOGIN_OS_TYPES.includes(normalizedOS) ? ["--os-type", normalizedOS] : []),
+      "--format", "json",
+    ],
+    env: proxy?.password ? { NBC_PROXY_PASSWORD: proxy.password } : {},
+  };
+}
+
 module.exports = {
+  multiloginProfileCreateArgs,
   parseMultiloginFolders, parseMultiloginProfiles, parseMultiloginCreatedProfile, parseMultiloginCreatedMobileProfile };

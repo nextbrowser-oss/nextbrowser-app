@@ -106,7 +106,7 @@ const {
   installRuntimeUpdateWithVerification,
 } = require("./browser-runtime-updates.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
-const { parseMultiloginProfiles, parseMultiloginCreatedMobileProfile, parseMultiloginCreatedProfile, parseMultiloginFolders } = require("./multilogin-profiles.cjs");
+const { multiloginProfileCreateArgs, parseMultiloginProfiles, parseMultiloginCreatedMobileProfile, parseMultiloginCreatedProfile, parseMultiloginFolders } = require("./multilogin-profiles.cjs");
 const { multiloginAccountFromTokens } = require("./multilogin-account.cjs");
 const { MULTILOGIN_DOWNLOAD_URL, resolveMultiloginApp } = require("./multilogin-app.cjs");
 const { runAgentProcess } = require("./agent-process.cjs");
@@ -1112,7 +1112,6 @@ async function connectMultilogin(bearerToken) {
     ...profiles,
   };
 }
-const MULTILOGIN_OS_TYPES = ["windows", "macos", "linux"];
 
 // Multilogin profiles live in the Multilogin workspace rather than the local
 // profile store, so creation goes straight to `nbc --runtime multilogin`.
@@ -1121,21 +1120,17 @@ async function createMultiloginProfile(args = {}) {
   if (!multiloginAutomationToken) throw new Error("Connect Multilogin before creating a profile.");
   const name = String(args.name || "").trim();
   if (!name) throw new Error("Profile name is required.");
-  const country = String(args.country || "").trim().toUpperCase();
-  const osType = String(args.osType || "").trim().toLowerCase();
+  const proxyId = String(args.proxyId || "").trim();
+  const proxy = proxyId ? await resolvePersonalProxy(proxyId, { env: childEnv() }) : undefined;
   const bin = await resolveOrInstallNextctl();
   if (!bin) throw new Error("nextctl is required to create Multilogin profiles.");
+  const command = multiloginProfileCreateArgs({
+    name, country: args.country, osType: args.osType, folderId: multiloginFolders?.browser, proxy,
+  });
   const result = await run(
     bin,
-    [
-      "--runtime", "multilogin",
-      ...(multiloginFolders?.browser ? ["--multilogin-folder-id", multiloginFolders.browser] : []),
-      "profiles", "create", name,
-      ...(/^[A-Z]{2}$/.test(country) ? ["--country", country] : []),
-      ...(MULTILOGIN_OS_TYPES.includes(osType) ? ["--os-type", osType] : []),
-      "--format", "json",
-    ],
-    { MULTILOGIN_TOKEN: multiloginAutomationToken },
+    command.args,
+    { MULTILOGIN_TOKEN: multiloginAutomationToken, ...command.env },
     { requestId: args.requestId, timeoutMs: Number(args.timeoutMs) || 120_000 },
   );
   if (result.code !== 0) throw multiloginCommandError(result);
@@ -1787,6 +1782,10 @@ async function invokeCommand(command, args = {}, sender) {
     case "manual_proxy_profile_create": {
       const profileName = String(args.profileName || "").trim();
       if (!profileName) throw new Error("Profile name is required.");
+      if (args.runtime === "multilogin") {
+        // Never fall back to a Clawbrowser profile; Multilogin has its own create path.
+        throw new Error("Create Multilogin profiles with a personal proxy from the Multilogin option.");
+      }
       const runtime = ["clawbrowser", "dasbrowser", "camoufox"].includes(args.runtime)
         ? args.runtime
         : "clawbrowser";

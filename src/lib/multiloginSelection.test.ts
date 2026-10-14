@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeMultiloginSelectionForWorkspace,
   clearAllMultiloginSelections,
+  deactivateMultiloginSelection,
   multiloginSelectionForWorkspace,
   setMultiloginSelection,
 } from "./multiloginSelection";
@@ -45,5 +47,15 @@ describe("Multilogin workspace selection", () => {
 
     expect(multiloginSelectionForWorkspace("one", storage)).toBeUndefined();
     expect(multiloginSelectionForWorkspace("two", storage)).toBeUndefined();
+  });
+
+  it("keeps the profile in the workspace when another profile becomes the active target", () => {
+    const storage = memoryStorage();
+    setMultiloginSelection("work", { kind: "browser", id: "browser-1", name: "Amazon US" }, storage);
+    deactivateMultiloginSelection("work", storage);
+    expect(multiloginSelectionForWorkspace("work", storage)).toMatchObject({ id: "browser-1", active: false });
+    expect(activeMultiloginSelectionForWorkspace("work", storage)).toBeUndefined();
+    setMultiloginSelection("work", { kind: "browser", id: "browser-1", name: "Amazon US" }, storage);
+    expect(activeMultiloginSelectionForWorkspace("work", storage)).toMatchObject({ id: "browser-1" });
   });
 });

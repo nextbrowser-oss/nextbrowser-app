@@ -70,6 +70,10 @@ export function LiveView({ active }: { active: boolean }) {
   const [multiloginSelection, setMultiloginSelection] = useState<MultiloginProfileSelection | undefined>(
     () => multiloginSelectionForWorkspace(activeWorkspaceID),
   );
+  // The workspace's Multilogin profile is always offered, but it is only the
+  // automatic target while it is the active one (not after a regular profile
+  // was picked, started, or created).
+  const activeMultilogin = multiloginSelection?.active === false ? undefined : multiloginSelection;
   const remoteClientRef = useRef<RemoteControlClient | null>(null);
   const activeRemoteSessionRef = useRef<RemoteStreamInfo | null>(null);
   const remoteCloseRef = useRef<Promise<void>>(Promise.resolve());
@@ -104,7 +108,7 @@ export function LiveView({ active }: { active: boolean }) {
     })),
   ];
   const launchTarget = sessionKey
-    || (multiloginSelection ? multiloginTargetKey(multiloginSelection) : "")
+    || (activeMultilogin ? multiloginTargetKey(activeMultilogin) : "")
     || (workspaceProfiles.some((profile) => profile.name === s.selectedProfile) ? clawbrowserTargetKey(s.selectedProfile) : "")
     || (workspaceProfiles[0]?.name ? clawbrowserTargetKey(workspaceProfiles[0].name) : "");
   const streamUrl = streamInfo?.viewer_url || streamInfo?.dashboard_url || "";
@@ -316,7 +320,7 @@ export function LiveView({ active }: { active: boolean }) {
     if (!active) return;
     const runningProfile = runningProfiles[0]?.name;
     const current =
-      (multiloginSelection ? multiloginTargetKey(multiloginSelection) : "") ||
+      (activeMultilogin ? multiloginTargetKey(activeMultilogin) : "") ||
       (workspaceProfiles.some((profile) => profile.name === s.selectedProfile) ? clawbrowserTargetKey(s.selectedProfile) : "") ||
       (runningProfile ? clawbrowserTargetKey(runningProfile) : "") ||
       "";

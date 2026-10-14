@@ -46,6 +46,13 @@ describe("multiloginSubmitError", () => {
     expect(multiloginSubmitError("new", "managed", "US")).toBeUndefined();
     expect(multiloginSubmitError("new", "direct", "")).toBeUndefined();
   });
+
+  it("requires a personal proxy instead of a country for a browser profile with the user's proxy", () => {
+    expect(multiloginSubmitError("new", "personal", "", undefined, "browser")).toBe("Choose a personal proxy.");
+    expect(multiloginSubmitError("new", "personal", "", undefined, "browser", "proxy-1")).toBeUndefined();
+    // Cloud phones always use the Multilogin proxy.
+    expect(multiloginSubmitError("new", "personal", "", undefined, "mobile", "proxy-1")).toBe("Choose a valid proxy country.");
+  });
 });
 
 describe("multiloginSubmitLabel", () => {

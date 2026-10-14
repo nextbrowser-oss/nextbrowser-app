@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
-import { multiloginSelectionForWorkspace } from "../lib/multiloginSelection";
+import { activeMultiloginSelectionForWorkspace } from "../lib/multiloginSelection";
 import { multiloginSessionName } from "../lib/liveStreamTarget";
 import { invoke } from "../electronBridge";
 import { uid } from "../lib/ids";
@@ -573,7 +573,7 @@ export function AutomationStudio() {
       let recordingRuntime: string | undefined;
       if (source === "hybrid") {
         const workspaceProfiles = s.workspaces.find((workspace) => workspace.id === workspaceId)?.profileNames ?? [];
-        const multilogin = multiloginSelectionForWorkspace(workspaceId);
+        const multilogin = activeMultiloginSelectionForWorkspace(workspaceId);
         if (multilogin?.kind === "mobile") {
           return setStudioError("Browser recording is available for Multilogin browser profiles, not cloud phones.");
         }

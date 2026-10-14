@@ -5,6 +5,12 @@ export interface MultiloginProfileSelection {
   id: string;
   name: string;
   folderId?: string;
+  /**
+   * False when another profile became the workspace's active target. The
+   * Multilogin profile still belongs to the workspace; it is only not the
+   * default for chat, Live, and automation until it is picked again.
+   */
+  active?: boolean;
 }
 
 export const MULTILOGIN_SELECTION_EVENT = "nextbrowser:multilogin-selection";
@@ -49,7 +55,16 @@ export function multiloginSelectionForWorkspace(
   const name = clean(candidate.name);
   const folderId = clean(candidate.folderId);
   if (!kind || !id || !name) return undefined;
-  return { kind, id, name, folderId: folderId || undefined };
+  return { kind, id, name, folderId: folderId || undefined, ...(candidate.active === false ? { active: false } : {}) };
+}
+
+/** The Multilogin profile only while it is the workspace's active target. */
+export function activeMultiloginSelectionForWorkspace(
+  workspaceId?: string,
+  storage: Storage | undefined = browserStorage(),
+): MultiloginProfileSelection | undefined {
+  const selection = multiloginSelectionForWorkspace(workspaceId, storage);
+  return selection && selection.active !== false ? selection : undefined;
 }
 
 export function setMultiloginSelection(
@@ -67,8 +82,22 @@ export function setMultiloginSelection(
     id,
     name,
     folderId: folderId || undefined,
+    ...(selection.active === false ? { active: false } : {}),
   }));
   notify(workspaceId);
+}
+
+/**
+ * Picking a regular profile makes it the active target. Keep the Multilogin
+ * profile in the workspace instead of removing it.
+ */
+export function deactivateMultiloginSelection(
+  workspaceId?: string,
+  storage: Storage | undefined = browserStorage(),
+): void {
+  const selection = multiloginSelectionForWorkspace(workspaceId, storage);
+  if (!workspaceId || !selection || selection.active === false) return;
+  setMultiloginSelection(workspaceId, { ...selection, active: false }, storage);
 }
 
 export function clearMultiloginSelection(

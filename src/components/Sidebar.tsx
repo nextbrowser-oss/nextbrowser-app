@@ -194,6 +194,13 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const guideFocusTimerRef = useRef(0);
   const workspacePickerRef = useRef<HTMLDivElement | null>(null);
 
+  // Picking the workspace's Multilogin profile makes it the target for chat,
+  // Live, and automation, like selecting a regular profile.
+  const activateWorkspaceMultilogin = (selection: MultiloginProfileSelection) => {
+    if (!s.activeWorkspaceId) return;
+    s.selectProfile(undefined);
+    setMultiloginSelection(s.activeWorkspaceId, { ...selection, active: true });
+  };
   const runProfileAction = (label: string, code: string, action: () => Promise<void>) => {
     setProfileActionError(null);
     void action().catch((error: unknown) => {
@@ -395,7 +402,9 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     : undefined;
   const multiloginReady = multiloginConnected(multiloginStatus);
   const multiloginExisting = profileToolset === "multilogin" && multiloginMode === "existing";
-  const runningCount = profileWorkspaceEntries.filter(({ profile }) => s.statuses[profile.name] === "running").length;
+  const multiloginRowStatus = workspaceMultilogin ? s.multiloginStatuses[workspaceMultilogin.id] : undefined;
+  const runningCount = profileWorkspaceEntries.filter(({ profile }) => s.statuses[profile.name] === "running").length
+    + (multiloginRowStatus === "running" ? 1 : 0);
   const proxyCountries = s.proxyCountries.length ? s.proxyCountries : ROTATION_COUNTRIES;
   const recordingWorkspace = activeRecording ? s.workspaces.find((workspace) => workspace.id === activeRecording.workspaceId) : undefined;
   const automationExecutionWorkspace = automationExecution ? s.workspaces.find((workspace) => workspace.id === automationExecution.workspaceId) : undefined;
@@ -693,6 +702,18 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     window.addEventListener(MULTILOGIN_SELECTION_EVENT, refreshSelection);
     return () => window.removeEventListener(MULTILOGIN_SELECTION_EVENT, refreshSelection);
   }, [s.activeWorkspaceId]);
+
+  // The Multilogin profile runs outside the local profile store, so its row
+  // asks nextctl for its state instead of relying on the profile list poll.
+  const workspaceMultiloginId = workspaceMultilogin?.id;
+  useEffect(() => {
+    if (!workspaceMultilogin || !s.authed) return;
+    const refresh = () => { if (!document.hidden) void s.refreshMultiloginStatus(workspaceMultilogin); };
+    refresh();
+    const timer = window.setInterval(refresh, 15_000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceMultiloginId, s.authed]);
 
   useEffect(() => {
     if (s.authed) void s.loadPersonalProxies().catch(() => undefined);
@@ -1082,7 +1103,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
       setProfileError("Create a workspace before adding a Multilogin profile.");
       return;
     }
-    const invalid = multiloginSubmitError(multiloginMode, "managed", profileCountry, multiloginDraft, multiloginKind);
+    const multiloginConnection = multiloginKind === "browser" && profileConnection === "personal" ? "personal" : "managed";
+    const invalid = multiloginSubmitError(multiloginMode, multiloginConnection, profileCountry, multiloginDraft, multiloginKind, profilePersonalProxyId);
     if (invalid) {
       setProfileError(invalid);
       return;
@@ -1109,7 +1131,8 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
     try {
       const created = await invoke<MultiloginCreatedProfile>(creatingPhone ? "multilogin_mobile_profile_create" : "multilogin_profile_create", {
         name: createdName,
-        country: multiloginCreateCountry("managed", profileCountry),
+        country: multiloginCreateCountry(multiloginConnection, profileCountry),
+        ...(multiloginConnection === "personal" ? { proxyId: profilePersonalProxyId } : {}),
         osType: multiloginOS,
         requestId,
         timeoutMs: PROFILE_CREATE_TIMEOUT_MS,
@@ -1535,15 +1558,20 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 })}
                 {multiloginRow && (
                   <ProfileRow
-                    key={multiloginRow.id} name={multiloginRow.name} status="Multilogin"
-                    metaOverride={`Multilogin · ${multiloginRow.kind === "mobile" ? "Cloud phone" : "Mimic browser"}`}
-                    running={false} busy={false} selected={false}
+                    key={multiloginRow.id} name={multiloginRow.name} status={multiloginStatusLabel(multiloginRowStatus)}
+                    metaOverride={`${multiloginStatusLabel(multiloginRowStatus)} · ${multiloginRow.kind === "mobile" ? "Cloud phone" : "Mimic browser"}`}
+                    running={multiloginRowStatus === "running"}
+                    busy={multiloginRowStatus === "starting" || multiloginRowStatus === "stopping"}
+                    selected={multiloginRow.active !== false && !s.selectedProfile}
                     toolset="multilogin" searchQuery={searchQuery}
                     external
-                    onSelect={() => s.setTab("live")}
-                    onStart={() => {}}
-                    onStop={() => {}}
-                    onLive={() => s.setTab("live")}
+                    onSelect={() => activateWorkspaceMultilogin(multiloginRow)}
+                    onStart={() => {
+                      activateWorkspaceMultilogin(multiloginRow);
+                      void runProfileAction(`We couldn't start “${multiloginRow.name}”.`, "MULTILOGIN_START_FAILED", () => s.setMultiloginRunning(multiloginRow, true));
+                    }}
+                    onStop={() => void runProfileAction(`We couldn't stop “${multiloginRow.name}”.`, "MULTILOGIN_STOP_FAILED", () => s.setMultiloginRunning(multiloginRow, false))}
+                    onLive={() => { activateWorkspaceMultilogin(multiloginRow); s.setTab("live"); }}
                     onMenu={() => {}}
                     onRemove={() => clearMultiloginSelection(s.activeWorkspaceId)}
                     removeTitle={`Remove ${multiloginRow.name} from this workspace`}
@@ -1819,7 +1847,7 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                     </div>
                     <div className="profile-multilogin-proxy-note">
                       <Icon name="network" size={13} />
-                      <span><strong>Proxy is managed by Multilogin</strong><small>New profiles get a built-in proxy in the country below. For your own proxy, set it up in Multilogin and pick that existing profile.</small></span>
+                      <span><strong>Proxy for new profiles</strong><small>Use Multilogin's built-in proxy in a country, or one of your personal proxies. Existing profiles keep the proxy set in Multilogin.</small></span>
                       <button type="button" className="link" onClick={() => void invoke("open_external", { url: "https://app.multilogin.com" })}>Open Multilogin</button>
                     </div>
                     <div className="connector-profile-tabs profile-multilogin-modes" role="tablist" aria-label="Multilogin profile source">
@@ -1852,16 +1880,52 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                             <span>Cloud phone</span>
                           </button>
                         </div>
-                        <div className="modal-field profile-multilogin-country">
-                          <span>Proxy country</span>
-                          <CountrySelect
-                            countries={proxyCountries}
-                            value={profileCountry}
-                            disabled={profileSaving}
-                            ariaLabel="Proxy country"
-                            onChange={setProfileCountry}
-                          />
-                        </div>
+                        {multiloginKind === "browser" && (
+                          <div className="connector-profile-tabs profile-multilogin-proxy-tabs" role="tablist" aria-label="Multilogin profile proxy">
+                            <button type="button" role="tab" aria-selected={profileConnection !== "personal"} className={profileConnection !== "personal" ? "active" : ""} onClick={() => { setProfileConnection("managed"); setProfileError(null); }}>
+                              <span>Multilogin proxy</span>
+                            </button>
+                            <button type="button" role="tab" aria-selected={profileConnection === "personal"} className={profileConnection === "personal" ? "active" : ""} onClick={() => {
+                              setProfileConnection("personal");
+                              setProfilePersonalProxyId((current) => current || s.personalProxies[0]?.id || "");
+                              setProfileError(null);
+                              void s.loadPersonalProxies().catch(() => undefined);
+                            }}>
+                              <span>Personal proxy</span>
+                            </button>
+                          </div>
+                        )}
+                        {multiloginKind === "browser" && profileConnection === "personal" ? (
+                          <div className="modal-field profile-personal-proxy-field">
+                            <span className="profile-field-heading">
+                              <span>Personal proxy</span>
+                              <button type="button" className="link" onClick={() => { resetManualProxyForm(); setManualProxyEditing(s.personalProxies.length === 0); setManualProxyDeleting(null); setManualProxyOpen(true); }}>
+                                {s.personalProxies.length ? "Manage" : "Create proxy"}
+                              </button>
+                            </span>
+                            {s.personalProxies.length ? (
+                              <PersonalProxySelect
+                                value={profilePersonalProxyId}
+                                proxies={s.personalProxies}
+                                disabled={profileSaving}
+                                ariaLabel="Personal proxy for the Multilogin profile"
+                                onChange={setProfilePersonalProxyId}
+                                onAdd={() => { resetManualProxyForm(); setManualProxyDeleting(null); setManualProxyEditing(true); setManualProxyOpen(true); }}
+                              />
+                            ) : <small className="muted">No personal proxies yet. Create one to use it here.</small>}
+                          </div>
+                        ) : (
+                          <div className="modal-field profile-multilogin-country">
+                            <span>Proxy country</span>
+                            <CountrySelect
+                              countries={proxyCountries}
+                              value={profileCountry}
+                              disabled={profileSaving}
+                              ariaLabel="Proxy country"
+                              onChange={setProfileCountry}
+                            />
+                          </div>
+                        )}
                         {multiloginKind === "browser" ? (
                           <label className="modal-field profile-multilogin-os">
                             <span>Fingerprint OS</span>
@@ -2705,6 +2769,17 @@ function HighlightedName({ text, query }: { text: string; query?: string }) {
   );
 }
 
+function multiloginStatusLabel(status?: string): string {
+  switch (status) {
+    case "running": return "Running";
+    case "starting": return "Starting";
+    case "stopping": return "Stopping";
+    case "stopped": return "Stopped";
+    case "error": return "Error";
+    default: return "Multilogin";
+  }
+}
+
 function ProfileRow({
   name,
   displayName,
@@ -2796,7 +2871,7 @@ function ProfileRow({
         onClick={onSelect}
         style={{ background: "none", border: "none", padding: 0, color: "inherit", textAlign: "left", display: "flex", alignItems: "center", gap: 7, flex: "1 1 auto", minWidth: 0, cursor: "pointer" }}
       >
-      <span className={"dot " + (external ? "gray" : running ? "green" : busy ? "orange" : "gray")} title={external ? toolsetLabel : status} />
+      <span className={"dot " + (running ? "green" : busy ? "orange" : "gray")} title={external ? `${toolsetLabel} · ${status}` : status} />
       <span className="profile-main">
         <span className="profile-title-line">
           <span className="profile-name" title={displayName || name}><HighlightedName text={displayName || name} query={searchQuery} /></span>
@@ -2832,6 +2907,20 @@ function ProfileRow({
       <div className="profile-actions">
         {external ? (
           <>
+            <button
+              className="plain-icon-btn"
+              title={running ? "Stop" : "Start"}
+              aria-label={`${running ? "Stop" : "Start"} ${name}`}
+              data-tooltip={running ? "Stop" : "Start"}
+              disabled={busy}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (running) onStop();
+                else onStart();
+              }}
+            >
+              <Icon name={running ? "stop.fill" : "play.fill"} size={16} />
+            </button>
             <button
               className="plain-icon-btn"
               title="Live view"

@@ -107,6 +107,7 @@ import { apiBaseUrl, discordUrl } from "./constants";
 import { accountLoginURL } from "./lib/accountAuth";
 import { markWorkspaceSetupDone, requiresWorkspaceSetup } from "./lib/workspaceSetup";
 import { rememberGuideSessionStarted } from "./lib/guideQuickStart";
+import { multiloginLifecycleArgs, multiloginSessionStatus, type MultiloginSessionStatus } from "./lib/multiloginSession";
 import { publicScriptJavaScript } from "./lib/scriptCommands";
 import { validateEntityName } from "./lib/entityValidation";
 import { moveProfileToWorkspace as moveProfileBetweenWorkspaces } from "./lib/workspaceProfiles";
@@ -164,10 +165,10 @@ import type { RotationCountry } from "./lib/countryFlag";
 import { GITHUB_STARS_REFRESH_EVENT, shouldAskForGitHubStar, type GitHubStarStatus } from "./lib/githubStarReward";
 import { agentVisibleProfileNames, browserProfileContext } from "./lib/browserProfileContext";
 import { CONNECTOR_PROMPT_RESUMED_EVENT, type ConnectorPrompt } from "./connectorsCatalog";
-import { clearMultiloginSelection, multiloginSelectionForWorkspace, type MultiloginProfileSelection } from "./lib/multiloginSelection";
+import { activeMultiloginSelectionForWorkspace, deactivateMultiloginSelection, multiloginSelectionForWorkspace, type MultiloginProfileSelection } from "./lib/multiloginSelection";
 import { cloudPhoneFromSelection, cloudPhoneSkillPrompt } from "./lib/cloudPhoneSkill";
 import { isMultiloginStartRequest, multiloginStartReply } from "./lib/multiloginChatCommand";
-import { multiloginSessionName, nextctlRemoteArgs, type LiveStreamTarget } from "./lib/liveStreamTarget";
+import { nextctlRemoteArgs, type LiveStreamTarget } from "./lib/liveStreamTarget";
 import { customPrivateSlug, customPublishSelector } from "./types";
 
 interface QueuedItem {
@@ -734,6 +735,10 @@ interface State {
   ) => Promise<void>;
   deleteProfile: (n: string, options?: { deletingWorkspace?: boolean }) => Promise<void>;
   selectProfile: (n?: string) => void;
+  /** Last known state of each workspace Multilogin profile, by Multilogin profile id. */
+  multiloginStatuses: Record<string, MultiloginSessionStatus>;
+  refreshMultiloginStatus: (selection: MultiloginProfileSelection) => Promise<void>;
+  setMultiloginRunning: (selection: MultiloginProfileSelection, running: boolean) => Promise<void>;
   switchAgent: (id: string) => void;
   authorizeAgent: (options?: AgentAuthorizationOptions) => Promise<void>;
   loginAgent: () => Promise<void>;
@@ -934,6 +939,7 @@ const replyProfileBaselines = new Map<string, Set<string>>();
 const profileOperationEpoch = new Map<string, number>();
 const pendingProfileLaunches = new Map<string, number>();
 const pendingProfileStarts = new Map<string, Promise<void>>();
+const multiloginTransitions = new Set<string>();
 const deletingProjectIds = new Set<string>();
 const deletedProjectIds = new Set<string>();
 const deletingWorkspaceIds = new Set<string>();
@@ -2163,6 +2169,7 @@ export const useStore = create<State>((set, get) => {
   personalProxies: [],
   proxyCountries: [],
   statuses: {},
+  multiloginStatuses: {},
   profileSessions: {},
   profileIdentities: {},
   profileChatOwners: {},
@@ -2937,7 +2944,7 @@ export const useStore = create<State>((set, get) => {
       execution_target: item.executionTarget,
     });
     const conversationWorkspaceId = itemConversation?.workspaceId;
-    const multiloginSelection = multiloginSelectionForWorkspace(conversationWorkspaceId);
+    const multiloginSelection = activeMultiloginSelectionForWorkspace(conversationWorkspaceId);
     const directMultiloginStart = item.executionTarget === "local"
       && !!multiloginSelection
       && isMultiloginStartRequest(item.rawText);
@@ -2971,18 +2978,7 @@ export const useStore = create<State>((set, get) => {
         });
       };
       try {
-        const command = multiloginSelection.kind === "mobile"
-          ? ["--runtime", "multilogin", "mobile", "start", multiloginSelection.id, "--no-wait"]
-          : [
-            "--runtime", "multilogin",
-            "--profile", multiloginSessionName(multiloginSelection),
-            "--multilogin-profile-id", multiloginSelection.id,
-            "start",
-          ];
-        if (multiloginSelection.folderId) {
-          command.push("--multilogin-folder-id", multiloginSelection.folderId);
-        }
-        const status = await nextctlJson<{ status_name?: string }>(command);
+        const status = await nextctlJson<{ status_name?: string }>(multiloginLifecycleArgs(multiloginSelection, "start"));
         finish("done", multiloginStartReply(
           multiloginSelection.name,
           multiloginSelection.kind,
@@ -4346,8 +4342,39 @@ export const useStore = create<State>((set, get) => {
 
   selectProfile: (n) => {
     trackEvent("profile_selected", { selected: !!n });
-    if (n) clearMultiloginSelection(get().activeWorkspaceId);
+    if (n) deactivateMultiloginSelection(get().activeWorkspaceId);
     set({ selectedProfile: n });
+  },
+
+  refreshMultiloginStatus: async (selection) => {
+    try {
+      const status = multiloginSessionStatus(await nextctlJson<unknown>(multiloginLifecycleArgs(selection, "status")));
+      set((state) => {
+        // Keep the transition visible until the start or stop call returns.
+        if (multiloginTransitions.has(selection.id)) return {};
+        return { multiloginStatuses: { ...state.multiloginStatuses, [selection.id]: status } };
+      });
+    } catch (error) {
+      console.warn("[multilogin_status] could not read profile status", error);
+    }
+  },
+
+  setMultiloginRunning: async (selection, running) => {
+    if (multiloginTransitions.has(selection.id)) return;
+    multiloginTransitions.add(selection.id);
+    set((state) => ({ multiloginStatuses: { ...state.multiloginStatuses, [selection.id]: running ? "starting" : "stopping" } }));
+    const startedAt = performance.now();
+    try {
+      await nextctlJson<unknown>(multiloginLifecycleArgs(selection, running ? "start" : "stop"));
+      if (running) rememberGuideSessionStarted(get().accountOwnerId);
+      trackTiming(running ? "multilogin_profile_start_completed" : "multilogin_profile_stop_completed", startedAt, { kind: selection.kind });
+    } catch (error) {
+      trackTiming(running ? "multilogin_profile_start_failed" : "multilogin_profile_stop_failed", startedAt, { kind: selection.kind });
+      throw error;
+    } finally {
+      multiloginTransitions.delete(selection.id);
+      await get().refreshMultiloginStatus(selection);
+    }
   },
 
   switchAgent: (id) => {

@@ -69,3 +69,26 @@ test("reads a created Multilogin cloud phone", () => {
     { id: "phone-1", name: "Research phone", folderId: "mobile-folder", country: "US" },
   );
 });
+
+test("creates a Multilogin profile with a personal proxy without putting the password on the command line", () => {
+  const { multiloginProfileCreateArgs } = require("./multilogin-profiles.cjs");
+  const command = multiloginProfileCreateArgs({
+    name: "Shop", country: "US", osType: "linux", folderId: "folder-1",
+    proxy: { scheme: "socks5", host: "proxy.example", port: 1080, username: "alice", password: "secret" },
+  });
+  assert.deepEqual(command.args, [
+    "--runtime", "multilogin", "--multilogin-folder-id", "folder-1",
+    "profiles", "create", "Shop",
+    "--manual-proxy", "--proxy-scheme", "socks5", "--proxy-host", "proxy.example", "--proxy-port", "1080", "--proxy-username", "alice",
+    "--os-type", "linux", "--format", "json",
+  ]);
+  assert.deepEqual(command.env, { NBC_PROXY_PASSWORD: "secret" });
+  assert.ok(!command.args.includes("secret"));
+});
+
+test("keeps the Multilogin country proxy when no personal proxy is chosen", () => {
+  const { multiloginProfileCreateArgs } = require("./multilogin-profiles.cjs");
+  assert.deepEqual(multiloginProfileCreateArgs({ name: "Shop", country: "ge", osType: "windows" }).args, [
+    "--runtime", "multilogin", "profiles", "create", "Shop", "--country", "GE", "--os-type", "windows", "--format", "json",
+  ]);
+});

@@ -25,8 +25,8 @@ export function multiloginProfileSelection(
   return { kind, id: profile.id, name: profile.name, folderId: profile.folderId };
 }
 
-/// Multilogin attaches its own built-in proxy, so a personal proxy never
-/// applies and a direct profile simply skips the country flag.
+/// A new Mimic profile uses either Multilogin's built-in proxy in a country or
+/// one of the user's personal proxies; only the built-in proxy needs a country.
 export function multiloginCreateCountry(connection: "managed" | "direct" | "personal", country: string): string {
   if (connection !== "managed") return "";
   const normalized = country.trim().toUpperCase();
@@ -39,9 +39,13 @@ export function multiloginSubmitError(
   country: string,
   selection?: MultiloginProfileSelection,
   kind: MultiloginProfileKind = "browser",
+  personalProxyId?: string,
 ): string | undefined {
   if (mode === "existing") {
     return selection ? undefined : "Choose a Multilogin profile.";
+  }
+  if (kind === "browser" && connection === "personal") {
+    return personalProxyId ? undefined : "Choose a personal proxy.";
   }
   return (kind === "mobile" || connection === "managed") && !multiloginCreateCountry("managed", country)
     ? "Choose a valid proxy country."
