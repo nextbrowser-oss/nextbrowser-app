@@ -166,6 +166,7 @@ import { GITHUB_STARS_REFRESH_EVENT, shouldAskForGitHubStar, type GitHubStarStat
 import { agentVisibleProfileNames, browserProfileContext } from "./lib/browserProfileContext";
 import { CONNECTOR_PROMPT_RESUMED_EVENT, type ConnectorPrompt } from "./connectorsCatalog";
 import { activeMultiloginSelectionForWorkspace, deactivateMultiloginSelection, multiloginSelectionForWorkspace, type MultiloginProfileSelection } from "./lib/multiloginSelection";
+import { clearAllSelectedProfiles, forgetSelectedProfileName, forgetWorkspaceSelectedProfile, rememberSelectedProfile, rememberedSelectedProfile } from "./lib/selectedProfileMemory";
 import { cloudPhoneFromSelection, cloudPhoneSkillPrompt } from "./lib/cloudPhoneSkill";
 import { isMultiloginStartRequest, multiloginStartReply } from "./lib/multiloginChatCommand";
 import { nextctlRemoteArgs, type LiveStreamTarget } from "./lib/liveStreamTarget";
@@ -1144,6 +1145,7 @@ async function clearAccountEntityCache(): Promise<void> {
       localStorage.removeItem(key);
     }
   }
+  clearAllSelectedProfiles(localStorage);
   // These live outside the JSON-file caches above, in raw localStorage/
   // sessionStorage, and are keyed by workspace id (backend-issued, globally
   // unique) rather than account — but a stray "Recorder is active" banner
@@ -2348,11 +2350,17 @@ export const useStore = create<State>((set, get) => {
         const selected = candidates.find((conversation) => conversation.id === stored) ?? candidates[0];
         if (selected) activeConvId[a.id] = selected.id;
       }
+      // The restored project decides chat or terminal mode. The global
+      // "terminalChat" key is not rewritten on a workspace or agent switch, so
+      // it can belong to a different project than the one that reopens.
+      const reopenedProject = convs.find((conversation) => conversation.id === activeConvId[get().agentId]);
       set({
         conversations: convs,
         workspaces,
         activeWorkspaceId,
         activeConvId,
+        selectedProfile: rememberedSelectedProfile(workspaces.find((workspace) => workspace.id === activeWorkspaceId)),
+        ...(reopenedProject ? { terminalChat: reopenedProject.chatMode === "terminal" } : {}),
         scheduledRuns: schedules,
         customScripts: scripts,
         localSkills: rawLocalSkills.map(normalizeWorkflowSkill),
@@ -4311,6 +4319,7 @@ export const useStore = create<State>((set, get) => {
       }
     }
     if (get().selectedProfile === n) set({ selectedProfile: undefined });
+    forgetSelectedProfileName(n);
     const statuses = { ...get().statuses };
     delete statuses[n];
     const profileChatOwners = { ...get().profileChatOwners };
@@ -4343,6 +4352,7 @@ export const useStore = create<State>((set, get) => {
   selectProfile: (n) => {
     trackEvent("profile_selected", { selected: !!n });
     if (n) deactivateMultiloginSelection(get().activeWorkspaceId);
+    rememberSelectedProfile(get().activeWorkspaceId, n);
     set({ selectedProfile: n });
   },
 
@@ -5162,10 +5172,17 @@ export const useStore = create<State>((set, get) => {
       if (activeWorkspaceId) localStorage.setItem("activeWorkspaceId", activeWorkspaceId);
       else localStorage.removeItem("activeWorkspaceId");
       applyingCloudProjects = true;
+      // Startup restores the profile from the cached workspace. The cloud copy
+      // can since have dropped it, or the active workspace itself.
+      const syncedActiveWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
+      const currentProfile = get().selectedProfile;
       set({
         conversations,
         workspaces,
         activeWorkspaceId,
+        selectedProfile: currentProfile && syncedActiveWorkspace?.profileNames.includes(currentProfile)
+          ? currentProfile
+          : rememberedSelectedProfile(syncedActiveWorkspace),
         projectRevisions: revisions,
         workspaceRevisions,
       });
@@ -5300,7 +5317,8 @@ export const useStore = create<State>((set, get) => {
       .filter(([, conversationId]) => get().conversations.some((c) => c.id === conversationId && c.workspaceId === id)));
     if (selected) activeConvId[agentId] = selected.id;
     else delete activeConvId[agentId];
-    set({ activeWorkspaceId: id, activeConvId, selectedProfile: undefined,
+    set({ activeWorkspaceId: id, activeConvId,
+      selectedProfile: rememberedSelectedProfile(get().workspaces.find((workspace) => workspace.id === id)),
       workspaceSetupRequired: requiresWorkspaceSetup(get().workspaces, get().conversations, id, get().accountOwnerId),
       terminalChat: selected?.chatMode === "terminal",
     });
@@ -5357,6 +5375,7 @@ export const useStore = create<State>((set, get) => {
     }
     for (const replyId of removedReplyIds) void invoke("agent_terminate", { replyId }).catch(() => {});
     for (const agent of AGENTS) localStorage.removeItem(activeConversationStorageKey(agent.id, id));
+    forgetWorkspaceSelectedProfile(id);
     const removedConversationIds = new Set(removedConversations.map((conversation) => conversation.id));
     // The account owned this workspace, so first-run defaults must not come back
     // even when it was the last one.
