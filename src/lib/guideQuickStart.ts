@@ -68,3 +68,40 @@ export function guideProfileTarget(
     ?? profileNames[0]
     ?? (hasDefaultProfile ? "__default" : null);
 }
+
+const sessionStartedKey = (ownerId: string) => `guide:session-started:${ownerId}`;
+// A session can start before the account identity has loaded. Keep that
+// progress for this run instead of losing it until a profile runs again.
+const sessionStartedThisRun = new Set<string>();
+
+/** Records that the user has started a browser session at least once. */
+export function rememberGuideSessionStarted(ownerId?: string): void {
+  sessionStartedThisRun.add(ownerId ?? "");
+  if (!ownerId) return;
+  try {
+    localStorage.setItem(sessionStartedKey(ownerId), "1");
+  } catch {
+    // Progress then lasts for this run only.
+  }
+}
+
+export function guideSessionEverStarted(ownerId?: string): boolean {
+  if (sessionStartedThisRun.has(ownerId ?? "")) return true;
+  if (!ownerId) return false;
+  try {
+    return localStorage.getItem(sessionStartedKey(ownerId)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** The first-task step is done once the user has sent a message, not when a project merely exists. */
+export function guideFirstTaskSent(
+  conversations: ReadonlyArray<{ agent: string; workspaceId?: string; messages: ReadonlyArray<{ role: string }> }>,
+  agentId: string,
+  activeWorkspaceId?: string,
+): boolean {
+  return conversations.some((conversation) => conversation.agent === agentId
+    && (!activeWorkspaceId || conversation.workspaceId === activeWorkspaceId)
+    && conversation.messages.some((message) => message.role === "user"));
+}

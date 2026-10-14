@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browserProfileContext } from "./browserProfileContext";
+import { agentVisibleProfileNames, browserProfileContext } from "./browserProfileContext";
 import { HOST_START_FAILURE_GUIDANCE } from "./hostStartFailureGuidance";
 import type { Workspace } from "../types";
 
@@ -92,5 +92,20 @@ describe("browserProfileContext", () => {
     expect(result).toContain("do not search for tools or read additional references");
     expect(result).toContain("Do not retry an authentication error");
     expect(result).toContain("Do not treat it as a CDP browser profile");
+  });
+
+  it("offers only profiles that still exist on this computer", () => {
+    const workspace = { id: "w", name: "Work", profileNames: ["kept", "deleted-by-agent"], profileToolsets: { kept: "camoufox" as const }, createdAt: 1, updatedAt: 1 };
+    const result = browserProfileContext([workspace], "w", undefined, undefined, {}, {}, [{ name: "kept" }]);
+    expect(result).toContain("- kept: Camoufox");
+    expect(result).not.toContain("deleted-by-agent");
+    expect(agentVisibleProfileNames(["a", "b"], [])).toEqual(["a", "b"]);
+  });
+
+  it("does not present a configured country as verified", () => {
+    const workspace = { id: "w", name: "Work", profileNames: ["p"], profileToolsets: {}, createdAt: 1, updatedAt: 1 };
+    const result = browserProfileContext([workspace], "w", "p", undefined, { p: "running" }, { p: { country: "ge", unverified: true } });
+    expect(result).toContain("configured proxy country: GE (not verified yet)");
+    expect(result).not.toContain("verified proxy country: GE");
   });
 });

@@ -32,7 +32,7 @@ import {
   type DistilledWorkflow,
 } from "../lib/workflowDistillation";
 import { chatPromptWithDeferredContext, chatToTerminalHandoff, terminalToChatHandoff } from "../lib/contextHandoff";
-import { browserProfileContext } from "../lib/browserProfileContext";
+import { agentVisibleProfileNames, browserProfileContext } from "../lib/browserProfileContext";
 import {
   MULTILOGIN_SELECTION_EVENT,
   multiloginSelectionForWorkspace,
@@ -470,8 +470,9 @@ export function ChatView() {
                 multiloginSelection,
                 s.statuses,
                 s.profileIdentities,
+                s.profiles,
               )}
-              browserProfiles={(s.workspaces.find((workspace) => workspace.id === conv?.workspaceId)?.profileNames ?? []).map((name) => ({
+              browserProfiles={agentVisibleProfileNames(s.workspaces.find((workspace) => workspace.id === conv?.workspaceId)?.profileNames ?? [], s.profiles).map((name) => ({
                 name,
                 runtime: s.workspaces.find((workspace) => workspace.id === conv?.workspaceId)?.profileToolsets[name] ?? "clawbrowser",
                 running: s.statuses[name] === "running",

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { agentById } from "../agents";
 import { brandName } from "../constants";
 import { trackEvent } from "../lib/analytics";
@@ -7,7 +7,7 @@ import {
   type GuideAction,
   type GuideFeature,
 } from "../lib/guideFeatures";
-import { guideBrowserSession, guideSessionSetupEvent, guideWorkspaceProfileNames } from "../lib/guideQuickStart";
+import { guideBrowserSession, guideFirstTaskSent, guideSessionEverStarted, guideSessionSetupEvent, guideWorkspaceProfileNames, rememberGuideSessionStarted } from "../lib/guideQuickStart";
 import { sequentialProgress } from "../lib/sequentialProgress";
 import { useStore } from "../store";
 import { BrandLogo } from "./BrandLogo";
@@ -84,15 +84,13 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
   );
   const sessionRunning = session.state === "running";
   const accountOwnerId = useStore((s) => s.accountOwnerId);
-  const sessionEverStarted = sessionRunning || (!!accountOwnerId && localStorage.getItem(`guide:session-started:${accountOwnerId}`) === "1");
+  useEffect(() => {
+    if (sessionRunning) rememberGuideSessionStarted(accountOwnerId);
+  }, [sessionRunning, accountOwnerId]);
+  const sessionEverStarted = sessionRunning || guideSessionEverStarted(accountOwnerId);
   const sessionStarting = session.state === "starting";
   const sessionProfileLabel = session.profile === "__default" ? "default profile" : session.profile ?? undefined;
-  const conversationCount = useStore((s) =>
-    s.conversations.filter((conversation) => (
-      conversation.agent === s.agentId
-      && (!s.activeWorkspaceId || conversation.workspaceId === s.activeWorkspaceId)
-    )).length,
-  );
+  const firstTaskSent = useStore((s) => guideFirstTaskSent(s.conversations, s.agentId, s.activeWorkspaceId));
   const [pendingAction, setPendingAction] = useState<{
     action: GuideAction;
     source: string;
@@ -103,7 +101,7 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
     authed,
     agentReady,
     sessionEverStarted,
-    conversationCount > 0,
+    firstTaskSent,
   ];
   const progress = sequentialProgress(readiness);
 
@@ -216,10 +214,10 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
       tint: "#34c759",
     },
     {
-      label: conversationCount > 0 ? "Continue in Chat" : "Start a chat",
+      label: firstTaskSent ? "Continue in Chat" : "Start a chat",
       detail: progress.states[3] === "locked"
         ? `Complete step ${progress.currentIndex + 1} first`
-        : conversationCount > 0 ? "Ready" : `Chat with ${agentName}`,
+        : firstTaskSent ? "Ready" : `Chat with ${agentName}`,
       action: "chat",
       actionLabel: "Open Chat",
       icon: "bubble.left.and.bubble.right.fill",

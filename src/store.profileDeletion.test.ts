@@ -215,6 +215,7 @@ describe("profile lifecycle", () => {
       .filter(([command]) => command === "nextctl_run")
       .map(([, payload]) => payload.args as string[]);
     expect(commands.some((args) => args[0] === "verify")).toBe(false);
-    expect(useStore.getState().profileIdentities.Research).toEqual({ country: "US" });
+    // The saved country is shown until a real check runs, but marked unverified.
+    expect(useStore.getState().profileIdentities.Research).toEqual({ country: "US", unverified: true });
   });
 });

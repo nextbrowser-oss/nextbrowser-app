@@ -6,6 +6,7 @@ import {
   guideSessionSetupEvent,
   guideWorkspaceProfileNames,
 } from "./guideQuickStart";
+import { guideFirstTaskSent, guideSessionEverStarted, rememberGuideSessionStarted } from "./guideQuickStart";
 
 describe("Guide session quick start", () => {
   it("keeps a running session authoritative while status polling catches up", () => {
@@ -96,5 +97,25 @@ describe("Guide session quick start", () => {
       ],
       [{ name: "visible" }, { name: "hidden" }],
     )).toEqual(["visible"]);
+  });
+});
+
+describe("guide progress", () => {
+  it("counts the first task only after the user sent a message", () => {
+    const empty = { agent: "claude", workspaceId: "w", messages: [] };
+    expect(guideFirstTaskSent([empty], "claude", "w")).toBe(false);
+    const sent = { ...empty, messages: [{ role: "user" }] };
+    expect(guideFirstTaskSent([sent], "claude", "w")).toBe(true);
+    expect(guideFirstTaskSent([sent], "claude", "other")).toBe(false);
+    expect(guideFirstTaskSent([sent], "codex", "w")).toBe(false);
+  });
+
+  it("keeps a started session for this run when the account id is not known yet", () => {
+    expect(guideSessionEverStarted("owner-x")).toBe(false);
+    rememberGuideSessionStarted(undefined);
+    expect(guideSessionEverStarted(undefined)).toBe(true);
+    rememberGuideSessionStarted("owner-x");
+    expect(guideSessionEverStarted("owner-x")).toBe(true);
+    expect(guideSessionEverStarted("owner-y")).toBe(false);
   });
 });

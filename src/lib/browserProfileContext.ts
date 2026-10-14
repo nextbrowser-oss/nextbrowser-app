@@ -10,16 +10,29 @@ function shellSingleQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+/**
+ * Workspace names that exist in this computer's profile inventory. A profile
+ * deleted by an agent, or one that lives on another device, cannot be used
+ * here and must not be offered to the agent. Before the inventory has loaded
+ * the workspace list is used unchanged.
+ */
+export function agentVisibleProfileNames(names: string[], inventory?: ReadonlyArray<{ name: string }>): string[] {
+  if (!inventory?.length) return names;
+  const existing = new Set(inventory.map((profile) => profile.name));
+  return names.filter((name) => existing.has(name));
+}
+
 export function browserProfileContext(
   workspaces: Workspace[],
   workspaceId?: string,
   selectedProfile?: string,
   multiloginSelection?: MultiloginProfileSelection,
   statuses: Record<string, string> = {},
-  identities: Record<string, { country?: string }> = {},
+  identities: Record<string, { country?: string; unverified?: boolean }> = {},
+  inventory?: ReadonlyArray<{ name: string }>,
 ): string {
   const workspace = workspaces.find((item) => item.id === workspaceId);
-  const workspaceProfileNames = workspace?.profileNames ?? [];
+  const workspaceProfileNames = agentVisibleProfileNames(workspace?.profileNames ?? [], inventory);
   const effectiveProfile = workspaceProfileNames.includes(selectedProfile ?? "")
     ? selectedProfile
     : workspaceProfileNames.length === 1
@@ -33,7 +46,9 @@ export function browserProfileContext(
       : "";
     const running = statuses[name] === "running" ? ", running; reuse without starting" : "";
     const country = /^[A-Za-z]{2}$/.test(identities[name]?.country ?? "")
-      ? `, verified proxy country: ${identities[name].country!.toUpperCase()}`
+      ? identities[name].unverified
+        ? `, configured proxy country: ${identities[name].country!.toUpperCase()} (not verified yet)`
+        : `, verified proxy country: ${identities[name].country!.toUpperCase()}`
       : "";
     return `- ${clean(name)}: ${label} (workspace: ${clean(workspace?.name ?? "")}${selected}${running}${country})`;
   });
