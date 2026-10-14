@@ -9,6 +9,7 @@ import { Icon } from "./Icon";
 import { SkillLogo } from "./SkillLogo";
 import { agentById } from "../agents";
 import { availableWorkspaceProfiles } from "../lib/scheduleProfile";
+import { DAILY_WEEKDAYS } from "../lib/scheduleDue";
 
 // Sentinel for the "create a dedicated chat" option in the session selector.
 const NEW_DEDICATED_CHAT = "__new_dedicated_chat__";
@@ -125,7 +126,12 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
               <div className="muted small">
                 {run.intervalMinutes ? `Every ${run.intervalMinutes} minute${run.intervalMinutes === 1 ? "" : "s"}` : `${String(run.hour).padStart(2, "0")}:${String(run.minute).padStart(2, "0")} · ${weekdaysSummary(run.weekdays)}`}
               </div>
-              {run.lastError && <div className="error small">Last run failed: {run.lastError}</div>}
+              {run.lastFiredAt && <div className="muted small">Last started {lastStarted(run.lastFiredAt)}</div>}
+              {run.lastError && (
+                <div className="error small">
+                  Could not start: {run.lastError}{run.enabled ? " It retries automatically while Nextbrowser is open." : ""}
+                </div>
+              )}
               <div className="muted small">
                 {chatTitle(run) ?? "New chat each run"}
               </div>
@@ -220,6 +226,14 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
   );
 }
 
+function lastStarted(timestamp: number): string {
+  const date = new Date(timestamp);
+  const time = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return date.toDateString() === new Date().toDateString()
+    ? `today at ${time}`
+    : `${date.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} at ${time}`;
+}
+
 function since(timestamp?: number): string {
   if (!timestamp) return "";
   const elapsed = Date.now() - timestamp;
@@ -290,7 +304,7 @@ function MonitorScheduleRow({ run, entry, lastPassAt, note, busy, menuOpen, menu
   );
 }
 
-function ScheduleEditor({
+export function ScheduleEditor({
   run,
   conversations,
   profiles,
@@ -315,7 +329,7 @@ function ScheduleEditor({
   const [minute, setMinute] = useState(run?.minute ?? 0);
   const [repeat, setRepeat] = useState(run?.intervalMinutes ? (run.intervalMinutes % 60 === 0 ? "hourly" : "minutely") : "daily");
   const [interval, setInterval] = useState(run?.intervalMinutes ? (run.intervalMinutes % 60 === 0 ? run.intervalMinutes / 60 : run.intervalMinutes) : 1);
-  const [weekdays, setWeekdays] = useState<number[]>(run?.weekdays ?? [2, 3, 4, 5, 6]);
+  const [weekdays, setWeekdays] = useState<number[]>(run?.weekdays ?? [...DAILY_WEEKDAYS]);
   const [conversationId, setConversationId] = useState<string | undefined>(
     run?.conversationId,
   );
@@ -410,7 +424,7 @@ function ScheduleEditor({
           <button type="button" className="mini" onClick={() => setWeekdays([2, 3, 4, 5, 6])}>
             Weekdays
           </button>
-          <button type="button" className="mini" onClick={() => setWeekdays([1, 2, 3, 4, 5, 6, 7])}>
+          <button type="button" className="mini" onClick={() => setWeekdays([...DAILY_WEEKDAYS])}>
             Daily
           </button>
           <button type="button" className="mini" onClick={() => setWeekdays([1, 7])}>

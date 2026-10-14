@@ -123,7 +123,14 @@ import {
   serializeScripts,
   serializeUsage,
 } from "./lib/persistence";
-import { scheduleDue } from "./lib/scheduleDue";
+import { DAILY_WEEKDAYS, scheduleDue } from "./lib/scheduleDue";
+import {
+  SCHEDULE_START_RETRY_MS,
+  scheduledAgentCheck,
+  scheduledInventoryCheck,
+  settleScheduledWait,
+  type ScheduledStartCheck,
+} from "./lib/scheduleStart";
 import { availableWorkspaceProfiles, resolveScheduledProfile } from "./lib/scheduleProfile";
 import type {
   AppTab,
@@ -250,6 +257,9 @@ interface AgentAuthorizationOptions {
   suggestInstalledAlternative?: boolean;
   skipNextctlSetup?: boolean;
   deferMissingNextctlPrompt?: boolean;
+  /** Connect this agent instead of the selected one. A scheduled run connects
+   *  its own agent in the background without switching the user's view. */
+  agentId?: string;
 }
 
 interface PairingStartResponse {
@@ -906,6 +916,16 @@ let sessionPollInFlight = false;
 let nextctlDailyUpdateTimer: ReturnType<typeof setInterval> | null = null;
 let nextctlUpdateRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let vpsSetupReservations = 0;
+// Scheduled prompt runs that are starting right now, when a run whose start
+// failed may try again, and since when a due run has been waiting for the app
+// to finish loading. A due run stays due until it really starts.
+const scheduledStartsInFlight = new Set<string>();
+const scheduledStartRetryAt = new Map<string, number>();
+const scheduledStartWaitingSince = new Map<string, number>();
+function forgetScheduledStart(id: string) {
+  scheduledStartRetryAt.delete(id);
+  scheduledStartWaitingSince.delete(id);
+}
 let localNextctlOperations = 0;
 let defaultSetupInFlight = false;
 
@@ -1389,6 +1409,9 @@ let profileRefreshGeneration = 0;
 // Bumped on logout so an account-scoped load that started before sign-out
 // cannot repopulate the cleared state afterwards.
 let accountEpoch = 0;
+// The account epoch whose browser profile inventory has been read at least
+// once. Before that `profiles` is empty, not authoritative.
+let profileInventoryEpoch = -1;
 const PROJECT_SYNC_DELAY_MS = 750;
 
 function runScheduledProjectSync() {
@@ -2653,6 +2676,11 @@ export const useStore = create<State>((set, get) => {
         else void get().runXMonitorPass(entry, { profileName: run.profileName });
         continue;
       }
+      // A prompt run counts as fired only once its prompt is in its agent's
+      // queue. Until then it stays due: a start that cannot happen yet is
+      // retried, and its reason is shown on the schedule instead of being lost.
+      if (scheduledStartsInFlight.has(run.id)) continue;
+      if ((scheduledStartRetryAt.get(run.id) ?? 0) > now()) continue;
       const scheduledConversation = run.conversationId
         ? get().conversations.find((conversation) => conversation.id === run.conversationId)
         : undefined;
@@ -2668,22 +2696,20 @@ export const useStore = create<State>((set, get) => {
         )
           continue;
       }
-      const runs = get().scheduledRuns.map((r) =>
-        r.id === run.id ? { ...r, lastFiredAt: now(), lastError: undefined } : r,
-      );
-      set({ scheduledRuns: runs });
-      persistSchedules(runs);
-      trackEvent("scheduled_run_fired", {
-        agent: run.agent,
-        has_conversation: !!run.conversationId,
-      });
-      const prev = get().agentId;
-      const previousWorkspace = get().activeWorkspaceId;
-      const previousActiveConversations = get().activeConvId;
-      const previousProfile = get().selectedProfile;
-      const previousTerminalChat = get().terminalChat;
+      if (!scheduledStartWaitingSince.has(run.id)) scheduledStartWaitingSince.set(run.id, now());
+      const waitingSince = scheduledStartWaitingSince.get(run.id)!;
+      // Whether the start may go on now. A wait that outlasted its grace
+      // period throws, so the reason is recorded on the schedule.
+      const passes = (check: ScheduledStartCheck): boolean => {
+        const settled = settleScheduledWait(check, waitingSince, now());
+        if (settled.status === "failed") throw new Error(settled.error);
+        return settled.status === "ready";
+      };
+      scheduledStartsInFlight.add(run.id);
       if (scheduledTarget === "vps") vpsSetupReservations += 1;
       try {
+        // Until the inventory is read every saved profile looks deleted.
+        if (!passes(scheduledInventoryCheck(scheduledTarget, profileInventoryEpoch === accountEpoch))) continue;
         const workspaceId = run.workspaceId ?? scheduledConversation?.workspaceId;
         const scheduledWorkspace = workspaceId ? get().workspaces.find((workspace) => workspace.id === workspaceId) : undefined;
         if (workspaceId && !scheduledWorkspace) throw new Error("The scheduled workspace no longer exists.");
@@ -2692,19 +2718,47 @@ export const useStore = create<State>((set, get) => {
           ? scheduledWorkspace?.profileNames ?? []
           : availableWorkspaceProfiles(scheduledWorkspace?.profileNames ?? [], get().profiles);
         const scheduledProfile = resolveScheduledProfile(run, scheduledProfiles);
-        if (workspaceId) get().selectWorkspace(workspaceId);
         if (scheduledTarget === "vps") await waitForLocalNextctlIdle(get);
-        get().switchAgent(run.agent);
-        if (!get().agentReady()) {
-          await get().authorizeAgent({ skipNextctlSetup: scheduledTarget === "vps" });
+        // Connect the run's own agent in the background. Switching the
+        // selected agent, workspace or chat here changed what the user was
+        // looking at and what the app reopened after a restart.
+        const agentName = agentById(run.agent).name;
+        const agentRuntime = () => get().runtime[run.agent];
+        if (!agentRuntime()?.ready && !agentRuntime()?.authorizing) {
+          await get().authorizeAgent({
+            agentId: run.agent,
+            skipNextctlSetup: scheduledTarget === "vps",
+            deferMissingNextctlPrompt: true,
+          });
         }
+        // A remembered sign-out can be stale: the user may have signed in
+        // from a terminal since.
+        if (agentRuntime()?.loggedIn === false) await get().recheckLogin(run.agent);
+        if (!passes(scheduledAgentCheck(agentRuntime(), agentName))) continue;
         let cid = run.conversationId;
         if (!cid || !get().conversations.some((c) => c.id === cid && c.agent === run.agent)) {
-          cid = get().newChat();
-          const title = run.title || "Scheduled";
-          get().renameConversation(cid, title);
-        } else {
-          get().selectConversation(cid);
+          const chatWorkspaceId = workspaceId ?? get().activeWorkspaceId;
+          if (chatWorkspaceId && deletingWorkspaceIds.has(chatWorkspaceId)) throw new Error("This workspace is being deleted.");
+          // Added to the list but not opened: the user's current chat, and the
+          // chat the app reopens after a restart, stay what they were.
+          const chat: Conversation = {
+            id: uid(),
+            title: run.title || "Scheduled",
+            agent: run.agent,
+            messages: [],
+            createdAt: now(),
+            updatedAt: now(),
+            executionTarget: "local",
+            chatMode: "chat",
+            workspaceId: chatWorkspaceId,
+          };
+          cid = chat.id;
+          set((state) => {
+            const conversations = [...state.conversations, chat];
+            persistConvs(conversations);
+            return { conversations };
+          });
+          trackEvent("chat_created", { agent: run.agent, scheduled: true, conversation_count: get().conversations.length });
         }
         if (scheduledTarget === "vps") {
           set((state) => {
@@ -2723,20 +2777,35 @@ export const useStore = create<State>((set, get) => {
             return { conversations };
           });
         }
-        enqueueWithTarget(run.prompt, undefined, cid, [], scheduledTarget, undefined, { name: scheduledProfile });
+        const replyId = enqueueWithTarget(run.prompt, undefined, cid, [], scheduledTarget, undefined, { name: scheduledProfile });
+        if (!replyId) throw new Error(`${agentName} did not accept the scheduled prompt.`);
+        forgetScheduledStart(run.id);
+        const firedRuns = get().scheduledRuns.map((r) =>
+          r.id === run.id ? { ...r, lastFiredAt: now(), lastError: undefined } : r,
+        );
+        set({ scheduledRuns: firedRuns });
+        persistSchedules(firedRuns);
+        trackEvent("scheduled_run_fired", {
+          agent: run.agent,
+          has_conversation: !!run.conversationId,
+        });
       } catch (error) {
         // One failing schedule must not abort the rest of this tick. The timer
         // calls this without awaiting, so swallow here instead of letting an
         // unhandled rejection surface as a global renderer error.
         console.warn("[SCHEDULED_RUN_FAILED]", run.id, error);
-        const failedRuns = get().scheduledRuns.map((item) => item.id === run.id ? { ...item, lastError: error instanceof Error ? error.message : String(error) } : item);
-        set({ scheduledRuns: failedRuns });
-        persistSchedules(failedRuns);
+        scheduledStartRetryAt.set(run.id, now() + SCHEDULE_START_RETRY_MS);
+        const message = error instanceof Error ? error.message : String(error);
+        const current = get().scheduledRuns.find((item) => item.id === run.id);
+        if (current && current.lastError !== message) {
+          const failedRuns = get().scheduledRuns.map((item) => item.id === run.id ? { ...item, lastError: message } : item);
+          set({ scheduledRuns: failedRuns });
+          persistSchedules(failedRuns);
+          trackEvent("scheduled_run_start_failed", { agent: run.agent, execution_target: scheduledTarget });
+        }
       } finally {
+        scheduledStartsInFlight.delete(run.id);
         if (scheduledTarget === "vps") vpsSetupReservations = Math.max(0, vpsSetupReservations - 1);
-        get().switchAgent(prev);
-        if (previousWorkspace) get().selectWorkspace(previousWorkspace);
-        set({ activeConvId: previousActiveConversations, selectedProfile: previousProfile, terminalChat: previousTerminalChat });
         if (!pendingTarget(get(), "vps")) {
           for (const [queuedAgentId, runtime] of Object.entries(get().runtime)) {
             if (runtime.ready && runtime.queue.length) get().startConsumer(queuedAgentId);
@@ -3603,6 +3672,7 @@ export const useStore = create<State>((set, get) => {
       }
       // Render the inventory without waiting for every browser status command.
       set({ profiles: list.profiles });
+      profileInventoryEpoch = epoch;
       pruneLocallyDeletedProfiles(list.profiles.map((profile) => profile.name));
       const statuses: Record<string, string> = {};
       const profileSessions: Record<string, SessionStatus> = {};
@@ -4385,7 +4455,7 @@ export const useStore = create<State>((set, get) => {
   authorizeAgent: async (options = {}) => {
     if (!options.suggestInstalledAlternative) set({ startupAgentSuggestion: undefined });
     const startedAt = performance.now();
-    const agentId = get().agentId;
+    const agentId = options.agentId ?? get().agentId;
     const rt = get().runtime[agentId];
     if (rt?.ready || rt?.authorizing) return;
     set((s) => ({
@@ -4422,8 +4492,9 @@ export const useStore = create<State>((set, get) => {
         },
       }));
       // Reconnecting an installed agent on startup must not create a project
-      // in an intentionally empty workspace.
-      if (get().conversationsForAgent(agentId).length) get().ensureConversation(agentId);
+      // in an intentionally empty workspace. An agent connected in the
+      // background must not change the visible chat's terminal mode.
+      if (agentId === get().agentId && get().conversationsForAgent(agentId).length) get().ensureConversation(agentId);
       get().announceConnect(agentId, version, loggedIn);
       trackTiming("agent_connect_succeeded", startedAt, {
         agent: agentId,
@@ -7307,7 +7378,7 @@ export const useStore = create<State>((set, get) => {
       agent: get().agentId,
       hour: partial.hour,
       minute: partial.minute,
-      weekdays: partial.weekdays.length ? partial.weekdays : [2, 3, 4, 5, 6],
+      weekdays: partial.weekdays.length ? partial.weekdays : [...DAILY_WEEKDAYS],
       enabled: true,
       conversationId: partial.conversationId,
     };
@@ -7323,8 +7394,10 @@ export const useStore = create<State>((set, get) => {
   },
 
   updateScheduledRun: (id, patch) => {
+    // An edited schedule starts over: its old start failure no longer applies.
+    forgetScheduledStart(id);
     const scheduledRuns = get().scheduledRuns.map((r) =>
-      r.id === id ? { ...r, ...patch, lastFiredAt: undefined } : r,
+      r.id === id ? { ...r, lastError: undefined, ...patch, lastFiredAt: undefined } : r,
     );
     persistSchedules(scheduledRuns);
     set({ scheduledRuns });
@@ -7343,6 +7416,7 @@ export const useStore = create<State>((set, get) => {
   },
 
   setScheduledRunEnabled: (id, enabled) => {
+    forgetScheduledStart(id);
     const scheduledRuns = get().scheduledRuns.map((r) =>
       r.id === id ? { ...r, enabled } : r,
     );

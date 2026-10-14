@@ -46,7 +46,7 @@ reports and explorations.
 - Skills/scripts/schedules: `skill_catalog_loaded`, `skill_apply_started`,
   `skill_apply_completed`, `skill_used_in_chat`, `script_run_started`,
   `script_run_completed`, `script_run_failed`, `custom_script_save_completed`,
-  `scheduled_run_created`, `scheduled_run_fired`.
+  `scheduled_run_created`, `scheduled_run_fired`, `scheduled_run_start_failed`.
 
 ## Recommended GA4 Custom Dimensions
 
