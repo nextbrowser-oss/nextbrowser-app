@@ -1,6 +1,6 @@
 import { type DragEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useStore, type ManualProxyProfileInput } from "../store";
+import { personalProxyUsers, useStore, type ManualProxyProfileInput } from "../store";
 import { agentById } from "../agents";
 import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { BrandHeader, BrandLogo } from "./BrandLogo";
@@ -92,6 +92,8 @@ const NAV_ITEMS: Array<{ id: AppTab; label: string; icon: string }> = [
   { id: "guide", label: "Guide", icon: "book.fill" },
 ];
 
+const SIDEBAR_OPEN_SECTION_KEY = "sidebar.openSection";
+
 export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const s = useStore();
   const [menuProfile, setMenuProfile] = useState<string | null>(null);
@@ -152,7 +154,24 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [chatDeleteError, setChatDeleteError] = useState<string | null>(null);
   const [chatDeleting, setChatDeleting] = useState(false);
-  const [openSection, setOpenSection] = useState<"projects" | "profiles" | null>("projects");
+  // Remember which list the user expanded across reloads and restarts.
+  const [openSection, setOpenSectionState] = useState<"projects" | "profiles" | null>(() => {
+    try {
+      const saved = localStorage.getItem(SIDEBAR_OPEN_SECTION_KEY);
+      return saved === "profiles" ? "profiles" : saved === "none" ? null : "projects";
+    } catch {
+      return "projects";
+    }
+  });
+  const setOpenSection = (next: "projects" | "profiles" | null | ((current: "projects" | "profiles" | null) => "projects" | "profiles" | null)) => {
+    setOpenSectionState((current) => {
+      const value = typeof next === "function" ? next(current) : next;
+      try {
+        localStorage.setItem(SIDEBAR_OPEN_SECTION_KEY, value ?? "none");
+      } catch { /* the choice then lasts for this session */ }
+      return value;
+    });
+  };
   const [dragOverProfileName, setDragOverProfileName] = useState<string | null>(null);
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
@@ -2540,15 +2559,18 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
                 {manualProxyDeleting && (() => {
                   const proxy = s.personalProxies.find((item) => item.id === manualProxyDeleting);
                   if (!proxy) return null;
+                  const proxyUsers = personalProxyUsers(s.workspaces, proxy.id);
                   return (
                     <div className="personal-proxy-delete-confirm" role="alert">
-                      <span>Delete “{proxy.name}” from this device?</span>
+                      <span>{proxyUsers.length
+                        ? `“${proxy.name}” is used by ${proxyUsers.join(", ")}. Change their connection before deleting it.`
+                        : `Delete “${proxy.name}” from this device?`}</span>
                       <div className="row">
                         <button type="button" className="secondary" disabled={manualProxyDeletePending} onClick={() => setManualProxyDeleting(null)}>Cancel</button>
                         <button
                           type="button"
                           className="primary danger"
-                          disabled={manualProxyDeletePending}
+                          disabled={manualProxyDeletePending || proxyUsers.length > 0}
                           onClick={() => {
                             setManualProxyDeletePending(true);
                             void s.deletePersonalProxy(proxy.id)

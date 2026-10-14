@@ -39,6 +39,9 @@ describe("Swift-compatible model helpers", () => {
     expect(filterCountries("cote").map((country) => country.code)).toContain("CI");
     expect(filterCountries("united").map((country) => country.code)).toEqual(expect.arrayContaining(["GB", "US"]));
     expect(filterCountries("jp").map((country) => country.code)).toEqual(["JP"]);
+    // An exact ISO code comes first, so "ge" picks Georgia, not Germany.
+    expect(filterCountries("ge")[0].code).toBe("GE");
+    expect(filterCountries("pl")[0].code).toBe("PL");
     expect(ROTATION_COUNTRIES.map((c) => c.name)).toEqual(
       [...ROTATION_COUNTRIES.map((c) => c.name)].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })),
     );

@@ -453,6 +453,13 @@ function capStreamText(text: string): string {
     : text;
 }
 
+/** Profiles in any workspace that use a personal proxy. */
+export function personalProxyUsers(workspaces: Workspace[], proxyId: string): string[] {
+  return [...new Set(workspaces.flatMap((workspace) => Object.entries(workspace.profileProxyIds ?? {})
+    .filter(([name, id]) => id === proxyId && workspace.profileNames.includes(name))
+    .map(([name]) => name)))];
+}
+
 const uid = () => crypto.randomUUID();
 const now = () => Date.now();
 // Workspace edits are compared with server-stamped cloud copies. A plain
@@ -1243,12 +1250,17 @@ function pruneLocallyDeletedProfiles(current: string[]): void {
     const parsed = JSON.parse(localStorage.getItem(localProfileNamesKey(ownerId)) || "[]");
     if (Array.isArray(parsed)) seen = parsed.filter((name): name is string => typeof name === "string");
   } catch { /* start a fresh record */ }
-  try {
-    localStorage.setItem(localProfileNamesKey(ownerId), JSON.stringify(current));
-  } catch { /* pruning is best effort */ }
   const present = new Set(current);
   const gone = new Set(seen.filter((name) => !present.has(name)
     && state.workspaces.some((workspace) => workspace.profileNames.includes(name))));
+  const remember = (names: string[]) => {
+    try {
+      localStorage.setItem(localProfileNamesKey(ownerId), JSON.stringify(names));
+    } catch { /* pruning is best effort */ }
+  };
+  // Keep a gone profile in the record until its removal is saved, so a failed
+  // cloud write is retried on the next refresh.
+  remember([...current, ...gone]);
   if (!gone.size) return;
   void persistWorkspaceMutation((previous) => previous.map((workspace) => {
     if (!workspace.profileNames.some((name) => gone.has(name))) return workspace;
@@ -1265,7 +1277,12 @@ function pruneLocallyDeletedProfiles(current: string[]): void {
       profileProxyIds,
       updatedAt: editedAt(workspace.updatedAt),
     };
-  })).catch((error) => console.warn("[profile_prune] could not remove deleted profiles from workspaces", error));
+  })).then(() => {
+    try {
+      const recorded = JSON.parse(localStorage.getItem(localProfileNamesKey(ownerId)) || "[]");
+      if (Array.isArray(recorded)) remember(recorded.filter((name) => !gone.has(name)));
+    } catch { /* retried on the next refresh */ }
+  }).catch((error) => console.warn("[profile_prune] could not remove deleted profiles from workspaces", error));
 }
 
 function persistWorkspaceMutation(transform: (workspaces: Workspace[]) => Workspace[]): Promise<void> {
@@ -4113,6 +4130,12 @@ export const useStore = create<State>((set, get) => {
   },
 
   deletePersonalProxy: async (id) => {
+    // Deleting a proxy that a profile still uses left that profile with the
+    // old proxy settings and no visible link to them.
+    const users = personalProxyUsers(get().workspaces, id);
+    if (users.length) {
+      throw new Error(`This proxy is used by ${users.join(", ")}. Change their connection before deleting it.`);
+    }
     await invoke<void>("manual_proxy_delete", { id });
     try {
       const previousWorkspaces = get().workspaces;
@@ -4313,8 +4336,9 @@ export const useStore = create<State>((set, get) => {
         return { ...workspace, profileNames: workspace.profileNames.filter((name) => name !== n), profileToolsets, profileProxyIds, updatedAt: editedAt(workspace.updatedAt) };
       }));
     } catch (error) {
-      await get().loadProfiles();
-      throw new Error(`The profile was removed, but its workspace could not be saved. ${error instanceof Error ? error.message : String(error)}`);
+      // The profile is already gone; reporting "couldn't delete" would be
+      // wrong. Its stale workspace entry is removed on a later refresh.
+      console.warn("[profile_delete] profile removed; workspace update will be retried", error);
     }
     await get().loadProfiles();
     trackTiming("profile_delete_completed", startedAt);

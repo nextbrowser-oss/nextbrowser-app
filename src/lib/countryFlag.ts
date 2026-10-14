@@ -50,9 +50,15 @@ function normalizedSearchValue(value: string): string {
 export function filterCountryList(countries: RotationCountry[], query: string): RotationCountry[] {
   const normalizedQuery = normalizedSearchValue(query.trim());
   if (!normalizedQuery) return countries;
-  return countries.filter(({ code, name }) =>
-    normalizedSearchValue(`${name} ${code}`).includes(normalizedQuery),
-  );
+  // An exact ISO code wins, then names starting with the query: typing "ge"
+  // must offer Georgia (GE) before Germany.
+  const rank = ({ code, name }: RotationCountry) =>
+    normalizedSearchValue(code) === normalizedQuery ? 0 : normalizedSearchValue(name).startsWith(normalizedQuery) ? 1 : 2;
+  return countries
+    .filter(({ code, name }) => normalizedSearchValue(`${name} ${code}`).includes(normalizedQuery))
+    .map((country, index) => ({ country, index, rank: rank(country) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map(({ country }) => country);
 }
 
 export function filterCountries(query: string): RotationCountry[] {
