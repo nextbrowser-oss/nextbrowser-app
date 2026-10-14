@@ -3,7 +3,15 @@
 const REGIONAL = 0x1f1e6;
 const A = "A".charCodeAt(0);
 
-export function countryFlag(code?: string | null): string {
+// Windows has no flag glyphs: a flag emoji renders as two letters, so a
+// badge read "PL PL". Show only the code there.
+function flagEmojiSupported(): boolean {
+  if (typeof navigator === "undefined") return true;
+  return !/Windows NT|Win32|Win64/.test(`${navigator.userAgent} ${navigator.platform}`);
+}
+
+export function countryFlag(code?: string | null, supported: boolean = flagEmojiSupported()): string {
+  if (!supported) return "";
   if (!code || code.length !== 2) return "";
   const u = code.toUpperCase();
   const a = u.charCodeAt(0) - A;

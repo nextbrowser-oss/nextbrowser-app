@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { agentById } from "../agents";
 import { brandName } from "../constants";
 import { trackEvent } from "../lib/analytics";
@@ -47,7 +47,7 @@ export function GuideFeatureCard({
           <span className="muted small feature-caption">{feature.caption}</span>
         </span>
       </span>
-      <span className="feature-action" style={{ color: feature.tint }}>
+      <span className="feature-action" style={{ "--tint": feature.tint } as CSSProperties}>
         {label}
         <Icon name="chevron.right" size={13} />
       </span>

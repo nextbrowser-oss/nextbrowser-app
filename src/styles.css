@@ -34,6 +34,8 @@
   --red-soft: rgba(255, 69, 58, 0.14);
   --warn: #ff9500;
   --warn-soft: rgba(255, 149, 0, 0.16);
+  --rating-star: #ffd36d;
+  --rating-star-hover: #ffe4a0;
   --radius-sm: 8px;
   --radius-md: 10px;
   --radius-lg: 14px;
@@ -104,6 +106,11 @@
   --red-soft: rgba(201, 52, 44, 0.11);
   --warn: #a85d00;
   --warn-soft: rgba(168, 93, 0, 0.12);
+  /* The dark theme's pale gold almost vanishes on white; a deeper amber keeps
+     a selected rating visible. Hover goes darker here as it goes lighter in
+     dark: the hovered star stands out most from the background in both. */
+  --rating-star: #c28400;
+  --rating-star-hover: #b07a00;
   --surface-1: rgba(72, 64, 110, 0.025);
   --surface-2: rgba(72, 64, 110, 0.045);
   --surface-3: rgba(72, 64, 110, 0.065);
@@ -949,12 +956,12 @@ body.is-resizing-sidebar {
   gap: 12px;
   margin-top: 14px;
   padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--accent) 7%, var(--surface-2));
 }
 .nodemaven-handoff.exhausted {
-  border-color: color-mix(in srgb, var(--red) 35%, var(--border));
+  border-color: color-mix(in srgb, var(--red) 35%, var(--line));
   background: color-mix(in srgb, var(--red) 7%, var(--surface-2));
 }
 .nodemaven-handoff-copy { display: flex; align-items: flex-start; gap: 10px; }
@@ -1793,7 +1800,7 @@ body.is-resizing-sidebar {
 .workspace-menu .workspace-delete-action {
   flex: none;
   color: var(--red);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line);
 }
 .workspace-picker:hover { background: color-mix(in srgb, var(--accent) 8%, var(--surface-3)); }
 .workspace-picker > span { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 1px; }
@@ -2101,6 +2108,29 @@ body.is-resizing-sidebar {
   gap: 5px;
   min-width: 0;
   flex: 0 0 auto;
+}
+.profile-meta-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.profile-meta-line .profile-meta {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.profile-meta-line .profile-badges {
+  justify-content: flex-start;
+}
+.profile-meta-line .profile-toolset-logo,
+.profile-meta-line .profile-toolset-logo img {
+  width: 14px;
+  height: 14px;
+}
+.profile-meta-line .badge {
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 15px;
 }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .dot.green { background: var(--green); }
@@ -2410,10 +2440,12 @@ body.is-resizing-sidebar {
 .feedback-button { gap: 6px; padding-inline: 10px; }
 .feedback-modal { width: min(460px, calc(100vw - 32px)); }
 .feedback-rating { display: flex; justify-content: space-between; gap: 7px; margin: 22px 0 5px; }
-.feedback-star { appearance: none; border: 0; background: transparent; color: var(--border); padding: 7px; border-radius: 10px; cursor: pointer; transition: color .14s ease, transform .14s ease, background .14s ease, box-shadow .14s ease, opacity .14s ease; }
-.feedback-star.is-preview { color: #ffd36d; opacity: .72; }
-.feedback-star.is-selected { color: #ffd36d; opacity: 1; }
-.feedback-star.is-hovered { color: #ffe4a0; opacity: 1; background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 48%, transparent), 0 5px 16px color-mix(in srgb, var(--accent) 18%, transparent); transform: translateY(-2px) scale(1.07); }
+/* An empty star stays a quiet grey: in the full text color it outshone the
+   selected gold stars, most of all in the light theme. */
+.feedback-star { appearance: none; border: 0; background: transparent; color: var(--surface-9); padding: 7px; border-radius: 10px; cursor: pointer; transition: color .14s ease, transform .14s ease, background .14s ease, box-shadow .14s ease, opacity .14s ease; }
+.feedback-star.is-preview { color: var(--rating-star); opacity: .72; }
+.feedback-star.is-selected { color: var(--rating-star); opacity: 1; }
+.feedback-star.is-hovered { color: var(--rating-star-hover); opacity: 1; background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 48%, transparent), 0 5px 16px color-mix(in srgb, var(--accent) 18%, transparent); transform: translateY(-2px) scale(1.07); }
 .feedback-star:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .feedback-rating-label { color: var(--muted); font-size: 12px; text-align: center; min-height: 18px; }
 .feedback-comment { display: grid; gap: 7px; margin-top: 18px; color: var(--text); font-size: 12px; font-weight: 600; }
@@ -2943,8 +2975,8 @@ body.is-resizing-sidebar {
 }
 .terminal-attachment-error {
   padding: 7px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--error) 35%, transparent);
-  background: color-mix(in srgb, var(--error) 8%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
+  background: color-mix(in srgb, var(--red) 8%, transparent);
 }
 [data-theme="light"] .agent-terminal-panel { background: #f7f7f8; }
 .msg { max-width: 80%; min-width: 0; overflow-wrap: anywhere; }
@@ -5855,6 +5887,9 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   line-height: 1;
   text-align: center;
 }
+/* Windows has no flag emoji, so countryFlag() returns nothing there; drop the
+   empty slot instead of leaving a gap before the country name. */
+.country-select-flag:empty { display: none; }
 .country-select-name {
   min-width: 0;
   flex: 1;
@@ -6937,8 +6972,15 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   align-self: flex-start;
   gap: 4px;
   margin-top: auto;
+  color: var(--tint, var(--accent-text));
   font-size: 12px;
   font-weight: 700;
+}
+/* The card tints are bright colors picked for the dark theme; as text on a
+   white card the pale ones (cyan, teal) fell to about 1.5:1. */
+:root[data-theme="light"] .feature-action,
+:root[data-theme="light"] .usage-card-action {
+  color: color-mix(in srgb, var(--tint, var(--accent-text)) 60%, var(--text));
 }
 .feature-action svg,
 .usage-card-action svg {
@@ -7018,12 +7060,14 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   max-width: 85%;
 }
 .demo-bubble-assistant { background: var(--surface-4); max-width: 85%; }
+/* Theme tokens, not black overlays: those drew dark blocks with dark text
+   on them in the light theme. */
 .demo-browser-chrome {
   display: flex;
   align-items: center;
   gap: 5px;
   padding: 6px 8px;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
 .demo-traffic { display: flex; gap: 3px; }
@@ -7070,7 +7114,8 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .demo-menu {
   margin-top: 4px;
   padding: 6px;
-  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
   border-radius: 6px;
   font-size: 8px;
 }
@@ -7105,7 +7150,7 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   background: var(--accent-soft);
   border-radius: 8px;
 }
-.demo-table { padding: 6px; background: rgba(255, 255, 255, 0.05); border-radius: 6px; }
+.demo-table { padding: 6px; background: var(--surface-2); border-radius: 6px; }
 .demo-table-head, .demo-table-row {
   display: flex;
   justify-content: space-between;
@@ -8697,9 +8742,9 @@ pre,
 .trust-preview-grid dd { overflow: hidden; margin: 3px 0 0; color: var(--text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .trust-preview-effects { display: flex; flex-wrap: wrap; gap: 7px; }
 .trust-preview-effects span { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line)); border-radius: 999px; color: var(--text); font-size: 11px; }
-.trust-preview-effects span.risk, .trust-preview-warning { border-color: color-mix(in srgb, var(--yellow) 45%, var(--line)); color: var(--yellow); }
+.trust-preview-effects span.risk, .trust-preview-warning { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); color: var(--warn); }
 .trust-preview-dialog ul { display: grid; gap: 5px; margin: 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
-.trust-preview-warning { display: flex; align-items: flex-start; gap: 7px; margin: 0; padding: 9px 10px; border: 1px solid; border-radius: 9px; background: color-mix(in srgb, var(--yellow) 8%, var(--surface-1)); font-size: 11px; }
+.trust-preview-warning { display: flex; align-items: flex-start; gap: 7px; margin: 0; padding: 9px 10px; border: 1px solid; border-radius: 9px; background: color-mix(in srgb, var(--warn) 8%, var(--surface-1)); font-size: 11px; }
 .skill-contract { display: flex; flex-wrap: wrap; gap: 5px 8px; margin-top: -2px; }
 .skill-contract span { padding: 2px 5px; border: 1px solid var(--line); border-radius: 999px; background: color-mix(in srgb, var(--surface-2) 68%, transparent); font-size: 9px; text-transform: capitalize; }
 @media (max-width: 560px) { .trust-preview-grid { grid-template-columns: 1fr; } .trust-preview-dialog { gap: 12px; } }
@@ -8800,7 +8845,7 @@ pre,
 .workflow-editor-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .workflow-title-input { font-size: 20px; font-weight: 700; border: 0 !important; background: transparent !important; padding: 0 !important; }
 .workflow-unsaved, .workflow-saved { display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: 5px; font-size: 9px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
-.workflow-unsaved { background: color-mix(in srgb, var(--orange, #d98522) 13%, transparent); color: var(--orange, #d98522); }
+.workflow-unsaved { background: color-mix(in srgb, var(--warn) 13%, transparent); color: var(--warn); }
 .workflow-saved { color: var(--green); background: color-mix(in srgb, var(--green) 10%, transparent); }
 .workflow-runtime-chip { min-height: 26px; display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px; border-radius: 7px; background: var(--surface-2); color: var(--muted); font-size: 10px; font-weight: 600; }
 .workflow-more-menu { position: relative; }
@@ -9043,6 +9088,38 @@ pre,
 /* The floating copy only — smaller than the Settings row so it stays unobtrusive. */
 .ui-scale-control:not(.ui-scale-control-settings) {
   transform: scale(0.82);
+}
+/* In the sidebar footer, right of the agent status: a compact pill that fits next to it at the minimum sidebar width. */
+/* A long agent name or status ("… · Sign-in required") moves the pill under it instead of past the sidebar edge. */
+.agent-footer-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  flex: none;
+  max-width: 100%;
+}
+.ui-scale-control.ui-scale-control-inline {
+  position: static;
+  transform: none;
+  gap: 0;
+  height: 22px;
+  padding: 0 2px 0 6px;
+  background: transparent;
+  backdrop-filter: none;
+}
+.ui-scale-control-inline .plain-icon-btn-compact {
+  min-width: 18px !important;
+  min-height: 18px !important;
+  padding: 2px !important;
+  border-radius: 6px;
+}
+.ui-scale-control-inline .ui-scale-value {
+  min-width: 30px;
+  font-size: 10px;
+}
+.ui-scale-control-inline .ui-scale-dismiss {
+  margin-left: 0;
 }
 /* Same control, inline as a settings row instead of a floating pill. */
 .ui-scale-control-settings {

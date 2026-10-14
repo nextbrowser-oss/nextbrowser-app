@@ -32,8 +32,10 @@ describe("Swift-compatible model helpers", () => {
   it("matches weekday summaries and ISO country formatting", () => {
     expect(weekdaysSummary([2, 3, 4, 5, 6])).toBe("Mon–Fri");
     expect(weekdaysSummary([1, 7])).toBe("Weekends");
-    expect(countryFlag("es")).toBe("🇪🇸");
-    expect(countryLabel("es", "Madrid")).toBe("🇪🇸 ES Madrid");
+    expect(countryFlag("es", true)).toBe("🇪🇸");
+    // Windows renders flag emoji as letters; the badge then shows only the code.
+    expect(countryFlag("es", false)).toBe("");
+    expect(countryLabel("es", "Madrid")).toBe(`${countryFlag("es") ? "🇪🇸 " : ""}ES Madrid`);
     expect(ROTATION_COUNTRIES).toHaveLength(249);
     expect(new Set(ROTATION_COUNTRIES.map((country) => country.code)).size).toBe(249);
     expect(filterCountries("cote").map((country) => country.code)).toContain("CI");

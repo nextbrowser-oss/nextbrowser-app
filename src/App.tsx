@@ -134,10 +134,10 @@ function UIScaleSlider({ value, onChange }: { value: number; onChange: (next: nu
   );
 }
 
-function UIScaleControl({ value, onChange, onDismiss }: { value: number; onChange: (next: number) => void; onDismiss: () => void }) {
+function UIScaleControl({ value, onChange, onDismiss, inline = false }: { value: number; onChange: (next: number) => void; onDismiss: () => void; inline?: boolean }) {
   return (
-    <div className="ui-scale-control" title="Interface size">
-      <Icon name="magnifyingglass" size={13} />
+    <div className={"ui-scale-control" + (inline ? " ui-scale-control-inline" : "")} title="Interface size">
+      <Icon name="magnifyingglass" size={inline ? 11 : 13} />
       <UIScaleSlider value={value} onChange={onChange} />
       <button
         className="plain-icon-btn plain-icon-btn-compact ui-scale-dismiss"
@@ -1627,7 +1627,13 @@ export function App() {
         className={"sidebar thin-material" + (sidebarCollapsed ? " sidebar-collapsed" : "")}
         style={{ width: sidebarCollapsed ? 68 : sidebarWidth }}
       >
-        <Sidebar onOpenAgentSettings={() => openSettings("agent")} onHome={() => setTab("chat")} />
+        <Sidebar
+          onOpenAgentSettings={() => openSettings("agent")}
+          onHome={() => setTab("chat")}
+          footerAccessory={!uiScaleFloatingHidden && !sidebarCollapsed
+            ? <UIScaleControl inline value={uiScale} onChange={setUiScale} onDismiss={dismissUiScaleFloating} />
+            : undefined}
+        />
       </aside>
       {!sidebarCollapsed && <div id="sidebar-resize" className="resize-handle" title="Resize sidebar" aria-label="Resize sidebar" />}
       <main className="content">
@@ -1753,9 +1759,8 @@ export function App() {
       )}
       {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
       {feedbackModal}
-      {!uiScaleFloatingHidden && (
-        <UIScaleControl value={uiScale} onChange={setUiScale} onDismiss={dismissUiScaleFloating} />
-      )}
+      {/* The control lives in the sidebar footer. A floating copy over the collapsed rail covered the agent
+          button (and the composer when moved right), so a collapsed sidebar shows none; Settings keeps it. */}
     </div>
   );
 }

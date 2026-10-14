@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType, type ReactNode } from "react";
+import { useEffect, useState, type ComponentType, type CSSProperties, type ReactNode } from "react";
 import { openGuideChatDraft } from "../lib/guideDraft";
 import { useStore } from "../store";
 import { GuideActionModal } from "./GuideActionModal";
@@ -322,7 +322,7 @@ export function GuideUsageSection() {
                 </div>
                 <strong className="usage-card-title">{demo.title}</strong>
                 <p className="muted small usage-card-caption">{demo.caption}</p>
-                <span className="usage-card-action" style={{ color: demo.tint }}>
+                <span className="usage-card-action" style={{ "--tint": demo.tint } as CSSProperties}>
                   {actionLabel}
                   <Icon name="chevron.right" size={13} />
                 </span>
