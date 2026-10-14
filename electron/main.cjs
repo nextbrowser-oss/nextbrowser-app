@@ -106,6 +106,7 @@ const {
   installRuntimeUpdateWithVerification,
 } = require("./browser-runtime-updates.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
+const { openLinuxTerminal } = require("./terminal-launch.cjs");
 const { multiloginProfileCreateArgs, parseMultiloginProfiles, parseMultiloginCreatedMobileProfile, parseMultiloginCreatedProfile, parseMultiloginFolders } = require("./multilogin-profiles.cjs");
 const { multiloginAccountFromTokens } = require("./multilogin-account.cjs");
 const { MULTILOGIN_DOWNLOAD_URL, resolveMultiloginApp } = require("./multilogin-app.cjs");
@@ -1381,13 +1382,29 @@ async function findClawbrowserReleaseAsset(root) {
   }
   return "";
 }
+async function removeStrayLinuxLauncher(file) {
+  try {
+    const stat = await fs.lstat(file);
+    if (!stat.isFile() || stat.size > 4096) return;
+    const text = await fs.readFile(file, "utf8");
+    if (text.includes("clawbrowser.real") && !fsSync.existsSync(path.join(path.dirname(file), "clawbrowser.real"))) await fs.rm(file);
+  } catch {
+    // Nothing to clean up.
+  }
+}
 async function replaceClawbrowserRelease(source, release, options = {}) {
   const dataDir = path.join(nextbrowserRuntimeRoot(), "data");
   await fs.mkdir(dataDir, { recursive: true });
   const isBundle = process.platform === "darwin";
+  // The Linux launcher is a script that execs clawbrowser.real next to it, so
+  // the whole release folder is installed, not the launcher alone.
+  const isFolder = process.platform === "linux";
   const target = isBundle
     ? path.join(dataDir, "Clawbrowser.app")
-    : path.join(dataDir, process.platform === "win32" ? "clawbrowser.exe" : "clawbrowser");
+    : isFolder
+      ? path.join(dataDir, "Clawbrowser")
+      : path.join(dataDir, process.platform === "win32" ? "clawbrowser.exe" : "clawbrowser");
+  const executable = isFolder ? path.join(target, "clawbrowser") : target;
   const staged = `${target}.update-${randomUUID()}`;
   const backup = `${target}.previous-${randomUUID()}`;
   let backedUp = false;
@@ -1396,6 +1413,8 @@ async function replaceClawbrowserRelease(source, release, options = {}) {
       await fs.cp(source, staged, dasbrowserAppCopyOptions());
       const signature = await run("codesign", ["--verify", "--deep", "--strict", staged], {}, { timeoutMs: 120_000 });
       if (signature.code !== 0) throw new Error("The downloaded Clawbrowser app failed macOS signature verification.");
+    } else if (isFolder) {
+      await fs.cp(path.dirname(source), staged, { recursive: true, verbatimSymlinks: true });
     } else {
       await fs.copyFile(source, staged);
       if (process.platform !== "win32") await fs.chmod(staged, 0o755);
@@ -1417,13 +1436,16 @@ async function replaceClawbrowserRelease(source, release, options = {}) {
         version: release.version,
         asset_name: release.assetName,
         archive_url: release.url,
-        browser_path: target,
+        browser_path: executable,
         source: "release-archive",
         updated_at: new Date().toISOString(),
       }, null, 2),
       "utf8",
     );
     if (backedUp) await fs.rm(backup, { recursive: true, force: true });
+    // Earlier versions copied only the Linux launcher script to the data
+    // root, where it cannot find clawbrowser.real.
+    if (isFolder) await removeStrayLinuxLauncher(path.join(dataDir, "clawbrowser"));
   } catch (error) {
     await fs.rm(staged, { recursive: true, force: true }).catch(() => undefined);
     if (backedUp) {
@@ -1503,6 +1525,26 @@ async function assertClawbrowserRuntimeIdle(nextctlBin) {
     },
   });
 }
+async function releaseHasWindowsSetup(root) {
+  const entries = await fs.readdir(root, { recursive: true }).catch(() => []);
+  return entries.some((entry) => path.basename(String(entry)).toLowerCase() === "setup.exe");
+}
+async function installClawbrowserWithNextctl(nextctlBin) {
+  let result = await run(nextctlBin, ["update", "--browser-only", "--format", "json"], { NBC_AUTO_UPDATE: "0" }, { timeoutMs: 30 * 60 * 1000 });
+  if (result.code !== 0 && /unknown flag: --browser-only/.test(`${result.stderr}${result.stdout}`)) {
+    // nextctl releases before --browser-only update the browser as part of a full update.
+    result = await run(nextctlBin, ["update", "--format", "json"], { NBC_AUTO_UPDATE: "0" }, { timeoutMs: 30 * 60 * 1000 });
+  }
+  if (result.code !== 0) {
+    let message = "";
+    try {
+      message = String(JSON.parse(result.stdout || "{}")?.error?.message || "").trim();
+    } catch {
+      // Use the bounded command output below.
+    }
+    throw new Error(message || String(result.stderr || result.stdout || "").trim().slice(0, 800) || "nextctl could not install Clawbrowser.");
+  }
+}
 async function updateClawbrowserRuntime(latestVersion) {
   const runtimeRoot = nextbrowserRuntimeRoot();
   const release = clawbrowserReleaseAsset(process.platform, process.arch, latestVersion);
@@ -1523,6 +1565,14 @@ async function updateClawbrowserRuntime(latestVersion) {
           await downloadFileStreaming(release.url, archive);
           await extractArchive(archive, release.kind, extracted);
           const source = await findClawbrowserReleaseAsset(extracted);
+          if (!source && process.platform === "win32" && await releaseHasWindowsSetup(extracted)) {
+            // Windows releases now ship setup.exe instead of a portable
+            // clawbrowser.exe. nextctl runs that installer, normalizes the
+            // install and records its version, so let it do the install.
+            await assertClawbrowserRuntimeIdle(nextctlBin);
+            await installClawbrowserWithNextctl(nextctlBin);
+            return;
+          }
           if (!source) throw new Error("The Clawbrowser release did not contain a browser executable.");
           await replaceClawbrowserRelease(source, release, {
             beforeActivate: () => assertClawbrowserRuntimeIdle(nextctlBin),
@@ -1531,7 +1581,13 @@ async function updateClawbrowserRuntime(latestVersion) {
           await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
         }
       },
-      readInstalledVersion: () => installedClawbrowserVersion(runtimeRoot),
+      // nextctl may install outside the app's data folder (the Windows setup
+      // installs into %LOCALAPPDATA%), so read the version of the browser the
+      // app will actually launch before falling back to the managed copy.
+      readInstalledVersion: async () => {
+        const executable = resolveBrowserRuntime({ platform: process.platform, homeDir: home(), env: process.env, runtimeRoot });
+        return (executable ? await installedClawbrowserVersion(runtimeRoot, executable) : "") || installedClawbrowserVersion(runtimeRoot);
+      },
     });
   } finally {
     clawbrowserRuntimeUpdateActive = false;
@@ -1559,7 +1615,12 @@ async function installCamoufoxRuntime(latestVersion) {
     for (const candidate of baseCandidates) {
       if (!(await camoufoxPythonSupported(candidate))) continue;
       created = await run(candidate, ["-m", "venv", venv], {}, { timeoutMs: 120_000 });
-      break;
+      if (created.code === 0) break;
+      // Debian and Ubuntu ship Python without ensurepip unless python3-venv is
+      // installed. Fall back to the uv-managed Python instead of failing.
+      console.warn("[camoufox_install] system Python could not create a venv; using uv", (created.stderr || created.stdout || "").trim().slice(0, 300));
+      await fs.rm(venv, { recursive: true, force: true });
+      created = null;
     }
     if (!created) {
       // A previous attempt may have created a venv with an unsupported system
@@ -1993,12 +2054,7 @@ async function invokeCommand(command, args = {}, sender) {
       } else if (process.platform === "win32") {
         spawn("cmd.exe", ["/D", "/S", "/C", "start", "Nextbrowser agent login", "cmd", "/k", bin, ...loginArgs], { detached: true, stdio: "ignore", windowsHide: false }).unref();
       } else {
-        const commandText = [bin, ...loginArgs].map(quotePosix).join(" ");
-        let started = false;
-        for (const terminal of ["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"]) try {
-          spawn(terminal, terminal === "gnome-terminal" ? ["--", "sh", "-lc", commandText] : ["-e", "sh", "-lc", commandText], { detached: true, stdio: "ignore" }).unref(); started = true; break;
-        } catch { /* try next */ }
-        if (!started) throw new Error("No terminal emulator found.");
+        await openLinuxTerminal([bin, ...loginArgs].map(quotePosix).join(" "), { spawn });
       }
       return null;
     }

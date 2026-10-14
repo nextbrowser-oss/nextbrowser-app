@@ -21,6 +21,13 @@ function browserRuntimeCandidates({ platform, homeDir, env = {}, runtimeRoot }) 
       path.join(homeDir, "Desktop", "Clawbrowser.app"),
       "/Applications/Clawbrowser.app",
     );
+  } else if (platform === "linux") {
+    // Linux release archives are a folder with a launcher script next to
+    // clawbrowser.real; installers unpack it into <root>/Clawbrowser.
+    candidates.push(
+      path.join(runtimeRoot, "data", "Clawbrowser", "clawbrowser"),
+      path.join(homeDir, ".local", "share", "clawbrowser", "Clawbrowser", "clawbrowser"),
+    );
   } else if (platform === "win32") {
     const roots = [
       path.join(runtimeRoot, "data"),

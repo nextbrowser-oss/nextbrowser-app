@@ -33,6 +33,22 @@ test("detects a managed Windows Clawbrowser executable", (t) => {
   assert.equal(resolveBrowserRuntime({ platform: "win32", homeDir: root, env: {}, runtimeRoot: path.join(root, "runtime") }), executable);
 });
 
+test("detects the managed Linux Clawbrowser release folder", { skip: process.platform === "win32" && "POSIX executable bits" }, (t) => {
+  const root = fixture(t);
+  const executable = path.join(root, "runtime", "data", "Clawbrowser", "clawbrowser");
+  fs.mkdirSync(path.dirname(executable), { recursive: true });
+  fs.writeFileSync(executable, "#!/bin/sh\n");
+  fs.chmodSync(executable, 0o755);
+  // A stray launcher copy at the data root cannot run and must not be chosen. On a
+  // case-insensitive filesystem (macOS) that name is the release folder itself, so skip it there.
+  const stray = path.join(root, "runtime", "data", "clawbrowser");
+  if (!fs.existsSync(stray)) {
+    fs.writeFileSync(stray, "#!/bin/sh\n");
+    fs.chmodSync(stray, 0o755);
+  }
+  assert.equal(resolveBrowserRuntime({ platform: "linux", homeDir: root, env: {}, runtimeRoot: path.join(root, "runtime") }), executable);
+});
+
 test("uses isolated install paths and never overwrites managed nextctl", () => {
   const args = browserInstallArgs(path.join("tmp", "runtime"));
   assert.deepEqual(args.slice(0, 2), ["install", "generic"]);
