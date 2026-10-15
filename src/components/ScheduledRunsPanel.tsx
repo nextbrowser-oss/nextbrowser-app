@@ -9,6 +9,7 @@ import { Icon } from "./Icon";
 import { SkillLogo } from "./SkillLogo";
 import { agentById } from "../agents";
 import { availableWorkspaceProfiles } from "../lib/scheduleProfile";
+import { DAILY_WEEKDAYS } from "../lib/scheduleDue";
 
 // Sentinel for the "create a dedicated chat" option in the session selector.
 const NEW_DEDICATED_CHAT = "__new_dedicated_chat__";
@@ -290,7 +291,7 @@ function MonitorScheduleRow({ run, entry, lastPassAt, note, busy, menuOpen, menu
   );
 }
 
-function ScheduleEditor({
+export function ScheduleEditor({
   run,
   conversations,
   profiles,
@@ -315,7 +316,7 @@ function ScheduleEditor({
   const [minute, setMinute] = useState(run?.minute ?? 0);
   const [repeat, setRepeat] = useState(run?.intervalMinutes ? (run.intervalMinutes % 60 === 0 ? "hourly" : "minutely") : "daily");
   const [interval, setInterval] = useState(run?.intervalMinutes ? (run.intervalMinutes % 60 === 0 ? run.intervalMinutes / 60 : run.intervalMinutes) : 1);
-  const [weekdays, setWeekdays] = useState<number[]>(run?.weekdays ?? [2, 3, 4, 5, 6]);
+  const [weekdays, setWeekdays] = useState<number[]>(run?.weekdays ?? [...DAILY_WEEKDAYS]);
   const [conversationId, setConversationId] = useState<string | undefined>(
     run?.conversationId,
   );
@@ -410,7 +411,7 @@ function ScheduleEditor({
           <button type="button" className="mini" onClick={() => setWeekdays([2, 3, 4, 5, 6])}>
             Weekdays
           </button>
-          <button type="button" className="mini" onClick={() => setWeekdays([1, 2, 3, 4, 5, 6, 7])}>
+          <button type="button" className="mini" onClick={() => setWeekdays([...DAILY_WEEKDAYS])}>
             Daily
           </button>
           <button type="button" className="mini" onClick={() => setWeekdays([1, 7])}>
