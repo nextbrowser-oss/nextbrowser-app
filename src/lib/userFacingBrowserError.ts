@@ -8,6 +8,32 @@ export const BROWSER_PROXY_UNVERIFIED =
 export const BROWSER_UNVERIFIED =
   "The browser didn’t pass its safety check, so the profile was stopped. This is a problem on our side, not with your setup.";
 
+export const BROWSER_START_TIMED_OUT =
+  "The browser took too long to start, so the profile was stopped. Try again: the first start installs the browser and can take a few minutes.";
+export const CAMOUFOX_INSTALL_FAILED =
+  "Camoufox couldn’t be installed, so the profile was stopped. Check your internet connection, then try again.";
+export const BROWSER_START_FAILED =
+  "The browser couldn’t start, so the profile was stopped. This is a problem on our side, not with your setup.";
+
+// nextctl wraps every failed start of a verified profile in VERIFY_FAILED, so
+// a browser that never got as far as its checks looks like a failed proxy
+// check. The code after "browser stopped:" tells them apart: VERIFY_REQUIRED
+// is the check itself, any other code means the start failed before it.
+const STARTUP_FAILURE_CODE = /browser stopped:\s*([A-Z][A-Z0-9_]{2,}):/;
+
+/** True when a verified start failed before the browser could be checked,
+ *  for example while installing the runtime or launching the browser. */
+export function isBrowserStartFailure(error: unknown): boolean {
+  const code = rawErrorMessage(error).match(STARTUP_FAILURE_CODE)?.[1];
+  return !!code && code !== "VERIFY_REQUIRED";
+}
+
+function browserStartFailureMessage(raw: string): string {
+  if (/did not complete before timeout|context deadline exceeded|did not become ready in time/i.test(raw)) return BROWSER_START_TIMED_OUT;
+  if (/prepare Camoufox runtime|install Camoufox|download Camoufox/i.test(raw)) return CAMOUFOX_INSTALL_FAILED;
+  return BROWSER_START_FAILED;
+}
+
 /** True when the error is a browser verification failure: the profile was
  *  stopped by our own check, so the user needs support rather than a retry. */
 export function isBrowserVerificationFailure(error: unknown): boolean {
@@ -76,6 +102,8 @@ export function userFacingBrowserError(error: unknown): string {
   // browser we just stopped. Report the failed proxy check, not a transient
   // browser connection that sounds safe to retry without inspecting the proxy.
   // The user cannot fix either one, so the message points at us, not at them.
+  if (isBrowserStartFailure(raw)) return browserStartFailureMessage(raw);
+
   if (/VERIFY_FAILED|VERIFY_REQUIRED/i.test(raw)) {
     if (/proxy profile cannot continue without its proxy|proxy required|proxy_required|failed browser checks:[^;]*\bproxy\b/i.test(raw)) {
       return BROWSER_PROXY_UNVERIFIED;

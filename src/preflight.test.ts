@@ -46,6 +46,15 @@ describe("mandatory proxy startup", () => {
     await expect(prepareSession(options)).rejects.toThrow("deadline exceeded");
     expect(commands().map((args) => args[4])).toEqual(["stop", "start", "stop", "start", "stop"]);
   });
+  it("reports a start that failed before verification instead of opening the proxy dialog", async () => {
+    const failure = "VERIFY_FAILED: browser stopped: VENDOR_UNAVAILABLE: External browser runtime operation did not complete before timeout (context deadline exceeded)";
+    nextctl.run.mockImplementation(async (args: string[]) => args.includes("start") ? { code: 1, stdout: "", stderr: failure } : { code: 0, stdout: "", stderr: "" });
+    const choose = vi.fn();
+    await expect(prepareSession({ ...options, runtime: "camoufox", statuses: { work: "stopped" }, startupVerifies: true, onVerificationFailure: choose }))
+      .rejects.toThrow("did not complete before timeout");
+    expect(choose).not.toHaveBeenCalled();
+    expect(commands().map((args) => args[4])).toEqual(["start", "stop"]);
+  });
   it("continues after successful same-proxy restart without asking for direct access", async () => {
     nextctl.json.mockResolvedValueOnce(failed).mockResolvedValueOnce(green);
     const choose = vi.fn();

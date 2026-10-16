@@ -3,6 +3,7 @@
 
 import { nextctlErrorMessage, nextctlJson, nextctlRun } from "./nextctl";
 import type { SessionStatus, TabsList } from "./types";
+import { isBrowserStartFailure } from "./lib/userFacingBrowserError";
 
 export function hostOf(raw?: string | null): string {
   if (!raw) return "";
@@ -250,6 +251,10 @@ export async function prepareSession(opts: {
       if (proxyExpected && !opts.startupVerifies && attempt < 2) step("Restarting the profile with the same proxy");
     }
   }
+  // A start that failed before the browser was checked (runtime install,
+  // launch timeout) is not a proxy problem; the verification dialog would
+  // blame the proxy, so report the start failure itself.
+  if (lastError !== undefined && isBrowserStartFailure(lastError)) throw lastError;
   if (lastError !== undefined) {
     const choice = await opts.onVerificationFailure?.({
       message: lastError instanceof Error ? lastError.message : String(lastError),

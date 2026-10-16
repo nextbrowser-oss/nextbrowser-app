@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { BROWSER_PROXY_UNVERIFIED, isBrowserVerificationFailure, userFacingBrowserError } from "./userFacingBrowserError";
+import {
+  BROWSER_PROXY_UNVERIFIED,
+  BROWSER_START_FAILED,
+  BROWSER_START_TIMED_OUT,
+  CAMOUFOX_INSTALL_FAILED,
+  isBrowserStartFailure,
+  isBrowserVerificationFailure,
+  userFacingBrowserError,
+} from "./userFacingBrowserError";
 
 describe("userFacingBrowserError", () => {
   it("turns a Remote Control 404 into an actionable message without internals", () => {
@@ -64,6 +72,25 @@ describe("userFacingBrowserError", () => {
     expect(message).toContain("problem on our side");
     expect(message).not.toMatch(/VERIFY_|Resolve the verification/);
     expect(isBrowserVerificationFailure(raw)).toBe(true);
+  });
+
+  it("reports a start that timed out while installing Camoufox as a slow start, not a proxy failure", () => {
+    const raw = "Could not start Nextbrowser: VERIFY_FAILED: browser stopped: VENDOR_UNAVAILABLE: External browser runtime operation did not complete before timeout (prepare Camoufox managed proxy: get proxy traffic: Get \"https://api.nextbrowser.com/v1/proxy/traffic\": context deadline exceeded) [VERIFY_FAILED] — Resolve the verification failure and retry this profile. A proxy profile cannot continue without its proxy.";
+    expect(isBrowserStartFailure(raw)).toBe(true);
+    expect(userFacingBrowserError(raw)).toBe(BROWSER_START_TIMED_OUT);
+    expect(userFacingBrowserError(raw)).not.toMatch(/proxy|VERIFY_|api\.nextbrowser/i);
+  });
+
+  it("names a failed Camoufox install and a failed launch without blaming the proxy", () => {
+    const install = "VERIFY_FAILED: browser stopped: LAUNCH_FAILED: launch failed (prepare Camoufox runtime: install Camoufox: exit status 1: pip error) — A proxy profile cannot continue without its proxy.";
+    expect(userFacingBrowserError(install)).toBe(CAMOUFOX_INSTALL_FAILED);
+    const launch = "VERIFY_FAILED: browser stopped: LAUNCH_FAILED: launch failed (Camoufox exited before becoming ready: RuntimeError) — A proxy profile cannot continue without its proxy.";
+    expect(userFacingBrowserError(launch)).toBe(BROWSER_START_FAILED);
+  });
+
+  it("keeps a failed proxy check and a dropped CDP connection as proxy failures", () => {
+    expect(isBrowserStartFailure("VERIFY_FAILED: browser stopped: VERIFY_REQUIRED: failed browser checks: proxy; the profile cannot be used")).toBe(false);
+    expect(isBrowserStartFailure("VERIFY_FAILED: browser stopped: cdp Runtime.evaluate: read response: connection reset")).toBe(false);
   });
 
   it("leaves the outdated-Clawbrowser refusal as an update action, not a support case", () => {
