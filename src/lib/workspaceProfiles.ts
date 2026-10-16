@@ -46,3 +46,24 @@ export function countWorkspaceProfiles(
   const listed = (workspace?.profileNames ?? []).filter((name) => existing.has(name)).length;
   return listed + (hasMultiloginProfile ? 1 : 0);
 }
+
+/**
+ * Browser profiles stay on the computer that created them, while workspaces
+ * sync through the account, so a workspace can arrive from another computer
+ * with no profile here. Say so only once this computer's profiles have been
+ * read, and not while first-run setup is still creating the defaults.
+ */
+export function workspaceHasNoLocalProfiles(state: {
+  authed: boolean;
+  profilesLoaded: boolean;
+  workspaceSetupAuto: string;
+  activeWorkspaceId?: string;
+  workspaces: ReadonlyArray<{ id: string; profileNames: readonly string[] }>;
+  profiles: ReadonlyArray<{ name: string }>;
+}): boolean {
+  if (!state.authed || !state.profilesLoaded || state.workspaceSetupAuto === "running") return false;
+  const workspace = state.workspaces.find((item) => item.id === state.activeWorkspaceId);
+  if (!workspace) return false;
+  const local = new Set(state.profiles.map((profile) => profile.name));
+  return !workspace.profileNames.some((name) => local.has(name));
+}

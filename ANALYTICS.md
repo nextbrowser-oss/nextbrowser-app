@@ -48,6 +48,37 @@ reports and explorations.
   `script_run_completed`, `script_run_failed`, `custom_script_save_completed`,
   `scheduled_run_created`, `scheduled_run_fired`, `scheduled_run_start_failed`.
 
+## Onboarding Funnel
+
+First launch to the first successful browser task. These events carry step
+ids, enums, counts, and booleans only: never emails, profile or project names,
+prompts, or URLs.
+
+- `workspace_auto_setup_completed` / `workspace_auto_setup_failed`: first-run
+  defaults for a new account (`profiles_created`, `profiles_failed`,
+  `duration_ms`).
+- `onboarding_started` (`trigger`: `first_run`, `new_version`, `replay`).
+- `onboarding_step_viewed` (`step`, `step_number`, `trigger`). The tour
+  coming back from a setup it stepped aside for is not a new view.
+- `onboarding_step_completed` (`step`, `step_number`, `via`, `ready`): the
+  user left the step forward, once per step and tour run. `ready` says whether
+  the step's own criterion held (account connected, agent ready, selected
+  profile running, example sent to Chat).
+- `onboarding_resumed` (`step`, `failed`): the tour returned after sign-in,
+  profile setup, or a profile start.
+- `onboarding_closed` (`reason`: `completed` or `skipped`, `last_step`,
+  `trigger`, `steps_completed`, `duration_ms`, `agent_ready`,
+  `profile_count`).
+- `browser_runtime_download_prompted` (`runtime`),
+  `browser_runtime_download_decided` (`runtime`, `decision`: `download` or
+  `cancel`), `browser_runtime_download_stopped` (`runtime`).
+- `first_task_submitted` and `first_task_succeeded`, once per install
+  (`agent`, `execution_target`, `from_example`, `onboarding_done`; submitted
+  also has `chip_kind`). Success means a reply finished while a browser
+  profile of the chat's workspace was running at the start or end of the
+  turn. Installs that had sent tasks before these events existed never send
+  them.
+
 ## Recommended GA4 Custom Dimensions
 
 Create these as event-scoped custom dimensions when you need them in standard
@@ -68,11 +99,13 @@ reports. They are immediately usable in Explorations after registration.
 - `chip_kind`
 - `update_status`
 - `reason`
+- `step`, `via`, `ready`, `trigger`, `decision`, `runtime`, `from_example`
 
 Recommended custom metrics:
 
 - `duration_ms`
 - `profile_count`
+- `step_number`, `steps_completed`, `profiles_created`, `profiles_failed`
 - `conversation_count`
 - `attachment_count`
 - `prompt_length_bucket`

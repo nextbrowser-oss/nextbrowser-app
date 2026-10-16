@@ -1985,6 +1985,15 @@ body.is-resizing-sidebar {
   scrollbar-gutter: stable;
 }
 .workspace-empty { padding: 7px; }
+.local-profiles-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+}
+.local-profiles-empty > span { line-height: 1.45; }
+.local-profiles-empty > button { margin-top: 2px; }
 .workspace-profile-list .profile-row {
   position: relative;
   border-color: var(--line);
@@ -6311,6 +6320,46 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .onboarding-profile-status strong { color: var(--text); font-size: 13px; }
 .onboarding-profile-status span span { color: var(--muted); font-size: 11px; }
 .onboarding-profile-status > button { flex: none; }
+.onboarding-profile-options {
+  max-height: 228px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+}
+.onboarding-profile-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-1);
+  text-align: left;
+  transition: border-color 140ms ease;
+}
+.onboarding-profile-option:hover { border-color: color-mix(in srgb, var(--accent) 30%, var(--line)); }
+.onboarding-profile-option.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--line));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.onboarding-profile-option > span:not(.dot) {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.onboarding-profile-option strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.onboarding-profile-option span span { color: var(--muted); font-size: 11px; }
+.onboarding-profile-option .ok { flex: none; color: var(--accent-text); }
+.onboarding-profile-create { align-self: flex-start; }
 .onboarding-agent-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -6393,7 +6442,8 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   color: var(--green);
   opacity: 1;
 }
-.onboarding-agent-error {
+.onboarding-agent-error,
+.onboarding-setup-error {
   display: flex;
   flex-wrap: wrap;
   align-items: center;

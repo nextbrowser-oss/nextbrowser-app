@@ -4,10 +4,13 @@ import { trackEvent } from "../lib/analytics";
 import {
   FIRST_TASK_EXAMPLE,
   ONBOARDING_STEPS,
+  onboardingProfileChoices,
   onboardingProfileSummary,
 } from "../lib/onboarding";
+import { onboardingFunnel, onboardingTrigger, type OnboardingStepExit } from "../lib/onboardingFunnel";
 import { openGuideChatDraft } from "../lib/guideDraft";
 import { guideWorkspaceProfileNames } from "../lib/guideQuickStart";
+import { workspaceHasNoLocalProfiles } from "../lib/workspaceProfiles";
 import { useStore } from "../store";
 import type { AppTab } from "../types";
 import { AgentInstallLink } from "./AgentInstallLink";
@@ -36,8 +39,19 @@ export function OnboardingView() {
   const activeWorkspaceId = useStore((s) => s.activeWorkspaceId);
   const statuses = useStore((s) => s.statuses);
   const selectedProfile = useStore((s) => s.selectedProfile);
+  const selectProfile = useStore((s) => s.selectProfile);
   const workspaceProfileNames = guideWorkspaceProfileNames(activeWorkspaceId, workspaces, profiles);
+  const profileChoices = onboardingProfileChoices(
+    workspaceProfileNames,
+    profiles,
+    workspaces.find((workspace) => workspace.id === activeWorkspaceId)?.profileToolsets ?? {},
+    statuses,
+  );
   const profileCount = workspaceProfileNames.length;
+  const noLocalProfiles = useStore(workspaceHasNoLocalProfiles);
+  const creatingDefaultProfiles = useStore((s) => s.defaultProfilesCreating);
+  const defaultProfilesError = useStore((s) => s.defaultProfilesError);
+  const createDefaultProfiles = useStore((s) => s.createDefaultProfiles);
   const runningProfileCount = workspaceProfileNames.filter((name) => statuses[name] === "running").length;
   const selectedWorkspaceProfile = selectedProfile && workspaceProfileNames.includes(selectedProfile)
     ? selectedProfile
@@ -48,6 +62,7 @@ export function OnboardingView() {
   const stepIndex = useStore((s) => s.onboardingStepIndex);
   const setStepIndex = useStore((s) => s.setOnboardingStepIndex);
   const suspendForSetup = useStore((s) => s.suspendOnboardingForSetup);
+  const setupError = useStore((s) => s.onboardingSetupError);
   const [tryChatConfirmOpen, setTryChatConfirmOpen] = useState(false);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
@@ -61,22 +76,29 @@ export function OnboardingView() {
   useEffect(() => {
     headingRef.current?.focus();
     setTryChatConfirmOpen(false);
-    trackEvent("onboarding_step_viewed", {
-      step: current.id,
-      step_number: stepIndex + 1,
-    });
+    onboardingFunnel.viewStep(current.id, onboardingTrigger(localStorage));
   }, [current.id, stepIndex]);
 
-  const goToStep = (index: number) => {
+  // A step counts as completed when the user leaves it forward. The event says
+  // whether the step's own criterion held at that moment.
+  const completeCurrentStep = (via: OnboardingStepExit) => {
+    onboardingFunnel.completeStep(current.id, via, {
+      accountConnected: authed,
+      agentReady: ready,
+      profileRunning: selectedSessionRunning,
+    });
+  };
+
+  const goToStep = (index: number, via: OnboardingStepExit = "rail") => {
+    if (index > stepIndex) completeCurrentStep(via);
     setStepIndex(Math.max(0, Math.min(ONBOARDING_STEPS.length - 1, index)));
   };
 
   const closeTutorial = useCallback((reason: "skipped" | "completed", destination?: AppTab) => {
-    trackEvent("onboarding_closed", {
-      reason,
-      last_step: current.id,
-      agent_ready: ready,
-      profile_count: profileCount,
+    onboardingFunnel.close(reason, {
+      lastStep: current.id,
+      agentReady: ready,
+      profileCount,
     });
     if (destination) setTab(destination);
     if (destination === "guide") setSidebarCollapsed(false);
@@ -153,6 +175,32 @@ export function OnboardingView() {
     window.dispatchEvent(new CustomEvent("nextbrowser:open-profile-creator"));
   };
 
+  const startSelectedProfile = () => {
+    // The download prompt and start errors open under the tour, so step aside
+    // like the profile creator does. The sidebar brings the tour back once the
+    // start settles or the download is cancelled.
+    suspendForSetup();
+    setSidebarCollapsed(false);
+    window.requestAnimationFrame(() => window.dispatchEvent(
+      new CustomEvent("nextbrowser:start-selected-profile"),
+    ));
+  };
+
+  const createDefaultProfilesHere = () => {
+    trackEvent("onboarding_profile_action", { action: "create_defaults" });
+    void createDefaultProfiles();
+  };
+
+  const chooseProfile = (name: string) => {
+    trackEvent("onboarding_profile_action", { action: "select" });
+    selectProfile(name);
+  };
+
+  const startChosenProfile = () => {
+    trackEvent("onboarding_profile_action", { action: "start" });
+    startSelectedProfile();
+  };
+
   const startProfileForLive = () => {
     trackEvent("onboarding_live_profile_action", {
       action: profileCount > 0 ? "start" : "setup",
@@ -161,10 +209,7 @@ export function OnboardingView() {
       openProfileSetup();
       return;
     }
-    setSidebarCollapsed(false);
-    window.requestAnimationFrame(() => window.dispatchEvent(
-      new CustomEvent("nextbrowser:start-selected-profile"),
-    ));
+    startSelectedProfile();
   };
 
   const openTryChatConfirmation = () => {
@@ -183,6 +228,7 @@ export function OnboardingView() {
     if (!prompt) return;
     trackEvent("onboarding_try_chat_confirmed");
     setTryChatConfirmOpen(false);
+    completeCurrentStep("try_chat");
     closeTutorial("completed");
   };
 
@@ -336,26 +382,96 @@ export function OnboardingView() {
 
             {current.id === "profile" && (
               <div className="onboarding-step-content">
-                <div className={"onboarding-profile-status" + (runningProfileCount > 0 ? " is-ready" : "")}>
+                <div className={"onboarding-profile-status" + (selectedSessionRunning ? " is-ready" : "")}>
                   <Icon
-                    name={runningProfileCount > 0 ? "checkmark.circle.fill" : "person.2.fill"}
+                    name={selectedSessionRunning ? "checkmark.circle.fill" : "person.2.fill"}
                     size={18}
                   />
                   <span>
                     <strong>
-                      {runningProfileCount > 0
+                      {selectedSessionRunning
                         ? "Profile ready"
-                        : profileCount > 0
-                          ? "Start a profile"
-                          : "Create a profile"}
+                        : noLocalProfiles
+                          ? "No profiles on this computer"
+                          : profileCount === 0
+                            ? "Create a profile"
+                            : selectedWorkspaceProfile
+                              ? "Start a profile"
+                              : "Choose a profile"}
                     </strong>
-                    <span>{onboardingProfileSummary(profileCount, runningProfileCount)}</span>
+                    <span>
+                      {noLocalProfiles
+                        ? "Profiles stay on the computer where they were created."
+                        : onboardingProfileSummary(profileCount, runningProfileCount)}
+                    </span>
                   </span>
-                  <button type="button" className="btn-bordered" onClick={openProfileSetup}>
-                    Set up profile
-                    <Icon name="chevron.right" size={13} />
-                  </button>
+                  {noLocalProfiles ? (
+                    <button
+                      type="button"
+                      className="btn-bordered-prominent"
+                      disabled={creatingDefaultProfiles}
+                      onClick={createDefaultProfilesHere}
+                    >
+                      {creatingDefaultProfiles && <Spinner size={13} />}
+                      {creatingDefaultProfiles ? "Creating…" : "Create default profiles"}
+                    </button>
+                  ) : profileCount === 0 ? (
+                    <button type="button" className="btn-bordered" onClick={openProfileSetup}>
+                      Set up profile
+                      <Icon name="chevron.right" size={13} />
+                    </button>
+                  ) : !selectedSessionRunning && (
+                    <button
+                      type="button"
+                      className="btn-bordered-prominent"
+                      disabled={!selectedWorkspaceProfile || selectedSessionStarting}
+                      onClick={startChosenProfile}
+                    >
+                      {selectedSessionStarting && <Spinner size={13} />}
+                      {selectedSessionStarting ? "Starting…" : "Start profile"}
+                      {!selectedSessionStarting && <Icon name="chevron.right" size={13} />}
+                    </button>
+                  )}
                 </div>
+                {profileCount > 0 && (
+                  <div className="onboarding-profile-options" role="group" aria-label="Workspace profiles">
+                    {profileChoices.map((choice) => {
+                      const chosen = choice.name === selectedWorkspaceProfile;
+                      return (
+                        <button
+                          key={choice.name}
+                          type="button"
+                          className={"onboarding-profile-option" + (chosen ? " is-selected" : "")}
+                          aria-pressed={chosen}
+                          onClick={() => chooseProfile(choice.name)}
+                        >
+                          <span className={"dot " + (choice.state === "running" ? "green" : choice.state === "starting" ? "orange" : "gray")} />
+                          <span>
+                            <strong>{choice.label}</strong>
+                            <span>{choice.detail}</span>
+                          </span>
+                          {chosen && <Icon name="checkmark.circle.fill" size={16} className="ok" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {setupError && (
+                  <div className="onboarding-setup-error error small" role="alert">
+                    <UserFacingError message={setupError} surface="onboarding" />
+                  </div>
+                )}
+                {noLocalProfiles && defaultProfilesError && (
+                  <div className="onboarding-setup-error error small" role="alert">
+                    <UserFacingError message={defaultProfilesError} surface="onboarding" />
+                  </div>
+                )}
+                {(profileCount > 0 || noLocalProfiles) && (
+                  <button type="button" className="btn-bordered onboarding-profile-create" onClick={openProfileSetup}>
+                    <Icon name="plus" size={13} />
+                    Create a profile
+                  </button>
+                )}
                 <p className="muted small">Saved profiles are browser settings. A browser toolset downloads separately when you first start it.</p>
               </div>
             )}
@@ -416,7 +532,7 @@ export function OnboardingView() {
                     <button
                       type="button"
                       className="btn-bordered-prominent"
-                      onClick={() => closeTutorial("completed", "live")}
+                      onClick={() => { completeCurrentStep("open_live"); closeTutorial("completed", "live"); }}
                     >
                       Open Live
                       <Icon name="chevron.right" size={13} />
@@ -438,6 +554,11 @@ export function OnboardingView() {
                     </button>
                   )}
                 </div>
+                {setupError && (
+                  <div className="onboarding-setup-error error small" role="alert">
+                    <UserFacingError message={setupError} surface="onboarding" />
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -454,12 +575,12 @@ export function OnboardingView() {
             )}
             <span className="spacer" />
             {isLastStep ? (
-              <button type="button" className="btn-bordered-prominent" onClick={() => closeTutorial("completed", "guide")}>
+              <button type="button" className="btn-bordered-prominent" onClick={() => { completeCurrentStep("finish"); closeTutorial("completed", "guide"); }}>
                 Continue in Guide
                 <Icon name="chevron.right" size={13} />
               </button>
             ) : (
-              <button type="button" className="btn-bordered-prominent" onClick={() => goToStep(stepIndex + 1)}>
+              <button type="button" className="btn-bordered-prominent" onClick={() => goToStep(stepIndex + 1, "continue")}>
                 Continue
                 <Icon name="chevron.right" size={13} />
               </button>

@@ -1,3 +1,6 @@
+import { guideSessionState, type GuideSessionState } from "./guideQuickStart";
+import type { BrowserToolset } from "../types";
+
 export const ONBOARDING_VERSION = "2";
 export const ONBOARDING_VERSION_KEY = "onboardingVersion";
 export const LEGACY_ONBOARDING_KEY = "onboardingComplete";
@@ -63,6 +66,38 @@ export function onboardingProfileSummary(
 ): string {
   if (savedCount === 0) return "No saved profiles";
   return `${savedCount} saved · ${runningCount} running`;
+}
+
+const TOOLSET_LABELS: Record<BrowserToolset, string> = {
+  clawbrowser: "Clawbrowser",
+  dasbrowser: "DasBrowser",
+  camoufox: "Camoufox",
+};
+
+export interface OnboardingProfileChoice {
+  name: string;
+  label: string;
+  detail: string;
+  state: GuideSessionState;
+}
+
+/** The workspace profiles the profile step lets the user choose from. */
+export function onboardingProfileChoices(
+  names: readonly string[],
+  profiles: ReadonlyArray<{ name: string; display_name?: string | null }>,
+  toolsets: Readonly<Record<string, BrowserToolset | undefined>>,
+  statuses: Readonly<Record<string, string | undefined>>,
+): OnboardingProfileChoice[] {
+  return names.map((name) => {
+    const state = guideSessionState(statuses[name]);
+    const toolset = TOOLSET_LABELS[toolsets[name] ?? "clawbrowser"];
+    return {
+      name,
+      label: profiles.find((profile) => profile.name === name)?.display_name || name,
+      detail: `${toolset} · ${state === "running" ? "Running" : state === "starting" ? "Starting…" : "Stopped"}`,
+      state,
+    };
+  });
 }
 
 export function hasCompletedCurrentOnboarding(
