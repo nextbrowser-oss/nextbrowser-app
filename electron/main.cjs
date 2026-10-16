@@ -7,6 +7,7 @@ const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Me
 const { autoUpdater } = require("electron-updater");
 const { createAppUpdateDownload } = require("./app-update-download.cjs");
 const { execFileSync, spawn } = require("node:child_process");
+const { nextctlPlatformArchive: platformNextctlArchive, runningUnderRosetta } = require("./nextctl-archive.cjs");
 const { feedbackBuildContext } = require("./app-build-info.cjs");
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
@@ -515,16 +516,8 @@ function managedNextctlBin() {
 }
 function nextctlPlatformArchive() {
   const arch = os.arch();
-  if (process.platform === "darwin") {
-    if (arch === "arm64") return { name: "nbc-macos-arm64.tar.gz", kind: "tar" };
-    if (arch === "x64") return { name: "nbc-macos-amd64.tar.gz", kind: "tar" };
-  }
-  if (process.platform === "linux") {
-    if (arch === "arm64") return { name: "nbc-linux-arm64.tar.gz", kind: "tar" };
-    if (arch === "x64") return { name: "nbc-linux-amd64.tar.gz", kind: "tar" };
-  }
-  if (process.platform === "win32" && arch === "x64") return { name: "nbc-win-amd64.zip", kind: "zip" };
-  throw new Error(`Unsupported nextctl platform: ${process.platform}/${arch}`);
+  const translated = process.platform === "darwin" && arch === "x64" && runningUnderRosetta(execFileSync);
+  return platformNextctlArchive({ platform: process.platform, arch, translated });
 }
 function findNextctlInTree(root) {
   return findBinaryUnderRoots("nextctl", [root]) || findBinaryUnderRoots("nbc", [root]);

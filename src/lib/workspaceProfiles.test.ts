@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Workspace } from "../types";
-import { countWorkspaceProfiles, moveProfileToWorkspace } from "./workspaceProfiles";
+import { countWorkspaceProfiles, moveProfileToWorkspace, workspaceHasNoLocalProfiles } from "./workspaceProfiles";
 
 const workspaces: Workspace[] = [
   { id: "one", name: "One", profileNames: ["browser"], profileToolsets: { browser: "dasbrowser" }, profileProxyIds: { browser: "proxy-id" }, createdAt: 1, updatedAt: 1 },
@@ -34,5 +34,36 @@ describe("countWorkspaceProfiles", () => {
     expect(countWorkspaceProfiles(workspace, inventory, false)).toBe(1);
     expect(countWorkspaceProfiles(workspace, inventory, true)).toBe(2);
     expect(countWorkspaceProfiles(undefined, inventory, false)).toBe(0);
+  });
+});
+
+describe("workspaceHasNoLocalProfiles", () => {
+  const signedIn = {
+    authed: true,
+    profilesLoaded: true,
+    workspaceSetupAuto: "done",
+    activeWorkspaceId: "one",
+    workspaces,
+    profiles: [{ name: "another-account" }],
+  };
+
+  it("flags a workspace whose profiles were all created on another computer", () => {
+    expect(workspaceHasNoLocalProfiles(signedIn)).toBe(true);
+  });
+
+  it("flags an empty workspace", () => {
+    expect(workspaceHasNoLocalProfiles({ ...signedIn, workspaces: [{ id: "one", profileNames: [] }] })).toBe(true);
+  });
+
+  it("stays quiet once one of the workspace's profiles is on this computer", () => {
+    expect(workspaceHasNoLocalProfiles({ ...signedIn, profiles: [{ name: "browser" }] })).toBe(false);
+  });
+
+  it("waits for the account, this computer's profile list, and first-run setup", () => {
+    expect(workspaceHasNoLocalProfiles({ ...signedIn, authed: false })).toBe(false);
+    expect(workspaceHasNoLocalProfiles({ ...signedIn, profilesLoaded: false })).toBe(false);
+    expect(workspaceHasNoLocalProfiles({ ...signedIn, workspaceSetupAuto: "running" })).toBe(false);
+    expect(workspaceHasNoLocalProfiles({ ...signedIn, activeWorkspaceId: undefined })).toBe(false);
+    expect(workspaceHasNoLocalProfiles({ ...signedIn, activeWorkspaceId: "missing" })).toBe(false);
   });
 });

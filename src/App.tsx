@@ -1793,6 +1793,7 @@ export function App() {
       {showOnboarding && <OnboardingView />}
       {!checking && agentReady && workspaceSetupRequired && workspaceSetupAuto === "failed" && <WorkspaceSetupGate />}
       {browserRuntimeInstall && !browserInstallHidden && <BrowserRuntimeInstallModal status={browserRuntimeInstall} onHide={() => setBrowserInstallHiddenKey(browserRuntimeInstallKey(browserRuntimeInstall))} onCancel={() => {
+        trackEvent("browser_runtime_download_stopped", { runtime: browserRuntimeInstall.runtime });
         if (browserRuntimeInstall.requestId) void invoke("nextctl_cancel", { requestId: browserRuntimeInstall.requestId });
         setBrowserRuntimeInstall(undefined);
       }} />}

@@ -36,6 +36,11 @@ const { state } = vi.hoisted(() => {
     onboardingStepIndex: 1,
     setOnboardingStepIndex: () => undefined,
     suspendOnboardingForSetup: () => undefined,
+    onboardingSetupError: undefined as string | undefined,
+    profilesLoaded: false,
+    workspaceSetupAuto: "done",
+    defaultProfilesCreating: false,
+    defaultProfilesError: undefined as string | undefined,
   };
   return { state };
 });
@@ -58,6 +63,10 @@ describe("agent onboarding step", () => {
     state.activeWorkspaceId = "workspace";
     state.selectedProfile = undefined;
     state.statuses = {};
+    state.onboardingSetupError = undefined;
+    state.profilesLoaded = false;
+    state.defaultProfilesCreating = false;
+    state.defaultProfilesError = undefined;
   });
 
   it("shows a compact connected state without setup copy or permanent links", () => {
@@ -99,6 +108,83 @@ describe("agent onboarding step", () => {
     expect(html).not.toContain("shop-us");
     expect(html).not.toContain("Profile setup sequence");
     expect(html).not.toContain("Verify identity when country");
+  });
+
+  it("lets the user choose one of the workspace profiles before starting it", () => {
+    state.onboardingStepIndex = 2;
+    state.profiles = [{ name: "shop" }, { name: "work" }];
+    state.workspaces = [{ id: "workspace", profileNames: ["shop", "work"] }];
+
+    const html = renderToStaticMarkup(<OnboardingView />);
+
+    expect(html).toContain("Choose the profile the agent should use, then start it.");
+    expect(html).toContain("Choose a profile");
+    expect(html).toContain("2 saved · 0 running");
+    expect(html.match(/class="onboarding-profile-option"/g)).toHaveLength(2);
+    expect(html).toContain("Clawbrowser · Stopped");
+    expect(html).toMatch(/<button type="button" class="btn-bordered-prominent" disabled="">Start profile/);
+    expect(html).toContain("Create a profile");
+    expect(html).not.toContain("Set up profile");
+  });
+
+  it("marks the selected profile and offers to start it", () => {
+    state.onboardingStepIndex = 2;
+    state.profiles = [{ name: "shop" }, { name: "work" }];
+    state.workspaces = [{ id: "workspace", profileNames: ["shop", "work"] }];
+    state.selectedProfile = "work";
+    state.statuses.shop = "running";
+
+    const html = renderToStaticMarkup(<OnboardingView />);
+
+    expect(html).toContain("Start a profile");
+    expect(html).toContain("2 saved · 1 running");
+    expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
+    expect(html).toMatch(/is-selected" aria-pressed="true">.*<strong>work<\/strong>/);
+    expect(html).toMatch(/<button type="button" class="btn-bordered-prominent">Start profile/);
+  });
+
+  it("calls the selected profile ready once it runs", () => {
+    state.onboardingStepIndex = 2;
+    state.profiles = [{ name: "shop" }, { name: "work" }];
+    state.workspaces = [{ id: "workspace", profileNames: ["shop", "work"] }];
+    state.selectedProfile = "work";
+    state.statuses.work = "running";
+
+    const html = renderToStaticMarkup(<OnboardingView />);
+
+    expect(html).toContain("Profile ready");
+    expect(html).toContain("Clawbrowser · Running");
+    expect(html).not.toContain("Start profile");
+    expect(html).toContain("Create a profile");
+  });
+
+  it("explains that profiles stay on the computer that created them", () => {
+    state.onboardingStepIndex = 2;
+    state.profilesLoaded = true;
+
+    const html = renderToStaticMarkup(<OnboardingView />);
+
+    expect(html).toContain("No profiles on this computer");
+    expect(html).toContain("Profiles stay on the computer where they were created.");
+    expect(html).toMatch(/<button type="button" class="btn-bordered-prominent">Create default profiles<\/button>/);
+    expect(html).toContain("Create a profile");
+    expect(html).not.toContain("Set up profile");
+    expect(html).not.toContain("No saved profiles");
+  });
+
+  it("shows the default profiles being created, and why they could not be", () => {
+    state.onboardingStepIndex = 2;
+    state.profilesLoaded = true;
+    state.defaultProfilesCreating = true;
+
+    expect(renderToStaticMarkup(<OnboardingView />)).toMatch(/disabled="">.*Creating…<\/button>/);
+
+    state.defaultProfilesCreating = false;
+    state.defaultProfilesError = "We couldn't create the profiles. Ref: NB-0000ABCD";
+
+    const html = renderToStaticMarkup(<OnboardingView />);
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("We couldn&#x27;t create the profiles.");
   });
 
   it("keeps the first task compact and offers a cancellable Chat handoff", () => {
@@ -158,5 +244,19 @@ describe("agent onboarding step", () => {
 
     expect(html).toContain("Start profile");
     expect(html).not.toContain("Set up profile");
+  });
+
+  it("says why the start failed when the tour comes back", () => {
+    state.onboardingStepIndex = 4;
+    state.profiles = [{ name: "work" }];
+    state.selectedProfile = "work";
+    state.statuses.work = "stopped";
+    state.onboardingSetupError = "We couldn't start “work”. Check your connection.";
+
+    const html = renderToStaticMarkup(<OnboardingView />);
+
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("We couldn&#x27;t start “work”. Check your connection.");
+    expect(html).toContain("Start profile");
   });
 });

@@ -490,6 +490,57 @@ describe("onboarding setup handoff", () => {
 
     expect(useStore.getState().showOnboarding).toBe(false);
   });
+
+  it("comes back with the reason a profile start failed, until the step changes", async () => {
+    const { useStore } = await import("./store");
+    useStore.setState({ showOnboarding: true, onboardingStepIndex: 4, dashboardKeyPromptOpen: false });
+
+    useStore.getState().suspendOnboardingForSetup();
+    useStore.getState().resumeOnboardingAfterSetup("We couldn't start “work”.");
+
+    expect(useStore.getState()).toMatchObject({
+      showOnboarding: true,
+      onboardingStepIndex: 4,
+      onboardingReturnPending: false,
+      onboardingSetupError: "We couldn't start “work”.",
+    });
+
+    useStore.getState().setOnboardingStepIndex(3);
+    expect(useStore.getState().onboardingSetupError).toBeUndefined();
+  });
+
+  it("forgets an old start error when the tour steps aside again", async () => {
+    const { useStore } = await import("./store");
+    useStore.setState({ showOnboarding: true, onboardingSetupError: "We couldn't start “work”.", dashboardKeyPromptOpen: false });
+
+    useStore.getState().suspendOnboardingForSetup();
+    expect(useStore.getState().onboardingSetupError).toBeUndefined();
+
+    useStore.getState().resumeOnboardingAfterSetup();
+    expect(useStore.getState()).toMatchObject({ showOnboarding: true, onboardingSetupError: undefined });
+  });
+
+  it("stays out of the way while a failed start asks the user to sign in", async () => {
+    const { useStore } = await import("./store");
+    useStore.setState({ showOnboarding: true, onboardingStepIndex: 4, dashboardKeyPromptOpen: false });
+
+    useStore.getState().suspendOnboardingForSetup();
+    useStore.setState({ dashboardKeyPromptOpen: true });
+    useStore.getState().resumeOnboardingAfterSetup("Sign in to use managed profiles.");
+
+    expect(useStore.getState()).toMatchObject({ showOnboarding: false, onboardingReturnPending: true });
+
+    // Closing the sign-in prompt resumes the tour, as DashboardKeyModal does.
+    useStore.getState().setDashboardKeyPromptOpen(false);
+    useStore.getState().resumeOnboardingAfterSetup();
+
+    expect(useStore.getState()).toMatchObject({
+      showOnboarding: true,
+      onboardingStepIndex: 4,
+      onboardingReturnPending: false,
+      onboardingSetupError: undefined,
+    });
+  });
 });
 
 describe("foreground startup deadline", () => {

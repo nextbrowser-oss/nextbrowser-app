@@ -3,6 +3,7 @@ import {
   FIRST_TASK_EXAMPLE,
   hasCompletedCurrentOnboarding,
   ONBOARDING_STEPS,
+  onboardingProfileChoices,
   ONBOARDING_VERSION,
   ONBOARDING_VERSION_KEY,
   onboardingProfileSummary,
@@ -60,6 +61,19 @@ describe("first-run onboarding", () => {
     expect(onboardingProfileSummary(0, 0)).toBe("No saved profiles");
     expect(onboardingProfileSummary(3, 0)).toBe("3 saved · 0 running");
     expect(onboardingProfileSummary(3, 1)).toBe("3 saved · 1 running");
+  });
+
+  it("lists workspace profiles with their toolset and state for the profile step", () => {
+    expect(onboardingProfileChoices(
+      ["shop", "work", "test"],
+      [{ name: "work", display_name: "Work" }, { name: "shop" }, { name: "test", display_name: null }],
+      { shop: "camoufox", work: "dasbrowser" },
+      { shop: "running", work: "starting" },
+    )).toEqual([
+      { name: "shop", label: "shop", detail: "Camoufox · Running", state: "running" },
+      { name: "work", label: "Work", detail: "DasBrowser · Starting…", state: "starting" },
+      { name: "test", label: "test", detail: "Clawbrowser · Stopped", state: "stopped" },
+    ]);
   });
 
   it("shows each onboarding revision once, including after the legacy tour", () => {
