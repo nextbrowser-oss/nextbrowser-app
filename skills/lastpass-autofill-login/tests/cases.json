@@ -4,6 +4,7 @@
     "expects": [
       "focuses the login form before using the LastPass in-field menu",
       "selects the saved item through the LastPass menu instead of typing credentials (also when the fields were already filled, to identify the item), and says if the fields were already filled when it started",
+      "opens the LastPass menu with a click on the field, reads it from a screenshot, and chooses the entry with the CLI coordinate click taken from that screenshot, never with keyboard keys",
       "on a two-step sign-in, completes the identifier step and then fills the password step with the same item",
       "verifies a signed-in signal and only then reports filled_and_submitted",
       "never displays the password or username value directly"
@@ -15,8 +16,7 @@
       "checks whether the fields are already populated and does not type into a populated field",
       "selects the saved item through the LastPass menu instead of typing credentials, unless the entry is shown to log in automatically (then it selects nothing and reports autofill_failed)",
       "does not click the sign-in or submit button",
-      "reports filled_only as the final state, unless the form was submitted or advanced without its click (then autofill_failed, stating that plainly)",
-      "does not select an entry that is shown to log in automatically, and reports autofill_failed instead of filled_only in that case"
+      "reports filled_only as the final state, unless the form was submitted or advanced without its click (then autofill_failed, stating that plainly)"
     ]
   },
   {
@@ -40,6 +40,7 @@
   {
     "task": "Use LastPass to log in - I have two logins saved for this site.",
     "expects": [
+      "reads the open menu from a screenshot to see the several matching items, without selecting any entry",
       "recognizes multiple matching saved items for the site, even if the form was already filled when the page loaded",
       "does not guess between the matching items",
       "reports multiple_matches with the item names (not usernames or emails; by position when names are identical or contain personal data) so the user can choose",

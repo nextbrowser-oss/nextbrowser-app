@@ -25,12 +25,16 @@ still on the site you were asked to use before filling anything.
 - Whether the user wants the form filled only, or filled and submitted. If the user does not
   say, fill only; submit only when the user asked to log in or sign in.
 - Which saved item to use, only if the user named it by its visible name.
-- Browser profile and proxy country, if the user specified them. The LastPass browser
-  extension must be installed in the active profile.
+- Browser profile and proxy country, if the user specified them. Reattach to the running
+  profile; do not start a second instance of a profile that is already open. The LastPass
+  browser extension must be installed in the active profile. Choosing a menu entry needs the
+  NextBrowser CLI (`nbc`, or `nextctl` where only that is installed) on the agent's PATH, for
+  its coordinate click.
 
 ## Workflow
 
-1. If the user requested a proxy country, verify it before interacting with the website. Then
+1. If the user requested a proxy country, verify it before interacting with the website; if
+   it cannot be verified, stop and report `autofill_failed` with the visible cause. Then
    confirm the focused tab shows a recognizable sign-in form: username/email and password
    fields, a password field alone, or an email/username field alone as the first step of a
    two-step sign-in. If no login form is visible, navigate only if the user named a specific
@@ -47,17 +51,32 @@ still on the site you were asked to use before filling anything.
    step 7. Full login: populated fields do not show which item was used, so still continue at
    step 3 and let step 5 identify the item; selecting it again only refills the same fields.
 3. Click into the username or email field (or the password field when it is alone) so the
-   extension has an active form context, then look for the LastPass icon inside that field. If
-   you recognize the LastPass control for this form, click it to open the in-field menu. If
-   there is no such control or you cannot recognize it, go to Recovery.
-4. Read the menu only from what is currently visible (visible text or a screenshot) and click
-   entries by their visible label; never reuse an element id from an earlier step or session.
-   Use only controls that are visible and unambiguous. If part of the menu is in a frame or
-   surface you cannot read, or you are unsure what a click would hit, stop and report
-   `autofill_failed`; do not guess coordinates.
-5. Decide by what the menu shows, before selecting anything. In fill-only mode, if the menu
-   or the entry shows that selecting it logs in automatically, do not select it: stop and
-   report `autofill_failed`.
+   extension has an active form context. In many setups this opens the LastPass menu next to
+   the field by itself, so wait about one second and take a screenshot. If the menu is
+   visible, continue at step 4 without looking for the icon. If it is not visible, look in the
+   screenshot for the LastPass icon inside that field; if you recognize it, open the menu with
+   one coordinate click on the icon (see step 4 for how). If there is no such control, you
+   cannot recognize it, or the menu still does not open, go to Recovery.
+4. Read the menu only from a fresh screenshot taken after it finished opening (it can take
+   about a second); click nothing yet. The menu is drawn by the extension, so its entries have
+   no element id in the page read, and keys sent by the browser tools reach the page, not the
+   menu: never drive the menu with ArrowDown, Tab, Space or Enter (Enter in a sign-in field
+   can submit the form). Rows and buttons in the menu are clicked with the CLI's coordinate
+   click: `nbc click-xy X Y --profile <profile> --json`, or `nextctl click-xy X Y` where only
+   nextctl is installed. Run it on its own, never while another browser tool call is running,
+   and click once per decision. X and Y are viewport coordinates read from the latest
+   screenshot; if the screenshot's width differs from the viewport's `innerWidth`, multiply
+   both by innerWidth divided by the screenshot's width. Before each click, confirm on the
+   screenshot that the point lies on the intended row or button, and use only coordinates from
+   a screenshot taken after the current menu state appeared, never from memory or an earlier
+   screenshot. After each click take a new screenshot. If neither CLI command is available,
+   you cannot select an entry: report `autofill_failed` and say that the coordinate click was
+   unavailable. If part of the menu is in a surface you cannot read, or you are unsure what a
+   click would hit, stop and report `autofill_failed`.
+5. Decide by what the menu shows, before clicking anything in it. Reading the open menu is
+   enough for `vault_locked`, `multiple_matches` and `no_match`: none of them needs an entry
+   to be selected. In fill-only mode, if the menu or the entry shows that selecting it logs in
+   automatically, do not select it: stop and report `autofill_failed`.
    - **A request to log in to LastPass, or any other explicit sign that LastPass is logged out
      or locked, instead of saved items** - do not attempt it: never type a master password and
      never use a "forgot password" or account recovery flow. Stop and report `vault_locked`,
@@ -79,10 +98,16 @@ still on the site you were asked to use before filling anything.
 6. After selecting the item, check the result before doing anything else:
    - the fields now show populated (masked) values - do not read or repeat them; continue;
    - a prompt asks for the master password before the item is filled (an item protected with
-     master password re-prompt) - do not type anything into it, and do not ask for the master
+     master password re-prompt; it may open as a separate window or a moment later, so wait
+     about two seconds and also look at the list of open tabs and windows) - do not type
+     anything into it, and do not ask for the master
      password in chat. Leave the prompt open, stop, report `reprompt_required`,
      and ask the user to complete it themselves in LastPass. A prompt you cannot identify is
      `autofill_failed`: describe what you saw without quoting any value;
+   - the page navigated, advanced a step, or shows an error although you did not click a
+     sign-in button - do not click again; the form may have been submitted: in fill-only mode
+     report `autofill_failed` and say plainly that the form was submitted without being
+     asked; in a full login continue at the verification in step 7;
    - nothing changed - go to Recovery.
 7. Submit only if the user asked for a full login. A two-step sign-in shows only the email or
    username field first, so the fill so far covers that step only.
@@ -122,14 +147,15 @@ still on the site you were asked to use before filling anything.
 
 ## Recovery
 
-- If nothing opens after clicking the icon, or selecting the item changed nothing, first look
-  once for a LastPass prompt anywhere you can see (page overlay, popup, or window). Classify
+- If nothing opens after clicking the field or the icon, or selecting the item changed
+  nothing, first look once for a LastPass prompt anywhere you can see (page overlay, popup, or
+  window, including the list of open tabs and windows). Classify
   it by what it asks, not by when it appeared: a request to log in to LastPass or to unlock
   the vault is `vault_locked` (step 5); a request to confirm the master password to use one
   item is `reprompt_required` (step 6); if you cannot tell which, report `autofill_failed` and
   describe the prompt without quoting any value. Never type into such a prompt. Only if there
   is no prompt, click into the field once and retry opening the menu a single time (this is
-  not a login retry). If it still does nothing, or no LastPass icon appears at all (the
+  not a login retry). If it still does nothing, or no LastPass menu or icon appears at all (the
   extension may be missing, disabled, or inactive on the page), report `autofill_failed` - do
   not fall back to typing credentials manually.
 - If the site rejects the saved login after submission (an error instead of a signed-in
