@@ -33,7 +33,7 @@
     "expects": [
       "detects the master password re-prompt after selecting the item",
       "does not type, guess, or request the master password in chat",
-      "reports reprompt_required and asks the user to complete the prompt themselves",
+      "reports vault_locked, says it is a master password re-prompt for the selected item, and asks the user to complete the prompt themselves",
       "does not fall back to typing credentials into the form"
     ]
   },

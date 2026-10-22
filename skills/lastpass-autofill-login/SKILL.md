@@ -74,7 +74,7 @@ still on the site you were asked to use before filling anything.
    unavailable. If part of the menu is in a surface you cannot read, or you are unsure what a
    click would hit, stop and report `autofill_failed`.
 5. Decide by what the menu shows, before clicking anything in it. Reading the open menu is
-   enough for `vault_locked`, `multiple_matches` and `no_match`: none of them needs an entry
+   enough for `vault_locked`, `multiple_matches` and a missing item (`autofill_failed`): none of them needs an entry
    to be selected. In fill-only mode, if the menu or the entry shows that selecting it logs in
    automatically, do not select it: stop and report `autofill_failed`.
    - **A request to log in to LastPass, or any other explicit sign that LastPass is logged out
@@ -91,9 +91,9 @@ still on the site you were asked to use before filling anything.
      address, or URL shown beside them. If the names are identical, or a name itself contains
      an email address or other personal data, describe those items by position instead.
    - **No saved item for this site**, or the item the user named is not listed (even if a
-     different item is listed) - stop and report `no_match`, but only after you have read an
-     open menu that shows no matching item. A menu that did not open or cannot be read does
-     not prove there are no items: that is `autofill_failed`. Do not search the vault, browse
+     different item is listed) - stop and report `autofill_failed` (say plainly that LastPass has no saved item for this
+     site), but only after you have read an open menu that shows no matching item. A menu that did not open or cannot be read does
+     not prove there are no items: report `autofill_failed` and say the menu was unavailable. Do not search the vault, browse
      other items, add a new item, or pick an item that belongs to a different site.
 6. After selecting the item, check the result before doing anything else:
    - the fields now show populated (masked) values - do not read or repeat them; continue;
@@ -101,8 +101,8 @@ still on the site you were asked to use before filling anything.
      master password re-prompt; it may open as a separate window or a moment later, so wait
      about two seconds and also look at the list of open tabs and windows) - do not type
      anything into it, and do not ask for the master
-     password in chat. Leave the prompt open, stop, report `reprompt_required`,
-     and ask the user to complete it themselves in LastPass. A prompt you cannot identify is
+     password in chat. Leave the prompt open, stop, report `vault_locked` (say it is a master
+     password re-prompt for this item), and ask the user to complete it themselves in LastPass. A prompt you cannot identify is
      `autofill_failed`: describe what you saw without quoting any value;
    - the page navigated, advanced a step, or shows an error although you did not click a
      sign-in button - do not click again; the form may have been submitted: in fill-only mode
@@ -119,7 +119,7 @@ still on the site you were asked to use before filling anything.
      step 5 identified on the first step. If the item offered on a later step is not clearly
      the same one (a different visible name, or several items and none matches the earlier
      choice by its visible name), stop and report `multiple_matches`; if no item is offered,
-     stop and report `no_match`.
+     stop and report `autofill_failed` and say that no item was offered on this step.
    - Fill only: never click Next or anything else that submits or advances, and report
      `filled_only`. On a two-step sign-in, say that only the first step was filled. If the
      form is submitted or advances without your click, do not report `filled_only`: report
@@ -152,8 +152,9 @@ still on the site you were asked to use before filling anything.
   window, including the list of open tabs and windows). Classify
   it by what it asks, not by when it appeared: a request to log in to LastPass or to unlock
   the vault is `vault_locked` (step 5); a request to confirm the master password to use one
-  item is `reprompt_required` (step 6); if you cannot tell which, report `autofill_failed` and
-  describe the prompt without quoting any value. Never type into such a prompt. Only if there
+  item is also `vault_locked` (step 6; say that it is a master password re-prompt for one item);
+  if you cannot tell what the prompt asks, report `autofill_failed` and describe the prompt
+  without quoting any value. Never type into such a prompt. Only if there
   is no prompt, click into the field once and retry opening the menu a single time (this is
   not a login retry). If it still does nothing, or no LastPass menu or icon appears at all (the
   extension may be missing, disabled, or inactive on the page), report `autofill_failed` - do
@@ -184,9 +185,11 @@ still on the site you were asked to use before filling anything.
 ## Completion
 
 State the final outcome plainly, using one of: `filled_and_submitted`, `filled_only`,
-`multiple_matches`, `vault_locked`, `reprompt_required`, `no_match`, `mfa_required`,
-`no_login_form_found`, `autofill_failed`, or `captcha_required`. Name the site and what was
-attempted. If more than one outcome seems to apply, any outcome other than
+`multiple_matches`, `vault_locked`, `mfa_required`, `no_login_form_found`, `autofill_failed`,
+or `captcha_required`. Name the site and what was attempted. When one outcome has more than
+one cause (`vault_locked` for a logged-out vault or for a master password re-prompt on one
+item; `autofill_failed` for no saved item, an unreadable menu, or an unavailable coordinate
+click), say which cause in plain words in the same answer. If more than one outcome seems to apply, any outcome other than
 `filled_and_submitted` and `filled_only` takes precedence over those two; among the others,
 report the one reached first in the workflow above. Mention the other in the same answer. Never include the password, a
 username or email value, the master password, or an MFA code in the final answer, even in
