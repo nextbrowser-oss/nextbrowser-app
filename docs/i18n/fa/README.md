@@ -48,7 +48,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="نمایش رابط NextBrowser" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="نمایش رابط Nextbrowser" width="1200" />
 </p>
 
 ## چرا Nextbrowser
@@ -84,7 +84,7 @@
 
 ## دموها و موارد استفاده
 
-سناریوهای منتشرشده را در [صفحه موارد استفاده Nextbrowser](https://nextbrowser.com/use-cases) ببینید. پیش‌نمایش بالا رابط NextBrowser را هنگام کار نشان می‌دهد.
+سناریوهای منتشرشده را در [صفحه موارد استفاده Nextbrowser](https://nextbrowser.com/use-cases) ببینید. پیش‌نمایش بالا رابط Nextbrowser را هنگام کار نشان می‌دهد.
 
 گردش‌کارهای رایج شامل این موارد است:
 

@@ -19,7 +19,7 @@ code itself. Norton is the only thing that ever touches the actual secret.
   items for the domain; clicking one row fills both fields.
 - The picker is a cross-origin extension iframe (`chrome-extension://...`). DOM clicks,
   synthetic events and keyboard navigation do not reach it. Only a real click at viewport
-  coordinates works. The NextBrowser CLI provides it:
+  coordinates works. The Nextbrowser CLI provides it:
   `nextctl --profile <profile> click-xy <x> <y> [--frame-url <url>]`
   (`x`, `y` are viewport CSS pixels of the running profile's active tab).
 - Run a `click-xy` on its own. Never issue it while another browser tool call (MCP) is
@@ -111,7 +111,7 @@ redacted or partial form.
 ## Supported setup and known limitations
 
 - Norton Password Manager extension on a Chromium runtime profile, tested with the Chrome
-  Web Store build in October 2026: the NextBrowser release build on Windows 11 with a
+  Web Store build in October 2026: the Nextbrowser release build on Windows 11 with a
   direct-connection profile, and the development build (`npm run dev`) on Windows 11 with a
   managed-proxy profile, on GitHub, Google and Microsoft sign-in pages.
 - The coordinate click (`click-xy`) exists in the CLI only; the browser tool set has no

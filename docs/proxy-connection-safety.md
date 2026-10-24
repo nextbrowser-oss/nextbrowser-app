@@ -1,6 +1,6 @@
 # Proxy connection loss: application and CLI protection
 
-This implementation changes NextBrowser and nextctl only. It does not establish a network firewall and does not prove that a browser runtime cannot leak traffic directly. That requires testing the exact runtime or adding browser/OS enforcement.
+This implementation changes Nextbrowser and nextctl only. It does not establish a network firewall and does not prove that a browser runtime cannot leak traffic directly. That requires testing the exact runtime or adding browser/OS enforcement.
 
 ## Implemented
 

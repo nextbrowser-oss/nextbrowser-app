@@ -1,4 +1,4 @@
 interface:
-  display_name: "NextBrowser Skill Contribution Review"
+  display_name: "Nextbrowser Skill Contribution Review"
   short_description: "Review community browser skill pull requests"
   default_prompt: "Use $nextbrowser-skill-contribution-review to review the browser skill in this pull request."

@@ -1,9 +1,9 @@
 ---
 name: nextbrowser-user-journey-qa
-description: Test NextBrowser Automation Studio, Recorder, Workflow Builder, browser profiles, replay, AI repair, and Artifact Center through real visible user journeys. Use for end-to-end QA, regression testing, release readiness, UX audits, or debugging behavior that users experience in the desktop app; do not use for isolated unit/API-only verification.
+description: Test Nextbrowser Automation Studio, Recorder, Workflow Builder, browser profiles, replay, AI repair, and Artifact Center through real visible user journeys. Use for end-to-end QA, regression testing, release readiness, UX audits, or debugging behavior that users experience in the desktop app; do not use for isolated unit/API-only verification.
 ---
 
-# NextBrowser User Journey QA
+# Nextbrowser User Journey QA
 
 Validate the product a user experiences, not merely the services behind it.
 

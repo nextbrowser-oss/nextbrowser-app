@@ -1,6 +1,6 @@
 ---
 name: norton-autofill-login-firefox
-description: Fill a website's current sign-in form with a saved Norton Password Manager login in a NextBrowser-managed Firefox/Camoufox profile. Use when the user asks to sign in with Norton or fill saved credentials without submitting, including locked-vault, multiple-login, and second-factor cases.
+description: Fill a website's current sign-in form with a saved Norton Password Manager login in a Nextbrowser-managed Firefox/Camoufox profile. Use when the user asks to sign in with Norton or fill saved credentials without submitting, including locked-vault, multiple-login, and second-factor cases.
 ---
 
 # Norton Firefox Autofill Login
@@ -22,12 +22,12 @@ recovery code, or verification code.
 The user must have installed Norton, signed in, created a test vault, and saved
 the intended website login. Account creation, vault setup, imports, and credential
 changes are not part of this skill. Use a verified managed session and the
-NextBrowser backend; do not substitute another browser or an operating-system
+Nextbrowser backend; do not substitute another browser or an operating-system
 automation path when managed controls are unavailable.
 
 ### Setup and compatibility
 
-Use a dedicated NextBrowser-managed Camoufox profile with only Norton Password
+Use a dedicated Nextbrowser-managed Camoufox profile with only Norton Password
 Manager installed from Mozilla's official add-on listing. The user signs into
 Norton, creates or unlocks the vault, and saves their own test logins before Run.
 Observed setup: Camoufox 156.0.1-beta.34, Camoufox Python 0.5.7, and Norton
@@ -40,7 +40,7 @@ The tested launcher required the extension-tab option described in Recovery.
 ## Workflow
 
 1. Confirm the selected runtime is Firefox/Camoufox and obtain a finalized,
-   passing NextBrowser verification result for this exact session before reading
+   passing Nextbrowser verification result for this exact session before reading
    or acting on the website. A running status alone is not verification. If the
    result is unavailable, call the managed `verify` tool for the selected profile.
    Preserve the target tab: the runtime may create and close temporary diagnostic

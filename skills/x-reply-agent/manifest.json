@@ -4,7 +4,7 @@
   "description": "Replies and monitoring for your X account.",
   "logo": "x",
   "features": ["Reply agent", "Monitoring"],
-  "author": "NextBrowser Team",
+  "author": "Nextbrowser Team",
   "domains": [
     "x.com"
   ],
@@ -23,7 +23,7 @@
   },
   "watchlist": {
     "title": "Watched X profiles",
-    "blurb": "Accounts NextBrowser checks for new posts. Every pass reads each watched profile's timeline — or, if you switch the source, the notifications feed — and drafts one reply per new post.",
+    "blurb": "Accounts Nextbrowser checks for new posts. Every pass reads each watched profile's timeline — or, if you switch the source, the notifications feed — and drafts one reply per new post.",
     "placeholder": "handle without @",
     "prefix": "@",
     "profileUrl": "https://x.com/{handle}",

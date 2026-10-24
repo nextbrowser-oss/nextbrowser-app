@@ -48,7 +48,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Demo antarmuka NextBrowser" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Demo antarmuka Nextbrowser" width="1200" />
 </p>
 
 ## Mengapa Nextbrowser
@@ -84,7 +84,7 @@ Untuk kontrol browser dan diagnostik, gunakan [referensi kontrol browser](../../
 
 ## Demo dan kasus penggunaan
 
-Jelajahi skenario yang dipublikasikan di [halaman kasus penggunaan Nextbrowser](https://nextbrowser.com/use-cases). Pratinjau di atas menampilkan antarmuka NextBrowser saat digunakan.
+Jelajahi skenario yang dipublikasikan di [halaman kasus penggunaan Nextbrowser](https://nextbrowser.com/use-cases). Pratinjau di atas menampilkan antarmuka Nextbrowser saat digunakan.
 
 Alur kerja umum meliputi:
 

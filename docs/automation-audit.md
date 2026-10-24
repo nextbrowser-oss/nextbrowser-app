@@ -4,7 +4,7 @@ Last verified: 2026-08-21
 
 ## Product model
 
-Automation Studio records successful **agent-driven browser runs**, not arbitrary manual mouse and keyboard activity. Replay itself is deterministic: the desktop app executes the saved recipe directly through one persistent NextBrowser MCP session and does not invoke an AI agent. A workflow is a versioned, backend-owned recipe of up to 100 browser actions. ClawBrowser is one supported browser toolset alongside Camoufox, DasBrowser, and future compatible runtimes.
+Automation Studio records successful **agent-driven browser runs**, not arbitrary manual mouse and keyboard activity. Replay itself is deterministic: the desktop app executes the saved recipe directly through one persistent Nextbrowser MCP session and does not invoke an AI agent. A workflow is a versioned, backend-owned recipe of up to 100 browser actions. ClawBrowser is one supported browser toolset alongside Camoufox, DasBrowser, and future compatible runtimes.
 
 The recorder supports:
 

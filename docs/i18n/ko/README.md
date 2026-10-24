@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="NextBrowser 인터페이스 데모" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Nextbrowser 인터페이스 데모" width="1200" />
 </p>
 
 ## Nextbrowser를 사용하는 이유
@@ -83,7 +83,7 @@ AI 에이전트의 브라우저 작업은 하나의 프롬프트로 끝나지 �
 
 ## 데모 및 사용 사례
 
-게시된 시나리오는 [Nextbrowser 사용 사례 페이지](https://nextbrowser.com/use-cases)에서 확인할 수 있습니다. 위 미리보기는 NextBrowser 인터페이스가 작동하는 모습을 보여 줍니다.
+게시된 시나리오는 [Nextbrowser 사용 사례 페이지](https://nextbrowser.com/use-cases)에서 확인할 수 있습니다. 위 미리보기는 Nextbrowser 인터페이스가 작동하는 모습을 보여 줍니다.
 
 일반적인 워크플로:
 

@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Demo dell’interfaccia NextBrowser" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Demo dell’interfaccia Nextbrowser" width="1200" />
 </p>
 
 ## Perché Nextbrowser
@@ -83,7 +83,7 @@ Per i controlli del browser e la diagnostica, consulta il [riferimento dedicato]
 
 ## Demo e casi d’uso
 
-Esplora gli scenari pubblicati nella [pagina dei casi d’uso di Nextbrowser](https://nextbrowser.com/use-cases). L’anteprima qui sopra mostra l’interfaccia NextBrowser in azione.
+Esplora gli scenari pubblicati nella [pagina dei casi d’uso di Nextbrowser](https://nextbrowser.com/use-cases). L’anteprima qui sopra mostra l’interfaccia Nextbrowser in azione.
 
 I flussi di lavoro comuni includono:
 

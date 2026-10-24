@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Demo van de NextBrowser-interface" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Demo van de Nextbrowser-interface" width="1200" />
 </p>
 
 ## Waarom Nextbrowser
@@ -83,7 +83,7 @@ Raadpleeg de [browserbesturingsreferentie](../../cli-reference.md) voor bedienin
 
 ## Demo’s en gebruiksscenario’s
 
-Bekijk gepubliceerde scenario’s op de [Nextbrowser-pagina met gebruikssituaties](https://nextbrowser.com/use-cases). De preview hierboven toont de NextBrowser-interface in actie.
+Bekijk gepubliceerde scenario’s op de [Nextbrowser-pagina met gebruikssituaties](https://nextbrowser.com/use-cases). De preview hierboven toont de Nextbrowser-interface in actie.
 
 Veelvoorkomende workflows zijn:
 

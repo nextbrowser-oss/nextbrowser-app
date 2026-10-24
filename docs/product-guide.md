@@ -1,4 +1,4 @@
-# NextBrowser product guide
+# Nextbrowser product guide
 
 [Back to README](../README.md)
 
@@ -6,11 +6,11 @@ This guide expands the product concepts and workflows summarized in the canonica
 
 ## Product model
 
-NextBrowser is an Electron, React, and TypeScript desktop console for macOS and Windows. It coordinates local AI agents and managed browser sessions in one observable desktop workspace.
+Nextbrowser is an Electron, React, and TypeScript desktop console for macOS and Windows. It coordinates local AI agents and managed browser sessions in one observable desktop workspace.
 
 | Layer | Operator control |
 | --- | --- |
-| Account | Browser-paired NextBrowser account and proxy-traffic access. |
+| Account | Browser-paired Nextbrowser account and proxy-traffic access. |
 | Profile | Browser identity, country selection, and proxy/fingerprint rotation. |
 | Session | Start or stop the browser, open pages, select tabs, and inspect state. |
 | Agent | Choose a local agent and control chat history, queues, edits, stops, and forks. |
@@ -21,7 +21,7 @@ NextBrowser is an Electron, React, and TypeScript desktop console for macOS and 
 
 ### Browser account
 
-Choose **Sign in to NextBrowser** in the desktop app, continue in your browser, and approve the pairing request. After approval, the app configures its local browser-control credential; you do not need to paste an API key into the desktop UI.
+Choose **Sign in to Nextbrowser** in the desktop app, continue in your browser, and approve the pairing request. After approval, the app configures its local browser-control credential; you do not need to paste an API key into the desktop UI.
 
 Keep credentials out of prompts, chat messages, skills, custom scripts, screenshots, logs, and repository files.
 
@@ -40,7 +40,7 @@ A session is the running browser context for a profile. The session must be runn
 New accounts are shown a 1 GiB free proxy allowance, but they are provisioned with a
 smaller starting limit — somewhere between 70 MiB and 170 MiB. When that starting limit
 is reached, proxy traffic pauses and **Proxy usage** explains how to unlock the rest:
-ask in the NextBrowser Discord. The remaining allowance is then released by hand, one
+ask in the Nextbrowser Discord. The remaining allowance is then released by hand, one
 1 GiB grant at a time, up to a 3 GiB ceiling. Feedback, repository stars, and pull
 requests are what earn the larger grants.
 
@@ -55,7 +55,7 @@ Rotation is a recovery and isolation tool, not a promise that a site will accept
 
 ### Agent
 
-An agent is an installed local runtime that receives a task and can use the active browser context. Claude Code connects through its CLI. Codex connects through the executable bundled with the ChatGPT desktop app, so no separate Codex CLI installation is required. NextBrowser provides the visible work surface around that process:
+An agent is an installed local runtime that receives a task and can use the active browser context. Claude Code connects through its CLI. Codex connects through the executable bundled with the ChatGPT desktop app, so no separate Codex CLI installation is required. Nextbrowser provides the visible work surface around that process:
 
 - chat history and named conversations;
 - queued prompts and run status;
@@ -67,7 +67,7 @@ The agent still needs to be installed, discoverable, and authenticated for its o
 
 If the selected agent is missing, use the official [Claude Code installation guide](https://code.claude.com/docs/en/installation) or [download ChatGPT for desktop](https://chatgpt.com/download/).
 
-NextBrowser passes the selected profile name to the local agent as context. This is guidance, not technical containment: confirm the actual profile and running session in the sidebar and Live View.
+Nextbrowser passes the selected profile name to the local agent as context. This is guidance, not technical containment: confirm the actual profile and running session in the sidebar and Live View.
 
 ### Skills and custom scripts
 
@@ -86,7 +86,7 @@ Preflight establishes a starting context. It does not guarantee that the page re
 
 ### Scheduled runs
 
-A scheduled run stores a prompt, selected agent, time, weekday selection, and enabled state. It runs locally while the NextBrowser desktop app is open. Use schedules for recurring browser tasks that have clear authorization and a review path; they are not a service-level guarantee.
+A scheduled run stores a prompt, selected agent, time, weekday selection, and enabled state. It runs locally while the Nextbrowser desktop app is open. Use schedules for recurring browser tasks that have clear authorization and a review path; they are not a service-level guarantee.
 
 ### Live View and diagnostics
 
@@ -96,7 +96,7 @@ Live View requires a running profile and an open page. If it is empty, follow th
 
 ### Captcha tools
 
-NextBrowser can expose captcha tools for detecting a challenge and invoking an available handling path. A captcha is controlled by the site or its provider, so detection or a solve attempt can fail, be throttled, require a human, or be disallowed for the task.
+Nextbrowser can expose captcha tools for detecting a challenge and invoking an available handling path. A captcha is controlled by the site or its provider, so detection or a solve attempt can fail, be throttled, require a human, or be disallowed for the task.
 
 Never describe these tools as a universal bypass. Use them only where you are authorized and where the site's terms and applicable law permit the activity.
 
@@ -104,7 +104,7 @@ Never describe these tools as a universal bypass. Use them only where you are au
 
 | Screen | Primary purpose | Documented controls |
 | --- | --- | --- |
-| Account sign-in | Connect the NextBrowser account | Browser pairing, approval status, retry, and status checks. |
+| Account sign-in | Connect the Nextbrowser account | Browser pairing, approval status, retry, and status checks. |
 | Sidebar | Control the active browser setup | Proxy usage, profiles, agent selection, session actions, and runtime state. |
 | Chat | Run and supervise agents | Prompts, queues, stop/edit/fork controls, histories, files, statuses, and output. |
 | Skills | Reuse browser workflows | Domain skills, captcha-related skills, custom scripts, and preflight. |
@@ -117,8 +117,8 @@ The current release is authoritative if its labels or navigation differ from thi
 
 ### Prepare a first session
 
-1. Install a published NextBrowser build from the [latest releases](https://github.com/nextbrowser-oss/nextbrowser-app/releases/latest), or run the app locally with `npm ci` and `npm run dev`.
-2. Sign in to NextBrowser and approve the pairing request in your browser.
+1. Install a published Nextbrowser build from the [latest releases](https://github.com/nextbrowser-oss/nextbrowser-app/releases/latest), or run the app locally with `npm ci` and `npm run dev`.
+2. Sign in to Nextbrowser and approve the pairing request in your browser.
 3. Create or select the intended profile.
 4. Start its session and open a page.
 5. Verify identity when country or proxy matters.

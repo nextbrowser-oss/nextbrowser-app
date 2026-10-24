@@ -1,4 +1,4 @@
-# NextBrowser Analytics
+# Nextbrowser Analytics
 
 GA4 stream: `G-MDQWQ9LRCN`.
 

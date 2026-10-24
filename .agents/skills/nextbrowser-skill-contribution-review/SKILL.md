@@ -3,7 +3,7 @@ name: nextbrowser-skill-contribution-review
 description: Review a community pull request that adds or changes a public browser skill under skills/<skill-id>/. Checks scope, manifest, SKILL.md, acceptance cases and run evidence against CONTRIBUTING.md and writes a review the contributor can act on. Use when asked to review, triage or approve a browser skill contribution, or to tell a contributor what is missing before merge; do not use for app code, README or translation changes.
 ---
 
-# NextBrowser skill contribution review
+# Nextbrowser skill contribution review
 
 Most browser skills in this repository come from outside contributors, often first-time ones. A good review keeps broken or unsafe skills out of the catalog and tells the contributor exactly what to change, so the next push is the last one.
 
@@ -91,7 +91,7 @@ Read it as a fresh agent that knows the browser tools and nothing about the site
 
 | For each acceptance task | Example |
 | --- | --- |
-| Where it ran | NextBrowser app, fresh chat |
+| Where it ran | Nextbrowser app, fresh chat |
 | Environment | OS, app version or commit, agent |
 | Session | Profile name and proxy country |
 | Result | Outcome and the final state reported |
@@ -132,7 +132,7 @@ Checks run: `npm run validate:skills` ✅, CI ✅, first acceptance task in `npm
 | Problem | What to ask for | Seen in |
 | --- | --- | --- |
 | Skill acts on the current page but launches on a fixed site | Set `target_mode` to `current_tab` and stop navigating away unless the user names a site | #221 |
-| Evidence comes from a harness, not the app | Re-run each task in NextBrowser from a fresh chat and attach the results | #299 |
+| Evidence comes from a harness, not the app | Re-run each task in Nextbrowser from a fresh chat and attach the results | #299 |
 | Manifest copied from the `CONTRIBUTING.md` example | Add `target_mode` and `permissions` based on a similar existing skill | — |
 | Acceptance task with no instruction behind it | Add the missing step or recovery path to `SKILL.md` | — |
 | Empty validation section in the PR | List the commands run and their results, or why one couldn't run | — |

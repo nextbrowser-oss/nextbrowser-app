@@ -1,6 +1,6 @@
 import type { RendererErrorReport } from "./lib/errorReporting";
 
-export interface NextBrowserBridge {
+export interface NextbrowserBridge {
   invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
   filePathForFile?(file: File): string;
   on(channel: string, listener: (payload: unknown) => void): () => void;
@@ -10,7 +10,7 @@ export interface NextBrowserBridge {
 }
 
 declare global {
-  interface Window { nextbrowser?: NextBrowserBridge; }
+  interface Window { nextbrowser?: NextbrowserBridge; }
 }
 
 export function invoke<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {

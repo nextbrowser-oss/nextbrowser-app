@@ -9,7 +9,7 @@ TikTok work runs in a ClawBrowser profile signed in to tiktok.com. The user
 signs in; never type a password, a code or any other credential, and never
 solve a captcha on the user's behalf.
 
-The skill has a second mode, Monitoring, that NextBrowser runs itself with the
+The skill has a second mode, Monitoring, that Nextbrowser runs itself with the
 open-source engine `@nextbrowser-oss/tiktok-monitoring`. It reads watched
 creators' new videos, the comments under them that name a keyword or the
 account, comments on the account's own videos, and sudden jumps in views or

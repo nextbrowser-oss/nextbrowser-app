@@ -1,7 +1,7 @@
 const { randomBytes } = require("node:crypto");
 const { apiRoute } = require("./client-error-scrub.cjs");
 
-// Every request the app itself sends to a NextBrowser backend carries a W3C
+// Every request the app itself sends to a Nextbrowser backend carries a W3C
 // traceparent, so a failed call reported from the desktop opens the matching
 // server trace. The observer (installed by the main process) turns each request
 // into a breadcrumb and reports network failures and 5xx responses. Third-party
@@ -59,7 +59,7 @@ function notify(info) {
   }
 }
 
-/** Wraps a fetch implementation for calls to NextBrowser backends. */
+/** Wraps a fetch implementation for calls to Nextbrowser backends. */
 function tracedBackendFetch(fetchImpl = (...args) => fetch(...args)) {
   return async function backendFetch(url, init = {}) {
     const trace = newTraceContext();

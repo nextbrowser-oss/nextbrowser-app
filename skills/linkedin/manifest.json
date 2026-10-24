@@ -7,7 +7,7 @@
     "Reply agent",
     "Monitoring"
   ],
-  "author": "NextBrowser Team",
+  "author": "Nextbrowser Team",
   "domains": [
     "linkedin.com"
   ],
@@ -34,7 +34,7 @@
     "handleMaxLength": 64,
     "profileUrl": "https://www.linkedin.com/in/{handle}/",
     "stateFile": "linkedin-state.json",
-    "blurb": "People and companies whose posts NextBrowser answers in your browser profile — your own account first. Every pass finds comments and posts nobody from the account has answered yet, shows you each draft, and posts only the replies you approve.",
+    "blurb": "People and companies whose posts Nextbrowser answers in your browser profile — your own account first. Every pass finds comments and posts nobody from the account has answered yet, shows you each draft, and posts only the replies you approve.",
     "subscribeTask": "Add {handle} to the LinkedIn reply list: open its LinkedIn profile or company page in the browser profile, confirm it exists and the signed-in account can comment on its posts, and record {handle} in the state file with its newest post as the baseline. React to nothing, connect with nobody and post nothing in this run. If LinkedIn asks for a security check or says the account is restricted, stop and tell me.",
     "checkTask": "Run one reply pass on LinkedIn in the browser over these accounts: {handles}. Only these accounts are on the list right now. For each, open its recent posts and find comments and posts newer than the recorded baseline that nobody from the signed-in account has answered. Read each one with its thread and write a reply that answers it in a professional, specific voice - never a canned line or a sales pitch. Show me every draft before anything goes out, then post only the ones I approve, a few per pass, and stop at the first failure, security check or restriction. Update the state file.",
     "signIn": {

@@ -9,7 +9,7 @@ Instagram work runs in a ClawBrowser profile that is signed in to
 instagram.com. The user signs in; never type a password, a code or any other
 credential, and never accept a security check on the user's behalf.
 
-The skill's panel is Monitoring, which NextBrowser runs itself with the
+The skill's panel is Monitoring, which Nextbrowser runs itself with the
 open-source engine `@nextbrowser-oss/instagram-monitoring`. It reads the
 account's activity (mentions, replies, comments), the comment threads under
 its newest posts, the posts it is tagged in, and watched profiles' new posts,

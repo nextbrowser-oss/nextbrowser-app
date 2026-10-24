@@ -232,7 +232,7 @@ main() {
 
   trap cleanup EXIT
 
-  log "NextBrowser pre-release check"
+  log "Nextbrowser pre-release check"
   dim "root: $ROOT"
   dim "countries: $COUNTRIES | runs/country: $RUNS | runtime: $RUNTIME"
 
