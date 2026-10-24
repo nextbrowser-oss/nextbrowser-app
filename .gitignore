@@ -10,3 +10,4 @@ src-tauri/gen
 screenshots
 .xwin-cache
 xwin-cache
+e2e-out/
