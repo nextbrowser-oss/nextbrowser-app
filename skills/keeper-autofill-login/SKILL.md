@@ -41,9 +41,9 @@ multi-factor code itself. Keeper is the only thing that ever touches the actual 
 - The target tab or site (default: the currently focused tab, unless the user names a
   different site).
 - Whether the user wants the form filled only, or filled and submitted. If the request does
-  not say, which includes a run started from the skill's card, whose only instruction is to
-  use the skill on the current tab, sign in. Fill only when the user asks for it, for
-  example with "don't submit".
+  not say, which includes a run started from the skill's card with its "Task for this run"
+  field left empty, sign in. Fill only when the user asks for it, for example with "don't
+  submit" in that field or in their request.
 - Which record to use, if the user named one. Otherwise none is needed up front: the menu
   already lists the records matching the current site.
 - Browser profile, if the user's setup uses more than one and they specified which.
