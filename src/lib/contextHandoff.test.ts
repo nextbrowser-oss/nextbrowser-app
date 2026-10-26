@@ -3,6 +3,7 @@ import { HOST_START_FAILURE_GUIDANCE } from "./hostStartFailureGuidance";
 import {
   chatPromptWithDeferredContext,
   chatToTerminalHandoff,
+  pendingChatContextFor,
   terminalInputWithDeferredContext,
   terminalBrowserScopeContext,
   terminalLineBufferAfter,
@@ -71,6 +72,22 @@ describe("chat context handoff", () => {
     expect(chatPromptWithDeferredContext("Recent terminal context", "Continue")).toBe(
       "Recent terminal context\n\nNew user message:\nContinue",
     );
+  });
+
+  it("carries terminal context into the first message of a brand-new chat", () => {
+    // A new chat has no conversation until its first message creates one.
+    const pending = { conversationId: undefined, text: terminalToChatHandoff("> I don't like soup\nNoted, no soup.") };
+    const prompt = chatPromptWithDeferredContext(pendingChatContextFor(pending, undefined), "What food don't I like?");
+    expect(prompt).toContain("I don't like soup");
+    expect(prompt).toMatch(/New user message:\nWhat food don't I like\?$/);
+  });
+
+  it("keeps terminal context with the chat it was handed to", () => {
+    expect(pendingChatContextFor({ conversationId: "a", text: "ctx" }, "a")).toBe("ctx");
+    expect(pendingChatContextFor({ conversationId: "a", text: "ctx" }, "b")).toBeUndefined();
+    expect(pendingChatContextFor({ conversationId: "a", text: "ctx" }, undefined)).toBeUndefined();
+    expect(pendingChatContextFor({ conversationId: undefined, text: "ctx" }, "b")).toBeUndefined();
+    expect(pendingChatContextFor(undefined, undefined)).toBeUndefined();
   });
 
   it("does not inject chat context on terminal navigation keys", () => {
