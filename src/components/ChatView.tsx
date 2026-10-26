@@ -437,6 +437,7 @@ export function ChatView() {
               selection={multiloginSelection}
               onSelectAsAgentDefault={() => s.selectProfile(undefined)}
               onManage={() => s.setTab("connectors")}
+              onReconnect={() => s.openConnectorPrompt("multilogin")}
             />
           )}
           {!remoteOnly && showDefaultSession && (

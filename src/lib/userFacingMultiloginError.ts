@@ -11,6 +11,13 @@ const LAUNCHER_DOWN = /(?:launcher\.mlx\.yt|127\.0\.0\.1:4500\d)[\s\S]*(?:connec
 
 export const MULTILOGIN_APP_NOT_RUNNING = "The Multilogin app isn’t running on this computer. Open Multilogin, sign in, and keep it running, then try again.";
 
+// nbc answers MULTILOGIN_AUTH_INVALID, "Multilogin automation token is
+// invalid or expired", when Multilogin refuses the saved token (HTTP 401).
+const TOKEN_EXPIRED = /MULTILOGIN_AUTH_INVALID|token is invalid or expired|automation token is invalid/i;
+
+/** Shown when Multilogin refused the saved token; pair it with a "Reconnect Multilogin" action. */
+export const MULTILOGIN_TOKEN_EXPIRED = "The Multilogin token expired. Reconnect Multilogin with a fresh token.";
+
 export function isMultiloginLauncherDown(raw: string): boolean {
   return LAUNCHER_DOWN.test(raw);
 }
@@ -32,9 +39,7 @@ export function userFacingMultiloginError(error: unknown, kind: "browser" | "mob
   if (/folder .* was not found in the token workspace/i.test(raw)) {
     return "That Multilogin folder is not in the workspace this token belongs to. Connect a token for the right workspace, then refresh.";
   }
-  if (/token is invalid or expired|automation token is invalid/i.test(raw)) {
-    return "The Multilogin token expired. Reconnect Multilogin with a fresh token.";
-  }
+  if (TOKEN_EXPIRED.test(raw)) return MULTILOGIN_TOKEN_EXPIRED;
   if (/cannot access this workspace|forbidden/i.test(raw)) {
     return "This Multilogin token cannot access that workspace or folder. Connect a token with access, then refresh.";
   }
