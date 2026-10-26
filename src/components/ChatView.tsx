@@ -31,7 +31,7 @@ import {
   workflowDistillationPrompt,
   type DistilledWorkflow,
 } from "../lib/workflowDistillation";
-import { chatPromptWithDeferredContext, chatToTerminalHandoff, terminalToChatHandoff } from "../lib/contextHandoff";
+import { chatPromptWithDeferredContext, chatToTerminalHandoff, pendingChatContextFor, terminalToChatHandoff, type PendingChatContext } from "../lib/contextHandoff";
 import { agentVisibleProfileNames, browserProfileContext } from "../lib/browserProfileContext";
 import {
   MULTILOGIN_SELECTION_EVENT,
@@ -130,7 +130,7 @@ export function ChatView() {
   const [terminalMounted, setTerminalMounted] = useState(s.terminalChat);
   const [terminalHandoff, setTerminalHandoff] = useState<{ id: string; text: string }>();
   const [terminalToChatRequest, setTerminalToChatRequest] = useState<string>();
-  const [pendingTerminalContext, setPendingTerminalContext] = useState<{ conversationId: string; text: string }>();
+  const [pendingTerminalContext, setPendingTerminalContext] = useState<PendingChatContext>();
   const [multiloginSelection, setMultiloginSelection] = useState<MultiloginProfileSelection>();
 
   useEffect(() => {
@@ -268,9 +268,7 @@ export function ChatView() {
     const t = draft.trim();
     if (!t && attachments.length === 0) return;
     const visiblePrompt = t || "Please inspect the attached file(s).";
-    const deferredContext = pendingTerminalContext && pendingTerminalContext.conversationId === conv?.id
-      ? pendingTerminalContext.text
-      : undefined;
+    const deferredContext = pendingChatContextFor(pendingTerminalContext, conv?.id);
     const agentPrompt = chatPromptWithDeferredContext(deferredContext, visiblePrompt);
     setDraft("");
     setGuideDraftLoaded(false);
@@ -500,8 +498,10 @@ export function ChatView() {
               }}
               onChatHandoffConsumed={(id) => setTerminalToChatRequest((current) => current === id ? undefined : current)}
               onContinueInChat={(transcript) => {
+                // A new chat gets its conversation only from the first message,
+                // so stage the context without one instead of dropping it.
                 const handoff = terminalToChatHandoff(transcript, s.selectedProfile);
-                if (conv?.id) setPendingTerminalContext({ conversationId: conv.id, text: handoff });
+                setPendingTerminalContext({ conversationId: conv?.id, text: handoff });
               }}
               onSaveWorkflow={(transcript) => {
                 const answer = {

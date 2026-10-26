@@ -70,6 +70,18 @@ export function chatPromptWithDeferredContext(context: string | undefined, messa
   return `${context}\n\nNew user message:\n${message}`;
 }
 
+// Terminal context waiting for the next chat message. A brand-new chat has no
+// conversation until that message creates it, so the context is keyed by the
+// chat's conversation id at handoff time, which is undefined for a new chat.
+export type PendingChatContext = { conversationId?: string; text: string };
+
+export function pendingChatContextFor(
+  pending: PendingChatContext | undefined,
+  conversationId: string | undefined,
+): string | undefined {
+  return pending && pending.conversationId === conversationId ? pending.text : undefined;
+}
+
 export function terminalInputWithDeferredContext(
   context: string | undefined,
   data: string,

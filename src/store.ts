@@ -447,10 +447,13 @@ function showNextctlUpdateNotice(message: string): void {
   }, NEXTCTL_UPDATE_NOTICE_MS);
 }
 
-function nextBrowserInstallPrompt(agentAdapter: string): string {
+function nextBrowserInstallPrompt(agentAdapter: string | undefined): string {
+  // nbc has no integration for some agents (pi, Kilo Code, ...): install the
+  // runtime alone, the way the app's own runtime install does.
+  const target = agentAdapter ? `--agent ${agentAdapter}` : "generic --agent-plugins-dir nbc-agent-plugins";
   return `Nextbrowser needs to finish installing its local browser components before browser work can start.
 
-Use the official nextctl release bootstrap, then install the browser runtime and this agent integration.
+Use the official nextctl release bootstrap, then install the browser runtime${agentAdapter ? " and this agent integration" : ""}.
 
 On macOS/Linux:
 
@@ -465,7 +468,7 @@ archive="nbc-\${platform}.tar.gz"
 url="https://github.com/nextbrowser-oss/nbc_releases/releases/latest/download/\${archive}"
 curl -fL --retry 3 --retry-delay 2 -o "$archive" "$url"
 tar -xzf "$archive"
-"./nbc-\${platform}/nbc" install --agent ${agentAdapter} --no-api-key-prompt --json
+"./nbc-\${platform}/nbc" install ${target} --no-api-key-prompt --json
 \`\`\`
 
 On Windows PowerShell:
@@ -477,7 +480,7 @@ Invoke-WebRequest -Uri $url -OutFile $archive
 Remove-Item -Recurse -Force ".\\nbc-win-amd64" -ErrorAction SilentlyContinue
 Expand-Archive -Force $archive .
 $nextctl = ".\\nbc-win-amd64\\nbc.exe"
-& $nextctl install --agent ${agentAdapter} --no-api-key-prompt --json
+& $nextctl install ${target} --no-api-key-prompt --json
 \`\`\`
 
 If Windows asks for administrator approval, tell the user exactly that approval is needed. After install, run \`nextctl version\` and report the installed path. Do not invent backend API calls.`;
@@ -581,7 +584,7 @@ async function pullCatalogInstructions(entry: SkillEntry, preferredAgentId: stri
     nextctlAgentAdapter(preferredAgentId),
     "claude-code",
     "codex",
-  ].filter((adapter, index, all) => all.indexOf(adapter) === index);
+  ].filter((adapter, index, all): adapter is string => !!adapter && all.indexOf(adapter) === index);
   for (const adapter of adapters) {
     try {
       const ref = await nextctlJson<SkillRef>([
@@ -4814,6 +4817,8 @@ export const useStore = create<State>((set, get) => {
         trackEvent("install_prompt_sent", { agent: agentId, adapter });
         return;
       }
+      // nbc has no integration to install for this agent.
+      if (!adapter) return;
       // Installation is idempotent. Keep connection fast and refresh the
       // agent's bundled nextctl skill/integration in the background.
       void nextctlRun(["install", "--agent", adapter, "--no-api-key-prompt"], undefined, { timeoutMs: NEXTCTL_INSTALL_TIMEOUT_MS }).then((result) => {
@@ -6517,6 +6522,12 @@ export const useStore = create<State>((set, get) => {
     let failures = 0;
     for (const target of targets) {
       const key = skillKey(target.id, entry.id);
+      // nbc has no adapter, and so no skills directory, for this agent;
+      // asking would only fail with "unknown agent adapter".
+      if (!target.adapter) {
+        set((s) => ({ skillState: { ...s.skillState, [key]: "failed" } }));
+        continue;
+      }
       try {
         const ref = await nextctlJson<SkillRef>([
           "skill",

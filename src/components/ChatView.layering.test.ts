@@ -23,3 +23,10 @@ describe("project workspace layout", () => {
     expect(chatView).toContain("nextbrowser:create-project");
   });
 });
+
+describe("terminal to chat handoff", () => {
+  it("stages terminal context for a chat that has no conversation yet", () => {
+    expect(chatView).toContain("setPendingTerminalContext({ conversationId: conv?.id, text: handoff })");
+    expect(chatView).not.toMatch(/if \(conv\?\.id\) setPendingTerminalContext/);
+  });
+});

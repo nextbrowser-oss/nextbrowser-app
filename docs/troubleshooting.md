@@ -29,6 +29,16 @@ Nextbrowser starts Codex with its managed `nextbrowser` MCP server. It does not 
 
 The underlying browser server is named `nextbrowser` in a Nextbrowser-managed Codex session. Old warnings naming `clawbrowser` identify a separate legacy MCP entry rather than the managed server.
 
+## Claude Code in Terminal chat shows its first-run screens
+
+Before it starts Claude Code in Terminal chat, Nextbrowser records three answers in Claude Code's own settings file (`~/.claude.json`, or `.claude.json` in `CLAUDE_CONFIG_DIR`): first-run setup is done, the fullscreen renderer offer was seen, and the Nextbrowser workspace folder (`~/.nextbrowser/workspace`) is trusted. It records an answer only when Claude Code has none yet and changes nothing else in the file, so Claude Code opens at its prompt.
+
+Claude Code still shows these screens when it reads an older `~/.claude/.config.json`, when its settings file is read-only or not valid JSON, or when it was set to run its setup again, for example after you switched accounts. In that case:
+
+1. Pick a theme and press Enter.
+2. When Claude Code asks whether you trust the workspace folder, choose **Yes, I trust this folder**. **No, exit** closes the terminal.
+3. Answer the fullscreen renderer offer either way; `/tui` changes it later.
+
 ## The API key is rejected
 
 Use the product setup flow to store the key again and verify account identity. Do not paste the key into an issue, screenshot, prompt, or chat transcript.
