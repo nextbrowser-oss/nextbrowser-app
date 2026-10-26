@@ -59,7 +59,9 @@ function recorderPageScript() {
     return role && name ? { locator: { role, name } } : { selector: selectorFor(element) };
   };
   const push = (tool, arguments_) => {
-    const action = { tool, arguments: arguments_, at: Date.now(), eventId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` };
+    // The page an action happened on is where its replay has to start when
+    // the navigation that led there was not captured.
+    const action = { tool, arguments: arguments_, at: Date.now(), url: location.href, eventId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` };
     queue.push(action);
     try { window.__nextbrowserRecorderEmit?.(JSON.stringify(action)); } catch { /* the queue remains the fallback */ }
     try { sessionStorage.setItem(storageKey, JSON.stringify(queue)); } catch { /* the in-memory queue still records the action */ }
@@ -182,11 +184,16 @@ async function syncCDPTargets(state) {
   for (const [id, tracked] of state.cdpTargets) {
     if (!liveIds.has(id)) { tracked.client.close(); state.cdpTargets.delete(id); }
   }
+  let failure;
   for (const target of targets) {
     const id = String(target.id);
     const url = String(target.url || "");
     const tracked = state.cdpTargets.get(id);
     if (!tracked) {
+      // Only web pages are recorded. A browser-internal tab, such as the
+      // verification page or a new-tab page, is picked up once it navigates
+      // to a site; the recorder cannot always be injected there before.
+      if (!/^(?:https?:\/\/|about:blank)/i.test(url)) continue;
       const entry = { client: null, url, title: String(target.title || "") };
       const client = createCDPTargetClient(target, (action) => {
         state.currentUrl = entry.url || state.currentUrl;
@@ -194,8 +201,17 @@ async function syncCDPTargets(state) {
         addAction(state, action);
       });
       entry.client = client;
-      await client.call("Runtime.addBinding", { name: "__nextbrowserRecorderEmit" });
-      await client.call("Runtime.evaluate", { expression: `(${recorderPageScript.toString()})()`, returnByValue: true, awaitPromise: true });
+      try {
+        await client.call("Runtime.addBinding", { name: "__nextbrowserRecorderEmit" });
+        await client.call("Runtime.evaluate", { expression: `(${recorderPageScript.toString()})()`, returnByValue: true, awaitPromise: true });
+      } catch (error) {
+        // One tab the recorder cannot reach (it is closing, say) must not
+        // keep it from the others or leave a connection open. It is tried
+        // again on the next poll.
+        client.close();
+        failure ??= error;
+        continue;
+      }
       state.cdpTargets.set(id, entry);
       if (state.cdpInitialized && /^https?:\/\//.test(url)) {
         addAction(state, { tool: "open", arguments: { url }, at: Date.now() });
@@ -211,7 +227,11 @@ async function syncCDPTargets(state) {
       state.title = String(target.title || state.title);
     }
   }
+  // The tabs open when recording started are context, not steps. Every tab
+  // that appears after this first pass is a step, even when a tab failed in
+  // it: otherwise a page opened in a new tab never gets its "open" step.
   state.cdpInitialized = true;
+  if (failure) throw failure;
   return true;
 }
 
@@ -236,17 +256,23 @@ function capRecordedActions(actions) {
   return [...leading.slice(0, MAX_ACTIONS), ...recent];
 }
 
+function pageURL(value) {
+  return typeof value === "string" && /^https?:\/\//i.test(value) && value.length <= 4096 ? value : undefined;
+}
+
 function addAction(state, action) {
   if (!action || typeof action.tool !== "string" || !action.arguments) return;
   if (action.eventId && state.seenEventIds.has(action.eventId)) return;
   if (action.eventId) state.seenEventIds.add(action.eventId);
   const previous = state.actions[state.actions.length - 1];
+  const url = pageURL(action.url);
+  const recorded = { tool: action.tool, arguments: action.arguments, at: Number(action.at) || Date.now(), ...(url ? { url } : {}) };
   if (action.tool === "input" && previous?.tool === "input" && JSON.stringify({ ...previous.arguments, text: undefined }) === JSON.stringify({ ...action.arguments, text: undefined })) {
-    state.actions[state.actions.length - 1] = { tool: action.tool, arguments: action.arguments, at: Number(action.at) || Date.now() };
+    state.actions[state.actions.length - 1] = recorded;
     return;
   }
   if (previous?.tool === action.tool && ["select", "click"].includes(action.tool) && JSON.stringify(previous.arguments) === JSON.stringify(action.arguments)) return;
-  state.actions.push({ tool: action.tool, arguments: action.arguments, at: Number(action.at) || Date.now() });
+  state.actions.push(recorded);
   state.actions = capRecordedActions(state.actions);
   if (["click", "press", "select"].includes(action.tool)) state.lastPageInteractionAt = Number(action.at) || Date.now();
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { artifactActionFromTask, capturedRunFromHybridRecording, capturedRunFromManualRecording, capturedTaskRunsForRecording, hasPendingTaskRunForRecording, skillFromRun, type CapturedRun, type ManualBrowserRecording } from "./automationStudio";
-import { recordedBrowserActions } from "./workflowCapture";
+import { capturedWorkflowDomain, recordedBrowserActions, workflowQuality } from "./workflowCapture";
 import type { Conversation } from "../types";
 
 function agentRun(): CapturedRun {
@@ -99,6 +99,45 @@ describe("hybrid browser recording", () => {
     });
     expect(result?.conversationTitle).toBe("Manual recording — github.com");
     expect(result?.task).toContain("github.com");
+  });
+
+  it("replays a captured open + click on a public site", () => {
+    const repo = "https://github.com/nextbrowser-oss/nextbrowser-app";
+    const result = capturedRunFromHybridRecording("manual-open-click", {
+      url: `${repo}/commits/main`,
+      title: "Commits · nextbrowser-oss/nextbrowser-app",
+      actions: [
+        { tool: "navigate", arguments: { url: repo }, at: 1_000 },
+        { tool: "click", arguments: { locator: { role: "link", name: "Commits" } }, at: 2_000, url: repo },
+      ],
+    })!;
+    const domain = capturedWorkflowDomain(result.task, result.evidence);
+    expect(domain).toBe("github.com");
+    expect(workflowQuality(result.task, result.evidence, domain).reusable).toBe(true);
+    expect(recordedBrowserActions(result.evidence)).toEqual([
+      { tool: "open", arguments: { url: repo } },
+      { tool: "click", arguments: { locator: { role: "link", name: "Commits" } } },
+    ]);
+    expect(skillFromRun(result).actions.map((action) => action.tool)).toEqual(["open", "click"]);
+  });
+
+  it("starts a manual recording on the page of its first click when the navigation there was missed", () => {
+    // The tab was already on the repository when the recorder first saw it,
+    // so only the click (stamped with its page) was captured.
+    const repo = "https://github.com/nextbrowser-oss/nextbrowser-app";
+    const result = capturedRunFromHybridRecording("manual-missed-open", {
+      url: `${repo}/commits/main`,
+      title: "GitHub - nextbrowser-oss/nextbrowser-app · GitHub",
+      actions: [
+        { tool: "click", arguments: { locator: { role: "link", name: "Commits" } }, at: 2_000, url: repo },
+        { tool: "scroll", arguments: { x: 0, y: 400 }, at: 3_000, url: `${repo}/commits/main` },
+      ],
+    })!;
+    const domain = capturedWorkflowDomain(result.task, result.evidence);
+    expect(domain).toBe("github.com");
+    expect(workflowQuality(result.task, result.evidence, domain)).toEqual({ reusable: true, reason: "The trace contains a completed, repeatable browser workflow." });
+    expect(recordedBrowserActions(result.evidence).map((action) => action.tool)).toEqual(["open", "click", "scroll"]);
+    expect(recordedBrowserActions(result.evidence)[0].arguments).toEqual({ url: repo });
   });
 
   it("keeps an agent-only recording when no page events were observable", () => {

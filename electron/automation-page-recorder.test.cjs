@@ -44,6 +44,36 @@ test("page recorder captures manual page interactions without blocking them", ()
   assert.match(source, /sensitive \? "\{\{redacted\}\}"/);
   assert.match(source, /sessionStorage\.setItem\(storageKey/);
   assert.match(source, /sessionStorage\.removeItem\(storageKey/);
+  assert.match(source, /url: location\.href/);
+});
+
+test("page actions keep the page they happened on, so replay can start there", async () => {
+  let drained = false;
+  const repo = "https://github.com/nextbrowser-oss/nextbrowser-app";
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    if (message.params.name === "state") return toolResult({ page: { url: "clawbrowser://verify/" } });
+    const expression = message.params.arguments.expression;
+    if (expression.includes("function recorderPageScript")) return toolResult({ installed: true, url: "clawbrowser://verify/", title: "Verification" });
+    if (expression.includes("state?.cleanup")) return toolResult(true);
+    // The click navigated away before this poll drained it.
+    const actions = drained ? [] : [
+      { tool: "click", arguments: { locator: { role: "link", name: "Commits" } }, at: Date.now(), url: repo },
+      { tool: "scroll", arguments: { x: 0, y: 1 }, at: Date.now(), url: "javascript:void(0)" },
+    ];
+    drained = true;
+    return toolResult({ missing: false, url: "clawbrowser://verify/", title: "Verification", actions });
+  });
+
+  await startAutomationPageRecording({ recordingId: "manual-page-url", profile: "Work", runtime: "clawbrowser" }, {
+    binary: "nextctl", env: {}, spawnImpl: server.spawnImpl,
+  });
+  const result = await stopAutomationPageRecording("manual-page-url");
+
+  assert.deepEqual(result.actions.map(({ tool, url }) => ({ tool, url })), [
+    { tool: "click", url: repo },
+    { tool: "scroll", url: undefined },
+  ]);
 });
 
 test("manual recording returns an initial navigation and collected deterministic actions", async () => {
@@ -189,4 +219,76 @@ test("a successful one-shot navigate and extract call satisfies Recorder data ca
   assert.equal(await activeAutomationRecordingHasDataAction(), true);
   const result = await stopAutomationPageRecording("navigate-extract");
   assert.ok(result.actions.some(({ tool }) => tool === "navigate_extract"));
+});
+
+test("a page opened in a new tab during recording gets its open step even when another tab cannot be recorded", async () => {
+  const repo = "https://github.com/nextbrowser-oss/nextbrowser-app";
+  const verify = { id: "verify", type: "page", url: "clawbrowser://verify/", title: "Verification", webSocketDebuggerUrl: "ws://127.0.0.1:47123/devtools/page/verify" };
+  const broken = { id: "closing", type: "page", url: "https://example.com/", title: "Closing", webSocketDebuggerUrl: "ws://127.0.0.1:47123/devtools/page/closing" };
+  const github = { id: "github", type: "page", url: repo, title: "GitHub", webSocketDebuggerUrl: "ws://127.0.0.1:47123/devtools/page/github" };
+  let targets = [verify, broken];
+  const sockets = [];
+  class FakeSocket {
+    constructor(url) {
+      this.url = url;
+      this.listeners = {};
+      this.closed = false;
+      sockets.push(this);
+      queueMicrotask(() => this.emit("open"));
+    }
+    addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
+    emit(type, event) { for (const listener of this.listeners[type] || []) listener(event); }
+    send(text) {
+      const message = JSON.parse(text);
+      if (this.url.endsWith("/verify")) throw new Error("the internal page must not be attached");
+      const reply = this.url.endsWith("/closing") && message.method === "Runtime.evaluate"
+        ? { id: message.id, error: { message: "Target closed." } }
+        : { id: message.id, result: {} };
+      queueMicrotask(() => this.emit("message", { data: JSON.stringify(reply) }));
+    }
+    close() { this.closed = true; }
+  }
+  const server = fakeMCP((message) => {
+    if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
+    if (message.params.name === "state") return toolResult({ page: { url: verify.url } });
+    if (message.params.arguments.expression.includes("state?.cleanup")) return toolResult(true);
+    return { content: [{ type: "text", text: JSON.stringify({
+      result: { missing: false, url: verify.url, title: verify.title, actions: [] },
+      session: { name: "Work", endpoint: "http://127.0.0.1:47123" },
+    }) }] };
+  });
+  const previous = { fetch: global.fetch, WebSocket: global.WebSocket };
+  global.fetch = async () => ({ ok: true, json: async () => targets });
+  global.WebSocket = FakeSocket;
+  const until = async (condition) => {
+    for (let attempt = 0; attempt < 100 && !condition(); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.ok(condition());
+  };
+  try {
+    await startAutomationPageRecording({ recordingId: "cdp-new-tab", profile: "Work", runtime: "clawbrowser" }, {
+      binary: "nextctl", env: {}, spawnImpl: server.spawnImpl,
+    });
+    // The first pass over the tabs open at Start; the closing tab fails.
+    await until(() => sockets.some((socket) => socket.url.endsWith("/closing") && socket.closed));
+    targets = [github, verify];
+    await until(() => sockets.some((socket) => socket.url.endsWith("/github") && socket.listeners.message));
+    const tab = sockets.find((socket) => socket.url.endsWith("/github"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    tab.emit("message", { data: JSON.stringify({ method: "Runtime.bindingCalled", params: { name: "__nextbrowserRecorderEmit", payload: JSON.stringify({
+      tool: "click", arguments: { locator: { role: "link", name: "Commits" } }, at: Date.now(), url: repo, eventId: "click-1",
+    }) } }) });
+    const result = await stopAutomationPageRecording("cdp-new-tab");
+
+    assert.deepEqual(result.actions.map(({ tool, arguments: args }) => ({ tool, args })), [
+      { tool: "open", args: { url: repo } },
+      { tool: "click", args: { locator: { role: "link", name: "Commits" } } },
+    ]);
+    assert.ok(sockets.every((socket) => !socket.url.endsWith("/verify")), "the internal page is never attached");
+    assert.ok(sockets.filter((socket) => socket.url.endsWith("/closing")).every((socket) => socket.closed), "a failed tab leaves no connection open");
+  } finally {
+    // A failed assertion must not leave the recorder polling.
+    await stopAutomationPageRecording("cdp-new-tab").catch(() => undefined);
+    global.fetch = previous.fetch;
+    global.WebSocket = previous.WebSocket;
+  }
 });
