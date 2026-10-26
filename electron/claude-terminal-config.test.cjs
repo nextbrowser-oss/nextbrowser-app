@@ -23,12 +23,14 @@ async function readJSON(file) {
 test("a new user's Claude Code starts at its prompt in the workspace folder", async (t) => {
   const homeDir = await tempHome(t);
   const workspaceDir = path.join(homeDir, ".nextbrowser", "workspace");
+  // Claude Code keys projects by path with forward slashes on Windows.
+  const key = claudeProjectKey(workspaceDir);
   assert.equal(await prepareClaudeTerminalConfig({ workspaceDir, homeDir, env: {} }), true);
   const file = path.join(homeDir, ".claude.json");
   assert.deepEqual(await readJSON(file), {
     hasCompletedOnboarding: true,
     fullscreenUpsellSeenCount: 3,
-    projects: { [workspaceDir]: { hasTrustDialogAccepted: true } },
+    projects: { [key]: { hasTrustDialogAccepted: true } },
   });
   if (process.platform !== "win32") assert.equal((await fs.stat(file)).mode & 0o777, 0o600);
   assert.deepEqual((await fs.readdir(homeDir)).filter((name) => name.endsWith(".tmp")), []);
@@ -37,6 +39,8 @@ test("a new user's Claude Code starts at its prompt in the workspace folder", as
 test("an existing config keeps every value and only gains the missing answers", async (t) => {
   const homeDir = await tempHome(t);
   const workspaceDir = path.join(homeDir, ".nextbrowser", "workspace");
+  // Claude Code keys projects by path with forward slashes on Windows.
+  const key = claudeProjectKey(workspaceDir);
   const file = path.join(homeDir, ".claude.json");
   const existing = {
     numStartups: 30,
@@ -45,7 +49,7 @@ test("an existing config keeps every value and only gains the missing answers", 
     projects: {
       "/home/user/code/site": { allowedTools: ["Bash"], hasTrustDialogAccepted: false },
       // What a chat run (`claude -p`) in the workspace folder leaves behind.
-      [workspaceDir]: { allowedTools: [], lastCost: 0.42, lastSessionId: "s1", hasTrustDialogAccepted: false },
+      [key]: { allowedTools: [], lastCost: 0.42, lastSessionId: "s1", hasTrustDialogAccepted: false },
     },
   };
   await fs.writeFile(file, JSON.stringify(existing, null, 2), { mode: 0o640 });
@@ -56,7 +60,7 @@ test("an existing config keeps every value and only gains the missing answers", 
     fullscreenUpsellSeenCount: 3,
     projects: {
       ...existing.projects,
-      [workspaceDir]: { allowedTools: [], lastCost: 0.42, lastSessionId: "s1", hasTrustDialogAccepted: true },
+      [key]: { allowedTools: [], lastCost: 0.42, lastSessionId: "s1", hasTrustDialogAccepted: true },
     },
   });
   if (process.platform !== "win32") assert.equal((await fs.stat(file)).mode & 0o777, 0o640);
@@ -65,9 +69,11 @@ test("an existing config keeps every value and only gains the missing answers", 
 test("answers the user already gave are not changed", async (t) => {
   const homeDir = await tempHome(t);
   const workspaceDir = path.join(homeDir, ".nextbrowser", "workspace");
+  // Claude Code keys projects by path with forward slashes on Windows.
+  const key = claudeProjectKey(workspaceDir);
   const file = path.join(homeDir, ".claude.json");
   // Claude Code resets onboarding to false itself after an account switch.
-  const text = JSON.stringify({ hasCompletedOnboarding: false, fullscreenUpsellSeenCount: 1, projects: { [workspaceDir]: { hasTrustDialogAccepted: true } } });
+  const text = JSON.stringify({ hasCompletedOnboarding: false, fullscreenUpsellSeenCount: 1, projects: { [key]: { hasTrustDialogAccepted: true } } });
   await fs.writeFile(file, text);
   assert.equal(await prepareClaudeTerminalConfig({ workspaceDir, homeDir, env: {} }), false);
   assert.equal(await fs.readFile(file, "utf8"), text);
