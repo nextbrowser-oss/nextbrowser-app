@@ -33,7 +33,7 @@ const http = require("node:http");
 const { Readable } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
 const { agentWorkspaceDir } = require("./agent-workspace.cjs");
-const { resolveScopedProfile } = require("./agent-control-scope.cjs");
+const { parseAgentControlBody, resolveScopedProfile } = require("./agent-control-scope.cjs");
 const { workspaceProjects, deleteWorkspaceProject } = require("./agent-project-control.cjs");
 const {
   executableNames,
@@ -892,7 +892,20 @@ async function ensureAgentControlServer() {
         raw += chunk;
         if (raw.length > (artifactSave ? AGENT_ARTIFACT_BODY_LIMIT : 8192)) throw new Error("request_too_large");
       }
-      const payload = JSON.parse(raw || "{}");
+      let payload;
+      try {
+        payload = parseAgentControlBody(raw);
+      } catch (error) {
+        // The agent can correct its command from this answer. The failure is
+        // still reported: it means a shell changed the command the app gave.
+        reportInvokeFailure(controlAction, error);
+        sendControlResponse(response, 400, {
+          ok: false,
+          error: "invalid_request_body",
+          message: "Nextbrowser could not read this request body. Run the exact command from your instructions without changing its quoting; on Windows use curl.exe.",
+        });
+        return;
+      }
       if (personalProxiesList) {
         const proxies = await listPersonalProxies({ env: childEnv() });
         sendControlResponse(response, 200, { ok: true, proxies: proxies.map(({ id, name }) => ({ id, name })) });

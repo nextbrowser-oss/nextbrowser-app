@@ -1,14 +1,11 @@
 import type { ChatMessage } from "../types";
 import { HOST_START_FAILURE_GUIDANCE } from "./hostStartFailureGuidance";
+import { hostStartCommand } from "./hostStartCommand";
 
 const MAX_HANDOFF_CHARS = 6_000;
 
 function clean(text: string): string {
   return text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/\r/g, "").replace(/\n{3,}/g, "\n\n").trim();
-}
-
-function shellSingleQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 function tailWithinLimit(lines: string[], limit = MAX_HANDOFF_CHARS): string {
@@ -116,7 +113,7 @@ export function terminalBrowserScopeContext(
     `- ${profile.name}: ${runtimeLabel(profile.runtime)} (${profile.running ? "running" : "stopped"}${profile.selected ? ", selected" : ""})`,
   );
   const startCommands = uniqueProfiles.map((profile) =>
-    `- Start ${profile.name} exactly: curl -sS -X POST "$NEXTBROWSER_CONTROL_URL/profile/start" -H "Authorization: Bearer $NEXTBROWSER_CONTROL_TOKEN" -H "Content-Type: application/json" --data ${shellSingleQuote(JSON.stringify({ profile: profile.name }))}`,
+    `- Start ${profile.name} exactly: ${hostStartCommand(profile.name)}`,
   );
   const recorderContext = recorderActive
     ? "\nRecorder is active. A reusable recording must contain a successful nextbrowser.navigate_extract, nextbrowser.extract, nextbrowser.paginate_extract, nextbrowser.tabs_extract, or read-only nextbrowser.evaluate call returning the exact final dataset. Prefer navigate_extract when the URL, row container, and fields are known. State is discovery only: use it once when needed, never construct the artifact solely from state output or reasoning, and do not use evaluate for selector or HTML diagnostics. Perform the final deterministic data call after discovery and before Artifact Center save. For evaluate, select the target by stable content, attributes, or headers rather than a numeric querySelectorAll position, and throw unless the requested row count and fields are populated. If the final dataset comes from a public JSON endpoint, use its replayable GET form when available: open that exact API URL in the listed browser profile, then evaluate the JSON body. Never leave the final request hidden in curl, fetch, or an uncaptured shell action, because Recorder cannot replay it. Save the final dataset once with nextbrowser.save_artifact. Do not finish with only open, state, and save_artifact."

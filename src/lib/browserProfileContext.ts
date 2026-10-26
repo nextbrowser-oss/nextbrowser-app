@@ -1,13 +1,10 @@
 import type { Workspace } from "../types";
 import type { MultiloginProfileSelection } from "./multiloginSelection";
 import { HOST_START_FAILURE_GUIDANCE } from "./hostStartFailureGuidance";
+import { hostStartCommand } from "./hostStartCommand";
 
 function clean(value: string): string {
   return value.replace(/[\r\n]+/g, " ").trim().slice(0, 160);
-}
-
-function shellSingleQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 /**
@@ -61,7 +58,7 @@ export function browserProfileContext(
     ? `\n\nWhen the user explicitly asks to save a result in Artifact Center, POST JSON to "$NEXTBROWSER_CONTROL_URL/artifact/save" with the same Authorization header and a body shaped as {"name":"result-name","format":"json|csv|txt","content":RESULT}. Artifact Center is local to this computer. Send one complete request. For non-trivial JSON, use curl --data-binary @- with an attached <<'NEXTBROWSER_ARTIFACT_JSON' heredoc containing that complete body; never invoke @- without stdin and never create a temporary workspace file. Do not claim that a file was saved unless this endpoint returns {"ok":true}; report its returned artifact name. If this local endpoint returns unauthorized, report a local Artifact Center authorization failure; never ask the user to reconnect their account, because local artifacts do not use account authentication.`
     : "";
   const hostStartCommands = workspaceProfileNames
-    .map((name) => `Start ${clean(name)} exactly: curl -sS -X POST "$NEXTBROWSER_CONTROL_URL/profile/start" -H "Authorization: Bearer $NEXTBROWSER_CONTROL_TOKEN" -H "Content-Type: application/json" --data ${shellSingleQuote(JSON.stringify({ profile: name }))}`)
+    .map((name) => `Start ${clean(name)} exactly: ${hostStartCommand(name)}`)
     .join("\n");
   const hostStartContext = hostStartCommands
     ? ` Authorized recovery commands (available even when status says running because the user may close the browser manually; copy only the matching command and never replace its profile value):\n${hostStartCommands}\n`
