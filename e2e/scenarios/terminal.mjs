@@ -14,6 +14,16 @@ async function tellTerminal(page, text, { timeoutMs = 300_000 } = {}) {
   await page.locator(".xterm-screen").click();
   const before = await terminalScreen(page);
   if (FIRST_RUN.test(before)) blocked("The agent's terminal shows its first-run setup (theme, folder trust, sign-in); a person answers it once on this machine");
+  // Coming back from chat, the app pastes the chat's context into the
+  // terminal; typing before that paste lands mixes the two and loses Enter.
+  let last = before;
+  let still = 0;
+  await waitFor(async () => {
+    const screen = await terminalScreen(page);
+    still = screen === last ? still + 1 : 0;
+    last = screen;
+    return still >= 3;
+  }, "the terminal to settle", 30_000, 700);
   await page.keyboard.type(text, { delay: 15 });
   await page.keyboard.press("Enter");
   let quiet = 0;
