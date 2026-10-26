@@ -1,6 +1,6 @@
 import { blocked } from "../lib/blocked.mjs";
 import { activeWorkspace, askAgent, createProfile, createWorkspace, deleteCurrentWorkspace, escape, openMainView, setChatMode, stopProfile, switchWorkspace, waitFor } from "../lib/ui.mjs";
-import { confirmNextDialog, createProject, latestCommits, mentions, openInProfile, pageEval, sleep } from "../lib/ui-workflows.mjs";
+import { createProject, latestCommits, mentions, openInProfile, pageEval, sleep } from "../lib/ui-workflows.mjs";
 
 const REPO = "nextbrowser-oss/nextbrowser-app";
 const REPO_URL = `https://github.com/${REPO}`;
@@ -228,10 +228,16 @@ async function dataStepValue(nbcCmd, profile, steps) {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
+/** Deleting asks in the app's own dialog, named after what it deletes. */
+async function confirmDeletion(page) {
+  await page.getByRole("dialog", { name: /^Delete / }).getByRole("button", { name: "Delete", exact: true }).click();
+}
+
 async function deleteWorkflow(page, title) {
   await openWorkflow(page, title);
   await main(page).getByLabel("More workflow actions").click();
-  await confirmNextDialog(page, () => main(page).getByRole("button", { name: "Delete workflow", exact: true }).click());
+  await main(page).getByRole("button", { name: "Delete workflow", exact: true }).click();
+  await confirmDeletion(page);
   await waitFor(async () => (await openWorkflowTitle(page)) !== title, `workflow «${title}» to be deleted`);
 }
 
@@ -239,7 +245,8 @@ async function deleteRecording(page, key) {
   await openStudio(page, "Recorder");
   const card = recordingCard(page, key);
   if (!(await card.count())) return;
-  await confirmNextDialog(page, () => card.getByRole("button", { name: "Delete", exact: true }).click());
+  await card.getByRole("button", { name: "Delete", exact: true }).click();
+  await confirmDeletion(page);
   await card.waitFor({ state: "detached", timeout: 30_000 });
 }
 
