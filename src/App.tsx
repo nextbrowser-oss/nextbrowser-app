@@ -632,11 +632,11 @@ function SettingsModal({
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
-      <div className="modal-card settings-modal" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="modal-card settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-title-row">
           <Icon name="gearshape" size={18} />
           <div>
-            <strong>Settings</strong>
+            <strong id="settings-title">Settings</strong>
             <div className="muted small">Local app and runtime status</div>
           </div>
           <span className="spacer" />

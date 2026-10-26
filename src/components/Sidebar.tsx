@@ -2194,6 +2194,9 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
         <div className="modal-overlay" onMouseDown={() => { if (!workspaceSaving) { setWorkspaceCreatorOpen(false); setWorkspaceError(null); } }}>
           <form
             className="modal-card workspace-create-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="workspace-create-title"
             onMouseDown={(event) => event.stopPropagation()}
             onSubmit={(event) => {
               event.preventDefault();
@@ -2219,7 +2222,7 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
           >
             <div className="profile-menu-head">
               <Icon name="square.grid.2x2.fill" size={15} />
-              <span className="profile-menu-name">Create workspace</span>
+              <span id="workspace-create-title" className="profile-menu-name">Create workspace</span>
               <span className="spacer" />
               <button type="button" className="plain-icon-btn" title="Close" disabled={workspaceSaving} onClick={() => { setWorkspaceCreatorOpen(false); setWorkspaceError(null); }}>
                 <Icon name="xmark.circle.fill" size={18} />
@@ -2484,10 +2487,10 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
 
       {manualProxyOpen && createPortal((
         <div className="modal-overlay" onMouseDown={() => { if (!manualSaving && !manualProxyDeletePending) { setManualProxyOpen(false); setManualProxyDeleting(null); } }}>
-          <div className="modal-card manual-proxy-modal" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="modal-card manual-proxy-modal" role="dialog" aria-modal="true" aria-labelledby="manual-proxy-title" onMouseDown={(e) => e.stopPropagation()}>
             <div className="profile-menu-head">
               <Icon name="network" size={16} className="accent-icon" />
-              <span className="profile-menu-name">{manualProxyEditing ? (manualProxyMode === "bulk" ? "Add proxies" : "Create proxy") : "Personal proxies"}</span>
+              <span id="manual-proxy-title" className="profile-menu-name">{manualProxyEditing ? (manualProxyMode === "bulk" ? "Add proxies" : "Create proxy") : "Personal proxies"}</span>
               <span className="spacer" />
               <button
                 type="button"
