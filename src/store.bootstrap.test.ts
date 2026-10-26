@@ -60,6 +60,8 @@ function mockDesktop(identityValid: boolean, options?: { ownerId?: string; appDa
         return "nextctl 1.0.0";
       case "nextctl_supports_skill":
         return true;
+      case "nextctl_install_status":
+        return { status: "idle" };
       case "account_logout":
         return null;
       case "agent_authorize":
@@ -95,6 +97,9 @@ function mockDesktop(identityValid: boolean, options?: { ownerId?: string; appDa
     }
   });
 }
+
+// The longest the splash waits for a first run to set up the CLI.
+const BOOTSTRAP_CLI_SETUP_WAIT_MS = 180_000;
 
 beforeEach(() => {
   vi.resetModules();
@@ -569,13 +574,110 @@ describe("foreground startup deadline", () => {
       expect(useStore.getState().startupError).toContain("taking longer than expected");
       expect(useStore.getState().startupPhase).toBe(blockedCommand === "app_data_read" ? "local" : "account");
       expect(useStore.getState().accountEmail).toBeUndefined();
-      // Only the user sees the splash, so it is reported, naming the stalled phase.
+      // Only the user sees the splash, so it is reported, naming the stalled
+      // phase, the step it waited for and how long.
       expect(reporting.reportUserFacingError).toHaveBeenCalledWith({
         surface: "startup",
         code: blockedCommand === "app_data_read" ? "STARTUP_LOCAL_TIMED_OUT" : "STARTUP_ACCOUNT_TIMED_OUT",
+        stage: {
+          app_data_read: "local_data",
+          nextctl_resolve: "cli_resolve",
+          nextctl_version: "cli_version",
+          identity: "account_identity",
+        }[blockedCommand],
+        elapsedMs: 12_000,
       });
     },
   );
+
+  function firstRunInstall(initial: { status: string; stage?: string }) {
+    mockDesktop(true);
+    const normalInvoke = bridge.invoke.getMockImplementation()!;
+    const install: { status: string; stage?: string; installedAt?: number } = { ...initial };
+    let release!: (value: string) => void;
+    bridge.invoke.mockImplementation((command, payload) => {
+      if (command === "nextctl_resolve") return new Promise<string>((resolve) => { release = resolve; });
+      if (command === "nextctl_install_status") return Promise.resolve({ ...install });
+      return normalInvoke(command, payload);
+    });
+    return {
+      install,
+      finish() {
+        Object.assign(install, { status: "ready", stage: undefined, installedAt: Date.now() });
+        release("/tmp/nextctl");
+      },
+    };
+  }
+
+  it("keeps a first run that is still downloading the CLI on the splash, without an error", async () => {
+    const setup = firstRunInstall({ status: "downloading", stage: "download" });
+    const { useStore } = await import("./store");
+    void useStore.getState().bootstrap();
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(useStore.getState()).toMatchObject({ checking: true, startupPhase: "setup", startupError: undefined });
+    await vi.advanceTimersByTimeAsync(60_000);
+    setup.finish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(useStore.getState()).toMatchObject({ checking: false, authed: true, startupError: undefined });
+    await vi.advanceTimersByTimeAsync(BOOTSTRAP_CLI_SETUP_WAIT_MS);
+    expect(useStore.getState().startupError).toBeUndefined();
+    expect(reporting.reportUserFacingError).not.toHaveBeenCalled();
+  });
+
+  it("waits while a CLI installed during this startup is still being checked", async () => {
+    const setup = firstRunInstall({ status: "installing", stage: "verify" });
+    const { useStore } = await import("./store");
+    void useStore.getState().bootstrap();
+    await vi.advanceTimersByTimeAsync(5_000);
+    // The install finished, but the version and account checks still run.
+    Object.assign(setup.install, { status: "ready", stage: undefined, installedAt: Date.now() });
+    await vi.advanceTimersByTimeAsync(7_000);
+    expect(useStore.getState()).toMatchObject({ checking: true, startupPhase: "setup", startupError: undefined });
+    setup.finish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(useStore.getState()).toMatchObject({ checking: false, authed: true, startupError: undefined });
+    expect(reporting.reportUserFacingError).not.toHaveBeenCalled();
+  });
+
+  it("reports a CLI setup that outlasts its wait with the stage and the time spent, then still recovers", async () => {
+    const setup = firstRunInstall({ status: "downloading", stage: "download" });
+    const { useStore } = await import("./store");
+    const startup = useStore.getState().bootstrap();
+    await vi.advanceTimersByTimeAsync(BOOTSTRAP_CLI_SETUP_WAIT_MS - 1);
+    expect(useStore.getState().startupError).toBeUndefined();
+    expect(reporting.reportUserFacingError).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await startup;
+    expect(useStore.getState().checking).toBe(false);
+    expect(useStore.getState().startupError).toContain("Setting up Nextbrowser is taking longer than expected");
+    expect(reporting.reportUserFacingError).toHaveBeenCalledOnce();
+    expect(reporting.reportUserFacingError).toHaveBeenCalledWith({
+      surface: "startup",
+      code: "STARTUP_ACCOUNT_TIMED_OUT",
+      stage: "cli_download",
+      elapsedMs: BOOTSTRAP_CLI_SETUP_WAIT_MS,
+    });
+    setup.finish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(useStore.getState()).toMatchObject({ checking: false, authed: true, startupError: undefined });
+  });
+
+  it("does not wait longer for a CLI that is already installed", async () => {
+    mockDesktop(true);
+    const normalInvoke = bridge.invoke.getMockImplementation()!;
+    bridge.invoke.mockImplementation((command, payload) => {
+      if (command === "nextctl_version") return new Promise(() => {});
+      // Every resolve marks the CLI ready; it was installed by an earlier run.
+      if (command === "nextctl_install_status") return Promise.resolve({ status: "ready", installedAt: Date.now() - 60_000 });
+      return normalInvoke(command, payload);
+    });
+    const { useStore } = await import("./store");
+    const startup = useStore.getState().bootstrap();
+    await vi.advanceTimersByTimeAsync(12_000);
+    await startup;
+    expect(useStore.getState()).toMatchObject({ checking: false, startupPhase: "account" });
+    expect(reporting.reportUserFacingError).toHaveBeenCalledWith(expect.objectContaining({ code: "STARTUP_ACCOUNT_TIMED_OUT", stage: "cli_version" }));
+  });
 
   it("opens the interface while agent setup and workspace sync are still pending", async () => {
     mockDesktop(true);
@@ -627,6 +729,11 @@ describe("foreground startup deadline", () => {
     await useStore.getState().bootstrap();
     expect(useStore.getState().checking).toBe(false);
     expect(useStore.getState().startupError).toContain("couldn't finish startup");
-    expect(reporting.reportUserFacingError).toHaveBeenCalledWith({ surface: "startup", code: expect.stringMatching(/^STARTUP_(LOCAL|ACCOUNT)_FAILED$/) });
+    expect(reporting.reportUserFacingError).toHaveBeenCalledWith({
+      surface: "startup",
+      code: expect.stringMatching(/^STARTUP_(LOCAL|ACCOUNT)_FAILED$/),
+      stage: expect.stringMatching(/^[a-z_]+$/),
+      elapsedMs: expect.any(Number),
+    });
   });
 });

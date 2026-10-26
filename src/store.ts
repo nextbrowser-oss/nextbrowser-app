@@ -588,7 +588,8 @@ interface State {
   accountEmail?: string;
   accountOwnerId?: string;
   checking: boolean;
-  startupPhase: "local" | "account";
+  /** "setup": the first run is still downloading and checking the Nextbrowser CLI. */
+  startupPhase: "local" | "account" | "setup";
   startupError?: string;
   loginError?: string;
   isLoggingIn: boolean;
@@ -1089,6 +1090,18 @@ function saveSyncedWorkspaceIds(ids: Set<string>): void {
 }
 const verifyingProfileStarts = new Set<string>();
 const BOOTSTRAP_FOREGROUND_WAIT_MS = 12_000;
+// A first run downloads the Nextbrowser CLI (7.5 MB on Windows), unpacks it
+// and starts it for the first time, which Windows Defender scans because the
+// binary is not code-signed. That legitimately outlasts the 12-second wait,
+// so while it is visibly in progress the splash waits up to this long before
+// it calls the startup stuck (a minute of download even at 1 Mbit/s, plus the
+// unpacking and the scans).
+const BOOTSTRAP_CLI_SETUP_WAIT_MS = 180_000;
+// What the foreground startup is waiting for, named in a stalled startup's
+// report: local_data, app_listeners, cli_resolve, cli_version, cli_skill,
+// account_identity, account_cache. The main process adds the CLI install
+// stages (cli_download, cli_extract, cli_verify).
+let startupStage = "local_data";
 // Stamps which account's data the on-disk caches (workspaces.json and
 // friends) belong to. A clean logout clears it along with the files; if it
 // survives to the next bootstrap under a different account (crash, killed
@@ -1969,15 +1982,32 @@ async function refreshAnalyticsIdentity(): Promise<boolean> {
   return valid;
 }
 
+/**
+ * The stage of a Nextbrowser CLI install the main process runs or finished
+ * during this startup (a first run), or undefined when the startup is not
+ * waiting for one.
+ */
+async function startupCliSetupStage(startedAtWallClock: number): Promise<string | undefined> {
+  const install = await invoke<{ status?: string; stage?: string; installedAt?: number } | null>("nextctl_install_status").catch(() => null);
+  if (install?.status === "downloading") return "cli_download";
+  if (install?.status === "installing") return install.stage === "extract" ? "cli_extract" : "cli_verify";
+  // A CLI installed during this startup is still being checked (version, account).
+  if (install?.status === "ready" && Number(install.installedAt) >= startedAtWallClock) return startupStage;
+  return undefined;
+}
+
 async function refreshLocalNextctlMetadata(): Promise<boolean> {
   if (pendingTarget(useStore.getState(), "vps")) return false;
+  startupStage = "cli_resolve";
   const nextctlPath = await runLocalNextctlOperation(() =>
     invoke<string | null>("nextctl_resolve").catch(() => null),
   );
   useStore.setState({ nextctlAvailable: !!nextctlPath });
   trackEvent("nextctl_resolve", { found: !!nextctlPath });
   try {
+    startupStage = "cli_version";
     const ver = await runLocalNextctlOperation(() => invoke<string>("nextctl_version"));
+    startupStage = "cli_skill";
     const supportsSkill = await runLocalNextctlOperation(() => invoke<boolean>("nextctl_supports_skill"));
     useStore.setState({
       nextctlVersion: normalizeNextctlVersion(ver),
@@ -1987,6 +2017,7 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
     });
     trackEvent("nextctl_detected", { supports_skill: supportsSkill });
     try {
+      startupStage = "account_identity";
       const valid = await refreshAnalyticsIdentity();
       if (!valid) {
         trackEvent("analytics_identity_unavailable", { phase: "bootstrap", reason: "invalid" });
@@ -2469,21 +2500,47 @@ export const useStore = create<State>((set, get) => {
     if (didBootstrap) return;
     didBootstrap = true;
     const startedAt = performance.now();
+    const startedAtWallClock = Date.now();
+    startupStage = "local_data";
     trackEvent("bootstrap_started");
     set({ checking: true, startupPhase: "local", startupError: undefined });
     // Cover the entire foreground startup, including disk reads and CLI
     // resolution. A timeout offers recovery, never a false signed-out state.
+    // A first run still setting up the CLI is not stuck: the splash says so
+    // and waits longer. Either way the startup keeps going behind the error,
+    // and the app opens by itself once it finishes.
     let startupTimer: ReturnType<typeof setTimeout> | undefined;
+    let startupSettled = false;
     const deadline = new Promise<void>((resolve) => {
-      startupTimer = setTimeout(() => {
+      const giveUp = (stage: string) => {
         const phase = get().startupPhase;
+        const elapsedMs = Math.round(performance.now() - startedAt);
         set({ checking: false, startupError: phase === "local"
           ? "Loading saved projects is taking longer than expected. You can restart the check."
-          : "Account verification is taking longer than expected. You can restart the check." });
-        trackEvent("bootstrap_foreground_timeout", { phase });
-        reportUserFacingError({ surface: "startup", code: phase === "local" ? "STARTUP_LOCAL_TIMED_OUT" : "STARTUP_ACCOUNT_TIMED_OUT" });
+          : phase === "setup"
+            ? "Setting up Nextbrowser is taking longer than expected. Check your internet connection, then restart the check."
+            : "Account verification is taking longer than expected. You can restart the check." });
+        trackEvent("bootstrap_foreground_timeout", { phase, stage, elapsed_ms: elapsedMs });
+        reportUserFacingError({
+          surface: "startup",
+          code: phase === "local" ? "STARTUP_LOCAL_TIMED_OUT" : "STARTUP_ACCOUNT_TIMED_OUT",
+          stage,
+          elapsedMs,
+        });
         resolve();
-      }, BOOTSTRAP_FOREGROUND_WAIT_MS);
+      };
+      startupTimer = setTimeout(() => void (async () => {
+        const setupStage = get().startupPhase === "account" ? await startupCliSetupStage(startedAtWallClock) : undefined;
+        if (startupSettled) return resolve();
+        if (!setupStage) return giveUp(startupStage);
+        set({ startupPhase: "setup" });
+        trackEvent("bootstrap_cli_setup_waiting", { stage: setupStage });
+        startupTimer = setTimeout(() => void (async () => {
+          const stage = await startupCliSetupStage(startedAtWallClock);
+          if (startupSettled) return resolve();
+          giveUp(stage ?? startupStage);
+        })(), BOOTSTRAP_CLI_SETUP_WAIT_MS - BOOTSTRAP_FOREGROUND_WAIT_MS);
+      })(), BOOTSTRAP_FOREGROUND_WAIT_MS);
     });
     const initialize = (async () => {
       const [rawConvs, rawWorkspaces, rawSchedules, rawScripts, rawLocalSkills, rawAppliedScripts, rawHistory, rawWatched, rawWatchlistRuns, rawWatchlistTransports, rawWatchlistProfiles, rawWatchlistDevices, rawXReply, rawXMonitor, rawXMonitorFeed, rawRedditMonitor, rawRedditMonitorFeed, wd] = await Promise.all([
@@ -2564,6 +2621,7 @@ export const useStore = create<State>((set, get) => {
       })));
       set({ socialMonitors });
       get().reconcileQueues();
+      startupStage = "app_listeners";
       set({ startupPhase: "account" });
 
       await listen<[string, string]>("project:host-created", (event) => {
@@ -2696,6 +2754,7 @@ export const useStore = create<State>((set, get) => {
       // authed: a workspace mutation or the queue reconciler can call
       // syncProjects() as soon as `authed` flips true, which would push the
       // stale cache at the backend under the new account's key.
+      startupStage = "account_cache";
       if (authenticated) await guardAgainstForeignAccountCache();
       set({ authed: authenticated, checking: false, startupError: undefined });
       get().startTimers();
@@ -2722,9 +2781,15 @@ export const useStore = create<State>((set, get) => {
       });
     })().catch(() => {
       set({ checking: false, startupError: "Nextbrowser couldn't finish startup. Restart the check to try again." });
-      trackTiming("bootstrap_failed", startedAt, { phase: get().startupPhase });
-      reportUserFacingError({ surface: "startup", code: get().startupPhase === "local" ? "STARTUP_LOCAL_FAILED" : "STARTUP_ACCOUNT_FAILED" });
+      trackTiming("bootstrap_failed", startedAt, { phase: get().startupPhase, stage: startupStage });
+      reportUserFacingError({
+        surface: "startup",
+        code: get().startupPhase === "local" ? "STARTUP_LOCAL_FAILED" : "STARTUP_ACCOUNT_FAILED",
+        stage: startupStage,
+        elapsedMs: performance.now() - startedAt,
+      });
     }).finally(() => {
+      startupSettled = true;
       if (startupTimer) clearTimeout(startupTimer);
     });
     await Promise.race([initialize, deadline]);

@@ -169,6 +169,7 @@ const DEEP_LINK_PROTOCOL = "nextbrowser";
 let appUpdateStatus = { status: "idle" };
 let appUpdateTimer = null;
 let nextctlInstallStatus = { status: "idle" };
+let nextctlInstalledAt = 0;
 let browserRuntimeInstallStatus = { status: "idle" };
 let browserRuntimeUpdateStatus = { status: "idle", runtimes: [] };
 let browserRuntimeUpdateCheckPromise = null;
@@ -621,7 +622,10 @@ function reportRunnerExit(result, outcome, durationMs) {
   reportNbcResult(["mcp"], result, outcome, durationMs);
 }
 function setNextctlInstallStatus(status, patch = {}) {
-  nextctlInstallStatus = { status, ...patch, updatedAt: Date.now() };
+  // installedAt (when this app last installed the CLI) survives the "ready"
+  // that every later resolve sets, so the startup splash can tell a first run
+  // that just installed the CLI from one that found it.
+  nextctlInstallStatus = { status, ...patch, ...(nextctlInstalledAt ? { installedAt: nextctlInstalledAt } : {}), updatedAt: Date.now() };
   emit("nextctl:install", nextctlInstallStatus);
 }
 function setBrowserRuntimeInstallStatus(runtime, status, patch = {}) {
@@ -704,27 +708,36 @@ async function extractArchive(archive, kind, targetDir) {
   const result = await run("unzip", ["-q", archive, "-d", targetDir]);
   if (result.code !== 0) throw new Error((result.stderr || result.stdout || "zip extraction failed").trim());
 }
+// The first start of a freshly downloaded nbc is slow on Windows: the binary is
+// not code-signed, so Defender scans it before it runs (one first start took
+// 3.1 s of the usual 5-second probe budget). A healthy first run must not fail
+// on that, so the probes of a new download get more time.
+const NEW_NEXTCTL_PROBE_TIMEOUT_MS = 30_000;
 async function installManagedNextctl() {
   if (nextctlInstallPromise) return nextctlInstallPromise;
   nextctlInstallPromise = (async () => {
-    setNextctlInstallStatus("downloading");
+    // The stage tells the startup splash (and its report) where a slow first
+    // run spends its time.
+    setNextctlInstallStatus("downloading", { stage: "download" });
     const archive = nextctlPlatformArchive();
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-nextctl-"));
     const archivePath = path.join(tempDir, archive.name);
     try {
       await downloadFile(`${NEXTCTL_RELEASE_BASE}/${archive.name}`, archivePath);
-      setNextctlInstallStatus("installing");
+      setNextctlInstallStatus("installing", { stage: "extract" });
       const extractDir = path.join(tempDir, "extract");
       await extractArchive(archivePath, archive.kind, extractDir);
       const extracted = findNextctlInTree(extractDir);
       if (!extracted) throw new Error("Downloaded nextctl archive did not contain a nextctl binary.");
+      setNextctlInstallStatus("installing", { stage: "verify" });
       // Reject incompatible releases before replacing an installed binary.
-      await requireCompatibleNextctl(extracted);
+      await requireCompatibleNextctl(extracted, { timeoutMs: NEW_NEXTCTL_PROBE_TIMEOUT_MS });
       await fs.mkdir(managedNextctlRoot(), { recursive: true });
       await fs.copyFile(extracted, managedNextctlBin());
       if (process.platform !== "win32") await fs.chmod(managedNextctlBin(), 0o755);
-      await requireCompatibleNextctl(managedNextctlBin());
+      await requireCompatibleNextctl(managedNextctlBin(), { timeoutMs: NEW_NEXTCTL_PROBE_TIMEOUT_MS });
       const version = await readCLIVersion(managedNextctlBin(), run);
+      nextctlInstalledAt = Date.now();
       setNextctlInstallStatus("ready", { path: managedNextctlBin(), version });
       return managedNextctlBin();
     } catch (error) {
@@ -757,9 +770,9 @@ async function resolveNextctl() {
 }
 // The probe's nbc result is classified in run(), so a refusal is not reported
 // again by whoever rethrows it.
-async function requireCompatibleNextctl(binary) {
+async function requireCompatibleNextctl(binary, options) {
   try {
-    await requireVerificationCapableCLI(binary, run);
+    await requireVerificationCapableCLI(binary, run, options);
   } catch (error) {
     if (binary) error.reported = true;
     throw error;

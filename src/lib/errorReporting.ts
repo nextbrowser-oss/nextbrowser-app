@@ -25,6 +25,10 @@ export interface UserFacingErrorReport {
   code: string;
   /** The Ref the user read, when the message carried one. */
   ref?: string;
+  /** How long the user waited before the failure showed, for a stall. */
+  elapsedMs?: number;
+  /** What the app was doing when it gave up, in snake_case, e.g. "cli_download". */
+  stage?: string;
 }
 
 // Views and UI actions are code identifiers, never user text.
@@ -34,6 +38,7 @@ const IDENTIFIER = /^[A-Za-z0-9_.:/-]{1,100}$/;
 const SURFACE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const ERROR_CODE = /^[A-Z][A-Z0-9_]{2,63}$/;
 const ERROR_REF = /^NB-[0-9A-F]{8}(?:-[0-9A-F]{4})?$/;
+const STAGE = /^[a-z][a-z0-9_]{0,63}$/;
 const RATE_WINDOW_MS = 60_000;
 const MAX_REPORTS_PER_WINDOW = 30;
 // Chromium raises this for a layout that settles over two frames; it is not a
@@ -151,17 +156,25 @@ export function reportRendererError(
  * identifiers only: the message the user read can quote an agent's reply, a
  * page or a file name, so its text is never sent. Each Ref is reported once.
  */
-export function reportUserFacingError({ surface, code, ref }: UserFacingErrorReport): boolean {
+export function reportUserFacingError({ surface, code, ref, elapsedMs, stage }: UserFacingErrorReport): boolean {
   if (typeof surface !== "string" || surface.length > 64 || !SURFACE.test(surface) || !ERROR_CODE.test(code)) return false;
   const safeRef = ref && ERROR_REF.test(ref) ? ref : undefined;
   if (safeRef && reportedRefs.has(safeRef)) return false;
+  const elapsed = typeof elapsedMs === "number" && Number.isFinite(elapsedMs) && elapsedMs >= 0 ? String(Math.round(elapsedMs)) : undefined;
+  const safeStage = stage && STAGE.test(stage) ? stage : undefined;
   const sent = send(() => ({
     kind: "command_failed",
     name: code,
     message: `${surface}: ${code}`,
     ...(currentView ? { view: currentView } : {}),
     ...(lastAction ? { action: lastAction } : {}),
-    context: { surface, code, ...(safeRef ? { ref: safeRef } : {}) },
+    context: {
+      surface,
+      code,
+      ...(safeRef ? { ref: safeRef } : {}),
+      ...(elapsed ? { elapsed_ms: elapsed } : {}),
+      ...(safeStage ? { stage: safeStage } : {}),
+    },
   }));
   if (sent && safeRef) reportedRefs.add(safeRef);
   return sent;

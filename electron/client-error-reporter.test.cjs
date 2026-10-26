@@ -376,9 +376,9 @@ test("the renderer reports an error the user saw with identifiers only", async (
   }), true);
   assert.equal(h.reporter.captureFromRenderer({
     kind: "command_failed",
-    name: "STARTUP_LOCAL_TIMED_OUT",
-    message: "startup: STARTUP_LOCAL_TIMED_OUT",
-    context: { surface: "startup", code: "STARTUP_LOCAL_TIMED_OUT" },
+    name: "STARTUP_ACCOUNT_TIMED_OUT",
+    message: "startup: STARTUP_ACCOUNT_TIMED_OUT",
+    context: { surface: "startup", code: "STARTUP_ACCOUNT_TIMED_OUT", elapsed_ms: "180000", stage: "cli_download" },
   }), true);
   await h.reporter.flush();
   const body = h.requests[0].body;
@@ -392,7 +392,7 @@ test("the renderer reports an error the user saw with identifiers only", async (
   assert.equal(shown.action, "chat_request_submitted");
   assert.equal(shown.stack, undefined);
   assert.deepEqual(shown.context, { surface: "agent-turn", code: "AGENT_START_FAILED", ref: "NB-6F2C1A9B-04D2" });
-  assert.deepEqual(startup.context, { surface: "startup", code: "STARTUP_LOCAL_TIMED_OUT" });
+  assert.deepEqual(startup.context, { surface: "startup", code: "STARTUP_ACCOUNT_TIMED_OUT", elapsed_ms: "180000", stage: "cli_download" });
 });
 
 test("a user-facing failure from the renderer carrying any free text is refused", (t) => {
@@ -411,6 +411,9 @@ test("a user-facing failure from the renderer carrying any free text is refused"
     { ...valid, context: { ...valid.context, surface: "Live View" }, message: "Live View: LIVE_VIEW_CONNECT_FAILED" },
     { ...valid, context: { ...valid.context, code: "connect failed" }, name: "connect failed", message: "live-view: connect failed" },
     { ...valid, context: { ...valid.context, ref: "NB-1234ABCD see chat" } },
+    { ...valid, context: { ...valid.context, elapsed_ms: "12 s" } },
+    { ...valid, context: { ...valid.context, elapsed_ms: 12000 } },
+    { ...valid, context: { ...valid.context, stage: "downloading C:\\Users\\alice" } },
     { ...valid, context: undefined },
     { ...valid, context: ["live-view", "LIVE_VIEW_CONNECT_FAILED"] },
   ];

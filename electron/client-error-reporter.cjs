@@ -22,11 +22,14 @@ const RENDERER_BREADCRUMB_CATEGORIES = new Set(["navigation", "ui"]);
 // View names and UI action names are code identifiers. Anything else from the
 // renderer is dropped rather than scrubbed, so free text cannot slip in.
 const IDENTIFIER = /^[A-Za-z0-9_.:/-]{1,100}$/;
-// Where the user saw a failure (kebab-case), its error code, and the Ref the
-// user read: the whole vocabulary of a user-facing failure report.
+// Where the user saw a failure (kebab-case), its error code, the Ref the user
+// read and, for a stall, how long it lasted (milliseconds) and the stage it
+// stalled in (snake_case): the whole vocabulary of a user-facing failure report.
 const SURFACE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const ERROR_CODE = /^[A-Z][A-Z0-9_]{2,63}$/;
 const ERROR_REF = /^NB-[0-9A-F]{8}(?:-[0-9A-F]{4})?$/;
+const ELAPSED_MS = /^\d{1,10}$/;
+const STAGE = /^[a-z][a-z0-9_]{0,63}$/;
 
 const LIMITS = Object.freeze({
   name: 200,
@@ -106,21 +109,23 @@ function cleanContext(raw, scrub) {
 
 /**
  * The context of a user-facing failure the renderer reports, or null when the
- * payload holds anything but the three identifiers. Such a report never
- * carries text: the message the user read may quote an agent's reply or a
- * page, so a payload that does not match is refused rather than scrubbed.
+ * payload holds anything but these identifiers. Such a report never carries
+ * text: the message the user read may quote an agent's reply or a page, so a
+ * payload that does not match is refused rather than scrubbed.
  */
 function userFacingFailure(payload) {
   const context = payload.context;
   if (!context || typeof context !== "object" || Array.isArray(context)) return null;
-  const { surface, code, ref, ...rest } = context;
+  const { surface, code, ref, elapsed_ms: elapsed, stage, ...rest } = context;
   if (Object.keys(rest).length) return null;
   if (typeof surface !== "string" || surface.length > 64 || !SURFACE.test(surface)) return null;
   if (typeof code !== "string" || !ERROR_CODE.test(code)) return null;
   if (ref !== undefined && (typeof ref !== "string" || !ERROR_REF.test(ref))) return null;
+  if (elapsed !== undefined && (typeof elapsed !== "string" || !ELAPSED_MS.test(elapsed))) return null;
+  if (stage !== undefined && (typeof stage !== "string" || !STAGE.test(stage))) return null;
   if (payload.name !== code || payload.message !== `${surface}: ${code}`) return null;
   if (payload.stack !== undefined && payload.stack !== "") return null;
-  return { surface, code, ...(ref ? { ref } : {}) };
+  return { surface, code, ...(ref ? { ref } : {}), ...(elapsed ? { elapsed_ms: elapsed } : {}), ...(stage ? { stage } : {}) };
 }
 
 function cleanTraceId(value) {
