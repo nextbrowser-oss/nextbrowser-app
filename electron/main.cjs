@@ -35,6 +35,7 @@ const { pipeline } = require("node:stream/promises");
 const { agentWorkspaceDir } = require("./agent-workspace.cjs");
 const { parseAgentControlBody, resolveScopedProfile } = require("./agent-control-scope.cjs");
 const { createCamoufoxVenv } = require("./camoufox-python.cjs");
+const { isAgentIntegrationInstall, newerNbcAtInstallTarget } = require("./nbc-install-guard.cjs");
 const { workspaceProjects, deleteWorkspaceProject } = require("./agent-project-control.cjs");
 const {
   executableNames,
@@ -2209,6 +2210,22 @@ async function invokeCommand(command, args = {}, sender) {
       // The daily release updater must not overwrite it with a production CLI.
       if (process.env.NEXTCTL_BIN && args.args?.[0] === "update") {
         return { code: 0, stdout: "Development CLI pinned by NEXTCTL_BIN; release updates disabled.\n", stderr: "" };
+      }
+      // The agent integration install would copy this app's nbc over a newer
+      // one on PATH (nbc-install-guard.cjs). The newer nbc keeps its own.
+      if (isAgentIntegrationInstall(args.args)) {
+        const newer = await newerNbcAtInstallTarget({
+          // A CLI that cannot be resolved fails in executeNextctl below, as before.
+          appBinary: await resolveOrInstallNextctl().catch(() => null),
+          homeDir: home(),
+          exists: async (file) => launchable(file),
+          readVersion: (binary) => readCLIVersion(binary, run),
+        }).catch(() => undefined);
+        if (newer) {
+          const note = `Kept nbc ${newer.installed} at ${newer.target}: this app's nbc ${newer.own} is older, so the agent integration install was skipped.`;
+          console.info(`[nextctl_agent_install] ${note}`);
+          return { code: 0, stdout: "", stderr: note };
+        }
       }
       return executeNextctl(args.args || [], {
         extraEnv: args.extraEnv || {},
