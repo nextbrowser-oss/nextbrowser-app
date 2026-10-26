@@ -10,7 +10,9 @@ const { createScrubber, normalizeMessage, normalizeStackFrames, truncateBytes } 
 // its own failures are written only to a local log, never reported.
 
 const SOURCES = new Set(["renderer", "main", "nbc", "agent"]);
-const KINDS = new Set(["exception", "unhandled_rejection", "react_render", "api_error", "process_gone", "command_failed"]);
+// "network" is a request that got no answer through the user's connection
+// (nbc-failure-report.cjs, backend-fetch.cjs): kept apart from product failures.
+const KINDS = new Set(["exception", "unhandled_rejection", "react_render", "api_error", "process_gone", "command_failed", "network"]);
 // command_failed from the renderer is an error the app showed the user
 // (src/lib/errorReporting.ts reportUserFacingError). It carries identifiers
 // only; see userFacingFailure below.
@@ -443,10 +445,14 @@ function createClientErrorReporter({
     const first = queue.find((entry) => !entry.sending);
     if (!first) return [];
     const key = JSON.stringify(first.client);
+    // A backend that does not know the network kind yet refuses a whole batch
+    // that holds one (HTTP 400, dropped below), so network events travel in
+    // batches of their own and never take a product failure down with them.
+    const network = first.event.kind === "network";
     const batch = [];
     let bytes = 0;
     for (const entry of queue) {
-      if (entry.sending || JSON.stringify(entry.client) !== key) continue;
+      if (entry.sending || JSON.stringify(entry.client) !== key || (entry.event.kind === "network") !== network) continue;
       const size = Buffer.byteLength(JSON.stringify(entry.event), "utf8");
       if (batch.length && bytes + size > config.maxBatchBytes) break;
       batch.push(entry);

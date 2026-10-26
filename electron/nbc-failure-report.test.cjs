@@ -54,6 +54,31 @@ test("expected outcomes the UI explains are not reported", () => {
   assert.equal(startUnreachable.event.name, "CDP_UNREACHABLE", "a start that cannot reach its own browser is reported");
 });
 
+test("a backend request nbc says got no answer is reported as kind network, offline is not reported", () => {
+  const unreachable = (network_error, code = "REMOTE_BACKEND_ERROR") => JSON.stringify({
+    ok: false,
+    command: "status",
+    error: { code, message: "Couldn't reach the Nextbrowser service to confirm this account", hint: "Check your internet connection, then retry.", ...(network_error ? { network_error } : {}) },
+  });
+  for (const reason of ["timeout", "connect", "reset", "tls", "other"]) {
+    const { breadcrumb, event } = describeNbcResult({ args: ["status", "--format", "json"], result: { code: 1, stdout: unreachable(reason), stderr: "" }, durationMs: 12_012 });
+    assert.equal(breadcrumb, `status → exit 1 12.0s REMOTE_BACKEND_ERROR network:${reason}`);
+    assert.equal(event.kind, "network", reason);
+    assert.equal(event.name, "REMOTE_BACKEND_ERROR");
+    assert.equal(event.context.network_error, reason);
+    assert.equal(event.context.nbc_code, "REMOTE_BACKEND_ERROR");
+  }
+  const offline = describeNbcResult({ args: ["profiles", "ls", "--format", "json"], result: { code: 1, stdout: unreachable("dns"), stderr: "" } });
+  assert.equal(offline.event, null, "no DNS: the computer is offline");
+  assert.equal(offline.breadcrumb, "profiles ls → exit 1 REMOTE_BACKEND_ERROR network:dns");
+  // The backend answered (a 5xx): a product failure, as before.
+  const backend = describeNbcResult({ args: ["status", "--format", "json"], result: { code: 1, stdout: unreachable(""), stderr: "" } });
+  assert.equal(backend.event.kind, "command_failed");
+  assert.equal(backend.event.context.network_error, undefined);
+  const odd = describeNbcResult({ args: ["status", "--format", "json"], result: { code: 1, stdout: unreachable("Not a reason!"), stderr: "" } });
+  assert.equal(odd.event.kind, "command_failed", "an unknown network_error value is ignored");
+});
+
 test("cancellations, timeouts of commands nobody waits on and usage probes are not reported", () => {
   assert.equal(describeNbcResult({ args: ["start", "--format", "json"], result: { code: -1, stdout: "", stderr: "Command cancelled." }, outcome: { cancelled: true } }).event, null);
   for (const args of [["status", "--profile", "p", "--format", "json"], ["tabs", "--format", "json"], ["proxy-traffic", "--format", "json"], ["--version"]]) {

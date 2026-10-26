@@ -29,7 +29,9 @@ function assertContract(body) {
     assert.match(event.id, UUID);
     assert.match(event.occurred_at, RFC3339);
     assert.ok(["renderer", "main", "nbc", "agent"].includes(event.source));
-    assert.ok(["exception", "unhandled_rejection", "react_render", "api_error", "process_gone", "command_failed"].includes(event.kind));
+    // "network" needs a backend that lists it in ClientErrorEvent.kind; an
+    // older one refuses such a batch, which therefore never mixes kinds.
+    assert.ok(["exception", "unhandled_rejection", "react_render", "api_error", "process_gone", "command_failed", "network"].includes(event.kind));
     assert.ok(event.name && bytes(event.name) <= 200);
     assert.ok(event.message && bytes(event.message) <= 2000);
     if (event.stack !== undefined) assert.ok(bytes(event.stack) <= 16000);
@@ -266,6 +268,26 @@ test("splits a batch the backend finds too large and drops other 4xx", async (t)
   await h.reporter.flush();
   assert.equal(h.reporter.queued.length, 0, "a 400 drops the batch");
   assert.ok(fs.readFileSync(path.join(h.dir, "reporter.log"), "utf8").includes("HTTP 400"));
+});
+
+test("network failures travel in batches of their own, so a backend that refuses the kind keeps the rest", async (t) => {
+  const h = harness(t, { responses: [{ status: 202 }, { status: 400 }, { status: 202 }] });
+  const network = (name) => ({ source: "nbc", kind: "network", name, message: `nbc status: ${name}`, context: { network_error: "timeout" } });
+  h.reporter.capture(exception("first", { name: "E1", stack: undefined }));
+  h.reporter.capture(network("REMOTE_BACKEND_ERROR"));
+  h.reporter.capture(exception("second", { name: "E2", stack: undefined }));
+  h.reporter.capture(network("ECONNRESET GET /v1/projects"));
+  await h.reporter.flush();
+  await h.reporter.flush();
+  assert.deepEqual(h.requests.map((request) => request.body.events.map((event) => event.kind)), [
+    ["exception", "exception"],
+    ["network", "network"],
+  ]);
+  for (const request of h.requests) assertContract(request.body);
+  assert.equal(h.reporter.queued.length, 0, "the refused network batch is dropped alone");
+  h.reporter.capture(exception("third", { name: "E3", stack: undefined }));
+  await h.reporter.flush();
+  assert.equal(h.requests[2].body.events[0].message, "third");
 });
 
 test("flushes every 30 seconds, or within a second once 10 events wait", (t) => {
