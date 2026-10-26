@@ -348,6 +348,13 @@ function nextctlUpdateRetryDelay(attempt: number): number {
 // hour; once the retries above are exhausted, wait the window out before the
 // daily background check tries again.
 const NEXTCTL_UPDATE_RATE_LIMIT_MS = 60 * 60 * 1000;
+// `nbc update` and `nbc install --agent` both download the Clawbrowser
+// browser when it is new or missing (150 MB on Windows) besides nbc itself.
+// One such download took 209.9 s, and the agent install's old one-minute
+// limit cut off installs at 60 s. Allow what the command runner allows the
+// app's own browser install: 15 minutes, enough for that download at about
+// 1.5 Mbit/s.
+const NEXTCTL_INSTALL_TIMEOUT_MS = 15 * 60_000;
 const NEXTCTL_UPDATE_STATE_FILE = "nextctl-update.json";
 const NEXTCTL_UPDATE_ERROR = "We couldn't update the Nextbrowser CLI (nextctl). Please retry.";
 const NEXTCTL_UPDATE_ERROR_DETAIL_LIMIT = 160;
@@ -4800,7 +4807,7 @@ export const useStore = create<State>((set, get) => {
       }
       // Installation is idempotent. Keep connection fast and refresh the
       // agent's bundled nextctl skill/integration in the background.
-      void nextctlRun(["install", "--agent", adapter, "--no-api-key-prompt"]).then((result) => {
+      void nextctlRun(["install", "--agent", adapter, "--no-api-key-prompt"], undefined, { timeoutMs: NEXTCTL_INSTALL_TIMEOUT_MS }).then((result) => {
         if (result.code !== 0) {
           console.warn(`Could not install nextctl skill for ${adapter}: ${nextctlErrorMessage(result)}`);
         }
@@ -5212,7 +5219,7 @@ export const useStore = create<State>((set, get) => {
       // Updating also refreshes Clawbrowser and agent assets. On slower or
       // filtered networks that can legitimately take longer than the normal
       // one-minute command timeout.
-      const res = await nextctlRun(["update"], undefined, { timeoutMs: 10 * 60_000 });
+      const res = await nextctlRun(["update"], undefined, { timeoutMs: NEXTCTL_INSTALL_TIMEOUT_MS });
       const text = res.stdout + res.stderr;
       const to = nextctlUpdatedVersion(text);
       if (to) {
