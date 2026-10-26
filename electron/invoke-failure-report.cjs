@@ -11,8 +11,11 @@ const { OFFLINE_DETAIL } = require("./nbc-failure-report.cjs");
 //
 // The message is the error's own text, which the reporter scrubs further. It
 // loses file paths, URLs and quoted names first, because the app quotes
-// profile, workspace and file names in “…”. Commands whose errors can echo
-// credentials, prompts or file contents send no message at all.
+// profile, workspace and file names in “…”. A JavaScript error (SyntaxError,
+// TypeError, …) is named and loses every quoted value instead: its message is
+// the runtime's, and a quoted value there is the data it choked on. Commands
+// whose errors can echo credentials, prompts or file contents send no message
+// at all.
 
 const COMMAND = /^[a-z][a-z0-9_ /-]{0,63}$/;
 const CODE = /^[A-Z][A-Z0-9_]{2,63}$/;
@@ -23,6 +26,11 @@ const CANCELLED = /^(?:Command cancelled|Automation execution was cancelled)\b/i
 const OFFLINE_NET_ERROR = /ERR_INTERNET_DISCONNECTED|ERR_NAME_NOT_RESOLVED|ERR_NETWORK_IO_SUSPENDED/;
 const SENSITIVE_COMMANDS = /^(?:manual_proxy_\w+|pairing_\w+|app_data_\w+|write_\w+_skill|multilogin_connect|feedback_submit|read_file|workspace_file_read|terminal_input|agent_run|workflow_author_run)$/;
 const URL_PATTERN = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>`)\]]+/gi;
+const BUILTIN_ERRORS = new Set(["SyntaxError", "TypeError", "RangeError", "ReferenceError", "URIError", "EvalError"]);
+const BUILTIN_MESSAGE_LIMIT = 200;
+// JSON.parse names the token it stopped at and quotes the start of its input:
+// Unexpected token 'p', "{profile:Wo"... is not valid JSON
+const JSON_INPUT_ERROR = /^(?:Unexpected token '([\s\S]{1,2})', )?"[\s\S]*"(?:\.\.\.)? is not valid JSON$/;
 
 function errorMessage(error) {
   if (error instanceof Error) return String(error.message || "");
@@ -54,10 +62,42 @@ function errorCode(error) {
   return match ? match[1] || match[2] : "";
 }
 
+// An invisible token, such as a byte-order mark, is shown by its code point.
+function visibleToken(token) {
+  return /^[\x21-\x7E]$/.test(token)
+    ? token
+    : Array.from(token, (char) => `U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}`).join(" ");
+}
+
+/**
+ * The message of a JavaScript error (SyntaxError, TypeError, …) without the
+ * values it quotes, at most 200 characters, or "" for any other error. A
+ * property name the runtime could not read and a single-character token stay.
+ */
+function builtinErrorMessage(name, message) {
+  if (!BUILTIN_ERRORS.has(name)) return "";
+  const raw = String(message || "");
+  // Matched before whitespace is folded: the token can be a byte-order mark.
+  const json = raw.match(JSON_INPUT_ERROR);
+  const text = (json
+    ? `${json[1] === undefined ? "" : `Unexpected token '${visibleToken(json[1])}', `}"…" is not valid JSON`
+    : raw
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/"[^"]*"/g, "\"…\"")
+      .replace(/'([^']*)'/g, (quoted, inner, offset, whole) =>
+        [...inner].length <= 1 || (/\b(?:reading|setting|property) $/.test(whole.slice(0, offset)) && /^[A-Za-z_$][\w$]{0,63}$/.test(inner))
+          ? quoted
+          : "'…'")
+  ).replace(URL_PATTERN, "<url>");
+  return text.length > BUILTIN_MESSAGE_LIMIT ? `${text.slice(0, BUILTIN_MESSAGE_LIMIT - 1)}…` : text;
+}
+
 /** The error's text without the parts that can name the user's things. */
 function safeMessage(error) {
-  // A JSON parse error quotes the text it could not parse.
-  if (error instanceof SyntaxError) return error.name;
+  if (error instanceof Error && BUILTIN_ERRORS.has(error.name)) {
+    return `${error.name}: ${builtinErrorMessage(error.name, error.message) || "no message"}`;
+  }
   let text = errorMessage(error);
   for (const key of ["path", "dest"]) {
     if (typeof error?.[key] === "string" && error[key]) text = text.split(error[key]).join("<path>");
@@ -124,6 +164,7 @@ function describeMainFailure({ name, error, context = {} }) {
 }
 
 module.exports = {
+  builtinErrorMessage,
   describeInvokeFailure,
   describeMainFailure,
   skipReason,
