@@ -66,7 +66,11 @@ function recorderPageScript() {
     try { window.__nextbrowserRecorderEmit?.(JSON.stringify(action)); } catch { /* the queue remains the fallback */ }
     try { sessionStorage.setItem(storageKey, JSON.stringify(queue)); } catch { /* the in-memory queue still records the action */ }
   };
+  // Only what the person did: sites click and press on their own after a
+  // navigation (GitHub clicks its hidden "Skip to content" link), and those
+  // steps cannot be replayed.
   const onClick = (event) => {
+    if (!event.isTrusted) return;
     const raw = event.target instanceof Element ? event.target : null;
     const element = raw?.closest("button,a[href],input[type=button],input[type=submit],input[type=checkbox],input[type=radio],[role=button],[role=link],[role=checkbox],[role=radio]");
     if (!element) return;
@@ -82,6 +86,7 @@ function recorderPageScript() {
     push("input", { ...targetArguments(element), text: sensitive ? "{{redacted}}" : element.value });
   };
   const onKey = (event) => {
+    if (!event.isTrusted) return;
     if (!["Enter", "Escape"].includes(event.key) || event.repeat) return;
     const element = event.target instanceof Element ? event.target : null;
     push("press", { ...(element ? targetArguments(element) : {}), key: event.key });

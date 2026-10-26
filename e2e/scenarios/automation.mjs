@@ -1,6 +1,7 @@
 import { blocked } from "../lib/blocked.mjs";
 import { activeWorkspace, askAgent, createProfile, createWorkspace, deleteCurrentWorkspace, escape, openMainView, setChatMode, stopProfile, switchWorkspace, waitFor } from "../lib/ui.mjs";
 import { createProject, latestCommits, mentions, openInProfile, pageEval, sleep } from "../lib/ui-workflows.mjs";
+import { nbc } from "../lib/oracle.mjs";
 
 const REPO = "nextbrowser-oss/nextbrowser-app";
 const REPO_URL = `https://github.com/${REPO}`;
@@ -286,7 +287,9 @@ async function browseToCommits(nbcCmd, profile) {
   await waitFor(async () => String(await pageEval(nbcCmd, profile, `Boolean(${COMMITS_LINK})`)) === "true", "the repository page with its commits link", 60_000, 2_000);
   // The recorder re-arms on each page it sees (it polls every 250 ms).
   await sleep(2_000);
-  await pageEval(nbcCmd, profile, `(() => { const link = ${COMMITS_LINK}; link.click(); return link.href; })()`);
+  // A real mouse click: the recorder keeps only clicks a person makes, not ones a script fires.
+  const box = JSON.parse(String(await pageEval(nbcCmd, profile, `(() => { const link = ${COMMITS_LINK}; link.scrollIntoView({ block: "center" }); const r = link.getBoundingClientRect(); return JSON.stringify({ x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }); })()`)));
+  await nbc(nbcCmd, ["click-xy", String(box.x), String(box.y), "--profile", profile, "--runtime", "clawbrowser", "--format", "json"]);
   await waitFor(async () => /\/commits\//.test(String(await pageEval(nbcCmd, profile, "location.href"))), "the commits page", 60_000, 2_000);
 }
 

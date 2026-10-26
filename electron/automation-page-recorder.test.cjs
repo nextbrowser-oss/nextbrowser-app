@@ -47,6 +47,38 @@ test("page recorder captures manual page interactions without blocking them", ()
   assert.match(source, /url: location\.href/);
 });
 
+test("page recorder keeps only clicks and keys a person made, not ones the page fired itself", () => {
+  const vm = require("node:vm");
+  class Element {
+    constructor(tag, attrs, text) { this.tagName = tag; this.attrs = attrs; this.innerText = text; this.textContent = text; this.id = ""; this.classList = []; }
+    getAttribute(name) { return this.attrs[name] ?? null; }
+    hasAttribute(name) { return name in this.attrs; }
+    closest() { return this; }
+  }
+  const listeners = {};
+  const emitted = [];
+  const commits = new Element("A", { href: "/nextbrowser-oss/nextbrowser-app/commits/main/" }, "729 Commits");
+  const skip = new Element("A", { href: "#start-of-content" }, "Skip to content");
+  const context = vm.createContext({
+    window: { __nextbrowserRecorderEmit: (json) => emitted.push(JSON.parse(json)), addEventListener: () => {} },
+    location: { href: "https://github.com/nextbrowser-oss/nextbrowser-app" },
+    document: { title: "GitHub", addEventListener: (type, handler) => { listeners[type] = handler; }, removeEventListener: () => {}, querySelector: () => null, querySelectorAll: () => [] },
+    sessionStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    CSS: { escape: String },
+    Element, HTMLSelectElement: class {}, HTMLInputElement: class {}, HTMLTextAreaElement: class {},
+    setTimeout, clearTimeout,
+  });
+  vm.runInContext(`(${recorderPageScript.toString()})()`, context);
+  listeners.click({ isTrusted: true, target: commits });
+  listeners.click({ isTrusted: false, target: skip });
+  listeners.keydown({ isTrusted: false, key: "Enter", target: skip });
+  listeners.keydown({ isTrusted: true, key: "Enter", target: commits });
+  assert.deepEqual(emitted.map((action) => [action.tool, action.arguments.locator?.name, action.arguments.key]), [
+    ["click", "729 Commits", undefined],
+    ["press", "729 Commits", "Enter"],
+  ]);
+});
+
 test("page actions keep the page they happened on, so replay can start there", async () => {
   let drained = false;
   const repo = "https://github.com/nextbrowser-oss/nextbrowser-app";
