@@ -288,7 +288,7 @@ async function browseToCommits(nbcCmd, profile) {
   // The recorder re-arms on each page it sees (it polls every 250 ms).
   await sleep(2_000);
   // A real mouse click: the recorder keeps only clicks a person makes, not ones a script fires.
-  const box = JSON.parse(String(await pageEval(nbcCmd, profile, `(() => { const link = ${COMMITS_LINK}; link.scrollIntoView({ block: "center" }); const r = link.getBoundingClientRect(); return JSON.stringify({ x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }); })()`)));
+  const box = JSON.parse(String(await pageEval(nbcCmd, profile, `(() => { const link = [...document.querySelectorAll('a[href*="/commits/"]')].find((item) => /\\bcommits?$/i.test(item.innerText.trim()) && item.getClientRects().length); link.scrollIntoView({ block: "center" }); const r = link.getBoundingClientRect(); return JSON.stringify({ x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }); })()`)));
   await nbc(nbcCmd, ["click-xy", String(box.x), String(box.y), "--profile", profile, "--runtime", "clawbrowser", "--format", "json"]);
   await waitFor(async () => /\/commits\//.test(String(await pageEval(nbcCmd, profile, "location.href"))), "the commits page", 60_000, 2_000);
 }
