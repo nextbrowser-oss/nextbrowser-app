@@ -1,11 +1,12 @@
 import type { Conversation, Workspace } from "../types";
+import { settingsStorage } from "./settingsStorage";
 
 const setupDoneKey = (ownerId: string) => `workspaceSetupDone:${ownerId}`;
 
 function readSetupDone(ownerId?: string): boolean {
   if (!ownerId) return false;
   try {
-    return localStorage.getItem(setupDoneKey(ownerId)) === "1";
+    return settingsStorage.getItem(setupDoneKey(ownerId)) === "1";
   } catch {
     return false;
   }
@@ -14,7 +15,7 @@ function readSetupDone(ownerId?: string): boolean {
 export function markWorkspaceSetupDone(ownerId?: string): void {
   if (!ownerId) return;
   try {
-    localStorage.setItem(setupDoneKey(ownerId), "1");
+    settingsStorage.setItem(setupDoneKey(ownerId), "1");
   } catch {
     // Storage can be unavailable; the account then behaves like a new one.
   }

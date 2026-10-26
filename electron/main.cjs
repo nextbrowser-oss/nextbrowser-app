@@ -33,6 +33,7 @@ const http = require("node:http");
 const { Readable } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
 const { agentWorkspaceDir } = require("./agent-workspace.cjs");
+const { APP_SETTINGS_FILE, createAppSettings, writeFileAtomic } = require("./app-settings.cjs");
 const { parseAgentControlBody, resolveScopedProfile } = require("./agent-control-scope.cjs");
 const { createCamoufoxVenv } = require("./camoufox-python.cjs");
 const { isAgentIntegrationInstall, newerNbcAtInstallTarget } = require("./nbc-install-guard.cjs");
@@ -1190,6 +1191,14 @@ async function ensureDasbrowserRuntime({ force = false, reportStatus = true, req
   return dasbrowserInstallPromise;
 }
 function dataDir() { return path.join(app.getPath("userData")); }
+let appSettingsFile;
+function appSettings() {
+  appSettingsFile ??= createAppSettings({
+    file: path.join(dataDir(), APP_SETTINGS_FILE),
+    onError: (error) => console.warn("[app_settings] could not read the settings file", error),
+  });
+  return appSettingsFile;
+}
 /** How large an append-only app-data file may grow before it is rotated. */
 const APP_DATA_APPEND_LIMIT_BYTES = 16 * 1024 * 1024;
 function githubStarsCachePath() { return path.join(dataDir(), "github-stars.json"); }
@@ -2653,13 +2662,7 @@ async function invokeCommand(command, args = {}, sender) {
     }
     case "app_data_read": { try { return await fs.readFile(path.join(dataDir(), safeName(args.name)), "utf8"); } catch (e) { if (e.code === "ENOENT") return null; throw e; } }
     case "app_data_write": {
-      await fs.mkdir(dataDir(), { recursive: true }); const target = path.join(dataDir(), safeName(args.name)); const temp = `${target}.tmp-${process.pid}-${randomUUID()}`;
-      await fs.writeFile(temp, args.content, "utf8");
-      try { await fs.rename(temp, target); }
-      catch (error) {
-        if (process.platform !== "win32") { await fs.rm(temp, { force: true }); throw error; }
-        await fs.rm(target, { force: true }); await fs.rename(temp, target);
-      }
+      await writeFileAtomic(path.join(dataDir(), safeName(args.name)), args.content);
       return null;
     }
     // Append-only app data is how a log grows: one line at a time, never a
@@ -3310,6 +3313,21 @@ if (!gotLock) {
     });
     ipcMain.on("nextbrowser:client-breadcrumb", (event, payload) => {
       if (fromAppWindow(event)) errorReporter.breadcrumbFromRenderer(payload);
+    });
+    // Synchronous on purpose: the window needs its settings before the first
+    // render (theme, zoom, active workspace), and the file is small.
+    ipcMain.on("nextbrowser:settings-read", (event) => {
+      try {
+        event.returnValue = fromAppWindow(event) ? appSettings().snapshot() : null;
+      } catch {
+        event.returnValue = null;
+      }
+    });
+    // Fire-and-forget like error reports: messages from one window arrive in
+    // order, and dragging the sidebar must not flood the IPC breadcrumbs.
+    ipcMain.on("nextbrowser:settings-update", (event, patch) => {
+      if (!fromAppWindow(event)) return;
+      appSettings().update(patch).catch((error) => console.warn("[app_settings] could not save settings", error));
     });
     createWindow();
     for (const arg of process.argv) handleDeepLink(arg);

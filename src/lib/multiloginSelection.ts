@@ -1,3 +1,5 @@
+import { settingsStorage } from "./settingsStorage";
+
 export type MultiloginProfileKind = "browser" | "mobile";
 
 export interface MultiloginProfileSelection {
@@ -26,10 +28,9 @@ function storageKey(workspaceId: string): string {
   return `${MULTILOGIN_SELECTION_PREFIX}${encodeURIComponent(workspaceId)}`;
 }
 
+// localStorage, with the settings file behind it (see settingsStorage).
 function browserStorage(): Storage | undefined {
-  if (typeof window !== "undefined") return window.localStorage;
-  if (typeof localStorage !== "undefined") return localStorage;
-  return undefined;
+  return settingsStorage;
 }
 
 function notify(workspaceId?: string): void {

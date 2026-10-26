@@ -12,6 +12,7 @@ function loadPreload() {
     contextBridge: { exposeInMainWorld: (key, api) => { exposed = { key, api }; } },
     ipcRenderer: {
       send: (channel, payload) => { sent.push({ channel, payload }); return "ignored"; },
+      sendSync: (channel) => { sent.push({ channel, sync: true }); return { migrated: [], values: { theme: "light" } }; },
       invoke: (...args) => { invoked.push(args); return Promise.resolve(null); },
       on: () => undefined,
       removeListener: () => undefined,
@@ -49,5 +50,16 @@ test("the bridge sends error reports and breadcrumbs fire-and-forget on dedicate
 test("the bridge still exposes only functions", () => {
   const { exposed } = loadPreload();
   for (const [name, value] of Object.entries(exposed.api)) assert.equal(typeof value, "function", name);
-  assert.deepEqual(Object.keys(exposed.api).sort(), ["breadcrumb", "filePathForFile", "invoke", "on", "reportError"]);
+  assert.deepEqual(Object.keys(exposed.api).sort(), ["breadcrumb", "filePathForFile", "invoke", "on", "readSettings", "reportError", "updateSettings"]);
+});
+
+test("the bridge reads the settings file synchronously and updates it fire-and-forget", () => {
+  const { exposed, sent, invoked } = loadPreload();
+  assert.deepEqual(exposed.api.readSettings(), { migrated: [], values: { theme: "light" } });
+  assert.equal(exposed.api.updateSettings({ values: { theme: "dark" } }), undefined, "no promise to await or reject");
+  assert.deepEqual(sent, [
+    { channel: "nextbrowser:settings-read", sync: true },
+    { channel: "nextbrowser:settings-update", payload: { values: { theme: "dark" } } },
+  ]);
+  assert.deepEqual(invoked, []);
 });

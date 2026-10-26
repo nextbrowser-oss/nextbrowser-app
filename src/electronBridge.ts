@@ -1,4 +1,5 @@
 import type { RendererErrorReport } from "./lib/errorReporting";
+import type { SettingsUpdate } from "./lib/settingsStorage";
 
 export interface NextbrowserBridge {
   invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
@@ -7,6 +8,9 @@ export interface NextbrowserBridge {
   // Optional: older preload scripts and browser previews have no reporter.
   reportError?(event: RendererErrorReport): void;
   breadcrumb?(crumb: { category: "navigation" | "ui"; message: string }): void;
+  // Optional for the same reason; see src/lib/settingsStorage.ts.
+  readSettings?(): unknown;
+  updateSettings?(patch: SettingsUpdate): void;
 }
 
 declare global {

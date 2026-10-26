@@ -50,6 +50,7 @@ import { AutomationStudio } from "./components/AutomationStudio";
 import { FeedbackModal } from "./components/FeedbackModal";
 import { feedbackPromptBlocked, feedbackPromptConfig, markFeedbackSubmitted, shouldPromptForFeedback } from "./lib/feedbackPrompt";
 import { multiloginSelectionForWorkspace } from "./lib/multiloginSelection";
+import { settingsStorage } from "./lib/settingsStorage";
 import { countWorkspaceProfiles } from "./lib/workspaceProfiles";
 
 const TABS: { id: AppTab; label: string; icon?: string }[] = [
@@ -941,26 +942,26 @@ function AppUpdatePrompt({
 
 export function App() {
   const [theme, setTheme] = useState<Theme>(() => resolveTheme(
-    localStorage.getItem("nextbrowser.theme"),
+    settingsStorage.getItem("nextbrowser.theme"),
     window.matchMedia("(prefers-color-scheme: light)").matches,
   ));
   const [uiScale, setUiScale] = useState<number>(() => {
-    const saved = Number(localStorage.getItem("nextbrowser.uiScale"));
+    const saved = Number(settingsStorage.getItem("nextbrowser.uiScale"));
     return Number.isFinite(saved) && saved >= UI_SCALE_MIN && saved <= UI_SCALE_MAX ? saved : 1;
   });
   // The floating quick-access control is a convenience on top of the real
   // setting in Settings; once dismissed there's no reason to keep offering
   // it back, so the choice is remembered per device like the scale itself.
   const [uiScaleFloatingHidden, setUiScaleFloatingHidden] = useState(
-    () => localStorage.getItem("nextbrowser.uiScaleFloatingHidden") === "1",
+    () => settingsStorage.getItem("nextbrowser.uiScaleFloatingHidden") === "1",
   );
   const dismissUiScaleFloating = () => {
     setUiScaleFloatingHidden(true);
-    localStorage.setItem("nextbrowser.uiScaleFloatingHidden", "1");
+    settingsStorage.setItem("nextbrowser.uiScaleFloatingHidden", "1");
   };
   const restoreUiScaleFloating = () => {
     setUiScaleFloatingHidden(false);
-    localStorage.removeItem("nextbrowser.uiScaleFloatingHidden");
+    settingsStorage.removeItem("nextbrowser.uiScaleFloatingHidden");
   };
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsFocus, setSettingsFocus] = useState<"agent" | null>(null);
@@ -1424,13 +1425,13 @@ export function App() {
     // window's own size and broke scrolling and fixed-position overlays
     // (like the Settings modal) at higher scales.
     void invoke("app_set_zoom_factor", { factor: uiScale }).catch(() => undefined);
-    localStorage.setItem("nextbrowser.uiScale", String(uiScale));
+    settingsStorage.setItem("nextbrowser.uiScale", String(uiScale));
   }, [uiScale]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
-    localStorage.setItem("nextbrowser.theme", theme);
+    settingsStorage.setItem("nextbrowser.theme", theme);
     void invoke("app_set_theme", { theme }).catch(() => undefined);
     if (!didTrackThemeChange.current) {
       didTrackThemeChange.current = true;
