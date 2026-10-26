@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="เดโมอินเทอร์เฟซ NextBrowser" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="เดโมอินเทอร์เฟซ Nextbrowser" width="1200" />
 </p>
 
 ## เหตุผลที่เลือก Nextbrowser
@@ -83,7 +83,7 @@
 
 ## Demo และกรณีใช้งาน
 
-สำรวจสถานการณ์ที่เผยแพร่แล้วใน [หน้ากรณีการใช้งาน Nextbrowser](https://nextbrowser.com/use-cases) ตัวอย่างด้านบนแสดงอินเทอร์เฟซ NextBrowser ขณะทำงาน
+สำรวจสถานการณ์ที่เผยแพร่แล้วใน [หน้ากรณีการใช้งาน Nextbrowser](https://nextbrowser.com/use-cases) ตัวอย่างด้านบนแสดงอินเทอร์เฟซ Nextbrowser ขณะทำงาน
 
 เวิร์กโฟลว์ทั่วไปประกอบด้วย:
 

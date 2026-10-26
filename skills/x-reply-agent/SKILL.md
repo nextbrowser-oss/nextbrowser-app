@@ -7,12 +7,12 @@ description: Watch new x.com posts from chosen accounts or the signed-in account
 
 ## Where this runs
 
-NextBrowser performs this workflow in application code: detection, the publish
+Nextbrowser performs this workflow in application code: detection, the publish
 gates, the watermarks and the reply limits are the app's, and a model is called
 only to write each reply. Start, stop, the watched accounts and the draft queue
 live in the Skills panel.
 
-The skill has a second mode, Monitoring, that NextBrowser runs itself with
+The skill has a second mode, Monitoring, that Nextbrowser runs itself with
 the open-source engine `@nextbrowser-oss/x-monitoring`. It reads the signed-in
 account's Following feed and its follower count, and it never posts, likes, or
 follows. A chat request for monitoring belongs in that panel: point the user
@@ -30,7 +30,7 @@ You write the reply yourself. Do not call an external model service, do not read
 
 ## Inputs
 
-- The accounts to watch. NextBrowser keeps the user's watched-profile list and passes it in the task for this run; those handles are the whole list. Do not add, drop, or invent accounts, and do not watch an account the task did not name. Only when no handles are given at all, ask the user which accounts to watch, or watch the signed-in account's mentions if that is what they asked for.
+- The accounts to watch. Nextbrowser keeps the user's watched-profile list and passes it in the task for this run; those handles are the whole list. Do not add, drop, or invent accounts, and do not watch an account the task did not name. Only when no handles are given at all, ask the user which accounts to watch, or watch the signed-in account's mentions if that is what they asked for.
 - The handle that publishes, which must be the account signed in to the profile.
 - Mode: draft only (default) or send after approval.
 - Account voice, topics to avoid, and reply length cap; the cap is 280 characters unless the user lowers it.
@@ -46,7 +46,7 @@ You write the reply yourself. Do not call an external model service, do not read
 
 ## State between runs
 
-Keep one JSON file, `x-reply-agent-state.json`, in the current workspace directory. Read it at the start of a run and write it after every account you visit and every reply you publish. NextBrowser reads this file to show the state of each watched account, so keep exactly this shape:
+Keep one JSON file, `x-reply-agent-state.json`, in the current workspace directory. Read it at the start of a run and write it after every account you visit and every reply you publish. Nextbrowser reads this file to show the state of each watched account, so keep exactly this shape:
 
 ```json
 {

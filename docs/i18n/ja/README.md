@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="NextBrowser インターフェースのデモ" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Nextbrowser インターフェースのデモ" width="1200" />
 </p>
 
 ## Nextbrowser を選ぶ理由
@@ -83,7 +83,7 @@ AI エージェントによるブラウザ作業は、単一のプロンプト�
 
 ## デモとユースケース
 
-公開済みのシナリオは [Nextbrowser のユースケースページ](https://nextbrowser.com/use-cases)で確認できます。上のプレビューは NextBrowser のインターフェースが動作する様子を示しています。
+公開済みのシナリオは [Nextbrowser のユースケースページ](https://nextbrowser.com/use-cases)で確認できます。上のプレビューは Nextbrowser のインターフェースが動作する様子を示しています。
 
 一般的なワークフロー：
 

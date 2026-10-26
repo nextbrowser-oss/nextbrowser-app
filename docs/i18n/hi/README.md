@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="NextBrowser इंटरफ़ेस डेमो" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Nextbrowser इंटरफ़ेस डेमो" width="1200" />
 </p>
 
 ## Nextbrowser क्यों
@@ -83,7 +83,7 @@ Concepts, screens, workflows और संचालन संबंधी मा
 
 ## Demo और उपयोग के उदाहरण
 
-प्रकाशित परिदृश्य [Nextbrowser उपयोग-मामला पेज](https://nextbrowser.com/use-cases) पर देखें। ऊपर का पूर्वावलोकन NextBrowser इंटरफ़ेस को कार्य करते हुए दिखाता है।
+प्रकाशित परिदृश्य [Nextbrowser उपयोग-मामला पेज](https://nextbrowser.com/use-cases) पर देखें। ऊपर का पूर्वावलोकन Nextbrowser इंटरफ़ेस को कार्य करते हुए दिखाता है।
 
 सामान्य वर्कफ़्लो में शामिल हैं:
 

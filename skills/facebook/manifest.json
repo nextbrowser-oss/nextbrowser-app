@@ -7,7 +7,7 @@
     "Reply agent",
     "Monitoring"
   ],
-  "author": "NextBrowser Team",
+  "author": "Nextbrowser Team",
   "domains": [
     "facebook.com"
   ],
@@ -34,7 +34,7 @@
     "handleMaxLength": 64,
     "profileUrl": "https://www.facebook.com/groups/{handle}/",
     "stateFile": "facebook-state.json",
-    "blurb": "Groups this account is a member of, where NextBrowser answers posts and comments that name your brand. Every pass finds what nobody from the account has answered, shows you each draft, and posts only the replies you approve.",
+    "blurb": "Groups this account is a member of, where Nextbrowser answers posts and comments that name your brand. Every pass finds what nobody from the account has answered, shows you each draft, and posts only the replies you approve.",
     "subscribeTask": "Add the Facebook group {handle} to the reply list: open https://www.facebook.com/groups/{handle}/ in the browser profile, confirm the signed-in account is a member and may comment there, note the group's posting rules, and record {handle} in the state file with its newest post as the baseline. Post nothing and react to nothing in this run. If Facebook asks for a security check or says the account is blocked, stop and tell me.",
     "checkTask": "Run one reply pass on Facebook in the browser over these groups: {handles}. Only these groups are on the list right now. For each, open the group sorted by new posts and find posts and comments newer than the recorded baseline that name the brand, ask for a recommendation in its area, or mention the account, and that nobody from the account has answered. Read each one with its thread and write a reply that answers it in the group's tone and within its rules - never a canned line or an ad. Show me every draft before anything goes out, then post only the ones I approve, a few per group, and stop at the first failure or security check. Update the state file.",
     "signIn": {

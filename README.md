@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/nextbrowser-interface-demo.gif" alt="NextBrowser interface demo" width="1200" />
+  <img src="assets/nextbrowser-interface-demo.gif" alt="Nextbrowser interface demo" width="1200" />
 </p>
 
 ## Why Nextbrowser
@@ -83,7 +83,7 @@ For browser controls and diagnostics, use the [browser control reference](docs/c
 
 ## Demos and use cases
 
-Explore published scenarios on the [Nextbrowser use-cases page](https://nextbrowser.com/use-cases). The preview above shows the NextBrowser interface in action.
+Explore published scenarios on the [Nextbrowser use-cases page](https://nextbrowser.com/use-cases). The preview above shows the Nextbrowser interface in action.
 
 Common workflows include:
 

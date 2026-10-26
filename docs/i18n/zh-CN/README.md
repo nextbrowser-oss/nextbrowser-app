@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="NextBrowser 界面演示" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Nextbrowser 界面演示" width="1200" />
 </p>
 
 ## 为什么选择 Nextbrowser
@@ -83,7 +83,7 @@ AI agent 的浏览器工作不只是发送一个 prompt：operator 必须选择�
 
 ## 演示与使用场景
 
-请在 [Nextbrowser 用例页面](https://nextbrowser.com/use-cases)浏览已发布的场景。上方预览展示了 NextBrowser 界面的实际运行效果。
+请在 [Nextbrowser 用例页面](https://nextbrowser.com/use-cases)浏览已发布的场景。上方预览展示了 Nextbrowser 界面的实际运行效果。
 
 常见工作流包括：
 

@@ -48,7 +48,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="عرض توضيحي لواجهة NextBrowser" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="عرض توضيحي لواجهة Nextbrowser" width="1200" />
 </p>
 
 ## لماذا Nextbrowser
@@ -84,7 +84,7 @@
 
 ## العروض التوضيحية وحالات الاستخدام
 
-استكشف السيناريوهات المنشورة في [صفحة حالات استخدام Nextbrowser](https://nextbrowser.com/use-cases). تعرض المعاينة أعلاه واجهة NextBrowser أثناء العمل.
+استكشف السيناريوهات المنشورة في [صفحة حالات استخدام Nextbrowser](https://nextbrowser.com/use-cases). تعرض المعاينة أعلاه واجهة Nextbrowser أثناء العمل.
 
 تشمل سير العمل الشائعة:
 

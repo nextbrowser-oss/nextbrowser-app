@@ -5,7 +5,7 @@ const { parseRetryAfter, readJSON, writeFileAtomicSync } = require("./client-err
 const { truncateBytes } = require("./client-error-scrub.cjs");
 
 // Device data ("client environment"): a snapshot of the groups the user left
-// on in Settings, sent to the NextBrowser backend (POST /v1/client-environment)
+// on in Settings, sent to the Nextbrowser backend (POST /v1/client-environment)
 // for the signed-in account. A report is the full snapshot: a group that is
 // absent is off, and the backend deletes what it stored for it. Nothing is
 // collected or sent while signed out, and nothing in here may throw into the

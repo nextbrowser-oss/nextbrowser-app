@@ -48,7 +48,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Демонстрація інтерфейсу NextBrowser" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Демонстрація інтерфейсу Nextbrowser" width="1200" />
 </p>
 
 ## Чому Nextbrowser
@@ -84,7 +84,7 @@
 
 ## Демонстрації та сценарії використання
 
-Опубліковані сценарії зібрано на [сторінці прикладів використання Nextbrowser](https://nextbrowser.com/use-cases). Попередній перегляд вище показує інтерфейс NextBrowser у роботі.
+Опубліковані сценарії зібрано на [сторінці прикладів використання Nextbrowser](https://nextbrowser.com/use-cases). Попередній перегляд вище показує інтерфейс Nextbrowser у роботі.
 
 Поширені робочі процеси:
 

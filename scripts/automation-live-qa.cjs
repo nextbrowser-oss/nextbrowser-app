@@ -21,7 +21,7 @@ async function resolveNextctlBinary() {
       return candidate;
     } catch { /* Try the next installed location. */ }
   }
-  throw new Error("nextctl is not installed. Start NextBrowser once so it can install the managed runtime.");
+  throw new Error("nextctl is not installed. Start Nextbrowser once so it can install the managed runtime.");
 }
 
 function rowsContract(fields, minRows = 1) {

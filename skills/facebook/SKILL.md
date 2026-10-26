@@ -11,7 +11,7 @@ members see it, which is why this goes through the user's own logged-in
 session and not an API. The user signs in; never type a password, a code or
 any other credential, and never pass a security check on the user's behalf.
 
-The skill has a second mode, Monitoring, that NextBrowser runs itself with the
+The skill has a second mode, Monitoring, that Nextbrowser runs itself with the
 open-source engine `@nextbrowser-oss/facebook-monitoring`. It reads the
 configured groups newest first, finds posts and comments that name the user's
 keywords or mention the account, keeps the group and the post with every

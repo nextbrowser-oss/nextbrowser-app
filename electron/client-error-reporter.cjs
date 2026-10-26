@@ -4,7 +4,7 @@ const { createHash, randomUUID } = require("node:crypto");
 const { createScrubber, normalizeMessage, normalizeStackFrames, truncateBytes } = require("./client-error-scrub.cjs");
 
 // Client error reports: events are scrubbed and folded here, kept in a small
-// queue in userData, and sent in batches to the NextBrowser backend
+// queue in userData, and sent in batches to the Nextbrowser backend
 // (POST /v1/client-errors), which forwards them to the log system. The
 // reporter is best effort by design: nothing in it may throw into the app, and
 // its own failures are written only to a local log, never reported.

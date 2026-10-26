@@ -48,7 +48,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="NextBrowser arayüz demosu" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Nextbrowser arayüz demosu" width="1200" />
 </p>
 
 ## Neden Nextbrowser
@@ -84,7 +84,7 @@ Tarayıcı kontrolleri ve tanılama için [tarayıcı kontrol başvurusuna](../.
 
 ## Demolar ve kullanım senaryoları
 
-Yayımlanmış senaryoları [Nextbrowser kullanım örnekleri sayfasında](https://nextbrowser.com/use-cases) inceleyin. Yukarıdaki önizleme NextBrowser arayüzünü çalışırken gösterir.
+Yayımlanmış senaryoları [Nextbrowser kullanım örnekleri sayfasında](https://nextbrowser.com/use-cases) inceleyin. Yukarıdaki önizleme Nextbrowser arayüzünü çalışırken gösterir.
 
 Yaygın iş akışları şunlardır:
 

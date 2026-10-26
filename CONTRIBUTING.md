@@ -1,6 +1,6 @@
-# Contributing to NextBrowser
+# Contributing to Nextbrowser
 
-Thank you for helping improve NextBrowser. Contributions of all sizes are welcome: bug reports, documentation fixes, tests, design improvements, and new features.
+Thank you for helping improve Nextbrowser. Contributions of all sizes are welcome: bug reports, documentation fixes, tests, design improvements, and new features.
 
 Please keep contributions focused, factual, and easy to review. By participating, you agree to follow our [Code of Conduct](CODE_OF_CONDUCT.md).
 
@@ -13,7 +13,7 @@ Please keep contributions focused, factual, and easy to review. By participating
 
 ## Development setup
 
-You need Git, Node.js 22, and npm. The desktop development and browser-skill flow is officially covered on macOS and Windows, and requires a NextBrowser account, a connected agent, and a working browser profile. Linux contributors are welcome to run the source build and report results; it is not yet a packaged release or CI-supported target. Platform packaging may also require the native tools expected by Electron Builder.
+You need Git, Node.js 22, and npm. The desktop development and browser-skill flow is officially covered on macOS and Windows, and requires a Nextbrowser account, a connected agent, and a working browser profile. Linux contributors are welcome to run the source build and report results; it is not yet a packaged release or CI-supported target. Platform packaging may also require the native tools expected by Electron Builder.
 
 Fork the repository, clone your fork, and install the exact locked dependencies:
 
@@ -46,11 +46,11 @@ npm run dev
 - `public/` and `build/` — application assets and packaging resources.
 - `docs/` — product documentation and README translations.
 
-The managed browser runtime is an external dependency. Do not copy its implementation into this repository or describe its behavior as native NextBrowser behavior without a verified source.
+The managed browser runtime is an external dependency. Do not copy its implementation into this repository or describe its behavior as native Nextbrowser behavior without a verified source.
 
 ## Contributing a browser skill
 
-Repository skills are public, reviewed browser workflows that ship in the NextBrowser catalog. They are source-controlled so improvements remain attributable to their GitHub contributors. Do not use the in-app **Save as skill** flow for repository contributions; that flow is for a user's private or local workflows.
+Repository skills are public, reviewed browser workflows that ship in the Nextbrowser catalog. They are source-controlled so improvements remain attributable to their GitHub contributors. Do not use the in-app **Save as skill** flow for repository contributions; that flow is for a user's private or local workflows.
 
 #### Freelancer quick start
 
@@ -286,7 +286,7 @@ npm run build
 
 Then test every acceptance task from a fresh agent chat so the result does not depend on hidden conversation context. For each task, record:
 
-- operating system and NextBrowser version or commit;
+- operating system and Nextbrowser version or commit;
 - agent used;
 - task text exactly as submitted;
 - requested browser profile and proxy country, if any;
@@ -326,7 +326,7 @@ CI validates the directory, manifest, frontmatter, acceptance-case structure, an
 
 Reviewers may request changes when a skill is too broad, duplicates an existing skill, relies on transient selectors, omits pagination or recovery, exposes sensitive data, or has not been demonstrated from a fresh chat. Keep review fixes in the same pull request.
 
-After merge, the repository loader includes the skill in the NextBrowser catalog. Users can run it but cannot modify the public repository copy from the app. Subsequent improvements should be submitted as another focused pull request so history and authorship remain visible.
+After merge, the repository loader includes the skill in the Nextbrowser catalog. Users can run it but cannot modify the public repository copy from the app. Subsequent improvements should be submitted as another focused pull request so history and authorship remain visible.
 
 #### Contributor completion checklist
 
@@ -422,6 +422,6 @@ Reviewers may request changes for correctness, maintainability, product consiste
 
 ## Reporting bugs
 
-A useful bug report includes the NextBrowser version, operating system, reproduction steps, expected behavior, actual behavior, and relevant logs or screenshots with sensitive information removed.
+A useful bug report includes the Nextbrowser version, operating system, reproduction steps, expected behavior, actual behavior, and relevant logs or screenshots with sensitive information removed.
 
-Thank you for making NextBrowser better.
+Thank you for making Nextbrowser better.

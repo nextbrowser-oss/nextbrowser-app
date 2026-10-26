@@ -8,7 +8,7 @@ description: Use for Reddit account work - sign in, browse a community, read pos
 Two transports do the same Reddit work. **Pick one before the first command**,
 then stay on it for the whole task.
 
-The skill has a second mode, Monitoring, that NextBrowser runs itself with the
+The skill has a second mode, Monitoring, that Nextbrowser runs itself with the
 open-source engine `@nextbrowser-oss/reddit-monitoring`. It reads the signed-in
 account's inbox, the watched communities and a Reddit search for the user's
 keywords, ranks every match by urgency, and never votes, comments, replies, or

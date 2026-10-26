@@ -11,7 +11,7 @@ work, which is why it goes through the user's own logged-in session. The user
 signs in; never type a password, a code or any other credential, and never
 pass a security check on the user's behalf.
 
-The skill has a second mode, Monitoring, that NextBrowser runs itself with the
+The skill has a second mode, Monitoring, that Nextbrowser runs itself with the
 open-source engine `@nextbrowser-oss/linkedin-monitoring`. It reads the
 account's notifications, the recent posts of selected people and companies,
 and a search for the user's company names and keywords, and ranks every match

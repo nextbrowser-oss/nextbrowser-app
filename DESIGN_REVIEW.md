@@ -2,7 +2,7 @@
 
 Date: 2026-07-07
 
-Scope: initial product UI review using the local `impeccable`, `emil-design-eng`, and `taste-skill` design guidance. `impeccable` is the primary lens because NextBrowser is a product/tool UI; `taste-skill` is used only as an anti-slop filter because it is aimed more at websites and landing pages.
+Scope: initial product UI review using the local `impeccable`, `emil-design-eng`, and `taste-skill` design guidance. `impeccable` is the primary lens because Nextbrowser is a product/tool UI; `taste-skill` is used only as an anti-slop filter because it is aimed more at websites and landing pages.
 
 ## Applied Changes
 

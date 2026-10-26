@@ -7,7 +7,7 @@
     "Reply agent",
     "Monitoring"
   ],
-  "author": "NextBrowser Team",
+  "author": "Nextbrowser Team",
   "domains": [
     "tiktok.com"
   ],
@@ -35,7 +35,7 @@
     "handleMaxLength": 24,
     "profileUrl": "https://www.tiktok.com/@{handle}",
     "stateFile": "tiktok-state.json",
-    "blurb": "Accounts whose video comments NextBrowser answers in your browser profile — usually your own. Every pass finds comments nobody from the account has answered yet, shows you each draft, and posts only the replies you approve.",
+    "blurb": "Accounts whose video comments Nextbrowser answers in your browser profile — usually your own. Every pass finds comments nobody from the account has answered yet, shows you each draft, and posts only the replies you approve.",
     "subscribeTask": "Add @{handle} to the TikTok reply list: open https://www.tiktok.com/@{handle} in the browser profile, confirm the creator exists, and record @{handle} in the state file with its newest video as the baseline. Reply to nothing, like nothing and follow nobody in this run. If TikTok shows a captcha, stop and tell me.",
     "checkTask": "Run one reply pass on TikTok in the browser over these accounts: {handles}. Only these accounts are on the list right now. For each, open its three newest videos and find comments newer than the recorded baseline that nobody from the signed-in account has answered. Read each comment and write a reply that answers that specific comment - never a canned line. Show me every draft before anything goes out, then post only the ones I approve with the comment's own Reply button, a few per account, and stop at the first failure or captcha. Update the state file.",
     "signIn": {

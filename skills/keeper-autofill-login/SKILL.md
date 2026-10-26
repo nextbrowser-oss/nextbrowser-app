@@ -30,7 +30,7 @@ multi-factor code itself. Keeper is the only thing that ever touches the actual 
   single keys to the page, so the shortcut cannot be pressed through them and nothing can be
   pressed inside the popup. Sent through a raw DevTools connection instead, the shortcut
   does open the popup, but reading or operating it then takes more raw connections to the
-  extension's own pages, outside the tools NextBrowser gives the agent, and an agent that
+  extension's own pages, outside the tools Nextbrowser gives the agent, and an agent that
   checks with a page screenshot sees nothing and presses again, which closes it. The in-page
   menu is drawn inside the page: a page screenshot shows it and the CLI's coordinate click
   reaches it. So this skill fills through the field icon and the in-page menu, never through
@@ -51,7 +51,7 @@ multi-factor code itself. Keeper is the only thing that ever touches the actual 
 
 ## Workflow
 
-1. NextBrowser has already prepared the session and the profile by the time this skill runs,
+1. Nextbrowser has already prepared the session and the profile by the time this skill runs,
    so do not start or prepare a second one. Confirm you are in the named profile the user
    asked for, and if they requested a proxy country, verify that country resolves before any
    request reaches the login site, because signing in from an unexpected country can trigger
@@ -239,7 +239,7 @@ multi-factor code itself. Keeper is the only thing that ever touches the actual 
   The popup it opens is outside what the agent can see or operate, and a second press
   closes it.
 - If the browser itself goes away part way through, so that its tools stop answering, do
-  not start, restart or prepare the profile yourself: NextBrowser owns the session, and a
+  not start, restart or prepare the profile yourself: Nextbrowser owns the session, and a
   restarted profile comes back with KeeperFill signed out. Report `autofill_failed`, saying
   the browser closed and at which stage.
 - Treat any element id captured in an earlier session as a short-lived hint. Target roles,

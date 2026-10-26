@@ -1,8 +1,8 @@
-# NextBrowser Product Context
+# Nextbrowser Product Context
 
 ## Product Register
 
-NextBrowser is a product UI: a native desktop console for browser automation with local AI agents, profiles, proxy traffic, skills, scripts, scheduled runs, and live session control.
+Nextbrowser is a product UI: a native desktop console for browser automation with local AI agents, profiles, proxy traffic, skills, scripts, scheduled runs, and live session control.
 
 It is not a marketing site, a decorative dashboard, or a consumer chat toy. The interface should feel like a calm professional tool that can be used repeatedly during real work.
 
@@ -23,7 +23,7 @@ It is not a marketing site, a decorative dashboard, or a consumer chat toy. The 
 
 ## Design Direction
 
-NextBrowser should feel native, restrained, dense, and legible. The closest references are focused desktop tools such as Raycast, Linear, and Figma Dev Mode: high signal, clear hierarchy, durable controls, and very little decoration.
+Nextbrowser should feel native, restrained, dense, and legible. The closest references are focused desktop tools such as Raycast, Linear, and Figma Dev Mode: high signal, clear hierarchy, durable controls, and very little decoration.
 
 Color should support status and action, not dominate the product. Purple can remain an accent, but the app should avoid becoming an AI-purple theme.
 

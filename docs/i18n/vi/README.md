@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Bản demo giao diện NextBrowser" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Bản demo giao diện Nextbrowser" width="1200" />
 </p>
 
 ## Vì sao chọn Nextbrowser
@@ -83,7 +83,7 @@ Xem [hướng dẫn sản phẩm](../../product-guide.md) để tìm hiểu khá
 
 ## Demo và trường hợp sử dụng
 
-Khám phá các kịch bản đã xuất bản trên [trang trường hợp sử dụng Nextbrowser](https://nextbrowser.com/use-cases). Bản xem trước phía trên cho thấy giao diện NextBrowser đang hoạt động.
+Khám phá các kịch bản đã xuất bản trên [trang trường hợp sử dụng Nextbrowser](https://nextbrowser.com/use-cases). Bản xem trước phía trên cho thấy giao diện Nextbrowser đang hoạt động.
 
 Các quy trình phổ biến gồm:
 
