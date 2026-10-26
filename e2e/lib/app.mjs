@@ -38,17 +38,23 @@ export async function refreshWindow(browser, page) {
 }
 
 /**
- * After a start or a reload the app checks the agent connection behind a
- * "Connect an agent to continue" gate; the window is usable once it closes.
+ * After a start or a reload the app checks the agent connection. The
+ * "Connect an agent to continue" gate opens only when that check fails, so the
+ * sidebar footer's agent status tells when it is done; the window is usable
+ * once it reads "Connected".
  */
 export async function appReady(page, timeoutMs = 120_000) {
   await page.getByRole("navigation", { name: "Sidebar pages" }).waitFor({ timeout: timeoutMs });
   const gate = page.getByText("Connect an agent to continue");
+  const agentStatus = page.getByRole("button", { name: "Open agent settings" });
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    const gateOpen = await gate.first().isVisible().catch(() => false);
     const checking = await page.getByText(/^Checking…?$/).first().isVisible().catch(() => false);
-    if (!(await gate.first().isVisible().catch(() => false))) return;
-    if (!checking) throw new Error("The app asks to connect an agent: no agent is connected");
+    if (gateOpen && !checking) throw new Error("The app asks to connect an agent: no agent is connected");
+    // Without the footer (a collapsed sidebar), no gate is all there is to go by.
+    const status = await agentStatus.first().innerText({ timeout: 1_000 }).catch(() => "");
+    if (!gateOpen && (!status || /·\s*Connected\b/.test(status))) return;
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`The agent check did not finish in ${Math.round(timeoutMs / 1000)} s`);

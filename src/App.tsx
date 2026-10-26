@@ -41,7 +41,7 @@ import { invoke, listen } from "./electronBridge";
 import { agentById } from "./agents";
 import { releaseDownloadUrl } from "./lib/releaseDownload";
 import { UserFacingError } from "./components/UserFacingError";
-import { AgentConnectionGate } from "./components/AgentConnectionGate";
+import { AgentConnectionGate, agentGateVisible } from "./components/AgentConnectionGate";
 import { WorkspaceSetupGate } from "./components/WorkspaceSetupGate";
 import { AgentInstallLink } from "./components/AgentInstallLink";
 import { DeviceDataSettings } from "./components/DeviceDataSettings";
@@ -1011,7 +1011,11 @@ export function App() {
   const bootstrap = useStore((s) => s.bootstrap);
   const showOnboarding = useStore((s) => s.showOnboarding);
   const agentReady = useStore((s) => s.agentReady());
-  const agentGateOpen = !checking && authed && !agentReady && !showOnboarding && !agentGateDismissed && preview !== "main";
+  const agentGateDue = !checking && authed && !agentReady && !showOnboarding && !agentGateDismissed && preview !== "main";
+  const agentChecking = useStore((s) => !!s.runtime[s.agentId]?.authorizing);
+  const [agentGateShown, setAgentGateShown] = useState(false);
+  const agentGateOpen = agentGateVisible(agentGateDue, agentChecking, agentGateShown);
+  useEffect(() => { setAgentGateShown(agentGateOpen); }, [agentGateOpen]);
   const workspaceSetupRequired = useStore((s) => {
     return s.authed && s.workspacesLoaded && s.workspaceSetupRequired;
   });
@@ -1099,7 +1103,7 @@ export function App() {
 
   const feedbackPromptWaiting = feedbackPromptBlocked({
     onboarding: showOnboarding || workspaceSetupRequired,
-    agentGate: agentGateOpen,
+    agentGate: agentGateDue,
     trafficGate: trafficGatePromptOpen,
     githubStar: githubStarPromptOpen,
     appUpdate: updateAvailable(appUpdate) && appUpdate.version !== updatePromptDismissedVersion,
@@ -1129,10 +1133,10 @@ export function App() {
     // be closed; the Usage page keeps the same ask next to the proxy traffic.
     if (githubStarPromptEvaluated.current || !feedbackAvailable || showOnboarding || workspaceSetupRequired) return;
     // Never on top of the agent connection gate: ask once that is out of the way.
-    if (githubStar === undefined || agentGateOpen) return;
+    if (githubStar === undefined || agentGateDue) return;
     githubStarPromptEvaluated.current = true;
     if (shouldAskForGitHubStar(githubStar)) setGitHubStarPromptOpen(true);
-  }, [feedbackAvailable, showOnboarding, workspaceSetupRequired, githubStar, agentGateOpen, setGitHubStarPromptOpen]);
+  }, [feedbackAvailable, showOnboarding, workspaceSetupRequired, githubStar, agentGateDue, setGitHubStarPromptOpen]);
 
   useEffect(() => {
     if (!feedbackAvailable) setFeedbackOpen(false);
@@ -1839,7 +1843,7 @@ export function App() {
       )}
       <DashboardKeyModal />
       <TrafficGateModal />
-      <GitHubStarModal suppressed={agentGateOpen} />
+      <GitHubStarModal suppressed={agentGateDue} />
       <ProfileCreateRequestModal />
       {agentGateOpen && (
         <AgentConnectionGate onDismiss={() => setAgentGateDismissed(true)} />
