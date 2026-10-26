@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const os = require("node:os");
 const { agentFailureReason, describeAgentResult, describeTerminalExit } = require("./agent-failure-report.cjs");
+const { createClaudeStreamDecoder } = require("./agent-steps.cjs");
 
 const codexLog = [
   "OpenAI Codex v0.163.0 (research preview)",
@@ -58,6 +59,61 @@ test("a failure without an error line is still reported", () => {
   assert.equal(reason, "");
   assert.equal(event.message, "claude exited with code 3221225477: no error line in its output");
   assert.equal(event.context.run, "plain");
+});
+
+test("a failed Claude Code run is reported with the API error it printed to standard output", () => {
+  const { reason, event } = describeAgentResult({
+    agentId: "claude",
+    result: { code: 1, stdout: "API Error: Connection refused\n", stderr: "" },
+    durationMs: 1200,
+  });
+  assert.equal(event.name, "AGENT_STOPPED_UNEXPECTEDLY");
+  assert.equal(event.message, "claude exited with code 1: API Error: Connection refused");
+  // The chat already shows standard output as the reply, so it does not repeat the line.
+  assert.equal(reason, "");
+});
+
+test("a chat run's stream-json output yields the same API error line", () => {
+  // main.cjs reports the decoded reply of a `--output-format stream-json` run as its standard output.
+  const decoder = createClaudeStreamDecoder({ onText: () => {}, onStep: () => {} });
+  decoder.write(`${JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "Opening the shop page for alice." }] } })}\n`);
+  decoder.write(`${JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "API Error: Connection refused" }] } })}\n`);
+  decoder.write(`${JSON.stringify({ type: "result", subtype: "success", is_error: true, result: "API Error: Connection refused" })}\n`);
+  const { event } = describeAgentResult({ agentId: "claude", result: { code: 1, stdout: decoder.end(), stderr: "" } });
+  assert.equal(event.message, "claude exited with code 1: API Error: Connection refused");
+  assert.ok(!JSON.stringify(event).includes("alice"));
+});
+
+test("only the error line of Claude Code's standard output is reported, not the reply", () => {
+  const reply = [
+    "I opened the shop page for alice and the price is 42 EUR.",
+    "Error handling on the page looks odd.",
+    "Error: the checkout button did not respond",
+    "Next I will try the cart page.",
+  ].join("\n");
+  const partial = describeAgentResult({
+    agentId: "claude",
+    result: { code: 1, stdout: `${reply}\nAPI Error: The response stalled before a response was produced. Try again.\n`, stderr: "" },
+  }).event;
+  assert.equal(partial.message, "claude exited with code 1: API Error: The response stalled before a response was produced. Try again.");
+  assert.ok(!JSON.stringify(partial).includes("shop page"));
+  assert.ok(!JSON.stringify(partial).includes("42 EUR"));
+  assert.ok(!JSON.stringify(partial).includes("Next I will"));
+
+  assert.equal(describeAgentResult({ agentId: "claude", result: { code: 1, stdout: "\x1b[31mError: Reached max turns (5)\x1b[0m", stderr: "" } }).event.message,
+    "claude exited with code 1: Error: Reached max turns (5)");
+  assert.equal(describeAgentResult({ agentId: "claude", result: { code: 1, stdout: "Execution error\n", stderr: "" } }).event.message,
+    "claude exited with code 1: Execution error");
+
+  const answerOnly = describeAgentResult({ agentId: "claude", result: { code: 1, stdout: "The price is 42 EUR.\nAn error: the page froze", stderr: "" } }).event;
+  assert.equal(answerOnly.message, "claude exited with code 1: no error line in its output");
+});
+
+test("standard error comes first, and other agents' standard output is never read", () => {
+  assert.equal(describeAgentResult({ agentId: "claude", result: { code: 1, stdout: "API Error: Connection refused", stderr: "Error: unknown option '--verbose'" } }).event.message,
+    "claude exited with code 1: Error: unknown option '--verbose'");
+  assert.equal(describeAgentResult({ agentId: "gemini", result: { code: 1, stdout: "Error: the cart for alice@shop.example is empty", stderr: "" } }).event.message,
+    "gemini exited with code 1: no error line in its output");
 });
 
 test("success, a stop, quitting and a sign-in are not reported", () => {

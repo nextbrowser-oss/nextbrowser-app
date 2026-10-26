@@ -5,10 +5,10 @@ const os = require("node:os");
 // A run that exits non-zero on its own is reported, and so are a run that
 // exits 0 without a reply and a run the app stopped because it took too long.
 // A stop the user asked for, a run cut short by quitting the app and a
-// sign-in the chat already asks for are not. Standard output is never copied
-// into a report: it is the reply, which can quote page data. From standard
-// error only the error line is taken, because the rest of it is the agent's
-// transcript.
+// sign-in the chat already asks for are not. From standard error only the
+// error line is taken, because the rest of it is the agent's transcript.
+// Standard output is the reply, which can quote page data; the one line taken
+// from it is the error `claude -p` prints there instead of to standard error.
 
 // Same rule as finishAgentRun in src/store.ts, which asks the user to sign in.
 const AUTH_FAILURE = /(?:failed to authenticate|oauth session expired|could not be refreshed|not logged in|sign in required|login required)/i;
@@ -20,6 +20,10 @@ const FATAL_LINE = /^(?:\[[^\]]*\]\s*)?(?:[A-Za-z]+ )?(?:error|fatal)\s*:|panick
 // ("2026-10-07T14:07:47Z ERROR codex_core::x: ..."); one is the reason only
 // when nothing fatal was printed.
 const LOG_ERROR_LINE = /^\S*\d{2}:\d{2}:\d{2}\S*\s+(?:ERROR|FATAL)\s/;
+// What `claude -p` prints to standard output when a run fails: the API error
+// it gives as its reply ("API Error: Connection refused"), "Error: Reached max
+// turns (5)" and the other "Error: ..." results, or "Execution error".
+const CLAUDE_STDOUT_ERROR_LINE = /^(?:API Error: |Error: |Execution error$)/;
 const REASON_MAX = 300;
 const AGENT_ID = /^[a-z][a-z0-9-]{0,31}$/;
 const RUNS = new Set(["chat", "plain", "workflow_author", "terminal"]);
@@ -31,10 +35,22 @@ const INTERRUPTED_EXIT_CODES = new Set([130, 3221225786]);
 const CRASH_SIGNALS = new Set(["SIGSEGV", "SIGABRT", "SIGBUS", "SIGILL", "SIGFPE"]);
 const SIGNAL_NAMES = new Map(Object.entries(os.constants.signals).reverse().map(([name, number]) => [number, name]));
 
-function agentFailureReason(stderr) {
-  const lines = String(stderr || "").replace(ANSI, "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean).reverse();
-  const line = lines.find((candidate) => FATAL_LINE.test(candidate)) || lines.find((candidate) => LOG_ERROR_LINE.test(candidate)) || "";
+function lastLinesFirst(output) {
+  return String(output || "").replace(ANSI, "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean).reverse();
+}
+
+function capReason(line) {
   return line.length > REASON_MAX ? `${line.slice(0, REASON_MAX - 1)}…` : line;
+}
+
+function agentFailureReason(stderr) {
+  const lines = lastLinesFirst(stderr);
+  return capReason(lines.find((candidate) => FATAL_LINE.test(candidate)) || lines.find((candidate) => LOG_ERROR_LINE.test(candidate)) || "");
+}
+
+/** The last error line `claude -p` printed to standard output; never any other line of the reply. */
+function claudeStdoutFailureReason(stdout) {
+  return capReason(lastLinesFirst(stdout).find((candidate) => CLAUDE_STDOUT_ERROR_LINE.test(candidate)) || "");
 }
 
 function agentName(agentId) {
@@ -70,7 +86,10 @@ function describeAgentResult({ agentId, result, outcome = {}, durationMs, plain 
     return { reason, event: String(result?.stdout ?? "").trim() ? null : event("AGENT_EMPTY_REPLY", `${agent} exited with code 0 without a reply`) };
   }
   if (AUTH_FAILURE.test(`${stderr}\n${result?.stdout ?? ""}`)) return { reason, event: null };
-  return { reason, event: event("AGENT_STOPPED_UNEXPECTEDLY", `${agent} exited with code ${code}: ${reason || "no error line in its output"}`) };
+  // The chat already shows Claude Code's standard output as the reply, so its
+  // error line goes to the report only.
+  const reported = reason || (agent === "claude" ? claudeStdoutFailureReason(result?.stdout) : "");
+  return { reason, event: event("AGENT_STOPPED_UNEXPECTEDLY", `${agent} exited with code ${code}: ${reported || "no error line in its output"}`) };
 }
 
 /**
