@@ -379,6 +379,15 @@ function nextctlUpdateErrorMessage(reason?: string): string {
   return detail ? `${NEXTCTL_UPDATE_ERROR} ${detail}` : NEXTCTL_UPDATE_ERROR;
 }
 
+// nbc updates the browser only while no profile uses it, and otherwise
+// refuses: "ClawBrowser is still running in: <profiles>. Stop these profiles
+// before updating ClawBrowser …" (exit 1, error code INTERNAL_ERROR). That is
+// a state, not a failure: the update waits for the next check.
+const NEXTCTL_UPDATE_WAITING_STATUS = "update waits until open profiles are closed";
+function nextctlUpdateWaitsForProfiles(reason: string): boolean {
+  return /still running in:[\s\S]*Stop these profiles before updating/i.test(reason);
+}
+
 // GitHub's anonymous REST API allows 60 requests/hour per IP and answers 403
 // when exceeded. Retrying within minutes only keeps hitting the limit.
 function isNextctlRateLimit(reason: string): boolean {
@@ -5237,6 +5246,15 @@ export const useStore = create<State>((set, get) => {
       } else {
         clearNextctlUpdateNotice();
         const reason = nextctlErrorMessage(res);
+        if (nextctlUpdateWaitsForProfiles(reason)) {
+          // The app cannot always see those profiles (a terminal agent may
+          // have started them), so it does not retry minutes later or show an
+          // error; the footer says why, and the next daily check tries again.
+          trackEvent("nextctl_update_deferred", { reason: "profiles_running" });
+          await recordNextctlUpdateAttempt();
+          set({ nextctlUpdateStatus: NEXTCTL_UPDATE_WAITING_STATUS });
+          return false;
+        }
         trackEvent("nextctl_update_failed", { exit_code: res.code });
         if (isNextctlRateLimit(reason)) {
           // Once retries are exhausted, back off until GitHub's own reset

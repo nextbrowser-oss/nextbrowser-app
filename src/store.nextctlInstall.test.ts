@@ -83,4 +83,36 @@ describe("Nextbrowser CLI install and update", () => {
     await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(true);
     expect(nextctlRuns("update")[0][1]).toMatchObject({ args: ["update"], timeoutMs: FIFTEEN_MINUTES });
   });
+
+  it("waits for open profiles instead of failing or retrying the update", async () => {
+    vi.useFakeTimers();
+    try {
+      updateResult = {
+        code: 1,
+        stdout: "[nbc-update] already latest: v1.2.37\n",
+        stderr: "Warning: ClawBrowser is still running in: Clawbrowser profile, Clawbrowser profile. Stop these profiles before updating ClawBrowser — updating while a session is live leaves it on the old build, which will keep reporting stale capabilities until it's restarted.",
+      };
+      await expect(useStore.getState().checkNextctlUpdate()).resolves.toBe(false);
+      expect(useStore.getState()).toMatchObject({
+        nextctlUpdateStatus: "update waits until open profiles are closed",
+        nextctlUpdateError: undefined,
+        nextctlUpdating: false,
+      });
+      // The attempt is recorded, so the daily check waits its usual interval.
+      expect(JSON.parse(appData["nextctl-update.json"]).lastAutoCheckAt).toBeGreaterThan(0);
+      // No retry burst: the ordinary failure path retries after 90 s.
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(nextctlRuns("update")).toHaveLength(1);
+
+      // An ordinary failure still retries and, in the end, shows an error.
+      updateResult = { code: 1, stdout: "", stderr: "Error: install nbc: unexpected EOF" };
+      await useStore.getState().checkNextctlUpdate();
+      expect(useStore.getState().nextctlUpdateStatus).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(nextctlRuns("update").length).toBeGreaterThan(2);
+      expect(useStore.getState().nextctlUpdateError).toContain("unexpected EOF");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

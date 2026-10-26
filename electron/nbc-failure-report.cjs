@@ -42,8 +42,11 @@ const EXPECTED_CODES = new Set([
 // Site flows and on-page lookups report what they found on the page.
 const EXPECTED_CODE_PATTERN = /^(?:REDDIT|X|LINKEDIN|INSTAGRAM|TIKTOK|FACEBOOK)_|_(?:NOT_FOUND|UNVERIFIED|LOGIN_REQUIRED)$/;
 // A launch that failed because of the profile's own proxy is explained to the
-// user (see profile-start-failure.cjs) and is not an nbc defect.
-const EXPECTED_DETAIL = /ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_CONNECTION_FAILED|Proxy country is [A-Za-z]{2,}, expected|proxy[^.\n]*(?:refused|unreachable|authentication|\b407\b)|runtime update is being installed/i;
+// user (see profile-start-failure.cjs) and is not an nbc defect. Neither is
+// an update nbc refuses while profiles still use the browser ("ClawBrowser is
+// still running in: …. Stop these profiles before updating"): the app waits
+// for them to close.
+const EXPECTED_DETAIL = /ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_CONNECTION_FAILED|Proxy country is [A-Za-z]{2,}, expected|proxy[^.\n]*(?:refused|unreachable|authentication|\b407\b)|runtime update is being installed|Stop these profiles before updating/i;
 // A machine without network or DNS is the user's environment, not nbc.
 const OFFLINE_DETAIL = /no such host|ENOTFOUND|EAI_AGAIN|ENETUNREACH|network is unreachable|getaddrinfo/i;
 const SIGNED_OUT_DETAIL = /\b40[13]\b|unauthori[sz]ed|forbidden|API key/i;

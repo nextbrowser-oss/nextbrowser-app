@@ -151,6 +151,11 @@ test("text-mode failures of commands whose failure the user sees are reported", 
   assert.equal(failed(["update"], "Error: Get \"https://github.com/x\": dial tcp: lookup github.com: no such host"), null, "offline");
   assert.equal(failed(["remote", "close", "a1b2"], "Error: unexpected status 401 Unauthorized"), null, "signed out");
   assert.equal(failed(["update", "--browser-only"], "Error: unknown flag: --browser-only"), null, "a probe for an older nbc");
+  const busy = "Warning: ClawBrowser is still running in: Clawbrowser profile, Work. Stop these profiles before updating ClawBrowser — updating while a session is live leaves it on the old build.";
+  assert.equal(failed(["update"], busy), null, "the update waits for open profiles");
+  const busyJSON = describeNbcResult({ args: ["update", "--browser-only", "--format", "json"], result: { code: 1, stdout: JSON.stringify({ ok: false, error: { code: "INTERNAL_ERROR", message: busy } }), stderr: "" } });
+  assert.equal(busyJSON.event, null);
+  assert.equal(busyJSON.breadcrumb, "update → exit 1 INTERNAL_ERROR");
   assert.equal(failed(["skill", "list"], "Error: boom"), null, "other text-mode commands keep exit 1 as nbc's ordinary error");
 });
 
