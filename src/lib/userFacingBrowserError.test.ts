@@ -4,6 +4,7 @@ import {
   BROWSER_START_FAILED,
   BROWSER_START_TIMED_OUT,
   CAMOUFOX_INSTALL_FAILED,
+  CAMOUFOX_PYTHON_MISSING,
   isBrowserStartFailure,
   isBrowserVerificationFailure,
   userFacingBrowserError,
@@ -86,6 +87,14 @@ describe("userFacingBrowserError", () => {
     expect(userFacingBrowserError(install)).toBe(CAMOUFOX_INSTALL_FAILED);
     const launch = "VERIFY_FAILED: browser stopped: LAUNCH_FAILED: launch failed (Camoufox exited before becoming ready: RuntimeError) — A proxy profile cannot continue without its proxy.";
     expect(userFacingBrowserError(launch)).toBe(BROWSER_START_FAILED);
+  });
+
+  it("tells the user to install Python when Camoufox has none it can use", () => {
+    const wrapped = "VERIFY_FAILED: browser stopped: CAMOUFOX_PYTHON_MISSING: Camoufox needs Python 3.11–3.13, and it could not be downloaded automatically (install Python 3.13 from https://www.python.org/downloads/ (not the Microsoft Store version), or check that this computer can reach github.com, then start the profile again (prepare Camoufox runtime: only a Microsoft Store Python 3.11–3.13 is installed; download uv: fetch failed))";
+    expect(userFacingBrowserError(wrapped)).toBe(CAMOUFOX_PYTHON_MISSING);
+    const unwrapped = "Camoufox needs Python 3.11–3.13, and it could not be downloaded automatically [CAMOUFOX_PYTHON_MISSING] — install Python 3.13 from https://www.python.org/downloads/ (prepare Camoufox runtime: Python 3.11–3.13 is not installed)";
+    expect(userFacingBrowserError(unwrapped)).toBe(CAMOUFOX_PYTHON_MISSING);
+    expect(CAMOUFOX_PYTHON_MISSING).toContain("not the Microsoft Store version");
   });
 
   it("keeps a failed proxy check and a dropped CDP connection as proxy failures", () => {

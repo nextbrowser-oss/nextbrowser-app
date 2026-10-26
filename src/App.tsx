@@ -994,6 +994,11 @@ export function App() {
   const checking = useStore((s) => s.checking);
   const authed = useStore((s) => s.authed);
   const startupPhase = useStore((s) => s.startupPhase);
+  const startupLabel = startupPhase === "local"
+    ? "Loading saved projects"
+    : startupPhase === "setup"
+      ? "Setting up Nextbrowser for first use"
+      : "Checking account access";
   const startupError = useStore((s) => s.startupError);
   const feedbackAvailable = authed && !checking && !startupError;
   // Background sync happens constantly and isn't something the user needs
@@ -1682,8 +1687,9 @@ export function App() {
           ) : (
             <>
               <InstallationSpinner />
-              <div className="muted small">{startupPhase === "local" ? "Loading saved projects…" : "Checking account access…"}</div>
-              <div className="startup-progress"><InstallationProgress label={startupPhase === "local" ? "Loading saved projects" : "Checking account access"} /></div>
+              <div className="muted small">{startupLabel}…</div>
+              {startupPhase === "setup" && <div className="muted small">Nextbrowser is installing its command-line tool. This can take a few minutes on a slow connection.</div>}
+              <div className="startup-progress"><InstallationProgress label={startupLabel} /></div>
             </>
           )}
         </div>

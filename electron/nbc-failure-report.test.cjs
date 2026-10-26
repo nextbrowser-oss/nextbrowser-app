@@ -111,6 +111,10 @@ test("a verified start is classified by the code nextctl wrapped in VERIFY_FAILE
   assert.equal(describeNbcResult({ args: ["start", "--format", "json"], result: { code: 1, stdout: wrapped("LAUNCH_FAILED: net::ERR_TUNNEL_CONNECTION_FAILED"), stderr: "" } }).event, null, "the profile's own proxy");
   assert.equal(describeNbcResult({ args: ["start", "--format", "json"], result: { code: 1, stdout: wrapped("PROXY_TRAFFIC_EXHAUSTED: traffic used up"), stderr: "" } }).event, null, "an expected inner code stays expected");
   assert.equal(describeNbcResult({ args: ["start", "--format", "json"], result: { code: 1, stdout: wrapped("VERIFY_REQUIRED: failed browser checks: webrtc; the profile cannot be used"), stderr: "" } }).event.name, "NBC_VERIFY_FAILED", "VERIFY_REQUIRED is the check itself");
+  // No Python for Camoufox is counted, even when the download also failed offline.
+  const python = describeNbcResult({ args: ["start", "--runtime", "camoufox", "--format", "json"], result: { code: 1, stdout: wrapped("CAMOUFOX_PYTHON_MISSING: Camoufox needs Python 3.11–3.13, and it could not be downloaded automatically (prepare Camoufox runtime: Python 3.11–3.13 is not installed; download uv: dial tcp: lookup github.com: no such host)"), stderr: "" } });
+  assert.equal(python.event.name, "CAMOUFOX_PYTHON_MISSING");
+  assert.equal(python.event.context.runtime, "camoufox");
 });
 
 test("a failed browser verification is reported unless the profile's own proxy failed", () => {
@@ -151,6 +155,11 @@ test("text-mode failures of commands whose failure the user sees are reported", 
   assert.equal(failed(["update"], "Error: Get \"https://github.com/x\": dial tcp: lookup github.com: no such host"), null, "offline");
   assert.equal(failed(["remote", "close", "a1b2"], "Error: unexpected status 401 Unauthorized"), null, "signed out");
   assert.equal(failed(["update", "--browser-only"], "Error: unknown flag: --browser-only"), null, "a probe for an older nbc");
+  const busy = "Warning: ClawBrowser is still running in: Clawbrowser profile, Work. Stop these profiles before updating ClawBrowser — updating while a session is live leaves it on the old build.";
+  assert.equal(failed(["update"], busy), null, "the update waits for open profiles");
+  const busyJSON = describeNbcResult({ args: ["update", "--browser-only", "--format", "json"], result: { code: 1, stdout: JSON.stringify({ ok: false, error: { code: "INTERNAL_ERROR", message: busy } }), stderr: "" } });
+  assert.equal(busyJSON.event, null);
+  assert.equal(busyJSON.breadcrumb, "update → exit 1 INTERNAL_ERROR");
   assert.equal(failed(["skill", "list"], "Error: boom"), null, "other text-mode commands keep exit 1 as nbc's ordinary error");
 });
 

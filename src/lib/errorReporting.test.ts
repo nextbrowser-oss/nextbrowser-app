@@ -148,6 +148,15 @@ describe("renderer error reporting", () => {
     ]);
   });
 
+  it("reports a stall with how long it lasted and the stage it stalled in", () => {
+    expect(reportUserFacingError({ surface: "startup", code: "STARTUP_ACCOUNT_TIMED_OUT", elapsedMs: 180_000.4, stage: "cli_download" })).toBe(true);
+    expect(reportUserFacingError({ surface: "startup", code: "STARTUP_ACCOUNT_TIMED_OUT", elapsedMs: Number.NaN, stage: "C:\\Users\\alice" })).toBe(true);
+    expect(env.reports.map((report) => report.context)).toEqual([
+      { surface: "startup", code: "STARTUP_ACCOUNT_TIMED_OUT", elapsed_ms: "180000", stage: "cli_download" },
+      { surface: "startup", code: "STARTUP_ACCOUNT_TIMED_OUT" },
+    ]);
+  });
+
   it("sends no free text as a surface, code or Ref", () => {
     expect(reportUserFacingError({ surface: "We couldn't start the agent.", code: "AGENT_START_FAILED" })).toBe(false);
     expect(reportUserFacingError({ surface: "agent_turn", code: "AGENT_START_FAILED" })).toBe(false);

@@ -79,7 +79,7 @@ test("user content leaves the message and the stack", () => {
   let parse;
   try { JSON.parse("{\"profile\": \"Alice private\""); } catch (error) { parse = error; }
   const json = describeInvokeFailure({ command: "agent /project/create", error: parse }).event;
-  assert.equal(json.message, "agent /project/create: SyntaxError");
+  assert.equal(json.message, "agent /project/create: SyntaxError: Expected ',' or '}' after property value in JSON at position 27 (line 1 column 28)");
   assert.ok(!JSON.stringify(json).includes("Alice"), "the stack's first line repeats the message");
   assert.equal(describeInvokeFailure({ command: "Alice's command", error: new Error("x") }).event.context.command, "unknown");
 });
@@ -95,4 +95,24 @@ test("a failure seen only as a status is reported with its phase", () => {
   const install = describeMainFailure({ name: "BROWSER_RUNTIME_INSTALL_FAILED", error: fsError("EACCES", "mkdir", "/home/alice/x"), context: { runtime: "dasbrowser" } }).event;
   assert.deepEqual(install.context, { runtime: "dasbrowser", code: "EACCES" });
   assert.ok(!install.message.includes("alice"));
+});
+
+test("a JavaScript error is reported by class and message, without the values it quotes", () => {
+  const thrown = (body) => { try { body(); } catch (error) { return error; } return undefined; };
+  const message = (error) => describeInvokeFailure({ command: "agent /profile/start", error }).event.message;
+  // What reached the app when Windows PowerShell stripped the quotes of the start command.
+  assert.equal(message(thrown(() => JSON.parse("{profile:Clawbrowser"))), "agent /profile/start: SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)");
+  // JSON.parse quotes the start of its input; only the token it stopped at stays, an invisible one by code point.
+  assert.equal(message(thrown(() => JSON.parse("Alice private notes for the agent"))), "agent /profile/start: SyntaxError: Unexpected token 'A', \"…\" is not valid JSON");
+  assert.equal(message(thrown(() => JSON.parse("\uFEFF{\"profile\":\"Alice\"}"))), "agent /profile/start: SyntaxError: Unexpected token 'U+FEFF', \"…\" is not valid JSON");
+  assert.equal(message(thrown(() => JSON.parse(""))), "agent /profile/start: SyntaxError: Unexpected end of JSON input");
+  // A property name the runtime could not read stays; a quoted value goes.
+  assert.equal(message(thrown(() => null.rows)), "agent /profile/start: TypeError: Cannot read properties of null (reading 'rows')");
+  assert.equal(message(thrown(() => { "use strict"; const name = "Alice"; (function () { "use strict"; name.owner = 1; })(); })), "agent /profile/start: TypeError: Cannot create property 'owner' on string '…'");
+  assert.equal(message(Object.assign(new TypeError("fetch failed"), { cause: new Error("socket hang up") })), "agent /profile/start: TypeError: fetch failed");
+  const long = message(new RangeError(`Invalid ${"x".repeat(400)}`));
+  assert.ok(long.length <= "agent /profile/start: RangeError: ".length + 200, long);
+  assert.ok(long.endsWith("…"));
+  // An app error keeps its own wording.
+  assert.equal(message(new Error("Profile “Alice” is busy")), "agent /profile/start: Profile “…” is busy");
 });

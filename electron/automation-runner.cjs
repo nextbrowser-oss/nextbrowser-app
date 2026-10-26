@@ -584,7 +584,8 @@ async function executeAutomationRecipe(input, deps) {
         await deps.onStep?.({ position: index, status: "failed", output: {}, error: message });
         progress({ phase: state.cancelled ? "cancelled" : "failed", stepIndex: index, tool: action.tool, detail: `Step ${index + 1} failed: ${message}`, error: message });
         if (state.cancelled) return { status: "cancelled", results, failedStep: index };
-        return { status: "failed", results, failedStep: index, error: message };
+        // The class (TypeError, …) tells the error report whether the runtime worded the message.
+        return { status: "failed", results, failedStep: index, error: message, errorName: error instanceof Error ? error.name : "" };
       }
     }
     progress({ phase: "completed", stepIndex: actions.length, detail: `Completed all ${actions.length} browser steps.` });
@@ -593,7 +594,7 @@ async function executeAutomationRecipe(input, deps) {
     const message = error instanceof Error ? error.message : String(error);
     const status = state.cancelled ? "cancelled" : "failed";
     progress({ phase: status, stepIndex: results.length, detail: status === "cancelled" ? "Execution stopped by user." : message, error: status === "failed" ? message : undefined });
-    return { status, results, error: message };
+    return { status, results, error: message, errorName: error instanceof Error ? error.name : "" };
   } finally {
     client.close();
     activeExecutions.delete(executionId);

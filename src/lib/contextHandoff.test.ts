@@ -115,8 +115,8 @@ describe("chat context handoff", () => {
     expect(result).toContain("profiles_create_request");
     expect(result).toContain("A runtime label such as Clawbrowser, Camoufox, or DasBrowser is not a profile name");
     expect(result).toContain("$NEXTBROWSER_CONTROL_URL/profile/start");
-    expect(result).toContain(`--data '{"profile":"Wiki research"}'`);
-    expect(result).toContain(`--data '{"profile":"Fox profile"}'`);
+    expect(result).toContain(`--data "profile=Wiki%20research"`);
+    expect(result).toContain(`--data "profile=Fox%20profile"`);
     expect(result).not.toContain("PROFILE_NAME");
     expect(result).toContain("available even when status says running because the user may close the browser manually");
     expect(result).toContain("Save requested files with nextbrowser.save_artifact");

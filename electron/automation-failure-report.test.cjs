@@ -52,3 +52,16 @@ test("the step's output and the error text never reach the report", () => {
   for (const fragment of ["Alice", "alice@", "42 EUR", "orders", "secret-runtime"]) assert.ok(!sent.includes(fragment), fragment);
   assert.equal(describeAutomationResult({ result: failedAt(0, "Alice's tool", "x") }).event.context.tool, "unknown");
 });
+
+test("a JavaScript error the runner threw is reported by class and message, without quoted values", () => {
+  const typeError = { ...failedAt(1, "extract", "Cannot read properties of undefined (reading 'rows')"), errorName: "TypeError" };
+  const { event } = describeAutomationResult({ result: typeError, runtime: "clawbrowser" });
+  assert.equal(event.message, "Automation step 2 (extract) failed: TypeError: Cannot read properties of undefined (reading 'rows')");
+  assert.deepEqual(event.context, { error_code: "TypeError", step: "2", tool: "extract", runtime: "clawbrowser" });
+  assert.equal(event.fingerprintExtra, "extract TypeError");
+  const parse = { status: "failed", results: [], error: 'Unexpected token \'<\', "<html>Alice"... is not valid JSON', errorName: "SyntaxError" };
+  assert.equal(describeAutomationResult({ result: parse }).event.message, "Automation runner failed before the first step: SyntaxError: Unexpected token '<', \"…\" is not valid JSON");
+  // An error a page or nbc worded stays a code: its text can quote the page.
+  const page = { ...failedAt(0, "evaluate", "TypeError: Alice's cart is empty"), errorName: "Error" };
+  assert.equal(describeAutomationResult({ result: page }).event.message, "Automation step 1 (evaluate) failed: UNCLASSIFIED");
+});

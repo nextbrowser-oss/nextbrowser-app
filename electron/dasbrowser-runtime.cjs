@@ -151,6 +151,19 @@ async function installedDasbrowserReleaseVersion(executable) {
   return "";
 }
 
+/**
+ * Records which DasBrowser release this app installed, beside the managed
+ * runtimes (`<runtimeRoot>/data`). On Windows the DasBrowser setup installs
+ * into %LOCALAPPDATA%, so when DasBrowser is the first browser installed the
+ * data folder does not exist yet; it is created here.
+ */
+async function writeDasbrowserReleaseMarker(runtimeRoot, { version, url, now = new Date() }) {
+  const file = path.join(runtimeRoot, "data", ".dasbrowser-browser-release.json");
+  await fs.promises.mkdir(path.dirname(file), { recursive: true });
+  await fs.promises.writeFile(file, JSON.stringify({ version, download_url: url, updated_at: now.toISOString() }, null, 2), "utf8");
+  return file;
+}
+
 function requestedBrowserRuntime(args = []) {
   const index = args.indexOf("--runtime");
   return index >= 0 ? String(args[index + 1] || "").toLowerCase() : "clawbrowser";
@@ -193,4 +206,5 @@ module.exports = {
   officialDasbrowserURLFromHTML,
   requestedBrowserRuntime,
   resolveDasbrowserRuntime,
+  writeDasbrowserReleaseMarker,
 };

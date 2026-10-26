@@ -33,7 +33,9 @@ const http = require("node:http");
 const { Readable } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
 const { agentWorkspaceDir } = require("./agent-workspace.cjs");
-const { resolveScopedProfile } = require("./agent-control-scope.cjs");
+const { parseAgentControlBody, resolveScopedProfile } = require("./agent-control-scope.cjs");
+const { createCamoufoxVenv } = require("./camoufox-python.cjs");
+const { isAgentIntegrationInstall, newerNbcAtInstallTarget } = require("./nbc-install-guard.cjs");
 const { workspaceProjects, deleteWorkspaceProject } = require("./agent-project-control.cjs");
 const {
   executableNames,
@@ -128,6 +130,7 @@ const {
   officialDasbrowserURLFromHTML,
   requestedBrowserRuntime,
   resolveDasbrowserRuntime,
+  writeDasbrowserReleaseMarker,
 } = require("./dasbrowser-runtime.cjs");
 const { AsyncLocalStorage } = require("node:async_hooks");
 const { createClientErrorReporter, errorReportingAllowed } = require("./client-error-reporter.cjs");
@@ -169,6 +172,7 @@ const DEEP_LINK_PROTOCOL = "nextbrowser";
 let appUpdateStatus = { status: "idle" };
 let appUpdateTimer = null;
 let nextctlInstallStatus = { status: "idle" };
+let nextctlInstalledAt = 0;
 let browserRuntimeInstallStatus = { status: "idle" };
 let browserRuntimeUpdateStatus = { status: "idle", runtimes: [] };
 let browserRuntimeUpdateCheckPromise = null;
@@ -621,7 +625,10 @@ function reportRunnerExit(result, outcome, durationMs) {
   reportNbcResult(["mcp"], result, outcome, durationMs);
 }
 function setNextctlInstallStatus(status, patch = {}) {
-  nextctlInstallStatus = { status, ...patch, updatedAt: Date.now() };
+  // installedAt (when this app last installed the CLI) survives the "ready"
+  // that every later resolve sets, so the startup splash can tell a first run
+  // that just installed the CLI from one that found it.
+  nextctlInstallStatus = { status, ...patch, ...(nextctlInstalledAt ? { installedAt: nextctlInstalledAt } : {}), updatedAt: Date.now() };
   emit("nextctl:install", nextctlInstallStatus);
 }
 function setBrowserRuntimeInstallStatus(runtime, status, patch = {}) {
@@ -704,27 +711,36 @@ async function extractArchive(archive, kind, targetDir) {
   const result = await run("unzip", ["-q", archive, "-d", targetDir]);
   if (result.code !== 0) throw new Error((result.stderr || result.stdout || "zip extraction failed").trim());
 }
+// The first start of a freshly downloaded nbc is slow on Windows: the binary is
+// not code-signed, so Defender scans it before it runs (one first start took
+// 3.1 s of the usual 5-second probe budget). A healthy first run must not fail
+// on that, so the probes of a new download get more time.
+const NEW_NEXTCTL_PROBE_TIMEOUT_MS = 30_000;
 async function installManagedNextctl() {
   if (nextctlInstallPromise) return nextctlInstallPromise;
   nextctlInstallPromise = (async () => {
-    setNextctlInstallStatus("downloading");
+    // The stage tells the startup splash (and its report) where a slow first
+    // run spends its time.
+    setNextctlInstallStatus("downloading", { stage: "download" });
     const archive = nextctlPlatformArchive();
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-nextctl-"));
     const archivePath = path.join(tempDir, archive.name);
     try {
       await downloadFile(`${NEXTCTL_RELEASE_BASE}/${archive.name}`, archivePath);
-      setNextctlInstallStatus("installing");
+      setNextctlInstallStatus("installing", { stage: "extract" });
       const extractDir = path.join(tempDir, "extract");
       await extractArchive(archivePath, archive.kind, extractDir);
       const extracted = findNextctlInTree(extractDir);
       if (!extracted) throw new Error("Downloaded nextctl archive did not contain a nextctl binary.");
+      setNextctlInstallStatus("installing", { stage: "verify" });
       // Reject incompatible releases before replacing an installed binary.
-      await requireCompatibleNextctl(extracted);
+      await requireCompatibleNextctl(extracted, { timeoutMs: NEW_NEXTCTL_PROBE_TIMEOUT_MS });
       await fs.mkdir(managedNextctlRoot(), { recursive: true });
       await fs.copyFile(extracted, managedNextctlBin());
       if (process.platform !== "win32") await fs.chmod(managedNextctlBin(), 0o755);
-      await requireCompatibleNextctl(managedNextctlBin());
+      await requireCompatibleNextctl(managedNextctlBin(), { timeoutMs: NEW_NEXTCTL_PROBE_TIMEOUT_MS });
       const version = await readCLIVersion(managedNextctlBin(), run);
+      nextctlInstalledAt = Date.now();
       setNextctlInstallStatus("ready", { path: managedNextctlBin(), version });
       return managedNextctlBin();
     } catch (error) {
@@ -757,9 +773,9 @@ async function resolveNextctl() {
 }
 // The probe's nbc result is classified in run(), so a refusal is not reported
 // again by whoever rethrows it.
-async function requireCompatibleNextctl(binary) {
+async function requireCompatibleNextctl(binary, options) {
   try {
-    await requireVerificationCapableCLI(binary, run);
+    await requireVerificationCapableCLI(binary, run, options);
   } catch (error) {
     if (binary) error.reported = true;
     throw error;
@@ -879,7 +895,20 @@ async function ensureAgentControlServer() {
         raw += chunk;
         if (raw.length > (artifactSave ? AGENT_ARTIFACT_BODY_LIMIT : 8192)) throw new Error("request_too_large");
       }
-      const payload = JSON.parse(raw || "{}");
+      let payload;
+      try {
+        payload = parseAgentControlBody(raw);
+      } catch (error) {
+        // The agent can correct its command from this answer. The failure is
+        // still reported: it means a shell changed the command the app gave.
+        reportInvokeFailure(controlAction, error);
+        sendControlResponse(response, 400, {
+          ok: false,
+          error: "invalid_request_body",
+          message: "Nextbrowser could not read this request body. Run the exact command from your instructions without changing its quoting; on Windows use curl.exe.",
+        });
+        return;
+      }
       if (personalProxiesList) {
         const proxies = await listPersonalProxies({ env: childEnv() });
         sendControlResponse(response, 200, { ok: true, proxies: proxies.map(({ id, name }) => ({ id, name })) });
@@ -1134,11 +1163,10 @@ async function ensureDasbrowserRuntime({ force = false, reportStatus = true, req
       if (!executable) throw new Error(dasbrowserNotFoundMessage({ ...options, setup }));
       const releaseVersion = dasbrowserReleaseVersion(url);
       if (releaseVersion) {
-        await fs.writeFile(
-          path.join(nextbrowserRuntimeRoot(), "data", ".dasbrowser-browser-release.json"),
-          JSON.stringify({ version: releaseVersion, download_url: url, updated_at: new Date().toISOString() }, null, 2),
-          "utf8",
-        );
+        // The note only backs up the version the installed browser reports
+        // itself, so failing to write it must not fail a working install.
+        await writeDasbrowserReleaseMarker(nextbrowserRuntimeRoot(), { version: releaseVersion, url })
+          .catch((error) => console.warn("[DASBROWSER_RELEASE_NOTE_FAILED]", error?.message || error));
       }
       if (reportStatus) setBrowserRuntimeInstallStatus("dasbrowser", "ready");
       return executable;
@@ -1857,26 +1885,17 @@ async function installCamoufoxRuntime(latestVersion) {
   const python = camoufoxVenvPython();
   const venv = path.dirname(path.dirname(python));
   camoufoxInstallPromise = (async () => {
-    const baseCandidates = process.platform === "win32" ? ["py", "python"] : ["python3.13", "python3.12", "python3.11", "python3"];
-    let created = null;
-    for (const candidate of baseCandidates) {
-      if (!(await camoufoxPythonSupported(candidate))) continue;
-      created = await run(candidate, ["-m", "venv", venv], {}, { timeoutMs: 120_000 });
-      if (created.code === 0) break;
-      // Debian and Ubuntu ship Python without ensurepip unless python3-venv is
-      // installed. Fall back to the uv-managed Python instead of failing.
-      console.warn("[camoufox_install] system Python could not create a venv; using uv", (created.stderr || created.stdout || "").trim().slice(0, 300));
-      await fs.rm(venv, { recursive: true, force: true });
-      created = null;
-    }
-    if (!created) {
-      // A previous attempt may have created a venv with an unsupported system
-      // Python. Replace only this managed, incomplete runtime before asking uv
-      // for its compatible Python 3.13.
-      await fs.rm(venv, { recursive: true, force: true });
-      created = await createCamoufoxManagedPython(venv);
-    }
-    if (created.code !== 0) throw new Error((created.stderr || created.stdout || "Could not create the Camoufox Python environment.").trim());
+    // Replaces any venv an earlier attempt left, including one a Microsoft
+    // Store Python wrote where only that Python can see it.
+    await createCamoufoxVenv({
+      platform: process.platform,
+      venv,
+      venvPython: python,
+      run: (file, args, options) => run(file, args, {}, options),
+      exists: async (file) => launchable(file),
+      remove: (dir) => fs.rm(dir, { recursive: true, force: true }),
+      uvVenv: (args) => runCamoufoxUV(venv, args),
+    });
     const packageInstall = await run(python, [
       "-m", "pip", "install", "--disable-pip-version-check", `camoufox[geoip]==${version}`,
     ], {}, { timeoutMs: 30 * 60 * 1000 });
@@ -1904,7 +1923,8 @@ function camoufoxUVRelease() {
   if (!release) throw new Error(`Camoufox automatic installation is not available for ${process.platform}/${process.arch}.`);
   return release;
 }
-async function createCamoufoxManagedPython(venv) {
+// Runs the uv the app keeps beside the Camoufox venv, downloading it first.
+async function runCamoufoxUV(venv, args) {
   const release = camoufoxUVRelease();
   const runtimeDir = path.dirname(venv);
   const executable = process.platform === "win32" ? "uv.exe" : "uv";
@@ -1927,7 +1947,7 @@ async function createCamoufoxManagedPython(venv) {
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
     }
   }
-  return run(uv, ["venv", "--seed", "--python", "3.13", "--python-preference", "managed", venv], {}, { timeoutMs: 15 * 60 * 1000 });
+  return run(uv, args, {}, { timeoutMs: 15 * 60 * 1000 });
 }
 async function installedBrowserRuntimeVersion(runtime) {
   if (runtime === "clawbrowser") {
@@ -2190,6 +2210,22 @@ async function invokeCommand(command, args = {}, sender) {
       // The daily release updater must not overwrite it with a production CLI.
       if (process.env.NEXTCTL_BIN && args.args?.[0] === "update") {
         return { code: 0, stdout: "Development CLI pinned by NEXTCTL_BIN; release updates disabled.\n", stderr: "" };
+      }
+      // The agent integration install would copy this app's nbc over a newer
+      // one on PATH (nbc-install-guard.cjs). The newer nbc keeps its own.
+      if (isAgentIntegrationInstall(args.args)) {
+        const newer = await newerNbcAtInstallTarget({
+          // A CLI that cannot be resolved fails in executeNextctl below, as before.
+          appBinary: await resolveOrInstallNextctl().catch(() => null),
+          homeDir: home(),
+          exists: async (file) => launchable(file),
+          readVersion: (binary) => readCLIVersion(binary, run),
+        }).catch(() => undefined);
+        if (newer) {
+          const note = `Kept nbc ${newer.installed} at ${newer.target}: this app's nbc ${newer.own} is older, so the agent integration install was skipped.`;
+          console.info(`[nextctl_agent_install] ${note}`);
+          return { code: 0, stdout: "", stderr: note };
+        }
       }
       return executeNextctl(args.args || [], {
         extraEnv: args.extraEnv || {},

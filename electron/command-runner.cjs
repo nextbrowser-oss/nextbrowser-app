@@ -3,9 +3,9 @@ const { spawn } = require("node:child_process");
 const activeCommands = new Map();
 const DEFAULT_MAX_BUFFER = 32 * 1024 * 1024;
 const MIN_TIMEOUT_MS = 1_000;
-// `nextctl update` legitimately needs up to ten minutes on slow networks; the
-// store requests that budget explicitly, so the cap must not silently clamp it
-// to five minutes and fail the update.
+// `nextctl update` and `nextctl install` download the browser (150 MB on
+// Windows) and legitimately need up to fifteen minutes on slow networks; the
+// store requests that budget explicitly, so the cap must not clamp it.
 const MAX_TIMEOUT_MS = 15 * 60 * 1_000;
 const EXIT_DRAIN_MS = 100;
 

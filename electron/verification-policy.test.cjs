@@ -10,6 +10,11 @@ test("an old CLI is rejected using only a mandatory-verification capability prob
   assert.equal(calls.length, 1);
   await requireVerificationCapableCLI("/candidate/nbc", async () => ({ code: 0 }));
 });
+test("a freshly downloaded CLI can be given longer for its first start", async () => {
+  const calls = [];
+  await requireVerificationCapableCLI("/new/nbc.exe", async (...args) => { calls.push(args); return { code: 0 }; }, { timeoutMs: 30_000 });
+  assert.deepEqual(calls[0][3], { timeoutMs: 30_000 });
+});
 test("only the direct button after three proxy failures grants consent", () => {
   for (const proxyExpected of [true, false]) {
     for (const attempts of [undefined, 0, 1, 2, 3, 4]) {
