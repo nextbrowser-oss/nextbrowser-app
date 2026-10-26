@@ -83,14 +83,27 @@ test("without X-Trace-Id the trace id sent in traceparent links the event", () =
   assert.equal(event.trace_id, "c".repeat(32));
 });
 
-test("network failures are reported; 4xx and caller aborts are breadcrumbs only", () => {
-  const network = Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("getaddrinfo ENOTFOUND core.test"), { code: "ENOTFOUND" }) });
-  const failed = describeBackendRequest({ url: "https://core.test/v1/workspaces", method: "GET", error: network, traceId: "d".repeat(32) });
-  assert.equal(failed.breadcrumb, "GET core.test/v1/workspaces → ENOTFOUND");
-  assert.equal(failed.event.name, "ENOTFOUND GET /v1/workspaces");
-  assert.equal(failed.event.context.network_error, "ENOTFOUND");
+test("network failures are reported as kind network; offline, 4xx and caller aborts are breadcrumbs only", () => {
+  // Reported from 0.2.68 on macOS: a TLS-intercepting network reset the connection.
+  const reset = Object.assign(new TypeError("fetch failed"), {
+    cause: Object.assign(new Error("Client network socket disconnected before secure TLS connection was established"), { code: "ECONNRESET" }),
+  });
+  const failed = describeBackendRequest({ url: "https://api.nextbrowser.com/v1/client-environment/policy", method: "GET", error: reset, traceId: "d".repeat(32) });
+  assert.equal(failed.breadcrumb, "GET api.nextbrowser.com/v1/client-environment/policy → ECONNRESET");
+  assert.equal(failed.event.kind, "network");
+  assert.equal(failed.event.name, "ECONNRESET GET /v1/client-environment/policy");
+  assert.equal(failed.event.context.network_error, "ECONNRESET");
   const timeout = describeBackendRequest({ url: "https://core.test/v1/workspaces", method: "GET", error: new DOMException("timed out", "TimeoutError"), traceId: "d".repeat(32) });
+  assert.equal(timeout.event.kind, "network");
   assert.equal(timeout.event.context.network_error, "TimeoutError");
+  const malformed = describeBackendRequest({ url: "https://core.test/v1/x", method: "GET", error: new TypeError("Failed to parse URL from core.test/v1/x") });
+  assert.equal(malformed.event.kind, "api_error", "a request fetch could not even send is the app's failure");
+  // Reported 20 times from 0.2.69 by one install whose DNS was down.
+  const offline = Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("getaddrinfo ENOTFOUND api.nextbrowser.com"), { code: "ENOTFOUND" }) });
+  const unresolved = describeBackendRequest({ url: "https://api.nextbrowser.com/v1/client-environment/policy", method: "GET", error: offline, traceId: "d".repeat(32) });
+  assert.equal(unresolved.breadcrumb, "GET api.nextbrowser.com/v1/client-environment/policy → ENOTFOUND");
+  assert.equal(unresolved.event, null, "an offline computer is not reported");
+  assert.equal(describeBackendRequest({ url: "https://core.test/v1/x", method: "GET", error: Object.assign(new TypeError("fetch failed"), { cause: { code: "EAI_AGAIN", message: "getaddrinfo EAI_AGAIN core.test" } }) }).event, null);
   assert.equal(describeBackendRequest({ url: "https://core.test/v1/x", method: "GET", status: 401 }).event, null);
   assert.equal(describeBackendRequest({ url: "https://core.test/v1/x", method: "GET", status: 404 }).event, null);
   assert.equal(describeBackendRequest({ url: "https://core.test/v1/x", method: "GET", error: new DOMException("aborted", "AbortError") }).event, null);

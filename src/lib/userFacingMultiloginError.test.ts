@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MULTILOGIN_APP_NOT_RUNNING, userFacingMultiloginError } from "./userFacingMultiloginError";
+import { MULTILOGIN_APP_NOT_RUNNING, MULTILOGIN_TOKEN_EXPIRED, userFacingMultiloginError } from "./userFacingMultiloginError";
 
 describe("userFacingMultiloginError", () => {
   it("explains a workspace without the default browser folder", () => {
@@ -32,6 +32,8 @@ describe("userFacingMultiloginError", () => {
   it("points expired tokens at reconnecting", () => {
     expect(userFacingMultiloginError(new Error("Multilogin automation token is invalid or expired")))
       .toBe("The Multilogin token expired. Reconnect Multilogin with a fresh token.");
+    expect(userFacingMultiloginError("MULTILOGIN_AUTH_INVALID: Multilogin automation token is invalid or expired"))
+      .toBe(MULTILOGIN_TOKEN_EXPIRED);
   });
 
   it("keeps an unknown message but hides local paths", () => {

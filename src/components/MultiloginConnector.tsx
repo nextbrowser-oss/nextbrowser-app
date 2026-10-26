@@ -17,6 +17,7 @@ import {
   type MultiloginProfileSummary,
 } from "../lib/multiloginProfiles";
 import { openMultiloginApp } from "../lib/multiloginApp";
+import { MULTILOGIN_TOKEN_EXPIRED, userFacingMultiloginError } from "../lib/userFacingMultiloginError";
 import { getPreviewMode } from "../preview";
 import { Icon, Spinner } from "./Icon";
 
@@ -111,12 +112,14 @@ export function MultiloginConnectorView({
   const kindFolders = folders.filter((folder) => folder.kind === profileKind);
   const connected = Boolean(status?.connected && status.valid);
   const needsReconnect = Boolean(status?.connected && !status.valid);
-  const visibleError = error || status?.error;
+  // A refused token reads as "expired, reconnect" next to the Reconnect button rather than as nbc's wording.
+  const visibleError = error || (status?.error ? userFacingMultiloginError(status.error) : undefined);
   const statusLabel = connectionLabel(status, checking);
   const browserProfiles = status?.browserProfiles ?? [];
   const cloudPhones = status?.cloudPhones ?? [];
   const activeProfiles = profileKind === "browser" ? browserProfiles : cloudPhones;
-  const activeProfilesError = profileKind === "browser" ? status?.browserProfilesError : status?.cloudPhonesError;
+  const rawProfilesError = profileKind === "browser" ? status?.browserProfilesError : status?.cloudPhonesError;
+  const activeProfilesError = rawProfilesError ? userFacingMultiloginError(rawProfilesError, profileKind) : undefined;
 
   return (
     <>
@@ -147,7 +150,7 @@ export function MultiloginConnectorView({
         {!checking && visibleError && (
           <span className="error small connector-card-error" role="alert">
             {visibleError}
-            {onRetryStatus && (
+            {onRetryStatus && visibleError !== MULTILOGIN_TOKEN_EXPIRED && (
               <>
                 {" "}
                 <button type="button" className="connector-text-link" onClick={onRetryStatus}>Retry</button>

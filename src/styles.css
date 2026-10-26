@@ -7885,6 +7885,7 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .profile-multilogin-proxy-note .link { font-size: 10px; white-space: nowrap; }
 .profile-multilogin-phone-note { margin: 0; padding: 2px 1px; }
 .connector-profile-empty { display: grid; gap: 8px; }
+.connector-profile-error, .multilogin-chat-error { display: grid; gap: 8px; }
 .connector-empty-create { justify-self: center; min-height: 30px; padding: 5px 9px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--surface-3); color: var(--accent-text); font: inherit; font-size: 11px; font-weight: 600; }
 .connector-empty-create:hover { border-color: var(--accent); background: var(--accent-soft); }
 .connector-account-context { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }

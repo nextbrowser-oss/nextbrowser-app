@@ -11,6 +11,11 @@ const { parseNextctlEnvelope } = require("./profile-start-failure.cjs");
 // input, missing profiles, sign-in, the profile's own proxy, traffic limits,
 // site-flow results, an offline machine, a browser the user closed
 // (CDP_UNREACHABLE outside start), cancellations and other timeouts.
+// A backend request that nbc says got no answer through the user's network
+// (a refused or reset connection, a failed TLS handshake, no answer in time)
+// is reported with kind "network" rather than "command_failed", so it can be
+// counted apart from product failures; without DNS the machine is offline
+// and that is a breadcrumb only.
 // Standard output is never copied into a report: it can hold page data.
 
 const EXPECTED_CODES = new Set([
@@ -52,6 +57,9 @@ const EXPECTED_CODE_PATTERN = /^(?:REDDIT|X|LINKEDIN|INSTAGRAM|TIKTOK|FACEBOOK)_
 const EXPECTED_DETAIL = /ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_CONNECTION_FAILED|Proxy country is [A-Za-z]{2,}, expected|proxy[^.\n]*(?:refused|unreachable|authentication|\b407\b)|runtime update is being installed|Stop these profiles before updating/i;
 // A machine without network or DNS is the user's environment, not nbc.
 const OFFLINE_DETAIL = /no such host|ENOTFOUND|EAI_AGAIN|ENETUNREACH|network is unreachable|getaddrinfo/i;
+// nbc names a backend request that got no answer through this computer's
+// network in error.network_error: dns, connect, reset, tls, timeout or other.
+const NETWORK_ERROR = /^[a-z]{2,16}$/;
 const SIGNED_OUT_DETAIL = /\b40[13]\b|unauthori[sz]ed|forbidden|API key/i;
 // nextctl wraps every failed verified start in VERIFY_FAILED. The code after
 // "browser stopped:" is the real cause (the rule in
@@ -178,7 +186,7 @@ function describeNbcResult({ args, result, outcome = {}, durationMs }) {
   };
   const event = (name, message, extra = {}) => ({
     source: "nbc",
-    kind: "command_failed",
+    kind: extra.kind || "command_failed",
     name,
     message,
     context: { ...context, ...extra.context },
@@ -207,13 +215,19 @@ function describeNbcResult({ args, result, outcome = {}, durationMs }) {
     const detail = [message, String(error.hint || ""), stderr].join("\n");
     const wrapped = VERIFY_CODES.has(nbcCode) ? message.match(WRAPPED_CAUSE)?.[1] : "";
     const cause = wrapped && wrapped !== "VERIFY_REQUIRED" ? wrapped : nbcCode;
-    const coded = { breadcrumb: `${breadcrumb} ${cause === nbcCode ? nbcCode : `${nbcCode}(${cause})`}`, event: null };
+    const network = typeof error.network_error === "string" && NETWORK_ERROR.test(error.network_error) ? error.network_error : "";
+    const coded = {
+      breadcrumb: `${breadcrumb} ${cause === nbcCode ? nbcCode : `${nbcCode}(${cause})`}${network ? ` network:${network}` : ""}`,
+      event: null,
+    };
     if (!ALWAYS_REPORTED_CODES.has(cause) && (expectedCode(cause, command) || EXPECTED_DETAIL.test(detail) || OFFLINE_DETAIL.test(detail))) return coded;
     if (cause === "REMOTE_BACKEND_ERROR" && SIGNED_OUT_DETAIL.test(detail)) return coded;
+    if (network === "dns") return coded;
     return {
       ...coded,
       event: event(VERIFY_CODES.has(cause) ? "NBC_VERIFY_FAILED" : cause, `nbc ${command}: ${message || nbcCode}`, {
-        context: { nbc_code: nbcCode, ...(cause !== nbcCode ? { cause_code: cause } : {}) },
+        ...(network ? { kind: "network" } : {}),
+        context: { nbc_code: nbcCode, ...(cause !== nbcCode ? { cause_code: cause } : {}), ...(network ? { network_error: network } : {}) },
       }),
     };
   }

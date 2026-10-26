@@ -1,10 +1,11 @@
 const { randomBytes } = require("node:crypto");
 const { apiRoute } = require("./client-error-scrub.cjs");
+const { OFFLINE_DETAIL } = require("./nbc-failure-report.cjs");
 
 // Every request the app itself sends to a Nextbrowser backend carries a W3C
 // traceparent, so a failed call reported from the desktop opens the matching
 // server trace. The observer (installed by the main process) turns each request
-// into a breadcrumb and reports network failures and 5xx responses. Third-party
+// into a breadcrumb and reports 5xx responses and network failures. Third-party
 // services (GitHub, Multilogin, downloads) are deliberately not traced.
 
 let observer = null;
@@ -85,6 +86,14 @@ function tracedBackendFetch(fetchImpl = (...args) => fetch(...args)) {
   };
 }
 
+// Node's fetch names why a request got no answer in the error's cause
+// (ECONNRESET, UND_ERR_CONNECT_TIMEOUT, a certificate error, ...), and a
+// request that ran out of time is a TimeoutError. Anything else thrown by
+// fetch, such as a URL it cannot parse, is the app's own failure.
+function gotNoAnswer(error) {
+  return error?.name === "TimeoutError" || typeof error?.cause?.code === "string" || typeof error?.code === "string";
+}
+
 function networkErrorCode(error) {
   const cause = error?.cause;
   const code = typeof cause?.code === "string" ? cause.code : typeof error?.code === "string" ? error.code : "";
@@ -92,9 +101,13 @@ function networkErrorCode(error) {
 }
 
 /**
- * Turns one observed backend request into a breadcrumb and, for a network
- * failure or a 5xx response, an api_error event. 4xx responses are ordinary
- * outcomes (signed out, not found, conflict) that the UI already handles.
+ * Turns one observed backend request into a breadcrumb and, for a 5xx
+ * response, an api_error event. A request that got no answer (a refused or
+ * reset connection, a failed TLS handshake, a timeout) is an event of kind
+ * network: the user's connection, counted apart from product failures. 4xx
+ * responses are ordinary outcomes (signed out, not found, conflict) that the
+ * UI already handles, and an offline computer (no DNS, no network) is the
+ * user's environment: both are breadcrumbs only.
  */
 function describeBackendRequest({ url, method, status, error, traceId, responseTraceId, requestId, durationMs }) {
   const route = apiRoute(url);
@@ -104,6 +117,7 @@ function describeBackendRequest({ url, method, status, error, traceId, responseT
   // A caller that aborts its own request has not hit a failure.
   if (error && error.name === "AbortError") return { breadcrumb, event: null };
   if (!error && !(status >= 500)) return { breadcrumb, event: null };
+  if (error && OFFLINE_DETAIL.test([outcome, error?.message, error?.cause?.message].join("\n"))) return { breadcrumb, event: null };
   const context = {
     method,
     host: route.host,
@@ -113,7 +127,7 @@ function describeBackendRequest({ url, method, status, error, traceId, responseT
   };
   const event = {
     source: "main",
-    kind: "api_error",
+    kind: error && gotNoAnswer(error) ? "network" : "api_error",
     name: error ? `${outcome} ${method} ${route.path}` : `HTTP ${status} ${method} ${route.path}`,
     message: error
       ? `${method} ${target} failed: ${String(error?.message || error)}${error?.cause?.message ? ` (${error.cause.message})` : ""}`

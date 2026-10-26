@@ -193,4 +193,12 @@ describe("MultiloginConnectorView", () => {
     expect(html).toContain("Unlock your system credential store");
     expect(html).toContain("disabled");
   });
+
+  it("asks for a reconnect when Multilogin refused the saved token", () => {
+    const html = render({ connected: true, valid: false, secureStorageAvailable: true, error: "Multilogin automation token is invalid or expired" });
+
+    expect(html).toContain("The Multilogin token expired. Reconnect Multilogin with a fresh token.");
+    expect(html).toContain(">Reconnect</button>");
+    expect(html).not.toContain("automation token is invalid");
+  });
 });

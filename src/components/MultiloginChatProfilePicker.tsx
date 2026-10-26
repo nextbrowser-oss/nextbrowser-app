@@ -13,8 +13,11 @@ import {
   type MultiloginConnectionStatus,
   type MultiloginProfileSummary,
 } from "../lib/multiloginProfiles";
+import { MULTILOGIN_TOKEN_EXPIRED, userFacingMultiloginError } from "../lib/userFacingMultiloginError";
 import { getPreviewMode } from "../preview";
 import { Icon, Spinner } from "./Icon";
+
+const RECONNECT_TO_LOAD = "Reconnect Multilogin to load profiles.";
 
 interface MultiloginChatProfilePickerViewProps {
   status: MultiloginConnectionStatus | null;
@@ -33,6 +36,8 @@ interface MultiloginChatProfilePickerViewProps {
   onSelect: (kind: MultiloginProfileKind, profile: MultiloginProfileSummary) => void;
   onClear: () => void;
   onManage: () => void;
+  /** Opens the Multilogin connect flow, offered when the saved token stopped working. */
+  onReconnect?: () => void;
   searchRef?: RefObject<HTMLInputElement>;
 }
 
@@ -53,6 +58,7 @@ export function MultiloginChatProfilePickerView({
   onSelect,
   onClear,
   onManage,
+  onReconnect,
   searchRef,
 }: MultiloginChatProfilePickerViewProps) {
   // A persisted selection can be rendered without unlocking its credential.
@@ -64,8 +70,14 @@ export function MultiloginChatProfilePickerView({
   const cloudPhones = status?.cloudPhones ?? [];
   const activeProfiles = profileKind === "browser" ? browserProfiles : cloudPhones;
   const visibleProfiles = filterMultiloginProfiles(activeProfiles, query);
-  const profileError = profileKind === "browser" ? status?.browserProfilesError : status?.cloudPhonesError;
-  const connectionError = error || (!connected ? status?.error || "Reconnect Multilogin to load profiles." : undefined);
+  const rawProfileError = profileKind === "browser" ? status?.browserProfilesError : status?.cloudPhonesError;
+  const profileError = rawProfileError ? userFacingMultiloginError(rawProfileError, profileKind) : undefined;
+  const rawConnectionError = error || (!connected ? status?.error : undefined);
+  const connectionError = rawConnectionError
+    ? userFacingMultiloginError(rawConnectionError, profileKind)
+    : !connected ? RECONNECT_TO_LOAD : undefined;
+  const shownError = connectionError || profileError;
+  const offerReconnect = shownError === MULTILOGIN_TOKEN_EXPIRED || shownError === RECONNECT_TO_LOAD;
   const triggerLabel = selection?.name || (connected ? "Multilogin" : "Reconnect");
 
   return (
@@ -131,8 +143,14 @@ export function MultiloginChatProfilePickerView({
             />
           </label>
 
-          {connectionError && <div className="multilogin-chat-error">{connectionError}</div>}
-          {!connectionError && profileError && <div className="multilogin-chat-error">{profileError}</div>}
+          {shownError && (
+            <div className="multilogin-chat-error" role="alert">
+              <span>{shownError}</span>
+              {offerReconnect && onReconnect && (
+                <button type="button" className="connector-empty-create" onClick={onReconnect}>Reconnect Multilogin</button>
+              )}
+            </div>
+          )}
 
           {!connectionError && (
             <div className="multilogin-chat-options" role="listbox" aria-label={profileKind === "browser" ? "Browser profiles" : "Cloud phones"}>
@@ -179,11 +197,13 @@ export function MultiloginChatProfilePicker({
   selection,
   onSelectAsAgentDefault,
   onManage,
+  onReconnect,
 }: {
   workspaceId?: string;
   selection?: MultiloginProfileSelection;
   onSelectAsAgentDefault: () => void;
   onManage: () => void;
+  onReconnect?: () => void;
 }) {
   const preview = getPreviewMode();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -281,6 +301,7 @@ export function MultiloginChatProfilePicker({
           setOpen(false);
         }}
         onManage={() => { setOpen(false); onManage(); }}
+        onReconnect={onReconnect && (() => { setOpen(false); onReconnect(); })}
         searchRef={searchRef}
       />
     </div>

@@ -15,7 +15,7 @@ import { manualProxyDefaultName, manualProxyLimits, parseManualProxyBatch, parse
 import { actionFailureMessage, internalError } from "../lib/userFacingError";
 import { userFacingBrowserError } from "../lib/userFacingBrowserError";
 import { isProxyTrafficExhaustedError, isProxyTrafficGateMessage, proxyTrafficLaunchRefusedMessage } from "../lib/proxyTraffic";
-import { MULTILOGIN_APP_NOT_RUNNING, userFacingMultiloginError } from "../lib/userFacingMultiloginError";
+import { MULTILOGIN_APP_NOT_RUNNING, MULTILOGIN_TOKEN_EXPIRED, userFacingMultiloginError } from "../lib/userFacingMultiloginError";
 import { openMultiloginApp } from "../lib/multiloginApp";
 import { entityNameLimits, validateEntityName } from "../lib/entityValidation";
 import { workspaceHasNoLocalProfiles } from "../lib/workspaceProfiles";
@@ -2114,7 +2114,14 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
                               )}
                             </div>
                           )}
-                          {multiloginKindError && <div className="error small connector-profile-error">{multiloginKindError}</div>}
+                          {multiloginKindError && (
+                            <div className="error small connector-profile-error">
+                              <span>{multiloginKindError}</span>
+                              {multiloginKindError === MULTILOGIN_TOKEN_EXPIRED && (
+                                <button type="button" className="connector-empty-create" onClick={routeToMultiloginConnector}>Reconnect Multilogin</button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -2150,6 +2157,9 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
                   <button type="button" className="secondary small" onClick={() => void openMultiloginApp()}>
                     Open Multilogin <Icon name="arrow.up.forward.app" size={12} />
                   </button>
+                )}
+                {profileError === MULTILOGIN_TOKEN_EXPIRED && (
+                  <button type="button" className="secondary small" onClick={routeToMultiloginConnector}>Reconnect Multilogin</button>
                 )}
               </div>
             )}

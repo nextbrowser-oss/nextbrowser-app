@@ -22,12 +22,14 @@ function render({
   query = "",
   profileKind = "browser" as const,
   selection,
+  onReconnect,
 }: {
   status?: MultiloginConnectionStatus | null;
   open?: boolean;
   query?: string;
   profileKind?: "browser" | "mobile";
   selection?: { kind: "browser" | "mobile"; id: string; name: string; folderId?: string };
+  onReconnect?: () => void;
 } = {}) {
   return renderToStaticMarkup(
     <MultiloginChatProfilePickerView
@@ -46,6 +48,7 @@ function render({
       onSelect={noop}
       onClear={noop}
       onManage={noop}
+      onReconnect={onReconnect}
     />,
   );
 }
@@ -109,6 +112,29 @@ describe("MultiloginChatProfilePickerView", () => {
     expect(html).toContain("7_GitHub_acc");
     expect(html).toContain("Token expired");
     expect(html).toContain("Manage connector");
+  });
+
+  it("explains an expired token and offers to reconnect", () => {
+    const html = render({
+      open: true,
+      status: { connected: true, valid: false, secureStorageAvailable: true, error: "Multilogin automation token is invalid or expired" },
+      onReconnect: noop,
+    });
+
+    expect(html).toContain("The Multilogin token expired. Reconnect Multilogin with a fresh token.");
+    expect(html).toContain("Reconnect Multilogin</button>");
+    expect(html).not.toContain("automation token is invalid");
+  });
+
+  it("offers to reconnect only for a token problem", () => {
+    const html = render({
+      open: true,
+      status: { ...connectedStatus, browserProfilesError: "Multilogin took too long to respond." },
+      onReconnect: noop,
+    });
+
+    expect(html).toContain("Multilogin took too long to respond.");
+    expect(html).not.toContain("Reconnect Multilogin</button>");
   });
 
   it("renders a saved selection without treating an unopened credential as disconnected", () => {
