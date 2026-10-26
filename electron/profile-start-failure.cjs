@@ -96,6 +96,9 @@ function classifyByDetail(detail, label) {
   if (/ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_CONNECTION_FAILED|proxy[^.\n]*(?:refused|unreachable|authentication|\b407\b)/i.test(detail)) {
     return rule("PROXY_UNREACHABLE", "configuration", "its proxy didn't accept the connection", "Check or change this profile's proxy in Nextbrowser, then retry.");
   }
+  if (/\bCAMOUFOX_PYTHON_MISSING\b|Camoufox needs Python 3\.11/i.test(detail)) {
+    return rule("CAMOUFOX_PYTHON_MISSING", "installation", "Camoufox needs Python 3.11–3.13, and it couldn't be downloaded automatically", "Install Python 3.13 from python.org (on Windows, not the Microsoft Store version), then retry.");
+  }
   if (/runtime update is being installed/i.test(detail)) {
     return rule("RUNTIME_UPDATING", "retryable", `the ${label} toolset is being updated`, "Wait for the browser toolset update to finish, then retry.");
   }

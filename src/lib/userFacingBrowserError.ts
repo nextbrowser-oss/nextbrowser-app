@@ -12,6 +12,10 @@ export const BROWSER_START_TIMED_OUT =
   "The browser took too long to start, so the profile was stopped. Try again: the first start installs the browser and can take a few minutes.";
 export const CAMOUFOX_INSTALL_FAILED =
   "Camoufox couldn’t be installed, so the profile was stopped. Check your internet connection, then try again.";
+// nbc and the app's own Camoufox install: no Python 3.11–3.13 they can use
+// (a Microsoft Store Python does not count), and uv could not download one.
+export const CAMOUFOX_PYTHON_MISSING =
+  "Camoufox needs Python 3.11–3.13, and Nextbrowser couldn’t download it, so the profile was stopped. Install Python 3.13 from python.org (on Windows, not the Microsoft Store version), then start the profile again.";
 export const BROWSER_START_FAILED =
   "The browser couldn’t start, so the profile was stopped. This is a problem on our side, not with your setup.";
 
@@ -97,6 +101,10 @@ export function userFacingBrowserError(error: unknown): string {
   if (/managed-proxy privacy capability/i.test(raw)) {
     return "This Clawbrowser build can’t run a proxied profile. Update Clawbrowser, then retry.";
   }
+
+  // Checked before the generic start failure: its detail also names
+  // "prepare Camoufox runtime", but a connection check would not help.
+  if (/\bCAMOUFOX_PYTHON_MISSING\b/.test(raw)) return CAMOUFOX_PYTHON_MISSING;
 
   // Verification failures often contain a nested CDP transport error from the
   // browser we just stopped. Report the failed proxy check, not a transient

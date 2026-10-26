@@ -39,6 +39,9 @@ const EXPECTED_CODES = new Set([
   "KEYBOARD_KEY_NOT_FOUND",
   "MOBILE_UI_BUSY",
 ]);
+// Counted even when its detail also says the machine was offline: the user
+// still has no Python Camoufox can use (nbc's CAMOUFOX_PYTHON_MISSING).
+const ALWAYS_REPORTED_CODES = new Set(["CAMOUFOX_PYTHON_MISSING"]);
 // Site flows and on-page lookups report what they found on the page.
 const EXPECTED_CODE_PATTERN = /^(?:REDDIT|X|LINKEDIN|INSTAGRAM|TIKTOK|FACEBOOK)_|_(?:NOT_FOUND|UNVERIFIED|LOGIN_REQUIRED)$/;
 // A launch that failed because of the profile's own proxy is explained to the
@@ -205,7 +208,7 @@ function describeNbcResult({ args, result, outcome = {}, durationMs }) {
     const wrapped = VERIFY_CODES.has(nbcCode) ? message.match(WRAPPED_CAUSE)?.[1] : "";
     const cause = wrapped && wrapped !== "VERIFY_REQUIRED" ? wrapped : nbcCode;
     const coded = { breadcrumb: `${breadcrumb} ${cause === nbcCode ? nbcCode : `${nbcCode}(${cause})`}`, event: null };
-    if (expectedCode(cause, command) || EXPECTED_DETAIL.test(detail) || OFFLINE_DETAIL.test(detail)) return coded;
+    if (!ALWAYS_REPORTED_CODES.has(cause) && (expectedCode(cause, command) || EXPECTED_DETAIL.test(detail) || OFFLINE_DETAIL.test(detail))) return coded;
     if (cause === "REMOTE_BACKEND_ERROR" && SIGNED_OUT_DETAIL.test(detail)) return coded;
     return {
       ...coded,

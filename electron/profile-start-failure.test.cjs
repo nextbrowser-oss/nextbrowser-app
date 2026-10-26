@@ -89,6 +89,7 @@ test("separates retryable failures from configuration and installation problems"
     [{ code: 1, stdout: envelope("LAUNCH_FAILED", "launch failed", "fork/exec /Users/me/.nextbrowser/runtime/bin/clawbrowser: no such file or directory") }, "LAUNCH_FAILED", "installation"],
     [{ code: 1, stdout: envelope("VERIFY_FAILED", "profile needs the managed-proxy privacy capability") }, "CLAWBROWSER_OUTDATED", "installation"],
     [{ code: 127, stdout: "", stderr: "" }, "EXIT_127", "installation"],
+    [{ code: 1, stdout: envelope("VERIFY_FAILED", "VERIFY_FAILED: browser stopped: CAMOUFOX_PYTHON_MISSING: Camoufox needs Python 3.11–3.13, and it could not be downloaded automatically (install Python 3.13 from https://www.python.org/downloads/ (not the Microsoft Store version) (prepare Camoufox runtime: Python 3.11–3.13 is not installed))") }, "CAMOUFOX_PYTHON_MISSING", "installation"],
   ];
   for (const [result, code, category] of cases) {
     const failure = describeProfileStartFailure({ profile: "p", runtime: "clawbrowser", result });
