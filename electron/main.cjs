@@ -50,6 +50,7 @@ const { createGitHubStarsSource } = require("./github-stars.cjs");
 const { githubStarStatus, verifyGitHubStar } = require("./github-star-reward.cjs");
 const { loadBackendConfig, normalizeAPIBaseURL, sendNodeMavenInvite } = require("./proxy-traffic.cjs");
 const { ensureWorkspaceInstructions } = require("./workspace-instructions.cjs");
+const { prepareClaudeTerminalConfig } = require("./claude-terminal-config.cjs");
 const pty = require("node-pty");
 const {
   cancelAllCommands,
@@ -2890,6 +2891,12 @@ async function invokeCommand(command, args = {}, sender) {
       await fs.mkdir(profileScopeDir, { recursive: true });
       await fs.writeFile(profileScopeFile, JSON.stringify(mcpProfileScope(profileScope, args.multiloginSelection)), "utf8");
       if (args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
+      // Only the app's own workspace folder is trusted on the user's behalf.
+      const workspaceDir = agentWorkspaceDir(home());
+      if (resolvedAgentId === "claude" && args.workingDir && path.resolve(String(args.workingDir)) === workspaceDir) {
+        // Skip Claude Code's first-run screens; a failure only leaves them showing.
+        await prepareClaudeTerminalConfig({ workspaceDir, homeDir: home() }).catch(() => undefined);
+      }
       const writableDirs = resolvedAgentId === "codex" ? clawbrowserWritableDirs() : [];
       let agentArgs = agent.args || [];
       if (resolvedAgentId === "codex") {
