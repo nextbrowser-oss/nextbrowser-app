@@ -117,6 +117,9 @@ test("classifies recovery guidance without exposing an opaque raw failure", () =
   assert.equal(classifyRuntimeUpdateFailure(new Error("Clawbrowser session status is unavailable")).code, "UPDATE_RUNTIME_STATE_UNKNOWN");
   assert.equal(classifyRuntimeUpdateFailure(new Error("fetch failed: ETIMEDOUT")).code, "UPDATE_NETWORK");
   assert.equal(classifyRuntimeUpdateFailure(new Error("bad release payload")).code, "UPDATE_UNKNOWN");
+  const python = classifyRuntimeUpdateFailure(new Error("CAMOUFOX_PYTHON_MISSING: Camoufox needs Python 3.11–3.13, and it could not be downloaded automatically. (create a venv with uv: fetch failed)"));
+  assert.equal(python.code, "UPDATE_PYTHON_MISSING");
+  assert.match(python.recovery, /python\.org \(on Windows, not the Microsoft Store version\)/);
 });
 
 function nextctlStatus(name, status, runtime = "clawbrowser", pid = "") {

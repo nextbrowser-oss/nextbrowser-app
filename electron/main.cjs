@@ -34,6 +34,7 @@ const { Readable } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
 const { agentWorkspaceDir } = require("./agent-workspace.cjs");
 const { parseAgentControlBody, resolveScopedProfile } = require("./agent-control-scope.cjs");
+const { createCamoufoxVenv } = require("./camoufox-python.cjs");
 const { workspaceProjects, deleteWorkspaceProject } = require("./agent-project-control.cjs");
 const {
   executableNames,
@@ -1883,26 +1884,17 @@ async function installCamoufoxRuntime(latestVersion) {
   const python = camoufoxVenvPython();
   const venv = path.dirname(path.dirname(python));
   camoufoxInstallPromise = (async () => {
-    const baseCandidates = process.platform === "win32" ? ["py", "python"] : ["python3.13", "python3.12", "python3.11", "python3"];
-    let created = null;
-    for (const candidate of baseCandidates) {
-      if (!(await camoufoxPythonSupported(candidate))) continue;
-      created = await run(candidate, ["-m", "venv", venv], {}, { timeoutMs: 120_000 });
-      if (created.code === 0) break;
-      // Debian and Ubuntu ship Python without ensurepip unless python3-venv is
-      // installed. Fall back to the uv-managed Python instead of failing.
-      console.warn("[camoufox_install] system Python could not create a venv; using uv", (created.stderr || created.stdout || "").trim().slice(0, 300));
-      await fs.rm(venv, { recursive: true, force: true });
-      created = null;
-    }
-    if (!created) {
-      // A previous attempt may have created a venv with an unsupported system
-      // Python. Replace only this managed, incomplete runtime before asking uv
-      // for its compatible Python 3.13.
-      await fs.rm(venv, { recursive: true, force: true });
-      created = await createCamoufoxManagedPython(venv);
-    }
-    if (created.code !== 0) throw new Error((created.stderr || created.stdout || "Could not create the Camoufox Python environment.").trim());
+    // Replaces any venv an earlier attempt left, including one a Microsoft
+    // Store Python wrote where only that Python can see it.
+    await createCamoufoxVenv({
+      platform: process.platform,
+      venv,
+      venvPython: python,
+      run: (file, args, options) => run(file, args, {}, options),
+      exists: async (file) => launchable(file),
+      remove: (dir) => fs.rm(dir, { recursive: true, force: true }),
+      uvVenv: (args) => runCamoufoxUV(venv, args),
+    });
     const packageInstall = await run(python, [
       "-m", "pip", "install", "--disable-pip-version-check", `camoufox[geoip]==${version}`,
     ], {}, { timeoutMs: 30 * 60 * 1000 });
@@ -1930,7 +1922,8 @@ function camoufoxUVRelease() {
   if (!release) throw new Error(`Camoufox automatic installation is not available for ${process.platform}/${process.arch}.`);
   return release;
 }
-async function createCamoufoxManagedPython(venv) {
+// Runs the uv the app keeps beside the Camoufox venv, downloading it first.
+async function runCamoufoxUV(venv, args) {
   const release = camoufoxUVRelease();
   const runtimeDir = path.dirname(venv);
   const executable = process.platform === "win32" ? "uv.exe" : "uv";
@@ -1953,7 +1946,7 @@ async function createCamoufoxManagedPython(venv) {
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
     }
   }
-  return run(uv, ["venv", "--seed", "--python", "3.13", "--python-preference", "managed", venv], {}, { timeoutMs: 15 * 60 * 1000 });
+  return run(uv, args, {}, { timeoutMs: 15 * 60 * 1000 });
 }
 async function installedBrowserRuntimeVersion(runtime) {
   if (runtime === "clawbrowser") {

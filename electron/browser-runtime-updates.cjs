@@ -54,6 +54,10 @@ function conciseFailureMessage(error) {
 function classifyRuntimeUpdateFailure(error) {
   const message = conciseFailureMessage(error);
   const normalized = message.toLowerCase();
+  // camoufox-python.cjs: no usable Python, and uv could not download one.
+  if (/camoufox_python_missing/.test(normalized)) {
+    return { code: "UPDATE_PYTHON_MISSING", category: "Python is missing", retryable: true, message, recovery: "Install Python 3.13 from python.org (on Windows, not the Microsoft Store version), then retry." };
+  }
   if (/enospc|no space|disk full|not enough space/.test(normalized)) {
     return { code: "UPDATE_DISK_SPACE", category: "Not enough disk space", retryable: false, message, recovery: "Free up disk space, then try again." };
   }
