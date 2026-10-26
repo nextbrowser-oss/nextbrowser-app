@@ -128,6 +128,7 @@ const {
   officialDasbrowserURLFromHTML,
   requestedBrowserRuntime,
   resolveDasbrowserRuntime,
+  writeDasbrowserReleaseMarker,
 } = require("./dasbrowser-runtime.cjs");
 const { AsyncLocalStorage } = require("node:async_hooks");
 const { createClientErrorReporter, errorReportingAllowed } = require("./client-error-reporter.cjs");
@@ -1160,11 +1161,10 @@ async function ensureDasbrowserRuntime({ force = false, reportStatus = true, req
       if (!executable) throw new Error(dasbrowserNotFoundMessage({ ...options, setup }));
       const releaseVersion = dasbrowserReleaseVersion(url);
       if (releaseVersion) {
-        await fs.writeFile(
-          path.join(nextbrowserRuntimeRoot(), "data", ".dasbrowser-browser-release.json"),
-          JSON.stringify({ version: releaseVersion, download_url: url, updated_at: new Date().toISOString() }, null, 2),
-          "utf8",
-        );
+        // The note only backs up the version the installed browser reports
+        // itself, so failing to write it must not fail a working install.
+        await writeDasbrowserReleaseMarker(nextbrowserRuntimeRoot(), { version: releaseVersion, url })
+          .catch((error) => console.warn("[DASBROWSER_RELEASE_NOTE_FAILED]", error?.message || error));
       }
       if (reportStatus) setBrowserRuntimeInstallStatus("dasbrowser", "ready");
       return executable;

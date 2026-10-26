@@ -13,6 +13,7 @@ const {
   officialDasbrowserURLFromHTML,
   requestedBrowserRuntime,
   resolveDasbrowserRuntime,
+  writeDasbrowserReleaseMarker,
 } = require("./dasbrowser-runtime.cjs");
 
 test("derives the macOS download from the official Windows release channel", () => {
@@ -145,4 +146,25 @@ test("copies macOS app bundles without resolving their relative framework symlin
     fs.readlinkSync(path.join(target, "Contents", "Frameworks", "Browser.framework", "Versions", "Current")),
     "1",
   );
+});
+
+test("records the installed release even when DasBrowser is the first browser installed", async () => {
+  // On Windows the setup installs outside the runtime root, so nothing has
+  // created <runtimeRoot>/data yet; writing into it used to fail with ENOENT.
+  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nextbrowser-runtime-"));
+  try {
+    const file = await writeDasbrowserReleaseMarker(runtimeRoot, {
+      version: "144.31",
+      url: "https://cdn.dasbrowser.com/144.31/DasbrowserSetup.exe",
+      now: new Date("2026-10-23T14:31:45Z"),
+    });
+    assert.equal(file, path.join(runtimeRoot, "data", ".dasbrowser-browser-release.json"));
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), {
+      version: "144.31",
+      download_url: "https://cdn.dasbrowser.com/144.31/DasbrowserSetup.exe",
+      updated_at: "2026-10-23T14:31:45.000Z",
+    });
+  } finally {
+    fs.rmSync(runtimeRoot, { recursive: true, force: true });
+  }
 });
