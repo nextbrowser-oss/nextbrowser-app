@@ -129,9 +129,23 @@ export function isMissingAgentInstallError(message: string): boolean {
   return /(?:CLI|app(?: with Codex)?) not found/i.test(message);
 }
 
-/** Adapter name understood by `nextctl install --agent`. */
-export function nextctlAgentAdapter(id: string): string {
-  return id === "claude" ? "claude-code" : id;
+// The agents nbc integrates with (nextctl internal/install/adapters). It has no
+// adapter for the others, such as pi or Kilo Code: `nbc install --agent pi`
+// fails with "unknown agent adapter".
+const NEXTCTL_AGENT_ADAPTERS: Record<string, string> = {
+  claude: "claude-code",
+  codex: "codex",
+  antigravity: "antigravity",
+  cursor: "cursor",
+  gemini: "gemini",
+  hermes: "hermes",
+  openclaw: "openclaw",
+  opencode: "opencode",
+};
+
+/** Adapter name understood by `nextctl install --agent`; undefined when nbc has none for the agent. */
+export function nextctlAgentAdapter(id: string): string | undefined {
+  return NEXTCTL_AGENT_ADAPTERS[id];
 }
 
 /** How the host turns an agent's progress output into chat steps. */

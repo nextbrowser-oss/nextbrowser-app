@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AGENTS,
   agentById,
   agentInstallName,
   agentInvocation,
@@ -12,6 +13,20 @@ describe("agent invocation parity", () => {
   it("maps app agent ids to nextctl adapters", () => {
     expect(nextctlAgentAdapter("claude")).toBe("claude-code");
     expect(nextctlAgentAdapter("codex")).toBe("codex");
+    expect(nextctlAgentAdapter("antigravity")).toBe("antigravity");
+    expect(nextctlAgentAdapter("opencode")).toBe("opencode");
+  });
+  it("has no nextctl adapter for agents nbc does not integrate with", () => {
+    expect(nextctlAgentAdapter("pi")).toBeUndefined();
+    expect(nextctlAgentAdapter("kilo")).toBeUndefined();
+    expect(nextctlAgentAdapter("copilot")).toBeUndefined();
+    // `nbc install` 1.2.37: unknown agent adapter "pi" (known: all, antigravity, auto, claude-code,
+    // codex, cursor, gemini, generic, hermes, openclaw, opencode).
+    const known = new Set(["antigravity", "claude-code", "codex", "cursor", "gemini", "hermes", "openclaw", "opencode"]);
+    for (const agent of AGENTS) {
+      const adapter = nextctlAgentAdapter(agent.id);
+      if (adapter) expect(known, agent.id).toContain(adapter);
+    }
   });
   it("links primary agents to their supported installation pages", () => {
     expect(agentById("claude").installUrl).toBe("https://code.claude.com/docs/en/installation");
