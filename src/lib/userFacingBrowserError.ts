@@ -16,6 +16,11 @@ export const CAMOUFOX_INSTALL_FAILED =
 // (a Microsoft Store Python does not count), and uv could not download one.
 export const CAMOUFOX_PYTHON_MISSING =
   "Camoufox needs Python 3.11–3.13, and Nextbrowser couldn’t download it, so the profile was stopped. Install Python 3.13 from python.org (on Windows, not the Microsoft Store version), then start the profile again.";
+// Debian and Ubuntu ship Python without venv (ensurepip), so nbc 1.2.37 and
+// older cannot build Camoufox's Python environment there; newer nbc falls back
+// to its own Python and does not get here.
+export const CAMOUFOX_PYTHON_VENV_MISSING =
+  "Camoufox couldn’t set up its Python environment, so the profile was stopped. Install the python3-venv package (on Debian or Ubuntu: sudo apt install python3-venv), then start the profile again.";
 export const BROWSER_START_FAILED =
   "The browser couldn’t start, so the profile was stopped. This is a problem on our side, not with your setup.";
 
@@ -32,8 +37,27 @@ export function isBrowserStartFailure(error: unknown): boolean {
   return !!code && code !== "VERIFY_REQUIRED";
 }
 
+// nextctl ends every failed startup check with "A proxy profile cannot
+// continue without its proxy.", profiles without a proxy included, so that
+// hint says nothing about the cause. Only a failed proxy check or a proxy the
+// profile requires does.
+const PROXY_CHECK_FAILURE = /proxy required|proxy_required|failed browser checks:[^;]*\bproxy\b/i;
+const FAILED_CHECKS = /failed browser checks:\s*([^;\n\[]+)/i;
+
+/** " Failed checks: a, b." from nextctl's list, so a screenshot sent to
+ *  support names the check that stopped the profile. */
+function failedChecksNote(raw: string): string {
+  const names = (raw.match(FAILED_CHECKS)?.[1] ?? "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter((name) => /^[A-Za-z0-9_ -]{1,40}$/.test(name))
+    .slice(0, 6);
+  return names.length ? ` Failed checks: ${names.join(", ")}.` : "";
+}
+
 function browserStartFailureMessage(raw: string): string {
   if (/did not complete before timeout|context deadline exceeded|did not become ready in time/i.test(raw)) return BROWSER_START_TIMED_OUT;
+  if (/ensurepip is not\s+available|python3(?:\.\d+)?-venv/i.test(raw)) return CAMOUFOX_PYTHON_VENV_MISSING;
   if (/prepare Camoufox runtime|install Camoufox|download Camoufox/i.test(raw)) return CAMOUFOX_INSTALL_FAILED;
   return BROWSER_START_FAILED;
 }
@@ -113,10 +137,8 @@ export function userFacingBrowserError(error: unknown): string {
   if (isBrowserStartFailure(raw)) return browserStartFailureMessage(raw);
 
   if (/VERIFY_FAILED|VERIFY_REQUIRED/i.test(raw)) {
-    if (/proxy profile cannot continue without its proxy|proxy required|proxy_required|failed browser checks:[^;]*\bproxy\b/i.test(raw)) {
-      return BROWSER_PROXY_UNVERIFIED;
-    }
-    return BROWSER_UNVERIFIED;
+    const message = PROXY_CHECK_FAILURE.test(raw) ? BROWSER_PROXY_UNVERIFIED : BROWSER_UNVERIFIED;
+    return `${message}${failedChecksNote(raw)}`;
   }
 
   if (/(?:\bcdp\b.*(?:read response|connection|aborted|closed|reset)|Runtime\.evaluate.*(?:read|connection|aborted|closed|reset)|wsarecv.*(?:aborted|reset)|read tcp.*(?:aborted|reset))/i.test(raw)) {
