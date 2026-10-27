@@ -36,7 +36,7 @@ import {
 import { isBackgroundSyncFailure } from "./lib/userFacingError";
 import { setErrorReportingView, unexpectedErrorDetail, unexpectedErrorReference } from "./lib/errorReporting";
 import { deviceDataAppSetup } from "./lib/deviceData";
-import { shouldDismissModalWithEscape } from "./lib/modalKeyboard";
+import { shouldDismissModalWithEscape, wrappedFocusTarget } from "./lib/modalKeyboard";
 import { invoke, listen } from "./electronBridge";
 import { agentById } from "./agents";
 import { releaseDownloadUrl } from "./lib/releaseDownload";
@@ -45,6 +45,8 @@ import { AgentConnectionGate, agentGateVisible } from "./components/AgentConnect
 import { WorkspaceSetupGate } from "./components/WorkspaceSetupGate";
 import { AgentInstallLink } from "./components/AgentInstallLink";
 import { DeviceDataSettings } from "./components/DeviceDataSettings";
+import { SettingsPanel, SettingsRail } from "./components/SettingsSections";
+import { settingsAttention, settingsSectionForUpdates, type SettingsSection } from "./lib/settingsSections";
 import { ConnectorsView } from "./components/ConnectorsView";
 import { AutomationStudio } from "./components/AutomationStudio";
 import { FeedbackModal } from "./components/FeedbackModal";
@@ -539,10 +541,12 @@ function ManualReleaseDownload({ onOpen, version, onLater }: { onOpen: () => Pro
   </div>;
 }
 
+const DIALOG_FOCUSABLE = "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+
 function SettingsModal({
   onClose,
   onOpenUsage,
-  focus,
+  section: requestedSection,
   appUpdate,
   browserRuntimeUpdates,
   runtimeInstalling,
@@ -560,7 +564,7 @@ function SettingsModal({
 }: {
   onClose: () => void;
   onOpenUsage: () => void;
-  focus?: "agent" | null;
+  section?: SettingsSection | null;
   appUpdate: AppUpdateStatus;
   browserRuntimeUpdates: BrowserRuntimeUpdateStatus;
   runtimeInstalling: boolean;
@@ -630,239 +634,310 @@ function SettingsModal({
     }
   };
 
+  const [section, setSection] = useState<SettingsSection>(requestedSection ?? "general");
+  useEffect(() => {
+    if (requestedSection) setSection(requestedSection);
+  }, [requestedSection]);
+  const attention = settingsAttention({
+    appUpdate: updateAvailable(appUpdate),
+    toolsetUpdate: browserRuntimeUpdateAvailable(browserRuntimeUpdates),
+    agentReady,
+    agentNeedsLogin,
+    proxyTone: trafficGateStateTone(proxy),
+  });
+
+  // Focus starts on the open section's tab and Tab stays inside the dialog;
+  // closing it returns focus to the control that opened it.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
+    const keepFocusInside = (event: KeyboardEvent) => {
+      const dialog = dialogRef.current;
+      if (event.key !== "Tab" || !dialog) return;
+      // A dialog opened over Settings (a toolset update, the agent gate) and
+      // the agent picker's list, drawn outside the dialog, keep their focus.
+      const modals = document.querySelectorAll('[aria-modal="true"]');
+      if (modals[modals.length - 1] !== dialog) return;
+      const active = document.activeElement;
+      const inside = !!active && dialog.contains(active);
+      if (!inside && active && active !== document.body) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE)).filter((element) => element.offsetParent !== null);
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const target = wrappedFocusTarget(focusable, active instanceof HTMLElement ? active : null, inside, event.shiftKey);
+      if (!target) return;
+      event.preventDefault();
+      target.focus();
+    };
+    document.addEventListener("keydown", keepFocusInside);
+    return () => {
+      document.removeEventListener("keydown", keepFocusInside);
+      if (opener?.isConnected) opener.focus();
+    };
+  }, []);
+
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
-      <div className="modal-card settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="modal-title-row">
-          <Icon name="gearshape" size={18} />
-          <div>
-            <strong id="settings-title">Settings</strong>
-            <div className="muted small">Local app and runtime status</div>
-          </div>
-          <span className="spacer" />
+      <div ref={dialogRef} className="modal-card settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1} onMouseDown={(e) => e.stopPropagation()}>
+        <div className="settings-modal-header">
+          <strong id="settings-title">Settings</strong>
           <button className="plain-icon-btn" onClick={onClose} title="Close" aria-label="Close settings">
-            <Icon name="xmark" size={17} className="error" />
+            <Icon name="xmark" size={16} />
           </button>
         </div>
-        <div className="settings-section">
-          <div className="settings-row">
-            <span className="muted small">Nextbrowser</span>
-            <div className="settings-version-cell">
-              <button
-                className="plain-icon-btn plain-icon-btn-compact"
-                onClick={onCheckUpdate}
-                disabled={appUpdate.status === "checking" || appUpdate.status === "downloading"}
-                title="Check for updates"
-                aria-label="Check for updates"
-              >
-                {appUpdate.status === "checking" ? <Spinner size={12} /> : <Icon name="arrow.clockwise" size={12} />}
-              </button>
-              <strong>{__APP_VERSION__}</strong>
-            </div>
-          </div>
-          <div className="settings-row">
-            <span className="muted small">Interface size</span>
-            <div className="ui-scale-control ui-scale-control-settings">
-              <UIScaleSlider value={uiScale} onChange={onUiScaleChange} />
-              {uiScaleFloatingHidden && (
-                <button
-                  className="plain-icon-btn plain-icon-btn-compact"
-                  onClick={onRestoreFloatingScale}
-                  title="Return the quick-access control to the main screen"
-                  aria-label="Return the interface-size quick-access control to the main screen"
-                >
-                  <Icon name="arrow.uturn.left" size={12} />
-                </button>
-              )}
-            </div>
-          </div>
-          {errorReporting && (
-            <div className="settings-row">
-              <span className="muted small" title={ERROR_REPORTING_HINT}>Send error reports</span>
-              <label className="toggle" title={errorReporting.available ? ERROR_REPORTING_HINT : "Development builds do not send error reports."}>
-                <input
-                  type="checkbox"
-                  aria-label="Send error reports"
-                  checked={errorReporting.enabled}
-                  onChange={(event) => changeErrorReporting(event.target.checked)}
-                />
-                <span className="toggle-track"><span className="toggle-knob" /></span>
-              </label>
-            </div>
-          )}
-          <DeviceDataSettings />
-          <div className="settings-row settings-update-row">
-            <span className="muted small">App update</span>
-            <div className="settings-update-cell">
-              <strong className={updateAvailable(appUpdate) ? "warn" : ""}>
-                {appUpdate.status === "error"
-                  ? <UserFacingError message={updateLabel(appUpdate)} surface="app_update" />
-                  : updateLabel(appUpdate)}
-              </strong>
-              {manualUpdate ? (
-                updateAvailable(appUpdate) ? (
-                  <ManualReleaseDownload onOpen={onOpenRelease} version={appUpdate.version} />
-                ) : null
-              ) : (
-                <>
-                  {appUpdate.status === "available" && (
-                    <button className="mini" onClick={onDownloadUpdate}>
-                      Download
-                    </button>
-                  )}
-                  {appUpdate.status === "downloaded" && (
-                    <button className="mini primary-mini" onClick={onInstallUpdate}>
-                      Restart and update
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-          {appUpdate.status === "downloading" && <InstallationProgress label={`Downloading Nextbrowser ${appUpdate.percent ?? 0}%`} />}
-          <div className="settings-row">
-            <span className="muted small">nextctl</span>
-            <strong>{nextctlVersion || "not detected"}</strong>
-          </div>
-          <div className="settings-row">
-            <span className="muted small">Profiles</span>
-            <strong>{profiles}</strong>
-          </div>
-          <div className="settings-row">
-            <span className="muted small">Proxy</span>
-            {proxy ? (
-              <span className={`status-pill proxy-state ${trafficGateStateTone(proxy)}`}>
-                {trafficGateStateLabel(proxy)}
-              </span>
-            ) : (
-              <span className="muted small">locked</span>
-            )}
-          </div>
-        </div>
+        <div className="settings-layout">
+          <SettingsRail section={section} attention={attention} onSelect={setSection} />
 
-        <div className="settings-section settings-runtime-section">
-          <div className="settings-runtime-heading">
-            <div>
-              <strong>Browser toolsets</strong>
-              <div className="muted small">Installed runtimes and latest official releases</div>
-            </div>
-            <button
-              className="plain-icon-btn plain-icon-btn-compact"
-              onClick={onCheckBrowserRuntimeUpdates}
-              disabled={browserRuntimeUpdates.status === "checking"}
-              title="Check browser toolset updates"
-              aria-label="Check browser toolset updates"
-            >
-              {browserRuntimeUpdates.status === "checking" ? <Spinner size={12} /> : <Icon name="arrow.clockwise" size={12} />}
-            </button>
-          </div>
-          <div className="settings-runtime-list">
-            {browserRuntimeUpdates.runtimes.length === 0 && (
-              <div className="settings-runtime-empty muted small">
-                {browserRuntimeUpdates.status === "checking" ? "Checking installed toolsets…" : "Update information has not been checked yet."}
+          <SettingsPanel section={section}>
+            {section === "general" && (
+              <div className="settings-group">
+                <div className="settings-row">
+                  <span className="muted small">Nextbrowser</span>
+                  <div className="settings-version-cell">
+                    <button
+                      className="plain-icon-btn plain-icon-btn-compact"
+                      onClick={onCheckUpdate}
+                      disabled={appUpdate.status === "checking" || appUpdate.status === "downloading"}
+                      title="Check for updates"
+                      aria-label="Check for updates"
+                    >
+                      {appUpdate.status === "checking" ? <Spinner size={12} /> : <Icon name="arrow.clockwise" size={12} />}
+                    </button>
+                    <strong>{__APP_VERSION__}</strong>
+                  </div>
+                </div>
+                <div className="settings-row settings-update-row">
+                  <span className="muted small">App update</span>
+                  <div className="settings-update-cell">
+                    <strong className={updateAvailable(appUpdate) ? "warn" : ""}>
+                      {appUpdate.status === "error"
+                        ? <UserFacingError message={updateLabel(appUpdate)} surface="app_update" />
+                        : updateLabel(appUpdate)}
+                    </strong>
+                    {manualUpdate ? (
+                      updateAvailable(appUpdate) ? (
+                        <ManualReleaseDownload onOpen={onOpenRelease} version={appUpdate.version} />
+                      ) : null
+                    ) : (
+                      <>
+                        {appUpdate.status === "available" && (
+                          <button className="mini" onClick={onDownloadUpdate}>
+                            Download
+                          </button>
+                        )}
+                        {appUpdate.status === "downloaded" && (
+                          <button className="mini primary-mini" onClick={onInstallUpdate}>
+                            Restart and update
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+                {appUpdate.status === "downloading" && <InstallationProgress label={`Downloading Nextbrowser ${appUpdate.percent ?? 0}%`} />}
+                <div className="settings-row">
+                  <span className="muted small">Interface size</span>
+                  <div className="ui-scale-control ui-scale-control-settings">
+                    <UIScaleSlider value={uiScale} onChange={onUiScaleChange} />
+                    {uiScaleFloatingHidden && (
+                      <button
+                        className="plain-icon-btn plain-icon-btn-compact"
+                        onClick={onRestoreFloatingScale}
+                        title="Return the quick-access control to the main screen"
+                        aria-label="Return the interface-size quick-access control to the main screen"
+                      >
+                        <Icon name="arrow.uturn.left" size={12} />
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
-            {browserRuntimeUpdates.runtimes.map((runtime) => (
-              <div className="settings-runtime-row" key={runtime.runtime}>
-                <span className={"settings-runtime-dot " + (runtime.status === "available" ? "is-update" : runtime.status === "error" ? "is-error" : runtime.status === "up-to-date" ? "is-ready" : "")} />
-                <div className="settings-runtime-copy">
-                  <strong>{runtime.name}</strong>
-                  <span className={runtime.status === "available" ? "warn small" : "muted small"} title={runtime.error}>
-                    {browserRuntimeUpdateLabel(runtime)}
+
+            {section === "privacy" && (
+              <>
+                {errorReporting && (
+                  <div className="settings-group">
+                    <div className="settings-row">
+                      <span className="small">Send error reports</span>
+                      <label className="toggle" title={errorReporting.available ? ERROR_REPORTING_HINT : "Development builds do not send error reports."}>
+                        <input
+                          type="checkbox"
+                          aria-label="Send error reports"
+                          checked={errorReporting.enabled}
+                          onChange={(event) => changeErrorReporting(event.target.checked)}
+                        />
+                        <span className="toggle-track"><span className="toggle-knob" /></span>
+                      </label>
+                    </div>
+                    <p className="muted small settings-group-note">
+                      {ERROR_REPORTING_HINT}
+                      {!errorReporting.available && " Development builds do not send error reports."}
+                    </p>
+                  </div>
+                )}
+                <DeviceDataSettings />
+              </>
+            )}
+
+            {section === "agent" && (
+              <div className="settings-agent-card">
+                <div className="settings-agent-head">
+                  <span className="settings-feature-icon">
+                    <Icon name="cpu.fill" size={17} />
+                  </span>
+                  <span className="settings-feature-copy">
+                    <strong>{agentName}</strong>
+                    <span className="muted small">
+                      {agentReady ? agentVersion || "connected" : agentNeedsLogin ? `${agentName} is signed out` : `${agentName} is not connected`}
+                    </span>
+                  </span>
+                  <span className={"agent-state-pill" + (agentReady ? " is-ready" : "")}>
+                    {agentReady ? "Ready" : agentNeedsLogin ? "Login required" : "Offline"}
                   </span>
                 </div>
-                {(runtime.status === "available" || runtime.status === "not-installed") && (
-                  <button className="mini primary-mini" disabled={runtimeInstalling} onClick={() => onRequestBrowserRuntimeUpdate(runtime)}>
-                    {runtime.status === "not-installed" ? "Install" : "Update"}
-                  </button>
+                <div className="settings-agent-picker-row">
+                  <AgentPicker label="Active" />
+                  <div className="settings-agent-actions">
+                    {!agentDetected && (
+                      <button className="mini primary-mini" title={`Connect ${agentName}`} onClick={() => authorizeAgent()}>
+                        Connect
+                      </button>
+                    )}
+                    {agentDetected && agentLoggedIn !== true && !agentLogoutPending && (
+                      <button className="mini" title={`Open ${agentName} login`} onClick={() => loginAgent()}>
+                        Login
+                      </button>
+                    )}
+                    {agentDetected && agentLogoutPending && (
+                      <button className="mini" disabled aria-live="polite">
+                        <Spinner size={12} /> Signing out…
+                      </button>
+                    )}
+                    {agentReady && agentLoggedIn === true && !agentLogoutPending && agentById(agentId).logoutArgs.length > 0 && (
+                      <button className="mini" title={`Sign out of ${agentName}`} onClick={() => void handleAgentLogout()}>
+                        Log out
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {agentError && (
+                  <div className="error small settings-agent-error">
+                    <UserFacingError message={agentError} surface="agent_settings" />
+                    <AgentInstallLink agent={agentSpec} error={agentError} surface="agent_settings" />
+                  </div>
                 )}
               </div>
-            ))}
-          </div>
-          {browserRuntimeUpdates.status === "partial" && (
-            <div className="muted small settings-runtime-note">Some update sources could not be reached. Installed runtimes are unaffected.</div>
-          )}
-          {browserRuntimeUpdates.status === "error" && browserRuntimeUpdates.message && (
-            <div className="error small settings-runtime-note">
-              <UserFacingError message={browserRuntimeUpdates.message} surface="browser_runtime_update" />
-            </div>
-          )}
-        </div>
-
-        <div className="settings-section">
-          <div className={"settings-agent-card" + (focus === "agent" ? " settings-agent-card-focused" : "")}>
-            <div className="settings-agent-head">
-              <span className="settings-feature-icon">
-                <Icon name="cpu.fill" size={17} />
-              </span>
-              <span className="settings-feature-copy">
-                <strong>Agent</strong>
-                <span className="muted small">Choose the local agent used for chats, skills, and scheduled runs.</span>
-              </span>
-              <span className={"agent-state-pill" + (agentReady ? " is-ready" : "")}>
-                {agentReady ? "Ready" : agentNeedsLogin ? "Login required" : "Offline"}
-              </span>
-            </div>
-            <div className="settings-agent-picker-row">
-              <AgentPicker label="Active" />
-              <span className="muted small">
-                {agentReady ? agentVersion || "connected" : agentNeedsLogin ? `${agentName} is signed out` : `${agentName} is not connected`}
-              </span>
-            </div>
-            <div className="settings-agent-actions">
-              {!agentDetected && (
-                <button className="mini primary-mini" title={`Connect ${agentName}`} onClick={() => authorizeAgent()}>
-                  Connect
-                </button>
-              )}
-              {agentDetected && agentLoggedIn !== true && !agentLogoutPending && (
-                <button className="mini" title={`Open ${agentName} login`} onClick={() => loginAgent()}>
-                  Login
-                </button>
-              )}
-              {agentDetected && agentLogoutPending && (
-                <button className="mini" disabled aria-live="polite">
-                  <Spinner size={12} /> Signing out…
-                </button>
-              )}
-              {agentReady && agentLoggedIn === true && !agentLogoutPending && agentById(agentId).logoutArgs.length > 0 && (
-                <button className="mini" title={`Sign out of ${agentName}`} onClick={() => void handleAgentLogout()}>
-                  Log out
-                </button>
-              )}
-            </div>
-            {agentError && (
-              <div className="error small settings-agent-error">
-                <UserFacingError message={agentError} surface="agent_settings" />
-                <AgentInstallLink agent={agentSpec} error={agentError} surface="agent_settings" />
-              </div>
             )}
-          </div>
-          <button
-            className="settings-feature-link"
-            onClick={() => {
-              onOpenUsage();
-              onClose();
-            }}
-          >
-            <span className="settings-feature-icon">
-              <Icon name="chart.bar.fill" size={17} />
-            </span>
-            <span className="settings-feature-copy">
-              <strong>Proxy usage</strong>
-              <span className="muted small">
-                {proxy ? `${proxyUsed} / ${proxyLimit}` : "Traffic, allocation, and usage history"}
-              </span>
-            </span>
-            {proxyPercent != null && (
-              <span className={`status-pill${proxyPaused ? " proxy-state paused" : ""}`}>
-                {proxyPaused ? trafficGateStateLabel(proxy) : `${proxyPercent}%`}
-              </span>
-            )}
-            <Icon name="chevron.right" size={14} className="muted" />
-          </button>
-        </div>
 
+            {section === "browser" && (
+              <>
+                <div className="settings-group">
+                  <div className="settings-row">
+                    <span className="muted small">nextctl</span>
+                    <strong>{nextctlVersion || "not detected"}</strong>
+                  </div>
+                  <div className="settings-row">
+                    <span className="muted small">Profiles</span>
+                    <strong>{profiles}</strong>
+                  </div>
+                </div>
+                <div className="settings-group settings-runtime-section">
+                  <div className="settings-runtime-heading">
+                    <div>
+                      <strong>Browser toolsets</strong>
+                      <div className="muted small">Installed runtimes and latest official releases</div>
+                    </div>
+                    <button
+                      className="plain-icon-btn plain-icon-btn-compact"
+                      onClick={onCheckBrowserRuntimeUpdates}
+                      disabled={browserRuntimeUpdates.status === "checking"}
+                      title="Check browser toolset updates"
+                      aria-label="Check browser toolset updates"
+                    >
+                      {browserRuntimeUpdates.status === "checking" ? <Spinner size={12} /> : <Icon name="arrow.clockwise" size={12} />}
+                    </button>
+                  </div>
+                  <div className="settings-runtime-list">
+                    {browserRuntimeUpdates.runtimes.length === 0 && (
+                      <div className="settings-runtime-empty muted small">
+                        {browserRuntimeUpdates.status === "checking" ? "Checking installed toolsets…" : "Update information has not been checked yet."}
+                      </div>
+                    )}
+                    {browserRuntimeUpdates.runtimes.map((runtime) => (
+                      <div className="settings-runtime-row" key={runtime.runtime}>
+                        <span className={"settings-runtime-dot " + (runtime.status === "available" ? "is-update" : runtime.status === "error" ? "is-error" : runtime.status === "up-to-date" ? "is-ready" : "")} />
+                        <div className="settings-runtime-copy">
+                          <strong>{runtime.name}</strong>
+                          <span className={runtime.status === "available" ? "warn small" : "muted small"} title={runtime.error}>
+                            {browserRuntimeUpdateLabel(runtime)}
+                          </span>
+                        </div>
+                        {(runtime.status === "available" || runtime.status === "not-installed") && (
+                          <button className="mini primary-mini" disabled={runtimeInstalling} onClick={() => onRequestBrowserRuntimeUpdate(runtime)}>
+                            {runtime.status === "not-installed" ? "Install" : "Update"}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {browserRuntimeUpdates.status === "partial" && (
+                    <div className="muted small settings-runtime-note">Some update sources could not be reached. Installed runtimes are unaffected.</div>
+                  )}
+                  {browserRuntimeUpdates.status === "error" && browserRuntimeUpdates.message && (
+                    <div className="error small settings-runtime-note">
+                      <UserFacingError message={browserRuntimeUpdates.message} surface="browser_runtime_update" />
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            {section === "proxy" && (
+              <>
+                <div className="settings-group">
+                  <div className="settings-row">
+                    <span className="muted small">Proxy</span>
+                    {proxy ? (
+                      <span className={`status-pill proxy-state ${trafficGateStateTone(proxy)}`}>
+                        {trafficGateStateLabel(proxy)}
+                      </span>
+                    ) : (
+                      <span className="muted small">locked</span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  className="settings-feature-link"
+                  onClick={() => {
+                    onOpenUsage();
+                    onClose();
+                  }}
+                >
+                  <span className="settings-feature-icon">
+                    <Icon name="chart.bar.fill" size={17} />
+                  </span>
+                  <span className="settings-feature-copy">
+                    <strong>Proxy usage</strong>
+                    <span className="muted small">
+                      {proxy ? `${proxyUsed} / ${proxyLimit}` : "Traffic, allocation, and usage history"}
+                    </span>
+                  </span>
+                  {proxyPercent != null && (
+                    <span className={`status-pill${proxyPaused ? " proxy-state paused" : ""}`}>
+                      {proxyPaused ? trafficGateStateLabel(proxy) : `${proxyPercent}%`}
+                    </span>
+                  )}
+                  <Icon name="chevron.right" size={14} className="muted" />
+                </button>
+              </>
+            )}
+          </SettingsPanel>
+        </div>
       </div>
     </div>
   );
@@ -964,7 +1039,7 @@ export function App() {
     settingsStorage.removeItem("nextbrowser.uiScaleFloatingHidden");
   };
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsFocus, setSettingsFocus] = useState<"agent" | null>(null);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [appUpdate, setAppUpdate] = useState<AppUpdateStatus>({ status: "idle" });
   const [browserRuntimeUpdates, setBrowserRuntimeUpdates] = useState<BrowserRuntimeUpdateStatus>({ status: "idle", runtimes: [] });
   const [updatePromptDismissedVersion, setUpdatePromptDismissedVersion] = useState<string>();
@@ -1255,14 +1330,16 @@ export function App() {
     beginBrowserRuntimeInstall(runtimes, currentName);
   };
   const cancelCloseClawbrowserProfiles = () => setClawbrowserCloseConfirm(undefined);
-  const openSettings = (focus: "agent" | null = null) => {
+  const openSettings = (section: SettingsSection | null = null) => {
     if (browserRuntimeUpdates.status === "idle") checkBrowserRuntimeUpdates();
-    setSettingsFocus(focus);
+    setSettingsSection(section);
     setSettingsOpen(true);
   };
+  // The Settings button's dot announces an update; the button opens where it is.
+  const openSettingsFromButton = () => openSettings(settingsSectionForUpdates(updateAvailable(appUpdate), browserRuntimeUpdateAvailable(browserRuntimeUpdates)));
   const closeSettings = () => {
     setSettingsOpen(false);
-    setSettingsFocus(null);
+    setSettingsSection(null);
   };
 
   useLayoutEffect(() => {
@@ -1300,7 +1377,7 @@ export function App() {
       if (settingsOpen) {
         event.preventDefault();
         setSettingsOpen(false);
-        setSettingsFocus(null);
+        setSettingsSection(null);
         return;
       }
 
@@ -1657,14 +1734,14 @@ export function App() {
         <div className="floating-controls">
           {backgroundTaskPills}
           <SocialButtons />
-          <SettingsButton onClick={() => openSettings()} hasUpdate={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)} />
+          <SettingsButton onClick={openSettingsFromButton} hasUpdate={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)} />
           <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
         </div>
         {settingsOpen && (
           <SettingsModal
             onClose={closeSettings}
             onOpenUsage={() => setTab("usage")}
-            focus={settingsFocus}
+            section={settingsSection}
             appUpdate={appUpdate}
             browserRuntimeUpdates={browserRuntimeUpdates}
             runtimeInstalling={runtimeUpdateInstall.status === "installing"}
@@ -1769,7 +1846,7 @@ export function App() {
             {backgroundTaskPills}
             {feedbackAvailable && <FeedbackButton onClick={() => setFeedbackOpen(true)} />}
             <SocialButtons />
-            <SettingsButton onClick={() => openSettings()} hasUpdate={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)} />
+            <SettingsButton onClick={openSettingsFromButton} hasUpdate={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)} />
             <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
           </div>
         </nav>
@@ -1800,7 +1877,7 @@ export function App() {
         <SettingsModal
           onClose={closeSettings}
           onOpenUsage={() => setTab("usage")}
-          focus={settingsFocus}
+          section={settingsSection}
           appUpdate={appUpdate}
           browserRuntimeUpdates={browserRuntimeUpdates}
             runtimeInstalling={runtimeUpdateInstall.status === "installing"}

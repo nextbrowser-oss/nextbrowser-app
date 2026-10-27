@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { blocked } from "../lib/blocked.mjs";
 import { activeWorkspace, createProfile, createWorkspace, deleteCurrentWorkspace, profileNames, sidebar, switchWorkspace, waitFor } from "../lib/ui.mjs";
+import { openSettingsSection } from "../lib/ui-settings.mjs";
 import { projectNames, reconnectApp } from "../lib/ui-workflows.mjs";
 
 function shell(command, timeoutMs) {
@@ -30,8 +31,7 @@ async function setTheme(page, wanted) {
 
 /** Reads the interface size in Settings ("110%"), stepping it towards `wanted` first when given. */
 async function interfaceSize(page, wanted) {
-  await page.getByRole("button", { name: /^Settings\b/ }).first().click();
-  const settings = page.locator(".settings-modal");
+  const settings = await openSettingsSection(page, "General");
   const value = async () => (await settings.locator(".ui-scale-value").innerText()).trim();
   try {
     for (let i = 0; i < 10 && wanted && (await value()) !== wanted; i += 1) {
