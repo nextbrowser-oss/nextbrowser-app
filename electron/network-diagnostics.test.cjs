@@ -9,6 +9,7 @@ const { describeBackendRequest } = require("./backend-fetch.cjs");
 const { describeInvokeFailure } = require("./invoke-failure-report.cjs");
 const { describeNbcResult } = require("./nbc-failure-report.cjs");
 const { describeProfileFailureEvent, describeProfileStartFailure } = require("./profile-start-failure.cjs");
+
 const {
   FIELD_ORDER,
   addressClass,
@@ -39,6 +40,12 @@ const {
   windowsDefaults,
   windowsLinks,
 } = require("./network-diagnostics.cjs");
+
+// AbortSignal.timeout() and the probes' own timers do not keep Node's event loop
+// alive. Node 22's test runner (CI) then cancels a test that is waiting on one,
+// so this file keeps the loop alive until its tests are done.
+const keepAlive = setInterval(() => {}, 1_000);
+test.after(() => clearInterval(keepAlive));
 
 // ---- Sample outputs (addresses, MACs and names are made up) -----------------
 

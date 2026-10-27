@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { describeBackendRequest, setBackendTransport, tracedBackendFetch } = require("./backend-fetch.cjs");
+
 const {
   CHILD_NO_PROXY,
   childProxyEnv,
@@ -12,6 +13,12 @@ const {
   parseProxyList,
   proxyEnvNames,
 } = require("./system-proxy.cjs");
+
+// AbortSignal.timeout() and the probes' own timers do not keep Node's event loop
+// alive. Node 22's test runner (CI) then cancels a test that is waiting on one,
+// so this file keeps the loop alive until its tests are done.
+const keepAlive = setInterval(() => {}, 1_000);
+test.after(() => clearInterval(keepAlive));
 
 function harness({ routes = {}, netFetch, fetchImpl, start = 1_000 } = {}) {
   let clock = start;
