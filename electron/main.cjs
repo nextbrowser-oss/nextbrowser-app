@@ -138,7 +138,7 @@ const { createClientErrorReporter, errorReportingAllowed } = require("./client-e
 const { clientEnvironmentAllowed, createClientEnvironment } = require("./client-environment.cjs");
 const { createEnvironmentCollector } = require("./client-environment-collect.cjs");
 const { describeBackendRequest, setBackendClientInfo, setBackendRequestObserver, setBackendTransport, tracedBackendFetch } = require("./backend-fetch.cjs");
-const { createSystemProxy } = require("./system-proxy.cjs");
+const { childProxyEnv, createSystemProxy, describeProxyRoute, proxyEnvNames } = require("./system-proxy.cjs");
 const { createNetworkDiagnostics, wantsNetworkDiagnostics } = require("./network-diagnostics.cjs");
 const { describeNbcResult, isNextctlBinary } = require("./nbc-failure-report.cjs");
 const { describeAgentResult, describeTerminalExit } = require("./agent-failure-report.cjs");
@@ -227,6 +227,28 @@ const systemProxy = createSystemProxy({
   log: (line) => console.log(line),
 });
 setBackendTransport(systemProxy.fetch);
+// nbc (Go) and the agent CLIs read only proxy variables, never the system
+// proxy, so child processes get the proxy Chromium resolves for the API unless
+// the user set their own (system-proxy.cjs childProxyEnv). childEnv() is
+// synchronous: the value is refreshed before every command run(), when the
+// app is ready and every minute, and read from here.
+let systemProxyEnv = {};
+async function refreshSystemProxyEnv() {
+  try {
+    const { value: route, failed } = await systemProxy.route(runtimeAPIBaseURL(process.env));
+    if (failed) return systemProxyEnv;
+    const next = childProxyEnv(process.env, route);
+    if (JSON.stringify(next) !== JSON.stringify(systemProxyEnv)) {
+      console.log(Object.keys(next).length
+        ? `[network] nbc and agents get ${Object.keys(next).filter((name) => name !== "NO_PROXY").join(", ")} for the system proxy (${describeProxyRoute(route)})`
+        : "[network] nbc and agents no longer get a system proxy");
+    }
+    systemProxyEnv = next;
+  } catch {
+    // A failed lookup keeps the last value.
+  }
+  return systemProxyEnv;
+}
 const errorReporter = createClientErrorReporter({
   dir: path.join(app.getPath("userData"), "client-errors"),
   allowed: errorReportingAllowed({ isDevBuild }),
@@ -391,6 +413,9 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "", workspace
     "NBC_SKILL_SERVICE",
     "CLAWBROWSER_API_BASE_URL",
     ...(automationTraceFile ? ["NEXTBROWSER_AUTOMATION_TRACE_FILE"] : []),
+    // Codex gives an MCP server only the variables listed here, so nbc mcp
+    // needs the proxy variables (the user's, or the system proxy's) named.
+    ...proxyEnvNames(runtimeEnv),
   ];
   const mcpEnv = `{${mcpEnvKeys.map((key) => `${key}=${JSON.stringify(runtimeEnv[key])}`).join(",")}}`;
   return [
@@ -548,6 +573,7 @@ function childEnv(extra = {}) {
   });
   return {
     ...process.env,
+    ...systemProxyEnv,
     // The managed CLI is intentionally outside the user's global PATH. Agent
     // terminals still need to resolve `nextctl` exactly like app-owned calls.
     PATH: [...new Set(commandPaths)].join(path.delimiter),
@@ -584,6 +610,7 @@ function commandSpec(binary, args) {
   return { file: binary, args };
 }
 async function run(binary, args, extraEnv = {}, options = {}) {
+  await refreshSystemProxyEnv();
   const spec = commandSpec(binary, args);
   const observed = isNextctlBinary(binary);
   const startedAt = Date.now();
@@ -3337,6 +3364,8 @@ if (!gotLock) {
     startAutoUpdater();
     startBrowserRuntimeUpdateChecks();
     clientEnvironment.start();
+    void refreshSystemProxyEnv();
+    setInterval(() => { void refreshSystemProxyEnv(); }, 60_000).unref?.();
     app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
   });
 }

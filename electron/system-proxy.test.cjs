@@ -2,12 +2,15 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { describeBackendRequest, setBackendTransport, tracedBackendFetch } = require("./backend-fetch.cjs");
 const {
+  CHILD_NO_PROXY,
+  childProxyEnv,
   chromiumNetworkError,
   createSystemProxy,
   describeProxyRoute,
   isDirectList,
   isLoopbackProxyList,
   parseProxyList,
+  proxyEnvNames,
 } = require("./system-proxy.cjs");
 
 function harness({ routes = {}, netFetch, fetchImpl, start = 1_000 } = {}) {
@@ -161,4 +164,51 @@ test("traced backend calls use the installed transport unless the caller brings 
   await tracedBackendFetch(async () => { own += 1; return new Response("{}", { status: 200 }); })("https://api.test/v1/x");
   assert.equal(own, 1);
   assert.equal(seen.length, 1);
+});
+
+test("child processes get the system proxy as variables Go reads, unless the user set their own", () => {
+  const plain = { PATH: "/usr/bin", HOME: "/Users/alice" };
+  assert.deepEqual(childProxyEnv(plain, "PROXY 127.0.0.1:10808; DIRECT"), {
+    HTTP_PROXY: "http://127.0.0.1:10808",
+    HTTPS_PROXY: "http://127.0.0.1:10808",
+    NO_PROXY: CHILD_NO_PROXY,
+  });
+  assert.deepEqual(childProxyEnv(plain, "HTTPS proxy.corp.example.com:443"), {
+    HTTP_PROXY: "https://proxy.corp.example.com:443",
+    HTTPS_PROXY: "https://proxy.corp.example.com:443",
+    NO_PROXY: CHILD_NO_PROXY,
+  });
+  // Go reads no ALL_PROXY: a SOCKS proxy goes into HTTP(S)_PROXY as socks5://.
+  assert.deepEqual(childProxyEnv(plain, "SOCKS5 127.0.0.1:10808"), {
+    HTTP_PROXY: "socks5://127.0.0.1:10808",
+    HTTPS_PROXY: "socks5://127.0.0.1:10808",
+    ALL_PROXY: "socks5h://127.0.0.1:10808",
+    NO_PROXY: CHILD_NO_PROXY,
+  });
+  assert.equal(childProxyEnv(plain, "SOCKS 127.0.0.1:1080").HTTPS_PROXY, "socks5://127.0.0.1:1080");
+  assert.equal(childProxyEnv(plain, "PROXY [::1]:8080").HTTP_PROXY, "http://[::1]:8080");
+  assert.deepEqual(childProxyEnv(plain, "DIRECT"), {}, "direct: nothing changes");
+  assert.deepEqual(childProxyEnv(plain, ""), {});
+  assert.deepEqual(childProxyEnv(plain, "DIRECT; PROXY 127.0.0.1:8888"), {}, "Chromium tries direct first");
+  assert.deepEqual(childProxyEnv(plain, "SOCKS4 127.0.0.1:1080"), {}, "no Go client for SOCKS4");
+  assert.deepEqual(childProxyEnv(plain, "PROXY 127.0.0.1"), {}, "no port, no variable");
+  for (const name of ["HTTP_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"]) {
+    assert.deepEqual(childProxyEnv({ ...plain, [name]: "http://10.0.0.1:3128" }, "PROXY 127.0.0.1:10808"), {}, `the user's ${name} wins`);
+  }
+  assert.equal(childProxyEnv({ ...plain, HTTPS_PROXY: "" }, "PROXY 127.0.0.1:10808").HTTPS_PROXY, "http://127.0.0.1:10808", "an empty variable is unset");
+  assert.deepEqual(childProxyEnv({ ...plain, NO_PROXY: "corp.example.com" }, "PROXY 127.0.0.1:10808").NO_PROXY, CHILD_NO_PROXY);
+  for (const host of ["localhost", "127.0.0.1", "::1"]) assert.ok(CHILD_NO_PROXY.split(",").includes(host), `${host} stays direct`);
+});
+
+test("the proxy variable names to forward are the ones set, in any case", () => {
+  assert.deepEqual(proxyEnvNames({ PATH: "/bin", HTTPS_PROXY: "http://127.0.0.1:1", no_proxy: "localhost", ALL_PROXY: "", http_proxy: "x" }), ["HTTPS_PROXY", "no_proxy", "http_proxy"]);
+  assert.deepEqual(proxyEnvNames({ PATH: "/bin" }), []);
+});
+
+test("a lookup Chromium did not answer is marked, so the child environment keeps its last value", async () => {
+  const proxy = createSystemProxy({ resolveProxy: async () => { throw new Error("not ready"); }, netFetch: async () => new Response(""), fetchImpl: async () => new Response("") });
+  assert.deepEqual(await proxy.route("https://api.nextbrowser.com"), { value: "DIRECT", failed: true });
+  assert.equal(await proxy.resolve("https://api.nextbrowser.com"), "DIRECT");
+  const slow = createSystemProxy({ resolveProxy: () => new Promise(() => {}), resolveTimeoutMs: 10, netFetch: async () => new Response(""), fetchImpl: async () => new Response("") });
+  assert.deepEqual(await slow.route("https://api.nextbrowser.com"), { value: "DIRECT", failed: true });
 });

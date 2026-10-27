@@ -95,6 +95,45 @@ function chromiumNetworkError(error) {
   return new TypeError("fetch failed", { cause });
 }
 
+// ---- Child processes ----------------------------------------------------------
+
+// nbc is written in Go, and Go's net/http reads only HTTP_PROXY, HTTPS_PROXY
+// and NO_PROXY (either case); it ignores the macOS and Windows system proxy
+// and ALL_PROXY. So with a VPN in system-proxy mode nbc went direct and
+// failed ("Couldn't reach the Nextbrowser service") while the app window
+// worked. When the user set no proxy variables, the app gives its child
+// processes (nbc, nbc mcp for agents, agent CLIs) the proxy Chromium resolves
+// for the API: PROXY → http://, HTTPS → https://, SOCKS/SOCKS5 → socks5://
+// (Go's socks5 dialer sends host names to the proxy, so DNS goes through it;
+// ALL_PROXY gets socks5h:// for curl-style tools). SOCKS4 and QUIC have no Go
+// client and are left alone, and so is a direct connection.
+const PROXY_ENV = /^(?:https?|all)_proxy$/i;
+// CDP, the app's local control server and the local APIs of AdsPower and the
+// Multilogin launcher (host names that resolve to 127.0.0.1) stay direct.
+const CHILD_NO_PROXY = "localhost,127.0.0.1,::1,local.adspower.com,local.adspower.net,launcher.mlx.yt";
+
+/** The names of the proxy variables set in `env` (any case), NO_PROXY included. */
+function proxyEnvNames(env) {
+  return Object.keys(env || {}).filter((name) => (PROXY_ENV.test(name) || /^no_proxy$/i.test(name)) && String(env[name] ?? "").trim());
+}
+
+/**
+ * Proxy variables for child processes from the proxy list Chromium resolved,
+ * or {} when the user set their own (they always win) or the route is direct.
+ */
+function childProxyEnv(env, proxyList) {
+  if (Object.keys(env || {}).some((name) => PROXY_ENV.test(name) && String(env[name] ?? "").trim())) return {};
+  const [first] = parseProxyList(proxyList);
+  if (!first || first.type === "DIRECT" || !first.host || !/^\d{1,5}$/.test(first.port)) return {};
+  const hostPort = `${first.host.includes(":") ? `[${first.host}]` : first.host}:${first.port}`;
+  if (first.type === "PROXY" || first.type === "HTTP") return { HTTP_PROXY: `http://${hostPort}`, HTTPS_PROXY: `http://${hostPort}`, NO_PROXY: CHILD_NO_PROXY };
+  if (first.type === "HTTPS") return { HTTP_PROXY: `https://${hostPort}`, HTTPS_PROXY: `https://${hostPort}`, NO_PROXY: CHILD_NO_PROXY };
+  if (first.type === "SOCKS" || first.type === "SOCKS5") {
+    return { HTTP_PROXY: `socks5://${hostPort}`, HTTPS_PROXY: `socks5://${hostPort}`, ALL_PROXY: `socks5h://${hostPort}`, NO_PROXY: CHILD_NO_PROXY };
+  }
+  return {};
+}
+
 function abortReason(signal) {
   return signal?.reason ?? new DOMException("This operation was aborted", "AbortError");
 }
@@ -135,18 +174,21 @@ function createSystemProxy({
     });
   }
 
-  /** How Chromium would reach this URL ("DIRECT", "PROXY 127.0.0.1:8888", ...), cached per origin. */
-  async function resolve(url) {
+  /**
+   * How Chromium would reach this URL: { value: "DIRECT" | "PROXY 127.0.0.1:8888" | ... },
+   * with `failed` when Chromium gave no answer. Cached per origin.
+   */
+  async function route(url) {
     let origin;
     try {
       const parsed = new URL(requestURL(url));
-      if (!/^(?:https?|wss?):$/.test(parsed.protocol)) return "DIRECT";
+      if (!/^(?:https?|wss?):$/.test(parsed.protocol)) return { value: "DIRECT" };
       origin = parsed.origin;
     } catch {
-      return "DIRECT";
+      return { value: "DIRECT" };
     }
     const cached = cache.get(origin);
-    if (cached && (cached.pending || now() - cached.at <= cacheMs)) return (await cached.promise).value;
+    if (cached && (cached.pending || now() - cached.at <= cacheMs)) return cached.promise;
     const entry = { pending: true, at: now() };
     entry.promise = lookup(origin).then((result) => {
       entry.pending = false;
@@ -162,7 +204,12 @@ function createSystemProxy({
       return result;
     });
     cache.set(origin, entry);
-    return (await entry.promise).value;
+    return entry.promise;
+  }
+
+  /** The proxy list alone; a lookup that failed reads as DIRECT. */
+  async function resolve(url) {
+    return (await route(url)).value;
   }
 
   async function viaChromium(url, init) {
@@ -196,11 +243,13 @@ function createSystemProxy({
     return viaChromium(requestURL(url), init);
   }
 
-  return { fetch: proxyAwareFetch, resolve };
+  return { fetch: proxyAwareFetch, resolve, route };
 }
 
 module.exports = {
+  CHILD_NO_PROXY,
   CHROMIUM_ERRORS,
+  childProxyEnv,
   chromiumNetworkError,
   createSystemProxy,
   describeProxyRoute,
@@ -208,4 +257,5 @@ module.exports = {
   isLoopbackHost,
   isLoopbackProxyList,
   parseProxyList,
+  proxyEnvNames,
 };
