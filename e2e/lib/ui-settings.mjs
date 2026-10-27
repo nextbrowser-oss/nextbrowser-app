@@ -33,15 +33,29 @@ export async function goBack(page) {
 
 // ---- Settings ----
 
-// SettingsModal (src/App.tsx) is a plain card without a dialog role, so it is
-// found by its class; everything inside it is found by role and text.
+// SettingsModal (src/App.tsx) is found by its class; everything inside it is
+// found by role and text. It shows one section at a time, picked from a rail
+// of tabs (SETTINGS_SECTIONS in src/lib/settingsSections.ts).
 export const settingsDialog = (page) => page.locator(".settings-modal");
+
+// The section that shows each row settingsValue reads.
+const SETTINGS_ROW_SECTIONS = { Nextbrowser: "General", "App update": "General", nextctl: "Browser", Profiles: "Browser" };
 
 export async function openSettings(page) {
   const dialog = settingsDialog(page);
   if (await dialog.isVisible().catch(() => false)) return dialog;
   await page.getByRole("button", { name: /^Settings(, update available)?$/ }).click();
   await dialog.waitFor({ timeout: 15_000 });
+  return dialog;
+}
+
+/** Opens Settings on a section: "General", "Privacy", "Agent", "Browser" or "Proxy". */
+export async function openSettingsSection(page, name) {
+  const dialog = await openSettings(page);
+  // A tab that needs attention is named "Agent, not connected" and the like.
+  const tab = dialog.getByRole("tab", { name: new RegExp(`^${name}\\b`) });
+  if ((await tab.getAttribute("aria-selected")) !== "true") await tab.click();
+  await dialog.getByRole("tabpanel").getByRole("heading", { name, exact: true }).waitFor({ timeout: 5_000 });
   return dialog;
 }
 
@@ -53,6 +67,7 @@ export async function closeSettings(page) {
 
 /** The value Settings prints next to a label such as "Nextbrowser" or "nextctl". */
 export async function settingsValue(page, label) {
+  if (SETTINGS_ROW_SECTIONS[label]) await openSettingsSection(page, SETTINGS_ROW_SECTIONS[label]);
   const row = settingsDialog(page).locator(".settings-row").filter({ has: page.getByText(label, { exact: true }) }).first();
   return (await row.locator("strong").first().innerText()).trim();
 }
@@ -442,7 +457,7 @@ export async function textContrast(page, selectors) {
 export async function uiScaleControl(page) {
   const footer = sidebar(page).getByTitle("Interface size", { exact: true });
   if (await footer.isVisible().catch(() => false)) return { where: "the sidebar footer", control: footer };
-  const settings = await openSettings(page);
+  const settings = await openSettingsSection(page, "General");
   return { where: "Settings", control: settings.locator(".settings-row").filter({ hasText: "Interface size" }) };
 }
 

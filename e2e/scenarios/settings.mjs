@@ -1,7 +1,7 @@
 import { blocked } from "../lib/blocked.mjs";
 import { nbc } from "../lib/oracle.mjs";
 import { activeWorkspace, askAgent, createWorkspace, deleteCurrentWorkspace, escape, openMainView, setChatMode, sidebar, switchWorkspace, waitFor } from "../lib/ui.mjs";
-import { appears, closeSettings, compareVersions, currentAgent, githubJSON, goBack, latestRelease, openSettings, parseBytes, pause, readUiScale, releaseBefore, semver, setUiScale, settingsDialog, settingsValue, sidebarLayout, sidebarProblems, themeToggle, uiScaleControl, urlOpenedBy } from "../lib/ui-settings.mjs";
+import { appears, closeSettings, compareVersions, currentAgent, githubJSON, goBack, latestRelease, openSettingsSection, parseBytes, pause, readUiScale, releaseBefore, semver, setUiScale, settingsDialog, settingsValue, sidebarLayout, sidebarProblems, themeToggle, uiScaleControl, urlOpenedBy } from "../lib/ui-settings.mjs";
 
 const APP_REPOS = ["nextbrowser-oss/nextbrowser-app"];
 // nextctl's own repository is private; the app installs nextctl from the
@@ -17,7 +17,7 @@ const HOST = /^(\*\.)?([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}(:\d{1
 // formatStars in src/App.tsx.
 const formatStars = (count) => (count < 1000 ? `${count}` : `${count < 10_000 ? Math.round(count / 100) / 10 : Math.round(count / 1000)}k`);
 
-// The agent card in Settings (App.tsx) has no landmarks; its parts are found by class.
+// The agent card in Settings' Agent section (App.tsx) has no landmarks; its parts are found by class.
 const agentCard = (page) => settingsDialog(page).locator(".settings-agent-card");
 const agentGate = (page) => page.getByRole("dialog", { name: "Connect an agent to continue" });
 
@@ -27,7 +27,7 @@ async function agentState(page) {
   return {
     name: (await card.getByRole("button", { name: "Choose active agent" }).locator("strong").innerText()).trim(),
     pill: (await card.locator(".agent-state-pill").innerText()).trim(),
-    detail: (await card.locator(".settings-agent-picker-row > span.muted").innerText()).trim(),
+    detail: (await card.locator(".settings-agent-head .settings-feature-copy > span.muted").innerText()).trim(),
     error: (await error.count()) ? (await error.innerText()).replace(/\s+/g, " ").trim() : "",
   };
 }
@@ -46,7 +46,7 @@ async function chooseAgent(page, name) {
     await gate.getByRole("button", { name: new RegExp(`^(Connect|Sign in to) ${escape(name)}$`) }).click();
     return;
   }
-  const settings = await openSettings(page);
+  const settings = await openSettingsSection(page, "Agent");
   await settings.getByRole("button", { name: "Choose active agent" }).click();
   await page.getByRole("listbox", { name: "Agents" }).getByRole("option", { name, exact: true }).click();
 }
@@ -61,7 +61,7 @@ async function agentOutcome(page, name, timeoutMs = 120_000) {
     const gateOpen = await gate.isVisible().catch(() => false);
     const gateError = gateOpen ? (await gate.locator(".agent-gate-error").innerText().catch(() => "")).replace(/\s+/g, " ").trim() : "";
     // Settings stays open under the gate; it is reopened only when nothing covers the button.
-    if (!(await settingsDialog(page).count()) && !gateOpen) await openSettings(page);
+    if (!(await settingsDialog(page).count()) && !gateOpen) await openSettingsSection(page, "Agent");
     if (await settingsDialog(page).count()) state = await agentState(page);
     if (state?.name === name && state.pill === "Ready" && !gateOpen) return { ready: true, state };
     if (gateError || (state?.name === name && state.error)) return { ready: false, state, reason: gateError || state.error };
@@ -153,9 +153,8 @@ export default {
 
     await s.step("Settings shows the released Nextbrowser and nextctl versions", async () => {
       try {
-        await openSettings(s.page);
         const shown = { Nextbrowser: await settingsValue(s.page, "Nextbrowser"), nextctl: await settingsValue(s.page, "nextctl") };
-        const update = (await settingsDialog(s.page).locator(".settings-update-row strong").first().innerText()).trim();
+        const update = await settingsValue(s.page, "App update");
         await s.shot("versions");
         s.note(`Settings: Nextbrowser ${shown.Nextbrowser}, nextctl ${shown.nextctl}; App update: «${update}».`);
         const problems = [];
@@ -211,7 +210,7 @@ export default {
 
     const agents = await s.step("Switch the agent from Settings", async () => {
       await useScratchWorkspace();
-      await openSettings(s.page);
+      await openSettingsSection(s.page, "Agent");
       const before = await agentState(s.page);
       const target = before.name === "Codex" ? "Claude Code" : "Codex";
       s.cleanup(async () => {
@@ -252,7 +251,7 @@ export default {
     }, { soft: true });
 
     const usage = await s.step("Proxy usage opens from Settings and repeats its numbers", async () => {
-      const settings = await openSettings(s.page);
+      const settings = await openSettingsSection(s.page, "Proxy");
       const link = settings.getByRole("button", { name: /^Proxy usage/ });
       const summary = (await link.innerText()).replace(/\s+/g, " ").trim();
       await link.click();
@@ -347,7 +346,6 @@ export default {
       // At start-up the app may offer the toolset updates itself; this step takes them from Settings.
       const offer = s.page.getByRole("dialog", { name: "Browser toolset update available" });
       if (await appears(offer)) await offer.getByRole("button", { name: "Later", exact: true }).click();
-      await openSettings(s.page);
       const downgraded = await settingsValue(s.page, "nextctl");
       s.note(`After the downgrade Settings shows nextctl ${downgraded}.`);
       if (compareVersions(semver(downgraded) ?? [0, 0, 0], semver(previous)) !== 0) s.note(`Settings does not show ${previous}: the agent's downgrade did not take or nextctl updated itself.`);
@@ -360,8 +358,8 @@ export default {
       const nextctlError = await updateNextctl.getAttribute("aria-label");
       if (nextctlError !== "Check for a newer nextctl and update") throw new Error(`The nextctl update failed: ${nextctlError}`);
 
-      // Toolsets update from Settings: each row offers "Update", which asks to confirm.
-      const settings = await openSettings(s.page);
+      // Toolsets update from Settings > Browser: each row offers "Update", which asks to confirm.
+      const settings = await openSettingsSection(s.page, "Browser");
       const check = settings.getByRole("button", { name: "Check browser toolset updates" });
       await clickAndSettle(check, "the toolset check", 120_000);
       for (let round = 0; round < 4; round += 1) {
