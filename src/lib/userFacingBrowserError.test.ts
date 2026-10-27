@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   BROWSER_PROXY_UNVERIFIED,
+  BROWSER_UNVERIFIED,
   BROWSER_START_FAILED,
   BROWSER_START_TIMED_OUT,
   CAMOUFOX_INSTALL_FAILED,
   CAMOUFOX_PYTHON_MISSING,
+  CAMOUFOX_PYTHON_VENV_MISSING,
   isBrowserStartFailure,
   isBrowserVerificationFailure,
   userFacingBrowserError,
@@ -61,15 +63,26 @@ describe("userFacingBrowserError", () => {
     expect(message).not.toMatch(/127\.0\.0\.1|wsarecv/i);
   });
 
-  it("shows a stopped proxy verification failure before a nested CDP transport error", () => {
+  it("shows a stopped verification before a nested CDP transport error", () => {
     const raw = "Could not start Nextbrowser: VERIFY_FAILED: browser stopped: cdp Runtime.evaluate: read response: read tcp 127.0.0.1:1: connection reset [VERIFY_FAILED] — Retry the same proxy. A proxy profile cannot continue without its proxy.";
-    expect(userFacingBrowserError(raw)).toBe(BROWSER_PROXY_UNVERIFIED);
+    expect(userFacingBrowserError(raw)).toBe(BROWSER_UNVERIFIED);
+  });
+
+  it("does not blame the proxy of a profile that has none", () => {
+    // nextctl's hint names the proxy on every failed check; a profile without
+    // a proxy that fails another check must not read as a proxy failure.
+    const raw = "VERIFY_FAILED: browser stopped: VERIFY_REQUIRED: failed browser checks: timezone, webrtc; the profile cannot be used [VERIFY_FAILED] — Resolve the verification failure and retry this profile. A proxy profile cannot continue without its proxy.";
+    const message = userFacingBrowserError(raw);
+    expect(message).toBe(`${BROWSER_UNVERIFIED} Failed checks: timezone, webrtc.`);
+    expect(message).not.toMatch(/proxy/i);
+    const camoufox = "VERIFY_FAILED: browser stopped: VERIFY_REQUIRED: Camoufox verification did not pass [VERIFY_FAILED] — Resolve the verification failure and retry this profile. A proxy profile cannot continue without its proxy.";
+    expect(userFacingBrowserError(camoufox)).toBe(BROWSER_UNVERIFIED);
   });
 
   it("reports a failed proxy check as our problem, without the CLI chain", () => {
     const raw = "Could not start Nextbrowser: VERIFY_FAILED: browser stopped: VERIFY_REQUIRED: failed browser checks: proxy; the profile cannot be used [VERIFY_FAILED] — Resolve the verification failure and retry this profile. A proxy profile cannot continue without its proxy.";
     const message = userFacingBrowserError(raw);
-    expect(message).toBe(BROWSER_PROXY_UNVERIFIED);
+    expect(message).toBe(`${BROWSER_PROXY_UNVERIFIED} Failed checks: proxy.`);
     expect(message).toContain("problem on our side");
     expect(message).not.toMatch(/VERIFY_|Resolve the verification/);
     expect(isBrowserVerificationFailure(raw)).toBe(true);
@@ -87,6 +100,12 @@ describe("userFacingBrowserError", () => {
     expect(userFacingBrowserError(install)).toBe(CAMOUFOX_INSTALL_FAILED);
     const launch = "VERIFY_FAILED: browser stopped: LAUNCH_FAILED: launch failed (Camoufox exited before becoming ready: RuntimeError) — A proxy profile cannot continue without its proxy.";
     expect(userFacingBrowserError(launch)).toBe(BROWSER_START_FAILED);
+  });
+
+  it("names python3-venv when Debian's Python cannot build Camoufox's environment", () => {
+    // nbc 1.2.37 on Ubuntu 24.04 without python3-venv, reproduced 27.10.2026.
+    const raw = "VERIFY_FAILED: browser stopped: LAUNCH_FAILED: launch failed (prepare Camoufox runtime: create Camoufox runtime: exit status 1: The virtual environment was not created successfully because ensurepip is not\navailable.  On Debian/Ubuntu systems, you need to install the python3-venv\npackage using the following command.\n\n    apt install python3.12-venv\n) [VERIFY_FAILED] — Resolve the verification failure and retry this profile. A proxy profile cannot continue without its proxy.";
+    expect(userFacingBrowserError(raw)).toBe(CAMOUFOX_PYTHON_VENV_MISSING);
   });
 
   it("tells the user to install Python when Camoufox has none it can use", () => {
