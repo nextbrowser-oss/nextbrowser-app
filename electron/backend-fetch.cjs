@@ -11,6 +11,13 @@ const { DNS_DETAIL, OFFLINE_DETAIL } = require("./nbc-failure-report.cjs");
 let observer = null;
 // Who is calling, so the backend's request log names the app and its version.
 let clientHeaders = {};
+// What sends a backend request when the caller brings no fetch of its own.
+// The main process installs the system-proxy-aware fetch (system-proxy.cjs).
+let transport = null;
+
+function setBackendTransport(fn) {
+  transport = typeof fn === "function" ? fn : null;
+}
 
 function setBackendRequestObserver(fn) {
   observer = typeof fn === "function" ? fn : null;
@@ -61,7 +68,7 @@ function notify(info) {
 }
 
 /** Wraps a fetch implementation for calls to Nextbrowser backends. */
-function tracedBackendFetch(fetchImpl = (...args) => fetch(...args)) {
+function tracedBackendFetch(fetchImpl = (...args) => (transport || fetch)(...args)) {
   return async function backendFetch(url, init = {}) {
     const trace = newTraceContext();
     const method = String(init.method || "GET").toUpperCase();
@@ -154,6 +161,7 @@ module.exports = {
   describeBackendRequest,
   newTraceContext,
   setBackendClientInfo,
+  setBackendTransport,
   setBackendRequestObserver,
   tracedBackendFetch,
   withTraceparent,

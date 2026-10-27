@@ -23,6 +23,10 @@ Use the current [product documentation](https://docs.nextbrowser.com/) and the s
 
 Do not commit an API key, place it in a reusable prompt, or paste it into an issue. Redact credentials, account identifiers, cookies, tokens, private URLs, and personal data before sharing diagnostics.
 
+## Proxies and VPNs
+
+Nextbrowser follows the operating system's proxy settings, including a PAC file, the way the app window does. A VPN app in "system proxy" mode sets such a proxy (usually <code>127.0.0.1:&lt;port&gt;</code>) without changing the computer's routes. For each backend address the main process asks Chromium how it would reach it (cached for 30 seconds): when the answer is a proxy, backend calls, error reports, and downloads of the app's own files (the Nextbrowser CLI, browser runtimes, update checks of browser runtimes) go through Electron's network stack and so through that proxy; when it is a direct connection, nothing changes. Starting Nextbrowser with Chromium's <code>--proxy-server=&lt;scheme&gt;://&lt;host&gt;:&lt;port&gt;</code> switch has the same effect, and the app logs <code>[network] &lt;origin&gt;: main-process requests go through the system proxy (…)</code> when it starts using a proxy for an address.
+
 ## Local state
 
 | State | Owner |

@@ -3,7 +3,7 @@ const { mcpProfileScope } = require("./mcp-profile-scope.cjs");
 const { addChatWorkspaceProfile } = require("./chat-profile-scope.cjs");
 const { requireVerificationCapableCLI, verificationFailureDialogOptions, verificationFailureDialogChoice } = require("./verification-policy.cjs");
 const { agentLoginStatus } = require("./agent-login-status.cjs");
-const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage, screen, session } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage, screen, session, net } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const { createAppUpdateDownload } = require("./app-update-download.cjs");
 const { execFileSync, spawn } = require("node:child_process");
@@ -137,7 +137,8 @@ const { AsyncLocalStorage } = require("node:async_hooks");
 const { createClientErrorReporter, errorReportingAllowed } = require("./client-error-reporter.cjs");
 const { clientEnvironmentAllowed, createClientEnvironment } = require("./client-environment.cjs");
 const { createEnvironmentCollector } = require("./client-environment-collect.cjs");
-const { describeBackendRequest, setBackendClientInfo, setBackendRequestObserver, tracedBackendFetch } = require("./backend-fetch.cjs");
+const { describeBackendRequest, setBackendClientInfo, setBackendRequestObserver, setBackendTransport, tracedBackendFetch } = require("./backend-fetch.cjs");
+const { createSystemProxy } = require("./system-proxy.cjs");
 const { createNetworkDiagnostics, wantsNetworkDiagnostics } = require("./network-diagnostics.cjs");
 const { describeNbcResult, isNextctlBinary } = require("./nbc-failure-report.cjs");
 const { describeAgentResult, describeTerminalExit } = require("./agent-failure-report.cjs");
@@ -217,6 +218,15 @@ const appBuildVersion = feedbackBuildContext({ app, execFileSync }).app_version;
 const networkDiagnostics = createNetworkDiagnostics({
   resolveProxyImpl: (url) => session.defaultSession.resolveProxy(url),
 });
+// Backend calls, error reports and downloads of the app's own files follow
+// the system proxy like the app window does (see system-proxy.cjs): with a
+// proxy they go through Electron's net.fetch, without one through Node's.
+const systemProxy = createSystemProxy({
+  resolveProxy: (url) => session.defaultSession.resolveProxy(url),
+  netFetch: (url, init) => net.fetch(url, init),
+  log: (line) => console.log(line),
+});
+setBackendTransport(systemProxy.fetch);
 const errorReporter = createClientErrorReporter({
   dir: path.join(app.getPath("userData"), "client-errors"),
   allowed: errorReportingAllowed({ isDevBuild }),
@@ -229,6 +239,7 @@ const errorReporter = createClientErrorReporter({
   homeDir: os.homedir(),
   resolveEndpoint: runtimeBackendEndpoint,
   getAction: () => reportingContext.getStore()?.action,
+  fetchImpl: (...args) => systemProxy.fetch(...args),
   enrich: (event) => (wantsNetworkDiagnostics(event) ? networkDiagnostics.snapshot() : undefined),
 });
 const backendFetch = tracedBackendFetch();
@@ -701,7 +712,7 @@ function findNextctlInTree(root) {
   return findBinaryUnderRoots("nextctl", [root]) || findBinaryUnderRoots("nbc", [root]);
 }
 async function downloadFile(url, target, options = {}) {
-  const response = await fetch(url, { signal: options.signal });
+  const response = await systemProxy.fetch(url, { signal: options.signal });
   if (!response.ok) throw new Error(`Download failed (${response.status})`);
   const buffer = Buffer.from(await response.arrayBuffer());
   await fs.writeFile(target, buffer);
@@ -1103,7 +1114,7 @@ async function officialDasbrowserDownloadUrl(options = {}) {
   const fallback = DASBROWSER_DOWNLOADS[process.platform];
   if (!fallback) throw new Error(`DasBrowser is not available for ${process.platform}.`);
   try {
-    const response = await fetch("https://www.dasbrowser.com/download", { signal: options.signal });
+    const response = await systemProxy.fetch("https://www.dasbrowser.com/download", { signal: options.signal });
     if (!response.ok) return fallback;
     const html = await response.text();
     return officialDasbrowserURLFromHTML(html, process.platform, fallback);
@@ -1612,7 +1623,7 @@ async function checkForBrowserRuntimeUpdates() {
     status: "checking",
   });
   browserRuntimeUpdateCheckPromise = checkBrowserRuntimeUpdates({
-    fetchImpl: fetch,
+    fetchImpl: systemProxy.fetch,
     runtimeRoot: nextbrowserRuntimeRoot(),
     clawbrowserExecutable,
     platform: process.platform,
@@ -1647,7 +1658,7 @@ function camoufoxVenvPython() {
     : path.join(venv, "bin", "python");
 }
 async function downloadFileStreaming(url, target) {
-  const response = await fetch(url, {
+  const response = await systemProxy.fetch(url, {
     headers: { "User-Agent": "Nextbrowser-runtime-updater" },
     signal: AbortSignal.timeout(60 * 60 * 1000),
   });
