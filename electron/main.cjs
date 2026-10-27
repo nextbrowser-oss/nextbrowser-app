@@ -284,7 +284,7 @@ setBackendRequestObserver((request) => {
   errorReporter.breadcrumb("api", breadcrumb);
   if (event) errorReporter.capture(event);
 });
-// Device data (see client-environment.cjs): Settings → Device data groups,
+// Device data (see client-environment.cjs): Settings → Privacy → Device data groups,
 // sent for the signed-in account under the error reporter's install id.
 const environmentCollector = createEnvironmentCollector({
   app,

@@ -78,7 +78,7 @@ A Ref looks like <code>NB-25647DEA-3F1A</code>. The first part is a hash of the 
 
 Repeats of the same error are folded into one report with a count; a folded report keeps the latest Ref in <code>context.last_ref</code>. A launch sends at most 200 reports, and at most 20 for one error.
 
-Turn reports off with **Settings → Send error reports**. <code>NEXTBROWSER_ERROR_REPORTING=0</code> disables them in any build; development and unpackaged builds send nothing unless <code>NEXTBROWSER_ERROR_REPORTING=1</code>. Unsent reports wait in <code>client-errors/</code> in the application-data directory (at most 200, for up to seven days), and the reporter's own failures are logged to <code>client-errors/reporter.log</code> there.
+Turn reports off with **Settings → Privacy → Send error reports**. <code>NEXTBROWSER_ERROR_REPORTING=0</code> disables them in any build; development and unpackaged builds send nothing unless <code>NEXTBROWSER_ERROR_REPORTING=1</code>. Unsent reports wait in <code>client-errors/</code> in the application-data directory (at most 200, for up to seven days), and the reporter's own failures are logged to <code>client-errors/reporter.log</code> there.
 
 ### Network diagnostics
 
@@ -103,7 +103,7 @@ Addresses appear only as classes: <code>loopback</code>, <code>fakeip</code> (19
 
 While you are signed in, the desktop app sends a snapshot of the computer and app it runs on to the Nextbrowser backend (<code>POST /v1/client-environment</code> on the same API base as error reports). Nextbrowser uses it to answer support requests faster, to tune browser fingerprints to real environments, and to decide which systems, languages, and regions to support. The snapshot belongs to your account and to this installation (the same random install id as error reports).
 
-The data comes in five groups. Each group is a separate switch under **Settings → Device data**:
+The data comes in five groups. Each group is a separate switch under **Settings → Privacy → Device data**:
 
 | Group | Fields |
 | --- | --- |
