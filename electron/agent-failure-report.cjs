@@ -92,6 +92,56 @@ function describeAgentResult({ agentId, result, outcome = {}, durationMs, plain 
   return { reason, event: event("AGENT_STOPPED_UNEXPECTEDLY", `${agent} exited with code ${code}: ${reported || "no error line in its output"}`) };
 }
 
+const BUILTIN_PROVIDERS = new Set(["nvidia", "openrouter", "gemini", "custom"]);
+const BUILTIN_FAILURE_CODE = /^[a-z][a-z_]{1,31}$/;
+const BUILTIN_MODEL = /^[A-Za-z0-9._:/-]{1,120}$/;
+
+/**
+ * Describes a finished run of the built-in Nextbrowser agent
+ * (builtin-agent-run.cjs), which has a failure code instead of an exit line.
+ * The same runs as for an agent CLI are reported, except a failure the user
+ * fixes in Settings (a rejected key, a free limit, a model without tool
+ * support): the chat already says what to do. A run that ends because the
+ * provider could not be reached is a report of kind network. The report
+ * names the provider and, for a preset provider, the model; never the key,
+ * the prompt, the base URL, or what the provider answered.
+ */
+function describeBuiltinAgentResult({ result, provider, model, outcome = {}, durationMs, run = "chat" }) {
+  if (outcome.stopped || outcome.quitting) return { event: null };
+  const providerId = BUILTIN_PROVIDERS.has(provider) ? provider : "unknown";
+  const failure = result?.failure && typeof result.failure === "object" ? result.failure : null;
+  const failureCode = BUILTIN_FAILURE_CODE.test(String(failure?.code || "")) ? failure.code : "unknown";
+  const context = {
+    agent: "nextbrowser",
+    provider: providerId,
+    ...(providerId !== "custom" && BUILTIN_MODEL.test(String(model || "")) ? { model: String(model) } : {}),
+    run: RUNS.has(run) ? run : "chat",
+    ...(Number.isFinite(durationMs) ? { duration_ms: String(Math.round(durationMs)) } : {}),
+  };
+  const event = (name, message, extra = {}, kind = "command_failed") => ({
+    source: "agent",
+    kind,
+    name,
+    message,
+    context: { ...context, ...extra },
+    fingerprintExtra: `nextbrowser:${providerId}`,
+  });
+  if (outcome.timedOut) return { event: event("AGENT_TIMED_OUT", "nextbrowser did not finish in time and was stopped") };
+  if (result?.code === 0) {
+    return { event: String(result?.stdout ?? "").trim() ? null : event("AGENT_EMPTY_REPLY", `nextbrowser (${providerId}) answered without a reply`) };
+  }
+  if (!failure) return { event: event("AGENT_STOPPED_UNEXPECTEDLY", "nextbrowser stopped without a failure code", { failure: "unknown" }) };
+  const status = Number.isInteger(failure.status) ? { status: String(failure.status) } : {};
+  if (failureCode === "network") {
+    const networkError = /^[A-Za-z0-9_]{1,40}$/.test(String(failure.networkCode || "")) ? failure.networkCode : "other";
+    return { event: event("BUILTIN_AGENT_NETWORK", `nextbrowser could not reach ${providerId}: ${networkError}`, { network_error: networkError }, "network") };
+  }
+  // Stopping after its step limit is the model's failure, not the user's:
+  // reported, to see which models cannot finish their tasks.
+  if (failure.expected === true && failureCode !== "max_steps") return { event: null };
+  return { event: event(`BUILTIN_AGENT_${failureCode.toUpperCase()}`, `nextbrowser (${providerId}) failed: ${failureCode}${status.status ? ` (HTTP ${status.status})` : ""}`, { failure: failureCode, ...status }) };
+}
+
 /**
  * Describes an agent CLI in a terminal that ended by itself with an error or
  * a crash. A terminal the app closed (Close, leaving the page, quitting) or
@@ -125,5 +175,6 @@ function describeTerminalExit({ agentId, exitCode, signal, uptimeMs, closedByApp
 module.exports = {
   agentFailureReason,
   describeAgentResult,
+  describeBuiltinAgentResult,
   describeTerminalExit,
 };
