@@ -24,6 +24,22 @@ export const CAMOUFOX_PYTHON_VENV_MISSING =
 export const BROWSER_START_FAILED =
   "The browser couldn’t start, so the profile was stopped. This is a problem on our side, not with your setup.";
 
+// Browser profiles connect to their proxy (the NodeMaven gateway) directly:
+// nbc starts the browser with an explicit proxy, and Chromium cannot put a
+// VPN's proxy in front of it. A VPN in system-proxy mode (a proxy on this
+// computer) therefore does not carry the profile's connection, and where the
+// direct path is blocked the start fails with one of these. The same rule and
+// text are in electron/profile-start-failure.cjs.
+export const VPN_SYSTEM_PROXY_HINT =
+  "Your VPN works as a system proxy, and browser profiles connect to their proxy directly. Turn on TUN (VPN) mode in your VPN app, or let gate.nodemaven.com bypass the VPN.";
+const PROXY_PATH_FAILURE =
+  /ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_CONNECTION_FAILED|ERR_CONNECTION_TIMED_OUT|ERR_TIMED_OUT|proxy[^.\n]*(?:refused|unreachable|timed? ?out|timeout)|proxy profile cannot continue without its proxy|proxy[_ ]required|failed browser checks:[^;]*\bproxy\b|Command timed out|did not complete before timeout|context deadline exceeded|did not become ready in time/i;
+
+/** True when a profile start failed the way a blocked path to its proxy fails: a proxy or tunnel error, or a timeout. */
+export function isProxyPathFailure(error: unknown): boolean {
+  return PROXY_PATH_FAILURE.test(rawErrorMessage(error));
+}
+
 // nextctl wraps every failed start of a verified profile in VERIFY_FAILED, so
 // a browser that never got as far as its checks looks like a failed proxy
 // check. The code after "browser stopped:" tells them apart: VERIFY_REQUIRED

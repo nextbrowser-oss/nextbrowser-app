@@ -14,6 +14,7 @@ import { profileRowStatusText } from "../lib/profileRowStatus";
 import { manualProxyDefaultName, manualProxyLimits, parseManualProxyBatch, parseManualProxyClipboard, validateManualProxyFields, type ManualProxyScheme } from "../lib/manualProxy";
 import { actionFailureMessage, internalError } from "../lib/userFacingError";
 import { userFacingBrowserError } from "../lib/userFacingBrowserError";
+import { vpnSystemProxyHint } from "../lib/systemProxyHint";
 import { isProxyTrafficExhaustedError, isProxyTrafficGateMessage, proxyTrafficLaunchRefusedMessage } from "../lib/proxyTraffic";
 import { MULTILOGIN_APP_NOT_RUNNING, MULTILOGIN_TOKEN_EXPIRED, userFacingMultiloginError } from "../lib/userFacingMultiloginError";
 import { openMultiloginApp } from "../lib/multiloginApp";
@@ -215,7 +216,7 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
   // Resolves with the message shown for a failure, or undefined on success.
   const runProfileAction = (label: string, code: string, action: () => Promise<void>): Promise<string | undefined> => {
     setProfileActionError(null);
-    return action().then(() => undefined, (error: unknown) => {
+    return action().then(() => undefined, async (error: unknown) => {
       if (isProxyTrafficExhaustedError(error)) {
         // nextctl refused the launch because the proxy traffic ran out. That
         // is not an internal error: a gated account has to ask in Discord.
@@ -225,7 +226,10 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
       }
       const detail = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
       console.error(`[${code}] ${label}`, detail);
-      const message = actionFailureMessage(label, code, detail);
+      // A VPN in system-proxy mode does not carry the profile's own proxy
+      // connection; when that is the likely cause, say what to change.
+      const hint = code === "PROFILE_START_FAILED" ? await vpnSystemProxyHint(detail) : "";
+      const message = actionFailureMessage(label, code, detail, hint);
       setProfileActionError(message);
       return message;
     });

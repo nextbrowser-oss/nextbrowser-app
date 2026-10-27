@@ -3,7 +3,7 @@ const { mcpProfileScope } = require("./mcp-profile-scope.cjs");
 const { addChatWorkspaceProfile } = require("./chat-profile-scope.cjs");
 const { requireVerificationCapableCLI, verificationFailureDialogOptions, verificationFailureDialogChoice } = require("./verification-policy.cjs");
 const { agentLoginStatus } = require("./agent-login-status.cjs");
-const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage, screen } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage, screen, session, net } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const { createAppUpdateDownload } = require("./app-update-download.cjs");
 const { execFileSync, spawn } = require("node:child_process");
@@ -138,7 +138,9 @@ const { AsyncLocalStorage } = require("node:async_hooks");
 const { createClientErrorReporter, errorReportingAllowed } = require("./client-error-reporter.cjs");
 const { clientEnvironmentAllowed, createClientEnvironment } = require("./client-environment.cjs");
 const { createEnvironmentCollector } = require("./client-environment-collect.cjs");
-const { describeBackendRequest, setBackendClientInfo, setBackendRequestObserver, tracedBackendFetch } = require("./backend-fetch.cjs");
+const { describeBackendRequest, setBackendClientInfo, setBackendRequestObserver, setBackendTransport, tracedBackendFetch } = require("./backend-fetch.cjs");
+const { childProxyEnv, createSystemProxy, describeProxyRoute, isLoopbackProxyList, proxyEnvNames } = require("./system-proxy.cjs");
+const { GATE_HOST, GATE_PORT, createNetworkDiagnostics, wantsNetworkDiagnostics } = require("./network-diagnostics.cjs");
 const { describeNbcResult, isNextctlBinary } = require("./nbc-failure-report.cjs");
 const { describeAgentResult, describeTerminalExit } = require("./agent-failure-report.cjs");
 const { describeInvokeFailure, describeMainFailure } = require("./invoke-failure-report.cjs");
@@ -209,6 +211,57 @@ const nextctlAutomationTraceSupport = new Map();
 // inside it is reported with the action that led to it.
 const reportingContext = new AsyncLocalStorage();
 const appBuildVersion = feedbackBuildContext({ app, execFileSync }).app_version;
+// A report about the network or the proxy carries a snapshot of this
+// computer's network (net_* fields, see network-diagnostics.cjs). The probes
+// run here in the main process, only for a report the reporter accepted (so
+// only with reporting on), and at most once a minute: later reports reuse the
+// snapshot.
+const networkDiagnostics = createNetworkDiagnostics({
+  resolveProxyImpl: (url) => session.defaultSession.resolveProxy(url),
+});
+// Backend calls, error reports and downloads of the app's own files follow
+// the system proxy like the app window does (see system-proxy.cjs): with a
+// proxy they go through Electron's net.fetch, without one through Node's.
+const systemProxy = createSystemProxy({
+  resolveProxy: (url) => session.defaultSession.resolveProxy(url),
+  netFetch: (url, init) => net.fetch(url, init),
+  log: (line) => console.log(line),
+});
+setBackendTransport(systemProxy.fetch);
+// nbc (Go) and the agent CLIs read only proxy variables, never the system
+// proxy, so child processes get the proxy Chromium resolves for the API unless
+// the user set their own (system-proxy.cjs childProxyEnv). childEnv() is
+// synchronous: the value is refreshed before every command run(), when the
+// app is ready and every minute, and read from here.
+let systemProxyEnv = {};
+async function refreshSystemProxyEnv() {
+  try {
+    const { value: route, failed } = await systemProxy.route(runtimeAPIBaseURL(process.env));
+    if (failed) return systemProxyEnv;
+    const next = childProxyEnv(process.env, route);
+    if (JSON.stringify(next) !== JSON.stringify(systemProxyEnv)) {
+      console.log(Object.keys(next).length
+        ? `[network] nbc and agents get ${Object.keys(next).filter((name) => name !== "NO_PROXY").join(", ")} for the system proxy (${describeProxyRoute(route)})`
+        : "[network] nbc and agents no longer get a system proxy");
+    }
+    systemProxyEnv = next;
+  } catch {
+    // A failed lookup keeps the last value.
+  }
+  return systemProxyEnv;
+}
+/**
+ * Whether the system proxy runs on this computer (a VPN app in system-proxy
+ * mode), judged by Chromium's proxy for the NodeMaven gateway or our API.
+ * Browser profiles bypass such a proxy; see profile-start-failure.cjs.
+ */
+async function systemProxyIsLoopback() {
+  const routes = await Promise.all([
+    systemProxy.route(`http://${GATE_HOST}:${GATE_PORT}`),
+    systemProxy.route(runtimeAPIBaseURL(process.env)),
+  ]);
+  return routes.some((route) => !route.failed && isLoopbackProxyList(route.value));
+}
 const errorReporter = createClientErrorReporter({
   dir: path.join(app.getPath("userData"), "client-errors"),
   allowed: errorReportingAllowed({ isDevBuild }),
@@ -221,6 +274,8 @@ const errorReporter = createClientErrorReporter({
   homeDir: os.homedir(),
   resolveEndpoint: runtimeBackendEndpoint,
   getAction: () => reportingContext.getStore()?.action,
+  fetchImpl: (...args) => systemProxy.fetch(...args),
+  enrich: (event) => (wantsNetworkDiagnostics(event) ? networkDiagnostics.snapshot() : undefined),
 });
 const backendFetch = tracedBackendFetch();
 setBackendClientInfo({ name: "nextbrowser-app", version: app.getVersion() });
@@ -371,6 +426,9 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "", workspace
     "NBC_SKILL_SERVICE",
     "CLAWBROWSER_API_BASE_URL",
     ...(automationTraceFile ? ["NEXTBROWSER_AUTOMATION_TRACE_FILE"] : []),
+    // Codex gives an MCP server only the variables listed here, so nbc mcp
+    // needs the proxy variables (the user's, or the system proxy's) named.
+    ...proxyEnvNames(runtimeEnv),
   ];
   const mcpEnv = `{${mcpEnvKeys.map((key) => `${key}=${JSON.stringify(runtimeEnv[key])}`).join(",")}}`;
   return [
@@ -528,6 +586,7 @@ function childEnv(extra = {}) {
   });
   return {
     ...process.env,
+    ...systemProxyEnv,
     // The managed CLI is intentionally outside the user's global PATH. Agent
     // terminals still need to resolve `nextctl` exactly like app-owned calls.
     PATH: [...new Set(commandPaths)].join(path.delimiter),
@@ -564,6 +623,7 @@ function commandSpec(binary, args) {
   return { file: binary, args };
 }
 async function run(binary, args, extraEnv = {}, options = {}) {
+  await refreshSystemProxyEnv();
   const spec = commandSpec(binary, args);
   const observed = isNextctlBinary(binary);
   const startedAt = Date.now();
@@ -692,7 +752,7 @@ function findNextctlInTree(root) {
   return findBinaryUnderRoots("nextctl", [root]) || findBinaryUnderRoots("nbc", [root]);
 }
 async function downloadFile(url, target, options = {}) {
-  const response = await fetch(url, { signal: options.signal });
+  const response = await systemProxy.fetch(url, { signal: options.signal });
   if (!response.ok) throw new Error(`Download failed (${response.status})`);
   const buffer = Buffer.from(await response.arrayBuffer());
   await fs.writeFile(target, buffer);
@@ -855,8 +915,9 @@ function sendControlResponse(response, status, body) {
 // message and keeps the raw nextctl result under diagnostics. The same Ref
 // is written to profile-start.log beside crash.log and sent in the error
 // report, so support can find it.
-function sendHostProfileFailure(response, { action, profile, runtime, startedAt }, { result, error }) {
-  const failure = describeProfileStartFailure({ action, profile, runtime, result, error, durationMs: Date.now() - startedAt });
+async function sendHostProfileFailure(response, { action, profile, runtime, startedAt }, { result, error }) {
+  const loopbackSystemProxy = action === "start" ? await systemProxyIsLoopback().catch(() => false) : false;
+  const failure = describeProfileStartFailure({ action, profile, runtime, result, error, durationMs: Date.now() - startedAt, loopbackSystemProxy });
   reportDescribed(() => describeProfileFailureEvent(failure));
   const logFile = logProfileStartFailure(dataDir(), failure, {
     appVersion: app.getVersion(),
@@ -1014,7 +1075,7 @@ async function ensureAgentControlServer() {
         action, "--profile", profile, "--runtime", profileAccess.runtime, "--format", "json",
       ], { timeoutMs: 240_000 });
       if (result.code !== 0) {
-        sendHostProfileFailure(response, hostProfile, { result });
+        await sendHostProfileFailure(response, hostProfile, { result });
         return;
       }
       if (action === "start") agentControlProfileOwners.set(profile, profileAccess.conversationId);
@@ -1030,7 +1091,11 @@ async function ensureAgentControlServer() {
       });
     })().catch((error) => {
       if (response.headersSent) return;
-      if (hostProfile) sendHostProfileFailure(response, hostProfile, { error });
+      if (hostProfile) {
+        void sendHostProfileFailure(response, hostProfile, { error }).catch(() => {
+          if (!response.headersSent) sendControlResponse(response, 500, { ok: false, error: "start_failed" });
+        });
+      }
       else {
         reportInvokeFailure(controlAction, error);
         sendControlResponse(response, 500, { ok: false, error: error?.message || "start_failed" });
@@ -1094,7 +1159,7 @@ async function officialDasbrowserDownloadUrl(options = {}) {
   const fallback = DASBROWSER_DOWNLOADS[process.platform];
   if (!fallback) throw new Error(`DasBrowser is not available for ${process.platform}.`);
   try {
-    const response = await fetch("https://www.dasbrowser.com/download", { signal: options.signal });
+    const response = await systemProxy.fetch("https://www.dasbrowser.com/download", { signal: options.signal });
     if (!response.ok) return fallback;
     const html = await response.text();
     return officialDasbrowserURLFromHTML(html, process.platform, fallback);
@@ -1611,7 +1676,7 @@ async function checkForBrowserRuntimeUpdates() {
     status: "checking",
   });
   browserRuntimeUpdateCheckPromise = checkBrowserRuntimeUpdates({
-    fetchImpl: fetch,
+    fetchImpl: systemProxy.fetch,
     runtimeRoot: nextbrowserRuntimeRoot(),
     clawbrowserExecutable,
     platform: process.platform,
@@ -1646,7 +1711,7 @@ function camoufoxVenvPython() {
     : path.join(venv, "bin", "python");
 }
 async function downloadFileStreaming(url, target) {
-  const response = await fetch(url, {
+  const response = await systemProxy.fetch(url, {
     headers: { "User-Agent": "Nextbrowser-runtime-updater" },
     signal: AbortSignal.timeout(60 * 60 * 1000),
   });
@@ -2126,6 +2191,9 @@ async function invokeCommand(command, args = {}, sender) {
       await shell.openExternal(MULTILOGIN_DOWNLOAD_URL);
       return { launched: false, url: MULTILOGIN_DOWNLOAD_URL };
     }
+    // Whether a VPN runs as a system proxy on this computer, for the hint on
+    // a failed profile start (src/lib/systemProxyHint.ts).
+    case "system_proxy_status": return { loopback: await systemProxyIsLoopback().catch(() => false) };
     case "manual_proxies_list": return await listPersonalProxies({ env: childEnv() });
     case "manual_proxy_save": return await createPersonalProxy(args.proxy, { env: childEnv() });
     case "manual_proxy_delete": return await deletePersonalProxy(args.id, { env: childEnv() });
@@ -3334,6 +3402,8 @@ if (!gotLock) {
     startAutoUpdater();
     startBrowserRuntimeUpdateChecks();
     clientEnvironment.start();
+    void refreshSystemProxyEnv();
+    setInterval(() => { void refreshSystemProxyEnv(); }, 60_000).unref?.();
     app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
   });
 }
