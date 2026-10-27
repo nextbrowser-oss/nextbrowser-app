@@ -24,7 +24,7 @@ const MESSAGE_CODE = /\[([A-Z][A-Z0-9_]{2,63})\]|^([A-Z][A-Z0-9]*_[A-Z0-9_]{2,62
 const CANCELLED = /^(?:Command cancelled|Automation execution was cancelled)\b/i;
 // Electron's own network stack names an offline machine this way.
 const OFFLINE_NET_ERROR = /ERR_INTERNET_DISCONNECTED|ERR_NAME_NOT_RESOLVED|ERR_NETWORK_IO_SUSPENDED/;
-const SENSITIVE_COMMANDS = /^(?:manual_proxy_\w+|pairing_\w+|app_data_\w+|write_\w+_skill|multilogin_connect|feedback_submit|read_file|workspace_file_read|terminal_input|agent_run|workflow_author_run)$/;
+const SENSITIVE_COMMANDS = /^(?:manual_proxy_\w+|pairing_\w+|app_data_\w+|write_\w+_skill|multilogin_connect|feedback_submit|read_file|workspace_file_read|terminal_input|agent_run|workflow_author_run|builtin_agent_\w+)$/;
 const URL_PATTERN = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>`)\]]+/gi;
 const BUILTIN_ERRORS = new Set(["SyntaxError", "TypeError", "RangeError", "ReferenceError", "URIError", "EvalError"]);
 const BUILTIN_MESSAGE_LIMIT = 200;

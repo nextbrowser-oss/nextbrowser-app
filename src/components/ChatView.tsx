@@ -50,7 +50,7 @@ async function authorWorkflowWithAgent(agent: AgentSpec, workingDir: string, fal
       : invocation;
   try {
     const result = await invoke<{ code: number; stdout: string }>("workflow_author_run", {
-      binary: agent.binary, envVar: agent.envVar, args,
+      agentId: agent.id, binary: agent.binary, envVar: agent.envVar, args,
       stdinText: stdin ?? null, workingDir: workingDir || null,
     });
     return result.code === 0 ? parseDistilledWorkflow(result.stdout, fallback) : undefined;

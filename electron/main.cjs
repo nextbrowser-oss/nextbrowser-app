@@ -142,7 +142,11 @@ const { describeBackendRequest, setBackendClientInfo, setBackendRequestObserver,
 const { childProxyEnv, createSystemProxy, describeProxyRoute, isLoopbackProxyList, proxyEnvNames } = require("./system-proxy.cjs");
 const { GATE_HOST, GATE_PORT, createNetworkDiagnostics, wantsNetworkDiagnostics } = require("./network-diagnostics.cjs");
 const { describeNbcResult, isNextctlBinary } = require("./nbc-failure-report.cjs");
-const { describeAgentResult, describeTerminalExit } = require("./agent-failure-report.cjs");
+const { describeAgentResult, describeBuiltinAgentResult, describeTerminalExit } = require("./agent-failure-report.cjs");
+const { BUILTIN_AGENT_ID } = require("./builtin-agent.cjs");
+const { BUILTIN_AGENT_SETTINGS_KEY, parseBuiltinAgentSettings, runBuiltinAgentTurn } = require("./builtin-agent-run.cjs");
+const { PROVIDERS: BUILTIN_AGENT_PROVIDERS, ProviderError, cleanModelId, createProviderClient, defaultModelFor, normalizeBaseURL, offeredModels, resolveProviderSettings, testProvider } = require("./builtin-agent-providers.cjs");
+const { createBuiltinAgentKeyStore } = require("./builtin-agent-credential.cjs");
 const { describeInvokeFailure, describeMainFailure } = require("./invoke-failure-report.cjs");
 const { describeAutomationResult } = require("./automation-failure-report.cjs");
 const { userError } = require("./user-error.cjs");
@@ -152,6 +156,9 @@ const children = new Map();
 // app stopped because they took too long are a failure of their own.
 const stoppedAgentRuns = new Set();
 const timedOutAgentRuns = new Set();
+// Runs of the built-in Nextbrowser agent, by reply ID. It has no process to
+// kill: Stop aborts its controller.
+const builtinAgentRuns = new Map();
 const terminals = new Map();
 
 function killTerminalsForWebContents(webContentsId) {
@@ -358,6 +365,123 @@ function reportDescribed(describe) {
     if (event) errorReporter.capture(event);
   } catch {
     // Reporting never changes the outcome.
+  }
+}
+// The built-in Nextbrowser agent (builtin-agent*.cjs). Its provider, base URL
+// and model live in the app settings file (builtin_agent_settings_save); its
+// API keys in their own encrypted file, which only this process reads.
+let builtinAgentKeyStore = null;
+function builtinAgentKeys() {
+  builtinAgentKeyStore ??= createBuiltinAgentKeyStore({
+    safeStorage,
+    filePath: path.join(dataDir(), "credentials", "builtin-agent.json"),
+  });
+  return builtinAgentKeyStore;
+}
+function builtinAgentSettings() {
+  return parseBuiltinAgentSettings(appSettings().snapshot().values[BUILTIN_AGENT_SETTINGS_KEY]);
+}
+/** What the setup shows: the saved settings, which providers have a key, and whether the agent can run. */
+async function builtinAgentStatus() {
+  const settings = builtinAgentSettings();
+  const [keys, secureStorage] = await Promise.all([
+    builtinAgentKeys().saved().catch(() => ({})),
+    builtinAgentKeys().available().catch(() => false),
+  ]);
+  let resolved;
+  try { resolved = resolveProviderSettings(settings); } catch { resolved = undefined; }
+  const preset = BUILTIN_AGENT_PROVIDERS[settings.provider];
+  const problem = !preset
+    ? "Choose a model provider and add its key."
+    : preset.keyRequired && !keys[preset.id]
+      ? `Add your ${preset.name} API key.`
+      : preset.id === "custom" && !normalizeBaseURL(settings.baseURL)
+        ? "Enter your provider's base URL."
+        : !resolved ? "Pick a model." : "";
+  return {
+    settings,
+    keys,
+    secureStorage,
+    configured: !problem,
+    problem,
+    ...(resolved ? { providerName: resolved.providerName, model: resolved.model } : {}),
+  };
+}
+/**
+ * The provider client the setup's model list and Test use: the provider the
+ * user is choosing, which need not be saved yet, with its saved key.
+ */
+async function builtinAgentSetupClient(args) {
+  const preset = BUILTIN_AGENT_PROVIDERS[args.provider];
+  if (!preset) throw userError("Choose a provider.");
+  const baseURL = preset.id === "custom" ? normalizeBaseURL(args.baseURL) : preset.baseURL;
+  if (!baseURL) throw userError("Enter the provider's base URL, such as http://localhost:11434/v1.");
+  const apiKey = await builtinAgentKeys().load(preset.id);
+  if (preset.keyRequired && !apiKey) throw userError(`Add your ${preset.name} API key first.`);
+  return {
+    preset,
+    client: createProviderClient({ provider: preset.id, providerName: preset.name, baseURL, apiKey, fetchImpl: (...request) => systemProxy.fetch(...request) }),
+  };
+}
+/**
+ * Runs one turn of the built-in agent in this process and reports it like an
+ * agent CLI run. `mcpEnv` is the environment of its `nbc mcp`; a plain run
+ * starts none.
+ */
+async function runBuiltinAgent({ replyId, prompt, plain, run, mcpEnv, defaultProfile = "", onStep, limits }) {
+  const controller = new AbortController();
+  builtinAgentRuns.set(replyId, controller);
+  const startedAt = Date.now();
+  const settings = builtinAgentSettings();
+  try {
+    let mcp;
+    if (!plain) {
+      // The CLI install has its own status and reports; here it only decides
+      // whether the agent gets browser tools.
+      let binary = "";
+      let setupError;
+      try { binary = await resolveOrInstallNextctl(); } catch (error) { setupError = error; }
+      if (!binary) {
+        const reason = setupError instanceof Error && setupError.message
+          ? `The Nextbrowser agent cannot use the browser yet. ${setupError.message}`
+          : "Nextbrowser's browser tools are not installed yet. Wait for the setup to finish, then try again.";
+        return { status: "failed", code: 1, stdout: "", stderr: reason, reason, failure: { code: "tools_unavailable", expected: true } };
+      }
+      const requestedTraceFile = activeAutomationTraceFile();
+      const traceFile = requestedTraceFile && await nextctlHasAutomationTrace(binary) ? requestedTraceFile : "";
+      await refreshSystemProxyEnv();
+      mcp = {
+        binary,
+        args: ["--verify-on-start-only", "mcp", ...(traceFile ? ["--automation-trace-file", traceFile] : [])],
+        env: childEnv({ ...mcpEnv, ...(traceFile ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: traceFile } : {}) }),
+        onRunnerExit: reportRunnerExit,
+      };
+    }
+    const result = await runBuiltinAgentTurn({
+      settings,
+      loadKey: (provider) => builtinAgentKeys().load(provider),
+      prompt,
+      plain,
+      mcp,
+      defaultProfile,
+      fetchImpl: (...request) => systemProxy.fetch(...request),
+      signal: controller.signal,
+      onStep,
+      limits,
+    });
+    reportDescribed(() => describeBuiltinAgentResult({
+      result,
+      provider: result.provider || settings.provider,
+      model: result.model || settings.model,
+      run,
+      durationMs: Date.now() - startedAt,
+      outcome: { stopped: stoppedAgentRuns.delete(replyId), timedOut: timedOutAgentRuns.delete(replyId), quitting: appQuitting },
+    }));
+    return result;
+  } finally {
+    builtinAgentRuns.delete(replyId);
+    stoppedAgentRuns.delete(replyId);
+    timedOutAgentRuns.delete(replyId);
   }
 }
 /** Reports a failed IPC command or agent control request; the caller rethrows or answers it. */
@@ -2424,6 +2548,48 @@ async function invokeCommand(command, args = {}, sender) {
       if (sender && !sender.isDestroyed()) sender.setZoomFactor(factor);
       return null;
     }
+    case "builtin_agent_status": return await builtinAgentStatus();
+    // Written here, not by the window's settings cache, so that the next run
+    // and the status right after it read the new choice.
+    case "builtin_agent_settings_save": {
+      const preset = BUILTIN_AGENT_PROVIDERS[args.provider];
+      if (!preset) throw userError("Choose a provider.");
+      const baseURL = preset.id === "custom" ? normalizeBaseURL(args.baseURL) : "";
+      if (preset.id === "custom" && !baseURL) throw userError("Enter the provider's base URL, such as http://localhost:11434/v1. Put a key in the key field, not in the URL.");
+      const model = cleanModelId(args.model);
+      if (!model) throw userError("Pick a model.");
+      await appSettings().update({ values: { [BUILTIN_AGENT_SETTINGS_KEY]: JSON.stringify({ provider: preset.id, baseURL, model }) } });
+      return await builtinAgentStatus();
+    }
+    case "builtin_agent_key_save": {
+      const preset = BUILTIN_AGENT_PROVIDERS[args.provider];
+      if (!preset) throw userError("Choose a provider.");
+      await builtinAgentKeys().save(preset.id, args.key);
+      return await builtinAgentStatus();
+    }
+    case "builtin_agent_key_clear": {
+      const preset = BUILTIN_AGENT_PROVIDERS[args.provider];
+      if (!preset) throw userError("Choose a provider.");
+      await builtinAgentKeys().clear(preset.id);
+      return await builtinAgentStatus();
+    }
+    // A provider's answers are results here, not failures: the setup shows them.
+    case "builtin_agent_models": {
+      const { preset, client } = await builtinAgentSetupClient(args);
+      try {
+        const listed = await client.listModels();
+        return { models: offeredModels(preset.id, listed), defaultModel: defaultModelFor(preset.id, listed) };
+      } catch (error) {
+        if (!(error instanceof ProviderError)) throw error;
+        return { models: [], defaultModel: defaultModelFor(preset.id, []), error: error.message, code: error.code };
+      }
+    }
+    case "builtin_agent_test": {
+      const { preset, client } = await builtinAgentSetupClient(args);
+      const model = cleanModelId(args.model);
+      if (!model) throw userError("Pick a model first.");
+      return await testProvider({ client, model, providerName: preset.name });
+    }
     case "agent_authorize": {
       const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw userError(`${args.binary} executable not found.`);
       const r = await run(bin, ["--version"]); if (r.code !== 0) throw new Error(`${args.binary} is not ready: ${(r.stdout + r.stderr).trim()}`);
@@ -2780,7 +2946,10 @@ async function invokeCommand(command, args = {}, sender) {
       }
     }
     case "agent_run": {
-      const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw userError(`${args.binary} executable not found.`);
+      // The built-in Nextbrowser agent runs in this process: no CLI to find.
+      const builtin = args.agentId === BUILTIN_AGENT_ID;
+      const bin = builtin ? "" : resolveBinary(args.binary, args.envVar);
+      if (!builtin && !bin) throw userError(`${args.binary} executable not found.`);
       const conversationId = String(args.conversationId || "");
       const controlToken = randomUUID();
       const controlURL = await ensureAgentControlServer();
@@ -2816,7 +2985,7 @@ async function invokeCommand(command, args = {}, sender) {
         multiloginSelection: args.multiloginSelection, update: Promise.resolve(),
       });
       const cwd = plain ? await plainRunDir() : args.workingDir;
-      if (!plain && args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
+      if (!plain && !builtin && args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
       let agentArgs = args.args || [];
       if (!plain && args.agentId === "codex") {
         await ensureCodexTerminalProfile();
@@ -2828,7 +2997,6 @@ async function invokeCommand(command, args = {}, sender) {
           : "";
         agentArgs = [...codexClawbrowserMCPArgs(nextctlBin, supportedTraceFile, String(args.workspaceId || "")), ...agentArgs];
       }
-      const spec = commandSpec(bin, agentArgs);
       const emitStep = (step) => { if (step) emit("agent:step", [args.replyId, step]); };
       const emitText = (text) => emit("agent:chunk", [args.replyId, text]);
       const claudeStream = args.stepFormat === "claude-stream-json"
@@ -2837,6 +3005,35 @@ async function invokeCommand(command, args = {}, sender) {
       const codexSteps = args.stepFormat === "codex-stderr" ? createCodexStepDecoder({ onStep: emitStep }) : null;
       const startedAt = Date.now();
       try {
+        if (builtin) {
+          const browserProfiles = Array.isArray(args.browserProfiles) ? args.browserProfiles : [];
+          const selected = browserProfiles.find((item) => item?.selected === true && profileScope.has(item.name));
+          const result = await runBuiltinAgent({
+            replyId: args.replyId,
+            prompt: String(args.stdinText ?? ""),
+            plain,
+            run: plain ? "plain" : "chat",
+            mcpEnv: {
+              NEXTBROWSER_CONTROL_URL: controlURL,
+              NEXTBROWSER_WORKSPACE_ID: String(args.workspaceId || ""),
+              NEXTBROWSER_CONTROL_TOKEN: controlToken,
+              NEXTBROWSER_ALLOWED_PROFILES_JSON: JSON.stringify(mcpProfileScope(profileScope, args.multiloginSelection)),
+              NEXTBROWSER_PROFILE_SCOPE_FILE: profileScopeFile,
+            },
+            // The chat's profile, for a page tool the model calls without one:
+            // the selected Multilogin profile's session, the selected profile,
+            // or the only one.
+            defaultProfile: args.multiloginSelection
+              ? Object.keys(mcpProfileScope(new Map(), args.multiloginSelection)).find((name) => name.startsWith("mlx-browser-")) || ""
+              : selected?.name || (profileScope.size === 1 ? [...profileScope.keys()][0] : ""),
+            onStep: emitStep,
+            ...(plain ? { limits: { runTimeoutMs: 5 * 60_000 } } : {}),
+          });
+          if (result.stdout) emitText(result.stdout);
+          emit("agent:done", [args.replyId, result.code, result.stderr, result.stdout, result.reason, result.failure]);
+          return { code: result.code, stdout: result.stdout, stderr: result.stderr, reason: result.reason, failure: result.failure };
+        }
+        const spec = commandSpec(bin, agentArgs);
         return await runAgentProcess({
           spawnProcess: spawn,
           file: spec.file,
@@ -2884,6 +3081,17 @@ async function invokeCommand(command, args = {}, sender) {
       }
     }
     case "workflow_author_run": {
+      if (args.agentId === BUILTIN_AGENT_ID) {
+        // A one-shot text answer: no browser tools, no workspace.
+        const result = await runBuiltinAgent({
+          replyId: `author-${randomUUID()}`,
+          prompt: String(args.stdinText ?? ""),
+          plain: true,
+          run: "workflow_author",
+          limits: { runTimeoutMs: 120_000 },
+        });
+        return { code: result.code, stdout: result.stdout, stderr: result.stderr };
+      }
       const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw userError(`${args.binary} executable not found.`);
       const spec = commandSpec(bin, args.args || []);
       const startedAt = Date.now();
@@ -2917,6 +3125,13 @@ async function invokeCommand(command, args = {}, sender) {
       });
     }
     case "agent_terminate": {
+      const builtinRun = builtinAgentRuns.get(args.replyId);
+      if (builtinRun) {
+        if (args.reason === "timeout") timedOutAgentRuns.add(args.replyId);
+        else stoppedAgentRuns.add(args.replyId);
+        builtinRun.abort();
+        return null;
+      }
       const child = children.get(args.replyId);
       if (child) {
         // The app's own time limits pass reason "timeout": that run failed,
@@ -3429,6 +3644,7 @@ app.on("before-quit", (event) => {
   for (const socket of remoteSignalSockets.values()) socket.close();
   remoteSignalSockets.clear();
   for (const child of children.values()) child.kill();
+  for (const run of builtinAgentRuns.values()) run.abort();
   for (const terminal of terminals.values()) terminal.process.kill();
   terminals.clear();
   agentControlScopes.clear();

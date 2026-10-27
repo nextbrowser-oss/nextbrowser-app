@@ -684,3 +684,37 @@ test("Test tells a rate limit and an unreachable provider apart", async () => {
   assert.equal(unreachable.code, "network");
   assert.equal(unreachable.key, "unknown");
 });
+
+test("the setup's provider list matches the providers the main process calls", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const { PROVIDERS } = require("./builtin-agent-providers.cjs");
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "lib", "builtinAgent.ts"), "utf8");
+  for (const provider of Object.values(PROVIDERS)) {
+    assert.match(source, new RegExp(`id: "${provider.id}",\\s+name: "[^"]+",\\s+baseURL: "${provider.baseURL.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}"`), provider.id);
+  }
+});
+
+test("the main process runs the built-in agent in-process, stops it, and keeps its key to itself", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  const agentRun = main.slice(main.indexOf('case "agent_run": {'), main.indexOf('case "workflow_author_run": {'));
+  // No CLI to resolve, the same events as an agent CLI, and the same scope cleanup.
+  assert.match(agentRun, /const builtin = args\.agentId === BUILTIN_AGENT_ID;\s+const bin = builtin \? "" : resolveBinary/);
+  assert.match(agentRun, /emit\("agent:done", \[args\.replyId, result\.code, result\.stderr, result\.stdout, result\.reason, result\.failure\]\)/);
+  assert.ok(agentRun.indexOf("if (builtin) {") < agentRun.indexOf("} finally {"), "the built-in run shares the CLI run's finally block");
+  const terminate = main.slice(main.indexOf('case "agent_terminate": {'), main.indexOf('case "terminal_start": {'));
+  assert.match(terminate, /builtinAgentRuns\.get\(args\.replyId\)[\s\S]*builtinRun\.abort\(\)/);
+  assert.match(main, /for \(const run of builtinAgentRuns\.values\(\)\) run\.abort\(\);/);
+  assert.match(main, /case "workflow_author_run": \{\s+if \(args\.agentId === BUILTIN_AGENT_ID\)/);
+  for (const command of ["builtin_agent_status", "builtin_agent_settings_save", "builtin_agent_key_save", "builtin_agent_key_clear", "builtin_agent_models", "builtin_agent_test"]) {
+    assert.ok(main.includes(`case "${command}":`), command);
+  }
+  // The status the window gets says which providers have a key, never the key.
+  const status = main.slice(main.indexOf("async function builtinAgentStatus()"), main.indexOf("async function builtinAgentSetupClient"));
+  assert.ok(!status.includes(".load("), "the status never decrypts a key");
+  assert.ok(!/console\.\w+\([^)]*(?:apiKey|builtinAgentKeys)/.test(main), "no key is logged");
+  const { describeInvokeFailure } = require("./invoke-failure-report.cjs");
+  assert.equal(describeInvokeFailure({ command: "builtin_agent_key_save", error: new Error(`bad ${SECRET}`) }).event.message.includes("TOPSECRET"), false);
+});
