@@ -6,7 +6,8 @@ import { MarkdownText } from "./MarkdownText";
 import { Icon, Spinner } from "./Icon";
 import type { ChatAttachment, ChatMessage } from "../types";
 import { filePathForFile, invoke } from "../electronBridge";
-import { AGENTS, agentById, agentInvocation, type AgentSpec } from "../agents";
+import { AGENTS, agentById, agentInvocation, agentSupportsTerminal, isBuiltinAgent, type AgentSpec } from "../agents";
+import { OPEN_AGENT_SETTINGS_EVENT } from "../lib/appNavigation";
 import { trackEvent } from "../lib/analytics";
 import { needsSupportLink } from "../lib/userFacingError";
 import { userFacingBrowserError } from "../lib/userFacingBrowserError";
@@ -97,6 +98,10 @@ function errorSummary(text: string): string {
 export function ChatView() {
   const s = useStore();
   const agentId = s.agentId;
+  // The built-in Nextbrowser agent has no terminal: its projects stay in Chat.
+  const terminalAvailable = agentSupportsTerminal(agentId);
+  const terminalChat = s.terminalChat && terminalAvailable;
+  const builtinAgent = isBuiltinAgent(agentId);
   const conv = s.activeConversation();
   const messages = conv?.messages ?? [];
   const remoteOnly = conv?.executionTarget === "vps";
@@ -127,7 +132,7 @@ export function ChatView() {
   const [workflowDraft, setWorkflowDraft] = useState<{ task: string; answer: ChatMessage; prepared: DistilledWorkflow } | null>(null);
   const [preparingWorkflowId, setPreparingWorkflowId] = useState<string | null>(null);
   const [workflowRejection, setWorkflowRejection] = useState<string | null>(null);
-  const [terminalMounted, setTerminalMounted] = useState(s.terminalChat);
+  const [terminalMounted, setTerminalMounted] = useState(terminalChat);
   const [terminalHandoff, setTerminalHandoff] = useState<{ id: string; text: string }>();
   const [terminalToChatRequest, setTerminalToChatRequest] = useState<string>();
   const [pendingTerminalContext, setPendingTerminalContext] = useState<PendingChatContext>();
@@ -160,7 +165,7 @@ export function ChatView() {
     window.addEventListener("keydown", dismissProjectCreator);
     return () => window.removeEventListener("keydown", dismissProjectCreator);
   }, [projectCreatorOpen]);
-  const previousTerminalChat = useRef(s.terminalChat);
+  const previousTerminalChat = useRef(terminalChat);
   const chatMessagesSharedWithTerminal = useRef(new Map<string, number>());
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -180,8 +185,8 @@ export function ChatView() {
     setWorkflowDraft(null);
     setWorkflowRejection(null);
     // Opening another project is not a chat/terminal handoff.
-    previousTerminalChat.current = s.terminalChat;
-    setTerminalMounted(s.terminalChat);
+    previousTerminalChat.current = terminalChat;
+    setTerminalMounted(terminalChat);
   }, [conversationKey]);
 
   useEffect(() => {
@@ -228,8 +233,8 @@ export function ChatView() {
 
   useEffect(() => {
     const wasTerminalChat = previousTerminalChat.current;
-    previousTerminalChat.current = s.terminalChat;
-    if (s.terminalChat) {
+    previousTerminalChat.current = terminalChat;
+    if (terminalChat) {
       setTerminalMounted(true);
       const sharedCount = chatMessagesSharedWithTerminal.current.get(conversationKey) ?? 0;
       if (!wasTerminalChat && messages.length > sharedCount) {
@@ -240,7 +245,7 @@ export function ChatView() {
       return;
     }
     if (wasTerminalChat && terminalMounted) setTerminalToChatRequest(uid());
-  }, [s.terminalChat, terminalMounted, agentId, conv?.id, messages.length, s.selectedProfile]);
+  }, [terminalChat, terminalMounted, agentId, conv?.id, messages.length, s.selectedProfile]);
 
   useEffect(() => {
     const stageDraft = (value: string) => {
@@ -357,6 +362,7 @@ export function ChatView() {
 
   const agentSpec = agentById(agentId);
   const agentName = agentSpec.name;
+  const openAgentSettings = () => window.dispatchEvent(new CustomEvent(OPEN_AGENT_SETTINGS_EVENT));
   const prepareWorkflow = async (task: string, answer: ChatMessage, sourceId: string) => {
     if (preparingWorkflowId) return;
     setPreparingWorkflowId(sourceId);
@@ -407,17 +413,18 @@ export function ChatView() {
           )}
           <div className="chat-mode-toggle" role="group" aria-label="Project chat mode">
             <button
-              className={s.terminalChat ? "active" : ""}
-              aria-pressed={s.terminalChat}
-              title="Open terminal chat"
+              className={terminalChat ? "active" : ""}
+              aria-pressed={terminalChat}
+              title={terminalAvailable ? "Open terminal chat" : `${agentName} has no terminal; it works in Chat`}
+              disabled={!terminalAvailable}
               onClick={() => s.setTerminalChat(true)}
             >
               <Icon name="terminal" size={12} />
               Terminal
             </button>
             <button
-              className={!s.terminalChat ? "active" : ""}
-              aria-pressed={!s.terminalChat}
+              className={!terminalChat ? "active" : ""}
+              aria-pressed={!terminalChat}
               title="Open regular chat"
               onClick={() => s.setTerminalChat(false)}
             >
@@ -454,7 +461,7 @@ export function ChatView() {
         <hr className="divider" />
 
         {terminalMounted && (
-          <div className={"terminal-chat-layer" + (s.terminalChat ? "" : " is-hidden")} aria-hidden={!s.terminalChat}>
+          <div className={"terminal-chat-layer" + (terminalChat ? "" : " is-hidden")} aria-hidden={!terminalChat}>
             <AgentTerminal
               multiloginSelection={multiloginSelection}
               agentId={agentId}
@@ -514,7 +521,7 @@ export function ChatView() {
             />
           </div>
         )}
-        {!s.terminalChat && (
+        {!terminalChat && (
           <>
         <div className="messages">
           {messages.length === 0 && (
@@ -543,7 +550,17 @@ export function ChatView() {
                 </label>
               )}
               <div className="empty-actions">
-                {!ready && (
+                {!ready && builtinAgent && (
+                  <button
+                    className="btn-bordered-prominent"
+                    title="Choose a model provider and add its key"
+                    onClick={openAgentSettings}
+                  >
+                    <Icon name="bolt.fill" size={14} />
+                    Set up {agentName}
+                  </button>
+                )}
+                {!ready && !builtinAgent && (
                   <button
                     className="btn-bordered-prominent"
                     title={agentNeedsLogin ? `Log in to ${agentName}` : "Connect the selected agent CLI"}
@@ -651,14 +668,18 @@ export function ChatView() {
         <hr className="divider" />
         {!ready && messages.length > 0 && (
           <div className="chat-agent-error small" role="status">
-            <span>{agentName} · {agentNeedsLogin ? "Sign-in required" : "Not connected"}</span>{" "}
-            <button className="btn-bordered" disabled={s.runtime[agentId]?.authorizing}
-              onClick={() => agentNeedsLogin ? s.loginAgent() : s.authorizeAgent()}>
-              {s.runtime[agentId]?.authorizing ? "Checking…" : agentNeedsLogin ? `Sign in to ${agentName}` : `Connect ${agentName}`}
-            </button>
+            <span>{agentName} · {agentNeedsLogin ? "Sign-in required" : builtinAgent ? "Not set up" : "Not connected"}</span>{" "}
+            {builtinAgent ? (
+              <button className="btn-bordered" onClick={openAgentSettings}>Set up {agentName}</button>
+            ) : (
+              <button className="btn-bordered" disabled={s.runtime[agentId]?.authorizing}
+                onClick={() => agentNeedsLogin ? s.loginAgent() : s.authorizeAgent()}>
+                {s.runtime[agentId]?.authorizing ? "Checking…" : agentNeedsLogin ? `Sign in to ${agentName}` : `Connect ${agentName}`}
+              </button>
+            )}
           </div>
         )}
-        {!ready && agentError && (messages.length > 0 || s.terminalChat) && (
+        {!ready && agentError && (messages.length > 0 || terminalChat) && (
           <div className="chat-agent-error error small">
             <UserFacingError message={agentError} surface="agent_chat" />
             <AgentInstallLink agent={agentSpec} error={agentError} surface="agent_chat" />
@@ -852,15 +873,15 @@ export function ChatView() {
             </label>
             <fieldset className="project-mode-field">
               <legend>Agent workspace</legend>
-              <label className={"project-mode-option" + (projectMode === "chat" ? " is-selected" : "")}>
-                <input type="radio" name="project-mode" checked={projectMode === "chat"} onChange={() => setProjectMode("chat")} />
+              <label className={"project-mode-option" + (projectMode === "chat" || !agentSupportsTerminal(projectAgentId) ? " is-selected" : "")}>
+                <input type="radio" name="project-mode" checked={projectMode === "chat" || !agentSupportsTerminal(projectAgentId)} onChange={() => setProjectMode("chat")} />
                 <Icon name="bubble.left.and.bubble.right.fill" size={16} />
                 <span><strong>Chat</strong><small>Structured messages and results</small></span>
               </label>
-              <label className={"project-mode-option" + (projectMode === "terminal" ? " is-selected" : "")}>
-                <input type="radio" name="project-mode" checked={projectMode === "terminal"} onChange={() => setProjectMode("terminal")} />
+              <label className={"project-mode-option" + (projectMode === "terminal" && agentSupportsTerminal(projectAgentId) ? " is-selected" : "") + (agentSupportsTerminal(projectAgentId) ? "" : " is-disabled")}>
+                <input type="radio" name="project-mode" disabled={!agentSupportsTerminal(projectAgentId)} checked={projectMode === "terminal" && agentSupportsTerminal(projectAgentId)} onChange={() => setProjectMode("terminal")} />
                 <Icon name="terminal" size={16} />
-                <span><strong>Terminal</strong><small>Persistent native agent session</small></span>
+                <span><strong>Terminal</strong><small>{agentSupportsTerminal(projectAgentId) ? "Persistent native agent session" : `${agentById(projectAgentId).name} works in Chat only`}</small></span>
               </label>
             </fieldset>
             <div className="modal-actions">

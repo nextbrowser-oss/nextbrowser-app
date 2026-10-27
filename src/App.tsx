@@ -26,6 +26,7 @@ import { resolveTheme, type Theme } from "./theme";
 import { confirmedBrowserRuntimeUpdates, pendingBrowserRuntimeUpdate } from "./lib/browserRuntimeUpdate";
 import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
 import {
+  OPEN_AGENT_SETTINGS_EVENT,
   appTabLabel,
   isAppBackShortcut,
   isPrimaryAppTab,
@@ -38,7 +39,8 @@ import { setErrorReportingView, unexpectedErrorDetail, unexpectedErrorReference 
 import { deviceDataAppSetup } from "./lib/deviceData";
 import { shouldDismissModalWithEscape, wrappedFocusTarget } from "./lib/modalKeyboard";
 import { invoke, listen } from "./electronBridge";
-import { agentById } from "./agents";
+import { agentById, isBuiltinAgent } from "./agents";
+import { BuiltinAgentSetup } from "./components/BuiltinAgentSetup";
 import { releaseDownloadUrl } from "./lib/releaseDownload";
 import { UserFacingError } from "./components/UserFacingError";
 import { AgentConnectionGate, agentGateVisible } from "./components/AgentConnectionGate";
@@ -616,6 +618,7 @@ function SettingsModal({
   const proxy = useStore((s) => s.proxy);
   const agentSpec = agentById(agentId);
   const agentName = agentSpec.name;
+  const builtinAgent = isBuiltinAgent(agentSpec);
   const agentDetected = !!agentVersion;
   const agentNeedsLogin = agentDetected && agentLoggedIn === false;
   const proxyAllowance = trafficAllowanceBytes(proxy);
@@ -793,16 +796,16 @@ function SettingsModal({
                   <span className="settings-feature-copy">
                     <strong>{agentName}</strong>
                     <span className="muted small">
-                      {agentReady ? agentVersion || "connected" : agentNeedsLogin ? `${agentName} is signed out` : `${agentName} is not connected`}
+                      {agentReady ? agentVersion || "connected" : agentNeedsLogin ? `${agentName} is signed out` : builtinAgent ? "Free and paid models, no install" : `${agentName} is not connected`}
                     </span>
                   </span>
                   <span className={"agent-state-pill" + (agentReady ? " is-ready" : "")}>
-                    {agentReady ? "Ready" : agentNeedsLogin ? "Login required" : "Offline"}
+                    {agentReady ? "Ready" : agentNeedsLogin ? "Login required" : builtinAgent ? "Not set up" : "Offline"}
                   </span>
                 </div>
                 <div className="settings-agent-picker-row">
                   <AgentPicker label="Active" />
-                  <div className="settings-agent-actions">
+                  {!builtinAgent && <div className="settings-agent-actions">
                     {!agentDetected && (
                       <button className="mini primary-mini" title={`Connect ${agentName}`} onClick={() => authorizeAgent()}>
                         Connect
@@ -823,9 +826,10 @@ function SettingsModal({
                         Log out
                       </button>
                     )}
-                  </div>
+                  </div>}
                 </div>
-                {agentError && (
+                {builtinAgent && <BuiltinAgentSetup />}
+                {agentError && !builtinAgent && (
                   <div className="error small settings-agent-error">
                     <UserFacingError message={agentError} surface="agent_settings" />
                     <AgentInstallLink agent={agentSpec} error={agentError} surface="agent_settings" />
@@ -1337,6 +1341,13 @@ export function App() {
   };
   // The Settings button's dot announces an update; the button opens where it is.
   const openSettingsFromButton = () => openSettings(settingsSectionForUpdates(updateAvailable(appUpdate), browserRuntimeUpdateAvailable(browserRuntimeUpdates)));
+  const openSettingsRef = useRef(openSettings);
+  openSettingsRef.current = openSettings;
+  useEffect(() => {
+    const openAgentSettings = () => openSettingsRef.current("agent");
+    window.addEventListener(OPEN_AGENT_SETTINGS_EVENT, openAgentSettings);
+    return () => window.removeEventListener(OPEN_AGENT_SETTINGS_EVENT, openAgentSettings);
+  }, []);
   const closeSettings = () => {
     setSettingsOpen(false);
     setSettingsSection(null);

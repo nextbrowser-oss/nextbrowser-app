@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { agentById, PRIMARY_AGENTS } from "../agents";
+import { agentById, BUILTIN_AGENT_ID, isBuiltinAgent, PRIMARY_AGENTS } from "../agents";
 import { trackEvent } from "../lib/analytics";
 import {
   FIRST_TASK_EXAMPLE,
@@ -14,6 +14,7 @@ import { workspaceHasNoLocalProfiles } from "../lib/workspaceProfiles";
 import { useStore } from "../store";
 import type { AppTab } from "../types";
 import { AgentInstallLink } from "./AgentInstallLink";
+import { BuiltinAgentSetup } from "./BuiltinAgentSetup";
 import { BrandLogo } from "./BrandLogo";
 import { GuideActionModal } from "./GuideActionModal";
 import { Icon, Spinner } from "./Icon";
@@ -365,13 +366,27 @@ export function OnboardingView() {
                   })}
                 </div>
 
-                {!ready && <div className="onboarding-agent-connect">
+                <button
+                  type="button"
+                  className={"agent-gate-free" + (isBuiltinAgent(agentId) ? " is-selected" : "")}
+                  aria-pressed={isBuiltinAgent(agentId)}
+                  onClick={() => switchAgent(BUILTIN_AGENT_ID)}
+                >
+                  <Icon name="bolt.fill" size={17} />
+                  <span>
+                    <strong>Use a free model</strong>
+                    <span className="muted small">No agent installed? The built-in Nextbrowser agent works with a free key from NVIDIA, OpenRouter or Google.</span>
+                  </span>
+                  {isBuiltinAgent(agentId) && ready && <Icon name="checkmark.circle.fill" size={17} className="ok" />}
+                </button>
+
+                {isBuiltinAgent(agentId) ? <BuiltinAgentSetup /> : !ready && <div className="onboarding-agent-connect">
                   <button type="button" className="btn-bordered-prominent" disabled={authorizing} onClick={connectAgent}>
                     {authorizing && <Spinner size={13} />}
                     {authorizing ? "Checking…" : agentNeedsLogin ? `Sign in to ${agent.name}` : `Connect ${agent.name}`}
                   </button>
                 </div>}
-                {agentError && (
+                {agentError && !isBuiltinAgent(agentId) && (
                   <div className="onboarding-agent-error error small">
                     <UserFacingError message={agentError} surface="onboarding" />
                     <AgentInstallLink agent={agent} error={agentError} surface="onboarding" />
