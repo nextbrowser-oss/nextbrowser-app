@@ -138,8 +138,8 @@ const { createClientErrorReporter, errorReportingAllowed } = require("./client-e
 const { clientEnvironmentAllowed, createClientEnvironment } = require("./client-environment.cjs");
 const { createEnvironmentCollector } = require("./client-environment-collect.cjs");
 const { describeBackendRequest, setBackendClientInfo, setBackendRequestObserver, setBackendTransport, tracedBackendFetch } = require("./backend-fetch.cjs");
-const { childProxyEnv, createSystemProxy, describeProxyRoute, proxyEnvNames } = require("./system-proxy.cjs");
-const { createNetworkDiagnostics, wantsNetworkDiagnostics } = require("./network-diagnostics.cjs");
+const { childProxyEnv, createSystemProxy, describeProxyRoute, isLoopbackProxyList, proxyEnvNames } = require("./system-proxy.cjs");
+const { GATE_HOST, GATE_PORT, createNetworkDiagnostics, wantsNetworkDiagnostics } = require("./network-diagnostics.cjs");
 const { describeNbcResult, isNextctlBinary } = require("./nbc-failure-report.cjs");
 const { describeAgentResult, describeTerminalExit } = require("./agent-failure-report.cjs");
 const { describeInvokeFailure, describeMainFailure } = require("./invoke-failure-report.cjs");
@@ -248,6 +248,18 @@ async function refreshSystemProxyEnv() {
     // A failed lookup keeps the last value.
   }
   return systemProxyEnv;
+}
+/**
+ * Whether the system proxy runs on this computer (a VPN app in system-proxy
+ * mode), judged by Chromium's proxy for the NodeMaven gateway or our API.
+ * Browser profiles bypass such a proxy; see profile-start-failure.cjs.
+ */
+async function systemProxyIsLoopback() {
+  const routes = await Promise.all([
+    systemProxy.route(`http://${GATE_HOST}:${GATE_PORT}`),
+    systemProxy.route(runtimeAPIBaseURL(process.env)),
+  ]);
+  return routes.some((route) => !route.failed && isLoopbackProxyList(route.value));
 }
 const errorReporter = createClientErrorReporter({
   dir: path.join(app.getPath("userData"), "client-errors"),
@@ -902,8 +914,9 @@ function sendControlResponse(response, status, body) {
 // message and keeps the raw nextctl result under diagnostics. The same Ref
 // is written to profile-start.log beside crash.log and sent in the error
 // report, so support can find it.
-function sendHostProfileFailure(response, { action, profile, runtime, startedAt }, { result, error }) {
-  const failure = describeProfileStartFailure({ action, profile, runtime, result, error, durationMs: Date.now() - startedAt });
+async function sendHostProfileFailure(response, { action, profile, runtime, startedAt }, { result, error }) {
+  const loopbackSystemProxy = action === "start" ? await systemProxyIsLoopback().catch(() => false) : false;
+  const failure = describeProfileStartFailure({ action, profile, runtime, result, error, durationMs: Date.now() - startedAt, loopbackSystemProxy });
   reportDescribed(() => describeProfileFailureEvent(failure));
   const logFile = logProfileStartFailure(dataDir(), failure, {
     appVersion: app.getVersion(),
@@ -1061,7 +1074,7 @@ async function ensureAgentControlServer() {
         action, "--profile", profile, "--runtime", profileAccess.runtime, "--format", "json",
       ], { timeoutMs: 240_000 });
       if (result.code !== 0) {
-        sendHostProfileFailure(response, hostProfile, { result });
+        await sendHostProfileFailure(response, hostProfile, { result });
         return;
       }
       if (action === "start") agentControlProfileOwners.set(profile, profileAccess.conversationId);
@@ -1077,7 +1090,11 @@ async function ensureAgentControlServer() {
       });
     })().catch((error) => {
       if (response.headersSent) return;
-      if (hostProfile) sendHostProfileFailure(response, hostProfile, { error });
+      if (hostProfile) {
+        void sendHostProfileFailure(response, hostProfile, { error }).catch(() => {
+          if (!response.headersSent) sendControlResponse(response, 500, { ok: false, error: "start_failed" });
+        });
+      }
       else {
         reportInvokeFailure(controlAction, error);
         sendControlResponse(response, 500, { ok: false, error: error?.message || "start_failed" });
@@ -2165,6 +2182,9 @@ async function invokeCommand(command, args = {}, sender) {
       await shell.openExternal(MULTILOGIN_DOWNLOAD_URL);
       return { launched: false, url: MULTILOGIN_DOWNLOAD_URL };
     }
+    // Whether a VPN runs as a system proxy on this computer, for the hint on
+    // a failed profile start (src/lib/systemProxyHint.ts).
+    case "system_proxy_status": return { loopback: await systemProxyIsLoopback().catch(() => false) };
     case "manual_proxies_list": return await listPersonalProxies({ env: childEnv() });
     case "manual_proxy_save": return await createPersonalProxy(args.proxy, { env: childEnv() });
     case "manual_proxy_delete": return await deletePersonalProxy(args.id, { env: childEnv() });

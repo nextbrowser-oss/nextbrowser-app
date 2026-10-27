@@ -227,3 +227,38 @@ test("a host failure of the user's own setup is not reported", () => {
   assert.equal(describeProfileFailureEvent(proxy).event, null);
   assert.equal(describeProfileFailureEvent(undefined).event, null);
 });
+
+test("a proxy failure with a VPN in system-proxy mode says what to change, and is still reported", () => {
+  const { VPN_SYSTEM_PROXY_HINT } = require("./profile-start-failure.cjs");
+  const { wantsNetworkDiagnostics } = require("./network-diagnostics.cjs");
+  const tunnel = { code: 1, stdout: envelope("LAUNCH_FAILED", "LAUNCH_FAILED: page load failed: net::ERR_TUNNEL_CONNECTION_FAILED"), stderr: "" };
+  const hinted = describeProfileStartFailure({ profile: "Shop", runtime: "clawbrowser", result: tunnel, ref: "NB-00000001", loopbackSystemProxy: true });
+  assert.equal(hinted.error.code, "PROXY_UNREACHABLE");
+  assert.equal(hinted.error.hint, "vpn_system_proxy");
+  assert.ok(hinted.error.nextAction.endsWith(VPN_SYSTEM_PROXY_HINT));
+  assert.equal(
+    hinted.error.message,
+    `The ClawBrowser profile “Shop” couldn't start: its proxy didn't accept the connection. Check or change this profile's proxy in Nextbrowser, then retry. ${VPN_SYSTEM_PROXY_HINT} Ref: NB-00000001`,
+  );
+  const { event } = describeProfileFailureEvent(hinted);
+  assert.ok(event, "reported although the category is configuration");
+  assert.equal(event.context.hint, "vpn_system_proxy");
+  assert.equal(event.context.code, "PROXY_UNREACHABLE");
+  assert.equal(wantsNetworkDiagnostics(event), true, "with the network diagnostics");
+
+  const plain = describeProfileStartFailure({ profile: "Shop", runtime: "clawbrowser", result: tunnel, ref: "NB-00000002" });
+  assert.equal(plain.error.hint, undefined, "no system proxy on this computer: no hint");
+  assert.ok(!plain.error.message.includes("VPN"));
+  assert.equal(describeProfileFailureEvent(plain).event, null, "the profile's own proxy stays unreported");
+
+  const timeout = describeProfileStartFailure({ profile: "Shop", runtime: "camoufox", result: { code: -1, stdout: "", stderr: "Command timed out after 240 seconds." }, loopbackSystemProxy: true });
+  assert.equal(timeout.error.code, "START_TIMEOUT");
+  assert.equal(timeout.error.hint, "vpn_system_proxy");
+  const verify = describeProfileStartFailure({ profile: "Shop", runtime: "clawbrowser", result: { code: 1, stdout: envelope("VERIFY_FAILED", "VERIFY_FAILED: failed browser checks: proxy; proxy profile cannot continue without its proxy"), stderr: "" }, loopbackSystemProxy: true });
+  assert.equal(verify.error.hint, "vpn_system_proxy");
+
+  const missing = describeProfileStartFailure({ profile: "Shop", runtime: "clawbrowser", result: { code: 1, stdout: envelope("PROFILE_NOT_FOUND", "profile not found"), stderr: "" }, loopbackSystemProxy: true });
+  assert.equal(missing.error.hint, undefined, "unrelated failures get no hint");
+  const stop = describeProfileStartFailure({ action: "stop", profile: "Shop", runtime: "clawbrowser", result: tunnel, loopbackSystemProxy: true });
+  assert.equal(stop.error.hint, undefined, "only a start");
+});

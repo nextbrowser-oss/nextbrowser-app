@@ -91,11 +91,13 @@ export function agentFailureDetail(reason?: string): string {
 /**
  * A failed action must stay diagnosable: the reference maps back to the error
  * code, and the sanitized reason tells the user what actually failed instead of
- * leaving them with a hash alone.
+ * leaving them with a hash alone. A hint (what to change on this computer)
+ * goes after the reason.
  */
-export function actionFailureMessage(action: string, code: string, detail?: unknown): string {
+export function actionFailureMessage(action: string, code: string, detail?: unknown, hint?: string): string {
   const context = action.trim() || "The action failed.";
   const safeCode = errorCodePattern.test(code) ? code : "INTERNAL_ERROR";
   const reason = (detail instanceof Error ? detail.message : typeof detail === "string" ? detail : "").trim();
-  return `${context}${reason ? ` ${userFacingBrowserError(reason)}` : ""} Ref: ${codeReference(safeCode)}`;
+  const advice = (hint || "").trim();
+  return `${context}${reason ? ` ${userFacingBrowserError(reason)}` : ""}${advice ? ` ${advice}` : ""} Ref: ${codeReference(safeCode)}`;
 }

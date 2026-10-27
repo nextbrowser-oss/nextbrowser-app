@@ -26,6 +26,18 @@ const SIGN_IN = "Sign in again from the Nextbrowser sidebar, then retry.";
 const RESTART_TO_REINSTALL = "Restart Nextbrowser so it can reinstall its browser toolset, then retry.";
 const CHECK_CONNECTION = "Check your internet connection, then retry.";
 
+// Browser profiles connect to their proxy (the NodeMaven gateway) directly:
+// nbc starts the browser with an explicit proxy, and Chromium cannot put the
+// VPN's proxy in front of it. A VPN in system-proxy mode (a proxy on this
+// computer) therefore does not carry the profile's connection, and where the
+// direct path is blocked the profile's proxy fails to connect or the start
+// times out. The main process tells whether the system proxy is on this
+// computer (main.cjs systemProxyIsLoopback); then the message says what to
+// change. The same text is in src/lib/userFacingBrowserError.ts.
+const VPN_SYSTEM_PROXY_HINT = "Your VPN works as a system proxy, and browser profiles connect to their proxy directly. Turn on TUN (VPN) mode in your VPN app, or let gate.nodemaven.com bypass the VPN.";
+const PROXY_PATH_CODES = new Set(["PROXY_UNREACHABLE", "START_TIMEOUT", "SESSION_NOT_FOUND", "VERIFY_FAILED"]);
+const PROXY_PATH_DETAIL = /ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_CONNECTION_FAILED|ERR_CONNECTION_TIMED_OUT|ERR_TIMED_OUT|proxy[^.\n]*(?:refused|unreachable|timed? ?out|timeout)|proxy profile cannot continue without its proxy|proxy[_ ]required|failed browser checks:[^;]*\bproxy\b/i;
+
 function runtimeLabel(runtime) {
   return RUNTIME_LABELS[String(runtime || "").toLowerCase()] || "Nextbrowser";
 }
@@ -218,7 +230,7 @@ function classify({ nextctlCode, nextctlMessage, detail, diagnostic, exitCode, l
  * `result` is the command result ({ code, stdout, stderr }); pass `error`
  * instead when the host threw before nextctl produced a result.
  */
-function describeProfileStartFailure({ action = "start", profile = "", runtime = "", result, error, durationMs, ref = newFailureRef() } = {}) {
+function describeProfileStartFailure({ action = "start", profile = "", runtime = "", result, error, durationMs, ref = newFailureRef(), loopbackSystemProxy = false } = {}) {
   const label = runtimeLabel(runtime);
   const exitCode = Number.isInteger(result?.code) ? result.code : undefined;
   const stdout = String(result?.stdout ?? "");
@@ -234,8 +246,11 @@ function describeProfileStartFailure({ action = "start", profile = "", runtime =
   const classified = classify({ nextctlCode, nextctlMessage, detail, diagnostic: stderr.trim() || thrown, exitCode, label });
 
   const verb = action === "stop" ? "stop" : "start";
+  const vpnHint = verb === "start" && loopbackSystemProxy === true
+    && (PROXY_PATH_CODES.has(classified.code) || PROXY_PATH_DETAIL.test(detail));
+  const nextAction = vpnHint ? `${classified.nextAction} ${VPN_SYSTEM_PROXY_HINT}` : classified.nextAction;
   const subject = `The ${label} profile “${profile || "unknown"}”`;
-  const message = `${subject} couldn't ${verb}: ${classified.reason}. ${classified.nextAction} Ref: ${ref}`;
+  const message = `${subject} couldn't ${verb}: ${classified.reason}. ${nextAction} Ref: ${ref}`;
   return {
     ok: false,
     action: verb,
@@ -247,8 +262,9 @@ function describeProfileStartFailure({ action = "start", profile = "", runtime =
       retryable: classified.category === "retryable",
       message,
       reason: classified.reason,
-      nextAction: classified.nextAction,
+      nextAction,
       ref,
+      ...(vpnHint ? { hint: "vpn_system_proxy" } : {}),
     },
     diagnostics: {
       exitCode: exitCode ?? null,
@@ -267,13 +283,15 @@ function describeProfileStartFailure({ action = "start", profile = "", runtime =
  * The error report for a failed host start or stop, so the Ref the agent
  * relays to the user can be looked up. A failure of the user's own setup
  * (category "configuration": sign-in, the profile's proxy, traffic, a missing
- * profile) is not reported. The profile name and nextctl's output stay out:
- * the classifier's code says what failed, and an unexpected nextctl outcome is
- * reported on its own by the nbc classifier.
+ * profile) is not reported, unless the message blames a VPN in system-proxy
+ * mode: that one is reported with hint=vpn_system_proxy (and the network
+ * diagnostics) so we can see how often it happens. The profile name and
+ * nextctl's output stay out: the classifier's code says what failed, and an
+ * unexpected nextctl outcome is reported on its own by the nbc classifier.
  */
 function describeProfileFailureEvent(failure) {
   const error = failure?.error;
-  if (!error || error.category === "configuration") return { event: null };
+  if (!error || (error.category === "configuration" && error.hint !== "vpn_system_proxy")) return { event: null };
   const action = failure.action === "stop" ? "stop" : "start";
   const code = /^[A-Z][A-Z0-9_]{1,63}$/.test(String(error.code || "")) ? error.code : "UNKNOWN";
   const runtime = String(failure.runtime || "").toLowerCase();
@@ -291,6 +309,7 @@ function describeProfileFailureEvent(failure) {
         ...(RUNTIME_LABELS[runtime] ? { runtime } : {}),
         ...(Number.isInteger(failure.diagnostics?.exitCode) ? { exit_code: String(failure.diagnostics.exitCode) } : {}),
         ...(/^[A-Z][A-Z0-9_]{1,63}$/.test(nextctlCode) ? { nbc_code: nextctlCode } : {}),
+        ...(error.hint === "vpn_system_proxy" ? { hint: error.hint } : {}),
       },
       fingerprintExtra: code,
     },
@@ -352,6 +371,7 @@ function logProfileStartFailure(dir, failure, context = {}) {
 
 module.exports = {
   LOG_FILE,
+  VPN_SYSTEM_PROXY_HINT,
   describeProfileFailureEvent,
   describeProfileRequestRejection,
   describeProfileStartFailure,
