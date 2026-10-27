@@ -12,4 +12,8 @@ contextBridge.exposeInMainWorld("nextbrowser", {
   // with, the main process. The main process validates and scrubs both.
   reportError: (event) => { ipcRenderer.send("nextbrowser:client-error", event); },
   breadcrumb: (crumb) => { ipcRenderer.send("nextbrowser:client-breadcrumb", crumb); },
+  // The settings file the main process keeps (electron/app-settings.cjs),
+  // read synchronously so the window has them before its first render.
+  readSettings: () => ipcRenderer.sendSync("nextbrowser:settings-read"),
+  updateSettings: (patch) => { ipcRenderer.send("nextbrowser:settings-update", patch); },
 });

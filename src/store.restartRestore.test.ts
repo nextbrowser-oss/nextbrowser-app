@@ -223,3 +223,55 @@ describe("restart reopens the project in its own mode", () => {
     expect(second.getState().activeConversation()?.id).toBe("work-terminal");
   });
 });
+
+describe("restart after a crash left localStorage dropping every write", () => {
+  // Chromium still returns what localStorage held before the crash, and
+  // throws away whatever the app writes since. The settings file the main
+  // process keeps (app-settings.json) is what must carry the setup.
+  function frozenLocalStorage(): Storage {
+    const storage = memoryStorage();
+    storage.setItem("cachedAccountOwnerId", "owner-1");
+    storage.setItem("activeWorkspaceId", "personal");
+    return storage;
+  }
+
+  function desktopSettingsFile() {
+    const file: { migrated: string[]; values: Record<string, string> } = { migrated: [], values: {} };
+    vi.stubGlobal("window", {
+      dispatchEvent: () => true,
+      nextbrowser: {
+        readSettings: () => structuredClone(file),
+        updateSettings: (patch: { values?: Record<string, string | null>; migrated?: string[] }) => {
+          for (const [key, value] of Object.entries(patch.values ?? {})) {
+            if (value === null) delete file.values[key];
+            else file.values[key] = value;
+          }
+          for (const spec of patch.migrated ?? []) if (!file.migrated.includes(spec)) file.migrated.push(spec);
+        },
+      },
+    });
+    return file;
+  }
+
+  it("reopens the workspace, project and profile picked after the crash", async () => {
+    appData["conversations.json"] = JSON.stringify([
+      project("work-chat", "work", "chat", 5),
+      project("work-terminal", "work", "terminal", 1),
+      project("personal-terminal", "personal", "terminal"),
+    ]);
+    const file = desktopSettingsFile();
+    vi.stubGlobal("localStorage", frozenLocalStorage());
+    const first = await launch();
+    first.getState().selectWorkspace("work");
+    first.getState().selectConversation("work-terminal");
+    first.getState().selectProfile("DE shop");
+    await Promise.resolve();
+    expect(file.values).toMatchObject({ activeWorkspaceId: "work", terminalChat: "true" });
+
+    vi.stubGlobal("localStorage", frozenLocalStorage());
+    const second = await launch();
+
+    expect(second.getState()).toMatchObject({ activeWorkspaceId: "work", terminalChat: true, selectedProfile: "DE shop" });
+    expect(second.getState().activeConversation()?.id).toBe("work-terminal");
+  });
+});

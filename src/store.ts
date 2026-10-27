@@ -96,6 +96,7 @@ import { activeAutomationRecording, clearActiveAutomationRecording } from "./lib
 import { clearActiveAutomationExecution } from "./lib/automationExecution";
 import { setAnalyticsUserId, trackEvent, trackScreenView, trackTiming } from "./lib/analytics";
 import { reportUserFacingError, reportUserFacingMessage } from "./lib/errorReporting";
+import { settingsStorage } from "./lib/settingsStorage";
 import { actionFailureMessage, agentFailureDetail, errorRefsIn, internalError } from "./lib/userFacingError";
 import { agentEmptyReplyMessage } from "./lib/agentRunResult";
 import { isBrowserVerificationFailure, userFacingBrowserError } from "./lib/userFacingBrowserError";
@@ -1071,7 +1072,7 @@ const deletingWorkspaceIds = new Set<string>();
 const DELETED_WORKSPACE_IDS_KEY = "deletedWorkspaceIds:v1";
 function loadDeletedWorkspaceIds(): Set<string> {
   try {
-    const ids = JSON.parse(localStorage.getItem(DELETED_WORKSPACE_IDS_KEY) || "[]");
+    const ids = JSON.parse(settingsStorage.getItem(DELETED_WORKSPACE_IDS_KEY) || "[]");
     return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []);
   } catch {
     return new Set();
@@ -1081,7 +1082,7 @@ const deletedWorkspaceIds = loadDeletedWorkspaceIds();
 function rememberDeletedWorkspace(id: string): void {
   deletedWorkspaceIds.add(id);
   try {
-    localStorage.setItem(DELETED_WORKSPACE_IDS_KEY, JSON.stringify([...deletedWorkspaceIds]));
+    settingsStorage.setItem(DELETED_WORKSPACE_IDS_KEY, JSON.stringify([...deletedWorkspaceIds]));
   } catch (error) {
     // The in-memory tombstone still prevents an in-flight sync from reviving
     // the workspace; keep completing cleanup after the cloud DELETE succeeds.
@@ -1094,7 +1095,7 @@ function rememberDeletedWorkspace(id: string): void {
 const SYNCED_WORKSPACE_IDS_KEY = "syncedWorkspaceIds:v1";
 function loadSyncedWorkspaceIds(): Set<string> {
   try {
-    const ids = JSON.parse(localStorage.getItem(SYNCED_WORKSPACE_IDS_KEY) || "[]");
+    const ids = JSON.parse(settingsStorage.getItem(SYNCED_WORKSPACE_IDS_KEY) || "[]");
     return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []);
   } catch {
     return new Set();
@@ -1102,7 +1103,7 @@ function loadSyncedWorkspaceIds(): Set<string> {
 }
 function saveSyncedWorkspaceIds(ids: Set<string>): void {
   try {
-    localStorage.setItem(SYNCED_WORKSPACE_IDS_KEY, JSON.stringify([...ids]));
+    settingsStorage.setItem(SYNCED_WORKSPACE_IDS_KEY, JSON.stringify([...ids]));
   } catch (error) {
     console.warn("[workspace_sync] could not persist synced workspace ids", error);
   }
@@ -1275,13 +1276,13 @@ async function clearAccountEntityCache(): Promise<void> {
   await Promise.all(Object.entries(emptyFiles).map(([name, content]) =>
     invoke("app_data_write", { name, content }),
   ));
-  for (let index = localStorage.length - 1; index >= 0; index -= 1) {
-    const key = localStorage.key(index);
+  for (let index = settingsStorage.length - 1; index >= 0; index -= 1) {
+    const key = settingsStorage.key(index);
     if (key?.startsWith("activeConversationId:") || key === "activeWorkspaceId" || key === CACHED_ACCOUNT_OWNER_KEY) {
-      localStorage.removeItem(key);
+      settingsStorage.removeItem(key);
     }
   }
-  clearAllSelectedProfiles(localStorage);
+  clearAllSelectedProfiles(settingsStorage);
   // These live outside the JSON-file caches above, in raw localStorage/
   // sessionStorage, and are keyed by workspace id (backend-issued, globally
   // unique) rather than account — but a stray "Recorder is active" banner
@@ -1345,7 +1346,7 @@ function emptyAccountOwnedCaches(): Partial<State> {
 async function guardAgainstForeignAccountCache(): Promise<void> {
   const ownerId = useStore.getState().accountOwnerId;
   if (!ownerId) return;
-  const cachedOwnerId = localStorage.getItem(CACHED_ACCOUNT_OWNER_KEY) || undefined;
+  const cachedOwnerId = settingsStorage.getItem(CACHED_ACCOUNT_OWNER_KEY) || undefined;
   if (cachedOwnerId && cachedOwnerId !== ownerId) {
     await archiveAccountSchedules(cachedOwnerId, useStore.getState().scheduledRuns);
     await archiveAccountAuthoredContent(cachedOwnerId, useStore.getState().customScripts, useStore.getState().localSkills);
@@ -1355,7 +1356,7 @@ async function guardAgainstForeignAccountCache(): Promise<void> {
     await clearAccountEntityCache().catch(() => {});
     useStore.setState(emptyAccountOwnedCaches());
   }
-  localStorage.setItem(CACHED_ACCOUNT_OWNER_KEY, ownerId);
+  settingsStorage.setItem(CACHED_ACCOUNT_OWNER_KEY, ownerId);
   // A same-account restart uses the newer active cache. Only a clean logout
   // or account switch needs the archive; otherwise deleted runs could return.
   if (cachedOwnerId !== ownerId) {
@@ -1391,7 +1392,7 @@ function pruneLocallyDeletedProfiles(current: string[]): void {
   if (!ownerId || !state.authed) return;
   let seen: string[] = [];
   try {
-    const parsed = JSON.parse(localStorage.getItem(localProfileNamesKey(ownerId)) || "[]");
+    const parsed = JSON.parse(settingsStorage.getItem(localProfileNamesKey(ownerId)) || "[]");
     if (Array.isArray(parsed)) seen = parsed.filter((name): name is string => typeof name === "string");
   } catch { /* start a fresh record */ }
   const present = new Set(current);
@@ -1399,7 +1400,7 @@ function pruneLocallyDeletedProfiles(current: string[]): void {
     && state.workspaces.some((workspace) => workspace.profileNames.includes(name))));
   const remember = (names: string[]) => {
     try {
-      localStorage.setItem(localProfileNamesKey(ownerId), JSON.stringify(names));
+      settingsStorage.setItem(localProfileNamesKey(ownerId), JSON.stringify(names));
     } catch { /* pruning is best effort */ }
   };
   // Keep a gone profile in the record until its removal is saved, so a failed
@@ -1423,7 +1424,7 @@ function pruneLocallyDeletedProfiles(current: string[]): void {
     };
   })).then(() => {
     try {
-      const recorded = JSON.parse(localStorage.getItem(localProfileNamesKey(ownerId)) || "[]");
+      const recorded = JSON.parse(settingsStorage.getItem(localProfileNamesKey(ownerId)) || "[]");
       if (Array.isArray(recorded)) remember(recorded.filter((name) => !gone.has(name)));
     } catch { /* retried on the next refresh */ }
   }).catch((error) => console.warn("[profile_prune] could not remove deleted profiles from workspaces", error));
@@ -2109,7 +2110,7 @@ async function refreshCompletedAccountPairing(
   void useStore.getState().authorizeAgent();
   if (useStore.getState().onboardingReturnPending) {
     useStore.getState().resumeOnboardingAfterSetup();
-  } else if (!hasCompletedCurrentOnboarding(localStorage)) {
+  } else if (!hasCompletedCurrentOnboarding(settingsStorage)) {
     useStore.setState({ showOnboarding: true });
   }
   trackEvent("login", { method });
@@ -2247,7 +2248,7 @@ export const useStore = create<State>((set, get) => {
       prompt_length_bucket: Math.min(5000, Math.ceil(prompt.length / 250) * 250),
     });
     trackFirstTaskSubmitted(
-      localStorage,
+      settingsStorage,
       get().conversations.some((conversation) => conversation.messages.some((message) => message.role === "user")),
       {
         agent: agentId,
@@ -2356,7 +2357,7 @@ export const useStore = create<State>((set, get) => {
       const request = finished.messages.slice(0, replyIndex).reverse().find((message) => message.role === "user");
       const state = get();
       trackFirstTaskSucceeded(
-        localStorage,
+        settingsStorage,
         browserProfileRunning(
           state.workspaces.find((workspace) => workspace.id === finished.workspaceId)?.profileNames ?? [],
           state.statuses,
@@ -2404,11 +2405,11 @@ export const useStore = create<State>((set, get) => {
   profileChatOwners: {},
   profileSearch: "",
   isRefreshing: false,
-  agentId: localStorage.getItem("lastAgent") ?? "claude",
+  agentId: settingsStorage.getItem("lastAgent") ?? "claude",
   runtime: initRuntimes(),
   conversations: [],
   workspaces: [],
-  activeWorkspaceId: localStorage.getItem("activeWorkspaceId") ?? undefined,
+  activeWorkspaceId: settingsStorage.getItem("activeWorkspaceId") ?? undefined,
   workspacesLoaded: false,
   workspaceSetupRequired: false,
   workspaceSetupAuto: "pending",
@@ -2444,10 +2445,10 @@ export const useStore = create<State>((set, get) => {
   showOnboarding: false,
   onboardingStepIndex: 0,
   onboardingReturnPending: false,
-  sidebarWidth: Number(localStorage.getItem("sidebarWidth") ?? 300),
-  sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "true",
-  chatListCollapsed: localStorage.getItem("chatListCollapsed") === "true",
-  terminalChat: localStorage.getItem("terminalChat") === "true",
+  sidebarWidth: Number(settingsStorage.getItem("sidebarWidth") ?? 300),
+  sidebarCollapsed: settingsStorage.getItem("sidebarCollapsed") === "true",
+  chatListCollapsed: settingsStorage.getItem("chatListCollapsed") === "true",
+  terminalChat: settingsStorage.getItem("terminalChat") === "true",
   dashboardKeyPromptOpen: false,
   trafficGatePromptOpen: false,
   githubStarPromptOpen: false,
@@ -3585,7 +3586,7 @@ export const useStore = create<State>((set, get) => {
       await get().syncProjects();
       await get().refreshAll();
       await get().authorizeAgent();
-      if (!hasCompletedCurrentOnboarding(localStorage)) set({ showOnboarding: true });
+      if (!hasCompletedCurrentOnboarding(settingsStorage)) set({ showOnboarding: true });
       trackEvent("login", { method: "dashboard_key" });
       trackTiming("dashboard_key_save_succeeded", startedAt);
     } catch {
@@ -4719,7 +4720,7 @@ export const useStore = create<State>((set, get) => {
   switchAgent: (id) => {
     if (id === get().agentId) return;
     trackEvent("agent_switched", { from_agent: get().agentId, to_agent: id });
-    localStorage.setItem("lastAgent", id);
+    settingsStorage.setItem("lastAgent", id);
     set({ agentId: id, startupAgentSuggestion: undefined });
     // The first message creates a project. Creating one here put an empty
     // "Chat 1" into workspaces that should have no projects yet.
@@ -4735,7 +4736,7 @@ export const useStore = create<State>((set, get) => {
     if (!convs.length) {
       get().newChat();
     } else if (!convs.some((conversation) => conversation.id === get().activeConvId[agentId])) {
-      const stored = localStorage.getItem(activeConversationStorageKey(agentId, get().activeWorkspaceId));
+      const stored = settingsStorage.getItem(activeConversationStorageKey(agentId, get().activeWorkspaceId));
       const selected = convs.find((conversation) => conversation.id === stored) ?? convs[0];
       set((s) => ({
         activeConvId: { ...s.activeConvId, [agentId]: selected.id },
@@ -5083,19 +5084,19 @@ export const useStore = create<State>((set, get) => {
   },
   setProfileSearch: (q) => set({ profileSearch: q }),
   setSidebarWidth: (w) => {
-    localStorage.setItem("sidebarWidth", String(w));
+    settingsStorage.setItem("sidebarWidth", String(w));
     set({ sidebarWidth: w });
   },
   setSidebarCollapsed: (v) => {
-    localStorage.setItem("sidebarCollapsed", String(v));
+    settingsStorage.setItem("sidebarCollapsed", String(v));
     set({ sidebarCollapsed: v });
   },
   setChatListCollapsed: (v) => {
-    localStorage.setItem("chatListCollapsed", String(v));
+    settingsStorage.setItem("chatListCollapsed", String(v));
     set({ chatListCollapsed: v });
   },
   setTerminalChat: (v) => {
-    localStorage.setItem("terminalChat", String(v));
+    settingsStorage.setItem("terminalChat", String(v));
     set((state) => {
       const activeId = state.activeConvId[state.agentId];
       const conversations = state.conversations.map((conversation) =>
@@ -5181,7 +5182,7 @@ export const useStore = create<State>((set, get) => {
     onboardingFunnel.resume(ONBOARDING_STEPS[get().onboardingStepIndex]?.id, !!error);
   },
   finishOnboarding: () => {
-    saveOnboardingCompletion(localStorage);
+    saveOnboardingCompletion(settingsStorage);
     set({
       showOnboarding: false,
       onboardingStepIndex: 0,
@@ -5518,8 +5519,8 @@ export const useStore = create<State>((set, get) => {
       workspaces = workspaces.filter((workspace) => !deletedWorkspaceIds.has(workspace.id));
       conversations = conversations.filter((conversation) => !deletedWorkspaceIds.has(conversation.workspaceId || ""));
       if (!workspaces.some((workspace) => workspace.id === activeWorkspaceId)) activeWorkspaceId = workspaces[0]?.id;
-      if (activeWorkspaceId) localStorage.setItem("activeWorkspaceId", activeWorkspaceId);
-      else localStorage.removeItem("activeWorkspaceId");
+      if (activeWorkspaceId) settingsStorage.setItem("activeWorkspaceId", activeWorkspaceId);
+      else settingsStorage.removeItem("activeWorkspaceId");
       applyingCloudProjects = true;
       // Startup restores the profile from the cached workspace. The cloud copy
       // can since have dropped it, or the active workspace itself.
@@ -5655,9 +5656,9 @@ export const useStore = create<State>((set, get) => {
 
   selectWorkspace: (id) => {
     if (!get().workspaces.some((workspace) => workspace.id === id)) return;
-    localStorage.setItem("activeWorkspaceId", id);
+    settingsStorage.setItem("activeWorkspaceId", id);
     const agentId = get().agentId;
-    const stored = localStorage.getItem(activeConversationStorageKey(agentId, id));
+    const stored = settingsStorage.getItem(activeConversationStorageKey(agentId, id));
     const candidates = get().conversations
       .filter((conversation) => conversation.workspaceId === id && conversation.agent === agentId)
       .sort((left, right) => right.updatedAt - left.updatedAt);
@@ -5723,7 +5724,7 @@ export const useStore = create<State>((set, get) => {
       }
     }
     for (const replyId of removedReplyIds) void invoke("agent_terminate", { replyId }).catch(() => {});
-    for (const agent of AGENTS) localStorage.removeItem(activeConversationStorageKey(agent.id, id));
+    for (const agent of AGENTS) settingsStorage.removeItem(activeConversationStorageKey(agent.id, id));
     forgetWorkspaceSelectedProfile(id);
     const removedConversationIds = new Set(removedConversations.map((conversation) => conversation.id));
     // The account owned this workspace, so first-run defaults must not come back
@@ -5761,14 +5762,14 @@ export const useStore = create<State>((set, get) => {
     if (activeWorkspaceId !== previousActive) {
       if (activeWorkspaceId) get().selectWorkspace(activeWorkspaceId);
       else {
-        localStorage.removeItem("activeWorkspaceId");
+        settingsStorage.removeItem("activeWorkspaceId");
         set({ selectedProfile: undefined, activeConvId: {} });
       }
     }
   },
 
   completeWorkspaceSetup: () => {
-    localStorage.setItem("workspaceSetupComplete", "true");
+    settingsStorage.setItem("workspaceSetupComplete", "true");
     set({ workspaceSetupRequired: false });
   },
 
@@ -5877,7 +5878,7 @@ export const useStore = create<State>((set, get) => {
     };
     const conversations = [...get().conversations, c];
     persistConvs(conversations);
-    localStorage.setItem(activeConversationStorageKey(agentId, workspaceId), c.id);
+    settingsStorage.setItem(activeConversationStorageKey(agentId, workspaceId), c.id);
     set({
       conversations,
       activeConvId: { ...get().activeConvId, [agentId]: c.id },
@@ -5910,8 +5911,8 @@ export const useStore = create<State>((set, get) => {
     };
     const conversations = [...get().conversations, c];
     persistConvs(conversations);
-    localStorage.setItem(activeConversationStorageKey(agentId, workspaceId), c.id);
-    localStorage.setItem("terminalChat", String(mode === "terminal"));
+    settingsStorage.setItem(activeConversationStorageKey(agentId, workspaceId), c.id);
+    settingsStorage.setItem("terminalChat", String(mode === "terminal"));
     set({
       conversations,
       activeConvId: { ...get().activeConvId, [agentId]: c.id },
@@ -6059,7 +6060,7 @@ export const useStore = create<State>((set, get) => {
     const activeConvId = { ...get().activeConvId };
     if (activeConvId[project.agent] === id) {
       delete activeConvId[project.agent];
-      localStorage.removeItem(activeConversationStorageKey(project.agent, project.workspaceId));
+      settingsStorage.removeItem(activeConversationStorageKey(project.agent, project.workspaceId));
     }
     persistConvs(conversations);
     set({ conversations, activeConvId });
@@ -6073,10 +6074,10 @@ export const useStore = create<State>((set, get) => {
     const agentId = project.agent;
     trackEvent("chat_selected", { agent: agentId });
     const terminalChat = project.chatMode === "terminal";
-    localStorage.setItem(activeConversationStorageKey(agentId, project.workspaceId), id);
-    localStorage.setItem("lastAgent", agentId);
-    localStorage.setItem("terminalChat", String(terminalChat));
-    if (project.workspaceId) localStorage.setItem("activeWorkspaceId", project.workspaceId);
+    settingsStorage.setItem(activeConversationStorageKey(agentId, project.workspaceId), id);
+    settingsStorage.setItem("lastAgent", agentId);
+    settingsStorage.setItem("terminalChat", String(terminalChat));
+    if (project.workspaceId) settingsStorage.setItem("activeWorkspaceId", project.workspaceId);
     set({ agentId, activeWorkspaceId: project.workspaceId ?? get().activeWorkspaceId,
       activeConvId: { ...get().activeConvId, [agentId]: id }, terminalChat });
     get().reconcileQueues();
@@ -6140,8 +6141,8 @@ export const useStore = create<State>((set, get) => {
         .conversationsForAgent(agentId)
         .filter((c) => c.id !== id)[0]?.id;
       const replacement = activeConvId[agentId];
-      if (replacement) localStorage.setItem(activeConversationStorageKey(agentId, get().activeWorkspaceId), replacement);
-      else localStorage.removeItem(activeConversationStorageKey(agentId, get().activeWorkspaceId));
+      if (replacement) settingsStorage.setItem(activeConversationStorageKey(agentId, get().activeWorkspaceId), replacement);
+      else settingsStorage.removeItem(activeConversationStorageKey(agentId, get().activeWorkspaceId));
     }
     persistConvs(conversations);
     const projectRevisions = { ...get().projectRevisions };

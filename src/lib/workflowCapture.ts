@@ -313,10 +313,12 @@ function fastPath(transcript: string): string[] {
   });
 }
 
+// A domain ends at a URL delimiter, or at punctuation that closes the
+// sentence it sits in ("Replay the recorded browser actions on github.com.").
 export function workflowDomain(text: string): string {
-  const explicit = text.match(/https?:\/\/(?:www\.)?([a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,})(?=[/:?#\s]|$)/i);
+  const explicit = text.match(/https?:\/\/(?:www\.)?([a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,})(?=[/:?#\s]|[.,;!)]+(?:\s|$)|$)/i);
   if (explicit?.[1]) return explicit[1].toLowerCase();
-  const bare = text.match(/\b(?:www\.)?([a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,})(?=[/:?#\s]|$)/i);
+  const bare = text.match(/\b(?:www\.)?([a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,})(?=[/:?#\s]|[.,;!)]+(?:\s|$)|$)/i);
   return bare?.[1]?.toLowerCase() ?? "";
 }
 

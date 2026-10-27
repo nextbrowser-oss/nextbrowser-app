@@ -7,6 +7,16 @@ import { Icon, Spinner } from "./Icon";
 import { UserFacingError } from "./UserFacingError";
 
 /**
+ * Whether the gate shows while it is due (no agent connected). The agent
+ * check that runs after a start or a window reload takes a moment; the gate
+ * waits for its result instead of flashing "Checking…" for an agent that
+ * then connects. Once open, it stays open while the user's Connect is checked.
+ */
+export function agentGateVisible(due: boolean, agentChecking: boolean, alreadyOpen: boolean): boolean {
+  return due && (alreadyOpen || !agentChecking);
+}
+
+/**
  * First-run agent connection gate. A user may dismiss it and continue to look
  * around the app, but actions which require an agent remain clearly disabled
  * until one is connected.

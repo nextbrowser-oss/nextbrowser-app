@@ -1,6 +1,7 @@
 import { blocked } from "../lib/blocked.mjs";
 import { activeWorkspace, askAgent, createProfile, createWorkspace, deleteCurrentWorkspace, escape, openMainView, setChatMode, stopProfile, switchWorkspace, waitFor } from "../lib/ui.mjs";
-import { confirmNextDialog, createProject, latestCommits, mentions, openInProfile, pageEval, sleep } from "../lib/ui-workflows.mjs";
+import { createProject, latestCommits, mentions, openInProfile, pageEval, sleep } from "../lib/ui-workflows.mjs";
+import { nbc } from "../lib/oracle.mjs";
 
 const REPO = "nextbrowser-oss/nextbrowser-app";
 const REPO_URL = `https://github.com/${REPO}`;
@@ -228,10 +229,16 @@ async function dataStepValue(nbcCmd, profile, steps) {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
+/** Deleting asks in the app's own dialog, named after what it deletes. */
+async function confirmDeletion(page) {
+  await page.getByRole("dialog", { name: /^Delete / }).getByRole("button", { name: "Delete", exact: true }).click();
+}
+
 async function deleteWorkflow(page, title) {
   await openWorkflow(page, title);
   await main(page).getByLabel("More workflow actions").click();
-  await confirmNextDialog(page, () => main(page).getByRole("button", { name: "Delete workflow", exact: true }).click());
+  await main(page).getByRole("button", { name: "Delete workflow", exact: true }).click();
+  await confirmDeletion(page);
   await waitFor(async () => (await openWorkflowTitle(page)) !== title, `workflow «${title}» to be deleted`);
 }
 
@@ -239,7 +246,8 @@ async function deleteRecording(page, key) {
   await openStudio(page, "Recorder");
   const card = recordingCard(page, key);
   if (!(await card.count())) return;
-  await confirmNextDialog(page, () => card.getByRole("button", { name: "Delete", exact: true }).click());
+  await card.getByRole("button", { name: "Delete", exact: true }).click();
+  await confirmDeletion(page);
   await card.waitFor({ state: "detached", timeout: 30_000 });
 }
 
@@ -279,7 +287,9 @@ async function browseToCommits(nbcCmd, profile) {
   await waitFor(async () => String(await pageEval(nbcCmd, profile, `Boolean(${COMMITS_LINK})`)) === "true", "the repository page with its commits link", 60_000, 2_000);
   // The recorder re-arms on each page it sees (it polls every 250 ms).
   await sleep(2_000);
-  await pageEval(nbcCmd, profile, `(() => { const link = ${COMMITS_LINK}; link.click(); return link.href; })()`);
+  // A real mouse click: the recorder keeps only clicks a person makes, not ones a script fires.
+  const box = JSON.parse(String(await pageEval(nbcCmd, profile, `(() => { const link = [...document.querySelectorAll('a[href*="/commits/"]')].find((item) => /\\bcommits?$/i.test(item.innerText.trim()) && item.getClientRects().length); link.scrollIntoView({ block: "center" }); const r = link.getBoundingClientRect(); return JSON.stringify({ x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }); })()`)));
+  await nbc(nbcCmd, ["click-xy", String(box.x), String(box.y), "--profile", profile, "--runtime", "clawbrowser", "--format", "json"]);
   await waitFor(async () => /\/commits\//.test(String(await pageEval(nbcCmd, profile, "location.href"))), "the commits page", 60_000, 2_000);
 }
 

@@ -35,6 +35,17 @@ describe("terminal workflow capture", () => {
     expect(capturedWorkflowDomain("найди все матизы", answer)).toBe("makler.md");
   });
 
+  it("reads a website named at the end of a sentence", () => {
+    expect(workflowDomain("Replay the recorded browser actions on github.com.")).toBe("github.com");
+    expect(workflowDomain("Open https://example.org, then search.")).toBe("example.org");
+    // A manual recording without a starting page still names its website, so
+    // the missing start, not an unknown site, is what the user is told.
+    const evidence = 'Called clawbrowser.click({"locator":{"role":"link","name":"Commits"}})\n{"ok":true}';
+    const task = "Replay the recorded browser actions on github.com.";
+    expect(capturedWorkflowDomain(task, evidence)).toBe("github.com");
+    expect(workflowQuality(task, evidence).reason).toMatch(/starting page/);
+  });
+
   it("does not mistake an artifact filename for the website that was opened", () => {
     const answer = 'Called clawbrowser.open({"url":"https://news.ycombinator.com/newest"})\n{"ok":true}';
     expect(capturedWorkflowDomain("Collect stories and save them as hacker-news-newest.csv", answer)).toBe("news.ycombinator.com");

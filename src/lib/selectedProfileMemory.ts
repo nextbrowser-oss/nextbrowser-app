@@ -1,5 +1,6 @@
 import type { Workspace } from "../types";
 import { activeMultiloginSelectionForWorkspace } from "./multiloginSelection";
+import { settingsStorage } from "./settingsStorage";
 
 // The browser profile picked in a workspace is part of the user's setup: it
 // must come back after a restart and after switching to another workspace and
@@ -11,10 +12,9 @@ function storageKey(workspaceId: string): string {
   return `${SELECTED_PROFILE_PREFIX}${encodeURIComponent(workspaceId)}`;
 }
 
+// localStorage, with the settings file behind it (see settingsStorage).
 function browserStorage(): Storage | undefined {
-  if (typeof window !== "undefined") return window.localStorage;
-  if (typeof localStorage !== "undefined") return localStorage;
-  return undefined;
+  return settingsStorage;
 }
 
 /** No profile is the agent default, which is a choice worth keeping too. */

@@ -12,7 +12,22 @@ const state = {
 
 vi.mock("../store", () => ({ useStore: () => state }));
 
-import { AgentConnectionGate } from "./AgentConnectionGate";
+import { AgentConnectionGate, agentGateVisible } from "./AgentConnectionGate";
+
+describe("when the agent gate shows", () => {
+  it("waits for the agent check after a start or reload instead of flashing", () => {
+    expect(agentGateVisible(true, true, false)).toBe(false);
+    expect(agentGateVisible(true, false, false)).toBe(true);
+  });
+
+  it("stays open while the user's own Connect is checked", () => {
+    expect(agentGateVisible(true, true, true)).toBe(true);
+  });
+
+  it("never shows when it is not due", () => {
+    expect(agentGateVisible(false, false, true)).toBe(false);
+  });
+});
 
 describe("AgentConnectionGate", () => {
   it.each([true, false])("preselects discovered Codex with a calm offer and the correct login action (%s)", (loggedIn) => {

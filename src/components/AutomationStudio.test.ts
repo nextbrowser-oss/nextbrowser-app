@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { capturedRuns, capturedRunsForRecording, skillFromRun } from "../lib/automationStudio";
 import { workflowQuality } from "../lib/workflowCapture";
@@ -116,5 +117,20 @@ describe("Automation Studio recorder", () => {
       ],
     };
     expect(capturedRuns([conversation])).toEqual([]);
+  });
+});
+
+describe("Automation Studio deletions", () => {
+  const studio = readFileSync(new URL("./AutomationStudio.tsx", import.meta.url), "utf8");
+
+  it("asks in the app's own dialog, not in a system prompt", () => {
+    for (const kind of ["recording", "workflow", "artifact"]) {
+      expect(studio).toContain(`setPendingDeletion({ kind: "${kind}"`);
+    }
+    expect(studio).toMatch(/role="dialog" aria-modal="true" aria-labelledby="automation-delete-title"/);
+    // Only "discard unsaved changes" still uses the system prompt.
+    const confirms = [...studio.matchAll(/window\.confirm\(\s*"([^"]*)"/g)].map((match) => match[1]);
+    expect(confirms.every((text) => /^Discard unsaved workflow changes/.test(text))).toBe(true);
+    expect(studio).not.toMatch(/window\.confirm\(\s*`/);
   });
 });

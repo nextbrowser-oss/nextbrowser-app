@@ -21,7 +21,8 @@ export interface CapturedRun {
 }
 
 export interface ManualBrowserRecording {
-  actions: Array<{ tool: string; arguments: Record<string, unknown>; at?: number }>;
+  /** `url` is the page a page event happened on; tool calls have none. */
+  actions: Array<{ tool: string; arguments: Record<string, unknown>; at?: number; url?: string }>;
   url?: string;
   title?: string;
   stoppedAt?: number;
@@ -46,6 +47,14 @@ export function capturedRunFromManualRecording(id: string, recording: ManualBrow
     kept.push(action);
     return kept;
   }, []);
+  // The recorder can miss the navigation that led to the first page the user
+  // worked on: the page was already open, or the tab was first seen after it
+  // loaded. Without a starting page the run cannot be replayed and its website
+  // is unknown, so start where the first page event happened.
+  const first = actions[0];
+  if (first && !["open", "navigate"].includes(first.tool) && typeof first.url === "string" && /^https?:\/\//i.test(first.url)) {
+    actions.unshift({ tool: "open", arguments: { url: first.url }, at: (first.at ?? 0) - 1 });
+  }
   const stoppedAt = recording.stoppedAt || Date.now();
   let domain = "browser";
   // The recorder can stop on the toolset's verification tab even when the
@@ -94,6 +103,7 @@ function normalizedRecordedTool(tool: string) {
 export function capturedRunFromHybridRecording(id: string, recording: ManualBrowserRecording, agentRun?: CapturedRun): CapturedRun | undefined {
   const manual = recording.actions.map((action, index) => ({
     tool: normalizedRecordedTool(action.tool), arguments: action.arguments, at: action.at || index,
+    ...(action.url ? { url: action.url } : {}),
   }));
   if (!agentRun) return capturedRunFromManualRecording(id, { ...recording, actions: manual });
   if (!manual.length) return agentRun;
@@ -139,7 +149,7 @@ export function capturedRunFromHybridRecording(id: string, recording: ManualBrow
   if (needsArtifact && requestedArtifact) {
     cappedActions.push({ ...requestedArtifact, at: (cappedActions.at(-1)?.at || agentRun.answer.createdAt) + 1 });
   }
-  const actions = cappedActions.map(({ tool, arguments: arguments_ }) => ({ tool, arguments: arguments_ }));
+  const actions = cappedActions.map(({ tool, arguments: arguments_, url }) => ({ tool, arguments: arguments_, ...(url ? { url } : {}) }));
   const merged = capturedRunFromManualRecording(id, { ...recording, actions });
   if (!merged) return agentRun;
   return {

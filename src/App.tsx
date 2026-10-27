@@ -41,7 +41,7 @@ import { invoke, listen } from "./electronBridge";
 import { agentById } from "./agents";
 import { releaseDownloadUrl } from "./lib/releaseDownload";
 import { UserFacingError } from "./components/UserFacingError";
-import { AgentConnectionGate } from "./components/AgentConnectionGate";
+import { AgentConnectionGate, agentGateVisible } from "./components/AgentConnectionGate";
 import { WorkspaceSetupGate } from "./components/WorkspaceSetupGate";
 import { AgentInstallLink } from "./components/AgentInstallLink";
 import { DeviceDataSettings } from "./components/DeviceDataSettings";
@@ -50,6 +50,7 @@ import { AutomationStudio } from "./components/AutomationStudio";
 import { FeedbackModal } from "./components/FeedbackModal";
 import { feedbackPromptBlocked, feedbackPromptConfig, markFeedbackSubmitted, shouldPromptForFeedback } from "./lib/feedbackPrompt";
 import { multiloginSelectionForWorkspace } from "./lib/multiloginSelection";
+import { settingsStorage } from "./lib/settingsStorage";
 import { countWorkspaceProfiles } from "./lib/workspaceProfiles";
 
 const TABS: { id: AppTab; label: string; icon?: string }[] = [
@@ -631,11 +632,11 @@ function SettingsModal({
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
-      <div className="modal-card settings-modal" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="modal-card settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-title-row">
           <Icon name="gearshape" size={18} />
           <div>
-            <strong>Settings</strong>
+            <strong id="settings-title">Settings</strong>
             <div className="muted small">Local app and runtime status</div>
           </div>
           <span className="spacer" />
@@ -941,26 +942,26 @@ function AppUpdatePrompt({
 
 export function App() {
   const [theme, setTheme] = useState<Theme>(() => resolveTheme(
-    localStorage.getItem("nextbrowser.theme"),
+    settingsStorage.getItem("nextbrowser.theme"),
     window.matchMedia("(prefers-color-scheme: light)").matches,
   ));
   const [uiScale, setUiScale] = useState<number>(() => {
-    const saved = Number(localStorage.getItem("nextbrowser.uiScale"));
+    const saved = Number(settingsStorage.getItem("nextbrowser.uiScale"));
     return Number.isFinite(saved) && saved >= UI_SCALE_MIN && saved <= UI_SCALE_MAX ? saved : 1;
   });
   // The floating quick-access control is a convenience on top of the real
   // setting in Settings; once dismissed there's no reason to keep offering
   // it back, so the choice is remembered per device like the scale itself.
   const [uiScaleFloatingHidden, setUiScaleFloatingHidden] = useState(
-    () => localStorage.getItem("nextbrowser.uiScaleFloatingHidden") === "1",
+    () => settingsStorage.getItem("nextbrowser.uiScaleFloatingHidden") === "1",
   );
   const dismissUiScaleFloating = () => {
     setUiScaleFloatingHidden(true);
-    localStorage.setItem("nextbrowser.uiScaleFloatingHidden", "1");
+    settingsStorage.setItem("nextbrowser.uiScaleFloatingHidden", "1");
   };
   const restoreUiScaleFloating = () => {
     setUiScaleFloatingHidden(false);
-    localStorage.removeItem("nextbrowser.uiScaleFloatingHidden");
+    settingsStorage.removeItem("nextbrowser.uiScaleFloatingHidden");
   };
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsFocus, setSettingsFocus] = useState<"agent" | null>(null);
@@ -1010,7 +1011,11 @@ export function App() {
   const bootstrap = useStore((s) => s.bootstrap);
   const showOnboarding = useStore((s) => s.showOnboarding);
   const agentReady = useStore((s) => s.agentReady());
-  const agentGateOpen = !checking && authed && !agentReady && !showOnboarding && !agentGateDismissed && preview !== "main";
+  const agentGateDue = !checking && authed && !agentReady && !showOnboarding && !agentGateDismissed && preview !== "main";
+  const agentChecking = useStore((s) => !!s.runtime[s.agentId]?.authorizing);
+  const [agentGateShown, setAgentGateShown] = useState(false);
+  const agentGateOpen = agentGateVisible(agentGateDue, agentChecking, agentGateShown);
+  useEffect(() => { setAgentGateShown(agentGateOpen); }, [agentGateOpen]);
   const workspaceSetupRequired = useStore((s) => {
     return s.authed && s.workspacesLoaded && s.workspaceSetupRequired;
   });
@@ -1098,7 +1103,7 @@ export function App() {
 
   const feedbackPromptWaiting = feedbackPromptBlocked({
     onboarding: showOnboarding || workspaceSetupRequired,
-    agentGate: agentGateOpen,
+    agentGate: agentGateDue,
     trafficGate: trafficGatePromptOpen,
     githubStar: githubStarPromptOpen,
     appUpdate: updateAvailable(appUpdate) && appUpdate.version !== updatePromptDismissedVersion,
@@ -1128,10 +1133,10 @@ export function App() {
     // be closed; the Usage page keeps the same ask next to the proxy traffic.
     if (githubStarPromptEvaluated.current || !feedbackAvailable || showOnboarding || workspaceSetupRequired) return;
     // Never on top of the agent connection gate: ask once that is out of the way.
-    if (githubStar === undefined || agentGateOpen) return;
+    if (githubStar === undefined || agentGateDue) return;
     githubStarPromptEvaluated.current = true;
     if (shouldAskForGitHubStar(githubStar)) setGitHubStarPromptOpen(true);
-  }, [feedbackAvailable, showOnboarding, workspaceSetupRequired, githubStar, agentGateOpen, setGitHubStarPromptOpen]);
+  }, [feedbackAvailable, showOnboarding, workspaceSetupRequired, githubStar, agentGateDue, setGitHubStarPromptOpen]);
 
   useEffect(() => {
     if (!feedbackAvailable) setFeedbackOpen(false);
@@ -1424,13 +1429,13 @@ export function App() {
     // window's own size and broke scrolling and fixed-position overlays
     // (like the Settings modal) at higher scales.
     void invoke("app_set_zoom_factor", { factor: uiScale }).catch(() => undefined);
-    localStorage.setItem("nextbrowser.uiScale", String(uiScale));
+    settingsStorage.setItem("nextbrowser.uiScale", String(uiScale));
   }, [uiScale]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
-    localStorage.setItem("nextbrowser.theme", theme);
+    settingsStorage.setItem("nextbrowser.theme", theme);
     void invoke("app_set_theme", { theme }).catch(() => undefined);
     if (!didTrackThemeChange.current) {
       didTrackThemeChange.current = true;
@@ -1838,7 +1843,7 @@ export function App() {
       )}
       <DashboardKeyModal />
       <TrafficGateModal />
-      <GitHubStarModal suppressed={agentGateOpen} />
+      <GitHubStarModal suppressed={agentGateDue} />
       <ProfileCreateRequestModal />
       {agentGateOpen && (
         <AgentConnectionGate onDismiss={() => setAgentGateDismissed(true)} />
