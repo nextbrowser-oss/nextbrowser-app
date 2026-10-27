@@ -3,7 +3,7 @@ const { mcpProfileScope } = require("./mcp-profile-scope.cjs");
 const { addChatWorkspaceProfile } = require("./chat-profile-scope.cjs");
 const { requireVerificationCapableCLI, verificationFailureDialogOptions, verificationFailureDialogChoice } = require("./verification-policy.cjs");
 const { agentLoginStatus } = require("./agent-login-status.cjs");
-const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage, screen } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage, screen, session } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const { createAppUpdateDownload } = require("./app-update-download.cjs");
 const { execFileSync, spawn } = require("node:child_process");
@@ -138,6 +138,7 @@ const { createClientErrorReporter, errorReportingAllowed } = require("./client-e
 const { clientEnvironmentAllowed, createClientEnvironment } = require("./client-environment.cjs");
 const { createEnvironmentCollector } = require("./client-environment-collect.cjs");
 const { describeBackendRequest, setBackendClientInfo, setBackendRequestObserver, tracedBackendFetch } = require("./backend-fetch.cjs");
+const { createNetworkDiagnostics, wantsNetworkDiagnostics } = require("./network-diagnostics.cjs");
 const { describeNbcResult, isNextctlBinary } = require("./nbc-failure-report.cjs");
 const { describeAgentResult, describeTerminalExit } = require("./agent-failure-report.cjs");
 const { describeInvokeFailure, describeMainFailure } = require("./invoke-failure-report.cjs");
@@ -208,6 +209,14 @@ const nextctlAutomationTraceSupport = new Map();
 // inside it is reported with the action that led to it.
 const reportingContext = new AsyncLocalStorage();
 const appBuildVersion = feedbackBuildContext({ app, execFileSync }).app_version;
+// A report about the network or the proxy carries a snapshot of this
+// computer's network (net_* fields, see network-diagnostics.cjs). The probes
+// run here in the main process, only for a report the reporter accepted (so
+// only with reporting on), and at most once a minute: later reports reuse the
+// snapshot.
+const networkDiagnostics = createNetworkDiagnostics({
+  resolveProxyImpl: (url) => session.defaultSession.resolveProxy(url),
+});
 const errorReporter = createClientErrorReporter({
   dir: path.join(app.getPath("userData"), "client-errors"),
   allowed: errorReportingAllowed({ isDevBuild }),
@@ -220,6 +229,7 @@ const errorReporter = createClientErrorReporter({
   homeDir: os.homedir(),
   resolveEndpoint: runtimeBackendEndpoint,
   getAction: () => reportingContext.getStore()?.action,
+  enrich: (event) => (wantsNetworkDiagnostics(event) ? networkDiagnostics.snapshot() : undefined),
 });
 const backendFetch = tracedBackendFetch();
 setBackendClientInfo({ name: "nextbrowser-app", version: app.getVersion() });

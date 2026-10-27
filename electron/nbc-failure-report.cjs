@@ -9,13 +9,20 @@ const { parseNextctlEnvelope } = require("./profile-start-failure.cjs");
 // on and failures of the few commands the app runs without JSON output.
 // Outcomes the user can act on are expected and only become breadcrumbs: bad
 // input, missing profiles, sign-in, the profile's own proxy, traffic limits,
-// site-flow results, an offline machine, a browser the user closed
-// (CDP_UNREACHABLE outside start), cancellations and other timeouts.
+// site-flow results, a machine without a network route, a browser the user
+// closed (CDP_UNREACHABLE outside start), cancellations and other timeouts.
 // A backend request that nbc says got no answer through the user's network
-// (a refused or reset connection, a failed TLS handshake, no answer in time)
-// is reported with kind "network" rather than "command_failed", so it can be
-// counted apart from product failures; without DNS the machine is offline
-// and that is a breadcrumb only.
+// (a refused or reset connection, a failed TLS handshake, no answer in time,
+// a name that did not resolve) is reported with kind "network" rather than
+// "command_failed", so it can be counted apart from product failures. DNS
+// failures used to count as an offline machine; with a VPN our domains fail
+// to resolve while the rest of the internet works, so they are reported too
+// (with the network diagnostics, network-diagnostics.cjs). A truly offline
+// computer does not flood: it cannot send while offline, so the reporter
+// folds every repeat into one report per failure with a count, and its
+// per-run limits (20 per failure, 200 in all) cap the rest. Commands the app
+// runs without JSON output (update, install: downloads from GitHub) keep a
+// failed lookup as a breadcrumb.
 // Standard output is never copied into a report: it can hold page data.
 
 const EXPECTED_CODES = new Set([
@@ -57,6 +64,9 @@ const EXPECTED_CODE_PATTERN = /^(?:REDDIT|X|LINKEDIN|INSTAGRAM|TIKTOK|FACEBOOK)_
 const EXPECTED_DETAIL = /ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_CONNECTION_FAILED|Proxy country is [A-Za-z]{2,}, expected|proxy[^.\n]*(?:refused|unreachable|authentication|\b407\b)|runtime update is being installed|Stop these profiles before updating/i;
 // A machine without network or DNS is the user's environment, not nbc.
 const OFFLINE_DETAIL = /no such host|ENOTFOUND|EAI_AGAIN|ENETUNREACH|network is unreachable|getaddrinfo/i;
+// The part of OFFLINE_DETAIL that is a name that did not resolve (Go and
+// Node.js wordings). It is reported as kind network; see the rule above.
+const DNS_DETAIL = /no such host|ENOTFOUND|EAI_AGAIN|getaddrinfo|server misbehaving|name resolution/i;
 // nbc names a backend request that got no answer through this computer's
 // network in error.network_error: dns, connect, reset, tls, timeout or other.
 const NETWORK_ERROR = /^[a-z]{2,16}$/;
@@ -215,14 +225,18 @@ function describeNbcResult({ args, result, outcome = {}, durationMs }) {
     const detail = [message, String(error.hint || ""), stderr].join("\n");
     const wrapped = VERIFY_CODES.has(nbcCode) ? message.match(WRAPPED_CAUSE)?.[1] : "";
     const cause = wrapped && wrapped !== "VERIFY_REQUIRED" ? wrapped : nbcCode;
-    const network = typeof error.network_error === "string" && NETWORK_ERROR.test(error.network_error) ? error.network_error : "";
+    const always = ALWAYS_REPORTED_CODES.has(cause);
+    const declared = typeof error.network_error === "string" && NETWORK_ERROR.test(error.network_error) ? error.network_error : "";
+    // An nbc that predates network_error names a failed lookup in its message.
+    const dnsFailed = declared === "dns" || (!always && DNS_DETAIL.test(detail));
+    const network = declared || (dnsFailed ? "dns" : "");
     const coded = {
       breadcrumb: `${breadcrumb} ${cause === nbcCode ? nbcCode : `${nbcCode}(${cause})`}${network ? ` network:${network}` : ""}`,
       event: null,
     };
-    if (!ALWAYS_REPORTED_CODES.has(cause) && (expectedCode(cause, command) || EXPECTED_DETAIL.test(detail) || OFFLINE_DETAIL.test(detail))) return coded;
+    if (!always && (expectedCode(cause, command) || EXPECTED_DETAIL.test(detail))) return coded;
+    if (!always && !dnsFailed && OFFLINE_DETAIL.test(detail)) return coded;
     if (cause === "REMOTE_BACKEND_ERROR" && SIGNED_OUT_DETAIL.test(detail)) return coded;
-    if (network === "dns") return coded;
     return {
       ...coded,
       event: event(VERIFY_CODES.has(cause) ? "NBC_VERIFY_FAILED" : cause, `nbc ${command}: ${message || nbcCode}`, {
@@ -258,6 +272,7 @@ function describeNbcResult({ args, result, outcome = {}, durationMs }) {
 }
 
 module.exports = {
+  DNS_DETAIL,
   EXPECTED_DETAIL,
   OFFLINE_DETAIL,
   describeNbcResult,

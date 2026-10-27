@@ -68,7 +68,11 @@ const DEFAULTS = Object.freeze({
   maxEventsPerRun: 200,
   maxEventsPerFingerprint: 20,
   logMaxBytes: 256 * 1024,
+  // How long a send waits for the extra context of an event (see `enrich`).
+  enrichWaitMs: 5_000,
 });
+// Keys a folded report adds later; extra context leaves room for them.
+const FOLD_KEYS = ["last_occurred_at", "last_ref"];
 
 /**
  * Reporting is off in development and unpackaged builds unless
@@ -226,6 +230,12 @@ function createClientErrorReporter({
   },
   clearTimer = (timer) => clearTimeout(timer),
   getAction = () => undefined,
+  // Optional extra context for a new event, gathered asynchronously (the
+  // network diagnostics, network-diagnostics.cjs): called with the event's
+  // source, kind, name and context, it returns undefined or a promise of
+  // string fields. They are scrubbed and added while the context has room,
+  // and a send waits up to enrichWaitMs for them.
+  enrich,
   options = {},
 } = {}) {
   const config = { ...DEFAULTS, ...options };
@@ -410,6 +420,34 @@ function createClientErrorReporter({
     return true;
   }
 
+  /** Adds extra fields to an event's context: scrubbed, existing keys win, never past the key limit. */
+  function addContext(event, extra) {
+    if (!extra || typeof extra !== "object" || Array.isArray(extra)) return;
+    const context = event.context || {};
+    const reserved = FOLD_KEYS.filter((key) => !(key in context)).length;
+    for (const [key, value] of Object.entries(cleanContext(extra, scrub))) {
+      if (Object.keys(context).length + reserved >= LIMITS.contextKeys) break;
+      if (!(key in context)) context[key] = value;
+    }
+    if (Object.keys(context).length) event.context = context;
+  }
+
+  function startEnrichment(entry) {
+    if (typeof enrich !== "function") return;
+    const { source, kind, name, context } = entry.event;
+    const pending = enrich({ source, kind, name, context: { ...context } });
+    if (!pending || typeof pending.then !== "function") return;
+    entry.enriching = Promise.resolve(pending).then((extra) => {
+      if (!queue.includes(entry)) return;
+      addContext(entry.event, extra);
+      schedulePersist();
+    }).catch((error) => {
+      log(`enrichment failed: ${error?.message || error}`);
+    }).finally(() => {
+      delete entry.enriching;
+    });
+  }
+
   /** Records an error. Returns true when it was queued or folded. */
   function capture(raw) {
     if (!active() || capturing) return false;
@@ -426,8 +464,14 @@ function createClientErrorReporter({
         }
         capturedThisRun += 1;
         perFingerprint.set(event.fingerprint, seen + 1);
-        queue.push({ client: clientSnapshot(), event, lastAt: now() });
+        const entry = { client: clientSnapshot(), event, lastAt: now() };
+        queue.push(entry);
         boundQueue();
+        try {
+          startEnrichment(entry);
+        } catch (error) {
+          log(`enrichment failed: ${error?.message || error}`);
+        }
       }
       schedulePersist();
       const unsent = queue.filter((entry) => !entry.sending).length;
@@ -558,6 +602,15 @@ function createClientErrorReporter({
     for (const entry of batch) entry.sending = true;
     sending = (async () => {
       try {
+        const pending = batch.map((entry) => entry.enriching).filter(Boolean);
+        if (pending.length) {
+          let timer;
+          await Promise.race([
+            Promise.all(pending),
+            new Promise((resolve) => { timer = setTimer(resolve, config.enrichWaitMs); }),
+          ]);
+          clearTimer(timer);
+        }
         await sendBatch(batch);
       } catch (error) {
         log(`send failed: ${error?.message || error}`);

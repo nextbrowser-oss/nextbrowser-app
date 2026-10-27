@@ -91,17 +91,32 @@ function withTimeout(promise, ms, fallback) {
   ]).finally(() => clearTimeout(timer));
 }
 
-/** Runs a program without a shell; resolves its output, or "" on any failure. */
-function runFile(execFileImpl, file, args, timeoutMs = COMMAND_TIMEOUT_MS) {
+/**
+ * Runs a program without a shell. Never rejects: resolves its output and,
+ * when it failed, why (`error` is "timeout", a spawn error code such as
+ * ENOENT, or "exit<N>").
+ */
+function runFileResult(execFileImpl, file, args, timeoutMs = COMMAND_TIMEOUT_MS) {
   return new Promise((resolve) => {
     try {
-      execFileImpl(file, args, { encoding: "utf8", timeout: timeoutMs, windowsHide: true, maxBuffer: 1024 * 1024 }, (error, stdout) => {
-        resolve(error ? "" : String(stdout || ""));
+      execFileImpl(file, args, { encoding: "utf8", timeout: timeoutMs, windowsHide: true, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+        const output = { stdout: String(stdout || ""), stderr: String(stderr || "") };
+        if (!error) return resolve(output);
+        const reason = error.killed || error.signal === "SIGTERM" ? "timeout"
+          : typeof error.code === "string" ? error.code
+          : Number.isInteger(error.code) ? `exit${error.code}`
+          : "failed";
+        resolve({ ...output, error: reason });
       });
-    } catch {
-      resolve("");
+    } catch (error) {
+      resolve({ stdout: "", stderr: "", error: typeof error?.code === "string" ? error.code : "failed" });
     }
   });
+}
+
+/** Runs a program without a shell; resolves its output, or "" on any failure. */
+function runFile(execFileImpl, file, args, timeoutMs = COMMAND_TIMEOUT_MS) {
+  return runFileResult(execFileImpl, file, args, timeoutMs).then((result) => (result.error ? "" : result.stdout));
 }
 
 function powershellPath(env = process.env) {
@@ -541,7 +556,10 @@ module.exports = {
   parseSetxkbmap,
   parseSwVers,
   powershellPath,
+  runFile,
+  runFileResult,
   windowsKeyboard,
   windowsOs,
   windowsScript,
+  withTimeout,
 };

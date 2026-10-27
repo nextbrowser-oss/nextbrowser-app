@@ -1,6 +1,6 @@
 const { randomBytes } = require("node:crypto");
 const { apiRoute } = require("./client-error-scrub.cjs");
-const { OFFLINE_DETAIL } = require("./nbc-failure-report.cjs");
+const { DNS_DETAIL, OFFLINE_DETAIL } = require("./nbc-failure-report.cjs");
 
 // Every request the app itself sends to a Nextbrowser backend carries a W3C
 // traceparent, so a failed call reported from the desktop opens the matching
@@ -103,11 +103,19 @@ function networkErrorCode(error) {
 /**
  * Turns one observed backend request into a breadcrumb and, for a 5xx
  * response, an api_error event. A request that got no answer (a refused or
- * reset connection, a failed TLS handshake, a timeout) is an event of kind
- * network: the user's connection, counted apart from product failures. 4xx
- * responses are ordinary outcomes (signed out, not found, conflict) that the
- * UI already handles, and an offline computer (no DNS, no network) is the
- * user's environment: both are breadcrumbs only.
+ * reset connection, a failed TLS handshake, a timeout, a host name that did
+ * not resolve) is an event of kind network: the user's connection, counted
+ * apart from product failures. 4xx responses are ordinary outcomes (signed
+ * out, not found, conflict) that the UI already handles, and a computer
+ * without a network route (ENETUNREACH) is the user's environment: both are
+ * breadcrumbs only.
+ *
+ * ENOTFOUND and EAI_AGAIN used to count as an offline computer too. With a
+ * VPN our domains fail to resolve while the rest of the internet works, and
+ * that is the case the network diagnostics exist for, so they are reported.
+ * A truly offline computer cannot send while it is offline: the reporter
+ * folds the repeats of each failing route into one report with a count, and
+ * its per-run limits (20 per failure, 200 in all) cap the rest.
  */
 function describeBackendRequest({ url, method, status, error, traceId, responseTraceId, requestId, durationMs }) {
   const route = apiRoute(url);
@@ -117,7 +125,8 @@ function describeBackendRequest({ url, method, status, error, traceId, responseT
   // A caller that aborts its own request has not hit a failure.
   if (error && error.name === "AbortError") return { breadcrumb, event: null };
   if (!error && !(status >= 500)) return { breadcrumb, event: null };
-  if (error && OFFLINE_DETAIL.test([outcome, error?.message, error?.cause?.message].join("\n"))) return { breadcrumb, event: null };
+  const detail = [outcome, error?.message, error?.cause?.message].join("\n");
+  if (error && OFFLINE_DETAIL.test(detail) && !DNS_DETAIL.test(detail)) return { breadcrumb, event: null };
   const context = {
     method,
     host: route.host,

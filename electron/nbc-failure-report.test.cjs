@@ -46,15 +46,15 @@ test("expected outcomes the UI explains are not reported", () => {
   assert.equal(proxyLaunch.event, null, "a proxy that refuses the launch is the profile's configuration");
   const signedOut = describeNbcResult({ args: ["start", "--format", "json"], result: { code: 1, stdout: envelope("REMOTE_BACKEND_ERROR", "backend returned 401 Unauthorized"), stderr: "" } });
   assert.equal(signedOut.event, null);
-  const offline = describeNbcResult({ args: ["start", "--format", "json"], result: { code: 1, stdout: envelope("VERIFY_UNAVAILABLE", "dial tcp: lookup api.nextbrowser.com: no such host"), stderr: "" } });
-  assert.equal(offline.event, null, "an offline machine is not an nbc defect");
+  const noRoute = describeNbcResult({ args: ["start", "--format", "json"], result: { code: 1, stdout: envelope("VERIFY_UNAVAILABLE", "dial tcp 1.2.3.4:443: connect: network is unreachable"), stderr: "" } });
+  assert.equal(noRoute.event, null, "a machine without a network route is not an nbc defect");
   const closedBrowser = describeNbcResult({ args: ["tabs", "--profile", "p", "--format", "json"], result: { code: 1, stdout: envelope("CDP_UNREACHABLE"), stderr: "" } });
   assert.equal(closedBrowser.event, null, "a browser the user closed");
   const startUnreachable = describeNbcResult({ args: ["start", "--profile", "p", "--format", "json"], result: { code: 1, stdout: envelope("CDP_UNREACHABLE"), stderr: "" } });
   assert.equal(startUnreachable.event.name, "CDP_UNREACHABLE", "a start that cannot reach its own browser is reported");
 });
 
-test("a backend request nbc says got no answer is reported as kind network, offline is not reported", () => {
+test("a backend request nbc says got no answer is reported as kind network, a failed lookup included", () => {
   const unreachable = (network_error, code = "REMOTE_BACKEND_ERROR") => JSON.stringify({
     ok: false,
     command: "status",
@@ -68,9 +68,20 @@ test("a backend request nbc says got no answer is reported as kind network, offl
     assert.equal(event.context.network_error, reason);
     assert.equal(event.context.nbc_code, "REMOTE_BACKEND_ERROR");
   }
-  const offline = describeNbcResult({ args: ["profiles", "ls", "--format", "json"], result: { code: 1, stdout: unreachable("dns"), stderr: "" } });
-  assert.equal(offline.event, null, "no DNS: the computer is offline");
-  assert.equal(offline.breadcrumb, "profiles ls → exit 1 REMOTE_BACKEND_ERROR network:dns");
+  // With a VPN our domains fail to resolve while the internet works: reported.
+  const unresolved = describeNbcResult({ args: ["profiles", "ls", "--format", "json"], result: { code: 1, stdout: unreachable("dns"), stderr: "" } });
+  assert.equal(unresolved.breadcrumb, "profiles ls → exit 1 REMOTE_BACKEND_ERROR network:dns");
+  assert.equal(unresolved.event.kind, "network");
+  assert.equal(unresolved.event.name, "REMOTE_BACKEND_ERROR");
+  assert.equal(unresolved.event.context.network_error, "dns");
+  // An nbc without network_error says so in its message.
+  const older = describeNbcResult({ args: ["start", "--format", "json"], result: { code: 1, stdout: envelope("VERIFY_UNAVAILABLE", "dial tcp: lookup api.nextbrowser.com: no such host"), stderr: "" } });
+  assert.equal(older.event.kind, "network");
+  assert.equal(older.event.name, "VERIFY_UNAVAILABLE");
+  assert.equal(older.event.context.network_error, "dns");
+  assert.ok(older.breadcrumb.endsWith("VERIFY_UNAVAILABLE network:dns"));
+  // Signed out is still signed out, whatever the network said before.
+  assert.equal(describeNbcResult({ args: ["status", "--format", "json"], result: { code: 1, stdout: envelope("API_KEY_INVALID", "lookup failed: no such host"), stderr: "" } }).event, null);
   // The backend answered (a 5xx): a product failure, as before.
   const backend = describeNbcResult({ args: ["status", "--format", "json"], result: { code: 1, stdout: unreachable(""), stderr: "" } });
   assert.equal(backend.event.kind, "command_failed");
@@ -139,6 +150,7 @@ test("a verified start is classified by the code nextctl wrapped in VERIFY_FAILE
   // No Python for Camoufox is counted, even when the download also failed offline.
   const python = describeNbcResult({ args: ["start", "--runtime", "camoufox", "--format", "json"], result: { code: 1, stdout: wrapped("CAMOUFOX_PYTHON_MISSING: Camoufox needs Python 3.11–3.13, and it could not be downloaded automatically (prepare Camoufox runtime: Python 3.11–3.13 is not installed; download uv: dial tcp: lookup github.com: no such host)"), stderr: "" } });
   assert.equal(python.event.name, "CAMOUFOX_PYTHON_MISSING");
+  assert.equal(python.event.kind, "command_failed", "the missing Python is the failure, not the download's lookup");
   assert.equal(python.event.context.runtime, "camoufox");
 });
 
@@ -148,7 +160,10 @@ test("a failed browser verification is reported unless the profile's own proxy f
   assert.equal(verify.event.context.nbc_code, "VERIFY_FAILED");
   assert.equal(describeNbcResult({ args: ["eval", "--format", "json"], result: { code: 1, stdout: envelope("VERIFY_REQUIRED", "VERIFY_REQUIRED: verification is failed, incomplete, or missing"), stderr: "" } }).event.name, "NBC_VERIFY_FAILED");
   assert.equal(describeNbcResult({ args: ["rotate", "--verify", "--format", "json"], result: { code: 1, stdout: envelope("VERIFY_FAILED", "Proxy country is DE, expected US"), stderr: "" } }).event, null);
-  assert.equal(describeNbcResult({ args: ["verify", "--format", "json"], result: { code: 1, stdout: envelope("VERIFY_FAILED", "lookup verify.nextbrowser.com: no such host"), stderr: "" } }).event, null, "offline");
+  const unresolved = describeNbcResult({ args: ["verify", "--format", "json"], result: { code: 1, stdout: envelope("VERIFY_FAILED", "lookup verify.nextbrowser.com: no such host"), stderr: "" } }).event;
+  assert.equal(unresolved.kind, "network", "a failed lookup is a network report");
+  assert.equal(unresolved.name, "NBC_VERIFY_FAILED");
+  assert.equal(unresolved.context.network_error, "dns");
 });
 
 test("timeouts of commands the user waits on are reported", () => {
