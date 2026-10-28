@@ -111,6 +111,52 @@ function rawErrorMessage(error: unknown): string {
   return (error instanceof Error ? error.message : String(error ?? "")).trim();
 }
 
+/** The class of what stopped a profile start, for its error report. */
+export type BrowserFailureCauseClass = "migration" | "proxy_check" | "launch" | "install" | "timeout" | "other";
+
+/** What stopped a profile start, as codes only: never the message, which can
+ *  name files and hosts. The same vocabulary as the nbc classifier's report
+ *  (electron/nbc-failure-report.cjs) and the agent's (profile-start-failure.cjs). */
+export interface BrowserFailureCause {
+  /** nbc's error code, for example VERIFY_FAILED. */
+  nbcCode: string;
+  /** The code behind it: the one nextctl wraps after "browser stopped:", or
+   *  the backend's code for a proxy account it could not set up. */
+  causeCode?: string;
+  cause: BrowserFailureCauseClass;
+}
+
+// nextctlErrorMessage appends nbc's code in brackets; nbc also starts the
+// message itself with the code, after at most one prefix from the app
+// ("Could not start Nextbrowser: ").
+const NBC_CODE = /\[([A-Z][A-Z0-9_]{2,63})\]/;
+const LEADING_NBC_CODE = /^(?:[^:[\]]*:\s*)?([A-Z][A-Z0-9_]{2,63}):/;
+const MIGRATION_CODE = /\bmigration_(?:failed|status_failed|unavailable|deferred)\b/i;
+const START_TIMEOUT = /did not (?:complete|become \w+) before timeout|was not created before timeout|context deadline exceeded|did not become ready in time|Command timed out/i;
+const INSTALL_FAILURE = /ensurepip is not\s+available|python3(?:\.\d+)?-venv|prepare Camoufox runtime|install Camoufox|download Camoufox|\bCAMOUFOX_PYTHON_MISSING\b|\bBROWSER_BIN_NOT_FOUND\b|managed-proxy privacy capability/i;
+
+function causeClass(raw: string, code: string): BrowserFailureCauseClass {
+  if (INSTALL_FAILURE.test(raw)) return "install";
+  // The check itself: a failed proxy check, or another check.
+  if (code === "VERIFY_FAILED" || code === "VERIFY_REQUIRED") return PROXY_CHECK_FAILURE.test(raw) ? "proxy_check" : "other";
+  if (START_TIMEOUT.test(raw)) return "timeout";
+  return code === "LAUNCH_FAILED" ? "launch" : "other";
+}
+
+/** What stopped a profile start, when nbc reported it; undefined otherwise. */
+export function browserFailureCause(error: unknown): BrowserFailureCause | undefined {
+  const raw = rawErrorMessage(error);
+  const nbcCode = raw.match(NBC_CODE)?.[1] ?? raw.match(LEADING_NBC_CODE)?.[1];
+  if (!nbcCode) return undefined;
+  if (isProxyAccountSetupFailure(raw)) {
+    const code = raw.match(MIGRATION_CODE)?.[0].toLowerCase();
+    return { nbcCode, ...(code ? { causeCode: code } : {}), cause: "migration" };
+  }
+  const wrapped = raw.match(STARTUP_FAILURE_CODE)?.[1];
+  const causeCode = wrapped && wrapped !== "VERIFY_REQUIRED" && wrapped !== nbcCode ? wrapped : undefined;
+  return { nbcCode, ...(causeCode ? { causeCode } : {}), cause: causeClass(raw, causeCode ?? nbcCode) };
+}
+
 /**
  * Converts browser-runtime diagnostics into an actionable UI message. The raw
  * error must still be logged by the caller before using this function.

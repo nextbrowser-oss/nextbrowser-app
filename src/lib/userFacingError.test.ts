@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   actionFailureMessage,
   agentFailureDetail,
+  errorCauseForRef,
   errorCodeForRef,
   errorReference,
   errorRefsIn,
@@ -52,6 +53,21 @@ describe("user-facing internal errors", () => {
     // A Ref from another source (a reload, the main process) is not ours.
     expect(errorCodeForRef("NB-25647DEA-0000")).toBeUndefined();
     expect(errorCodeForRef(errorReference("ACCOUNT_SIGN_OUT_FAILED"))).toBeUndefined();
+  });
+
+  it("remembers what nbc reported behind a Ref, as codes", () => {
+    const [sidebarRef] = errorRefsIn(actionFailureMessage("We couldn't start “Work”.", "PROFILE_START_FAILED", MIGRATION_FAILED));
+    expect(errorCauseForRef(sidebarRef)).toEqual({ nbcCode: "VERIFY_FAILED", causeCode: "migration_failed", cause: "migration" });
+    const [chatRef] = errorRefsIn(internalError("Browser setup stopped.", "VERIFY_FAILED", new Error(MIGRATION_FAILED)));
+    expect(errorCauseForRef(chatRef)).toEqual({ nbcCode: "VERIFY_FAILED", causeCode: "migration_failed", cause: "migration" });
+    const [checkRef] = errorRefsIn(actionFailureMessage("We couldn't start “Work”.", "PROFILE_START_FAILED", "VERIFY_FAILED: browser stopped: VERIFY_REQUIRED: failed browser checks: proxy; the profile cannot be used [VERIFY_FAILED]"));
+    expect(errorCauseForRef(checkRef)).toEqual({ nbcCode: "VERIFY_FAILED", cause: "proxy_check" });
+    // Errors that did not come from nbc, and Refs without a reason.
+    const [plainRef] = errorRefsIn(actionFailureMessage("We couldn't prepare this profile.", "PROFILE_ASSIGNMENT_FAILED", "workspace revision conflict"));
+    expect(errorCauseForRef(plainRef)).toBeUndefined();
+    const [bareRef] = errorRefsIn(internalError("We couldn't sign you out.", "ACCOUNT_SIGN_OUT_FAILED"));
+    expect(errorCauseForRef(bareRef)).toBeUndefined();
+    expect(errorCauseForRef("NB-25647DEA-0000")).toBeUndefined();
   });
 
   it("finds every Ref in a message, old and new formats alike", () => {

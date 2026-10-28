@@ -9,6 +9,7 @@ import {
   CAMOUFOX_PYTHON_VENV_MISSING,
   PROXY_ACCOUNT_SETUP_DEFERRED,
   PROXY_ACCOUNT_SETUP_FAILED,
+  browserFailureCause,
   isBrowserStartFailure,
   isBrowserVerificationFailure,
   isProxyAccountSetupFailure,
@@ -149,6 +150,32 @@ describe("userFacingBrowserError", () => {
     expect(deferred).toMatch(/Start the profile again\.$/);
     // Other failures of the same account are untouched.
     expect(isProxyAccountSetupFailure("VERIFY_FAILED: browser stopped: VERIFY_REQUIRED: failed browser checks: proxy; the profile cannot be used")).toBe(false);
+  });
+
+  it("names what stopped a start as codes for its error report, never the message", () => {
+    const cases: Array<[string, ReturnType<typeof browserFailureCause>]> = [
+      [MIGRATION_FAILED_IN_APP, { nbcCode: "VERIFY_FAILED", causeCode: "migration_failed", cause: "migration" }],
+      [MIGRATION_FAILED.replace("migration_failed", "migration_deferred"), { nbcCode: "VERIFY_FAILED", causeCode: "migration_deferred", cause: "migration" }],
+      // The check itself, and a check that is not the proxy.
+      ["Could not start Nextbrowser: VERIFY_FAILED: browser stopped: VERIFY_REQUIRED: failed browser checks: proxy; the profile cannot be used [VERIFY_FAILED] — Resolve the verification failure and retry this profile. A proxy profile cannot continue without its proxy.", { nbcCode: "VERIFY_FAILED", cause: "proxy_check" }],
+      ["VERIFY_FAILED: browser stopped: VERIFY_REQUIRED: failed browser checks: timezone, webrtc; the profile cannot be used [VERIFY_FAILED]", { nbcCode: "VERIFY_FAILED", cause: "other" }],
+      ["VERIFY_FAILED: browser stopped: cdp Runtime.evaluate: read response: read tcp 127.0.0.1:1: connection reset [VERIFY_FAILED]", { nbcCode: "VERIFY_FAILED", cause: "other" }],
+      // The start failed before any check: the wrapped code is the cause.
+      ["VERIFY_FAILED: browser stopped: LAUNCH_FAILED: launch failed (Camoufox exited before becoming ready: RuntimeError) [VERIFY_FAILED]", { nbcCode: "VERIFY_FAILED", causeCode: "LAUNCH_FAILED", cause: "launch" }],
+      ["VERIFY_FAILED: browser stopped: LAUNCH_FAILED: launch failed (prepare Camoufox runtime: install Camoufox: exit status 1: pip error) [VERIFY_FAILED]", { nbcCode: "VERIFY_FAILED", causeCode: "LAUNCH_FAILED", cause: "install" }],
+      ["VERIFY_FAILED: browser stopped: LAUNCH_FAILED: launch failed (Clawbrowser managed-proxy privacy capability is 1; 2 or newer is required) [VERIFY_FAILED]", { nbcCode: "VERIFY_FAILED", causeCode: "LAUNCH_FAILED", cause: "install" }],
+      ["VERIFY_FAILED: browser stopped: CAMOUFOX_PYTHON_MISSING: Camoufox needs Python 3.11–3.13, and it could not be downloaded automatically (prepare Camoufox runtime: Python 3.11–3.13 is not installed) [VERIFY_FAILED]", { nbcCode: "VERIFY_FAILED", causeCode: "CAMOUFOX_PYTHON_MISSING", cause: "install" }],
+      ["VERIFY_FAILED: browser stopped: VENDOR_UNAVAILABLE: External browser runtime operation did not complete before timeout (context deadline exceeded) [VERIFY_FAILED]", { nbcCode: "VERIFY_FAILED", causeCode: "VENDOR_UNAVAILABLE", cause: "timeout" }],
+      // nbc's code alone, without the VERIFY_FAILED wrapper.
+      ["CDP endpoint did not become reachable before timeout [CDP_UNREACHABLE]", { nbcCode: "CDP_UNREACHABLE", cause: "timeout" }],
+      ["launch failed: exec format error [LAUNCH_FAILED]", { nbcCode: "LAUNCH_FAILED", cause: "launch" }],
+      ["[PROFILE_NOT_FOUND] profile not found", { nbcCode: "PROFILE_NOT_FOUND", cause: "other" }],
+    ];
+    for (const [raw, expected] of cases) expect(browserFailureCause(raw), raw).toEqual(expected);
+    // Nothing from nbc: nothing to class.
+    for (const raw of ["workspace not found", "navigation failed: net::ERR_TUNNEL_CONNECTION_FAILED", "Command timed out after 240 seconds.", "Error invoking remote method 'nextbrowser:invoke': Error: DasBrowser setup failed with exit code 1 after 3 s.", ""]) {
+      expect(browserFailureCause(raw), raw).toBeUndefined();
+    }
   });
 
   it("keeps a failed proxy check and a dropped CDP connection as proxy failures", () => {

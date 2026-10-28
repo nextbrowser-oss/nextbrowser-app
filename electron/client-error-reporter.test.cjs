@@ -402,10 +402,17 @@ test("the renderer reports an error the user saw with identifiers only", async (
     message: "startup: STARTUP_ACCOUNT_TIMED_OUT",
     context: { surface: "startup", code: "STARTUP_ACCOUNT_TIMED_OUT", elapsed_ms: "180000", stage: "cli_download" },
   }), true);
+  // A failed profile start says what nbc reported, as codes.
+  assert.equal(h.reporter.captureFromRenderer({
+    kind: "command_failed",
+    name: "PROFILE_START_FAILED",
+    message: "profile-action: PROFILE_START_FAILED",
+    context: { surface: "profile-action", code: "PROFILE_START_FAILED", ref: "NB-6F2C1A9B-04D3", nbc_code: "VERIFY_FAILED", cause_code: "migration_failed", cause: "migration" },
+  }), true);
   await h.reporter.flush();
   const body = h.requests[0].body;
   assertContract(body);
-  const [shown, startup] = body.events;
+  const [shown, startup, start] = body.events;
   assert.equal(shown.source, "renderer");
   assert.equal(shown.kind, "command_failed");
   assert.equal(shown.name, "AGENT_START_FAILED");
@@ -415,6 +422,8 @@ test("the renderer reports an error the user saw with identifiers only", async (
   assert.equal(shown.stack, undefined);
   assert.deepEqual(shown.context, { surface: "agent-turn", code: "AGENT_START_FAILED", ref: "NB-6F2C1A9B-04D2" });
   assert.deepEqual(startup.context, { surface: "startup", code: "STARTUP_ACCOUNT_TIMED_OUT", elapsed_ms: "180000", stage: "cli_download" });
+  assert.equal(start.name, "PROFILE_START_FAILED");
+  assert.deepEqual(start.context, { surface: "profile-action", code: "PROFILE_START_FAILED", ref: "NB-6F2C1A9B-04D3", nbc_code: "VERIFY_FAILED", cause_code: "migration_failed", cause: "migration" });
 });
 
 test("a user-facing failure from the renderer carrying any free text is refused", (t) => {
@@ -436,6 +445,10 @@ test("a user-facing failure from the renderer carrying any free text is refused"
     { ...valid, context: { ...valid.context, elapsed_ms: "12 s" } },
     { ...valid, context: { ...valid.context, elapsed_ms: 12000 } },
     { ...valid, context: { ...valid.context, stage: "downloading C:\\Users\\alice" } },
+    { ...valid, context: { ...valid.context, nbc_code: "verify failed: proxy" } },
+    { ...valid, context: { ...valid.context, cause_code: "502 Bad Gateway" } },
+    { ...valid, context: { ...valid.context, cause: "the proxy account was not ready" } },
+    { ...valid, context: { ...valid.context, cause: 1 } },
     { ...valid, context: undefined },
     { ...valid, context: ["live-view", "LIVE_VIEW_CONNECT_FAILED"] },
   ];

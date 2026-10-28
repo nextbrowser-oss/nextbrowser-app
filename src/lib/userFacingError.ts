@@ -1,11 +1,13 @@
-import { userFacingBrowserError } from "./userFacingBrowserError";
+import { browserFailureCause, type BrowserFailureCause, userFacingBrowserError } from "./userFacingBrowserError";
 
 const errorCodePattern = /^[A-Z][A-Z0-9_]{2,63}$/;
 // "Ref: NB-<hash>-<incident>". The main process words a failed profile start
 // with "Ref: NB-<random>" (electron/profile-start-failure.cjs).
 const refPattern = /\bRef: (NB-[A-F0-9]{8}(?:-[A-F0-9]{4})?)\b/g;
 const MAX_REMEMBERED_REFS = 200;
-const refCodes = new Map<string, string>();
+// What each Ref this window made stands for: the error code, and what nbc
+// reported behind it when the error came from a profile start.
+const refs = new Map<string, { code: string; cause?: BrowserFailureCause }>();
 
 /** The stable part of a Ref: a hash of what failed (an error code or message). */
 export function errorReference(value: string): string {
@@ -37,16 +39,22 @@ export function incidentReference(value: string): string {
   return `${errorReference(value)}-${incidentPart()}`;
 }
 
-function codeReference(code: string): string {
+function codeReference(code: string, detail?: unknown): string {
   const ref = incidentReference(code);
-  refCodes.set(ref, code);
-  if (refCodes.size > MAX_REMEMBERED_REFS) refCodes.delete(refCodes.keys().next().value as string);
+  const cause = detail === undefined ? undefined : browserFailureCause(detail);
+  refs.set(ref, { code, ...(cause ? { cause } : {}) });
+  if (refs.size > MAX_REMEMBERED_REFS) refs.delete(refs.keys().next().value as string);
   return ref;
 }
 
 /** The error code behind a Ref this window made, so a component that has only the text can report it. */
 export function errorCodeForRef(ref: string): string | undefined {
-  return refCodes.get(ref);
+  return refs.get(ref)?.code;
+}
+
+/** What nbc reported behind a Ref this window made, as codes, when the error came from a profile start. */
+export function errorCauseForRef(ref: string): BrowserFailureCause | undefined {
+  return refs.get(ref)?.cause;
 }
 
 /** Every Ref a message carries, in the order they appear. */
@@ -54,10 +62,14 @@ export function errorRefsIn(message: string): string[] {
   return Array.from(String(message || "").matchAll(refPattern), (match) => match[1]);
 }
 
-export function internalError(action: string, code: string): string {
+/**
+ * A message with a Ref and no reason. `detail`, the error behind it, is never
+ * shown: it only lets the report of the Ref say what nbc reported.
+ */
+export function internalError(action: string, code: string, detail?: unknown): string {
   const context = action.trim() || "The action failed.";
   const safeCode = errorCodePattern.test(code) ? code : "INTERNAL_ERROR";
-  return `${context} Ref: ${codeReference(safeCode)}`;
+  return `${context} Ref: ${codeReference(safeCode, detail)}`;
 }
 
 /**
@@ -99,5 +111,5 @@ export function actionFailureMessage(action: string, code: string, detail?: unkn
   const safeCode = errorCodePattern.test(code) ? code : "INTERNAL_ERROR";
   const reason = (detail instanceof Error ? detail.message : typeof detail === "string" ? detail : "").trim();
   const advice = (hint || "").trim();
-  return `${context}${reason ? ` ${userFacingBrowserError(reason)}` : ""}${advice ? ` ${advice}` : ""} Ref: ${codeReference(safeCode)}`;
+  return `${context}${reason ? ` ${userFacingBrowserError(reason)}` : ""}${advice ? ` ${advice}` : ""} Ref: ${codeReference(safeCode, reason || undefined)}`;
 }
