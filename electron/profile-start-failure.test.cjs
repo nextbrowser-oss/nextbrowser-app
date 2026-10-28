@@ -203,10 +203,75 @@ test("a host start failure is reported with its Ref and without the profile or n
     kind: "command_failed",
     name: "HOST_PROFILE_START_FAILED",
     message: "agent profile start failed: LAUNCH_FAILED (retryable)",
-    context: { code: "LAUNCH_FAILED", category: "retryable", ref: "NB-1234ABCD", runtime: "clawbrowser", exit_code: "1", nbc_code: "LAUNCH_FAILED" },
+    context: { code: "LAUNCH_FAILED", category: "retryable", ref: "NB-1234ABCD", runtime: "clawbrowser", exit_code: "1", nbc_code: "LAUNCH_FAILED", cause: "launch" },
     fingerprintExtra: "LAUNCH_FAILED",
   });
   assert.ok(!JSON.stringify(event).includes("Alice"));
+});
+
+test("a host start failure is reported with the class of its cause", () => {
+  const cases = [
+    [envelope("VERIFY_FAILED", "VERIFY_FAILED: browser stopped: VERIFY_REQUIRED: failed browser checks: proxy; the profile cannot be used", "A proxy profile cannot continue without its proxy."), "VERIFY_FAILED", "proxy_check"],
+    [envelope("VERIFY_FAILED", "VERIFY_FAILED: browser stopped: VERIFY_REQUIRED: failed browser checks: timezone, webrtc; the profile cannot be used"), "VERIFY_FAILED", "other"],
+    [envelope("VERIFY_FAILED", "VERIFY_FAILED: browser stopped: LAUNCH_FAILED: launch failed (Camoufox exited before becoming ready: RuntimeError)"), "VERIFY_FAILED", "launch"],
+    [envelope("VERIFY_FAILED", "VERIFY_FAILED: browser stopped: VENDOR_UNAVAILABLE: External browser runtime operation did not complete before timeout (context deadline exceeded)"), "VERIFY_FAILED", "timeout"],
+    [envelope("VERIFY_FAILED", "VERIFY_FAILED: browser stopped: CAMOUFOX_PYTHON_MISSING: Camoufox needs Python 3.11–3.13, and it could not be downloaded automatically"), "CAMOUFOX_PYTHON_MISSING", "install"],
+    [envelope("SESSION_NOT_FOUND", "managed session was not created before timeout"), "SESSION_NOT_FOUND", "timeout"],
+    [envelope("CDP_UNREACHABLE", "CDP endpoint did not become reachable before timeout"), "CDP_UNREACHABLE", "timeout"],
+    [envelope("BROWSER_BIN_NOT_FOUND", "no browser binary"), "BROWSER_BIN_NOT_FOUND", "install"],
+    [envelope("TAB_NOT_FOUND", "no tab"), "TAB_NOT_FOUND", "other"],
+  ];
+  for (const [stdout, code, cause] of cases) {
+    const failure = describeProfileStartFailure({ profile: "p", runtime: "clawbrowser", result: { code: 1, stdout, stderr: "" } });
+    const { event } = describeProfileFailureEvent(failure);
+    assert.equal(event.context.code, code, stdout);
+    assert.equal(event.context.cause, cause, stdout);
+    assert.equal(event.context.cause_code, undefined, stdout);
+  }
+});
+
+test("a proxy account the backend could not set up is reported as a migration, not a proxy failure", () => {
+  // nbc 1.2.38 in production, 28.10.2026: the legacy migration failed before
+  // the start; the agent was told to check the profile's proxy.
+  const message = "VERIFY_FAILED: migrate NodeMaven account before profile startup: migrate proxy traffic: unexpected status 502 Bad Gateway: {\"code\":\"migration_failed\",\"message\":\"Could not safely migrate the proxy account; browser startup was stopped\"}";
+  const hint = "The proxy account was not ready; the profile was not started. Retry to resume migration.";
+  const failure = describeProfileStartFailure({
+    profile: "Shop",
+    runtime: "clawbrowser",
+    result: { code: 1, stdout: envelope("VERIFY_FAILED", message, hint), stderr: "" },
+    ref: "NB-00000002",
+    loopbackSystemProxy: true,
+  });
+  assert.equal(failure.error.code, "PROXY_ACCOUNT_SETUP_FAILED");
+  assert.equal(failure.error.category, "retryable");
+  assert.equal(failure.error.retryable, true);
+  assert.equal(failure.error.hint, undefined, "not a blocked path to the proxy: no VPN hint");
+  assert.equal(
+    failure.error.message,
+    "The ClawBrowser profile “Shop” couldn't start: its proxy account couldn't be set up on our side. Retry in a minute. If it keeps happening, message us in Discord. Ref: NB-00000002",
+  );
+  const { event } = describeProfileFailureEvent(failure);
+  assert.deepEqual(event.context, {
+    code: "PROXY_ACCOUNT_SETUP_FAILED",
+    category: "retryable",
+    ref: "NB-00000002",
+    runtime: "clawbrowser",
+    exit_code: "1",
+    nbc_code: "VERIFY_FAILED",
+    cause: "migration",
+    cause_code: "migration_failed",
+  });
+  assert.ok(!JSON.stringify(event).includes("NodeMaven"));
+
+  // migration_deferred: the backend lets the next start go ahead.
+  const deferred = describeProfileStartFailure({
+    profile: "Shop",
+    runtime: "clawbrowser",
+    result: { code: 1, stdout: envelope("VERIFY_FAILED", message.replaceAll("migration_failed", "migration_deferred")), stderr: "" },
+    ref: "NB-00000003",
+  });
+  assert.equal(deferred.error.message, "The ClawBrowser profile “Shop” couldn't start: its proxy account couldn't be set up on our side. Start the profile again. Ref: NB-00000003");
+  assert.equal(describeProfileFailureEvent(deferred).event.context.cause_code, "migration_deferred");
 });
 
 test("a host stop that threw before nextctl ran is reported as a stop", () => {
