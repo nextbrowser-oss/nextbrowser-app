@@ -1,4 +1,5 @@
-import { errorCodeForRef, errorRefsIn, incidentReference, isBackgroundSyncFailure } from "./userFacingError";
+import type { BrowserFailureCause } from "./userFacingBrowserError";
+import { errorCauseForRef, errorCodeForRef, errorRefsIn, incidentReference, isBackgroundSyncFailure } from "./userFacingError";
 
 // Renderer half of client error reporting. Errors and breadcrumbs go to the
 // main process over the preload bridge; the main process scrubs, folds,
@@ -29,6 +30,8 @@ export interface UserFacingErrorReport {
   elapsedMs?: number;
   /** What the app was doing when it gave up, in snake_case, e.g. "cli_download". */
   stage?: string;
+  /** What nbc reported behind a failed profile start, as codes. */
+  cause?: BrowserFailureCause;
 }
 
 // Views and UI actions are code identifiers, never user text.
@@ -39,6 +42,9 @@ const SURFACE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const ERROR_CODE = /^[A-Z][A-Z0-9_]{2,63}$/;
 const ERROR_REF = /^NB-[0-9A-F]{8}(?:-[0-9A-F]{4})?$/;
 const STAGE = /^[a-z][a-z0-9_]{0,63}$/;
+// nextctl's codes are upper case, the backend's lower case (migration_failed).
+const CAUSE_CODE = /^[A-Za-z][A-Za-z0-9_]{1,63}$/;
+const CAUSE_CLASSES = new Set(["migration", "proxy_check", "launch", "install", "timeout", "other"]);
 const RATE_WINDOW_MS = 60_000;
 const MAX_REPORTS_PER_WINDOW = 30;
 // Chromium raises this for a layout that settles over two frames; it is not a
@@ -156,12 +162,14 @@ export function reportRendererError(
  * identifiers only: the message the user read can quote an agent's reply, a
  * page or a file name, so its text is never sent. Each Ref is reported once.
  */
-export function reportUserFacingError({ surface, code, ref, elapsedMs, stage }: UserFacingErrorReport): boolean {
+export function reportUserFacingError({ surface, code, ref, elapsedMs, stage, cause }: UserFacingErrorReport): boolean {
   if (typeof surface !== "string" || surface.length > 64 || !SURFACE.test(surface) || !ERROR_CODE.test(code)) return false;
   const safeRef = ref && ERROR_REF.test(ref) ? ref : undefined;
   if (safeRef && reportedRefs.has(safeRef)) return false;
   const elapsed = typeof elapsedMs === "number" && Number.isFinite(elapsedMs) && elapsedMs >= 0 ? String(Math.round(elapsedMs)) : undefined;
   const safeStage = stage && STAGE.test(stage) ? stage : undefined;
+  const safeCause = cause && ERROR_CODE.test(cause.nbcCode) && CAUSE_CLASSES.has(cause.cause)
+    && (cause.causeCode === undefined || CAUSE_CODE.test(cause.causeCode)) ? cause : undefined;
   const sent = send(() => ({
     kind: "command_failed",
     name: code,
@@ -174,6 +182,7 @@ export function reportUserFacingError({ surface, code, ref, elapsedMs, stage }: 
       ...(safeRef ? { ref: safeRef } : {}),
       ...(elapsed ? { elapsed_ms: elapsed } : {}),
       ...(safeStage ? { stage: safeStage } : {}),
+      ...(safeCause ? { nbc_code: safeCause.nbcCode, ...(safeCause.causeCode ? { cause_code: safeCause.causeCode } : {}), cause: safeCause.cause } : {}),
     },
   }));
   if (sent && safeRef) reportedRefs.add(safeRef);
@@ -186,7 +195,8 @@ export function reportUserFacingError({ surface, code, ref, elapsedMs, stage }: 
  * when that Ref was already reported, `fallbackCode` is reported instead,
  * if given. A Ref from elsewhere, such as one in a message saved before a
  * restart or in a profile start failure the main process worded, is never
- * reported here. The message text is never sent.
+ * reported here. The message text is never sent; what nbc reported behind
+ * a failed profile start goes along as codes.
  */
 export function reportUserFacingMessage(surface: string, message: string, fallbackCode?: string): boolean {
   try {
@@ -195,7 +205,7 @@ export function reportUserFacingMessage(surface: string, message: string, fallba
       const ref = refs[index];
       const code = errorCodeForRef(ref);
       if (!code) continue;
-      if (!reportedRefs.has(ref)) return reportUserFacingError({ surface, code, ref });
+      if (!reportedRefs.has(ref)) return reportUserFacingError({ surface, code, ref, cause: errorCauseForRef(ref) });
       break;
     }
     return fallbackCode ? reportUserFacingError({ surface, code: fallbackCode }) : false;

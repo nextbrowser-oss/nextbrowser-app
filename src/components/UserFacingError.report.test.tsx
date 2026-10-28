@@ -8,7 +8,7 @@ vi.mock("react", async (importOriginal) => ({
 }));
 
 import { resetErrorReportingForTests, type RendererErrorReport } from "../lib/errorReporting";
-import { errorRefsIn, internalError } from "../lib/userFacingError";
+import { actionFailureMessage, errorRefsIn, internalError } from "../lib/userFacingError";
 import { UserFacingError } from "./UserFacingError";
 
 describe("UserFacingError reports", () => {
@@ -45,6 +45,26 @@ describe("UserFacingError reports", () => {
     UserFacingError({ message: internalError("We couldn't connect Live View.", "LIVE_VIEW_CONNECT_FAILED"), surface: "live_view" });
     expect(reports).toHaveLength(2);
     expect(reports[0].context?.ref).not.toBe(reports[1].context?.ref);
+  });
+
+  it("reports a failed profile start with what nbc reported, as codes, never the message", () => {
+    // nbc 1.2.38 in production, 28.10.2026: the report said PROFILE_START_FAILED
+    // and nothing else; the cause was only in the backend's logs.
+    const raw = "Could not start Nextbrowser: VERIFY_FAILED: migrate NodeMaven account before profile startup: migrate proxy traffic: unexpected status 502 Bad Gateway: {\"code\":\"migration_failed\",\"message\":\"Could not safely migrate the proxy account; browser startup was stopped\"} [VERIFY_FAILED] — The proxy account was not ready; the profile was not started. Retry to resume migration.";
+    const message = actionFailureMessage("We couldn't start “Alice's shop”.", "PROFILE_START_FAILED", raw);
+    const [ref] = errorRefsIn(message);
+    UserFacingError({ message, surface: "profile_action" });
+    expect(reports).toEqual([{
+      kind: "command_failed",
+      name: "PROFILE_START_FAILED",
+      message: "profile-action: PROFILE_START_FAILED",
+      context: { surface: "profile-action", code: "PROFILE_START_FAILED", ref, nbc_code: "VERIFY_FAILED", cause_code: "migration_failed", cause: "migration" },
+    }]);
+    expect(JSON.stringify(reports)).not.toMatch(/Alice|NodeMaven|502|proxy account|couldn/);
+    // A start that failed before its check: the wrapped code and its class.
+    const launch = actionFailureMessage("We couldn't start “Work”.", "PROFILE_START_FAILED", "VERIFY_FAILED: browser stopped: LAUNCH_FAILED: launch failed (Camoufox exited before becoming ready) [VERIFY_FAILED]");
+    UserFacingError({ message: launch, surface: "profile_action" });
+    expect(reports[1].context).toEqual({ surface: "profile-action", code: "PROFILE_START_FAILED", ref: errorRefsIn(launch)[0], nbc_code: "VERIFY_FAILED", cause_code: "LAUNCH_FAILED", cause: "launch" });
   });
 
   it("never sends the text of a chat turn", () => {

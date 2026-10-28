@@ -38,6 +38,21 @@ const VPN_SYSTEM_PROXY_HINT = "Your VPN works as a system proxy, and browser pro
 const PROXY_PATH_CODES = new Set(["PROXY_UNREACHABLE", "START_TIMEOUT", "SESSION_NOT_FOUND", "VERIFY_FAILED"]);
 const PROXY_PATH_DETAIL = /ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_CONNECTION_FAILED|ERR_CONNECTION_TIMED_OUT|ERR_TIMED_OUT|proxy[^.\n]*(?:refused|unreachable|timed? ?out|timeout)|proxy profile cannot continue without its proxy|proxy[_ ]required|failed browser checks:[^;]*\bproxy\b/i;
 
+// Before the first managed-proxy start, nbc has the backend migrate the
+// account's proxy (NodeMaven) account. When the backend refuses
+// (migration_failed, migration_status_failed, migration_unavailable) or
+// defers it (migration_deferred: the next start goes ahead), nothing ran, but
+// nbc wraps the refusal in VERIFY_FAILED, which read as a failed proxy check.
+// The same rule is in src/lib/userFacingBrowserError.ts for the app window.
+const MIGRATION_FAILURE = /migrate NodeMaven account|migrate proxy traffic|\bmigration_(?:failed|status_failed|unavailable|deferred)\b|proxy account was not ready|resume migration/i;
+const MIGRATION_CODE = /\bmigration_(?:failed|status_failed|unavailable|deferred)\b/i;
+const PROXY_CHECK_DETAIL = /proxy[_ ]required|failed browser checks:[^;]*\bproxy\b/i;
+const START_TIMEOUT_DETAIL = /did not (?:complete|become \w+) before timeout|was not created before timeout|context deadline exceeded|did not become ready in time|Command timed out/i;
+// nextctl wraps every failed verified start in VERIFY_FAILED; the code after
+// "browser stopped:" is the real cause, and VERIFY_REQUIRED there is the
+// check itself (the rule in src/lib/userFacingBrowserError.ts).
+const WRAPPED_CAUSE = /browser stopped:\s*([A-Z][A-Z0-9_]{2,}):/;
+
 function runtimeLabel(runtime) {
   return RUNTIME_LABELS[String(runtime || "").toLowerCase()] || "Nextbrowser";
 }
@@ -98,6 +113,10 @@ function rule(code, category, reason, nextAction) {
 }
 
 function classifyByDetail(detail, label) {
+  if (MIGRATION_FAILURE.test(detail)) {
+    const deferred = /\bmigration_deferred\b/i.test(detail);
+    return rule("PROXY_ACCOUNT_SETUP_FAILED", "retryable", "its proxy account couldn't be set up on our side", deferred ? "Start the profile again." : "Retry in a minute. If it keeps happening, message us in Discord.");
+  }
   if (/managed-proxy privacy capability/i.test(detail)) {
     return rule("CLAWBROWSER_OUTDATED", "installation", "the installed ClawBrowser build can't run a proxied profile", "Update ClawBrowser when Nextbrowser offers the browser toolset update, then retry.");
   }
@@ -280,14 +299,36 @@ function describeProfileStartFailure({ action = "start", profile = "", runtime =
 }
 
 /**
+ * The class of what failed, for the error report: the same classes the app
+ * window reports for a start it made (src/lib/userFacingBrowserError.ts
+ * browserFailureCause), and for a proxy account the backend could not set up
+ * also the backend's code.
+ */
+function failureCause(error, diagnostics) {
+  const detail = [diagnostics?.nextctlMessage, diagnostics?.nextctlHint, diagnostics?.stderr].filter(Boolean).join("\n");
+  if (error.code === "PROXY_ACCOUNT_SETUP_FAILED") {
+    const code = detail.match(MIGRATION_CODE)?.[0].toLowerCase();
+    return { cause: "migration", ...(code ? { cause_code: code } : {}) };
+  }
+  if (error.category === "installation") return { cause: "install" };
+  const wrapped = detail.match(WRAPPED_CAUSE)?.[1];
+  const code = wrapped && wrapped !== "VERIFY_REQUIRED" ? wrapped : error.code;
+  if (code === "START_TIMEOUT" || code === "SESSION_NOT_FOUND" || START_TIMEOUT_DETAIL.test(detail)) return { cause: "timeout" };
+  if (code === "LAUNCH_FAILED") return { cause: "launch" };
+  if (code === "PROXY_UNREACHABLE" || code === "PROXY_COUNTRY_MISMATCH" || PROXY_CHECK_DETAIL.test(detail)) return { cause: "proxy_check" };
+  return { cause: "other" };
+}
+
+/**
  * The error report for a failed host start or stop, so the Ref the agent
  * relays to the user can be looked up. A failure of the user's own setup
  * (category "configuration": sign-in, the profile's proxy, traffic, a missing
  * profile) is not reported, unless the message blames a VPN in system-proxy
  * mode: that one is reported with hint=vpn_system_proxy (and the network
  * diagnostics) so we can see how often it happens. The profile name and
- * nextctl's output stay out: the classifier's code says what failed, and an
- * unexpected nextctl outcome is reported on its own by the nbc classifier.
+ * nextctl's output stay out: the classifier's code, nbc's code and the class
+ * of the cause say what failed, and an unexpected nextctl outcome is reported
+ * on its own by the nbc classifier.
  */
 function describeProfileFailureEvent(failure) {
   const error = failure?.error;
@@ -309,6 +350,7 @@ function describeProfileFailureEvent(failure) {
         ...(RUNTIME_LABELS[runtime] ? { runtime } : {}),
         ...(Number.isInteger(failure.diagnostics?.exitCode) ? { exit_code: String(failure.diagnostics.exitCode) } : {}),
         ...(/^[A-Z][A-Z0-9_]{1,63}$/.test(nextctlCode) ? { nbc_code: nextctlCode } : {}),
+        ...failureCause(error, failure.diagnostics),
         ...(error.hint === "vpn_system_proxy" ? { hint: error.hint } : {}),
       },
       fingerprintExtra: code,

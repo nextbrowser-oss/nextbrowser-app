@@ -25,13 +25,19 @@ const RENDERER_BREADCRUMB_CATEGORIES = new Set(["navigation", "ui"]);
 // renderer is dropped rather than scrubbed, so free text cannot slip in.
 const IDENTIFIER = /^[A-Za-z0-9_.:/-]{1,100}$/;
 // Where the user saw a failure (kebab-case), its error code, the Ref the user
-// read and, for a stall, how long it lasted (milliseconds) and the stage it
-// stalled in (snake_case): the whole vocabulary of a user-facing failure report.
+// read, for a stall how long it lasted (milliseconds) and the stage it
+// stalled in (snake_case), and for a failed profile start what nbc reported:
+// its code, the code behind it (nextctl's, or the backend's in lower case,
+// such as migration_failed) and the class of the cause (src/lib/
+// userFacingBrowserError.ts browserFailureCause): the whole vocabulary of a
+// user-facing failure report.
 const SURFACE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const ERROR_CODE = /^[A-Z][A-Z0-9_]{2,63}$/;
 const ERROR_REF = /^NB-[0-9A-F]{8}(?:-[0-9A-F]{4})?$/;
 const ELAPSED_MS = /^\d{1,10}$/;
 const STAGE = /^[a-z][a-z0-9_]{0,63}$/;
+const CAUSE_CODE = /^[A-Za-z][A-Za-z0-9_]{1,63}$/;
+const CAUSE_CLASSES = new Set(["migration", "proxy_check", "launch", "install", "timeout", "other"]);
 
 const LIMITS = Object.freeze({
   name: 200,
@@ -122,16 +128,28 @@ function cleanContext(raw, scrub) {
 function userFacingFailure(payload) {
   const context = payload.context;
   if (!context || typeof context !== "object" || Array.isArray(context)) return null;
-  const { surface, code, ref, elapsed_ms: elapsed, stage, ...rest } = context;
+  const { surface, code, ref, elapsed_ms: elapsed, stage, nbc_code: nbcCode, cause_code: causeCode, cause, ...rest } = context;
   if (Object.keys(rest).length) return null;
   if (typeof surface !== "string" || surface.length > 64 || !SURFACE.test(surface)) return null;
   if (typeof code !== "string" || !ERROR_CODE.test(code)) return null;
   if (ref !== undefined && (typeof ref !== "string" || !ERROR_REF.test(ref))) return null;
   if (elapsed !== undefined && (typeof elapsed !== "string" || !ELAPSED_MS.test(elapsed))) return null;
   if (stage !== undefined && (typeof stage !== "string" || !STAGE.test(stage))) return null;
+  if (nbcCode !== undefined && (typeof nbcCode !== "string" || !ERROR_CODE.test(nbcCode))) return null;
+  if (causeCode !== undefined && (typeof causeCode !== "string" || !CAUSE_CODE.test(causeCode))) return null;
+  if (cause !== undefined && !CAUSE_CLASSES.has(cause)) return null;
   if (payload.name !== code || payload.message !== `${surface}: ${code}`) return null;
   if (payload.stack !== undefined && payload.stack !== "") return null;
-  return { surface, code, ...(ref ? { ref } : {}), ...(elapsed ? { elapsed_ms: elapsed } : {}), ...(stage ? { stage } : {}) };
+  return {
+    surface,
+    code,
+    ...(ref ? { ref } : {}),
+    ...(elapsed ? { elapsed_ms: elapsed } : {}),
+    ...(stage ? { stage } : {}),
+    ...(nbcCode ? { nbc_code: nbcCode } : {}),
+    ...(causeCode ? { cause_code: causeCode } : {}),
+    ...(cause ? { cause } : {}),
+  };
 }
 
 function cleanTraceId(value) {

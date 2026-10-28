@@ -24,6 +24,26 @@ export const CAMOUFOX_PYTHON_VENV_MISSING =
 export const BROWSER_START_FAILED =
   "The browser couldn’t start, so the profile was stopped. This is a problem on our side, not with your setup.";
 
+// Before the first managed-proxy start, nbc has the backend migrate the
+// account's proxy (NodeMaven) account. When the backend refuses, nothing ran,
+// but nbc wraps the refusal in VERIFY_FAILED, which read as a failed browser
+// check for a week. The backend's code says what happened: migration_failed,
+// migration_status_failed, migration_unavailable, or migration_deferred, after
+// which the next start goes ahead. The same rule is in
+// electron/profile-start-failure.cjs for starts an agent asked for.
+export const PROXY_ACCOUNT_SETUP_FAILED =
+  "We couldn’t set up your proxy account, so the profile was stopped. This is on our side: try again in a minute, and if it keeps happening, message us in Discord.";
+export const PROXY_ACCOUNT_SETUP_DEFERRED =
+  "We couldn’t set up your proxy account, so the profile was stopped. This is on our side. Start the profile again.";
+const MIGRATION_FAILURE = /migrate NodeMaven account|migrate proxy traffic|\bmigration_(?:failed|status_failed|unavailable|deferred)\b|proxy account was not ready|resume migration/i;
+const MIGRATION_DEFERRED = /\bmigration_deferred\b/i;
+
+/** True when a start failed because the backend could not set up the
+ *  account's proxy account: nothing about the proxy or this computer. */
+export function isProxyAccountSetupFailure(error: unknown): boolean {
+  return MIGRATION_FAILURE.test(rawErrorMessage(error));
+}
+
 // Browser profiles connect to their proxy (the NodeMaven gateway) directly:
 // nbc starts the browser with an explicit proxy, and Chromium cannot put a
 // VPN's proxy in front of it. A VPN in system-proxy mode (a proxy on this
@@ -37,7 +57,9 @@ const PROXY_PATH_FAILURE =
 
 /** True when a profile start failed the way a blocked path to its proxy fails: a proxy or tunnel error, or a timeout. */
 export function isProxyPathFailure(error: unknown): boolean {
-  return PROXY_PATH_FAILURE.test(rawErrorMessage(error));
+  const raw = rawErrorMessage(error);
+  // A proxy account the backend could not set up is not a path problem.
+  return !isProxyAccountSetupFailure(raw) && PROXY_PATH_FAILURE.test(raw);
 }
 
 // nextctl wraps every failed start of a verified profile in VERIFY_FAILED, so
@@ -87,6 +109,52 @@ export function isBrowserVerificationFailure(error: unknown): boolean {
 
 function rawErrorMessage(error: unknown): string {
   return (error instanceof Error ? error.message : String(error ?? "")).trim();
+}
+
+/** The class of what stopped a profile start, for its error report. */
+export type BrowserFailureCauseClass = "migration" | "proxy_check" | "launch" | "install" | "timeout" | "other";
+
+/** What stopped a profile start, as codes only: never the message, which can
+ *  name files and hosts. The same vocabulary as the nbc classifier's report
+ *  (electron/nbc-failure-report.cjs) and the agent's (profile-start-failure.cjs). */
+export interface BrowserFailureCause {
+  /** nbc's error code, for example VERIFY_FAILED. */
+  nbcCode: string;
+  /** The code behind it: the one nextctl wraps after "browser stopped:", or
+   *  the backend's code for a proxy account it could not set up. */
+  causeCode?: string;
+  cause: BrowserFailureCauseClass;
+}
+
+// nextctlErrorMessage appends nbc's code in brackets; nbc also starts the
+// message itself with the code, after at most one prefix from the app
+// ("Could not start Nextbrowser: ").
+const NBC_CODE = /\[([A-Z][A-Z0-9_]{2,63})\]/;
+const LEADING_NBC_CODE = /^(?:[^:[\]]*:\s*)?([A-Z][A-Z0-9_]{2,63}):/;
+const MIGRATION_CODE = /\bmigration_(?:failed|status_failed|unavailable|deferred)\b/i;
+const START_TIMEOUT = /did not (?:complete|become \w+) before timeout|was not created before timeout|context deadline exceeded|did not become ready in time|Command timed out/i;
+const INSTALL_FAILURE = /ensurepip is not\s+available|python3(?:\.\d+)?-venv|prepare Camoufox runtime|install Camoufox|download Camoufox|\bCAMOUFOX_PYTHON_MISSING\b|\bBROWSER_BIN_NOT_FOUND\b|managed-proxy privacy capability/i;
+
+function causeClass(raw: string, code: string): BrowserFailureCauseClass {
+  if (INSTALL_FAILURE.test(raw)) return "install";
+  // The check itself: a failed proxy check, or another check.
+  if (code === "VERIFY_FAILED" || code === "VERIFY_REQUIRED") return PROXY_CHECK_FAILURE.test(raw) ? "proxy_check" : "other";
+  if (START_TIMEOUT.test(raw)) return "timeout";
+  return code === "LAUNCH_FAILED" ? "launch" : "other";
+}
+
+/** What stopped a profile start, when nbc reported it; undefined otherwise. */
+export function browserFailureCause(error: unknown): BrowserFailureCause | undefined {
+  const raw = rawErrorMessage(error);
+  const nbcCode = raw.match(NBC_CODE)?.[1] ?? raw.match(LEADING_NBC_CODE)?.[1];
+  if (!nbcCode) return undefined;
+  if (isProxyAccountSetupFailure(raw)) {
+    const code = raw.match(MIGRATION_CODE)?.[0].toLowerCase();
+    return { nbcCode, ...(code ? { causeCode: code } : {}), cause: "migration" };
+  }
+  const wrapped = raw.match(STARTUP_FAILURE_CODE)?.[1];
+  const causeCode = wrapped && wrapped !== "VERIFY_REQUIRED" && wrapped !== nbcCode ? wrapped : undefined;
+  return { nbcCode, ...(causeCode ? { causeCode } : {}), cause: causeClass(raw, causeCode ?? nbcCode) };
 }
 
 /**
@@ -145,6 +213,10 @@ export function userFacingBrowserError(error: unknown): string {
   // Checked before the generic start failure: its detail also names
   // "prepare Camoufox runtime", but a connection check would not help.
   if (/\bCAMOUFOX_PYTHON_MISSING\b/.test(raw)) return CAMOUFOX_PYTHON_MISSING;
+
+  // The backend refused to set up the proxy account before the start, so no
+  // browser ran and nothing was checked, whatever VERIFY_FAILED suggests.
+  if (isProxyAccountSetupFailure(raw)) return MIGRATION_DEFERRED.test(raw) ? PROXY_ACCOUNT_SETUP_DEFERRED : PROXY_ACCOUNT_SETUP_FAILED;
 
   // Verification failures often contain a nested CDP transport error from the
   // browser we just stopped. Report the failed proxy check, not a transient

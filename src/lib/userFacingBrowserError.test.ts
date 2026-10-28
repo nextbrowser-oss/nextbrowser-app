@@ -7,10 +7,24 @@ import {
   CAMOUFOX_INSTALL_FAILED,
   CAMOUFOX_PYTHON_MISSING,
   CAMOUFOX_PYTHON_VENV_MISSING,
+  PROXY_ACCOUNT_SETUP_DEFERRED,
+  PROXY_ACCOUNT_SETUP_FAILED,
+  browserFailureCause,
   isBrowserStartFailure,
   isBrowserVerificationFailure,
+  isProxyAccountSetupFailure,
+  isProxyPathFailure,
   userFacingBrowserError,
 } from "./userFacingBrowserError";
+
+// nbc 1.2.38 in production, 28.10.2026: the backend refused to migrate the
+// account's proxy account before the first managed-proxy start. The app
+// blamed the browser's safety check in the sidebar and the proxy in the
+// dialog, and users blamed their VPNs.
+const MIGRATION_FAILED = "VERIFY_FAILED: migrate NodeMaven account before profile startup: migrate proxy traffic: unexpected status 502 Bad Gateway: {\"code\":\"migration_failed\",\"message\":\"Could not safely migrate the proxy account; browser startup was stopped\"}";
+// The same, as the app sees it: prefixed by the preflight step, with nbc's
+// code and hint appended by nextctlErrorMessage.
+const MIGRATION_FAILED_IN_APP = `Could not start Nextbrowser: ${MIGRATION_FAILED} [VERIFY_FAILED] — The proxy account was not ready; the profile was not started. Retry to resume migration.`;
 
 describe("userFacingBrowserError", () => {
   it("turns a Remote Control 404 into an actionable message without internals", () => {
@@ -114,6 +128,54 @@ describe("userFacingBrowserError", () => {
     const unwrapped = "Camoufox needs Python 3.11–3.13, and it could not be downloaded automatically [CAMOUFOX_PYTHON_MISSING] — install Python 3.13 from https://www.python.org/downloads/ (prepare Camoufox runtime: Python 3.11–3.13 is not installed)";
     expect(userFacingBrowserError(unwrapped)).toBe(CAMOUFOX_PYTHON_MISSING);
     expect(CAMOUFOX_PYTHON_MISSING).toContain("not the Microsoft Store version");
+  });
+
+  it("says that the proxy account could not be set up when the migration fails before the start", () => {
+    for (const raw of [MIGRATION_FAILED, MIGRATION_FAILED_IN_APP]) {
+      expect(userFacingBrowserError(raw)).toBe(PROXY_ACCOUNT_SETUP_FAILED);
+      expect(isProxyAccountSetupFailure(raw)).toBe(true);
+      // The message gets a Ref and the Discord link, like other failures on our side.
+      expect(isBrowserVerificationFailure(raw)).toBe(true);
+      // It is not a blocked path to the proxy, so no VPN hint.
+      expect(isProxyPathFailure(raw)).toBe(false);
+      expect(isBrowserStartFailure(raw)).toBe(false);
+    }
+    expect(PROXY_ACCOUNT_SETUP_FAILED).not.toMatch(/safety check|through its proxy|VERIFY|migrat/i);
+    for (const code of ["migration_status_failed", "migration_unavailable"]) {
+      expect(userFacingBrowserError(MIGRATION_FAILED_IN_APP.replace("migration_failed", code))).toBe(PROXY_ACCOUNT_SETUP_FAILED);
+    }
+    // migration_deferred: the backend lets the next start go ahead.
+    const deferred = userFacingBrowserError(MIGRATION_FAILED_IN_APP.replace(/migration_failed/g, "migration_deferred"));
+    expect(deferred).toBe(PROXY_ACCOUNT_SETUP_DEFERRED);
+    expect(deferred).toMatch(/Start the profile again\.$/);
+    // Other failures of the same account are untouched.
+    expect(isProxyAccountSetupFailure("VERIFY_FAILED: browser stopped: VERIFY_REQUIRED: failed browser checks: proxy; the profile cannot be used")).toBe(false);
+  });
+
+  it("names what stopped a start as codes for its error report, never the message", () => {
+    const cases: Array<[string, ReturnType<typeof browserFailureCause>]> = [
+      [MIGRATION_FAILED_IN_APP, { nbcCode: "VERIFY_FAILED", causeCode: "migration_failed", cause: "migration" }],
+      [MIGRATION_FAILED.replace("migration_failed", "migration_deferred"), { nbcCode: "VERIFY_FAILED", causeCode: "migration_deferred", cause: "migration" }],
+      // The check itself, and a check that is not the proxy.
+      ["Could not start Nextbrowser: VERIFY_FAILED: browser stopped: VERIFY_REQUIRED: failed browser checks: proxy; the profile cannot be used [VERIFY_FAILED] — Resolve the verification failure and retry this profile. A proxy profile cannot continue without its proxy.", { nbcCode: "VERIFY_FAILED", cause: "proxy_check" }],
+      ["VERIFY_FAILED: browser stopped: VERIFY_REQUIRED: failed browser checks: timezone, webrtc; the profile cannot be used [VERIFY_FAILED]", { nbcCode: "VERIFY_FAILED", cause: "other" }],
+      ["VERIFY_FAILED: browser stopped: cdp Runtime.evaluate: read response: read tcp 127.0.0.1:1: connection reset [VERIFY_FAILED]", { nbcCode: "VERIFY_FAILED", cause: "other" }],
+      // The start failed before any check: the wrapped code is the cause.
+      ["VERIFY_FAILED: browser stopped: LAUNCH_FAILED: launch failed (Camoufox exited before becoming ready: RuntimeError) [VERIFY_FAILED]", { nbcCode: "VERIFY_FAILED", causeCode: "LAUNCH_FAILED", cause: "launch" }],
+      ["VERIFY_FAILED: browser stopped: LAUNCH_FAILED: launch failed (prepare Camoufox runtime: install Camoufox: exit status 1: pip error) [VERIFY_FAILED]", { nbcCode: "VERIFY_FAILED", causeCode: "LAUNCH_FAILED", cause: "install" }],
+      ["VERIFY_FAILED: browser stopped: LAUNCH_FAILED: launch failed (Clawbrowser managed-proxy privacy capability is 1; 2 or newer is required) [VERIFY_FAILED]", { nbcCode: "VERIFY_FAILED", causeCode: "LAUNCH_FAILED", cause: "install" }],
+      ["VERIFY_FAILED: browser stopped: CAMOUFOX_PYTHON_MISSING: Camoufox needs Python 3.11–3.13, and it could not be downloaded automatically (prepare Camoufox runtime: Python 3.11–3.13 is not installed) [VERIFY_FAILED]", { nbcCode: "VERIFY_FAILED", causeCode: "CAMOUFOX_PYTHON_MISSING", cause: "install" }],
+      ["VERIFY_FAILED: browser stopped: VENDOR_UNAVAILABLE: External browser runtime operation did not complete before timeout (context deadline exceeded) [VERIFY_FAILED]", { nbcCode: "VERIFY_FAILED", causeCode: "VENDOR_UNAVAILABLE", cause: "timeout" }],
+      // nbc's code alone, without the VERIFY_FAILED wrapper.
+      ["CDP endpoint did not become reachable before timeout [CDP_UNREACHABLE]", { nbcCode: "CDP_UNREACHABLE", cause: "timeout" }],
+      ["launch failed: exec format error [LAUNCH_FAILED]", { nbcCode: "LAUNCH_FAILED", cause: "launch" }],
+      ["[PROFILE_NOT_FOUND] profile not found", { nbcCode: "PROFILE_NOT_FOUND", cause: "other" }],
+    ];
+    for (const [raw, expected] of cases) expect(browserFailureCause(raw), raw).toEqual(expected);
+    // Nothing from nbc: nothing to class.
+    for (const raw of ["workspace not found", "navigation failed: net::ERR_TUNNEL_CONNECTION_FAILED", "Command timed out after 240 seconds.", "Error invoking remote method 'nextbrowser:invoke': Error: DasBrowser setup failed with exit code 1 after 3 s.", ""]) {
+      expect(browserFailureCause(raw), raw).toBeUndefined();
+    }
   });
 
   it("keeps a failed proxy check and a dropped CDP connection as proxy failures", () => {

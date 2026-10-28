@@ -1749,7 +1749,7 @@ function friendlyXReplyError(error: unknown): string {
   if (sessionLost(message)) return "The browser session was lost. Press Start again to reopen it.";
   if (accountUnauthorized(message)) return "Nextbrowser could not authenticate. Reconnect your account.";
   // The Ref makes the panel offer the Discord link, as other internal errors do.
-  if (isBrowserVerificationFailure(message)) return internalError(userFacingBrowserError(message), "VERIFY_FAILED");
+  if (isBrowserVerificationFailure(message)) return internalError(userFacingBrowserError(message), "VERIFY_FAILED", message);
   return message.replace(/\s+/g, " ").trim().slice(0, 160);
 }
 
@@ -2126,7 +2126,7 @@ function isAccountRequiredError(error: unknown): boolean {
 function preflightFailureMessage(error: unknown): string {
   console.error("[BROWSER_PREFLIGHT_FAILED]", error);
   const detail = userFacingBrowserError(error);
-  if (isBrowserVerificationFailure(error)) return internalError(`Browser setup stopped. ${detail}`, "VERIFY_FAILED");
+  if (isBrowserVerificationFailure(error)) return internalError(`Browser setup stopped. ${detail}`, "VERIFY_FAILED", error);
   return detail
     ? `Browser setup stopped. ${detail}`
     : "Browser setup stopped. Check the session and try again.";

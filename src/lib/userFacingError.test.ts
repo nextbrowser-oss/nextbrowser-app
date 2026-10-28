@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   actionFailureMessage,
   agentFailureDetail,
+  errorCauseForRef,
   errorCodeForRef,
   errorReference,
   errorRefsIn,
@@ -9,6 +10,11 @@ import {
   internalError,
   needsSupportLink,
 } from "./userFacingError";
+import { PROXY_ACCOUNT_SETUP_FAILED, userFacingBrowserError } from "./userFacingBrowserError";
+
+// nbc 1.2.38 in production, 28.10.2026, as the app sees it: the backend refused
+// to migrate the proxy account before the start.
+const MIGRATION_FAILED = "Could not start Nextbrowser: VERIFY_FAILED: migrate NodeMaven account before profile startup: migrate proxy traffic: unexpected status 502 Bad Gateway: {\"code\":\"migration_failed\",\"message\":\"Could not safely migrate the proxy account; browser startup was stopped\"} [VERIFY_FAILED] — The proxy account was not ready; the profile was not started. Retry to resume migration.";
 
 /** The message with each Ref cut back to the part that names the error code. */
 function withCodeRef(message: string): string {
@@ -47,6 +53,21 @@ describe("user-facing internal errors", () => {
     // A Ref from another source (a reload, the main process) is not ours.
     expect(errorCodeForRef("NB-25647DEA-0000")).toBeUndefined();
     expect(errorCodeForRef(errorReference("ACCOUNT_SIGN_OUT_FAILED"))).toBeUndefined();
+  });
+
+  it("remembers what nbc reported behind a Ref, as codes", () => {
+    const [sidebarRef] = errorRefsIn(actionFailureMessage("We couldn't start “Work”.", "PROFILE_START_FAILED", MIGRATION_FAILED));
+    expect(errorCauseForRef(sidebarRef)).toEqual({ nbcCode: "VERIFY_FAILED", causeCode: "migration_failed", cause: "migration" });
+    const [chatRef] = errorRefsIn(internalError("Browser setup stopped.", "VERIFY_FAILED", new Error(MIGRATION_FAILED)));
+    expect(errorCauseForRef(chatRef)).toEqual({ nbcCode: "VERIFY_FAILED", causeCode: "migration_failed", cause: "migration" });
+    const [checkRef] = errorRefsIn(actionFailureMessage("We couldn't start “Work”.", "PROFILE_START_FAILED", "VERIFY_FAILED: browser stopped: VERIFY_REQUIRED: failed browser checks: proxy; the profile cannot be used [VERIFY_FAILED]"));
+    expect(errorCauseForRef(checkRef)).toEqual({ nbcCode: "VERIFY_FAILED", cause: "proxy_check" });
+    // Errors that did not come from nbc, and Refs without a reason.
+    const [plainRef] = errorRefsIn(actionFailureMessage("We couldn't prepare this profile.", "PROFILE_ASSIGNMENT_FAILED", "workspace revision conflict"));
+    expect(errorCauseForRef(plainRef)).toBeUndefined();
+    const [bareRef] = errorRefsIn(internalError("We couldn't sign you out.", "ACCOUNT_SIGN_OUT_FAILED"));
+    expect(errorCauseForRef(bareRef)).toBeUndefined();
+    expect(errorCauseForRef("NB-25647DEA-0000")).toBeUndefined();
   });
 
   it("finds every Ref in a message, old and new formats alike", () => {
@@ -91,6 +112,21 @@ describe("user-facing internal errors", () => {
     );
     expect(message).not.toContain("/Users/");
     expect(message).toContain("Ref: NB-25647DEA");
+  });
+
+  it("tells the sidebar and the chat the same thing when the proxy account could not be set up", () => {
+    // The sidebar words a failed start with actionFailureMessage, the chat
+    // with internalError around the browser-error mapping (store.ts
+    // preflightFailureMessage); the verification dialog does not open for
+    // this failure (preflight.ts), so these two are all the user sees.
+    const sidebar = actionFailureMessage("We couldn't start “Work”.", "PROFILE_START_FAILED", MIGRATION_FAILED);
+    const chat = internalError(`Browser setup stopped. ${userFacingBrowserError(MIGRATION_FAILED)}`, "VERIFY_FAILED");
+    expect(withCodeRef(sidebar)).toBe(`We couldn't start “Work”. ${PROXY_ACCOUNT_SETUP_FAILED} Ref: ${errorReference("PROFILE_START_FAILED")}`);
+    expect(withCodeRef(chat)).toBe(`Browser setup stopped. ${PROXY_ACCOUNT_SETUP_FAILED} Ref: ${errorReference("VERIFY_FAILED")}`);
+    for (const message of [sidebar, chat]) {
+      expect(message).not.toMatch(/safety check|through its proxy|VERIFY|migrat|502|NodeMaven/i);
+      expect(needsSupportLink(message)).toBe(true);
+    }
   });
 
   it("falls back to the bare reference when no reason is available", () => {
