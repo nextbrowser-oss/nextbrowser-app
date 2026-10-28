@@ -55,6 +55,21 @@ describe("mandatory proxy startup", () => {
     expect(choose).not.toHaveBeenCalled();
     expect(commands().map((args) => args[4])).toEqual(["start", "stop"]);
   });
+  it("reports a proxy account the backend could not set up without retries or the proxy dialog", async () => {
+    // nbc 1.2.38 in production, 28.10.2026: the legacy migration failed
+    // before the start. Three attempts asked the backend three times, and
+    // the proxy dialog then blamed the proxy.
+    const failure = "VERIFY_FAILED: migrate NodeMaven account before profile startup: migrate proxy traffic: unexpected status 502 Bad Gateway: {\"code\":\"migration_failed\",\"message\":\"Could not safely migrate the proxy account; browser startup was stopped\"}";
+    nextctl.run.mockImplementation(async (args: string[]) => args.includes("start") ? { code: 1, stdout: "", stderr: failure } : { code: 0, stdout: "", stderr: "" });
+    const choose = vi.fn();
+    for (const startupVerifies of [true, false]) {
+      nextctl.run.mockClear();
+      await expect(prepareSession({ ...options, statuses: { work: "stopped" }, startupVerifies, onVerificationFailure: choose }))
+        .rejects.toThrow("migration_failed");
+      expect(commands().map((args) => args[4])).toEqual(["start", "stop"]);
+    }
+    expect(choose).not.toHaveBeenCalled();
+  });
   it("continues after successful same-proxy restart without asking for direct access", async () => {
     nextctl.json.mockResolvedValueOnce(failed).mockResolvedValueOnce(green);
     const choose = vi.fn();

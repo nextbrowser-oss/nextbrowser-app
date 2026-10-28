@@ -3,7 +3,7 @@
 
 import { nextctlErrorMessage, nextctlJson, nextctlRun } from "./nextctl";
 import type { SessionStatus, TabsList } from "./types";
-import { isBrowserStartFailure } from "./lib/userFacingBrowserError";
+import { isBrowserStartFailure, isProxyAccountSetupFailure } from "./lib/userFacingBrowserError";
 
 export function hostOf(raw?: string | null): string {
   if (!raw) return "";
@@ -259,8 +259,11 @@ export async function prepareSession(opts: {
       running = false;
       checkCancelled();
       // A host failure (such as a browser runtime that could not be installed)
-      // is not a failed proxy check: report it as is, without retries.
-      if (error instanceof HostCommandError) throw error;
+      // is not a failed proxy check: report it as is, without retries. Nor is
+      // a proxy account the backend could not set up before the start: the
+      // proxy dialog would blame the proxy, and a retry only asks the backend
+      // again.
+      if (error instanceof HostCommandError || isProxyAccountSetupFailure(error)) throw error;
       if (proxyExpected && !opts.startupVerifies && attempt < 2) step("Restarting the profile with the same proxy");
     }
   }

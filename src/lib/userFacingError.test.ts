@@ -9,6 +9,11 @@ import {
   internalError,
   needsSupportLink,
 } from "./userFacingError";
+import { PROXY_ACCOUNT_SETUP_FAILED, userFacingBrowserError } from "./userFacingBrowserError";
+
+// nbc 1.2.38 in production, 28.10.2026, as the app sees it: the backend refused
+// to migrate the proxy account before the start.
+const MIGRATION_FAILED = "Could not start Nextbrowser: VERIFY_FAILED: migrate NodeMaven account before profile startup: migrate proxy traffic: unexpected status 502 Bad Gateway: {\"code\":\"migration_failed\",\"message\":\"Could not safely migrate the proxy account; browser startup was stopped\"} [VERIFY_FAILED] — The proxy account was not ready; the profile was not started. Retry to resume migration.";
 
 /** The message with each Ref cut back to the part that names the error code. */
 function withCodeRef(message: string): string {
@@ -91,6 +96,21 @@ describe("user-facing internal errors", () => {
     );
     expect(message).not.toContain("/Users/");
     expect(message).toContain("Ref: NB-25647DEA");
+  });
+
+  it("tells the sidebar and the chat the same thing when the proxy account could not be set up", () => {
+    // The sidebar words a failed start with actionFailureMessage, the chat
+    // with internalError around the browser-error mapping (store.ts
+    // preflightFailureMessage); the verification dialog does not open for
+    // this failure (preflight.ts), so these two are all the user sees.
+    const sidebar = actionFailureMessage("We couldn't start “Work”.", "PROFILE_START_FAILED", MIGRATION_FAILED);
+    const chat = internalError(`Browser setup stopped. ${userFacingBrowserError(MIGRATION_FAILED)}`, "VERIFY_FAILED");
+    expect(withCodeRef(sidebar)).toBe(`We couldn't start “Work”. ${PROXY_ACCOUNT_SETUP_FAILED} Ref: ${errorReference("PROFILE_START_FAILED")}`);
+    expect(withCodeRef(chat)).toBe(`Browser setup stopped. ${PROXY_ACCOUNT_SETUP_FAILED} Ref: ${errorReference("VERIFY_FAILED")}`);
+    for (const message of [sidebar, chat]) {
+      expect(message).not.toMatch(/safety check|through its proxy|VERIFY|migrat|502|NodeMaven/i);
+      expect(needsSupportLink(message)).toBe(true);
+    }
   });
 
   it("falls back to the bare reference when no reason is available", () => {

@@ -15,7 +15,14 @@ describe("the VPN system-proxy hint for a failed profile start", () => {
     ]) {
       expect(isProxyPathFailure(detail), detail).toBe(true);
     }
-    for (const detail of ["[PROFILE_NOT_FOUND] profile not found", "[API_KEY_INVALID] invalid key", "Proxy country is DE, expected US", ""]) {
+    for (const detail of [
+      "[PROFILE_NOT_FOUND] profile not found",
+      "[API_KEY_INVALID] invalid key",
+      "Proxy country is DE, expected US",
+      // The backend could not set up the proxy account: not this computer's path to the proxy.
+      "VERIFY_FAILED: migrate NodeMaven account before profile startup: migrate proxy traffic: Post \"https://api.nextbrowser.com/v1/proxy/traffic/migrate\": context deadline exceeded [VERIFY_FAILED] — A proxy profile cannot continue without its proxy.",
+      "",
+    ]) {
       expect(isProxyPathFailure(detail), detail).toBe(false);
     }
   });

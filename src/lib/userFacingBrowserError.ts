@@ -24,6 +24,26 @@ export const CAMOUFOX_PYTHON_VENV_MISSING =
 export const BROWSER_START_FAILED =
   "The browser couldn’t start, so the profile was stopped. This is a problem on our side, not with your setup.";
 
+// Before the first managed-proxy start, nbc has the backend migrate the
+// account's proxy (NodeMaven) account. When the backend refuses, nothing ran,
+// but nbc wraps the refusal in VERIFY_FAILED, which read as a failed browser
+// check for a week. The backend's code says what happened: migration_failed,
+// migration_status_failed, migration_unavailable, or migration_deferred, after
+// which the next start goes ahead. The same rule is in
+// electron/profile-start-failure.cjs for starts an agent asked for.
+export const PROXY_ACCOUNT_SETUP_FAILED =
+  "We couldn’t set up your proxy account, so the profile was stopped. This is on our side: try again in a minute, and if it keeps happening, message us in Discord.";
+export const PROXY_ACCOUNT_SETUP_DEFERRED =
+  "We couldn’t set up your proxy account, so the profile was stopped. This is on our side. Start the profile again.";
+const MIGRATION_FAILURE = /migrate NodeMaven account|migrate proxy traffic|\bmigration_(?:failed|status_failed|unavailable|deferred)\b|proxy account was not ready|resume migration/i;
+const MIGRATION_DEFERRED = /\bmigration_deferred\b/i;
+
+/** True when a start failed because the backend could not set up the
+ *  account's proxy account: nothing about the proxy or this computer. */
+export function isProxyAccountSetupFailure(error: unknown): boolean {
+  return MIGRATION_FAILURE.test(rawErrorMessage(error));
+}
+
 // Browser profiles connect to their proxy (the NodeMaven gateway) directly:
 // nbc starts the browser with an explicit proxy, and Chromium cannot put a
 // VPN's proxy in front of it. A VPN in system-proxy mode (a proxy on this
@@ -37,7 +57,9 @@ const PROXY_PATH_FAILURE =
 
 /** True when a profile start failed the way a blocked path to its proxy fails: a proxy or tunnel error, or a timeout. */
 export function isProxyPathFailure(error: unknown): boolean {
-  return PROXY_PATH_FAILURE.test(rawErrorMessage(error));
+  const raw = rawErrorMessage(error);
+  // A proxy account the backend could not set up is not a path problem.
+  return !isProxyAccountSetupFailure(raw) && PROXY_PATH_FAILURE.test(raw);
 }
 
 // nextctl wraps every failed start of a verified profile in VERIFY_FAILED, so
@@ -145,6 +167,10 @@ export function userFacingBrowserError(error: unknown): string {
   // Checked before the generic start failure: its detail also names
   // "prepare Camoufox runtime", but a connection check would not help.
   if (/\bCAMOUFOX_PYTHON_MISSING\b/.test(raw)) return CAMOUFOX_PYTHON_MISSING;
+
+  // The backend refused to set up the proxy account before the start, so no
+  // browser ran and nothing was checked, whatever VERIFY_FAILED suggests.
+  if (isProxyAccountSetupFailure(raw)) return MIGRATION_DEFERRED.test(raw) ? PROXY_ACCOUNT_SETUP_DEFERRED : PROXY_ACCOUNT_SETUP_FAILED;
 
   // Verification failures often contain a nested CDP transport error from the
   // browser we just stopped. Report the failed proxy check, not a transient
