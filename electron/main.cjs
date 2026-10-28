@@ -676,7 +676,7 @@ async function nextctlHasAutomationTrace(binary) {
     // A fresh binary without this app's isolated credential can reject auth
     // after parsing; that also proves Cobra accepted the flag.
     nextctlAutomationTraceSupport.set(binary, run(binary, ["mcp", "--automation-trace-file", "nextbrowser-capability-probe"], {}, { timeoutMs: 5_000 })
-      .then((result) => /automation trace file must be an absolute path|API_KEY_REQUIRED|Missing Clawbrowser API key/i.test(`${result.stdout}\n${result.stderr}`))
+      .then((result) => /automation trace file must be an absolute path|API_KEY_REQUIRED|Missing (?:Clawbrowser|Nextbrowser) API key/i.test(`${result.stdout}\n${result.stderr}`))
       .catch(() => false));
   }
   return nextctlAutomationTraceSupport.get(binary);
