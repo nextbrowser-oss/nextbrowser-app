@@ -46,6 +46,8 @@ export interface SettingsAttentionInput {
   toolsetUpdate: boolean;
   agentReady: boolean;
   agentNeedsLogin: boolean;
+  /** The active agent is the built-in Nextbrowser agent, which is set up in Agent rather than connected. */
+  builtinAgent: boolean;
   /** How the proxy state is drawn (trafficGateStateTone). */
   proxyTone: TrafficGateTone;
 }
@@ -58,7 +60,7 @@ export interface SettingsAttentionInput {
 export function settingsAttention(input: SettingsAttentionInput): Partial<Record<SettingsSection, string>> {
   const attention: Partial<Record<SettingsSection, string>> = {};
   if (input.appUpdate) attention.general = "update available";
-  if (!input.agentReady) attention.agent = input.agentNeedsLogin ? "sign-in required" : "not connected";
+  if (!input.agentReady) attention.agent = input.agentNeedsLogin ? "sign-in required" : input.builtinAgent ? "not set up" : "not connected";
   if (input.toolsetUpdate) attention.browser = "update available";
   if (input.proxyTone === "paused") attention.proxy = "traffic paused";
   else if (input.proxyTone === "warn") attention.proxy = "traffic near its limit";

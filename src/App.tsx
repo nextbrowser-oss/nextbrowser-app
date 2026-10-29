@@ -646,6 +646,7 @@ function SettingsModal({
     toolsetUpdate: browserRuntimeUpdateAvailable(browserRuntimeUpdates),
     agentReady,
     agentNeedsLogin,
+    builtinAgent,
     proxyTone: trafficGateStateTone(proxy),
   });
 
