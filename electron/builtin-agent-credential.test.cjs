@@ -38,7 +38,8 @@ test("keys are saved encrypted per provider and read back", async () => {
     assert.equal(await store.load("openrouter"), "sk-or-v1-0123456789abcdef");
     const raw = await fs.readFile(filePath, "utf8");
     assert.ok(!raw.includes(KEY) && !raw.includes("AbCdEf0123456789"), "the file never holds the key in the clear");
-    assert.equal((await fs.stat(filePath)).mode & 0o777, 0o600);
+    // Windows has no POSIX modes (files read as 0o666); the key is encrypted either way.
+    if (process.platform !== "win32") assert.equal((await fs.stat(filePath)).mode & 0o777, 0o600);
     await store.clear("nvidia");
     assert.deepEqual(await store.saved(), { openrouter: true });
     await store.clear("openrouter");
