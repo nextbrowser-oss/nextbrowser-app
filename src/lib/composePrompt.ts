@@ -45,7 +45,7 @@ export function composePrompt(
   replyId: string,
   rawText: string,
   selectedProfile?: string,
-  opts: { nextctlAvailable?: boolean; executionTarget?: ExecutionTarget } = {},
+  opts: { nextctlAvailable?: boolean; executionTarget?: ExecutionTarget; builtinAgent?: boolean } = {},
 ): string {
   const parts: string[] = [];
   const conv = conversations.find((c) => c.id === conversationId);
@@ -63,7 +63,11 @@ export function composePrompt(
   const activeVPSInstructions = storedVPSInstructions;
   // Tell the connected CLI, up front, which tool drives the browser. Without
   // this context it may try to "open" a non-existent app and fail.
-  if (remoteOnly) {
+  // The built-in agent drives the browser through its tools alone; its system
+  // prompt says how. The CLI instructions would send it looking for a shell.
+  if (opts.builtinAgent) {
+    // Nothing to add.
+  } else if (remoteOnly) {
     parts.push(VPS_NEXTCTL_PROMPT);
     if (!hasVPSPromptMarker(rawText) && activeVPSInstructions) {
       parts.push(`Active VPS connection instructions:\n${activeVPSInstructions}`);

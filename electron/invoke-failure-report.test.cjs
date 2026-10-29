@@ -66,7 +66,7 @@ test("commands whose errors can echo secrets or contents send no message", () =>
   assert.equal(event.message, "manual_proxy_save: IPC_FAILED");
   assert.ok(!JSON.stringify(event).includes("bob"));
   assert.ok(!JSON.stringify(event).includes("hunter2"));
-  for (const command of ["pairing_poll", "app_data_write", "write_local_skill", "feedback_submit", "read_file", "workspace_file_read", "agent_run", "workflow_author_run", "terminal_input", "multilogin_connect"]) {
+  for (const command of ["pairing_poll", "app_data_write", "write_local_skill", "feedback_submit", "read_file", "workspace_file_read", "agent_run", "workflow_author_run", "terminal_input", "multilogin_connect", "builtin_agent_key_save", "builtin_agent_test"]) {
     assert.equal(describeInvokeFailure({ command, error: new Error("secret text") }).event.message.includes("secret"), false, command);
   }
 });

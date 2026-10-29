@@ -27,6 +27,7 @@ export function browserProfileContext(
   statuses: Record<string, string> = {},
   identities: Record<string, { country?: string; unverified?: boolean }> = {},
   inventory?: ReadonlyArray<{ name: string }>,
+  options: { toolsOnly?: boolean } = {},
 ): string {
   const workspace = workspaces.find((item) => item.id === workspaceId);
   const workspaceProfileNames = agentVisibleProfileNames(workspace?.profileNames ?? [], inventory);
@@ -49,6 +50,7 @@ export function browserProfileContext(
       : "";
     return `- ${clean(name)}: ${label} (workspace: ${clean(workspace?.name ?? "")}${selected}${running}${country})`;
   });
+  if (options.toolsOnly) return toolsOnlyContext(profiles, multiloginSelection);
   const multiloginContext = multiloginSelection
     ? multiloginSelection.kind === "browser"
       ? `\nSelected Multilogin Mimic browser profile for this workspace: ${clean(multiloginSelection.name)} (profile_id: ${clean(multiloginSelection.id)}${multiloginSelection.folderId ? `, folder_id: ${clean(multiloginSelection.folderId)}` : ""}). For browser tasks, use the Clawbrowser MCP start tool with runtime multilogin, this exact profile_id and folder_id, and a stable local profile name. Reuse that profile for subsequent page tools.`
@@ -66,4 +68,23 @@ export function browserProfileContext(
   if (!profiles.length && !multiloginContext) return artifactContext;
 
   return `\n\nNextbrowser profile runtime context for this chat's workspace (authoritative; do not infer runtime from MCP or nextctl profile metadata):\n${profiles.join("\n")}${multiloginContext}\nOnly use profiles listed above or the selected Multilogin profile. Profiles from other workspaces are outside this chat's scope. Existing profiles always take priority: match an explicit name exactly, otherwise use the selected profile, otherwise use the sole listed profile. If several profiles are plausible, ask which existing profile to use. Never invent, clone, or create a profile from a site name or task; when explicitly asked to create a profile, use profiles_create_request with name_prefix, quantity, runtime (clawbrowser, camoufox, or dasbrowser), and either country for a managed proxy, no_proxy=true for a direct connection, or personal_proxy_id from personal_proxies_list for an existing saved personal proxy, then profiles_create_request_status. Never combine country, no_proxy, and personal_proxy_id. Never automate the desktop UI for profile creation. A runtime label such as ClawBrowser, Camoufox, or DasBrowser is not a profile name and must never be passed as one. Never use a separate Chrome/browser-control skill when a listed Nextbrowser profile is available. Never substitute ClawBrowser for a listed Camoufox or DasBrowser profile. Use the Nextbrowser MCP interface for ClawBrowser, Camoufox, DasBrowser, and Multilogin profiles, always passing the listed runtime; nextctl accepts dasbrowser as a Chromium-runtime alias. A verified proxy country in this context is current and authoritative: if it matches the requested country, do not rotate, restart, verify, or inspect the profile again. If it differs, perform at most one country change before continuing. For Camoufox, reuse the returned session; it is Firefox/Playwright rather than CDP, so never probe /json/list or start a replacement session. When the target page structure is known, prefer navigate_extract for result pages; this waits only for useful content and combines navigation plus extraction. Prefer multi_action for forms, extract for an already-open result list, and wait(selector/text) after SPA transitions. For a short read-only top-N request on an already-open listing, make one extract or paginate_extract call, save the requested artifact once, and finish immediately. Do not run status, recipe discovery, repeated state, lifecycle, or verification calls first. Call state only when selectors are unknown or an action needs element IDs. When the user gives an exact source URL and selectors are not already known, use open once and then state; do not guess a ready_selector or lose time on a speculative navigate_extract call. For browser research, open and inspect at least one actual source page in the selected profile, then leave the most useful source open; search-result snippets or a separate built-in web search do not complete the browser task. If a search engine blocks automation, navigate directly to a relevant source domain. The Nextbrowser app injects a short-lived host-control URL and token into every chat run.${hostStartContext} If the chosen listed profile is stopped, or a page tool reports that its session is missing, run its exact authorized host start command once and then retry the original page action once. On Windows use curl.exe. Do not spawn listed profiles through nextctl or nextbrowser.start; terminal sandboxing can break browser helper processes. Never ask the user to start or reconnect a listed profile manually. After a successful host start, use the canonical session name from the response with Nextbrowser MCP page-action tools and the listed runtime. If the host start or retried page action fails, do not try another profile name. ${HOST_START_FAILURE_GUIDANCE} The host rejects profiles outside this chat's workspace and profiles occupied by another chat.${artifactContext}`;
+}
+
+/**
+ * The profile context for the built-in Nextbrowser agent, which has browser
+ * tools and nothing else: no shell for the host start commands or the
+ * Artifact Center endpoint, and a short prompt suits the free models it runs.
+ */
+function toolsOnlyContext(profiles: string[], multiloginSelection?: MultiloginProfileSelection): string {
+  // The session name nbc accepts for the selected profile (electron/mcp-profile-scope.cjs).
+  const session = multiloginSelection
+    ? `mlx-browser-${multiloginSelection.id.trim().replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "profile"}`.slice(0, 120)
+    : "";
+  const multilogin = multiloginSelection
+    ? multiloginSelection.kind === "browser"
+      ? `\nSelected Multilogin browser profile: ${clean(multiloginSelection.name)}. Call start with runtime multilogin, profile_id ${clean(multiloginSelection.id)}${multiloginSelection.folderId ? `, folder_id ${clean(multiloginSelection.folderId)}` : ""}, and profile ${session}; then pass profile ${session} to the page tools.`
+      : `\nThe selected Multilogin cloud phone (${clean(multiloginSelection.name)}) cannot be controlled by the Nextbrowser agent. Tell the user to use an agent CLI such as Claude Code or Codex for cloud phones.`
+    : "";
+  if (!profiles.length && !multilogin) return "";
+  return `\n\nBrowser profiles of this chat's workspace:\n${profiles.join("\n")}${multilogin}\nUse only these profiles. Use the profile the user names, otherwise the selected one, otherwise the only one; if several fit, ask which one. Pass the exact profile name as profile. When you call start, also pass the profile's runtime: clawbrowser for ClawBrowser, camoufox for Camoufox, dasbrowser for DasBrowser. A runtime name is not a profile name. Never create a profile.`;
 }

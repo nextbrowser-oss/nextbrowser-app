@@ -43,6 +43,13 @@ test("removes emails, bearer tokens, account keys, OpenAI-style keys and JWTs", 
   assert.ok(text.includes("<jwt>"));
 });
 
+test("removes the model provider keys of the built-in agent", () => {
+  const scrub = createScrubber({ homeDir: "/home/bob" });
+  const text = scrub("NVIDIA nvapi-AbCdEf0123456789xyz, Groq gsk_AbCdEf0123456789, Google AIzaSyA1234567890abcdefghijk, OpenRouter sk-or-v1-AbCdEf0123456789");
+  for (const secret of ["AbCdEf0123456789", "SyA1234567890"]) assert.ok(!text.includes(secret), `${secret} must be scrubbed from: ${text}`);
+  assert.ok(text.includes("nvapi-***") && text.includes("gsk-***") && text.includes("AIza***"));
+});
+
 test("leaves ordinary diagnostics readable", () => {
   const scrub = createScrubber({ homeDir: "/home/bob" });
   const message = "TypeError: Cannot read properties of undefined (reading 'map') at ChatView";

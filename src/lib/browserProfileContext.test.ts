@@ -108,4 +108,21 @@ describe("browserProfileContext", () => {
     expect(result).toContain("configured proxy country: GE (not verified yet)");
     expect(result).not.toContain("verified proxy country: GE");
   });
+
+  it("gives the built-in agent its profiles and tool rules without shell commands", () => {
+    const workspace = {
+      id: "one", name: "Work", createdAt: 1, updatedAt: 1,
+      profileNames: ["shop", "research"],
+      profileToolsets: { shop: "camoufox", research: "dasbrowser" },
+    } as Workspace;
+    const result = browserProfileContext([workspace], "one", "shop", undefined, { shop: "running" }, {}, undefined, { toolsOnly: true });
+    expect(result).toContain("- shop: Camoufox (workspace: Work, selected, running; reuse without starting)");
+    expect(result).toContain("- research: DasBrowser (workspace: Work)");
+    expect(result).toContain("camoufox for Camoufox, dasbrowser for DasBrowser");
+    for (const shell of ["curl", "NEXTBROWSER_CONTROL_URL", "nextctl", "navigate_extract", HOST_START_FAILURE_GUIDANCE]) expect(result).not.toContain(shell);
+    const multilogin = browserProfileContext([workspace], "one", undefined, { kind: "browser", id: "abc 123", name: "Mimic", folderId: "f1" }, {}, {}, undefined, { toolsOnly: true });
+    expect(multilogin).toContain("runtime multilogin, profile_id abc 123, folder_id f1, and profile mlx-browser-abc-123");
+    expect(browserProfileContext([], undefined, undefined, undefined, {}, {}, undefined, { toolsOnly: true })).toBe("");
+  });
 });
+

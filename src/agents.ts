@@ -1,6 +1,9 @@
 // Agent catalog, a faithful port of clawdesk/Models/Models.swift `AgentKind`.
 // Claude Code & Codex are primary; the rest are best-effort integrations.
 
+/** The agent that runs inside Nextbrowser itself (electron/builtin-agent.cjs). */
+export const BUILTIN_AGENT_ID = "nextbrowser";
+
 export type RunStyle =
   | "claudePrint"
   | "codexExec"
@@ -9,7 +12,9 @@ export type RunStyle =
   | "promptFlag"
   | "runSubcommand"
   | "promptArg"
-  | "messageFlag";
+  | "messageFlag"
+  /** The built-in Nextbrowser agent: runs inside the app, no CLI. */
+  | "builtin";
 
 export interface AgentSpec {
   id: string;
@@ -49,7 +54,7 @@ function spec(
     id,
     name,
     binary,
-    envVar: envVar(binary),
+    envVar: binary ? envVar(binary) : "",
     runStyle,
     primary: opts.primary ?? false,
     loginArgs: opts.loginArgs ?? [],
@@ -63,6 +68,9 @@ function spec(
 export const AGENTS: AgentSpec[] = [
   spec("claude", "Claude Code", "claude", "claudePrint", { primary: true, loginArgs: ["auth", "login"], logoutArgs: ["auth", "logout"], statusArgs: ["auth", "status"], installUrl: "https://code.claude.com/docs/en/installation" }),
   spec("codex", "Codex", "codex", "codexExec", { primary: true, loginArgs: ["login"], logoutArgs: ["logout"], statusArgs: ["login", "status"], installUrl: "https://chatgpt.com/download/", installKind: "app" }),
+  // Runs inside the app against an OpenAI-compatible model API (a free NVIDIA,
+  // OpenRouter or Gemini key, or a local model); see electron/builtin-agent.cjs.
+  spec(BUILTIN_AGENT_ID, "Nextbrowser agent", "", "builtin"),
   spec("hermes", "Hermes Agent", "hermes", "hermesOneshot", { loginArgs: ["setup"] }),
   spec("kilo", "Kilo Code", "kilo", "runSubcommand", { installUrl: "https://kilo.ai/docs/getting-started/using-kilo-for-free" }),
   spec("openclaw", "OpenClaw", "openclaw", "openclawAgent", { loginArgs: ["onboard"] }),
@@ -97,6 +105,17 @@ export const AGENTS: AgentSpec[] = [
   spec("droid", "Factory Droid", "droid", "promptArg"),
 ];
 
+/** The built-in agent has no CLI: no install, sign-in, terminal, or nbc adapter. */
+export function isBuiltinAgent(agent: AgentSpec | string | undefined): boolean {
+  const id = typeof agent === "string" ? agent : agent?.id;
+  return id === BUILTIN_AGENT_ID;
+}
+
+/** Whether a project of this agent can open the Terminal chat. */
+export function agentSupportsTerminal(agent: AgentSpec | string | undefined): boolean {
+  return !isBuiltinAgent(agent);
+}
+
 export const PRIMARY_AGENTS = AGENTS.filter((a) => a.primary);
 export const ADDITIONAL_AGENTS = AGENTS.filter((a) => !a.primary);
 
@@ -110,6 +129,7 @@ export function agentInstallName(agent: AgentSpec): string {
 }
 
 export function missingAgentInstallError(error: unknown, agent: AgentSpec): string | undefined {
+  if (!agent.binary) return undefined;
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.toLowerCase();
   const binary = agent.binary.toLowerCase();
@@ -190,5 +210,8 @@ export function agentInvocation(
       return { args: [prompt] };
     case "messageFlag":
       return { args: ["--message", prompt] };
+    case "builtin":
+      // The main process sends the prompt to the model itself.
+      return { args: [], stdin: prompt };
   }
 }

@@ -8047,6 +8047,57 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 }
 .agent-gate-close:hover { color: var(--text); border-color: var(--line); background: var(--surface-2); }
 .agent-gate-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.agent-gate-card { max-height: calc(100vh - 48px); overflow-y: auto; }
+
+/* The built-in Nextbrowser agent: the free-model offer and its setup. */
+.agent-gate-free {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  text-align: left;
+}
+.agent-gate-free > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.agent-gate-free .ok { margin-left: auto; flex: none; }
+.agent-gate-free.is-selected { border-style: solid; border-color: var(--accent); }
+.agent-gate-free.is-suggested { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.agent-gate-free:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.onboarding-step-content .agent-gate-free { margin-top: 10px; }
+.builtin-agent-setup { display: flex; flex-direction: column; gap: 12px; }
+.builtin-agent-providers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.builtin-agent-provider {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-1);
+  color: var(--text);
+  text-align: left;
+}
+.builtin-agent-provider.is-selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface-1)); }
+.builtin-agent-provider:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.builtin-agent-provider-head { display: flex; align-items: center; gap: 6px; width: 100%; }
+.builtin-agent-provider-head .ok { margin-left: auto; }
+.builtin-agent-provider .muted { line-height: 1.35; }
+.builtin-agent-data-use { margin: 0; line-height: 1.4; }
+.builtin-agent-key-row { display: flex; gap: 8px; align-items: center; }
+.builtin-agent-key-row input { flex: 1; min-width: 0; }
+.builtin-agent-key-saved { display: flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; }
+.builtin-agent-key-saved .muted { flex: 1; }
+.builtin-agent-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.builtin-agent-actions .mini { min-height: 28px; }
+.builtin-agent-test { display: flex; flex-direction: column; gap: 3px; line-height: 1.4; overflow-wrap: anywhere; }
+.modal-field-heading a { display: inline-flex; align-items: center; gap: 4px; text-transform: none; letter-spacing: 0; }
+.project-mode-option.is-disabled { opacity: 0.55; cursor: not-allowed; }
+.chat-mode-toggle button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* --------------------------------------------------------------------------
    Theme direction: Obsidian Violet across dark and light modes
