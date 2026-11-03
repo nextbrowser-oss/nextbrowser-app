@@ -1,0 +1,102 @@
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
+import { chromium } from "playwright-core";
+
+// Actual renderer clicks; isolated preview state and IPC. No personal profile,
+// credentials, sign-in, software installation or external requests are used.
+const url = "http://127.0.0.1:1424";
+const vite = spawn(process.execPath, ["node_modules/vite/bin/vite.js", "--host", "127.0.0.1", "--port", "1424"], { windowsHide: true, stdio: "ignore" });
+let browser;
+let page;
+try {
+  for (let attempt = 0; ; attempt++) {
+    try { if ((await fetch(url)).ok) break; } catch {}
+    if (attempt >= 100) throw new Error("Navigation QA server did not start.");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  browser = await chromium.launch({ executablePath: process.env.CHROME_BIN || (process.platform === "win32" ? path.join(process.env.ProgramFiles, "Google/Chrome/Application/chrome.exe") : process.platform === "darwin" ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : "/usr/bin/google-chrome"), headless: true });
+  page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.route("**/*", (route) => route.request().url().startsWith(url) || route.request().url().startsWith("data:") ? route.continue() : route.abort());
+  await page.addInitScript(() => {
+    localStorage.setItem("nextbrowser.theme", "light");
+    window.__navigationQA = { calls: [] };
+    window.nextbrowser = {
+      on() { return () => {}; },
+      async invoke(command, args = {}) {
+        window.__navigationQA.calls.push({ command, args });
+        if (command === "nextctl_version") return "1.2.39";
+        if (command === "nextctl_supports_skill") return true;
+        if (command === "browser_runtime_update_status") return { status: "ready", checkedAt: Date.now(), runtimes: [] };
+        if (command === "browser_runtime_install_status" || command === "browser_runtime_update_install_status") return { status: "idle" };
+        if (command === "app_update_status") return { status: "not-available" };
+        if (command === "app_platform") return { platform: "win32", arch: "x64" };
+        if (command === "error_reporting_status") return { enabled: false, available: false };
+        if (command === "github_stars") return 64;
+        if (command === "github_star_status") return { eligible: false };
+        if (command === "dashboard_auth_status") return { authed: true };
+        if (command === "manual_proxies_list" || command === "browser_runtime_clawbrowser_active_sessions") return [];
+        if (command === "multilogin_login_complete") return { connected: true, valid: true, secureStorageAvailable: true, account: { email: "qa@example.com", workspaceName: "QA workspace" }, browserProfiles: [], mobileProfiles: [] };
+        return {};
+      },
+    };
+  });
+  await page.goto(`${url}/?preview=main`);
+  const nav = page.getByRole("navigation", { name: "Sidebar pages" });
+  const skillsButton = () => nav.getByRole("button", { name: /^Open Skills/ });
+  await skillsButton().click();
+  const expandedY = (await skillsButton().boundingBox()).y;
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  const collapsedY = (await skillsButton().boundingBox()).y;
+  assert.ok(Math.abs(expandedY - collapsedY) < 1, `Navigation moved: ${expandedY} → ${collapsedY}`);
+  assert.equal(await skillsButton().innerText().then((text) => text.includes("Skills")), true);
+  await nav.getByRole("button", { name: /^Open Guide/ }).click();
+  assert.equal(await page.locator(".sidebar-collapsed").count(), 1, "navigation clicks must not expand the sidebar");
+  await skillsButton().click();
+  const tabs = page.getByRole("tablist", { name: "Skills sections" });
+  await tabs.getByRole("tab", { name: "My skills", exact: true }).click();
+  await page.getByRole("tabpanel").getByRole("heading", { name: "My skills", exact: true }).waitFor();
+  await tabs.getByRole("tab", { name: "My skills", exact: true }).press("End");
+  assert.equal(await tabs.getByRole("tab", { name: "Scripts", exact: true }).getAttribute("aria-selected"), "true");
+  await page.getByRole("tabpanel").getByRole("heading", { name: "Scripts", exact: true }).waitFor();
+  await tabs.getByRole("tab", { name: "Scripts", exact: true }).press("Home");
+  assert.equal(await tabs.getByRole("tab", { name: "All skills", exact: true }).getAttribute("aria-selected"), "true");
+  await mkdir("e2e-out", { recursive: true });
+  await page.screenshot({ path: "e2e-out/navigation-skills-light.png" });
+  const rail = await page.locator(".sidebar-mini").boundingBox();
+  await page.mouse.click(rail.x + rail.width / 2, rail.y + rail.height - 130);
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).waitFor();
+  await page.setViewportSize({ width: 960, height: 640 });
+  assert.equal(await page.locator(".skills-root").evaluate((node) => node.scrollWidth <= node.clientWidth + 1), true);
+  await tabs.getByRole("tab", { name: "All skills", exact: true }).press("End");
+  assert.equal(await tabs.getByRole("tab", { name: "Scripts", exact: true }).evaluate((node) => { const box = node.getBoundingClientRect(); return box.left >= 0 && box.right <= innerWidth; }), true);
+  await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
+  await page.waitForTimeout(350); // Let the theme transition settle before visual QA.
+  await page.screenshot({ path: "e2e-out/navigation-skills-narrow-dark.png" });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await nav.getByRole("button", { name: /^Open Connectors/ }).click();
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  const modal = page.getByRole("dialog", { name: /Multilogin/ });
+  await modal.getByText("wails", { exact: true }).waitFor();
+  await modal.getByText("Session storage", { exact: true }).waitFor();
+  await modal.getByRole("tab", { name: "Web", exact: true }).click();
+  await modal.getByText("https://app.multilogin.com", { exact: true }).first().waitFor();
+  await modal.getByRole("button", { name: "Open Multilogin sign-in", exact: true }).click();
+  await modal.getByRole("button", { name: "Connect selected workspace", exact: true }).waitFor();
+  await page.screenshot({ path: "e2e-out/navigation-multilogin-connect.png" });
+  await modal.getByRole("button", { name: "Connect selected workspace", exact: true }).click();
+  await modal.getByText("qa@example.com", { exact: true }).waitFor();
+  assert.deepEqual(await page.evaluate(() => window.__navigationQA.calls.filter((call) => call.command.startsWith("multilogin_login_")).map((call) => call.command).slice(-2)), ["multilogin_login_open", "multilogin_login_complete"]);
+  assert.deepEqual(errors, []);
+  console.log("Navigation journey passed: stable sidebar positions, labels, blank-area expansion, tab keyboard navigation, narrow layout, themes and Multilogin connection.");
+} catch (error) {
+  if (page) {
+    await mkdir("e2e-out", { recursive: true });
+    await page.screenshot({ path: "e2e-out/navigation-qa-failure.png" });
+    console.error((await page.locator("body").innerText()).slice(-6000));
+  }
+  throw error;
+} finally { await browser?.close(); vite.kill(); }

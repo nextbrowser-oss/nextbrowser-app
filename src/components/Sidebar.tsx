@@ -6,6 +6,7 @@ import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { trackEvent } from "../lib/analytics";
 import { reportUserFacingError } from "../lib/errorReporting";
 import { BrandHeader, BrandLogo } from "./BrandLogo";
+import { SidebarNavigation } from "./SidebarNavigation";
 import { Icon, Spinner } from "./Icon";
 import { withLocalScripts } from "../skillsCatalog";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
@@ -94,13 +95,6 @@ interface SidebarProps {
   /** Rendered right of the agent status in the footer, e.g. the interface size control, so nothing floats over the footer. */
   footerAccessory?: ReactNode;
 }
-
-const NAV_ITEMS: Array<{ id: AppTab; label: string; icon: string }> = [
-  { id: "skills", label: "Skills", icon: "square.grid.2x2.fill" },
-  { id: "connectors", label: "Connectors", icon: "network" },
-  { id: "scheduled", label: "Scheduled", icon: "clock.arrow.circlepath" },
-  { id: "guide", label: "Guide", icon: "book.fill" },
-];
 
 const SIDEBAR_OPEN_SECTION_KEY = "sidebar.openSection";
 
@@ -1317,37 +1311,32 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
 
   if (s.sidebarCollapsed) {
     return (
-      <div className="sidebar-mini">
-        <button
-          className="plain-icon-btn sidebar-collapse-toggle"
-          data-tooltip="Expand sidebar"
-          aria-label="Expand sidebar"
-          onClick={() => s.setSidebarCollapsed(false)}
-        >
-          <Icon name="sidebar.left" size={17} />
-        </button>
-        <button className="sidebar-logo-home" onClick={onHome} data-tooltip="Back to main view" aria-label="Back to main view"><BrandLogo size={28} /></button>
-        <button className="mini-nav-btn" data-tooltip={`${visibleProfileCount} profiles, ${runningCount} running`} aria-label={`${visibleProfileCount} profiles, ${runningCount} running`} onClick={() => s.setTab("live")}>
+      <div className="sidebar-mini" onClick={(event) => {
+        if (event.target instanceof Element && !event.target.closest("button, a, input, select, textarea")) s.setSidebarCollapsed(false);
+      }}>
+        <div className="sidebar-mini-header">
+          <button className="sidebar-logo-home" onClick={onHome} title="Back to main view" aria-label="Back to main view"><BrandLogo size={24} /></button>
+          <button
+            className="plain-icon-btn sidebar-collapse-toggle"
+            data-tooltip="Expand sidebar"
+            aria-label="Expand sidebar"
+            onClick={() => s.setSidebarCollapsed(false)}
+          >
+            <Icon name="sidebar.left" size={17} />
+            <span>Expand</span>
+          </button>
+        </div>
+        <SidebarNavigation collapsed tab={s.tab} badgeFor={badgeFor} onSelect={s.setTab} />
+        <button className="mini-nav-btn" data-tooltip={`${visibleProfileCount} profiles, ${runningCount} running`} aria-label={`Open Live, ${visibleProfileCount} profiles, ${runningCount} running`} onClick={() => s.setTab("live")}>
           <Icon name="person.crop.circle" size={18} />
+          <span>Live</span>
           <span>{runningCount}/{visibleProfileCount}</span>
         </button>
-        {NAV_ITEMS.map((item) => (
-          <button
-            key={item.id}
-            className={"mini-nav-btn" + (s.tab === item.id ? " active" : "")}
-            data-tooltip={item.label}
-            aria-label={`Open ${item.label}`}
-            aria-current={s.tab === item.id ? "page" : undefined}
-            onClick={() => s.setTab(item.id)}
-          >
-            <Icon name={item.icon} size={18} />
-            {badgeFor(item.id) && <span>{badgeFor(item.id)}</span>}
-          </button>
-        ))}
         {activeRecording && <button className="mini-nav-btn mini-recording-control recording" data-tooltip={recordingMiniLabel} aria-label={`${activeRecording.destination === "workflow" ? "Open workflow recording" : "Open active recording"}.`} onClick={openRecorder}><Icon name="circle.fill" size={18} /><span>{recordingDuration(activeRecording.startedAt, recordingClock)}</span></button>}
         <span className="spacer" />
         <button className="mini-nav-btn" data-tooltip={`Agent: ${agentName}`} aria-label={`Agent: ${agentName}`} onClick={onOpenAgentSettings}>
           <Icon name="cpu.fill" size={18} />
+          <span>Agent</span>
           <span>{ready ? "on" : "off"}</span>
         </button>
       </div>
@@ -1371,6 +1360,8 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
         </div>
       </div>
 
+      <SidebarNavigation tab={s.tab} badgeFor={badgeFor} onSelect={s.setTab} />
+
       {activeRecording && <section className="sidebar-recording-control recording" aria-label={activeRecording.destination === "workflow" ? "Workflow recording in progress" : "Recording in progress"}>
         <div className="sidebar-recording-status"><span className="sidebar-recording-dot" /><div><strong>{activeRecording.destination === "workflow" ? "Recording a workflow" : "Recording in progress"}</strong><small>{recordingWorkspace?.name || "Current workspace"} · {recordingDestinationLabel}</small><small>{recordingDuration(activeRecording.startedAt, recordingClock)} elapsed</small></div></div>
         <div className="sidebar-recording-actions"><button onClick={openRecorder}>{activeRecording.destination === "workflow" ? "Open Workflow Builder" : "Open recorder"}</button><button className="stop" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={11} /> : <Icon name="stop.fill" size={11} />} {activeRecording.destination === "workflow" ? "Stop & open" : "Stop recording"}</button></div>
@@ -1385,24 +1376,7 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
         {automationExecutionError && <small className="sidebar-recording-error" role="alert">{automationExecutionError}</small>}
       </section>}
 
-      <nav className="sidebar-scroll sidebar-nav-list" aria-label="Sidebar pages">
-        {NAV_ITEMS.map((item) => {
-          const badge = badgeFor(item.id);
-          return (
-            <button
-              key={item.id}
-              className={"claw-card sidebar-link-card sidebar-page-link" + (s.tab === item.id ? " active" : "")}
-              aria-current={s.tab === item.id ? "page" : undefined}
-              onClick={() => s.setTab(item.id)}
-            >
-              <Icon name={item.icon} size={14} />
-              <span className="section">{item.label}</span>
-              <span className="spacer" />
-              {badge && <span className="profiles-count">{badge}</span>}
-            </button>
-          );
-        })}
-
+      <div className="sidebar-scroll sidebar-nav-list">
         <div ref={profilesCardRef} className={"claw-card control-card profiles-card" + (profileGuideFocus ? " guide-focus" : "")}>
           <div className="row profiles-panel-head">
             <div className="workspace-picker-wrap" ref={workspacePickerRef}>
@@ -1685,7 +1659,7 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
             )}
           </div>
         </div>
-      </nav>
+      </div>
 
       <hr className="divider" />
       <div className={"sidebar-account-footer" + (s.authed ? " is-connected" : "")}>

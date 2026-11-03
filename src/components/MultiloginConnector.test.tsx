@@ -98,9 +98,10 @@ describe("MultiloginConnectorView", () => {
     expect(html).toContain("<button type=\"button\">Open the Multilogin desktop app</button>");
     expect(html).toContain("Info");
     expect(html).toContain("API token");
-    expect(html).not.toContain("Multilogin token guide");
-    expect(html).not.toContain("DevTools");
-    expect(html).not.toContain("Local storage");
+    expect(html).toContain("Multilogin token guide");
+    expect(html).toContain("Ctrl + Shift + F12");
+    expect(html).toContain("wails");
+    expect(html).toContain("Session storage");
     expect(html).toContain('type="password"');
     expect(html).toContain('role="dialog"');
   });

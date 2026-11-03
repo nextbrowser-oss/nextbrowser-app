@@ -11,6 +11,7 @@ import { cloudPhoneFromSelection, cloudPhoneRunsIn } from "../lib/cloudPhoneSkil
 import { multiloginSelectionForWorkspace } from "../lib/multiloginSelection";
 import { Icon } from "./Icon";
 import { SkillLogo } from "./SkillLogo";
+import { SkillsNavigation } from "./SkillsNavigation";
 import { UserFacingError } from "./UserFacingError";
 import { WatchedProfilesPanel } from "./WatchedProfilesPanel";
 import { RunSkillSheet } from "./RunSkillSheet";
@@ -112,47 +113,13 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
 
   return (
     <div className="skills-root">
-      <nav className="skills-nav thin-material">
-        <div className="skills-nav-label">SKILLS</div>
-        <button
-          className={"skills-nav-item" + (isSkillsOverview ? " active" : "")}
-          onClick={() => setCategory("__skills__")}
-        >
-          <Icon name="sparkles" size={18} className="skills-nav-icon" />
-          <span className="skills-nav-title">Skills</span>
-          <span className="muted small skills-nav-count">{skillCount}</span>
-        </button>
-        <button
-          className={"skills-nav-item" + (isMySkills ? " active" : "")}
-          onClick={() => setCategory("my-skills")}
-        >
-          <Icon name="person.crop.circle" size={18} className="skills-nav-icon" />
-          <span className="skills-nav-title">My skills</span>
-          <span className="muted small skills-nav-count">{s.localSkills.length + s.privateCloudSkills.filter((cloud) => !s.localSkills.some((local) => local.serverSlug === cloud.id)).length}</span>
-        </button>
-        {categories.map((c) => (
-          <button
-            key={c.id}
-            className={"skills-nav-item" + (c.id === cat?.id ? " active" : "")}
-            onClick={() => setCategory(c.id)}
-          >
-            <Icon name={c.icon} size={18} className="skills-nav-icon" />
-            <span className="skills-nav-title">{c.title}</span>
-            <span className="muted small skills-nav-count">{c.entries.length}</span>
-          </button>
-        ))}
-        <div className="skills-nav-label skills-nav-secondary-label">TOOLS</div>
-        <button
-          className={"skills-nav-item" + (isScripts ? " active" : "")}
-          onClick={() => setCategory("my-scripts")}
-        >
-          <Icon name="scroll.fill" size={18} className="skills-nav-icon" />
-          <span className="skills-nav-title">Scripts</span>
-          <span className="muted small skills-nav-count">{publishedScripts.length + s.customScripts.length}</span>
-        </button>
-      </nav>
-      <hr className="divider skills-divider" />
-      <div className="skills-main">
+      <SkillsNavigation selected={category} onSelect={setCategory} items={[
+        { id: "__skills__", label: "All skills", count: skillCount },
+        { id: "my-skills", label: "My skills", count: s.localSkills.length + s.privateCloudSkills.filter((cloud) => !s.localSkills.some((local) => local.serverSlug === cloud.id)).length },
+        ...categories.map((item) => ({ id: item.id, label: item.title, count: item.entries.length })),
+        { id: "my-scripts", label: "Scripts", count: publishedScripts.length + s.customScripts.length },
+      ]} />
+      <div className="skills-main" id="skills-panel" role="tabpanel" aria-labelledby={`skills-tab-${category}`} tabIndex={0}>
         <div className="skills-main-head">
           <h2 className="skills-category-title">
             <Icon name={isScripts ? "scroll.fill" : isMySkills ? "person.crop.circle" : cat?.icon ?? "sparkles"} size={22} className="accent-icon" />

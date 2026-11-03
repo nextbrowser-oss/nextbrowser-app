@@ -22,7 +22,7 @@ import { getPreviewMode } from "../preview";
 import { Icon, Spinner } from "./Icon";
 
 const MULTILOGIN_URL = "https://app.multilogin.com";
-const MULTILOGIN_TOKEN_GUIDE_URL = "https://multilogin.com/help/en_US/retrieving-the-token";
+const MULTILOGIN_TOKEN_GUIDE_URL = "https://multilogin.com/help/en_US/help/retrieving-the-token";
 
 export type { MultiloginConnectionStatus, MultiloginProfileSummary } from "../lib/multiloginProfiles";
 
@@ -61,6 +61,9 @@ interface MultiloginConnectorViewProps {
   onSelectProfile: (kind: MultiloginProfileKind, profile: MultiloginProfileSummary) => void;
   onClearSelection: () => void;
   onRetryStatus?: () => void;
+  loginWindowOpen?: boolean;
+  onOpenLogin?: () => void;
+  onCompleteLogin?: () => void;
 }
 
 function connectionLabel(status: MultiloginConnectionStatus | null, checking: boolean): string {
@@ -107,6 +110,9 @@ export function MultiloginConnectorView({
   onSelectProfile,
   onClearSelection,
   onRetryStatus,
+  loginWindowOpen,
+  onOpenLogin,
+  onCompleteLogin,
 }: MultiloginConnectorViewProps) {
   const workspaceLabel = multiloginWorkspaceLabel(status?.account);
   const kindFolders = folders.filter((folder) => folder.kind === profileKind);
@@ -318,6 +324,15 @@ export function MultiloginConnectorView({
               </div>
             ) : (
               <form onSubmit={onConnect}>
+                {onOpenLogin && <div className="connector-sign-in">
+                  <strong>Connect without copying a token</strong>
+                  <p className="muted small">Sign in to Multilogin, select the workspace you want to use, then return here to connect.</p>
+                  <div className="row">
+                    <button type="button" className={loginWindowOpen ? "secondary" : "primary"} disabled={busy} onClick={onOpenLogin}>{loginWindowOpen ? "Reopen Multilogin sign-in" : "Open Multilogin sign-in"}</button>
+                    {loginWindowOpen && <button type="button" className="primary" disabled={busy} onClick={onCompleteLogin}>{busy ? "Connecting…" : "Connect selected workspace"}</button>}
+                  </div>
+                </div>}
+                <p className="muted small">Or connect with a token:</p>
                 <div className="connector-profile-tabs connector-source-tabs" role="tablist" aria-label="Where to copy the Multilogin token from">
                   <button
                     type="button"
@@ -341,23 +356,23 @@ export function MultiloginConnectorView({
                 {tokenSource === "app" ? (
                   <div className="connector-token-steps connector-token-steps-plain" role="tabpanel">
                     <div><span>1</span><p><button type="button" onClick={onOpenMultiloginApp}>Open the Multilogin desktop app</button> and sign in.</p></div>
-                    <div><span>2</span><p>Click <strong>Info</strong> in the bottom-left corner of the profile list.</p></div>
-                    <div><span>3</span><p>In the Information dialog, press <strong>Copy</strong> next to <strong>API token</strong>, then paste it below.</p></div>
-                    <MultiloginAppTokenFigure />
+                    <div><span>2</span><p>Select your workspace. Open DevTools: <kbd>Ctrl + Shift + F12</kbd> on Windows/Linux or <kbd>Cmd + Shift + Fn + F12</kbd> on macOS.</p></div>
+                    <div><span>3</span><p>Open <strong>Application</strong> (Windows) or <strong>Storage</strong> (macOS/Linux) → <strong>Local storage</strong> → <code>wails</code>. Copy the <code>token</code> value. If it is missing, check <strong>Session storage</strong>.</p></div>
+                    <p className="muted small">If your version has an Info menu, you can also copy its API token there.</p>
                   </div>
                 ) : (
                   <>
                     <div className="connector-token-steps" role="tabpanel">
-                      <div><span>1</span><p><button type="button" onClick={onOpenMultilogin}>Open Multilogin</button> and sign in.</p></div>
+                      <div><span>1</span><p><button type="button" onClick={onOpenMultilogin}>Open Multilogin</button>, sign in and select your workspace.</p></div>
                       <div><span>2</span><p>Open DevTools with <kbd>⌘ ⌥ I</kbd> on macOS or <kbd>F12</kbd> on Windows/Linux.</p></div>
-                      <div><span>3</span><p><strong>Application</strong> in Chrome, <strong>Storage</strong> in Firefox and Safari → <strong>Local storage</strong> → <code>https://app.multilogin.com</code> → copy the <code>token</code> value.</p></div>
+                      <div><span>3</span><p><strong>Application</strong> in Chrome, <strong>Storage</strong> in Firefox and Safari → <strong>Local storage</strong> → <code>https://app.multilogin.com</code> → copy the <code>token</code> value. If it is missing, check <strong>Session storage</strong>.</p></div>
                       <MultiloginWebTokenFigure />
                     </div>
-                    <button type="button" className="connector-text-link connector-guide-link" onClick={onOpenGuide}>
-                      Multilogin token guide <Icon name="arrow.up.forward.app" size={12} />
-                    </button>
                   </>
                 )}
+                <button type="button" className="connector-text-link connector-guide-link" onClick={onOpenGuide}>
+                  Multilogin token guide <Icon name="arrow.up.forward.app" size={12} />
+                </button>
                 <label className="modal-field connector-token-field">
                   <span>{tokenSource === "app" ? "API token" : "Bearer token"}</span>
                   <input
@@ -387,52 +402,6 @@ export function MultiloginConnectorView({
         </div>
       )}
     </>
-  );
-}
-
-function MultiloginAppTokenFigure() {
-  return (
-    <figure className="connector-token-figure" aria-hidden="true">
-      <svg viewBox="0 0 424 132" role="presentation" focusable="false">
-        <defs>
-          <marker id="ml-token-arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M0 1 L7 4 L0 7 Z" fill="var(--accent)" />
-          </marker>
-        </defs>
-
-        {/* Multilogin window — Info lives in the bottom-left corner */}
-        <rect x="1" y="6" width="192" height="120" rx="9" fill="var(--surface-2)" stroke="var(--line-strong)" />
-        <rect x="11" y="16" width="52" height="11" rx="5" fill="var(--surface-4)" />
-        <rect x="11" y="38" width="170" height="9" rx="4" fill="var(--surface-3)" />
-        <rect x="11" y="54" width="170" height="9" rx="4" fill="var(--surface-3)" />
-        <rect x="11" y="70" width="170" height="9" rx="4" fill="var(--surface-3)" />
-        <line x1="1" y1="92" x2="193" y2="92" stroke="var(--line-strong)" />
-        <rect x="11" y="101" width="58" height="20" rx="10" fill="var(--accent-soft)" stroke="var(--accent)" />
-        <circle cx="24" cy="111" r="4.5" fill="none" stroke="var(--accent-text)" strokeWidth="1.2" />
-        <line x1="24" y1="110" x2="24" y2="113.5" stroke="var(--accent-text)" strokeWidth="1.2" strokeLinecap="round" />
-        <circle cx="24" cy="108.2" r="0.7" fill="var(--accent-text)" />
-        <text x="34" y="114" fontSize="9.5" fill="var(--accent-text)">Info</text>
-        <path d="M120 78 Q 104 112 78 111" fill="none" stroke="var(--accent)" strokeWidth="1.3" markerEnd="url(#ml-token-arrow)" />
-
-        {/* then: the Information dialog */}
-        <path d="M203 60 L211 66 L203 72" fill="none" stroke="var(--muted)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-
-        <rect x="223" y="6" width="200" height="120" rx="9" fill="var(--surface-2)" stroke="var(--line-strong)" />
-        <text x="235" y="27" fontSize="10" fontWeight="600" fill="var(--text)">Information</text>
-        <line x1="404" y1="19" x2="411" y2="26" stroke="var(--muted)" strokeWidth="1.2" strokeLinecap="round" />
-        <line x1="411" y1="19" x2="404" y2="26" stroke="var(--muted)" strokeWidth="1.2" strokeLinecap="round" />
-        <line x1="223" y1="36" x2="423" y2="36" stroke="var(--line-strong)" />
-        <text x="235" y="53" fontSize="9" fill="var(--muted)">App version</text>
-        <text x="411" y="53" fontSize="9" fill="var(--muted)" textAnchor="end">12.10.1</text>
-        <rect x="229" y="61" width="188" height="24" rx="7" fill="var(--accent-soft)" stroke="var(--accent)" />
-        <text x="237" y="77" fontSize="9" fill="var(--text)">API token</text>
-        <rect x="357" y="66" width="52" height="14" rx="4" fill="var(--surface-5)" />
-        <text x="383" y="76" fontSize="8.5" fill="var(--text)" textAnchor="middle">Copy</text>
-        <text x="235" y="103" fontSize="9" fill="var(--muted)">Workspace ID</text>
-        <text x="411" y="103" fontSize="9" fill="var(--muted)" textAnchor="end">Copy</text>
-        <path d="M300 112 Q 356 110 380 88" fill="none" stroke="var(--accent)" strokeWidth="1.3" markerEnd="url(#ml-token-arrow)" />
-      </svg>
-    </figure>
   );
 }
 
@@ -510,7 +479,38 @@ export function MultiloginConnector({
   const [foldersLoading, setFoldersLoading] = useState(false);
   const [profileKind, setProfileKind] = useState<MultiloginProfileKind>("browser");
   const [tokenSource, setTokenSource] = useState<MultiloginTokenSource>("app");
+  const [loginWindowOpen, setLoginWindowOpen] = useState(false);
   const [selection, setSelection] = useState<MultiloginProfileSelection>();
+
+  useEffect(() => () => { void invoke("multilogin_login_cancel").catch(() => {}); }, []);
+
+  const openLogin = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      await invoke("multilogin_login_open");
+      setLoginWindowOpen(true);
+    } catch (loginError) {
+      setLoginWindowOpen(false);
+      setError(errorMessage(loginError));
+    } finally { setBusy(false); }
+  };
+
+  const completeLogin = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const nextStatus = await invoke<MultiloginConnectionStatus>("multilogin_login_complete");
+      setStatus(nextStatus);
+      setBearerToken("");
+      setReconnecting(false);
+      setLoginWindowOpen(false);
+      if (nextStatus.connected && nextStatus.valid) onConnected?.();
+    } catch (loginError) { setError(errorMessage(loginError)); }
+    finally { setBusy(false); }
+  };
 
   // Another flow can send someone here purely to finish the one-time setup.
   useEffect(() => {
@@ -573,6 +573,8 @@ export function MultiloginConnector({
     setError(undefined);
     try {
       const nextStatus = await invoke<MultiloginConnectionStatus>("multilogin_connect", { bearerToken: copiedBearerToken });
+      await invoke("multilogin_login_cancel").catch(() => {});
+      setLoginWindowOpen(false);
       setStatus(nextStatus);
       setReconnecting(false);
       if (nextStatus.connected && nextStatus.valid) onConnected?.();
@@ -621,6 +623,8 @@ export function MultiloginConnector({
 
   const closeDialog = () => {
     if (busy) return;
+    void invoke("multilogin_login_cancel").catch(() => {});
+    setLoginWindowOpen(false);
     onDismiss?.();
     setDialogOpen(false);
     setBearerToken("");
@@ -643,6 +647,9 @@ export function MultiloginConnector({
       foldersLoading={foldersLoading}
       profileKind={profileKind}
       tokenSource={tokenSource}
+      loginWindowOpen={loginWindowOpen}
+      onOpenLogin={() => void openLogin()}
+      onCompleteLogin={() => void completeLogin()}
       selection={selection}
       workspaceName={selectionWorkspace?.name}
       onOpen={() => { setDialogOpen(true); setError(undefined); }}
@@ -653,7 +660,11 @@ export function MultiloginConnector({
       onDisconnectCancel={() => setConfirmDisconnect(false)}
       onDisconnect={() => void disconnect()}
       onReconnect={() => { setReconnecting(true); setBearerToken(""); setError(undefined); }}
-      onReconnectCancel={() => { setReconnecting(false); setBearerToken(""); setError(undefined); }}
+      onReconnectCancel={() => {
+        void invoke("multilogin_login_cancel").catch(() => {});
+        setLoginWindowOpen(false);
+        setReconnecting(false); setBearerToken(""); setError(undefined);
+      }}
       onSelectFolder={(kind, folderId) => void selectFolder(kind, folderId)}
       onOpenMultilogin={() => openExternal(MULTILOGIN_URL)}
       onOpenMultiloginApp={() => void openMultiloginApp()}
