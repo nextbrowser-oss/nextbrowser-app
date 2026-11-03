@@ -653,7 +653,7 @@ function SettingsModal({
   }, []);
 
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
+    <div className="modal-overlay settings-overlay" onMouseDown={onClose}>
       <div ref={dialogRef} className={"modal-card settings-modal" + (section === "proxy" && usageOpen ? " has-usage" : "")} role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1} onMouseDown={(e) => e.stopPropagation()}>
         <div className="settings-modal-header">
           <strong id="settings-title">Settings</strong>

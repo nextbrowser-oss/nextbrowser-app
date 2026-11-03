@@ -8734,6 +8734,17 @@ pre,
   animation: modal-materialize 220ms var(--motion-settle) both;
 }
 
+.modal-overlay.settings-overlay {
+  backdrop-filter: blur(24px) saturate(115%);
+  -webkit-backdrop-filter: blur(24px) saturate(115%);
+}
+
+:root .modal-card.settings-modal {
+  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+  backdrop-filter: blur(48px) saturate(120%);
+  -webkit-backdrop-filter: blur(48px) saturate(120%);
+}
+
 @keyframes material-arrive {
   from { opacity: 0; transform: translateY(-4px) scale(0.985); filter: blur(2px); }
   to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
@@ -8835,6 +8846,8 @@ pre,
   .agent-picker-menu,
   .multilogin-chat-menu,
   .modal-card { background: var(--bg-elevated); }
+
+  :root .modal-card.settings-modal { background: var(--bg-elevated); }
 }
 
 @media (prefers-contrast: more) {
