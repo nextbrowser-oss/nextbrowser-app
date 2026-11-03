@@ -1,3 +1,5 @@
+import { addPendingRuntimeInstall, downloadableBrowsers, runtimeInstalling } from "./lib/settingsUpdates";
+import { RuntimeInstallationProgress } from "./components/RuntimeInstallationProgress";
 import { BrowserRuntimeUpdatePrompt, ClawbrowserCloseProfilesPrompt, type BrowserRuntimeUpdateEntry } from "./components/BrowserRuntimeUpdatePrompt";
 import { InstallationProgress, InstallationSpinner } from "./components/InstallationProgress";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -23,7 +25,7 @@ import { trafficAllowanceBytes, trafficAllowanceFraction, trafficGateState, traf
 import { getPreviewMode, getPreviewNodeMavenState, getPreviewTab } from "./preview";
 import { humanBytes, type AppTab, type Conversation } from "./types";
 import { resolveTheme, type Theme } from "./theme";
-import { confirmedBrowserRuntimeUpdates, pendingBrowserRuntimeUpdate } from "./lib/browserRuntimeUpdate";
+import { confirmedBrowserRuntimeUpdates } from "./lib/browserRuntimeUpdate";
 import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
 import {
   appTabLabel,
@@ -185,7 +187,7 @@ function BackgroundTaskPill({ label, onShow }: { label: string; onShow: () => vo
 function BrowserRuntimeUpdateProgress({ status, onClose, onCancel, onRetry, onOpenManualGuide }: {
   status: BrowserRuntimeUpdateInstallStatus;
   onClose: () => void;
-  onCancel: () => void;
+  onCancel: (runtime?: BrowserRuntimeUpdateEntry["runtime"]) => void;
   onRetry: (runtimes: BrowserRuntimeUpdateEntry["runtime"][]) => void;
   onOpenManualGuide: (url?: string) => void;
 }) {
@@ -210,7 +212,7 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onCancel, onRetry, onOp
         <span className="muted small">{status.message}</span>
         {installing && <>
           {status.percent !== undefined && <span className="small">{status.percent}% downloaded</span>}
-          <button className="mini" disabled={status.cancelRequested} onClick={onCancel}>{status.cancelRequested ? "Stopping…" : status.canCancel ? "Cancel update" : "Stop after this component"}</button>
+          <button className="mini" disabled={status.cancelRequested} onClick={() => onCancel()}>{status.cancelRequested ? "Stopping…" : status.canCancel ? "Cancel update" : "Stop after this component"}</button>
         </>}
         {!!errors.length && (
           <div className="runtime-update-errors">
@@ -248,7 +250,8 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onCancel, onRetry, onOp
       >
         <Icon name="xmark" size={12} />
       </button>
-      {installing && <InstallationProgress label={`Updating ${status.currentName ?? "browser toolsets"}`} percent={status.percent} />}
+      {!!status.items?.length && <div className="runtime-install-items">{status.items.map((item) => <RuntimeInstallationProgress key={item.runtime} item={item} onCancel={onCancel} />)}</div>}
+      {installing && !status.items?.length && <InstallationProgress label={`Updating ${status.currentName ?? "browser toolsets"}`} percent={status.percent} />}
     </div>
   );
   // A transient status (installing, or a clean success) is ambient and stays
@@ -510,6 +513,7 @@ function SettingsModal({
   bulkUpdating,
   bulkOutcome,
   onUpdateAll,
+  onDownloadAllBrowsers,
   onShowProgress,
   onCancelUpdates,
   manualUpdate,
@@ -532,8 +536,9 @@ function SettingsModal({
   bulkUpdating: boolean;
   bulkOutcome?: string;
   onUpdateAll: () => void;
+  onDownloadAllBrowsers: () => void;
   onShowProgress: () => void;
-  onCancelUpdates: () => void;
+  onCancelUpdates: (runtime?: BrowserRuntimeUpdateEntry["runtime"]) => void;
   manualUpdate: boolean;
   onCheckUpdate: () => void;
   onCheckBrowserRuntimeUpdates: () => void;
@@ -694,7 +699,7 @@ function SettingsModal({
                 agentName={agentName} agentVersion={agentVersion || ""}
                 bulkUpdating={bulkUpdating} bulkOutcome={bulkOutcome}
                 onCheck={() => { onCheckUpdate(); onCheckBrowserRuntimeUpdates(); }}
-                onUpdateAll={onUpdateAll} onUpdateCli={() => { void checkNextctlUpdate(0, { manual: true }); }}
+                onUpdateAll={onUpdateAll} onDownloadAll={onDownloadAllBrowsers} onUpdateCli={() => { void checkNextctlUpdate(0, { manual: true }); }}
                 onUpdateRuntime={onRequestBrowserRuntimeUpdate} onShowProgress={onShowProgress} onCancel={onCancelUpdates}
               />
             )}
@@ -954,7 +959,7 @@ export function App() {
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [bulkOutcome, setBulkOutcome] = useState<string>();
   const bulkUpdateRunning = useRef(false);
-  const runtimeUpdateStarting = useRef(false);
+  const runtimeUpdatesPending = useRef(new Set<BrowserRuntimeUpdateEntry["runtime"]>());
   const closeProfilesDecision = useRef<((confirmed: boolean) => void) | undefined>();
 
   const [runtimeUpdateProgressHidden, setRuntimeUpdateProgressHidden] = useState(false);
@@ -1188,24 +1193,26 @@ export function App() {
   };
   const beginBrowserRuntimeInstall = async (runtimes: BrowserRuntimeUpdateEntry["runtime"][]) => {
     setRuntimeUpdateProgressHidden(false);
-    setRuntimeUpdateInstall(pendingBrowserRuntimeUpdate(runtimes, browserRuntimeUpdates.runtimes));
+    setRuntimeUpdateInstall((current) => addPendingRuntimeInstall(current, runtimes, browserRuntimeUpdates.runtimes));
     try {
       const result = await invoke<BrowserRuntimeUpdateInstallStatus>("browser_runtime_install_updates", { runtimes });
-      setRuntimeUpdateInstall(result);
+      setRuntimeUpdateInstall((current) => latestRuntimeOperation(current, result));
       // Read back after the operation as well as subscribing to events: a
       // hidden card or a missed IPC event must never leave stale Update buttons.
       await checkBrowserRuntimeUpdates();
       return result;
     } catch (error) {
       const result: BrowserRuntimeUpdateInstallStatus = { status: "failed", runtimes, message: error instanceof Error ? error.message : "The browser toolset update could not be installed." };
-      setRuntimeUpdateInstall(result);
+      setRuntimeUpdateInstall((current) => current.status === "installing" && current.items?.some((item) => !runtimes.includes(item.runtime) && item.status === "installing") ? current : result);
+      setBulkOutcome(result.message);
       return result;
     }
   };
   const installBrowserRuntimeUpdates = async (requestedRuntimes?: unknown): Promise<BrowserRuntimeUpdateInstallStatus | undefined> => {
-    const runtimes = confirmedBrowserRuntimeUpdates(requestedRuntimes, runtimeUpdatePrompt?.map((runtime) => runtime.runtime) ?? []);
-    if (!runtimes.length || runtimeUpdateStarting.current || runtimeUpdateInstall.status === "installing") return undefined;
-    runtimeUpdateStarting.current = true;
+    const runtimes = confirmedBrowserRuntimeUpdates<BrowserRuntimeUpdateEntry["runtime"]>(requestedRuntimes, runtimeUpdatePrompt?.map((runtime) => runtime.runtime) ?? [])
+      .filter((runtime) => !runtimeUpdatesPending.current.has(runtime) && !runtimeInstalling(runtimeUpdateInstall, runtime));
+    if (!runtimes.length) return undefined;
+    for (const runtime of runtimes) runtimeUpdatesPending.current.add(runtime);
     setRuntimeUpdatePromptDismissed(browserRuntimeUpdateSignature(browserRuntimeUpdates.runtimes));
     setRuntimeUpdatePrompt(undefined);
     try {
@@ -1222,11 +1229,12 @@ export function App() {
       return await beginBrowserRuntimeInstall(runtimes);
     } catch (error) {
       const result: BrowserRuntimeUpdateInstallStatus = { status: "failed", runtimes, message: error instanceof Error ? error.message : "Could not check open browser profiles. Close them and retry." };
-      setRuntimeUpdateInstall(result);
+      setRuntimeUpdateInstall((current) => current.status === "installing" ? current : result);
+      setBulkOutcome(result.message);
       setRuntimeUpdateProgressHidden(false);
       return result;
     } finally {
-      runtimeUpdateStarting.current = false;
+      for (const runtime of runtimes) runtimeUpdatesPending.current.delete(runtime);
     }
   };
   const confirmCloseClawbrowserProfiles = () => {
@@ -1239,13 +1247,17 @@ export function App() {
     closeProfilesDecision.current?.(false);
     closeProfilesDecision.current = undefined;
   };
-  const cancelRuntimeUpdates = () => {
-    void invoke<BrowserRuntimeUpdateInstallStatus>("browser_runtime_cancel_updates").then(setRuntimeUpdateInstall).catch(() => {
+  const cancelRuntimeUpdates = (runtime?: BrowserRuntimeUpdateEntry["runtime"]) => {
+    void invoke<BrowserRuntimeUpdateInstallStatus>("browser_runtime_cancel_updates", { runtime }).then((result) => setRuntimeUpdateInstall((current) => latestRuntimeOperation(current, result))).catch(() => {
       setBulkOutcome("Could not request cancellation. Open Updates to check the current operation and retry.");
     });
   };
+  const downloadAllBrowsers = () => {
+    const runtimes = downloadableBrowsers(browserRuntimeUpdates.runtimes, runtimeUpdateInstall).map((runtime) => runtime.runtime);
+    if (runtimes.length) void installBrowserRuntimeUpdates(runtimes);
+  };
   const updateAll = async () => {
-    if (bulkUpdateRunning.current || runtimeUpdateStarting.current || runtimeUpdateInstall.status === "installing" || appUpdate.status === "downloading" || useStore.getState().nextctlUpdating) return;
+    if (bulkUpdateRunning.current || runtimeUpdatesPending.current.size > 0 || runtimeUpdateInstall.status === "installing" || appUpdate.status === "downloading" || useStore.getState().nextctlUpdating) return;
     bulkUpdateRunning.current = true;
     setBulkUpdating(true);
     setBulkOutcome("Checking and updating nextctl…");
@@ -1391,6 +1403,9 @@ export function App() {
   useEffect(() => {
     let previous: BrowserRuntimeUpdateInstallStatus["status"] | undefined;
     const applyStatus = (status: BrowserRuntimeUpdateInstallStatus) => {
+      for (const item of status.items || []) {
+        if (item.status === "installing") runtimeUpdatesPending.current.delete(item.runtime);
+      }
       setRuntimeUpdateInstall((current) => latestRuntimeOperation(current, status));
       // Progress events arrive throughout an update; only a new update or a
       // result that needs a decision may bring back a card the user hid.
@@ -1426,7 +1441,7 @@ export function App() {
       !available.length
       || runtimeUpdateInstall.status === "installing"
       || bulkUpdating
-      || runtimeUpdateStarting.current
+      || runtimeUpdatesPending.current.size > 0
       || signature === runtimeUpdatePromptDismissed
       || runtimeUpdatePrompt
     ) return;
@@ -1708,6 +1723,7 @@ export function App() {
             bulkUpdating={bulkUpdating}
             bulkOutcome={bulkOutcome}
             onUpdateAll={() => { void updateAll(); }}
+            onDownloadAllBrowsers={downloadAllBrowsers}
             onShowProgress={() => setRuntimeUpdateProgressHidden(false)}
             onCancelUpdates={cancelRuntimeUpdates}
             manualUpdate={MANUAL_UPDATE}
@@ -1848,6 +1864,7 @@ export function App() {
             bulkUpdating={bulkUpdating}
             bulkOutcome={bulkOutcome}
             onUpdateAll={() => { void updateAll(); }}
+            onDownloadAllBrowsers={downloadAllBrowsers}
             onShowProgress={() => setRuntimeUpdateProgressHidden(false)}
             onCancelUpdates={cancelRuntimeUpdates}
           manualUpdate={MANUAL_UPDATE}

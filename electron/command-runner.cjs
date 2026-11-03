@@ -79,8 +79,16 @@ function runCommand(file, args, options = {}) {
       } catch { /* an observer must not affect the command */ }
       resolve({ stdout, stderr: detail, code: active.cancelled || active.timedOut ? -1 : code });
     };
-    child.stdout.on("data", (chunk) => { stdout = append(stdout, chunk); });
-    child.stderr.on("data", (chunk) => { stderr = append(stderr, chunk); });
+    child.stdout.on("data", (chunk) => {
+      if (settled) return;
+      stdout = append(stdout, chunk);
+      try { options.onStdout?.(chunk.toString()); } catch { /* observers do not affect the command */ }
+    });
+    child.stderr.on("data", (chunk) => {
+      if (settled) return;
+      stderr = append(stderr, chunk);
+      try { options.onStderr?.(chunk.toString()); } catch { /* observers do not affect the command */ }
+    });
     child.once("error", (error) => {
       spawnError = true;
       finish(-1, error.message);

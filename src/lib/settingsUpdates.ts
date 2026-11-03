@@ -15,6 +15,7 @@ export interface BrowserRuntimeUpdateStatus {
 }
 
 export interface BrowserRuntimeUpdateInstallStatus {
+  items?: BrowserRuntimeInstallItem[];
   updatedAt?: number;
   status: "idle" | "installing" | "ready" | "partial" | "failed" | "cancelled";
   runtimes?: BrowserRuntimeUpdateEntry["runtime"][];
@@ -43,6 +44,37 @@ export interface BrowserRuntimeUpdateInstallStatus {
   }[];
 }
 
+export type BrowserRuntimeInstallItem = Omit<BrowserRuntimeUpdateInstallStatus, "items"> & {
+  runtime: BrowserRuntimeUpdateEntry["runtime"];
+  name: string;
+};
+
+export function runtimeInstallation(operation: BrowserRuntimeUpdateInstallStatus, runtime: BrowserRuntimeUpdateEntry["runtime"]) {
+  return operation.items?.find((item) => item.runtime === runtime);
+}
+
+export function downloadableBrowsers(runtimes: readonly BrowserRuntimeUpdateEntry[], operation: BrowserRuntimeUpdateInstallStatus) {
+  return runtimes.filter((runtime) => ["clawbrowser", "camoufox"].includes(runtime.runtime)
+    && runtime.status === "not-installed" && !runtimeInstalling(operation, runtime.runtime));
+}
+
+export function runtimeInstalling(operation: BrowserRuntimeUpdateInstallStatus, runtime: BrowserRuntimeUpdateEntry["runtime"]) {
+  const item = runtimeInstallation(operation, runtime);
+  return item ? item.status === "installing" : operation.status === "installing" && !!operation.runtimes?.includes(runtime) && !operation.completed?.includes(runtime);
+}
+
+export function addPendingRuntimeInstall(current: BrowserRuntimeUpdateInstallStatus, requested: BrowserRuntimeUpdateEntry["runtime"][], candidates: BrowserRuntimeUpdateEntry[]): BrowserRuntimeUpdateInstallStatus {
+  const items = current.status === "installing" ? [...(current.items || [])] : [];
+  for (const runtime of requested) {
+    if (items.some((item) => item.runtime === runtime && item.status === "installing")) continue;
+    const candidate = candidates.find((item) => item.runtime === runtime);
+    const pending: BrowserRuntimeInstallItem = { runtime, name: candidate?.name || runtime, status: "installing", phase: "checking", canCancel: true, message: "Checking download availability…" };
+    const index = items.findIndex((item) => item.runtime === runtime);
+    if (index < 0) items.push(pending); else items[index] = pending;
+  }
+  return { ...current, status: "installing", items, runtimes: items.map((item) => item.runtime), completed: items.filter((item) => item.status === "ready").map((item) => item.runtime), errors: [], currentName: undefined, currentRuntime: undefined, percent: undefined, phase: "checking", canCancel: true, cancelRequested: false, message: "Preparing browser installations…" };
+}
+
 export function latestRuntimeOperation(current: BrowserRuntimeUpdateInstallStatus, incoming: BrowserRuntimeUpdateInstallStatus) {
   if (current.status === "installing" && incoming.status === "idle" && !incoming.updatedAt) return current;
   if (current.updatedAt && incoming.updatedAt && incoming.updatedAt < current.updatedAt) return current;
@@ -59,7 +91,10 @@ export function browserRuntimeUpdateLabel(runtime: BrowserRuntimeUpdateEntry): s
 }
 
 export function runtimeUpdateAction(runtime: BrowserRuntimeUpdateEntry, operation: BrowserRuntimeUpdateInstallStatus): string | undefined {
-  if (operation.status === "installing" && operation.runtimes?.includes(runtime.runtime)) {
+  const item = runtimeInstallation(operation, runtime.runtime);
+  if (item?.status === "installing") return "Installing…";
+  if (item?.status === "failed" || item?.status === "partial") return "Retry";
+  if (!operation.items && operation.status === "installing" && operation.runtimes?.includes(runtime.runtime)) {
     if (operation.completed?.includes(runtime.runtime)) return "Updated";
     return operation.currentRuntime === runtime.runtime ? "Updating…" : "Queued";
   }

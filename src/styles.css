@@ -4755,6 +4755,12 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .settings-runtime-explanation { line-height: 1.4; overflow-wrap: anywhere; }
 .settings-update-outcome { padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); line-height: 1.5; }
 .settings-operation > .row { flex-wrap: wrap; }
+.settings-updates-toolbar > .row { flex-wrap: wrap; gap: 8px; }
+.runtime-install-item { display: grid; gap: 6px; padding: 10px 0; min-width: 0; overflow-wrap: anywhere; }
+.runtime-install-item > button { justify-self: start; }
+.runtime-install-items { grid-column: 1 / -1; display: grid; gap: 6px; max-height: 45vh; overflow-y: auto; }
+.settings-runtime-entry + .settings-runtime-entry { border-top: 1px solid var(--line); }
+.settings-runtime-entry .settings-runtime-row { border: 0; }
 .browser-install-progress.is-determinate > span { animation: none; transform: none; transition: width 120ms linear; }
 .modal-card.settings-modal.has-usage { width: min(1100px, calc(100vw - 32px)); height: min(800px, calc(100vh - 48px)); }
 .settings-proxy-usage { min-width: 0; }

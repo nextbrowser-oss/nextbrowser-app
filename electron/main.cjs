@@ -7,6 +7,8 @@ const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Me
 const { autoUpdater } = require("electron-updater");
 const { createAppUpdateDownload } = require("./app-update-download.cjs");
 const { downloadUpdateFile } = require("./update-transfer.cjs");
+const { createRuntimeInstallCoordinator } = require("./runtime-install-coordinator.cjs");
+const { CAMOUFOX_FETCH_PROGRESS_SCRIPT, camoufoxProgressReader, stripCamoufoxProgress } = require("./camoufox-progress.cjs");
 const { execFileSync, spawn } = require("node:child_process");
 const { nextctlPlatformArchive: platformNextctlArchive, runningUnderRosetta } = require("./nextctl-archive.cjs");
 const { feedbackBuildContext } = require("./app-build-info.cjs");
@@ -107,7 +109,6 @@ const {
   compareVersions,
   installedCamoufoxVersion,
   installedClawbrowserVersion,
-  installSelectedRuntimeUpdates,
   installRuntimeUpdateWithVerification,
 } = require("./browser-runtime-updates.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
@@ -181,8 +182,7 @@ let browserRuntimeUpdateStatus = { status: "idle", runtimes: [] };
 let browserRuntimeUpdateCheckPromise = null;
 let browserRuntimeUpdateTimer = null;
 let browserRuntimeUpdateInstallStatus = { status: "idle", runtimes: [] };
-let browserRuntimeUpdateInstallPromise = null;
-let browserRuntimeUpdateController = null;
+let browserRuntimeInstaller;
 let clawbrowserRuntimeUpdateActive = false;
 let clawbrowserRuntimeLaunches = 0;
 let nextctlInstallPromise = null;
@@ -634,6 +634,8 @@ async function run(binary, args, extraEnv = {}, options = {}) {
     maxBuffer: 32 * 1024 * 1024,
     requestId: options.requestId,
     timeoutMs: options.timeoutMs,
+    onStdout: options.onStdout,
+    onStderr: options.onStderr,
     ...(observed ? { onSettled: (settled) => { outcome = settled; } } : {}),
   });
   if (observed) {
@@ -727,7 +729,7 @@ function setBrowserRuntimeUpdateInstallStatus(status, patch = {}) {
     ...browserRuntimeUpdateInstallStatus,
     status,
     ...patch,
-    updatedAt: Date.now(),
+    updatedAt: Math.max(Date.now(), (browserRuntimeUpdateInstallStatus.updatedAt || 0) + 1),
   };
   emit("browser-runtime:update-install", browserRuntimeUpdateInstallStatus);
 }
@@ -1944,18 +1946,26 @@ async function updateClawbrowserRuntime(latestVersion, { signal, onProgress = ()
     clawbrowserRuntimeUpdateActive = false;
   }
 }
-async function updateCamoufoxRuntime(latestVersion) {
+async function fetchCamoufoxBrowser(python, onProgress) {
+  onProgress({ phase: "downloading", percent: undefined, canCancel: false, message: "Downloading Camoufox browser data…" });
+  const result = await run(python, ["-u", "-c", CAMOUFOX_FETCH_PROGRESS_SCRIPT], {}, {
+    timeoutMs: 30 * 60 * 1000, onStderr: camoufoxProgressReader(onProgress),
+  });
+  return { ...result, stderr: stripCamoufoxProgress(result.stderr) };
+}
+async function updateCamoufoxRuntime(latestVersion, onProgress = () => {}) {
   const python = camoufoxVenvPython();
   const version = assertRuntimeReleaseVersion(latestVersion);
-  if (!launchable(python) || !(await camoufoxPythonSupported(python))) return installCamoufoxRuntime(version);
+  if (!launchable(python) || !(await camoufoxPythonSupported(python))) return installCamoufoxRuntime(version, onProgress);
+  onProgress({ phase: "installing", percent: undefined, canCancel: false, message: "Updating the Camoufox Python package…" });
   const install = await run(python, [
     "-m", "pip", "install", "--disable-pip-version-check", "--upgrade", `camoufox[geoip]==${version}`,
   ], {}, { timeoutMs: 30 * 60 * 1000 });
   if (install.code !== 0) throw new Error((install.stderr || install.stdout || "Camoufox package update failed.").trim());
-  const browser = await run(python, ["-m", "camoufox", "fetch"], {}, { timeoutMs: 30 * 60 * 1000 });
+  const browser = await fetchCamoufoxBrowser(python, onProgress);
   if (browser.code !== 0) throw new Error((browser.stderr || browser.stdout || "Camoufox browser download failed.").trim());
 }
-async function installCamoufoxRuntime(latestVersion) {
+async function installCamoufoxRuntime(latestVersion, onProgress = () => {}) {
   if (camoufoxInstallPromise) return camoufoxInstallPromise;
   const version = assertRuntimeReleaseVersion(latestVersion);
   const python = camoufoxVenvPython();
@@ -1972,11 +1982,12 @@ async function installCamoufoxRuntime(latestVersion) {
       remove: (dir) => fs.rm(dir, { recursive: true, force: true }),
       uvVenv: (args) => runCamoufoxUV(venv, args),
     });
+    onProgress({ phase: "installing", percent: undefined, canCancel: false, message: "Installing the Camoufox Python package…" });
     const packageInstall = await run(python, [
       "-m", "pip", "install", "--disable-pip-version-check", `camoufox[geoip]==${version}`,
     ], {}, { timeoutMs: 30 * 60 * 1000 });
     if (packageInstall.code !== 0) throw new Error((packageInstall.stderr || packageInstall.stdout || "Camoufox package installation failed.").trim());
-    const browser = await run(python, ["-m", "camoufox", "fetch"], {}, { timeoutMs: 30 * 60 * 1000 });
+    const browser = await fetchCamoufoxBrowser(python, onProgress);
     if (browser.code !== 0) throw new Error((browser.stderr || browser.stdout || "Camoufox browser download failed.").trim());
   })().finally(() => {
     camoufoxInstallPromise = null;
@@ -2035,66 +2046,34 @@ async function installedBrowserRuntimeVersion(runtime) {
   if (runtime === "dasbrowser") return installedDasbrowserVersion();
   return "";
 }
+function runtimeInstaller() {
+  if (!browserRuntimeInstaller) browserRuntimeInstaller = createRuntimeInstallCoordinator({
+    checkForUpdates: checkForBrowserRuntimeUpdates,
+    installRuntime: async (update, onProgress, signal) => {
+      try {
+        signal.throwIfAborted();
+        if (update.runtime === "clawbrowser") await updateClawbrowserRuntime(update.latestVersion, { signal, onProgress, downloadUrl: update.downloadUrl });
+        else if (update.runtime === "camoufox") {
+          // Python mutates the environment. It finishes safely if cancellation
+          // is requested, independently of the other browser's download.
+          onProgress({ phase: "preparing", percent: undefined, canCancel: false, message: "Preparing the Camoufox Python environment…" });
+          await updateCamoufoxRuntime(update.latestVersion, onProgress);
+        } else if (update.runtime === "dasbrowser") await ensureDasbrowserRuntime({ force: true, reportStatus: false, signal, onProgress });
+        onProgress({ phase: "verifying", percent: undefined, canCancel: false, message: `Verifying installed ${update.name} version…` });
+        const expected = assertRuntimeReleaseVersion(update.latestVersion);
+        const installed = await installedBrowserRuntimeVersion(update.runtime);
+        if (!installed || compareVersions(installed, expected) < 0) throw new Error(`${update.name} was downloaded, but its installed version is still ${installed || "unknown"}.`);
+      } catch (error) {
+        if (!signal.aborted) reportMainFailure("BROWSER_RUNTIME_UPDATE_FAILED", error, { runtime: update.runtime });
+        throw error;
+      }
+    },
+    onStatus: ({ status, ...patch }) => setBrowserRuntimeUpdateInstallStatus(status, patch),
+  });
+  return browserRuntimeInstaller;
+}
 async function installBrowserRuntimeUpdates(requestedRuntimes = []) {
-  if (browserRuntimeUpdateInstallPromise) return browserRuntimeUpdateInstallPromise;
-  const requested = [...new Set((Array.isArray(requestedRuntimes) ? requestedRuntimes : []).filter((runtime) => (
-    runtime === "clawbrowser" || runtime === "camoufox" || runtime === "dasbrowser"
-  )))];
-  const controller = new AbortController();
-  browserRuntimeUpdateController = controller;
-  const retryRuntimes = (browserRuntimeUpdateInstallStatus.errors || []).map((error) => error.runtime);
-  // `installSelectedRuntimeUpdates` begins with a fresh network check. Publish
-  // a status before that check so an IPC subscriber never leaves the user with
-  // a closed confirmation dialog and no visible acknowledgement.
-  setBrowserRuntimeUpdateInstallStatus("installing", {
-    runtimes: requested,
-    completed: [],
-    errors: [],
-    currentRuntime: requested[0],
-    currentName: "browser toolsets",
-    total: requested.length,
-    progress: 0,
-    phase: "checking",
-    percent: undefined,
-    canCancel: true,
-    cancelRequested: false,
-    message: "Checking the selected browser toolset updates…",
-  });
-  browserRuntimeUpdateInstallPromise = (async () => {
-    return installSelectedRuntimeUpdates({
-      requestedRuntimes: requested,
-      retryRuntimes,
-      signal: controller.signal,
-      checkForUpdates: checkForBrowserRuntimeUpdates,
-      installRuntime: async (update, onProgress) => {
-        try {
-          controller.signal.throwIfAborted();
-          if (update.runtime === "clawbrowser") await updateClawbrowserRuntime(update.latestVersion, { signal: controller.signal, onProgress, downloadUrl: update.downloadUrl });
-          else if (update.runtime === "camoufox") {
-            // pip mutates the existing environment. Let this component finish
-            // rather than leaving its installed package/browser inconsistent.
-            onProgress({ phase: "installing", percent: undefined, canCancel: false, message: "Installing Camoufox and its browser. You can stop after this component finishes." });
-            await updateCamoufoxRuntime(update.latestVersion);
-          }
-          else if (update.runtime === "dasbrowser") await ensureDasbrowserRuntime({ force: true, reportStatus: false, signal: controller.signal, onProgress });
-          onProgress({ phase: "verifying", percent: undefined, canCancel: false, message: `Verifying installed ${update.name} version…` });
-          const expected = assertRuntimeReleaseVersion(update.latestVersion);
-          const installed = await installedBrowserRuntimeVersion(update.runtime);
-          if (!installed || compareVersions(installed, expected) < 0) {
-            throw new Error(`${update.name} ${expected} was downloaded, but the installed version is still ${installed || "unknown"}.`);
-          }
-        } catch (error) {
-          if (!controller.signal.aborted) reportMainFailure("BROWSER_RUNTIME_UPDATE_FAILED", error, { runtime: update.runtime });
-          throw error;
-        }
-      },
-      onStatus: ({ status, ...patch }) => setBrowserRuntimeUpdateInstallStatus(status, patch),
-    });
-  })().finally(() => {
-    browserRuntimeUpdateInstallPromise = null;
-    if (browserRuntimeUpdateController === controller) browserRuntimeUpdateController = null;
-  });
-  return browserRuntimeUpdateInstallPromise;
+  return runtimeInstaller().install(requestedRuntimes);
 }
 function startBrowserRuntimeUpdateChecks() {
   setTimeout(() => { void checkForBrowserRuntimeUpdates(); }, 5_000);
@@ -2147,20 +2126,14 @@ async function invokeCommand(command, args = {}, sender) {
     case "browser_runtime_update_install_status": return browserRuntimeUpdateInstallStatus;
     case "browser_runtime_clawbrowser_active_sessions": return activeClawbrowserProfileNames(await resolveOrInstallNextctl());
     case "browser_runtime_install_updates": return installBrowserRuntimeUpdates(args.runtimes || []);
-    case "browser_runtime_cancel_updates": {
-      if (browserRuntimeUpdateController && browserRuntimeUpdateInstallStatus.status === "installing") {
-        browserRuntimeUpdateController.abort();
-        setBrowserRuntimeUpdateInstallStatus("installing", { cancelRequested: true, message: browserRuntimeUpdateInstallStatus.canCancel ? "Cancelling the download…" : "Finishing the current installation, then stopping remaining updates." });
-      }
-      return browserRuntimeUpdateInstallStatus;
-    }
+    case "browser_runtime_cancel_updates": return runtimeInstaller().cancel(args.runtime);
     case "app_check_for_update": {
       await checkForAppUpdate();
       return appUpdateStatus;
     }
     case "app_download_update": return downloadAppUpdate();
     case "app_install_update": {
-      if (appUpdateStatus.status !== "downloaded" || browserRuntimeUpdateInstallPromise) return false;
+      if (appUpdateStatus.status !== "downloaded" || browserRuntimeInstaller?.isActive()) return false;
       try {
         // The installer takes over on quit; error reports wait for next launch.
         quittingForUpdate = true;
