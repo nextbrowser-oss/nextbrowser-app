@@ -47,13 +47,13 @@ export function SettingsUpdates({ appVersion, appUpdate, appLabel, appActions, r
     <p className="muted small">Download all installs missing Clawbrowser and Camoufox browsers together. Update all updates installed components. Restart when you're ready.</p>
     {bulkOutcome && <p className="settings-update-outcome small" role="status">{bulkOutcome}</p>}
     {running && <div className="settings-group settings-operation" role="status">
-      <strong>{operation.currentName ? `Updating ${operation.currentName}` : "Checking updates"}</strong>
+      <strong>{operation.items?.length ? "Browser installations" : operation.currentName ? `Updating ${operation.currentName}` : "Checking updates"}</strong>
       <p className="muted small">{operation.message}</p>
       {!operation.items?.length && <><InstallationProgress label={`Updating ${operation.currentName || "browser toolsets"}`} percent={operation.percent} />
       <span className="muted small">{operation.percent !== undefined ? `${operation.percent}% downloaded` : operation.phase === "installing" ? "Installing — duration depends on this component" : "Working…"}{operation.receivedBytes ? ` · ${humanBytes(operation.receivedBytes)}` : ""}</span></>}
       <div className="row"><button className="mini" onClick={onShowProgress}>Show progress</button><button className="mini" disabled={operation.cancelRequested} onClick={() => onCancel()}>{operation.cancelRequested ? "Stopping…" : operation.items?.length ? "Stop all installations" : operation.canCancel ? "Cancel update" : "Stop after this component"}</button></div>
     </div>}
-    {!running && operation.status !== "idle" && <div className="settings-group settings-operation" role="status"><strong>{operation.status === "ready" ? "Browser updates complete" : operation.status === "cancelled" ? "Updates stopped" : "Some updates need attention"}</strong><p className="small">{operation.message}</p>{!!operation.errors?.length && <button className="mini" onClick={onShowProgress}>Review and retry</button>}</div>}
+    {!running && operation.status !== "idle" && <div className="settings-group settings-operation" role="status"><strong>{operation.status === "ready" ? "Browser toolsets ready" : operation.status === "cancelled" ? "Updates stopped" : "Some updates need attention"}</strong><p className="small">{operation.message}</p>{!!operation.errors?.length && <button className="mini" onClick={onShowProgress}>Review and retry</button>}</div>}
     <div className="settings-group settings-runtime-list">
       <div className="settings-runtime-row">
         <div className="settings-runtime-copy"><strong>Nextbrowser</strong><span className="muted small">Installed {appVersion}</span><span className="small">{appLabel}</span></div>

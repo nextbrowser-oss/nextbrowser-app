@@ -212,7 +212,7 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onCancel, onRetry, onOp
         <span className="muted small">{status.message}</span>
         {installing && <>
           {status.percent !== undefined && <span className="small">{status.percent}% downloaded</span>}
-          <button className="mini" disabled={status.cancelRequested} onClick={() => onCancel()}>{status.cancelRequested ? "Stopping…" : status.canCancel ? "Cancel update" : "Stop after this component"}</button>
+          <button className="mini" disabled={status.cancelRequested} onClick={() => onCancel()}>{status.cancelRequested ? "Stopping…" : status.items?.length ? "Stop all installations" : status.canCancel ? "Cancel update" : "Stop after this component"}</button>
         </>}
         {!!errors.length && (
           <div className="runtime-update-errors">

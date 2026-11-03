@@ -1,9 +1,51 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createRuntimeInstallCoordinator } = require("./runtime-install-coordinator.cjs");
+const { downloadUpdateFile } = require("./update-transfer.cjs");
+const fs = require("node:fs/promises");
+const path = require("node:path");
+const os = require("node:os");
+const http = require("node:http");
 
 const entries = ["clawbrowser", "camoufox", "dasbrowser"].map((runtime) => ({ runtime, name: runtime, status: "not-installed", latestVersion: "1.0.0" }));
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+test("the coordinator overlaps actual HTTP transfers and publishes each file's measured bytes", { timeout: 5000 }, async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-parallel-transfers-"));
+  const responses = [];
+  const server = http.createServer((_request, response) => {
+    responses.push(response);
+    if (responses.length === 2) for (const stream of responses) {
+      stream.writeHead(200, { "Content-Length": "8" });
+      stream.write("data");
+      setTimeout(() => stream.end("file"), 30);
+    }
+  });
+  t.after(async () => {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    await fs.rm(root, { recursive: true, force: true });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const observations = [];
+  const coordinator = createRuntimeInstallCoordinator({
+    checkForUpdates: async () => ({ status: "ready", runtimes: entries }),
+    installRuntime: (update, report, signal) => downloadUpdateFile({
+      fetchImpl: fetch, url: `http://127.0.0.1:${server.address().port}/${update.runtime}`,
+      target: path.join(root, update.runtime), signal,
+      onProgress: (progress) => report({ ...progress, phase: "downloading", canCancel: true }),
+    }),
+    onStatus: (status) => observations.push(status),
+  });
+  t.after(() => coordinator.cancel());
+  const result = await coordinator.install(["clawbrowser", "camoufox"]);
+  assert.equal(result.status, "ready");
+  assert.equal(responses.length, 2, "the server releases data only after both downloads are open");
+  for (const runtime of ["clawbrowser", "camoufox"]) {
+    assert.equal(await fs.readFile(path.join(root, runtime), "utf8"), "datafile");
+    assert.ok(observations.some((status) => status.items.some((item) => item.runtime === runtime && item.receivedBytes === 8 && item.totalBytes === 8 && item.percent === 100)));
+  }
+});
 function fixture() {
   const started = [];
   const controls = new Map();
