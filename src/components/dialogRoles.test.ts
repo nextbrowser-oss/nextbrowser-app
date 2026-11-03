@@ -8,7 +8,7 @@ const sources = {
 
 /** The opening tag of the element with this class, with its attributes. */
 function openingTag(source: string, className: string): string {
-  const start = source.indexOf(`className="modal-card ${className}"`);
+  const start = source.indexOf(`modal-card ${className}`);
   if (start < 0) throw new Error(`Missing ${className}`);
   const tagStart = source.lastIndexOf("<", start);
   return source.slice(tagStart, source.indexOf(">", start) + 1);

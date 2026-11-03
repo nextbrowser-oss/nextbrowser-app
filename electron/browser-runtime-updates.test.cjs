@@ -282,20 +282,17 @@ test("does not offer a Linux update when the latest Clawbrowser release has only
   fs.mkdirSync(path.join(root, "data"), { recursive: true });
   fs.writeFileSync(path.join(root, "data", ".clawbrowser-browser-release.json"), JSON.stringify({ version: "1.0.3" }));
   const fetchImpl = async (url) => {
+    if (url.includes("?per_page=")) return { ok: true, json: async () => [] };
     if (url.includes("api.github.com")) return { ok: true, json: async () => ({ tag_name: "1.0.4", assets: [{ name: "clawbrowser-macos-arm64.tar.gz" }, { name: "clawbrowser-win-amd64.zip" }] }) };
     if (url.includes("pypi.org")) return { ok: true, json: async () => ({ info: { version: "0.5.5" } }) };
     return { ok: true, text: async () => '<a href="https://cdn.dasbrowser.com/144.32/DasbrowserSetup.exe">Download</a>' };
   };
   const result = await checkBrowserRuntimeUpdates({ fetchImpl, runtimeRoot: root, platform: "linux", arch: "x64", readDasbrowserVersion: async () => "144.32" });
-  assert.deepEqual(result.runtimes[0], {
-    runtime: "clawbrowser",
-    name: "Clawbrowser",
-    releasePage: "https://github.com/clawbrowser/clawbrowser/releases/latest",
-    status: "unavailable",
-    currentVersion: "1.0.3",
-    latestVersion: "1.0.4",
-    error: "Clawbrowser 1.0.4 does not include a download for linux/x64 yet.",
-  });
+  assert.equal(result.runtimes[0].status, "unknown");
+  assert.equal(result.runtimes[0].currentVersion, "1.0.3");
+  assert.equal(result.runtimes[0].latestVersion, undefined);
+  assert.equal(result.runtimes[0].installed, true);
+  assert.match(result.runtimes[0].availabilityMessage, /Installed 1.0.3/);
 });
 
 test("falls back to the official latest-release redirect when GitHub API is rate limited", async (t) => {

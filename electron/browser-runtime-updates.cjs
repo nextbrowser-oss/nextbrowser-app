@@ -36,10 +36,11 @@ function assertRuntimeReleaseVersion(value) {
   return version;
 }
 
-function selectAvailableRuntimeUpdates(status, requestedRuntimes) {
+function selectAvailableRuntimeUpdates(status, requestedRuntimes, retryRuntimes = []) {
   const requested = new Set(Array.isArray(requestedRuntimes) ? requestedRuntimes.map(String) : []);
+  const retry = new Set(retryRuntimes);
   return (status?.runtimes || []).filter((runtime) => (
-    (runtime.status === "available" || runtime.status === "not-installed")
+    (runtime.status === "available" || runtime.status === "not-installed" || (runtime.status === "up-to-date" && retry.has(runtime.runtime)))
     && requested.has(runtime.runtime)
   ));
 }
@@ -147,20 +148,26 @@ function updateInstallMessage(completed, errors) {
 // Keep the multi-toolset update policy independent from Electron. This makes
 // the important guarantee explicit: a failed runtime never prevents later,
 // confirmed runtimes from being attempted.
-async function installSelectedRuntimeUpdates({ requestedRuntimes, checkForUpdates, installRuntime, onStatus = () => {} }) {
+async function installSelectedRuntimeUpdates({ requestedRuntimes, retryRuntimes = [], checkForUpdates, installRuntime, signal, onStatus = () => {} }) {
+  const cancelled = (completed = [], runtimes = requestedRuntimes, errors = []) => {
+    const result = { status: "cancelled", runtimes, completed, errors, canCancel: false, percent: undefined, currentRuntime: undefined, currentName: undefined, currentVersion: undefined, message: completed.length ? "Stopped. Completed updates were kept; remaining updates were cancelled." : "Update cancelled. You can try again from Settings." };
+    onStatus(result);
+    return result;
+  };
   const fresh = await checkForUpdates();
-  const updates = selectAvailableRuntimeUpdates(fresh, requestedRuntimes);
+  if (signal?.aborted) return cancelled();
+  const updates = selectAvailableRuntimeUpdates(fresh, requestedRuntimes, retryRuntimes);
   if (!updates.length) {
     const requested = new Set(Array.isArray(requestedRuntimes) ? requestedRuntimes.map(String) : []);
     const failedChecks = (fresh?.runtimes || []).filter((runtime) => (
-      requested.has(runtime.runtime) && runtime.status === "error"
+      requested.has(runtime.runtime) && ["error", "unavailable", "unknown"].includes(runtime.status)
     ));
     // A fresh check that failed is a real error, not a benign no-op. Surface it
     // so the renderer can offer retry instead of an "already up to date" notice.
     if (fresh?.status === "error" || failedChecks.length) {
       const result = {
         status: "failed",
-        runtimes: failedChecks.map((runtime) => runtime.runtime),
+        runtimes: failedChecks.length ? failedChecks.map((runtime) => runtime.runtime) : [...requested],
         completed: [],
         errors: failedChecks.map((runtime) => ({
           runtime: runtime.runtime,
@@ -189,7 +196,11 @@ async function installSelectedRuntimeUpdates({ requestedRuntimes, checkForUpdate
 
   const runtimes = updates.map((runtime) => runtime.runtime);
   const completed = [];
-  const errors = [];
+  const requested = new Set(requestedRuntimes);
+  const errors = (fresh?.runtimes || []).filter((runtime) => requested.has(runtime.runtime) && ["error", "unavailable", "unknown"].includes(runtime.status)).map((runtime) => ({
+    runtime: runtime.runtime, name: runtime.name, releasePage: runtime.releasePage,
+    ...classifyRuntimeUpdateFailure(new Error(runtime.error || runtime.availabilityMessage || `Could not check ${runtime.name} for updates.`)),
+  }));
   onStatus({
     status: "installing",
     runtimes,
@@ -200,12 +211,16 @@ async function installSelectedRuntimeUpdates({ requestedRuntimes, checkForUpdate
     currentVersion: updates[0].latestVersion,
     total: updates.length,
     progress: 0,
+    phase: "preparing",
+    percent: undefined,
+    canCancel: true,
     message: "Downloading the confirmed updates in the background.",
   });
 
   for (let index = 0; index < updates.length; index += 1) {
+    if (signal?.aborted) break;
     const update = updates[index];
-    onStatus({
+    const currentStatus = {
       status: "installing",
       runtimes,
       completed: [...completed],
@@ -215,12 +230,17 @@ async function installSelectedRuntimeUpdates({ requestedRuntimes, checkForUpdate
       currentVersion: update.latestVersion,
       total: updates.length,
       progress: Math.round((index / updates.length) * 100),
+      phase: "preparing",
+      percent: undefined,
+      canCancel: true,
       message: `Installing ${update.name} ${update.latestVersion || "update"} in the background.`,
-    });
+    };
+    onStatus(currentStatus);
     try {
-      await installRuntime(update);
+      await installRuntime(update, (patch) => onStatus({ ...currentStatus, ...patch }));
       completed.push(update.runtime);
     } catch (error) {
+      if (signal?.aborted && (error?.name === "AbortError" || error?.code === "ABORT_ERR")) break;
       errors.push({
         runtime: update.runtime,
         name: update.name,
@@ -233,6 +253,7 @@ async function installSelectedRuntimeUpdates({ requestedRuntimes, checkForUpdate
   // A transient refresh failure must not turn completed updates into a failed
   // operation. The next hourly check will refresh the available versions.
   await checkForUpdates().catch(() => undefined);
+  if (signal?.aborted && completed.length + errors.length < updates.length) return cancelled(completed, runtimes, errors);
   const result = {
     status: errors.length ? (completed.length ? "partial" : "failed") : "ready",
     runtimes,
@@ -243,6 +264,9 @@ async function installSelectedRuntimeUpdates({ requestedRuntimes, checkForUpdate
     currentVersion: undefined,
     total: updates.length,
     progress: 100,
+    percent: undefined,
+    canCancel: false,
+    phase: undefined,
     message: updateInstallMessage(completed, errors),
   };
   onStatus(result);
@@ -449,14 +473,32 @@ function clawbrowserPlatformAsset(platform, arch, version) {
 }
 
 function missingClawbrowserAssetMessage(version, platform, arch) {
-  return `Clawbrowser ${version} does not include a download for ${platform}/${arch} yet.`;
+  return `Clawbrowser ${version} has no published download for ${platform}/${arch}. This app has no confirmed support date to show.`;
+}
+
+function compatibleClawbrowserRelease(release, platform, arch, latestVersion) {
+  if (!release || release.draft || release.prerelease || !release.tag_name) return undefined;
+  const version = assertRuntimeReleaseVersion(release.tag_name);
+  const asset = clawbrowserReleaseAsset(platform, arch, version);
+  if (!release.assets?.some((item) => item.name === asset.assetName)) return undefined;
+  return {
+    version,
+    availability: "available",
+    downloadUrl: `https://github.com/clawbrowser/clawbrowser/releases/download/${encodeURIComponent(release.tag_name)}/${asset.assetName}`,
+    releasePage: `https://github.com/clawbrowser/clawbrowser/releases/tag/${encodeURIComponent(release.tag_name)}`,
+    availabilityMessage: compareVersions(version, latestVersion) < 0
+      ? `${version} is the latest published build for ${platform}/${arch}. Release ${latestVersion} does not include this platform.`
+      : undefined,
+  };
 }
 
 async function latestClawbrowserRelease(fetchImpl, platform, arch) {
   let release;
   let version = "";
+  let tagName = "";
   try {
     release = await fetchJSON(fetchImpl, "https://api.github.com/repos/clawbrowser/clawbrowser/releases/latest");
+    tagName = release?.tag_name || "";
     version = normalizeVersion(release?.tag_name);
     if (!version) throw new Error("Latest Clawbrowser release did not include a version");
   } catch {
@@ -469,32 +511,62 @@ async function latestClawbrowserRelease(fetchImpl, platform, arch) {
     const finalTag = String(response.url || "").match(/\/releases\/tag\/([^/?#]+)/i)?.[1];
     const html = finalTag ? "" : await response.text();
     const htmlTag = html.match(/\/clawbrowser\/clawbrowser\/releases\/tag\/([^"'/?#]+)/i)?.[1];
-    version = normalizeVersion(decodeURIComponent(finalTag || htmlTag || ""));
+    tagName = decodeURIComponent(finalTag || htmlTag || "");
+    version = normalizeVersion(tagName);
     if (!version) throw new Error("Latest Clawbrowser release did not include a version");
   }
 
   const assetName = clawbrowserPlatformAsset(platform, arch, version);
   if (!assetName) {
-    return { version, availability: "unavailable", message: `Automatic Clawbrowser updates are not available for ${platform}/${arch}.` };
+    return { version, availability: "unavailable", message: `Automatic Clawbrowser installation does not support ${platform}/${arch}. Supported: macOS Apple Silicon, Windows x64, Linux x64 and ARM64. This app has no confirmed support date to show.` };
   }
   if (Array.isArray(release?.assets)) {
-    return release.assets.some((asset) => asset?.name === assetName)
-      ? { version, availability: "available" }
-      : { version, availability: "unavailable", message: missingClawbrowserAssetMessage(version, platform, arch) };
+    const current = compatibleClawbrowserRelease(release, platform, arch, version);
+    if (current) return current;
+    // Releases are not necessarily published for every supported OS. Search
+    // stable releases instead of treating the global latest as an OS policy.
+    for (let page = 1; page <= 3; page += 1) {
+      const history = await fetchJSON(fetchImpl, `https://api.github.com/repos/clawbrowser/clawbrowser/releases?per_page=100&page=${page}`);
+      if (!Array.isArray(history)) throw new Error("Could not check compatible Clawbrowser releases. Please retry.");
+      const candidates = history.filter((item) => !item.draft && !item.prerelease)
+        .sort((a, b) => compareVersions(b.tag_name, a.tag_name));
+      for (const candidate of candidates) {
+        const compatible = compatibleClawbrowserRelease(candidate, platform, arch, version);
+        if (compatible) return compatible;
+      }
+      if (history.length < 100) break;
+    }
+    return { version, availability: "unavailable", message: `No compatible Clawbrowser build was found in published releases for ${platform}/${arch}. ${missingClawbrowserAssetMessage(version, platform, arch)}` };
   }
 
   // GitHub's release redirect does not expose assets. Confirm the exact archive
   // before offering an update so a rate-limited API cannot create a false Update
   // button for a platform omitted from this release.
   const archiveRelease = clawbrowserReleaseAsset(platform, arch, version);
-  const response = await fetchImpl(archiveRelease.url, {
+  const downloadUrl = `https://github.com/clawbrowser/clawbrowser/releases/download/${encodeURIComponent(tagName)}/${archiveRelease.assetName}`;
+  const response = await fetchImpl(downloadUrl, {
     method: "HEAD",
     headers: { Accept: "application/octet-stream", "User-Agent": "Nextbrowser-runtime-update-checker" },
     redirect: "follow",
     signal: AbortSignal.timeout(8_000),
   });
-  if (response.ok) return { version, availability: "available" };
-  if (response.status === 404) return { version, availability: "unavailable", message: missingClawbrowserAssetMessage(version, platform, arch) };
+  if (response.ok) return { version, availability: "available", downloadUrl };
+  if (response.status === 404) {
+    // The API may be rate limited. The official release index and archive HEAD
+    // requests still let us find a platform build without claiming it is absent.
+    const html = await fetchText(fetchImpl, "https://github.com/clawbrowser/clawbrowser/releases");
+    const tags = [...new Set([...html.matchAll(/\/clawbrowser\/clawbrowser\/releases\/tag\/([^"'/?#<>]+)/g)].map((match) => decodeURIComponent(match[1])))].slice(0, 20);
+    for (const tag of tags) {
+      if (!/^v?\d+(?:\.\d+){1,3}$/.test(tag)) continue;
+      const candidate = clawbrowserReleaseAsset(platform, arch, tag);
+      const downloadUrl = `https://github.com/clawbrowser/clawbrowser/releases/download/${encodeURIComponent(tag)}/${candidate.assetName}`;
+      const result = await fetchImpl(downloadUrl, { method: "HEAD", signal: AbortSignal.timeout(8_000) });
+      if (result.ok) return { version: normalizeVersion(tag), availability: "available", downloadUrl, availabilityMessage: `${normalizeVersion(tag)} is the latest compatible build found for ${platform}/${arch}; release ${version} has no build for this platform.` };
+      if (result.status !== 404) throw new Error(`Could not check compatible Clawbrowser download (${result.status}).`);
+    }
+    if (!tags.length) throw new Error("Could not read the Clawbrowser release history. Please retry.");
+    return { version, availability: "unavailable", message: missingClawbrowserAssetMessage(version, platform, arch) };
+  }
   throw new Error(`Update source could not verify the ${assetName} download (${response.status}).`);
 }
 
@@ -543,13 +615,18 @@ async function checkBrowserRuntimeUpdates({ fetchImpl = fetch, runtimeRoot, claw
     try {
       const latest = await latestReaders[source.runtime]();
       if (source.runtime === "clawbrowser" && latest.availability === "unavailable") {
+        const isInstalled = isRuntimeInstalled[source.runtime] ?? !!installed[source.runtime];
         return {
-          ...runtimeResult(source, installed[source.runtime], latest.version, "", isRuntimeInstalled[source.runtime] ?? !!installed[source.runtime]),
-          status: "unavailable",
-          error: latest.message,
+          ...runtimeResult(source, installed[source.runtime], "", "", isInstalled),
+          status: isInstalled ? "unknown" : "unavailable",
+          availabilityMessage: isInstalled ? `Installed${installed[source.runtime] ? ` ${installed[source.runtime]}` : ""}. ${latest.message}` : latest.message,
+          installed: isInstalled,
         };
       }
-      return runtimeResult(source, installed[source.runtime], source.runtime === "clawbrowser" ? latest.version : latest, "", isRuntimeInstalled[source.runtime] ?? !!installed[source.runtime]);
+      return {
+        ...runtimeResult(source, installed[source.runtime], source.runtime === "clawbrowser" ? latest.version : latest, "", isRuntimeInstalled[source.runtime] ?? !!installed[source.runtime]),
+        ...(source.runtime === "clawbrowser" ? { availabilityMessage: latest.availabilityMessage, downloadUrl: latest.downloadUrl, releasePage: latest.releasePage || source.releasePage } : {}),
+      };
     } catch (error) {
       return runtimeResult(source, installed[source.runtime], "", error?.message || String(error), isRuntimeInstalled[source.runtime] ?? !!installed[source.runtime]);
     }
@@ -569,6 +646,7 @@ module.exports = {
   clawbrowserReleaseAsset,
   classifyRuntimeUpdateFailure,
   compareVersions,
+  compatibleClawbrowserRelease,
   installedCamoufoxVersion,
   installedClawbrowserVersion,
   installSelectedRuntimeUpdates,

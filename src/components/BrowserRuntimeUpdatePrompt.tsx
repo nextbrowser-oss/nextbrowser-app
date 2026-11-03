@@ -9,6 +9,8 @@ export interface BrowserRuntimeUpdateEntry {
   latestVersion?: string;
   releasePage: string;
   error?: string;
+  availabilityMessage?: string;
+  installed?: boolean;
 }
 
 export function BrowserRuntimeUpdatePrompt({ runtimes, onLater, onConfirm }: {

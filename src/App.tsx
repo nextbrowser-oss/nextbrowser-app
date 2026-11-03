@@ -46,6 +46,8 @@ import { WorkspaceSetupGate } from "./components/WorkspaceSetupGate";
 import { AgentInstallLink } from "./components/AgentInstallLink";
 import { DeviceDataSettings } from "./components/DeviceDataSettings";
 import { SettingsPanel, SettingsRail } from "./components/SettingsSections";
+import { SettingsUpdates } from "./components/SettingsUpdates";
+import { availableRuntimeUpdates, latestRuntimeOperation, type AppUpdateStatus, type BrowserRuntimeUpdateStatus, type BrowserRuntimeUpdateInstallStatus } from "./lib/settingsUpdates";
 import { settingsAttention, settingsSectionForUpdates, type SettingsSection } from "./lib/settingsSections";
 import { ConnectorsView } from "./components/ConnectorsView";
 import { AutomationStudio } from "./components/AutomationStudio";
@@ -63,48 +65,12 @@ const TABS: { id: AppTab; label: string; icon?: string }[] = [
 
 const PREVIEW_TABS = new Set<string>(["chat", "automation", "skills", "connectors", "live", "usage", "guide", "scheduled"]);
 
-interface AppUpdateStatus {
-  status?: string;
-  version?: string;
-  percent?: number;
-  message?: string;
-}
-
 interface BrowserRuntimeInstallStatus {
   runtime?: "clawbrowser" | "dasbrowser" | "camoufox";
   status?: "idle" | "downloading" | "installing" | "ready" | "failed";
   requestId?: string;
 }
 
-
-interface BrowserRuntimeUpdateStatus {
-  status: "idle" | "checking" | "ready" | "partial" | "error";
-  checkedAt?: number;
-  message?: string;
-  runtimes: BrowserRuntimeUpdateEntry[];
-}
-
-interface BrowserRuntimeUpdateInstallStatus {
-  status: "idle" | "installing" | "ready" | "partial" | "failed";
-  runtimes?: BrowserRuntimeUpdateEntry["runtime"][];
-  completed?: BrowserRuntimeUpdateEntry["runtime"][];
-  currentRuntime?: BrowserRuntimeUpdateEntry["runtime"];
-  currentName?: string;
-  currentVersion?: string;
-  total?: number;
-  progress?: number;
-  message?: string;
-  errors?: {
-    runtime: BrowserRuntimeUpdateEntry["runtime"];
-    name: string;
-    releasePage?: string;
-    code?: string;
-    category?: string;
-    retryable?: boolean;
-    message: string;
-    recovery?: string;
-  }[];
-}
 
 const APP_UPDATE_ERROR = "We couldn't update the Nextbrowser app. Please retry.";
 const ERROR_REPORTING_HINT = "Sends crash and error details to Nextbrowser so problems can be fixed. Never includes page contents, typed text, cookies, or credentials.";
@@ -216,9 +182,10 @@ function BackgroundTaskPill({ label, onShow }: { label: string; onShow: () => vo
   );
 }
 
-function BrowserRuntimeUpdateProgress({ status, onClose, onRetry, onOpenManualGuide }: {
+function BrowserRuntimeUpdateProgress({ status, onClose, onCancel, onRetry, onOpenManualGuide }: {
   status: BrowserRuntimeUpdateInstallStatus;
   onClose: () => void;
+  onCancel: () => void;
   onRetry: (runtimes: BrowserRuntimeUpdateEntry["runtime"][]) => void;
   onOpenManualGuide: (url?: string) => void;
 }) {
@@ -239,8 +206,12 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onRetry, onOpenManualGu
         </div>
       )}
       <div className="runtime-update-progress-copy">
-        <strong>{installing ? `Updating ${status.currentName ?? "browser toolsets"}` : failed ? "Update failed" : partial ? "Update partly complete" : "Browser toolsets updated"}</strong>
+        <strong>{installing ? `Updating ${status.currentName ?? "browser toolsets"}` : status.status === "cancelled" ? "Updates stopped" : failed ? "Update failed" : partial ? "Update partly complete" : "Browser toolsets updated"}</strong>
         <span className="muted small">{status.message}</span>
+        {installing && <>
+          {status.percent !== undefined && <span className="small">{status.percent}% downloaded</span>}
+          <button className="mini" disabled={status.cancelRequested} onClick={onCancel}>{status.cancelRequested ? "Stopping…" : status.canCancel ? "Cancel update" : "Stop after this component"}</button>
+        </>}
         {!!errors.length && (
           <div className="runtime-update-errors">
             {errors.map((error) => (
@@ -277,7 +248,7 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onRetry, onOpenManualGu
       >
         <Icon name="xmark" size={12} />
       </button>
-      {installing && <InstallationProgress label={`Updating ${status.currentName ?? "browser toolsets"}`} />}
+      {installing && <InstallationProgress label={`Updating ${status.currentName ?? "browser toolsets"}`} percent={status.percent} />}
     </div>
   );
   // A transient status (installing, or a clean success) is ambient and stays
@@ -312,19 +283,6 @@ function browserRuntimeUpdateSignature(runtimes: BrowserRuntimeUpdateEntry[]): s
     .map((runtime) => `${runtime.runtime}:${runtime.latestVersion ?? "unknown"}`)
     .sort()
     .join("|");
-}
-
-function browserRuntimeUpdateLabel(runtime: BrowserRuntimeUpdateEntry): string {
-  if (runtime.status === "available") return `${runtime.currentVersion ?? "Installed"} → ${runtime.latestVersion ?? "new version"}`;
-  if (runtime.status === "up-to-date") return `${runtime.currentVersion ?? runtime.latestVersion ?? "Installed"} · Up to date`;
-  if (runtime.status === "not-installed") return runtime.latestVersion ? `Not installed · Latest ${runtime.latestVersion}` : "Not installed";
-  if (runtime.status === "unavailable") return runtime.latestVersion ? `Latest ${runtime.latestVersion} · Not available for this system yet` : "Not available for this system yet";
-  if (runtime.status === "error") return "Couldn't check";
-  return runtime.currentVersion
-    ? `${runtime.currentVersion} · Latest unknown`
-    : runtime.latestVersion
-      ? `Version unknown · Latest ${runtime.latestVersion}`
-      : "Version unknown";
 }
 
 function updateLabel(status?: AppUpdateStatus | null): string {
@@ -545,11 +503,15 @@ const DIALOG_FOCUSABLE = "a[href], button:not([disabled]), input:not([disabled])
 
 function SettingsModal({
   onClose,
-  onOpenUsage,
   section: requestedSection,
   appUpdate,
   browserRuntimeUpdates,
-  runtimeInstalling,
+  runtimeOperation,
+  bulkUpdating,
+  bulkOutcome,
+  onUpdateAll,
+  onShowProgress,
+  onCancelUpdates,
   manualUpdate,
   onCheckUpdate,
   onCheckBrowserRuntimeUpdates,
@@ -563,11 +525,15 @@ function SettingsModal({
   onRestoreFloatingScale,
 }: {
   onClose: () => void;
-  onOpenUsage: () => void;
   section?: SettingsSection | null;
   appUpdate: AppUpdateStatus;
   browserRuntimeUpdates: BrowserRuntimeUpdateStatus;
-  runtimeInstalling: boolean;
+  runtimeOperation: BrowserRuntimeUpdateInstallStatus;
+  bulkUpdating: boolean;
+  bulkOutcome?: string;
+  onUpdateAll: () => void;
+  onShowProgress: () => void;
+  onCancelUpdates: () => void;
   manualUpdate: boolean;
   onCheckUpdate: () => void;
   onCheckBrowserRuntimeUpdates: () => void;
@@ -596,6 +562,10 @@ function SettingsModal({
       .catch(() => setErrorReporting((current) => current && { ...current, enabled: !enabled }));
   };
   const nextctlVersion = useStore((s) => s.nextctlVersion);
+  const nextctlUpdating = useStore((s) => s.nextctlUpdating);
+  const nextctlUpdateError = useStore((s) => s.nextctlUpdateError);
+  const nextctlUpdateStatus = useStore((s) => s.nextctlUpdateStatus);
+  const checkNextctlUpdate = useStore((s) => s.checkNextctlUpdate);
   const agentId = useStore((s) => s.agentId);
   const agentReady = useStore((s) => s.agentReady());
   const agentVersion = useStore((s) => s.agentVersion());
@@ -635,6 +605,8 @@ function SettingsModal({
   };
 
   const [section, setSection] = useState<SettingsSection>(requestedSection ?? "general");
+  const [usageOpen, setUsageOpen] = useState(false);
+  const [usageVisited, setUsageVisited] = useState(false);
   useEffect(() => {
     if (requestedSection) setSection(requestedSection);
   }, [requestedSection]);
@@ -682,7 +654,7 @@ function SettingsModal({
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
-      <div ref={dialogRef} className="modal-card settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1} onMouseDown={(e) => e.stopPropagation()}>
+      <div ref={dialogRef} className={"modal-card settings-modal" + (section === "proxy" && usageOpen ? " has-usage" : "")} role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1} onMouseDown={(e) => e.stopPropagation()}>
         <div className="settings-modal-header">
           <strong id="settings-title">Settings</strong>
           <button className="plain-icon-btn" onClick={onClose} title="Close" aria-label="Close settings">
@@ -695,67 +667,36 @@ function SettingsModal({
           <SettingsPanel section={section}>
             {section === "general" && (
               <div className="settings-group">
-                <div className="settings-row">
-                  <span className="muted small">Nextbrowser</span>
-                  <div className="settings-version-cell">
-                    <button
-                      className="plain-icon-btn plain-icon-btn-compact"
-                      onClick={onCheckUpdate}
-                      disabled={appUpdate.status === "checking" || appUpdate.status === "downloading"}
-                      title="Check for updates"
-                      aria-label="Check for updates"
-                    >
-                      {appUpdate.status === "checking" ? <Spinner size={12} /> : <Icon name="arrow.clockwise" size={12} />}
-                    </button>
-                    <strong>{__APP_VERSION__}</strong>
-                  </div>
-                </div>
-                <div className="settings-row settings-update-row">
-                  <span className="muted small">App update</span>
-                  <div className="settings-update-cell">
-                    <strong className={updateAvailable(appUpdate) ? "warn" : ""}>
-                      {appUpdate.status === "error"
-                        ? <UserFacingError message={updateLabel(appUpdate)} surface="app_update" />
-                        : updateLabel(appUpdate)}
-                    </strong>
-                    {manualUpdate ? (
-                      updateAvailable(appUpdate) ? (
-                        <ManualReleaseDownload onOpen={onOpenRelease} version={appUpdate.version} />
-                      ) : null
-                    ) : (
-                      <>
-                        {appUpdate.status === "available" && (
-                          <button className="mini" onClick={onDownloadUpdate}>
-                            Download
-                          </button>
-                        )}
-                        {appUpdate.status === "downloaded" && (
-                          <button className="mini primary-mini" onClick={onInstallUpdate}>
-                            Restart and update
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-                {appUpdate.status === "downloading" && <InstallationProgress label={`Downloading Nextbrowser ${appUpdate.percent ?? 0}%`} />}
+                <div className="settings-row"><span className="muted small">Nextbrowser</span><strong>{__APP_VERSION__}</strong></div>
+                <button className="settings-feature-link" onClick={() => setSection("updates")}>
+                  <Icon name="arrow.down.circle" size={17} /><span className="settings-feature-copy"><strong>Versions and updates</strong><span className="muted small">All components and Update all</span></span><Icon name="chevron.right" size={14} />
+                </button>
                 <div className="settings-row">
                   <span className="muted small">Interface size</span>
                   <div className="ui-scale-control ui-scale-control-settings">
                     <UIScaleSlider value={uiScale} onChange={onUiScaleChange} />
-                    {uiScaleFloatingHidden && (
-                      <button
-                        className="plain-icon-btn plain-icon-btn-compact"
-                        onClick={onRestoreFloatingScale}
-                        title="Return the quick-access control to the main screen"
-                        aria-label="Return the interface-size quick-access control to the main screen"
-                      >
-                        <Icon name="arrow.uturn.left" size={12} />
-                      </button>
-                    )}
+                    {uiScaleFloatingHidden && <button className="plain-icon-btn plain-icon-btn-compact" onClick={onRestoreFloatingScale} title="Return the quick-access control to the main screen" aria-label="Return the interface-size quick-access control to the main screen"><Icon name="arrow.uturn.left" size={12} /></button>}
                   </div>
                 </div>
               </div>
+            )}
+
+            {section === "updates" && (
+              <SettingsUpdates
+                appVersion={__APP_VERSION__} appUpdate={appUpdate}
+                appLabel={appUpdate.status === "error" ? <UserFacingError message={updateLabel(appUpdate)} surface="app_update" /> : updateLabel(appUpdate)}
+                appActions={manualUpdate ? (updateAvailable(appUpdate) ? <ManualReleaseDownload onOpen={onOpenRelease} version={appUpdate.version} /> : null) : <>
+                  {appUpdate.status === "available" && <button className="mini primary-mini" disabled={bulkUpdating || runtimeOperation.status === "installing" || nextctlUpdating} onClick={onDownloadUpdate}>Download</button>}
+                  {appUpdate.status === "downloaded" && <button className="mini primary-mini" disabled={bulkUpdating || runtimeOperation.status === "installing" || nextctlUpdating} onClick={onInstallUpdate}>Restart and update</button>}
+                </>}
+                runtimes={browserRuntimeUpdates} operation={runtimeOperation}
+                nextctlVersion={nextctlVersion} cliUpdating={nextctlUpdating} cliError={nextctlUpdateError} cliStatus={nextctlUpdateStatus}
+                agentName={agentName} agentVersion={agentVersion || ""}
+                bulkUpdating={bulkUpdating} bulkOutcome={bulkOutcome}
+                onCheck={() => { onCheckUpdate(); onCheckBrowserRuntimeUpdates(); }}
+                onUpdateAll={onUpdateAll} onUpdateCli={() => { void checkNextctlUpdate(0, { manual: true }); }}
+                onUpdateRuntime={onRequestBrowserRuntimeUpdate} onShowProgress={onShowProgress} onCancel={onCancelUpdates}
+              />
             )}
 
             {section === "privacy" && (
@@ -846,58 +787,11 @@ function SettingsModal({
                     <strong>{profiles}</strong>
                   </div>
                 </div>
-                <div className="settings-group settings-runtime-section">
-                  <div className="settings-runtime-heading">
-                    <div>
-                      <strong>Browser toolsets</strong>
-                      <div className="muted small">Installed runtimes and latest official releases</div>
-                    </div>
-                    <button
-                      className="plain-icon-btn plain-icon-btn-compact"
-                      onClick={onCheckBrowserRuntimeUpdates}
-                      disabled={browserRuntimeUpdates.status === "checking"}
-                      title="Check browser toolset updates"
-                      aria-label="Check browser toolset updates"
-                    >
-                      {browserRuntimeUpdates.status === "checking" ? <Spinner size={12} /> : <Icon name="arrow.clockwise" size={12} />}
-                    </button>
-                  </div>
-                  <div className="settings-runtime-list">
-                    {browserRuntimeUpdates.runtimes.length === 0 && (
-                      <div className="settings-runtime-empty muted small">
-                        {browserRuntimeUpdates.status === "checking" ? "Checking installed toolsets…" : "Update information has not been checked yet."}
-                      </div>
-                    )}
-                    {browserRuntimeUpdates.runtimes.map((runtime) => (
-                      <div className="settings-runtime-row" key={runtime.runtime}>
-                        <span className={"settings-runtime-dot " + (runtime.status === "available" ? "is-update" : runtime.status === "error" ? "is-error" : runtime.status === "up-to-date" ? "is-ready" : "")} />
-                        <div className="settings-runtime-copy">
-                          <strong>{runtime.name}</strong>
-                          <span className={runtime.status === "available" ? "warn small" : "muted small"} title={runtime.error}>
-                            {browserRuntimeUpdateLabel(runtime)}
-                          </span>
-                        </div>
-                        {(runtime.status === "available" || runtime.status === "not-installed") && (
-                          <button className="mini primary-mini" disabled={runtimeInstalling} onClick={() => onRequestBrowserRuntimeUpdate(runtime)}>
-                            {runtime.status === "not-installed" ? "Install" : "Update"}
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  {browserRuntimeUpdates.status === "partial" && (
-                    <div className="muted small settings-runtime-note">Some update sources could not be reached. Installed runtimes are unaffected.</div>
-                  )}
-                  {browserRuntimeUpdates.status === "error" && browserRuntimeUpdates.message && (
-                    <div className="error small settings-runtime-note">
-                      <UserFacingError message={browserRuntimeUpdates.message} surface="browser_runtime_update" />
-                    </div>
-                  )}
-                </div>
+                <button className="settings-feature-link" onClick={() => setSection("updates")}><Icon name="arrow.down.circle" size={17} /><span className="settings-feature-copy"><strong>Browser toolsets and updates</strong><span className="muted small">Manage installed versions in Updates</span></span><Icon name="chevron.right" size={14} /></button>
               </>
             )}
 
-            {section === "proxy" && (
+            {section === "proxy" && !usageOpen && (
               <>
                 <div className="settings-group">
                   <div className="settings-row">
@@ -914,8 +808,8 @@ function SettingsModal({
                 <button
                   className="settings-feature-link"
                   onClick={() => {
-                    onOpenUsage();
-                    onClose();
+                    setUsageVisited(true);
+                    setUsageOpen(true);
                   }}
                 >
                   <span className="settings-feature-icon">
@@ -936,6 +830,10 @@ function SettingsModal({
                 </button>
               </>
             )}
+            {usageVisited && <div className="settings-proxy-usage" hidden={section !== "proxy" || !usageOpen}>
+              <button className="secondary small" onClick={() => setUsageOpen(false)}><Icon name="chevron.left" size={12} /> Proxy settings</button>
+              <UsageView />
+            </div>}
           </SettingsPanel>
         </div>
       </div>
@@ -1053,6 +951,12 @@ export function App() {
     profileNames: string[];
   }>();
   const [runtimeUpdateInstall, setRuntimeUpdateInstall] = useState<BrowserRuntimeUpdateInstallStatus>({ status: "idle" });
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [bulkOutcome, setBulkOutcome] = useState<string>();
+  const bulkUpdateRunning = useRef(false);
+  const runtimeUpdateStarting = useRef(false);
+  const closeProfilesDecision = useRef<((confirmed: boolean) => void) | undefined>();
+
   const [runtimeUpdateProgressHidden, setRuntimeUpdateProgressHidden] = useState(false);
   const [unexpectedError, setUnexpectedError] = useState<{ reference: string; detail: string }>();
   const [browserRuntimeInstall, setBrowserRuntimeInstall] = useState<BrowserRuntimeInstallStatus>();
@@ -1234,10 +1138,15 @@ export function App() {
       setAppUpdate({ status: "error", message: APP_UPDATE_ERROR });
     });
   };
-  const checkBrowserRuntimeUpdates = () => {
-    void invoke<BrowserRuntimeUpdateStatus>("browser_runtime_check_for_updates").then(setBrowserRuntimeUpdates).catch(() => {
+  const checkBrowserRuntimeUpdates = async () => {
+    try {
+      const status = await invoke<BrowserRuntimeUpdateStatus>("browser_runtime_check_for_updates");
+      setBrowserRuntimeUpdates(status);
+      return status;
+    } catch {
       setBrowserRuntimeUpdates((current) => ({ ...current, status: "error", message: "We couldn't check browser toolset updates." }));
-    });
+      return undefined;
+    }
   };
   const downloadAppUpdate = () => {
     void invoke<AppUpdateStatus>("app_download_update").then(setAppUpdate).catch(() => {
@@ -1277,59 +1186,109 @@ export function App() {
     }
     setRuntimeUpdatePrompt(undefined);
   };
-  const beginBrowserRuntimeInstall = (runtimes: BrowserRuntimeUpdateEntry["runtime"][], currentName?: string) => {
-    setRuntimeUpdateInstall({
-      status: "installing",
-      runtimes,
-      currentName,
-      message: "Checking the selected toolsets before downloading…",
-    });
+  const beginBrowserRuntimeInstall = async (runtimes: BrowserRuntimeUpdateEntry["runtime"][]) => {
     setRuntimeUpdateProgressHidden(false);
-    // Do not wait for an Electron event before showing feedback. The host first
-    // refreshes release availability, which can take several seconds.
     setRuntimeUpdateInstall(pendingBrowserRuntimeUpdate(runtimes, browserRuntimeUpdates.runtimes));
-    void invoke<BrowserRuntimeUpdateInstallStatus>("browser_runtime_install_updates", { runtimes })
-      .then(setRuntimeUpdateInstall)
-      .catch((error) => setRuntimeUpdateInstall({
-        status: "failed",
-        runtimes,
-        message: error instanceof Error ? error.message : "The browser toolset update could not be installed.",
-      }));
+    try {
+      const result = await invoke<BrowserRuntimeUpdateInstallStatus>("browser_runtime_install_updates", { runtimes });
+      setRuntimeUpdateInstall(result);
+      // Read back after the operation as well as subscribing to events: a
+      // hidden card or a missed IPC event must never leave stale Update buttons.
+      await checkBrowserRuntimeUpdates();
+      return result;
+    } catch (error) {
+      const result: BrowserRuntimeUpdateInstallStatus = { status: "failed", runtimes, message: error instanceof Error ? error.message : "The browser toolset update could not be installed." };
+      setRuntimeUpdateInstall(result);
+      return result;
+    }
   };
-  const installBrowserRuntimeUpdates = (requestedRuntimes?: unknown) => {
+  const installBrowserRuntimeUpdates = async (requestedRuntimes?: unknown): Promise<BrowserRuntimeUpdateInstallStatus | undefined> => {
     const runtimes = confirmedBrowserRuntimeUpdates(requestedRuntimes, runtimeUpdatePrompt?.map((runtime) => runtime.runtime) ?? []);
-    if (!Array.isArray(runtimes) || !runtimes.length || runtimeUpdateInstall.status === "installing") return;
-    const currentName = runtimeUpdatePrompt?.[0]?.name ?? browserRuntimeUpdates.runtimes.find((runtime) => runtime.runtime === runtimes[0])?.name;
+    if (!runtimes.length || runtimeUpdateStarting.current || runtimeUpdateInstall.status === "installing") return undefined;
+    runtimeUpdateStarting.current = true;
     setRuntimeUpdatePromptDismissed(browserRuntimeUpdateSignature(browserRuntimeUpdates.runtimes));
     setRuntimeUpdatePrompt(undefined);
-    if (runtimes.includes("clawbrowser")) {
-      // A general "update now" click isn't the same as agreeing to have open
-      // profiles closed out from under the user; ask specifically, and only
-      // when there's actually something open to close.
-      void invoke<string[]>("browser_runtime_clawbrowser_active_sessions")
-        .then((profileNames) => {
-          if (Array.isArray(profileNames) && profileNames.length) {
-            setClawbrowserCloseConfirm({ runtimes, currentName, profileNames });
-          } else {
-            beginBrowserRuntimeInstall(runtimes, currentName);
-          }
-        })
-        // Fail open on this informational check: the install path's own
-        // assertClawbrowserRuntimeIdle still safely closes and verifies
-        // profiles either way, so a failed lookup here shouldn't block the
-        // update outright.
-        .catch(() => beginBrowserRuntimeInstall(runtimes, currentName));
-      return;
+    try {
+      if (runtimes.includes("clawbrowser")) {
+        const profileNames = await invoke<string[]>("browser_runtime_clawbrowser_active_sessions");
+        if (Array.isArray(profileNames) && profileNames.length) {
+          const confirmed = await new Promise<boolean>((resolve) => {
+            closeProfilesDecision.current = resolve;
+            setClawbrowserCloseConfirm({ runtimes, profileNames });
+          });
+          if (!confirmed) return { status: "cancelled", message: "Update cancelled; open profiles were left running." };
+        }
+      }
+      return await beginBrowserRuntimeInstall(runtimes);
+    } catch (error) {
+      const result: BrowserRuntimeUpdateInstallStatus = { status: "failed", runtimes, message: error instanceof Error ? error.message : "Could not check open browser profiles. Close them and retry." };
+      setRuntimeUpdateInstall(result);
+      setRuntimeUpdateProgressHidden(false);
+      return result;
+    } finally {
+      runtimeUpdateStarting.current = false;
     }
-    beginBrowserRuntimeInstall(runtimes, currentName);
   };
   const confirmCloseClawbrowserProfiles = () => {
-    if (!clawbrowserCloseConfirm) return;
-    const { runtimes, currentName } = clawbrowserCloseConfirm;
     setClawbrowserCloseConfirm(undefined);
-    beginBrowserRuntimeInstall(runtimes, currentName);
+    closeProfilesDecision.current?.(true);
+    closeProfilesDecision.current = undefined;
   };
-  const cancelCloseClawbrowserProfiles = () => setClawbrowserCloseConfirm(undefined);
+  const cancelCloseClawbrowserProfiles = () => {
+    setClawbrowserCloseConfirm(undefined);
+    closeProfilesDecision.current?.(false);
+    closeProfilesDecision.current = undefined;
+  };
+  const cancelRuntimeUpdates = () => {
+    void invoke<BrowserRuntimeUpdateInstallStatus>("browser_runtime_cancel_updates").then(setRuntimeUpdateInstall).catch(() => {
+      setBulkOutcome("Could not request cancellation. Open Updates to check the current operation and retry.");
+    });
+  };
+  const updateAll = async () => {
+    if (bulkUpdateRunning.current || runtimeUpdateStarting.current || runtimeUpdateInstall.status === "installing" || appUpdate.status === "downloading" || useStore.getState().nextctlUpdating) return;
+    bulkUpdateRunning.current = true;
+    setBulkUpdating(true);
+    setBulkOutcome("Checking and updating nextctl…");
+    const problems: string[] = [];
+    try {
+      const cliUpdated = await useStore.getState().checkNextctlUpdate(0, { manual: true });
+      if (!cliUpdated) problems.push("nextctl: check its status above");
+      setBulkOutcome("Checking browser toolsets and the Nextbrowser app…");
+      const [browserStatus, appStatus] = await Promise.all([
+        checkBrowserRuntimeUpdates(),
+        invoke<AppUpdateStatus>("app_check_for_update"),
+      ]);
+      setAppUpdate(appStatus);
+      if (!browserStatus || browserStatus.status === "error" || browserStatus.status === "partial") problems.push("some browser update checks failed");
+      const runtimes = availableRuntimeUpdates(browserStatus?.runtimes ?? []);
+      if (runtimes.length) {
+        setBulkOutcome("Updating browser toolsets…");
+        const result = await installBrowserRuntimeUpdates(runtimes);
+        if (!result || result.status === "cancelled") {
+          setBulkOutcome("Stopped. Completed updates were kept; the app download was not started.");
+          return;
+        }
+        if (result.status !== "ready") problems.push("some browser updates need attention");
+      }
+      let appNotice = "";
+      if (appStatus.status === "available" && !MANUAL_UPDATE) {
+        setBulkOutcome("Downloading the Nextbrowser app update…");
+        const result = await invoke<AppUpdateStatus>("app_download_update");
+        setAppUpdate(result);
+        if (result.status === "error") problems.push("the app download failed");
+        else if (result.status === "downloaded") appNotice = " App update downloaded; choose Restart and update when ready.";
+      } else if (appStatus.status === "downloaded") appNotice = " Choose Restart and update when ready.";
+      else if (appStatus.status === "available" && MANUAL_UPDATE) appNotice = " Use the app download button above to update Nextbrowser on this Mac.";
+      else if (appStatus.status === "error") problems.push("the app update check failed");
+      else if (appStatus.status === "disabled") appNotice = " App self-updates are unavailable in this build.";
+      setBulkOutcome((problems.length ? `Finished with items to review: ${problems.join("; ")}.` : "Installed components checked and available updates completed.") + appNotice);
+    } catch (error) {
+      setBulkOutcome(`Update all could not finish: ${error instanceof Error ? error.message : "please retry"}`);
+    } finally {
+      bulkUpdateRunning.current = false;
+      setBulkUpdating(false);
+    }
+  };
   const openSettings = (section: SettingsSection | null = null) => {
     if (browserRuntimeUpdates.status === "idle") checkBrowserRuntimeUpdates();
     setSettingsSection(section);
@@ -1432,7 +1391,7 @@ export function App() {
   useEffect(() => {
     let previous: BrowserRuntimeUpdateInstallStatus["status"] | undefined;
     const applyStatus = (status: BrowserRuntimeUpdateInstallStatus) => {
-      setRuntimeUpdateInstall(status);
+      setRuntimeUpdateInstall((current) => latestRuntimeOperation(current, status));
       // Progress events arrive throughout an update; only a new update or a
       // result that needs a decision may bring back a card the user hid.
       if ((status.status === "installing" && previous !== "installing") || status.status === "failed" || status.status === "partial") {
@@ -1466,11 +1425,13 @@ export function App() {
     if (
       !available.length
       || runtimeUpdateInstall.status === "installing"
+      || bulkUpdating
+      || runtimeUpdateStarting.current
       || signature === runtimeUpdatePromptDismissed
       || runtimeUpdatePrompt
     ) return;
     setRuntimeUpdatePrompt(available);
-  }, [browserRuntimeUpdates, runtimeUpdateInstall.status, runtimeUpdatePrompt, runtimeUpdatePromptDismissed]);
+  }, [browserRuntimeUpdates, runtimeUpdateInstall.status, runtimeUpdatePrompt, runtimeUpdatePromptDismissed, bulkUpdating]);
 
   useEffect(() => {
     const heartbeat = window.setInterval(() => {
@@ -1740,11 +1701,15 @@ export function App() {
         {settingsOpen && (
           <SettingsModal
             onClose={closeSettings}
-            onOpenUsage={() => setTab("usage")}
             section={settingsSection}
             appUpdate={appUpdate}
             browserRuntimeUpdates={browserRuntimeUpdates}
-            runtimeInstalling={runtimeUpdateInstall.status === "installing"}
+            runtimeOperation={runtimeUpdateInstall}
+            bulkUpdating={bulkUpdating}
+            bulkOutcome={bulkOutcome}
+            onUpdateAll={() => { void updateAll(); }}
+            onShowProgress={() => setRuntimeUpdateProgressHidden(false)}
+            onCancelUpdates={cancelRuntimeUpdates}
             manualUpdate={MANUAL_UPDATE}
             onCheckUpdate={checkAppUpdate}
             onCheckBrowserRuntimeUpdates={checkBrowserRuntimeUpdates}
@@ -1790,7 +1755,7 @@ export function App() {
           />
         )}
         {runtimeUpdateInstall.status !== "idle" && !runtimeUpdateProgressHidden && (
-          <BrowserRuntimeUpdateProgress status={runtimeUpdateInstall} onClose={() => setRuntimeUpdateProgressHidden(true)} onRetry={installBrowserRuntimeUpdates} onOpenManualGuide={openBrowserRuntimeManualGuide} />
+          <BrowserRuntimeUpdateProgress status={runtimeUpdateInstall} onCancel={cancelRuntimeUpdates} onClose={() => setRuntimeUpdateProgressHidden(true)} onRetry={installBrowserRuntimeUpdates} onOpenManualGuide={openBrowserRuntimeManualGuide} />
         )}
         {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
         {feedbackModal}
@@ -1876,11 +1841,15 @@ export function App() {
       {settingsOpen && (
         <SettingsModal
           onClose={closeSettings}
-          onOpenUsage={() => setTab("usage")}
           section={settingsSection}
           appUpdate={appUpdate}
           browserRuntimeUpdates={browserRuntimeUpdates}
-            runtimeInstalling={runtimeUpdateInstall.status === "installing"}
+            runtimeOperation={runtimeUpdateInstall}
+            bulkUpdating={bulkUpdating}
+            bulkOutcome={bulkOutcome}
+            onUpdateAll={() => { void updateAll(); }}
+            onShowProgress={() => setRuntimeUpdateProgressHidden(false)}
+            onCancelUpdates={cancelRuntimeUpdates}
           manualUpdate={MANUAL_UPDATE}
           onCheckUpdate={checkAppUpdate}
           onCheckBrowserRuntimeUpdates={checkBrowserRuntimeUpdates}
@@ -1933,7 +1902,7 @@ export function App() {
         setBrowserRuntimeInstall(undefined);
       }} />}
       {runtimeUpdateInstall.status !== "idle" && !runtimeUpdateProgressHidden && (
-        <BrowserRuntimeUpdateProgress status={runtimeUpdateInstall} onClose={() => setRuntimeUpdateProgressHidden(true)} onRetry={installBrowserRuntimeUpdates} onOpenManualGuide={openBrowserRuntimeManualGuide} />
+        <BrowserRuntimeUpdateProgress status={runtimeUpdateInstall} onCancel={cancelRuntimeUpdates} onClose={() => setRuntimeUpdateProgressHidden(true)} onRetry={installBrowserRuntimeUpdates} onOpenManualGuide={openBrowserRuntimeManualGuide} />
       )}
       {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
       {feedbackModal}
