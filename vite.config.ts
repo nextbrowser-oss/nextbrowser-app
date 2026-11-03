@@ -25,6 +25,9 @@ export default defineConfig({
   },
   build: {
     target: "es2020",
+    // Match Electron 43's Chromium engine rather than legacy web browsers.
+    // Modern Chromium no longer accepts -webkit-backdrop-filter.
+    cssTarget: "chrome150",
     outDir: "dist",
   },
 });

@@ -39,6 +39,8 @@ jobs:
         run: npm run test:critical
       - run: npm test
       - run: npm run build
+      - name: Verify production Settings blur in Electron
+        run: node node_modules/electron/cli.js scripts/test-settings-blur.cjs
       - name: Package application without installer
         run: npm run pack
       - name: Launch packaged app (macOS)

@@ -185,7 +185,6 @@ button, input, textarea, select { color: var(--text); }
 .thin-material {
   background: var(--panel);
   backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
 }
 
 .claw-card {
@@ -8227,7 +8226,6 @@ pre,
   background: color-mix(in srgb, var(--bg-elevated) 96%, transparent);
   box-shadow: 0 20px 55px var(--shadow-strong);
   backdrop-filter: blur(24px) saturate(135%);
-  -webkit-backdrop-filter: blur(24px) saturate(135%);
 }
 
 .workspace-section-head {
@@ -8306,7 +8304,6 @@ pre,
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--panel) 90%, transparent);
   backdrop-filter: blur(26px) saturate(140%);
-  -webkit-backdrop-filter: blur(26px) saturate(140%);
 }
 
 .tabbar-group {
@@ -8341,7 +8338,6 @@ pre,
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--panel) 72%, transparent);
   backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
 }
 
 .chat-title {
@@ -8398,7 +8394,6 @@ pre,
   border-top-color: var(--line);
   background: color-mix(in srgb, var(--panel) 92%, transparent);
   backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
 }
 
 .composer textarea {
@@ -8422,7 +8417,6 @@ pre,
 
 .modal-overlay {
   backdrop-filter: blur(16px) saturate(115%);
-  -webkit-backdrop-filter: blur(16px) saturate(115%);
 }
 
 .modal-card {
@@ -8691,7 +8685,6 @@ pre,
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 28px 80px rgba(76, 59, 160, 0.09), inset 0 1px 0 #ffffff;
   backdrop-filter: blur(32px) saturate(110%);
-  -webkit-backdrop-filter: blur(32px) saturate(110%);
 }
 
 /* Apple-inspired interaction system: immediate feedback, spatial continuity,
@@ -8710,7 +8703,6 @@ pre,
 .sidebar {
   background: var(--material-structural);
   backdrop-filter: blur(24px) saturate(125%);
-  -webkit-backdrop-filter: blur(24px) saturate(125%);
 }
 
 .tabbar,
@@ -8718,7 +8710,6 @@ pre,
 .composer {
   background: var(--material-floating);
   backdrop-filter: blur(24px) saturate(135%);
-  -webkit-backdrop-filter: blur(24px) saturate(135%);
 }
 
 .workspace-menu,
@@ -8728,7 +8719,6 @@ pre,
   transform-origin: top left;
   background: var(--material-popover);
   backdrop-filter: blur(24px) saturate(135%);
-  -webkit-backdrop-filter: blur(24px) saturate(135%);
   animation: material-arrive 160ms var(--motion-settle) both;
 }
 
@@ -8736,19 +8726,16 @@ pre,
   transform-origin: center;
   background: var(--material-modal);
   backdrop-filter: blur(32px) saturate(120%);
-  -webkit-backdrop-filter: blur(32px) saturate(120%);
   animation: modal-materialize 220ms var(--motion-settle) both;
 }
 
 .modal-overlay.settings-overlay {
   backdrop-filter: blur(48px) saturate(115%);
-  -webkit-backdrop-filter: blur(48px) saturate(115%);
 }
 
 :root .modal-card.settings-modal {
   background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
   backdrop-filter: blur(72px) saturate(120%);
-  -webkit-backdrop-filter: blur(72px) saturate(120%);
 }
 
 @keyframes material-arrive {
@@ -8840,7 +8827,6 @@ pre,
   .modal-card,
   .modal-overlay {
     backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
   }
 
   .sidebar,
