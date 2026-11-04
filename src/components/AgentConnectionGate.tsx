@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { PRIMARY_AGENTS, ADDITIONAL_AGENTS, agentById } from "../agents";
+import { PRIMARY_AGENTS, ADDITIONAL_AGENTS, BUILTIN_AGENT_ID, agentById, isBuiltinAgent, isMissingAgentInstallError } from "../agents";
 import { useStore } from "../store";
 import { AgentInstallLink } from "./AgentInstallLink";
+import { BuiltinAgentSetup } from "./BuiltinAgentSetup";
 import { BrandLogo } from "./BrandLogo";
 import { Icon, Spinner } from "./Icon";
 import { UserFacingError } from "./UserFacingError";
@@ -38,6 +39,9 @@ export function AgentConnectionGate({ onDismiss }: { onDismiss: () => void }) {
   const error = runtime?.error;
   const authorizing = runtime?.authorizing ?? false;
   const needsLogin = !!version && loggedIn === false;
+  const builtin = isBuiltinAgent(agent);
+  // No agent CLI on this computer: the free model is the way forward.
+  const noCLI = !!s.runtime[s.agentId]?.error && isMissingAgentInstallError(s.runtime[s.agentId]?.error ?? "");
 
   useEffect(() => {
     const dismissOnEscape = (event: KeyboardEvent) => {
@@ -87,6 +91,21 @@ export function AgentConnectionGate({ onDismiss }: { onDismiss: () => void }) {
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          className={"agent-gate-free" + (builtin ? " is-selected" : "") + (noCLI && !builtin ? " is-suggested" : "")}
+          aria-pressed={builtin}
+          onClick={() => selectAgent(BUILTIN_AGENT_ID)}
+        >
+          <Icon name="bolt.fill" size={17} />
+          <span>
+            <strong>Use a free model</strong>
+            <span className="muted small">
+              {noCLI ? "No agent CLI on this computer? " : ""}The built-in Nextbrowser agent works with a free key from NVIDIA, OpenRouter or Google. Nothing else to install.
+            </span>
+          </span>
+          {builtin && <Icon name="checkmark.circle.fill" size={16} className="ok" />}
+        </button>
         <label className="modal-field">
           <span>Other agents</span>
           <select value={agent.primary ? "" : selectedAgentId} onChange={(event) => {
@@ -96,16 +115,18 @@ export function AgentConnectionGate({ onDismiss }: { onDismiss: () => void }) {
             {ADDITIONAL_AGENTS.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
           </select>
         </label>
-        <button
-          type="button"
-          className="primary agent-gate-connect"
-          disabled={authorizing}
-          onClick={connect}
-        >
-          {authorizing && <Spinner size={14} />}
-          {authorizing ? "Checking…" : needsLogin ? `Sign in to ${agent.name}` : `Connect ${agent.name}`}
-        </button>
-        {error && (
+        {builtin ? <BuiltinAgentSetup /> : (
+          <button
+            type="button"
+            className="primary agent-gate-connect"
+            disabled={authorizing}
+            onClick={connect}
+          >
+            {authorizing && <Spinner size={14} />}
+            {authorizing ? "Checking…" : needsLogin ? `Sign in to ${agent.name}` : `Connect ${agent.name}`}
+          </button>
+        )}
+        {error && !builtin && (
           <div className="error small agent-gate-error">
             <UserFacingError message={error} surface="agent_gate" />
             <AgentInstallLink agent={agent} error={error} surface="agent_gate" />

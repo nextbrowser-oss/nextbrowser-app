@@ -48,6 +48,9 @@ function createScrubber({ homeDir, platform = process.platform } = {}) {
       .replace(/\beyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]*/g, "<jwt>")
       .replace(/\b(nb|claw)_(live|test)_[A-Za-z0-9_-]+/g, "$1_$2_***")
       .replace(/\bsk-[A-Za-z0-9_-]{8,}/g, "sk-***")
+      // Model provider keys of the built-in agent: NVIDIA, Google, Groq.
+      .replace(/\b(nvapi|gsk)[-_][A-Za-z0-9_-]{8,}/g, "$1-***")
+      .replace(/\bAIza[A-Za-z0-9_-]{20,}/g, "AIza***")
       .replace(new RegExp(`\\b(${SECRET_KEYS})(["']?\\s*[:=]\\s*["']?)[^\\s"',;&}]+`, "gi"), "$1$2***")
       .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g, "<email>");
     return text;

@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const os = require("node:os");
-const { agentFailureReason, describeAgentResult, describeTerminalExit } = require("./agent-failure-report.cjs");
+const { agentFailureReason, describeAgentResult, describeBuiltinAgentResult, describeTerminalExit } = require("./agent-failure-report.cjs");
 const { createClaudeStreamDecoder } = require("./agent-steps.cjs");
 
 const codexLog = [
@@ -188,4 +188,30 @@ test("a terminal the app closed, the user ended or interrupted is not reported",
   assert.equal(describeTerminalExit({ agentId: "codex", exitCode: 130 }).event, null);
   assert.equal(describeTerminalExit({ agentId: "codex", exitCode: 3221225786 }).event, null);
   assert.equal(describeTerminalExit({ agentId: "../evil", exitCode: 2 }).event.context.agent, "unknown");
+});
+
+test("the built-in agent is reported by its failure code, never with what the provider said", () => {
+  const failed = (failure, extra = {}) => ({ code: 1, stdout: "", stderr: "reason", reason: "reason", failure, ...extra });
+  assert.equal(describeBuiltinAgentResult({ result: { code: 0, stdout: "Done." }, provider: "nvidia", model: "m" }).event, null);
+  assert.equal(describeBuiltinAgentResult({ result: failed({ code: "auth", expected: true }), provider: "nvidia", model: "m" }).event, null);
+  assert.equal(describeBuiltinAgentResult({ result: failed({ code: "rate_limit", expected: true }), provider: "openrouter", model: "m" }).event, null);
+  assert.equal(describeBuiltinAgentResult({ result: failed({ code: "server", expected: false }), outcome: { stopped: true }, provider: "nvidia" }).event, null);
+  assert.equal(describeBuiltinAgentResult({ result: failed({ code: "server", expected: false }), outcome: { quitting: true }, provider: "nvidia" }).event, null);
+
+  const empty = describeBuiltinAgentResult({ result: { code: 0, stdout: "  " }, provider: "gemini", model: "gemini-2.5-flash", durationMs: 99.6 }).event;
+  assert.equal(empty.name, "AGENT_EMPTY_REPLY");
+  assert.deepEqual(empty.context, { agent: "nextbrowser", provider: "gemini", model: "gemini-2.5-flash", run: "chat", duration_ms: "100" });
+
+  const steps = describeBuiltinAgentResult({ result: failed({ code: "max_steps", expected: true }), provider: "nvidia", model: "nvidia/llama-3.3-nemotron-super-49b-v1.5", run: "plain" }).event;
+  assert.equal(steps.name, "BUILTIN_AGENT_MAX_STEPS");
+  assert.equal(steps.context.run, "plain");
+  assert.equal(steps.fingerprintExtra, "nextbrowser:nvidia");
+
+  const timedOut = describeBuiltinAgentResult({ result: { code: 130, stdout: "" }, outcome: { timedOut: true }, provider: "nvidia" }).event;
+  assert.equal(timedOut.name, "AGENT_TIMED_OUT");
+
+  const internal = describeBuiltinAgentResult({ result: failed({ code: "internal", expected: false }), provider: "custom", model: "my-private-model" }).event;
+  assert.equal(internal.name, "BUILTIN_AGENT_INTERNAL");
+  assert.equal(internal.context.model, undefined);
+  assert.ok(!JSON.stringify(internal).includes("reason"), "the chat's reason stays out of the report");
 });

@@ -1053,7 +1053,7 @@ export function AutomationStudio() {
             ? { args: ["-p", "--permission-mode", "dontAsk", "--tools", ""], stdinText: prompt }
             : { args: invocation.args, stdinText: invocation.stdin ?? null };
         const result = await invoke<{ code: number; stdout: string; stderr: string }>("workflow_author_run", {
-          binary: agent.binary, envVar: agent.envVar, args, stdinText, workingDir: s.workingDir || null,
+          agentId: agent.id, binary: agent.binary, envVar: agent.envVar, args, stdinText, workingDir: s.workingDir || null,
         });
         if (result.code !== 0) throw new Error(result.stderr || `${agent.name} could not edit this workflow.`);
         const edit = parseWorkflowAiEdit(result.stdout);

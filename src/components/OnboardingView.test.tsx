@@ -20,6 +20,7 @@ const { state } = vi.hoisted(() => {
     setSidebarCollapsed: () => undefined,
     agentId: "claude",
     switchAgent: () => undefined,
+    refreshBuiltinAgent: async () => undefined,
     agentReady: () => runtime.claude.ready && runtime.claude.loggedIn !== false,
     agentVersion: () => runtime.claude.version,
     agentLoggedIn: () => runtime.claude.loggedIn,
@@ -48,6 +49,8 @@ const { state } = vi.hoisted(() => {
 vi.mock("../store", () => ({
   useStore: (selector: (value: typeof state) => unknown) => selector(state),
 }));
+
+vi.mock("../electronBridge", () => ({ invoke: vi.fn(() => new Promise(() => undefined)), listen: vi.fn() }));
 
 import { OnboardingView } from "./OnboardingView";
 
@@ -80,6 +83,21 @@ describe("agent onboarding step", () => {
     expect(html).not.toContain("Download ChatGPT desktop app");
     expect(html).not.toContain('href="https://code.claude.com');
     expect(html).not.toContain('href="https://chatgpt.com/download');
+  });
+
+  it("offers a free model, and shows its setup instead of Connect once chosen", () => {
+    state.runtime.claude.ready = false;
+    state.runtime.claude.version = undefined;
+    state.runtime.claude.loggedIn = undefined;
+    expect(renderToStaticMarkup(<OnboardingView />)).toContain("Use a free model");
+    state.agentId = "nextbrowser";
+    try {
+      const html = renderToStaticMarkup(<OnboardingView />);
+      expect(html).toContain("builtin-agent-setup");
+      expect(html).not.toContain("onboarding-agent-connect");
+    } finally {
+      state.agentId = "claude";
+    }
   });
 
   it("shows the selected agent install link only after a missing-agent error", () => {
