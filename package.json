@@ -1,6 +1,6 @@
 {
   "name": "nextbrowser",
-  "version": "0.2.59",
+  "version": "0.2.73-rc.1",
   "description": "Nextbrowser desktop agent console for macOS and Windows",
   "author": "Nextbrowser",
   "license": "AGPL-3.0-only",
