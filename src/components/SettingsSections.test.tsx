@@ -12,12 +12,12 @@ describe("Settings section rail", () => {
   const rail = (section: Parameters<typeof SettingsRail>[0]["section"], attention = {}) =>
     renderToStaticMarkup(<SettingsRail section={section} attention={attention} onSelect={() => undefined} />);
 
-  it("is a vertical tablist of the five sections", () => {
+  it("is a vertical tablist of the six sections", () => {
     const html = rail("general");
     expect(html).toMatch(/^<div[^>]*role="tablist"[^>]*>/);
     expect(html).toContain('aria-orientation="vertical"');
     expect(html).toContain('aria-label="Settings sections"');
-    expect(Object.keys(tabs(html))).toEqual(["general", "privacy", "agent", "browser", "proxy"]);
+    expect(Object.keys(tabs(html))).toEqual(["general", "updates", "privacy", "agent", "browser", "proxy"]);
   });
 
   it("selects one tab and keeps only it in the Tab order", () => {
@@ -61,18 +61,19 @@ describe("Settings sections hold every setting", () => {
   const app = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
   const modal = app.slice(app.indexOf("function SettingsModal("), app.indexOf("function AppUpdatePrompt("));
   const block = (section: string) => {
-    const start = modal.indexOf(`{section === "${section}" && (`);
+    const start = modal.indexOf(`{section === "${section}" &&`);
     if (start < 0) throw new Error(`No ${section} section`);
     const next = modal.indexOf("{section === ", start + 1);
     return modal.slice(start, next < 0 ? undefined : next);
   };
 
   it.each([
-    ["general", ["Nextbrowser</span>", "Check for updates", "App update", "Restart and update", "<ManualReleaseDownload", "Interface size", "<UIScaleSlider"]],
+    ["general", ["Nextbrowser</span>", "Versions and updates", "Interface size", "<UIScaleSlider"]],
+    ["updates", ["<SettingsUpdates", "Restart and update", "<ManualReleaseDownload"]],
     ["privacy", ["Send error reports", "<DeviceDataSettings />"]],
     ["agent", ["<AgentPicker", "Connect", "Login", "Log out", "<AgentInstallLink", "<BuiltinAgentSetup />"]],
-    ["browser", ["nextctl</span>", "Profiles</span>", "Browser toolsets", "Check browser toolset updates"]],
-    ["proxy", ["Proxy</span>", "Proxy usage", "onOpenUsage()"]],
+    ["browser", ["nextctl</span>", "Profiles</span>", "Browser toolsets and updates"]],
+    ["proxy", ["Proxy</span>", "Proxy usage", "setUsageOpen(true)", "<UsageView />"]],
   ])("%s", (section, settings) => {
     const source = block(section as string);
     for (const setting of settings as string[]) expect(source).toContain(setting);

@@ -827,7 +827,7 @@ interface State {
   resumeOnboardingAfterSetup: (error?: string) => void;
   finishOnboarding: () => void;
   showOnboardingAgain: () => void;
-  checkNextctlUpdate: (retryAttempt?: number) => Promise<boolean>;
+  checkNextctlUpdate: (retryAttempt?: number, options?: { manual?: boolean }) => Promise<boolean>;
   syncProjects: () => Promise<void>;
   createWorkspace: (name: string) => Promise<string>;
   selectWorkspace: (id: string) => void;
@@ -5261,7 +5261,7 @@ export const useStore = create<State>((set, get) => {
     onboardingSetupError: undefined,
   }),
 
-  checkNextctlUpdate: async (retryAttempt = 0) => {
+  checkNextctlUpdate: async (retryAttempt = 0, options = {}) => {
     const scheduleRetry = (attempt: number) => {
       if (attempt > NEXTCTL_UPDATE_MAX_RETRIES) return;
       if (nextctlUpdateRetryTimer) clearTimeout(nextctlUpdateRetryTimer);
@@ -5272,7 +5272,7 @@ export const useStore = create<State>((set, get) => {
     };
     // Only the exhausted-retries failure is shown to the user; every attempt
     // up to and including this one stays silent in the background.
-    const willRetry = retryAttempt < NEXTCTL_UPDATE_MAX_RETRIES;
+    const willRetry = !options.manual && retryAttempt < NEXTCTL_UPDATE_MAX_RETRIES;
     if (retryAttempt === 0 && nextctlUpdateRetryTimer) {
       clearTimeout(nextctlUpdateRetryTimer);
       nextctlUpdateRetryTimer = null;

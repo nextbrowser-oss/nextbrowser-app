@@ -8,6 +8,18 @@ const {
 
 test.afterEach(() => cancelAllCommands());
 
+test("streams progress before exit while preserving buffered output and isolating observer failures", async () => {
+  const stdout = [];
+  const stderr = [];
+  const result = await runCommand(process.execPath, ["-e", "process.stdout.write('download');process.stderr.write('50%');setTimeout(()=>process.stdout.write('done'),30)"], {
+    onStdout: (chunk) => { stdout.push(chunk); throw new Error("ignored observer failure"); },
+    onStderr: (chunk) => stderr.push(chunk),
+  });
+  assert.equal(stdout.join(""), "downloaddone");
+  assert.equal(stderr.join(""), "50%");
+  assert.deepEqual(result, { stdout: "downloaddone", stderr: "50%", code: 0 });
+});
+
 test("returns stdout for a completed command", async () => {
   const result = await runCommand(
     process.execPath,

@@ -69,6 +69,16 @@ beforeEach(() => {
 });
 
 describe("Nextbrowser CLI install and update", () => {
+  it("does not schedule background retries after a manual Update all failure", async () => {
+    vi.useFakeTimers();
+    try {
+      updateResult = { code: 1, stdout: "", stderr: "network timeout" };
+      await expect(useStore.getState().checkNextctlUpdate(0, { manual: true })).resolves.toBe(false);
+      expect(useStore.getState().nextctlUpdateError).toBeTruthy();
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(nextctlRuns("update")).toHaveLength(1);
+    } finally { vi.useRealTimers(); }
+  });
   it("gives the agent integration install as long as a browser download needs", async () => {
     useStore.setState((state) => ({ runtime: { ...state.runtime, codex: { ...state.runtime.codex, ready: false, authorizing: false } } }));
     await useStore.getState().authorizeAgent({ agentId: "codex" });

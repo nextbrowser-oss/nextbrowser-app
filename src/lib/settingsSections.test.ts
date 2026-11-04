@@ -19,17 +19,17 @@ const calm: SettingsAttentionInput = {
 
 describe("Settings sections", () => {
   it("lists General, Privacy, Agent, Browser and Proxy in rail order", () => {
-    expect(SETTINGS_SECTIONS.map((section) => section.label)).toEqual(["General", "Privacy", "Agent", "Browser", "Proxy"]);
+    expect(SETTINGS_SECTIONS.map((section) => section.label)).toEqual(["General", "Updates", "Privacy", "Agent", "Browser", "Proxy"]);
     expect(new Set(SETTINGS_SECTIONS.map((section) => section.id)).size).toBe(SETTINGS_SECTIONS.length);
     expect(SETTINGS_SECTIONS.every((section) => section.summary.endsWith("."))).toBe(true);
     expect(settingsSectionInfo("agent").label).toBe("Agent");
   });
 
   it("moves through the rail with the arrow keys and wraps at both ends", () => {
-    expect(settingsSectionAfterKey("general", "ArrowDown")).toBe("privacy");
+    expect(settingsSectionAfterKey("general", "ArrowDown")).toBe("updates");
     expect(settingsSectionAfterKey("browser", "ArrowDown")).toBe("proxy");
     expect(settingsSectionAfterKey("proxy", "ArrowDown")).toBe("general");
-    expect(settingsSectionAfterKey("privacy", "ArrowUp")).toBe("general");
+    expect(settingsSectionAfterKey("privacy", "ArrowUp")).toBe("updates");
     expect(settingsSectionAfterKey("general", "ArrowUp")).toBe("proxy");
   });
 
@@ -50,8 +50,8 @@ describe("Settings sections", () => {
   });
 
   it("flags an app update in General and a toolset update in Browser", () => {
-    expect(settingsAttention({ ...calm, appUpdate: true })).toEqual({ general: "update available" });
-    expect(settingsAttention({ ...calm, toolsetUpdate: true })).toEqual({ browser: "update available" });
+    expect(settingsAttention({ ...calm, appUpdate: true })).toEqual({ updates: "update available" });
+    expect(settingsAttention({ ...calm, toolsetUpdate: true })).toEqual({ updates: "update available" });
   });
 
   it("flags an agent that is not ready, saying whether it only needs to sign in", () => {
@@ -71,8 +71,8 @@ describe("Settings sections", () => {
 
   it("opens the Settings button on the section with the update its dot announces", () => {
     expect(settingsSectionForUpdates(false, false)).toBe("general");
-    expect(settingsSectionForUpdates(true, false)).toBe("general");
-    expect(settingsSectionForUpdates(true, true)).toBe("general");
-    expect(settingsSectionForUpdates(false, true)).toBe("browser");
+    expect(settingsSectionForUpdates(true, false)).toBe("updates");
+    expect(settingsSectionForUpdates(true, true)).toBe("updates");
+    expect(settingsSectionForUpdates(false, true)).toBe("updates");
   });
 });

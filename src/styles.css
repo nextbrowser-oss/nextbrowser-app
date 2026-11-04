@@ -185,7 +185,6 @@ button, input, textarea, select { color: var(--text); }
 .thin-material {
   background: var(--panel);
   backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
 }
 
 .claw-card {
@@ -4758,6 +4757,7 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   overflow-y: auto;
 }
 .settings-panel:focus { outline: none; }
+.settings-panel > * { flex-shrink: 0; }
 .settings-panel:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .settings-panel-head h2 { margin: 0 0 2px; font-size: 16px; font-weight: 650; }
 .settings-panel-head p { margin: 0; }
@@ -4775,6 +4775,37 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .settings-panel .settings-agent-card { margin-bottom: 0; }
 .settings-group-note { line-height: 1.35; }
 .settings-panel > .settings-device-data .settings-device-data-note { margin-bottom: 0; }
+.settings-updates-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.settings-runtime-explanation { line-height: 1.4; overflow-wrap: anywhere; }
+.settings-update-outcome { padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); line-height: 1.5; }
+.settings-operation > .row { flex-wrap: wrap; }
+.settings-updates-toolbar > .row { flex-wrap: wrap; gap: 8px; }
+.runtime-install-item { display: grid; gap: 6px; padding: 10px 0; min-width: 0; overflow-wrap: anywhere; }
+.runtime-install-item > button { justify-self: start; }
+.runtime-install-items { grid-column: 1 / -1; display: grid; gap: 6px; max-height: 45vh; overflow-y: auto; }
+.settings-runtime-entry + .settings-runtime-entry { border-top: 1px solid var(--line); }
+.settings-runtime-entry .settings-runtime-row { border: 0; }
+.browser-install-progress.is-determinate > span { animation: none; transform: none; transition: width 120ms linear; }
+.modal-card.settings-modal.has-usage { width: min(1100px, calc(100vw - 32px)); height: min(800px, calc(100vh - 48px)); }
+.settings-proxy-usage { min-width: 0; }
+.settings-panel > [hidden] { display: none; }
+.settings-proxy-usage > button { margin-bottom: 14px; }
+.settings-proxy-usage .proxy-usage-page { padding: 0; min-width: 0; }
+.settings-proxy-usage .proxy-usage-header { flex-wrap: wrap; gap: 8px; }
+.settings-proxy-usage .proxy-usage-header h2 { font-size: 18px; }
+.settings-proxy-usage .proxy-usage-toolbar,
+.settings-proxy-usage .proxy-usage-date-range { flex-wrap: wrap; }
+.settings-proxy-usage .proxy-usage-presets { flex-wrap: wrap; }
+.settings-proxy-usage .proxy-usage-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.settings-proxy-usage .proxy-usage-details-grid { grid-template-columns: minmax(0, 1fr); }
+.settings-proxy-usage .proxy-usage-domain-table-wrap { max-width: 100%; overflow-x: auto; }
+@media (max-width: 600px) {
+  .settings-rail { width: 120px; padding: 8px 4px; }
+  .settings-rail-item { padding: 8px 6px; gap: 6px; }
+  .settings-panel { padding: 14px 12px; }
+  .settings-runtime-row { flex-wrap: wrap; }
+  .settings-proxy-usage .proxy-usage-kpis { grid-template-columns: minmax(0, 1fr); }
+}
 @media (prefers-reduced-motion: reduce) {
   .settings-rail-item { transition: none; }
 }
@@ -8271,7 +8302,6 @@ pre,
   background: color-mix(in srgb, var(--bg-elevated) 96%, transparent);
   box-shadow: 0 20px 55px var(--shadow-strong);
   backdrop-filter: blur(24px) saturate(135%);
-  -webkit-backdrop-filter: blur(24px) saturate(135%);
 }
 
 .workspace-section-head {
@@ -8350,7 +8380,6 @@ pre,
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--panel) 90%, transparent);
   backdrop-filter: blur(26px) saturate(140%);
-  -webkit-backdrop-filter: blur(26px) saturate(140%);
 }
 
 .tabbar-group {
@@ -8385,7 +8414,6 @@ pre,
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--panel) 72%, transparent);
   backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
 }
 
 .chat-title {
@@ -8442,7 +8470,6 @@ pre,
   border-top-color: var(--line);
   background: color-mix(in srgb, var(--panel) 92%, transparent);
   backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
 }
 
 .composer textarea {
@@ -8466,7 +8493,6 @@ pre,
 
 .modal-overlay {
   backdrop-filter: blur(16px) saturate(115%);
-  -webkit-backdrop-filter: blur(16px) saturate(115%);
 }
 
 .modal-card {
@@ -8735,7 +8761,6 @@ pre,
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 28px 80px rgba(76, 59, 160, 0.09), inset 0 1px 0 #ffffff;
   backdrop-filter: blur(32px) saturate(110%);
-  -webkit-backdrop-filter: blur(32px) saturate(110%);
 }
 
 /* Apple-inspired interaction system: immediate feedback, spatial continuity,
@@ -8754,7 +8779,6 @@ pre,
 .sidebar {
   background: var(--material-structural);
   backdrop-filter: blur(24px) saturate(125%);
-  -webkit-backdrop-filter: blur(24px) saturate(125%);
 }
 
 .tabbar,
@@ -8762,7 +8786,6 @@ pre,
 .composer {
   background: var(--material-floating);
   backdrop-filter: blur(24px) saturate(135%);
-  -webkit-backdrop-filter: blur(24px) saturate(135%);
 }
 
 .workspace-menu,
@@ -8772,7 +8795,6 @@ pre,
   transform-origin: top left;
   background: var(--material-popover);
   backdrop-filter: blur(24px) saturate(135%);
-  -webkit-backdrop-filter: blur(24px) saturate(135%);
   animation: material-arrive 160ms var(--motion-settle) both;
 }
 
@@ -8780,8 +8802,16 @@ pre,
   transform-origin: center;
   background: var(--material-modal);
   backdrop-filter: blur(32px) saturate(120%);
-  -webkit-backdrop-filter: blur(32px) saturate(120%);
   animation: modal-materialize 220ms var(--motion-settle) both;
+}
+
+.modal-overlay.settings-overlay {
+  backdrop-filter: blur(48px) saturate(115%);
+}
+
+:root .modal-card.settings-modal {
+  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+  backdrop-filter: blur(72px) saturate(120%);
 }
 
 @keyframes material-arrive {
@@ -8873,7 +8903,6 @@ pre,
   .modal-card,
   .modal-overlay {
     backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
   }
 
   .sidebar,
@@ -8885,6 +8914,8 @@ pre,
   .agent-picker-menu,
   .multilogin-chat-menu,
   .modal-card { background: var(--bg-elevated); }
+
+  :root .modal-card.settings-modal { background: var(--bg-elevated); }
 }
 
 @media (prefers-contrast: more) {

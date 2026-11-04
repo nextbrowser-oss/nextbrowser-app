@@ -23,6 +23,8 @@ export function pendingBrowserRuntimeUpdate<T extends string>(
     currentVersion: first?.latestVersion,
     total: runtimes.length,
     progress: 0,
+    phase: "checking" as const,
+    canCancel: true,
     message: "Checking the selected browser toolsets…",
   };
 }
