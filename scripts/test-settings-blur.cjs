@@ -46,7 +46,7 @@ const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 app.whenReady().then(async () => {
   const renderer = path.resolve(process.argv[2] || "dist/index.html");
   const preload = process.argv[2] ? path.resolve(path.dirname(renderer), "../electron/preload.cjs") : path.resolve("electron/preload.cjs");
-  const window = new BrowserWindow({ show: false, width: 1280, height: 900,
+  const window = new BrowserWindow({ show: false, width: Number(process.env.SETTINGS_BLUR_WIDTH || 1280), height: Number(process.env.SETTINGS_BLUR_HEIGHT || 900),
     webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false } });
   window.webContents.session.webRequest.onBeforeRequest((details, done) => done({ cancel: !details.url.startsWith("file:") && !details.url.startsWith("data:") }));
   await window.loadFile(renderer, { query: { preview: "main" } });
@@ -74,25 +74,31 @@ app.whenReady().then(async () => {
     await pause(500);
     const styles = await window.webContents.executeJavaScript(`(() => {
       const rect=document.querySelector('#settings-title').getBoundingClientRect();
+      const modal=document.querySelector('.settings-modal').getBoundingClientRect();
       return {overlay:getComputedStyle(document.querySelector('.settings-overlay')).backdropFilter,
         card:getComputedStyle(document.querySelector('.settings-modal')).backdropFilter,
-        label:{x:rect.x,y:rect.y,width:rect.width,height:rect.height},viewport:innerWidth};
+        label:{x:rect.x,y:rect.y,width:rect.width,height:rect.height},modal:{x:modal.x,y:modal.y,width:modal.width,height:modal.height},viewport:innerWidth};
     })()`);
     assert.match(styles.overlay, /^blur\(/, "production overlay must retain the supported backdrop-filter property");
     assert.match(styles.card, /^blur\(/, "production modal must retain the supported backdrop-filter property");
     const after = await capture();
     fs.writeFileSync(path.join(output, `${theme}-before.png`), before.toPNG());
     fs.writeFileSync(path.join(output, `${theme}-settings.png`), after.toPNG());
-    const baseline = sharpness(before), background = sharpness(after);
+    const scale = after.getSize(1).width / styles.viewport;
+    // Native Windows DPI can leave only 1008 CSS pixels in a 1280px window.
+    // A fixed 150px strip then includes the modal's deliberately sharp rail.
+    // Measure only the actual backdrop, with an 8px gap before the card.
+    const region = { x: 8 * scale, y: 130 * scale, width: Math.max(1, styles.modal.x - 16) * scale, height: 520 * scale };
+    assert.ok(region.x + region.width <= styles.modal.x * scale, "background sample must stay outside the modal");
+    const baseline = sharpness(before, region), background = sharpness(after, region);
     console.log(JSON.stringify({ theme, size: after.getSize(1), styles, baseline, background, edgeRatio: background.edges / baseline.edges }));
     assert.ok(baseline.variance > 100, "fixture must contain readable high-contrast background text");
     assert.ok(background.edges < baseline.edges * 0.25, `${theme}: background letters must be blurred, not merely dimmed`);
-    const scale = after.getSize(1).width / styles.viewport;
     const label = Object.fromEntries(Object.entries(styles.label).map(([key, value]) => [key, value * scale]));
     assert.ok(sharpness(after, label).edges > 0.1, `${theme}: Settings title must remain sharp`);
     await window.webContents.executeJavaScript(`document.querySelector('button[aria-label="Close settings"]').click()`);
     await pause(250);
-    assert.ok(sharpness(await capture()).edges > baseline.edges * 0.8, "closing Settings must restore sharp content");
+    assert.ok(sharpness(await capture(), region).edges > baseline.edges * 0.8, "closing Settings must restore sharp content");
     console.log(`Settings blur passed in ${theme}: ${styles.overlay}; background edge ratio ${(background.edges / baseline.edges).toFixed(3)}.`);
   }
   await media("reduce");
