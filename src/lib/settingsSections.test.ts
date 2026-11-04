@@ -13,6 +13,7 @@ const calm: SettingsAttentionInput = {
   toolsetUpdate: false,
   agentReady: true,
   agentNeedsLogin: false,
+  builtinAgent: false,
   proxyTone: "ok",
 };
 
@@ -56,6 +57,11 @@ describe("Settings sections", () => {
   it("flags an agent that is not ready, saying whether it only needs to sign in", () => {
     expect(settingsAttention({ ...calm, agentReady: false })).toEqual({ agent: "not connected" });
     expect(settingsAttention({ ...calm, agentReady: false, agentNeedsLogin: true })).toEqual({ agent: "sign-in required" });
+  });
+
+  it("flags the built-in Nextbrowser agent as not set up until it has a provider, a key and a model", () => {
+    expect(settingsAttention({ ...calm, agentReady: false, builtinAgent: true })).toEqual({ agent: "not set up" });
+    expect(settingsAttention({ ...calm, builtinAgent: true })).toEqual({});
   });
 
   it("flags proxy traffic that is paused or near its limit", () => {

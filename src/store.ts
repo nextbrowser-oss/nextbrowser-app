@@ -13,10 +13,14 @@ import {
   AGENTS,
   agentById,
   agentInvocation,
+  agentSupportsTerminal,
+  BUILTIN_AGENT_ID,
+  isBuiltinAgent,
   missingAgentInstallError,
   nextctlAgentAdapter,
   type AgentSpec,
 } from "./agents";
+import { builtinAgentRuntime, type BuiltinAgentFailure, type BuiltinAgentStatus } from "./lib/builtinAgent";
 import {
   type SkillEntry,
   type SkillCategory,
@@ -448,6 +452,9 @@ function showNextctlUpdateNotice(message: string): void {
   }, NEXTCTL_UPDATE_NOTICE_MS);
 }
 
+// The Recorder's request in the built-in agent's own terms (see processItem).
+const BUILTIN_RECORDER_CONTEXT = "\n\nNextbrowser Recorder is active for this task. Get the final data with one extract call that names the exact fields, not by reading state. If the user asked to save it, pass that call's result to save_artifact once.";
+
 function nextBrowserInstallPrompt(agentAdapter: string | undefined): string {
   // nbc has no integration for some agents (pi, Kilo Code, ...): install the
   // runtime alone, the way the app's own runtime install does.
@@ -799,6 +806,8 @@ interface State {
   setMultiloginRunning: (selection: MultiloginProfileSelection, running: boolean) => Promise<void>;
   switchAgent: (id: string) => void;
   authorizeAgent: (options?: AgentAuthorizationOptions) => Promise<void>;
+  /** Reads the built-in Nextbrowser agent's setup again and connects it when it is complete. */
+  refreshBuiltinAgent: () => Promise<void>;
   loginAgent: () => Promise<void>;
   logoutAgent: () => Promise<void>;
   recheckLogin: (agentId?: string) => Promise<void>;
@@ -1051,7 +1060,8 @@ async function createDefaultWorkspaceProfiles(workspaceId: string): Promise<{ cr
 // Mirrors AppState.didBootstrap in the Swift app.
 let didBootstrap = false;
 // reason: the line the CLI printed when it gave up, found by the main process.
-type AgentDone = { code: number; stderr: string; stdout: string; reason?: string };
+// `failure` comes from the built-in Nextbrowser agent only (electron/builtin-agent-run.cjs).
+type AgentDone = { code: number; stderr: string; stdout: string; reason?: string; failure?: BuiltinAgentFailure };
 interface NextctlUpdateState { lastAutoCheckAt?: number; rateLimitedUntil?: number }
 interface APIKeyIdentity {
   valid: boolean;
@@ -2330,6 +2340,12 @@ export const useStore = create<State>((set, get) => {
           if (stopped) {
             status = "cancelled";
             text = text ? `${text}\n[stopped]` : "[stopped]";
+          } else if (result.code !== 0 && isBuiltinAgent(agentId) && result.reason) {
+            // The built-in agent says what went wrong in the user's terms. A
+            // failure they fix in Settings needs no reference for support.
+            status = "failed";
+            const error = result.failure?.expected ? result.reason : internalError(result.reason, "BUILTIN_AGENT_FAILED");
+            text = text ? `${text}\n${error}` : error;
           } else if (result.code !== 0) {
             status = "failed";
             const detail = agentFailureDetail(result.reason);
@@ -2751,9 +2767,9 @@ export const useStore = create<State>((set, get) => {
         });
       });
 
-      await listen<[string, number, string, string, string?]>("agent:done", (e) => {
-        const [replyId, code, stderr, stdout, reason] = e.payload;
-        void finishAgentRun(replyId, { code, stderr, stdout, reason });
+      await listen<[string, number, string, string, string?, BuiltinAgentFailure?]>("agent:done", (e) => {
+        const [replyId, code, stderr, stdout, reason, failure] = e.payload;
+        void finishAgentRun(replyId, { code, stderr, stdout, reason, ...(failure ? { failure } : {}) });
       });
       await listen<AuthDeepLinkPayload>("auth:deeplink", (event) => {
         const pairing = get().accountPairing;
@@ -3330,10 +3346,20 @@ export const useStore = create<State>((set, get) => {
       return;
     }
 
+    // The built-in agent has only its browser tools: no shell, no curl, no
+    // SSH. Its prompt names those tools instead of the CLI's commands.
+    const builtinAgent = isBuiltinAgent(agentId);
+    if (builtinAgent && item.executionTarget === "vps") {
+      replyExecutionTargets.delete(item.replyId);
+      replyProfileBaselines.delete(item.replyId);
+      get().setMessageStatus(item.conversationId, item.replyId, "failed", "The Nextbrowser agent works with browser profiles on this computer. Use an agent CLI such as Claude Code or Codex for a VPS chat.");
+      set((s) => ({ runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], runningReplyId: undefined, pendingStop: false } } }));
+      return;
+    }
     const activeProfile = item.selectedProfile;
     const recording = activeAutomationRecording();
     const recorderContext = recording?.phase === "recording" && recording.workspaceId === conversationWorkspaceId
-      ? `\n\nNextbrowser Recorder is active for this task. The final reusable dataset must come from a deterministic browser tool call, not from reading state and transforming it only in your reasoning. Prefer navigate_extract when the URL, row container, and fields are known because it combines navigation, readiness, and extraction in one recorded call. Otherwise, after using state once to discover the page, call extract or paginate_extract with the exact fields and limit. Do not use evaluate for selector or HTML diagnostics: state is the discovery tool. If the dynamic page cannot be represented by extraction tools, call evaluate once with a read-only expression that returns the exact structured dataset; it must not read cookies/storage, use network APIs, click/submit, or mutate the DOM. Select targets by stable content, attributes, or headers instead of a numeric querySelectorAll position, and make the expression throw unless the requested number of rows and requested fields are populated. If the final dataset comes from a public JSON endpoint, use its replayable GET form when available: open that exact API URL in the listed browser profile, then evaluate the JSON body. Never leave the final request hidden in curl, fetch, or an uncaptured shell action, because Recorder cannot replay it. If the user requested an Artifact Center file, pass that deterministic call's returned dataset to nextbrowser.save_artifact once. Do not finish with state as the only data-collection step.`
+      ? builtinAgent ? BUILTIN_RECORDER_CONTEXT : `\n\nNextbrowser Recorder is active for this task. The final reusable dataset must come from a deterministic browser tool call, not from reading state and transforming it only in your reasoning. Prefer navigate_extract when the URL, row container, and fields are known because it combines navigation, readiness, and extraction in one recorded call. Otherwise, after using state once to discover the page, call extract or paginate_extract with the exact fields and limit. Do not use evaluate for selector or HTML diagnostics: state is the discovery tool. If the dynamic page cannot be represented by extraction tools, call evaluate once with a read-only expression that returns the exact structured dataset; it must not read cookies/storage, use network APIs, click/submit, or mutate the DOM. Select targets by stable content, attributes, or headers instead of a numeric querySelectorAll position, and make the expression throw unless the requested number of rows and requested fields are populated. If the final dataset comes from a public JSON endpoint, use its replayable GET form when available: open that exact API URL in the listed browser profile, then evaluate the JSON body. Never leave the final request hidden in curl, fetch, or an uncaptured shell action, because Recorder cannot replay it. If the user requested an Artifact Center file, pass that deterministic call's returned dataset to nextbrowser.save_artifact once. Do not finish with state as the only data-collection step.`
       : "";
     const browserContext = browserProfileContext(
       get().workspaces,
@@ -3343,6 +3369,7 @@ export const useStore = create<State>((set, get) => {
       get().statuses,
       get().profileIdentities,
       get().profiles,
+      { toolsOnly: builtinAgent },
     ) + recorderContext;
     const browserProfiles = agentVisibleProfileNames(itemWorkspace?.profileNames ?? [], get().profiles).map((name) => ({
       name,
@@ -3359,7 +3386,7 @@ export const useStore = create<State>((set, get) => {
         + privateSkillContext(get().localSkills, item.rawText)
         + browserContext,
       activeProfile,
-      { nextctlAvailable: get().nextctlAvailable, executionTarget: item.executionTarget },
+      { nextctlAvailable: get().nextctlAvailable, executionTarget: item.executionTarget, builtinAgent },
     );
     const a = agentById(agentId);
     const { args, stdin, stepFormat } = agentInvocation(a, prompt, { steps: true });
@@ -4763,6 +4790,10 @@ export const useStore = create<State>((set, get) => {
     }));
     const a = agentById(agentId);
     trackEvent("agent_connect_started", { agent: agentId });
+    if (isBuiltinAgent(a)) {
+      await get().refreshBuiltinAgent();
+      return;
+    }
     try {
       const [version, loggedIn] = await Promise.all([
         invoke<string>("agent_authorize", {
@@ -4866,6 +4897,35 @@ export const useStore = create<State>((set, get) => {
     }
   },
 
+  refreshBuiltinAgent: async () => {
+    // Nothing to find on disk: the built-in agent is ready once a provider,
+    // a model and, for a hosted provider, a key are saved. Read again after
+    // every change in its setup, also while it is ready.
+    const agentId = BUILTIN_AGENT_ID;
+    const startedAt = performance.now();
+    try {
+      const status = await invoke<BuiltinAgentStatus>("builtin_agent_status");
+      const connection = builtinAgentRuntime(status);
+      set((s) => ({ runtime: { ...s.runtime, [agentId]: { ...s.runtime[agentId], ...connection, authorizing: false } } }));
+      if (!connection.ready) {
+        trackTiming("agent_connect_failed", startedAt, { agent: agentId, reason: "not_configured" });
+        return;
+      }
+      if (agentId === get().agentId && get().conversationsForAgent(agentId).length) get().ensureConversation(agentId);
+      trackTiming("agent_connect_succeeded", startedAt, { agent: agentId, logged_in: true, nextctl_available: get().nextctlAvailable });
+      get().reconcileQueues();
+      get().startConsumer(agentId);
+    } catch {
+      trackTiming("agent_connect_failed", startedAt, { agent: agentId });
+      set((s) => ({ runtime: { ...s.runtime, [agentId]: {
+        ...s.runtime[agentId],
+        ready: false,
+        authorizing: false,
+        error: internalError("We couldn't read the Nextbrowser agent's settings.", "BUILTIN_AGENT_STATUS_FAILED"),
+      } } }));
+    }
+  },
+
   announceConnect: (agentId: string, _version: string, loggedIn: boolean | null) => {
     const announced = get().connectAnnounced;
     if (announced.has(agentId)) return;
@@ -4900,6 +4960,8 @@ export const useStore = create<State>((set, get) => {
   loginAgent: async () => {
     const agentId = get().agentId;
     const a = agentById(agentId);
+    // The built-in agent signs in with an API key in Settings, not a terminal.
+    if (isBuiltinAgent(a)) return;
     // Ignore re-entry: without this, repeated clicks open several sign-in
     // terminals and start several 2-minute polls.
     if (get().runtime[agentId]?.authorizing) return;
@@ -4988,7 +5050,7 @@ export const useStore = create<State>((set, get) => {
   logoutAgent: async () => {
     const agentId = get().agentId;
     const a = agentById(agentId);
-    if (!a.logoutArgs.length) return;
+    if (!a.logoutArgs.length || isBuiltinAgent(a)) return;
     // Ignore re-entry: repeated clicks open several sign-out terminals and
     // start several poll loops.
     if (get().runtime[agentId]?.authorizing) return;
@@ -5096,6 +5158,8 @@ export const useStore = create<State>((set, get) => {
     set({ chatListCollapsed: v });
   },
   setTerminalChat: (v) => {
+    // The built-in agent has no terminal to open.
+    if (v && !agentSupportsTerminal(get().agentId)) return;
     settingsStorage.setItem("terminalChat", String(v));
     set((state) => {
       const activeId = state.activeConvId[state.agentId];
@@ -5890,9 +5954,10 @@ export const useStore = create<State>((set, get) => {
     return c.id;
   },
 
-  createProject: (name, mode, selectedAgentId) => {
+  createProject: (name, requestedMode, selectedAgentId) => {
     const agentId = selectedAgentId ?? get().agentId;
     if (!AGENTS.some((agent) => agent.id === agentId)) return "";
+    const mode = agentSupportsTerminal(agentId) ? requestedMode : "chat";
     const workspaceId = get().activeWorkspaceId;
     if (!workspaceId || deletingWorkspaceIds.has(workspaceId)) return "";
     const cleanName = validateEntityName("project", name);

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   AGENTS,
+  BUILTIN_AGENT_ID,
   agentById,
+  agentSupportsTerminal,
+  isBuiltinAgent,
   agentInstallName,
   agentInvocation,
   isMissingAgentInstallError,
@@ -112,5 +115,25 @@ describe("agent invocation parity", () => {
 
   it("leaves agents without a step decoder unchanged", () => {
     expect(agentInvocation(agentById("hermes"), "hello", { steps: true })).toEqual({ args: ["-z", "hello"] });
+  });
+});
+
+describe("the built-in Nextbrowser agent", () => {
+  const builtin = agentById(BUILTIN_AGENT_ID);
+
+  it("is in the catalog without a CLI, an install link, or an nbc adapter", () => {
+    expect(builtin).toMatchObject({ id: "nextbrowser", name: "Nextbrowser agent", binary: "", envVar: "", runStyle: "builtin", primary: false });
+    expect(builtin.installUrl).toBeUndefined();
+    expect(nextctlAgentAdapter(BUILTIN_AGENT_ID)).toBeUndefined();
+    expect(isBuiltinAgent(builtin)).toBe(true);
+    expect(isBuiltinAgent("codex")).toBe(false);
+    // Another agent's install error never names the built-in agent.
+    expect(missingAgentInstallError(new Error("claude executable not found."), builtin)).toBeUndefined();
+  });
+
+  it("gets the prompt as is and has no terminal", () => {
+    expect(agentInvocation(builtin, "Open example.com", { steps: true })).toEqual({ args: [], stdin: "Open example.com" });
+    expect(agentSupportsTerminal(builtin)).toBe(false);
+    expect(agentSupportsTerminal("claude")).toBe(true);
   });
 });

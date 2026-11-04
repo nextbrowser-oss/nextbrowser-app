@@ -4,6 +4,9 @@ export type PrimaryAppTab = Extract<AppTab, "chat" | "live">;
 
 const APP_TAB_HISTORY_LIMIT = 50;
 
+/** A window event that opens Settings at the agent card (the built-in agent's setup lives there). */
+export const OPEN_AGENT_SETTINGS_EVENT = "nextbrowser:open-agent-settings";
+
 const APP_TAB_LABELS: Record<AppTab, string> = {
   chat: "Chat",
   automation: "Automation",

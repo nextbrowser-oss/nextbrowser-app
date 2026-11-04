@@ -71,11 +71,18 @@ describe("Settings sections hold every setting", () => {
     ["general", ["Nextbrowser</span>", "Versions and updates", "Interface size", "<UIScaleSlider"]],
     ["updates", ["<SettingsUpdates", "Restart and update", "<ManualReleaseDownload"]],
     ["privacy", ["Send error reports", "<DeviceDataSettings />"]],
-    ["agent", ["<AgentPicker", "Connect", "Login", "Log out", "<AgentInstallLink"]],
+    ["agent", ["<AgentPicker", "Connect", "Login", "Log out", "<AgentInstallLink", "<BuiltinAgentSetup />"]],
     ["browser", ["nextctl</span>", "Profiles</span>", "Browser toolsets and updates"]],
     ["proxy", ["Proxy</span>", "Proxy usage", "setUsageOpen(true)", "<UsageView />"]],
   ])("%s", (section, settings) => {
     const source = block(section as string);
     for (const setting of settings as string[]) expect(source).toContain(setting);
+  });
+
+  it("sets up the built-in Nextbrowser agent in Agent only, in place of the agent CLI's actions", () => {
+    expect(modal.match(/<BuiltinAgentSetup\b/g)).toHaveLength(1);
+    const agent = block("agent");
+    expect(agent).toContain("{!builtinAgent && <div className=\"settings-agent-actions\">");
+    expect(agent).toContain("{agentError && !builtinAgent && (");
   });
 });

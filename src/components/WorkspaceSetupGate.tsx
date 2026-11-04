@@ -2,6 +2,7 @@ import { useRef, useState, type FormEvent } from "react";
 import { ROTATION_COUNTRIES } from "../lib/countryFlag";
 import { internalError } from "../lib/userFacingError";
 import { useStore } from "../store";
+import { agentSupportsTerminal } from "../agents";
 import { CountrySelect } from "./CountrySelect";
 import { Icon, Spinner } from "./Icon";
 import { UserFacingError } from "./UserFacingError";
@@ -84,7 +85,7 @@ export function WorkspaceSetupGate() {
           <label className="modal-field"><span className="modal-field-heading"><span>Project name</span><small>Max {entityNameLimits.project}</small></span><input autoFocus value={chatName} maxLength={entityNameLimits.project} onChange={(event) => { setChatName(event.target.value); setError(undefined); }} placeholder="First project" /></label>
           <fieldset className="project-mode-field"><legend>Interface</legend>
             <label className={"project-mode-option" + (chatMode === "chat" ? " is-selected" : "")}><input type="radio" checked={chatMode === "chat"} onChange={() => setChatMode("chat")} /><Icon name="bubble.left.and.bubble.right.fill" size={16} /><span><strong>Chat</strong><small>Regular conversation UI</small></span></label>
-            <label className={"project-mode-option" + (chatMode === "terminal" ? " is-selected" : "")}><input type="radio" checked={chatMode === "terminal"} onChange={() => setChatMode("terminal")} /><Icon name="terminal" size={16} /><span><strong>Terminal</strong><small>Persistent agent terminal</small></span></label>
+            <label className={"project-mode-option" + (chatMode === "terminal" ? " is-selected" : "") + (agentSupportsTerminal(s.agentId) ? "" : " is-disabled")}><input type="radio" disabled={!agentSupportsTerminal(s.agentId)} checked={chatMode === "terminal" && agentSupportsTerminal(s.agentId)} onChange={() => setChatMode("terminal")} /><Icon name="terminal" size={16} /><span><strong>Terminal</strong><small>Persistent agent terminal</small></span></label>
           </fieldset>
         </>}
         {step === 3 && <>

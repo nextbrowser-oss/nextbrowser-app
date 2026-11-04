@@ -43,6 +43,11 @@ reports and explorations.
   `agent_turn_completed`, `agent_turn_failed`, `chat_created`,
   `chat_selected`, `chat_deleted`, `chat_request_submitted`,
   `chat_message_queued`, `chat_files_selected`.
+- Built-in Nextbrowser agent setup: `builtin_agent_provider_selected`,
+  `builtin_agent_key_link_opened`, `builtin_agent_key_saved`,
+  `builtin_agent_key_removed`, `builtin_agent_tested` (`ok`, `key`, `tools`,
+  `code`), `builtin_agent_saved` (`configured`). They carry the provider id
+  only, never the key or the model's answers.
 - Skills/scripts/schedules: `skill_catalog_loaded`, `skill_apply_started`,
   `skill_apply_completed`, `skill_used_in_chat`, `script_run_started`,
   `script_run_completed`, `script_run_failed`, `custom_script_save_completed`,

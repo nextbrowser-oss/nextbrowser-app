@@ -186,3 +186,16 @@ describe("composePrompt VPS mode", () => {
     expect(prompt).not.toContain(VPS_PROMPT_MARKER);
   });
 });
+
+describe("composePrompt for the built-in Nextbrowser agent", () => {
+  it("leaves out the CLI instructions and keeps the history and the request", () => {
+    const conv = conversation([message("u1", "user", "Open example.com"), message("a1", "assistant", "Opened it."), message("u2", "user", "Read the title")]);
+    const prompt = composePrompt([conv], conv.id, "reply", "Read the title", "Work", { nextctlAvailable: false, builtinAgent: true });
+    expect(prompt).not.toContain("nextctl");
+    expect(prompt).not.toContain("command -v");
+    expect(prompt).toContain("User: Open example.com");
+    expect(prompt).toContain("Assistant: Opened it.");
+    expect(prompt).toContain("[Active Nextbrowser profile: Work]");
+    expect(prompt.endsWith("Read the title")).toBe(true);
+  });
+});

@@ -468,6 +468,11 @@ function createMCPClient({ binary, args, env, spawnImpl = spawn, onExit }) {
       send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
     },
     callTool: (name, arguments, timeoutMs) => request("tools/call", { name, arguments: { ...inheritedToolArguments, ...arguments } }, timeoutMs),
+    // The built-in agent offers the model the tools this nbc actually has.
+    async listTools(timeoutMs) {
+      const result = await request("tools/list", {}, timeoutMs);
+      return Array.isArray(result?.tools) ? result.tools : [];
+    },
     close() {
       if (closed) return;
       closed = true;
