@@ -43,6 +43,14 @@ jobs:
       - run: npm run build
       - name: Verify production Settings blur in Electron
         run: node node_modules/electron/cli.js scripts/test-settings-blur.cjs
+      - name: Preserve failed Settings blur screenshots
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: settings-blur-${{ matrix.os }}
+          path: e2e-out/settings-blur-native/*.png
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Package application without installer
         run: npm run pack
       - name: Launch packaged app (macOS)

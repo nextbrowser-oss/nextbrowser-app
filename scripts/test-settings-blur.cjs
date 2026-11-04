@@ -5,6 +5,8 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const fs = require("node:fs");
 const output = path.resolve("e2e-out/settings-blur-native");
+if (process.env.SETTINGS_BLUR_SCALE_FACTOR) app.commandLine.appendSwitch("force-device-scale-factor", process.env.SETTINGS_BLUR_SCALE_FACTOR);
+if (process.env.SETTINGS_BLUR_SOFTWARE === "1") app.disableHardwareAcceleration();
 fs.mkdirSync(output, { recursive: true });
 app.setPath("userData", path.join(output, `fixture-profile-${process.pid}`));
 
@@ -82,6 +84,7 @@ app.whenReady().then(async () => {
     fs.writeFileSync(path.join(output, `${theme}-before.png`), before.toPNG());
     fs.writeFileSync(path.join(output, `${theme}-settings.png`), after.toPNG());
     const baseline = sharpness(before), background = sharpness(after);
+    console.log(JSON.stringify({ theme, size: after.getSize(1), styles, baseline, background, edgeRatio: background.edges / baseline.edges }));
     assert.ok(baseline.variance > 100, "fixture must contain readable high-contrast background text");
     assert.ok(background.edges < baseline.edges * 0.25, `${theme}: background letters must be blurred, not merely dimmed`);
     const scale = after.getSize(1).width / styles.viewport;
