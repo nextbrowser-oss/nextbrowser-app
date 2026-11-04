@@ -4,6 +4,8 @@ const { addChatWorkspaceProfile } = require("./chat-profile-scope.cjs");
 const { requireVerificationCapableCLI, verificationFailureDialogOptions, verificationFailureDialogChoice } = require("./verification-policy.cjs");
 const { agentLoginStatus } = require("./agent-login-status.cjs");
 const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage, screen, session, net } = require("electron");
+const { createMultiloginLogin } = require("./multilogin-login.cjs");
+const multiloginLogin = createMultiloginLogin({ BrowserWindow });
 const { autoUpdater } = require("electron-updater");
 const { createAppUpdateDownload } = require("./app-update-download.cjs");
 const { execFileSync, spawn } = require("node:child_process");
@@ -800,7 +802,7 @@ async function nextctlHasAutomationTrace(binary) {
     // A fresh binary without this app's isolated credential can reject auth
     // after parsing; that also proves Cobra accepted the flag.
     nextctlAutomationTraceSupport.set(binary, run(binary, ["mcp", "--automation-trace-file", "nextbrowser-capability-probe"], {}, { timeoutMs: 5_000 })
-      .then((result) => /automation trace file must be an absolute path|API_KEY_REQUIRED|Missing Clawbrowser API key/i.test(`${result.stdout}\n${result.stderr}`))
+      .then((result) => /automation trace file must be an absolute path|API_KEY_REQUIRED|Missing (?:Clawbrowser|Nextbrowser) API key/i.test(`${result.stdout}\n${result.stderr}`))
       .catch(() => false));
   }
   return nextctlAutomationTraceSupport.get(binary);
@@ -2274,6 +2276,9 @@ async function invokeCommand(command, args = {}, sender) {
     }
     case "multilogin_status": return await multiloginStatus();
     case "multilogin_connect": return await connectMultilogin(args.bearerToken);
+    case "multilogin_login_open": return await multiloginLogin.open(sender);
+    case "multilogin_login_complete": return await multiloginLogin.complete(sender, connectMultilogin);
+    case "multilogin_login_cancel": return multiloginLogin.cancel(sender);
     case "multilogin_disconnect": return await disconnectMultilogin();
     case "multilogin_profile_create": return await createMultiloginProfile(args);
     case "multilogin_mobile_profile_create": return await createMultiloginMobileProfile(args);
