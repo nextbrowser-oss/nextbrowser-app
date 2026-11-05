@@ -1,63 +1,43 @@
-name: Build installers
-
+name: Verify built Windows installer
 on:
   workflow_dispatch:
     inputs:
-      platform:
-        description: Platform to build
-        required: true
-        default: both
-        type: choice
-        options:
-          - both
-          - windows
-          - macos
-
-      corporate_signing:
-        description: Sign/notarize macOS on the configured corporate Mac (CLAW-566)
-        type: boolean
-        default: false
-
+      candidate_run_id:
+        type: string
+        default: '42024596504'
+      candidate_source:
+        type: string
+        default: 13782d672c62a8375566b6b1c242479d72c2fce6
 permissions:
   contents: read
-
+  actions: read
 jobs:
-  macos:
-    if: inputs.platform == 'both' || inputs.platform == 'macos'
-    uses: ./.github/workflows/package-macos.yml
-    with:
-      corporate_signing: ${{ inputs.corporate_signing }}
-      artifact_name: NextBrowser-macOS-${{ github.sha }}
-
-  windows:
-    name: Build Windows installer
-    if: inputs.platform == 'both' || inputs.platform == 'windows'
-    runs-on: windows-latest
+  install-launch-uninstall:
+    runs-on: windows-2025
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          path: pipeline
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          path: source
+          ref: ${{ inputs.candidate_source }}
+          persist-credentials: false
       - uses: actions/setup-node@v5
         with:
-          node-version: "22"
-          cache: npm
-      - run: npm ci
-      - name: Signing and updater metadata regressions
-        run: node --test scripts/macos-signing.node.mjs
-      - name: Critical feature regressions (mandatory)
-        run: npm run test:critical
-      - run: npm test
-      - name: Build Windows installer
-        run: npm run dist:win
-      - name: Verify production Settings blur
-        run: node node_modules/electron/cli.js scripts/test-settings-blur.cjs
-      - name: Launch packaged app
-        run: node scripts/smoke-launch.mjs release/win-unpacked/NextBrowser.exe
-      - name: Upload Windows installer
-        uses: actions/upload-artifact@v5
+          node-version: '22'
+      - name: Verify exact installer on a disposable Windows runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN: ${{ inputs.candidate_run_id }}
+          CANDIDATE_SOURCE: ${{ inputs.candidate_source }}
+        shell: pwsh
+        run: ./pipeline/scripts/verify-windows-installer.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: NextBrowser-Windows-${{ github.sha }}
-          path: |
-            release/*.exe
-            release/*.exe.blockmap
-            release/latest.yml
-          if-no-files-found: error
+          name: installed-windows-candidate-${{ inputs.candidate_source }}
+          path: evidence/
           retention-days: 14
