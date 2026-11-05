@@ -3,6 +3,8 @@ if($env:RUNNER_ENVIRONMENT -ne 'github-hosted'){throw 'This installer test must 
 if($env:CANDIDATE_RUN -notmatch '^[0-9]+$' -or $env:CANDIDATE_SOURCE -notmatch '^[0-9a-f]{40}$'){throw 'Invalid candidate reference'}
 $repo='nextbrowser-oss/nextbrowser-app'
 $version='0.2.73-rc.2'
+$installScope=if($env:CANDIDATE_INSTALL_SCOPE){$env:CANDIDATE_INSTALL_SCOPE}else{'currentuser'}
+if($installScope -notin @('currentuser','allusers')){throw 'Unexpected installer scope'}
 $qa=Join-Path $env:GITHUB_WORKSPACE 'evidence'
 $download=Join-Path $env:RUNNER_TEMP 'candidate-download'
 $install=Join-Path $env:RUNNER_TEMP 'NextBrowserInstalled'
@@ -10,6 +12,7 @@ $install=[IO.Path]::GetFullPath($install)
 if(!$install.StartsWith(([IO.Path]::GetFullPath($env:RUNNER_TEMP)+[IO.Path]::DirectorySeparatorChar),[StringComparison]::OrdinalIgnoreCase) -or (Test-Path -LiteralPath $install)){throw 'Expected fresh isolated install directory'}
 New-Item -ItemType Directory -Path $qa,$download | Out-Null
 $result=@{status='started';candidate_source=$env:CANDIDATE_SOURCE;candidate_run_id=$env:CANDIDATE_RUN;version=$version;disposable_runner=$true;local_user_machine_modified=$false;published=$false}
+$result.install_scope=$installScope
 Start-Transcript -Path "$qa/installer-verification.log"
 try{
   $run=(& gh api "repos/$repo/actions/runs/$env:CANDIDATE_RUN" | ConvertFrom-Json)
@@ -42,7 +45,7 @@ try{
     if(!(Test-Path -LiteralPath $env:CANDIDATE_CLI_EXE)){throw 'Candidate CLI executable missing'}
     $result.cli_source=$env:CANDIDATE_CLI_SOURCE
   }
-  $process=Start-Process -FilePath $installer -ArgumentList @('/S','/currentuser',"/D=$install") -Wait -PassThru -WindowStyle Hidden
+  $process=Start-Process -FilePath $installer -ArgumentList @('/S',"/$installScope","/D=$install") -Wait -PassThru -WindowStyle Hidden
   if($process.ExitCode -ne 0){throw "Installer failed: $($process.ExitCode)"}
   $executable=Join-Path $install 'NextBrowser.exe'
   if(!(Test-Path -LiteralPath $executable -PathType Leaf)){throw 'The installer did not create the executable at the requested path'}
@@ -66,7 +69,7 @@ try{
   $command=(Get-Item -LiteralPath $protocol).GetValue('')
   if($command.IndexOf($executable,[StringComparison]::OrdinalIgnoreCase) -lt 0 -or $command -notmatch '%[1Ll]'){throw 'OAuth callback command does not point to the installed app and URL argument'}
   $result.oauth_protocol_registered=$true
-  $updated=Start-Process -FilePath $installer -ArgumentList @('/S','/currentuser',"/D=$install") -Wait -PassThru -WindowStyle Hidden
+  $updated=Start-Process -FilePath $installer -ArgumentList @('/S',"/$installScope","/D=$install") -Wait -PassThru -WindowStyle Hidden
   if($updated.ExitCode -ne 0 -or !(Test-Path -LiteralPath $executable)){throw 'In-place candidate reinstall/update failed'}
   if(!(Test-Path -LiteralPath $protocol) -or (Get-Item -LiteralPath $protocol).GetValue('') -ne $command){throw 'Update removed or changed the existing OAuth callback'}
   $result.oauth_protocol_preserved_on_update=$true
@@ -87,7 +90,7 @@ try{
   $result.owned_callback_removed=$true
   # A second installation must not remove an association owned by a different
   # install, including a sibling path that shares this installation's prefix.
-  $again=Start-Process -FilePath $installer -ArgumentList @('/S','/currentuser',"/D=$install") -Wait -PassThru -WindowStyle Hidden
+  $again=Start-Process -FilePath $installer -ArgumentList @('/S',"/$installScope","/D=$install") -Wait -PassThru -WindowStyle Hidden
   if($again.ExitCode -ne 0 -or !(Test-Path -LiteralPath $executable)){throw 'Second isolated installation failed'}
   $foreignCommand='"'+$install+'-other\NextBrowser.exe" "%1"'
   New-Item -Path $protocol -Force | Out-Null

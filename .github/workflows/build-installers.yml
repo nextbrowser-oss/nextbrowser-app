@@ -8,6 +8,10 @@ on:
       candidate_source:
         type: string
         default: f94e9c23b383e66161800a2941e539417b767c4b
+      install_scope:
+        type: choice
+        options: [allusers, currentuser]
+        default: allusers
 permissions:
   contents: read
   actions: read
@@ -33,6 +37,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_RUN: ${{ inputs.candidate_run_id }}
           CANDIDATE_SOURCE: ${{ inputs.candidate_source }}
+          CANDIDATE_INSTALL_SCOPE: ${{ inputs.install_scope }}
         shell: pwsh
         run: ./pipeline/scripts/verify-windows-installer.ps1
       - uses: actions/upload-artifact@v4
