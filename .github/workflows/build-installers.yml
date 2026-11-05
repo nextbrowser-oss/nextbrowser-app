@@ -13,78 +13,21 @@ on:
           - windows
           - macos
 
+      corporate_signing:
+        description: Sign/notarize macOS on the configured corporate Mac (CLAW-566)
+        type: boolean
+        default: false
+
 permissions:
   contents: read
 
 jobs:
   macos:
-    name: Build macOS installer
     if: inputs.platform == 'both' || inputs.platform == 'macos'
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: "22"
-          cache: npm
-      - run: npm ci
-      - name: Critical feature regressions (mandatory)
-        run: npm run test:critical
-      - run: npm test
-      - name: Configure macOS signing
-        env:
-          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          if [ -n "${MAC_CSC_LINK:-}" ]; then
-            {
-              echo "CSC_LINK=$MAC_CSC_LINK"
-              echo "CSC_KEY_PASSWORD=$MAC_CSC_KEY_PASSWORD"
-              echo "APPLE_ID=$APPLE_ID"
-              echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_APP_SPECIFIC_PASSWORD"
-              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
-              echo "CSC_IDENTITY_AUTO_DISCOVERY=true"
-            } >> "$GITHUB_ENV"
-          else
-            echo "::warning::No Developer ID certificate configured; the artifact will be ad-hoc signed."
-            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
-          fi
-      - name: Build macOS DMG and ZIP
-        env:
-          MAC_IDENTITY: ${{ secrets.MAC_IDENTITY }}
-        run: |
-          if [ -n "${CSC_LINK:-}" ]; then
-            npm run dist:mac -- -c.mac.identity="$MAC_IDENTITY"
-          else
-            npm run dist:mac -- -c.mac.identity="-"
-          fi
-      - name: Verify production Settings blur
-        run: node node_modules/electron/cli.js scripts/test-settings-blur.cjs
-      - name: Verify application signature
-        run: |
-          set -euo pipefail
-          app_path="$(find release -mindepth 2 -maxdepth 2 -type d -name 'NextBrowser.app' -print -quit)"
-          if [ -z "$app_path" ]; then
-            echo "Packaged macOS app was not found." >&2
-            exit 1
-          fi
-          codesign --verify --deep --strict --verbose=2 "$app_path"
-      - name: Launch packaged app
-        run: node scripts/smoke-launch.mjs release/mac-arm64/NextBrowser.app
-      - name: Upload macOS installers
-        uses: actions/upload-artifact@v5
-        with:
-          name: NextBrowser-macOS-${{ github.sha }}
-          path: |
-            release/*.dmg
-            release/*.zip
-            release/*.blockmap
-            release/latest-mac.yml
-          if-no-files-found: error
-          retention-days: 14
+    uses: ./.github/workflows/package-macos.yml
+    with:
+      corporate_signing: ${{ inputs.corporate_signing }}
+      artifact_name: NextBrowser-macOS-${{ github.sha }}
 
   windows:
     name: Build Windows installer
@@ -97,6 +40,8 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - name: Signing and updater metadata regressions
+        run: node --test scripts/macos-signing.test.mjs
       - name: Critical feature regressions (mandatory)
         run: npm run test:critical
       - run: npm test

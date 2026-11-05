@@ -1,60 +1,57 @@
-# macOS signing
+# Corporate macOS signing in CI
 
-There are two ways to ship a Developer ID signed, notarized NextBrowser for macOS.
+CLAW-566 uses the existing `prod.keychain` on the corporate Mac mini M2 Pro
+10-Core (host/access details are in the internal ticket). The expected identity is
+`Developer ID Application: MULTILOGIN OÜ (98Y48GDG5M)`.
+The private key stays on that Mac; the workflows do not import/export a P12.
 
-## 1. In CI (key stored as GitHub secrets)
+IT must register a dedicated repository runner with labels `self-hosted`,
+`macOS`, `ARM64`, and `nextbrowser-macos-signing`. Run it in a dedicated logged-in
+macOS user session: the packaging checks launch Electron. Configure that user's
+existing keychain for non-interactive codesign access and a working `notarytool`
+credential profile. Xcode command-line tools, Node tooling and network access to
+Apple/GitHub/npm must be available.
 
-`release.yml` and `build-installers.yml` already sign and notarize through
-electron-builder when these repository secrets are set. Without them the
-build falls back to an ad-hoc signature, which is what releases have shipped with so far.
+Repository Actions variables:
 
-| Secret | Value |
+| Variable | Value |
 | --- | --- |
-| `MAC_CSC_LINK` | base64 of the Developer ID Application `.p12` (`base64 -i cert.p12`) |
-| `MAC_CSC_KEY_PASSWORD` | password of that `.p12` |
-| `MAC_IDENTITY` | `Developer ID Application: NAME (TEAMID)` |
-| `APPLE_ID` | Apple account used for notarization |
-| `APPLE_APP_SPECIFIC_PASSWORD` | app-specific password of that account |
-| `APPLE_TEAM_ID` | Apple team ID |
+| `MAC_SIGNING_KEYCHAIN` | Absolute path to the existing `prod.keychain` |
+| `MAC_NOTARY_KEYCHAIN` | Absolute path to the keychain holding the notarization credential |
+| `MAC_NOTARY_PROFILE` | Existing `notarytool` profile name in that keychain |
+| `MAC_SIGNING_READY` | Set to `true` only after the runner and keychain/profile are configured |
 
-## 2. Remote signing (key never leaves the signer machine)
+Provision notarization credentials through the corporate secret-management
+process. The repository needs neither the user's Apple account login nor the
+keychain password: IT configures access in the runner's user context. The job
+does not change keychain search lists, unlock passwords or key access controls.
 
-This is the approach clawbrowser uses. `scripts/sign_macos_remote.sh` re-signs
-an already built app with [rcodesign](https://github.com/indygreg/apple-platform-rs)
-remote signing: this machine holds the app, the signer holds the `.p12`, and
-rcodesign relays the signing session between them, end-to-end encrypted. It runs on
-macOS or Linux.
+Both installer workflows use `package-macos.yml`. `Build installers` defaults to
+an explicitly ad-hoc test candidate; enable `corporate_signing` for the corporate
+runner. `Release` always requires corporate signing. A missing readiness flag
+fails before queuing on a self-hosted runner. Windows and macOS builds upload
+artifacts first; the single publication job depends on both succeeding and
+checks the signed macOS evidence/source/version/checksums before uploading.
 
-One-time setup:
+`scripts/macos-signing.mjs` verifies the identity/private key with a temporary
+signing probe and checks notarization authorization, then builds with
+`CSC_KEYCHAIN` and the existing notarization profile. It requires Developer ID
+signing, hardened runtime and notarization. Legacy P12/Apple account environment
+variables are excluded from the build subprocess.
 
-```sh
-# both machines
-cargo install apple-codesign            # provides `rcodesign`
-# signer: put the .p12 and a file with its password somewhere private
-# this machine: App Store Connect API key for notarization
-rcodesign encode-app-store-connect-api-key -o asc-key.json <issuer-id> <key-id> AuthKey_<key-id>.p8
-```
+The signed app is included in both ZIP and DMG. The final DMG is submitted to
+Apple and stapled, then both extracted copies of the app are verified against
+the same signed code hash/version, Gatekeeper, and stapling checks. DMG stapling
+changes its bytes: updater SHA512/size and external blockmaps are regenerated
+afterward. `macos-signing-evidence.json` and `macos-SHA256SUMS` describe the final
+artifacts. An ad-hoc candidate records `production_ready: false` instead.
 
-Sign a release (CI artifact or `npm run dist:mac` output):
+Apple's distribution workflow is documented in
+[Packaging Mac software for distribution](https://developer.apple.com/documentation/xcode/packaging-mac-software-for-distribution)
+and [Customizing the notarization workflow](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow).
 
-```sh
-gh release download v0.2.69 -p 'NextBrowser-*-arm64.zip' -p latest-mac.yml -D release
-scripts/sign_macos_remote.sh \
-  --input release/NextBrowser-0.2.69-arm64.zip \
-  --latest-yml release/latest-mac.yml \
-  --signer signer@mac-mini \
-  --signer-p12 ~/keys/developer-id.p12 \
-  --signer-p12-password-file ~/keys/developer-id.pass \
-  --api-key-file asc-key.json
-gh release upload v0.2.69 release/NextBrowser-0.2.69-arm64.zip release/latest-mac.yml --clobber
-gh release delete-asset v0.2.69 NextBrowser-0.2.69-arm64.zip.blockmap   # stale after re-signing
-```
-
-The script applies hardened runtime and `build/entitlements.mac.plist` to the app,
-every Electron helper and every loose Mach-O (the node-pty `spawn-helper`, `.node` addons),
-just as electron-builder's `entitlements`/`entitlementsInherit` do. It then checks the
-result, notarizes and staples the app, re-zips it and rewrites the zip's
-`sha512`/`size` in `latest-mac.yml` so auto-update still verifies.
-
-The DMG is not re-signed: it still contains the ad-hoc app. Either publish only the zip
-or rebuild the DMG on a Mac from the signed app.
+Local verification: `node --test scripts/macos-signing.test.mjs` checks signature
+rejection, keychain-only environment selection, final updater hashes/blockmaps,
+and malformed metadata. These tests do not validate a real certificate or Apple
+submission; a corporate-runner signing build and a clean-Mac install/update
+check are still required before production readiness.

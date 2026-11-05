@@ -6,128 +6,15 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   macos:
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v5
-        with:
-          node-version: "22"
-          cache: npm
-      - run: npm ci
-      - name: Sync version from tag
-        if: github.ref_type == 'tag'
-        run: node scripts/sync-version.mjs ${{ github.ref_name }}
-      - name: Generate release notes
-        if: github.ref_type == 'tag'
-        run: node scripts/generate-release-notes.mjs ${{ github.ref_name }} release-notes.md
-      - name: Configure macOS signing
-        # Only export CSC_*/APPLE_* when a certificate secret is actually set.
-        # An empty CSC_LINK still counts as "defined" and makes electron-builder
-        # try to read a cert from an empty path, which fails the build — so we
-        # must leave it unset for unsigned builds rather than pass empty strings.
-        #   MAC_CSC_LINK                 base64 of the Developer ID .p12
-        #   MAC_CSC_KEY_PASSWORD         password for that .p12
-        #   MAC_IDENTITY                 "Developer ID Application: NAME (TEAMID)"
-        #   APPLE_ID / APPLE_TEAM_ID     Apple account + team for notarization
-        #   APPLE_APP_SPECIFIC_PASSWORD  app-specific password for notarization
-        env:
-          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          if [ -n "${MAC_CSC_LINK:-}" ]; then
-            echo "Signing certificate present — signing + notarization enabled."
-            {
-              echo "CSC_LINK=$MAC_CSC_LINK"
-              echo "CSC_KEY_PASSWORD=$MAC_CSC_KEY_PASSWORD"
-              echo "APPLE_ID=$APPLE_ID"
-              echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_APP_SPECIFIC_PASSWORD"
-              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
-              echo "CSC_IDENTITY_AUTO_DISCOVERY=true"
-            } >> "$GITHUB_ENV"
-          else
-            echo "::warning::No Developer ID certificate — publishing an ad-hoc signed macOS artifact."
-            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
-          fi
-      - name: Critical feature regressions (mandatory)
-        run: npm run test:critical
-      - run: npm test
-      - name: Build macOS app
-        env:
-          MAC_IDENTITY: ${{ secrets.MAC_IDENTITY }}
-        run: |
-          if [ -n "${CSC_LINK:-}" ]; then
-            npm run dist:mac -- -c.mac.identity="$MAC_IDENTITY"
-          else
-            npm run dist:mac -- -c.mac.identity="-"
-          fi
-      - name: Verify macOS package
-        if: github.ref_type == 'tag'
-        run: |
-          set -euo pipefail
-          app_path="$(find release -mindepth 2 -maxdepth 2 -type d -name 'NextBrowser.app' -print -quit)"
-          if [ -z "$app_path" ]; then
-            echo "Packaged macOS app was not found." >&2
-            exit 1
-          fi
-
-          codesign --verify --deep --strict --verbose=2 "$app_path"
-          signature_info="$(codesign -dv --verbose=4 "$app_path" 2>&1)"
-          printf '%s\n' "$signature_info"
-
-          if [ -n "${CSC_LINK:-}" ]; then
-            if ! grep -q '^Authority=Developer ID Application:' <<<"$signature_info"; then
-              echo "App is not signed with a Developer ID Application certificate." >&2
-              exit 1
-            fi
-            if grep -q '^Signature=adhoc$' <<<"$signature_info"; then
-              echo "Expected a Developer ID signature, but found an ad-hoc signature." >&2
-              exit 1
-            fi
-            if grep -q '^TeamIdentifier=not set$' <<<"$signature_info"; then
-              echo "Signed app does not have an Apple team identifier." >&2
-              exit 1
-            fi
-
-            xcrun stapler validate "$app_path"
-            spctl --assess --type execute --verbose=4 "$app_path"
-          else
-            if ! grep -q '^Signature=adhoc$' <<<"$signature_info"; then
-              echo "Expected an ad-hoc signature for the unsigned release." >&2
-              exit 1
-            fi
-            echo "::warning::Publishing an ad-hoc signed app without notarization. macOS will show an unidentified developer warning."
-          fi
-      - name: Launch packaged app
-        run: node scripts/smoke-launch.mjs release/mac-arm64/NextBrowser.app
-      - name: Publish macOS build
-        if: github.ref_type == 'tag'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            release/*.dmg
-            release/*.zip
-            release/*.blockmap
-            release/latest-mac.yml
-          body_path: release-notes.md
-          fail_on_unmatched_files: true
-      - uses: actions/upload-artifact@v5
-        if: github.event_name == 'workflow_dispatch'
-        with:
-          name: NextBrowser-macOS
-          path: |
-            release/*.dmg
-            release/*.zip
-            release/*.blockmap
-            release/latest-mac.yml
+    uses: ./.github/workflows/package-macos.yml
+    with:
+      corporate_signing: true
+      version_tag: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+      artifact_name: NextBrowser-macOS-${{ github.sha }}
 
   windows:
     runs-on: windows-latest
@@ -140,33 +27,85 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - name: Signing and updater metadata regressions
+        run: node --test scripts/macos-signing.test.mjs
       - name: Sync version from tag
         if: github.ref_type == 'tag'
-        run: node scripts/sync-version.mjs ${{ github.ref_name }}
-      - name: Generate release notes
-        if: github.ref_type == 'tag'
-        run: node scripts/generate-release-notes.mjs ${{ github.ref_name }} release-notes.md
+        env:
+          VERSION_TAG: ${{ github.ref_name }}
+        run: node scripts/sync-version.mjs "$env:VERSION_TAG"
       - name: Critical feature regressions (mandatory)
         run: npm run test:critical
       - run: npm test
       - run: npm run dist:win
       - name: Launch packaged app
         run: node scripts/smoke-launch.mjs release/win-unpacked/NextBrowser.exe
-      - name: Publish NSIS installer
-        if: github.ref_type == 'tag'
-        uses: softprops/action-gh-release@v2
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v5
         with:
-          files: |
-            release/*.exe
-            release/*.exe.blockmap
-            release/latest.yml
-          body_path: release-notes.md
-          fail_on_unmatched_files: true
-      - uses: actions/upload-artifact@v5
-        if: github.event_name == 'workflow_dispatch'
-        with:
-          name: NextBrowser-Windows
+          name: NextBrowser-Windows-${{ github.sha }}
           path: |
             release/*.exe
             release/*.exe.blockmap
             release/latest.yml
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Prepare release metadata
+        env:
+          VERSION_TAG: ${{ github.ref_name }}
+        run: |
+          node scripts/sync-version.mjs "$VERSION_TAG"
+          node scripts/generate-release-notes.mjs "$VERSION_TAG" release-notes.md
+      - uses: actions/download-artifact@v5
+        with:
+          name: NextBrowser-macOS-${{ github.sha }}
+          path: release-artifacts
+      - uses: actions/download-artifact@v5
+        with:
+          name: NextBrowser-Windows-${{ github.sha }}
+          path: release-artifacts
+      - name: Require verified corporate macOS artifacts
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const evidence=JSON.parse(fs.readFileSync('release-artifacts/macos-signing-evidence.json'));
+          const pkg=JSON.parse(fs.readFileSync('package.json'));
+          assert.equal(evidence.status,'passed');
+          assert.equal(evidence.commit,process.env.GITHUB_SHA);
+          assert.equal(evidence.version,pkg.version);
+          assert.equal(evidence.team,'98Y48GDG5M');
+          assert.equal(evidence.identity,'Developer ID Application: MULTILOGIN OÜ (98Y48GDG5M)');
+          assert.equal(evidence.dmg_and_zip_verified,true);
+          assert.equal(evidence.private_key_exported,false);
+          NODE
+          cd release-artifacts
+          sha256sum --check macos-SHA256SUMS
+      - name: Publish coordinated Windows and macOS release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-artifacts/*.dmg
+            release-artifacts/*.zip
+            release-artifacts/*.exe
+            release-artifacts/*.blockmap
+            release-artifacts/latest*.yml
+            release-artifacts/macos-signing-evidence.json
+            release-artifacts/macos-SHA256SUMS
+          body_path: release-notes.md
+          fail_on_unmatched_files: true

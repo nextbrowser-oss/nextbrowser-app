@@ -1,0 +1,102 @@
+name: Package macOS
+
+on:
+  workflow_call:
+    inputs:
+      corporate_signing:
+        type: boolean
+        required: true
+      version_tag:
+        type: string
+        default: ""
+      artifact_name:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  select-runner:
+    runs-on: ubuntu-latest
+    outputs:
+      runner: ${{ steps.select.outputs.runner }}
+    steps:
+      - id: select
+        env:
+          CORPORATE_SIGNING: ${{ inputs.corporate_signing }}
+          SIGNING_READY: ${{ vars.MAC_SIGNING_READY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$CORPORATE_SIGNING" = true ]; then
+            if [ "$SIGNING_READY" != true ]; then
+              echo "::error::Corporate Mac signing is not configured. Complete CLAW-566 and set MAC_SIGNING_READY=true after runner/keychain/notarization setup."
+              exit 1
+            fi
+            echo 'runner=["self-hosted","macOS","ARM64","nextbrowser-macos-signing"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'runner=["macos-14"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  package:
+    needs: select-runner
+    runs-on: ${{ fromJSON(needs.select-runner.outputs.runner) }}
+    timeout-minutes: 120
+    concurrency:
+      group: macos-package-${{ inputs.corporate_signing && 'corporate-signer' || github.run_id }}
+      cancel-in-progress: false
+    env:
+      MAC_SIGNING_KEYCHAIN: ${{ inputs.corporate_signing && vars.MAC_SIGNING_KEYCHAIN || '' }}
+      MAC_NOTARY_KEYCHAIN: ${{ inputs.corporate_signing && vars.MAC_NOTARY_KEYCHAIN || '' }}
+      MAC_NOTARY_PROFILE: ${{ inputs.corporate_signing && vars.MAC_NOTARY_PROFILE || '' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Sync version from release tag
+        if: inputs.version_tag != ''
+        env:
+          VERSION_TAG: ${{ inputs.version_tag }}
+        run: node scripts/sync-version.mjs "$VERSION_TAG"
+      - run: npm ci
+      - name: Signing and updater metadata regressions
+        run: node --test scripts/macos-signing.test.mjs
+      - name: Critical feature regressions (mandatory)
+        run: npm run test:critical
+      - run: npm test
+      - name: Sign and notarize on the corporate Mac
+        if: inputs.corporate_signing
+        run: node scripts/macos-signing.mjs
+      - name: Build ad-hoc test candidate
+        if: ${{ !inputs.corporate_signing }}
+        run: npm run dist:mac -- -c.mac.identity="-" -c.mac.notarize=false -c.dmg.sign=false
+      - name: Verify production Settings blur
+        run: node node_modules/electron/cli.js scripts/test-settings-blur.cjs
+      - name: Verify ad-hoc candidate signature
+        if: ${{ !inputs.corporate_signing }}
+        run: |
+          set -euo pipefail
+          codesign --verify --deep --strict --verbose=2 release/mac-arm64/NextBrowser.app
+          signature_info="$(codesign -dv --verbose=4 release/mac-arm64/NextBrowser.app 2>&1)"
+          grep -q '^Signature=adhoc$' <<< "$signature_info"
+          node --input-type=module -e "import fs from 'node:fs'; const p=JSON.parse(fs.readFileSync('package.json')); fs.writeFileSync('release/macos-signing-evidence.json',JSON.stringify({status:'ad-hoc candidate',version:p.version,commit:process.env.GITHUB_SHA,production_ready:false},null,2)+'\n')"
+      - name: Launch packaged app
+        run: node scripts/smoke-launch.mjs release/mac-arm64/NextBrowser.app
+      - name: Upload verified macOS installers
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.blockmap
+            release/latest-mac.yml
+            release/macos-signing-evidence.json
+            release/macos-SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
