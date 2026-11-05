@@ -40,8 +40,12 @@ try{
   $protocol='HKCU:/Software/Classes/nextbrowser/shell/open/command'
   if(!(Test-Path -LiteralPath $protocol)){throw 'NextBrowser OAuth callback protocol is not registered'}
   $command=(Get-Item -LiteralPath $protocol).GetValue('')
-  if(!$command.Contains($executable) -or $command -notmatch '%[1Ll]'){throw 'OAuth callback command does not point to the installed app and URL argument'}
+  if($command.IndexOf($executable,[StringComparison]::OrdinalIgnoreCase) -lt 0 -or $command -notmatch '%[1Ll]'){throw 'OAuth callback command does not point to the installed app and URL argument'}
   $result.oauth_protocol_registered=$true
+  $updated=Start-Process -FilePath $installer -ArgumentList @('/S','/currentuser',"/D=$install") -Wait -PassThru -WindowStyle Hidden
+  if($updated.ExitCode -ne 0 -or !(Test-Path -LiteralPath $executable)){throw 'In-place candidate reinstall/update failed'}
+  if(!(Test-Path -LiteralPath $protocol) -or (Get-Item -LiteralPath $protocol).GetValue('') -ne $command){throw 'Update removed or changed the existing OAuth callback'}
+  $result.oauth_protocol_preserved_on_update=$true
   $uninstallers=@(Get-ChildItem -LiteralPath $install -Filter '*Uninstall*.exe' -File)
   if($uninstallers.Count -ne 1){throw 'Expected one installed uninstaller'}
   $uninstaller=$uninstallers[0].FullName
@@ -56,6 +60,21 @@ try{
     if($remaining -and $remaining.Contains($install)){throw 'Uninstaller left a callback pointing to the removed app'}
   }
   $result.uninstalled=$true
+  $result.owned_callback_removed=$true
+  # A second installation must not remove an association owned by a different
+  # install, including a sibling path that shares this installation's prefix.
+  $again=Start-Process -FilePath $installer -ArgumentList @('/S','/currentuser',"/D=$install") -Wait -PassThru -WindowStyle Hidden
+  if($again.ExitCode -ne 0 -or !(Test-Path -LiteralPath $executable)){throw 'Second isolated installation failed'}
+  $foreignCommand='"'+$install+'-other\NextBrowser.exe" "%1"'
+  New-Item -Path $protocol -Force | Out-Null
+  Set-Item -LiteralPath $protocol -Value $foreignCommand
+  $againRemoved=Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait -PassThru -WindowStyle Hidden
+  if($againRemoved.ExitCode -ne 0){throw 'Second uninstaller failed'}
+  $deadline=(Get-Date).AddSeconds(45)
+  while((Test-Path -LiteralPath $executable) -and (Get-Date) -lt $deadline){Start-Sleep -Seconds 1}
+  if(Test-Path -LiteralPath $executable){throw 'Second uninstaller left its executable'}
+  if(!(Test-Path -LiteralPath $protocol) -or (Get-Item -LiteralPath $protocol).GetValue('') -ne $foreignCommand){throw 'Uninstaller modified a callback owned by another installation'}
+  $result.foreign_callback_preserved=$true
   $result.status='passed'
 }catch{
   $result.status='failed';$result.error=$_.Exception.Message

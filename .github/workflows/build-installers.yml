@@ -4,10 +4,10 @@ on:
     inputs:
       candidate_run_id:
         type: string
-        default: '42024596504'
+        default: '42040285553'
       candidate_source:
         type: string
-        default: 13782d672c62a8375566b6b1c242479d72c2fce6
+        default: f94e9c23b383e66161800a2941e539417b767c4b
 permissions:
   contents: read
   actions: read
