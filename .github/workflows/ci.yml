@@ -5,13 +5,36 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      symlink_only:
+        description: Run filesystem symlink tests only; no install, build or packaging
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
+  symlink-tests:
+    name: Symlink regressions (${{ matrix.os }})
+    if: github.event_name == 'workflow_dispatch' && inputs.symlink_only == true
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Run unchanged symlink regression suites
+        run: node --test electron/dasbrowser-runtime.test.cjs electron/ssh-config.test.cjs
+
   validate-skills:
     name: Validate repository skills
+    if: github.event_name != 'workflow_dispatch' || inputs.symlink_only != true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -22,6 +45,7 @@ jobs:
 
   test:
     name: Test and package (${{ matrix.os }})
+    if: github.event_name != 'workflow_dispatch' || inputs.symlink_only != true
     needs: validate-skills
     strategy:
       fail-fast: false
