@@ -61,6 +61,8 @@ jobs:
           else
             npm run dist:mac -- -c.mac.identity="-"
           fi
+      - name: Verify production Settings blur
+        run: node node_modules/electron/cli.js scripts/test-settings-blur.cjs
       - name: Verify application signature
         run: |
           set -euo pipefail
@@ -79,6 +81,8 @@ jobs:
           path: |
             release/*.dmg
             release/*.zip
+            release/*.blockmap
+            release/latest-mac.yml
           if-no-files-found: error
           retention-days: 14
 
@@ -98,12 +102,17 @@ jobs:
       - run: npm test
       - name: Build Windows installer
         run: npm run dist:win
+      - name: Verify production Settings blur
+        run: node node_modules/electron/cli.js scripts/test-settings-blur.cjs
       - name: Launch packaged app
         run: node scripts/smoke-launch.mjs release/win-unpacked/NextBrowser.exe
       - name: Upload Windows installer
         uses: actions/upload-artifact@v5
         with:
           name: NextBrowser-Windows-${{ github.sha }}
-          path: release/*.exe
+          path: |
+            release/*.exe
+            release/*.exe.blockmap
+            release/latest.yml
           if-no-files-found: error
           retention-days: 14
