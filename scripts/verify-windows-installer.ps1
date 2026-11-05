@@ -24,6 +24,24 @@ try{
   try{$actual=[Convert]::ToBase64String([Security.Cryptography.SHA512]::HashData($stream))}finally{$stream.Dispose()}
   if(!$expected -or $actual -ne $expected){throw 'Installer SHA512 differs from updater metadata'}
   $result.installer_sha256=(Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+  if($env:CANDIDATE_CLI_RUN){
+    if($env:CANDIDATE_CLI_RUN -notmatch '^[0-9]+$' -or $env:CANDIDATE_CLI_SOURCE -notmatch '^[0-9a-f]{40}$'){throw 'Invalid candidate CLI reference'}
+    $cliRun=(& gh api "repos/nextbrowser-oss/nextctl/actions/runs/$env:CANDIDATE_CLI_RUN" | ConvertFrom-Json)
+    if($LASTEXITCODE -ne 0 -or $cliRun.head_sha -ne $env:CANDIDATE_CLI_SOURCE -or $cliRun.conclusion -ne 'success'){throw 'CLI candidate CI/source mismatch'}
+    $cliDownload=Join-Path $env:RUNNER_TEMP 'candidate-cli'
+    & gh run download $env:CANDIDATE_CLI_RUN --repo nextbrowser-oss/nextctl --name "nbc-candidate-windows-amd64-$env:CANDIDATE_CLI_SOURCE" --dir $cliDownload
+    if($LASTEXITCODE -ne 0){throw 'Cannot download the exact candidate CLI'}
+    foreach($line in (Get-Content -LiteralPath (Join-Path $cliDownload 'SHA256SUMS'))){
+      if($line -notmatch '^([0-9a-f]{64})\s+(.+)$'){throw 'Invalid CLI checksum record'}
+      $wanted=$Matches[1];$relative=$Matches[2]
+      $file=[IO.Path]::GetFullPath((Join-Path $cliDownload $relative))
+      if(!$file.StartsWith(([IO.Path]::GetFullPath($cliDownload)+[IO.Path]::DirectorySeparatorChar),[StringComparison]::OrdinalIgnoreCase)){throw 'Unexpected CLI checksum path'}
+      if((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -ne $wanted){throw 'CLI candidate checksum mismatch'}
+    }
+    $env:CANDIDATE_CLI_EXE=Join-Path $cliDownload 'nbc-win-amd64/nbc.exe'
+    if(!(Test-Path -LiteralPath $env:CANDIDATE_CLI_EXE)){throw 'Candidate CLI executable missing'}
+    $result.cli_source=$env:CANDIDATE_CLI_SOURCE
+  }
   $process=Start-Process -FilePath $installer -ArgumentList @('/S','/currentuser',"/D=$install") -Wait -PassThru -WindowStyle Hidden
   if($process.ExitCode -ne 0){throw "Installer failed: $($process.ExitCode)"}
   $executable=Join-Path $install 'NextBrowser.exe'
@@ -34,7 +52,13 @@ try{
   if(!$result.installed_product_version.StartsWith('0.2.73')){throw 'Installed executable version mismatch'}
   # The download token is needed by gh only, never inherited by the app.
   Remove-Item Env:GH_TOKEN
-  & node "$env:GITHUB_WORKSPACE/source/scripts/smoke-launch.mjs" $executable *> "$qa/installed-app-launch.log"
+  if($env:CANDIDATE_IPC_SCRIPT){
+    $env:CANDIDATE_APP_EXE=$executable
+    $env:CANDIDATE_EVIDENCE=$qa
+    & node $env:CANDIDATE_IPC_SCRIPT *> "$qa/installed-app-launch.log"
+  }else{
+    & node "$env:GITHUB_WORKSPACE/source/scripts/smoke-launch.mjs" $executable *> "$qa/installed-app-launch.log"
+  }
   if($LASTEXITCODE -ne 0){throw 'Installed app launch failed'}
   $result.launched=$true
   $protocol='HKCU:/Software/Classes/nextbrowser/shell/open/command'
