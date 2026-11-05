@@ -41,7 +41,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Signing and updater metadata regressions
-        run: node --test scripts/macos-signing.test.mjs
+        run: node --test scripts/macos-signing.node.mjs
       - name: Critical feature regressions (mandatory)
         run: npm run test:critical
       - run: npm test

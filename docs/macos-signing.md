@@ -50,7 +50,7 @@ Apple's distribution workflow is documented in
 [Packaging Mac software for distribution](https://developer.apple.com/documentation/xcode/packaging-mac-software-for-distribution)
 and [Customizing the notarization workflow](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow).
 
-Local verification: `node --test scripts/macos-signing.test.mjs` checks signature
+Local verification: `node --test scripts/macos-signing.node.mjs` checks signature
 rejection, keychain-only environment selection, final updater hashes/blockmaps,
 and malformed metadata. These tests do not validate a real certificate or Apple
 submission; a corporate-runner signing build and a clean-Mac install/update

@@ -64,8 +64,6 @@ jobs:
           VERSION_TAG: ${{ inputs.version_tag }}
         run: node scripts/sync-version.mjs "$VERSION_TAG"
       - run: npm ci
-      - name: Signing and updater metadata regressions
-        run: node --test scripts/macos-signing.test.mjs
       - name: Critical feature regressions (mandatory)
         run: npm run test:critical
       - run: npm test
