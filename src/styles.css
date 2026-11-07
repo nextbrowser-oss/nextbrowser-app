@@ -445,11 +445,13 @@ button, input, textarea, select { color: var(--text); }
   gap: 0;
   padding: 0;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   cursor: e-resize;
 }
-.sidebar-mini-header { height: 64px; flex: none; display: flex; align-items: center; justify-content: center; gap: 4px; }
+.sidebar-mini-header { width: 100%; min-width: 0; height: 96px; padding: 8px 0; flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
 .sidebar-mini-header button { display: grid; justify-items: center; gap: 3px; font-size: 9px; }
+.sidebar-mini-header .sidebar-logo-home { width: 32px; height: 32px; flex: none; }
 .sidebar-mini > .mini-nav-btn { flex-shrink: 0; margin: 8px 0; }
 .sidebar-destinations { display: grid; gap: 0; padding: 6px 10px; flex-shrink: 0; }
 .sidebar-destinations.is-compact { width: 100%; padding-inline: 6px; }
@@ -478,34 +480,6 @@ button, input, textarea, select { color: var(--text); }
 :root:not([data-theme="light"]) .mini-nav-btn:hover { border-color: transparent; background: var(--surface-3); }
 .mini-nav-btn:hover { background: var(--surface-3); border-color: var(--line-strong); }
 .mini-nav-btn span { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.sidebar-mini [data-tooltip] { position: relative; }
-.sidebar-mini [data-tooltip]::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  top: 50%;
-  left: calc(100% + 9px);
-  z-index: 50;
-  padding: 5px 8px;
-  border: 1px solid var(--line-strong);
-  border-radius: 7px;
-  background: var(--bg-elevated);
-  color: var(--text);
-  box-shadow: 0 6px 18px var(--shadow);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1.2;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-50%) translateX(-2px);
-  transition: opacity 70ms ease, transform 70ms ease;
-}
-.sidebar-mini [data-tooltip]:hover::after,
-.sidebar-mini [data-tooltip]:focus-visible::after {
-  opacity: 1;
-  transform: translateY(-50%) translateX(0);
-}
-
 .sidebar-shell {
   display: flex;
   flex-direction: column;

@@ -1318,7 +1318,7 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
           <button className="sidebar-logo-home" onClick={onHome} title="Back to main view" aria-label="Back to main view"><BrandLogo size={24} /></button>
           <button
             className="plain-icon-btn sidebar-collapse-toggle"
-            data-tooltip="Expand sidebar"
+            title="Expand sidebar"
             aria-label="Expand sidebar"
             onClick={() => s.setSidebarCollapsed(false)}
           >
@@ -1327,14 +1327,14 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
           </button>
         </div>
         <SidebarNavigation collapsed tab={s.tab} badgeFor={badgeFor} onSelect={s.setTab} />
-        <button className="mini-nav-btn" data-tooltip={`${visibleProfileCount} profiles, ${runningCount} running`} aria-label={`Open Live, ${visibleProfileCount} profiles, ${runningCount} running`} onClick={() => s.setTab("live")}>
+        <button className="mini-nav-btn" title={`${visibleProfileCount} profiles, ${runningCount} running`} aria-label={`Open Live, ${visibleProfileCount} profiles, ${runningCount} running`} onClick={() => s.setTab("live")}>
           <Icon name="person.crop.circle" size={18} />
           <span>Live</span>
           <span>{runningCount}/{visibleProfileCount}</span>
         </button>
-        {activeRecording && <button className="mini-nav-btn mini-recording-control recording" data-tooltip={recordingMiniLabel} aria-label={`${activeRecording.destination === "workflow" ? "Open workflow recording" : "Open active recording"}.`} onClick={openRecorder}><Icon name="circle.fill" size={18} /><span>{recordingDuration(activeRecording.startedAt, recordingClock)}</span></button>}
+        {activeRecording && <button className="mini-nav-btn mini-recording-control recording" title={recordingMiniLabel} aria-label={`${activeRecording.destination === "workflow" ? "Open workflow recording" : "Open active recording"}.`} onClick={openRecorder}><Icon name="circle.fill" size={18} /><span>{recordingDuration(activeRecording.startedAt, recordingClock)}</span></button>}
         <span className="spacer" />
-        <button className="mini-nav-btn" data-tooltip={`Agent: ${agentName}`} aria-label={`Agent: ${agentName}`} onClick={onOpenAgentSettings}>
+        <button className="mini-nav-btn" title={`Agent: ${agentName}`} aria-label={`Agent: ${agentName}`} onClick={onOpenAgentSettings}>
           <Icon name="cpu.fill" size={18} />
           <span>Agent</span>
           <span>{ready ? "on" : "off"}</span>
