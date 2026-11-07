@@ -6,7 +6,6 @@ import { agentById } from "../agents";
 import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { trackEvent } from "../lib/analytics";
 import { reportUserFacingError } from "../lib/errorReporting";
-import { BrandHeader, BrandLogo } from "./BrandLogo";
 import { SidebarNavigation, SidebarSettingsButton } from "./SidebarNavigation";
 import { Icon, Spinner } from "./Icon";
 import { withLocalScripts } from "../skillsCatalog";
@@ -93,14 +92,13 @@ function multiloginCreationError(error: unknown, kind: MultiloginProfileKind): s
 interface SidebarProps {
   onOpenSettings: () => void;
   settingsAttention?: boolean;
-  onHome: () => void;
   /** Optional compact controls next to Settings, e.g. the interface size control. */
   footerAccessory?: ReactNode;
 }
 
 const SIDEBAR_OPEN_SECTION_KEY = "sidebar.openSection";
 
-export function Sidebar({ onOpenSettings, settingsAttention, onHome, footerAccessory }: SidebarProps) {
+export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: SidebarProps) {
   const s = useStore();
   const [menuProfile, setMenuProfile] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -1313,9 +1311,6 @@ export function Sidebar({ onOpenSettings, settingsAttention, onHome, footerAcces
   if (s.sidebarCollapsed) {
     return (
       <div className="sidebar-mini">
-        <div className="sidebar-mini-header">
-          <Tooltip content="Back to main view" side="right"><button className="sidebar-logo-home" onClick={onHome} aria-label="Back to main view"><BrandLogo size={24} /></button></Tooltip>
-        </div>
         <SidebarNavigation collapsed tab={s.tab} badgeFor={badgeFor} onSelect={s.setTab} />
         {activeRecording && <Tooltip content={recordingMiniLabel} side="right"><button className="mini-nav-btn mini-recording-control recording" aria-label={`${activeRecording.destination === "workflow" ? "Open workflow recording" : "Open active recording"}.`} onClick={openRecorder}><Icon name="circle.fill" size={18} /><span>{recordingDuration(activeRecording.startedAt, recordingClock)}</span></button></Tooltip>}
         <span className="spacer" />
@@ -1326,12 +1321,6 @@ export function Sidebar({ onOpenSettings, settingsAttention, onHome, footerAcces
 
   return (
     <div className="sidebar-shell">
-      <div className="sidebar-brand">
-        <div className="row">
-          <Tooltip content="Back to main view" side="right"><button className="sidebar-brand-home" onClick={onHome} aria-label="Back to main view"><BrandHeader subtitle="native agent console" /></button></Tooltip>
-        </div>
-      </div>
-
       <SidebarNavigation tab={s.tab} badgeFor={badgeFor} onSelect={s.setTab} />
 
       {activeRecording && <section className="sidebar-recording-control recording" aria-label={activeRecording.destination === "workflow" ? "Workflow recording in progress" : "Recording in progress"}>

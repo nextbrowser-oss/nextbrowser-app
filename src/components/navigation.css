@@ -16,6 +16,7 @@
   user-select: none;
 }
 .app-titlebar button { -webkit-app-region: no-drag; app-region: no-drag; }
+.app-titlebar-logo .brand-logo { width: 24px; height: 24px; }
 .app-titlebar-name { font-size: 12px; font-weight: 500; letter-spacing: -0.01em; }
 .app-titlebar-actions { display: flex; flex: none; align-items: center; gap: 8px; margin-inline-start: auto; -webkit-app-region: no-drag; app-region: no-drag; }
 .community-controls { display: inline-flex; align-items: center; gap: 6px; }
@@ -30,6 +31,8 @@
 }
 @media (max-width: 360px) {
   .community-github .github-star-count { display: none; }
+  .app-titlebar { gap: 4px; padding-left: 8px; }
+  .app-titlebar .app-titlebar-logo { width: 24px; height: 24px; }
 }
 .desktop-shell[data-platform="darwin"] .app-titlebar { padding-left: calc(82px / var(--window-zoom, 1)); padding-right: 16px; }
 .app > .sidebar {
@@ -53,16 +56,17 @@
   border-radius: 18px;
   overflow: hidden;
 }
+.app { --sidebar-rail-width: 56px; }
+.app > .sidebar.sidebar-collapsed { min-width: var(--sidebar-rail-width); max-width: var(--sidebar-rail-width); }
 .sidebar .sidebar-destination svg,
 .sidebar .sidebar-settings-button svg { color: var(--glass-inverse-text); }
 .app > .resize-handle { margin-block: 8px; }
 .sidebar .sidebar-mini { cursor: default; }
-.sidebar-mini .sidebar-mini-header { height: 56px; padding-block: 8px; }
-.sidebar-shell .sidebar-brand { height: 56px; padding: 10px 16px; border: 0; }
 .sidebar .sidebar-destinations { gap: 4px; padding-top: 8px; }
 .sidebar-destinations .sidebar-destination { height: 42px; border-radius: 10px; }
-.sidebar .sidebar-destinations.is-compact { padding: 8px; gap: 8px; }
-.sidebar-destinations.is-compact .sidebar-destination { height: 50px; gap: 5px; }
+.sidebar .sidebar-destinations.is-compact { padding: 8px 6px; gap: 6px; }
+.sidebar-destinations.is-compact .sidebar-destination { height: 48px; gap: 5px; }
+.sidebar-mini > .mini-recording-control { width: 44px; }
 .sidebar-destinations .sidebar-destination-label { font-weight: 500; }
 .sidebar-destinations .sidebar-destination.active { box-shadow: none; }
 .sidebar-destinations .sidebar-destination-count,
@@ -71,6 +75,6 @@
 .sidebar-settings-button { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 8px 10px; border: 0; border-radius: 10px; background: transparent; color: var(--muted); text-align: left; font: inherit; font-size: 13px; }
 .sidebar-settings-button:hover { background: var(--surface-3); color: var(--text); }
 .sidebar-settings-button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
-.sidebar-settings-button.is-compact { flex: none; flex-direction: column; justify-content: center; gap: 5px; width: 52px; min-height: 54px; margin: 8px 0 12px; padding: 6px 0; font-size: 9px; }
+.sidebar-settings-button.is-compact { flex: none; flex-direction: column; justify-content: center; gap: 5px; width: 44px; min-height: 50px; margin: 8px 0 10px; padding: 6px 0; font-size: 9px; }
 .sidebar-settings-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent-text); margin-inline-start: auto; }
 .is-compact .sidebar-settings-dot { position: absolute; top: 6px; right: 8px; }

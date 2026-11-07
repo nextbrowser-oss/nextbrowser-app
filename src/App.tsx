@@ -1678,12 +1678,11 @@ export function App() {
       <aside
         id="app-sidebar"
         className={`${glassSurfaceClassName} sidebar${sidebarCollapsed ? " sidebar-collapsed" : ""}`}
-        style={{ width: sidebarCollapsed ? 68 : sidebarWidth }}
+        style={{ width: sidebarCollapsed ? "var(--sidebar-rail-width)" : sidebarWidth }}
       >
         <Sidebar
           onOpenSettings={openSettingsFromButton}
           settingsAttention={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)}
-          onHome={() => setTab("chat")}
           footerAccessory={!uiScaleFloatingHidden && !sidebarCollapsed
             ? <UIScaleControl inline value={uiScale} onChange={setUiScale} onDismiss={dismissUiScaleFloating} />
             : undefined}

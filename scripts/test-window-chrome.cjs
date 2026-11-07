@@ -29,8 +29,8 @@ app.whenReady().then(async () => {
   window.webContents.session.webRequest.onBeforeRequest((details, done) => done({ cancel: !details.url.startsWith("file:") && !details.url.startsWith("data:") && !details.url.startsWith("devtools:") }));
   await window.loadFile(path.resolve("dist/index.html"), { query: { preview: "main", tab: "skills" } });
   await pause(800);
-  assert.equal(await window.webContents.executeJavaScript(`!!document.querySelector('.app-titlebar button:not(:disabled)')`), true);
-  await window.webContents.executeJavaScript(`document.querySelector('.app-titlebar button').click()`);
+  assert.equal(await window.webContents.executeJavaScript(`!!document.querySelector('.app-titlebar [aria-controls="app-sidebar"]:not(:disabled)')`), true);
+  await window.webContents.executeJavaScript(`document.querySelector('.app-titlebar [aria-controls="app-sidebar"]').click()`);
   await pause(100);
   assert.equal(await window.webContents.executeJavaScript(`!!document.querySelector('.sidebar-collapsed')`), true);
   assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('.sidebar-mini .sidebar-settings-button').length`), 1);
@@ -43,7 +43,7 @@ app.whenReady().then(async () => {
       applyWindowZoom(window, factor, process.platform);
       await pause(100);
       const info = await window.webContents.executeJavaScript(`(() => {
-        const header=document.querySelector('.app-titlebar'), button=header.querySelector('button'), rect=button.getBoundingClientRect();
+        const header=document.querySelector('.app-titlebar'), button=header.querySelector('[aria-controls="app-sidebar"]'), rect=button.getBoundingClientRect();
         const overlay=navigator.windowControlsOverlay;
         const actions=header.querySelector('.app-titlebar-actions'), actionRect=actions.getBoundingClientRect();
         return { headerHeight:header.getBoundingClientRect().height, buttonBottom:rect.bottom, buttonRight:rect.right, native:overlay?.visible, area:overlay?.getTitlebarAreaRect().toJSON(), drag:getComputedStyle(header).getPropertyValue('app-region'), controlDrag:getComputedStyle(button).getPropertyValue('app-region'), actionsRight:actionRect.right, actionsBottom:actionRect.bottom, actionsCount:actions.querySelectorAll('button').length, actionsSafe:[...actions.querySelectorAll('button')].every(b=>getComputedStyle(b).getPropertyValue('app-region')==='no-drag'&&getComputedStyle(b).borderTopWidth==='0px') };

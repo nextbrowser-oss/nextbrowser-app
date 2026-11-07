@@ -4,13 +4,20 @@ import { afterEach, expect, it, vi } from "vitest";
 import { DesktopShell, TitlebarActions } from "./DesktopShell";
 import { SidebarNavigation, SidebarSettingsButton } from "./SidebarNavigation";
 
-const fixture = vi.hoisted(() => ({ state: { sidebarCollapsed: true, authed: true, checking: false, showOnboarding: false, setSidebarCollapsed: vi.fn() } }));
+const fixture = vi.hoisted(() => ({ state: { sidebarCollapsed: true, authed: true, checking: false, showOnboarding: false, setSidebarCollapsed: vi.fn(), setTab: vi.fn() } }));
 vi.mock("../store", () => ({ useStore: (select: (state: typeof fixture.state) => unknown) => select(fixture.state) }));
 afterEach(() => { cleanup(); fixture.state.checking = false; fixture.state.authed = true; });
 
 it("places the sidebar toggle in the global titlebar and preserves its expanded state", () => {
   render(<DesktopShell><aside id="app-sidebar">Navigation</aside></DesktopShell>);
   const toggle = screen.getByRole("button", { name: "Expand sidebar" });
+  const home = screen.getByRole("button", { name: "Back to main view" });
+  const buttons = toggle.closest("header")!.querySelectorAll("button");
+  expect(buttons[0]).toBe(home);
+  expect(buttons[1]).toBe(toggle);
+  expect(home.querySelector('img')?.getAttribute('alt')).toBe('Nextbrowser');
+  fireEvent.click(home);
+  expect(fixture.state.setTab).toHaveBeenCalledWith("chat");
   expect(toggle.closest("header")).not.toBeNull();
   expect(toggle.closest("aside")).toBeNull();
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
