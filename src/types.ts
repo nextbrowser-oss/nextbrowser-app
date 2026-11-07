@@ -525,7 +525,7 @@ export interface TabsList {
   }[];
 }
 
-export type AppTab = "chat" | "automation" | "skills" | "connectors" | "live" | "usage" | "guide" | "scheduled";
+export type AppTab = "chat" | "automation" | "skills" | "connectors" | "mcp" | "live" | "usage" | "guide" | "scheduled";
 
 export interface AutomationArtifact {
   id: string;

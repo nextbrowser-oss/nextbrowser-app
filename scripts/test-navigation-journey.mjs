@@ -119,6 +119,11 @@ try {
   assert.ok((await projectPopover.boundingBox()).width <= 240);
   await page.keyboard.press('Escape');
   const nav = page.getByRole("navigation", { name: "Sidebar pages" });
+  const extensionsButton = () => nav.getByRole('button', { name: 'Open Extensions', exact: true });
+  const openExtension = async name => {
+    await extensionsButton().click();
+    await page.getByRole('dialog', { name: 'Extensions', exact: true }).getByRole('button', { name: new RegExp(`^Open ${name}`) }).click();
+  };
   const checkSidebarSurface = async () => {
     const surface = await page.locator('#app-sidebar').evaluate(node => {
       const rect = node.getBoundingClientRect(), style = getComputedStyle(node);
@@ -188,22 +193,54 @@ try {
   await scheduleDialog.waitFor({ state: 'detached' });
   assert.equal(await draft.inputValue(), 'Keep this unsent draft while opening utilities');
   await draft.fill('');
-  const skillsButton = () => nav.getByRole("button", { name: /^Open Skills/ });
-  await skillsButton().click();
-  const expandedY = (await skillsButton().boundingBox()).y;
+  await openExtension('Skills');
+  const expandedY = (await extensionsButton().boundingBox()).y;
   await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
   assert.equal(await page.getByRole("button", { name: "Expand sidebar", exact: true }).evaluate(node => !!node.closest(".app-titlebar")), true);
   assert.equal(await page.locator(".sidebar-mini").getByRole("button", { name: /^Agent:/ }).count(), 0);
-  assert.equal(await nav.getByRole("button").count(), 5);
+  assert.equal(await nav.getByRole("button").count(), 4);
   assert.equal(await nav.locator("svg").evaluateAll(nodes => nodes.every(node => getComputedStyle(node).strokeWidth === "1.5px")), true);
   assert.equal(await page.locator(".sidebar-mini").evaluate(node => node.scrollWidth <= node.clientWidth), true);
   await checkSidebarSurface();
-  const collapsedY = (await skillsButton().boundingBox()).y;
+  const collapsedY = (await extensionsButton().boundingBox()).y;
   assert.ok(Math.abs(expandedY - collapsedY) < 1, `Navigation moved: ${expandedY} → ${collapsedY}`);
-  assert.equal(await skillsButton().innerText().then((text) => text.includes("Skills")), true);
+  assert.equal(await extensionsButton().innerText(), 'Extensions');
+  await extensionsButton().hover();
+  const extensionsPopup = page.getByRole('dialog', { name: 'Extensions', exact: true });
+  await extensionsPopup.waitFor();
+  const triggerBox = await extensionsButton().boundingBox(), flyoutBox = await extensionsPopup.boundingBox();
+  assert.ok(flyoutBox.x > triggerBox.x + triggerBox.width, 'flyout sits to the right of the group');
+  assert.ok(Math.abs(flyoutBox.y - triggerBox.y) <= 1, 'flyout aligns with the group top');
+  assert.ok(flyoutBox.width <= 180);
+  const rows = await extensionsPopup.getByRole('button').all();
+  assert.equal(rows.length, 3);
+  const rowBoxes = await Promise.all(rows.map(row => row.boundingBox()));
+  assert.ok(rowBoxes[0].y < rowBoxes[1].y && rowBoxes[1].y < rowBoxes[2].y, 'extensions form one vertical column');
+  await extensionsPopup.getByRole('button', { name: /^Open MCP/ }).hover();
+  await page.waitForTimeout(250);
+  assert.equal(await extensionsPopup.isVisible(), true, 'crossing the gap preserves the flyout');
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme; }, theme);
+    await page.waitForTimeout(250);
+    const foregrounds = await extensionsPopup.getByRole('button').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).color));
+    assert.ok(foregrounds.every(color => color === foregrounds[0]), `active, hovered and normal actions share the glass foreground: ${foregrounds}`);
+    assert.equal(foregrounds[0], await extensionsPopup.evaluate(node => getComputedStyle(node).color));
+    await page.screenshot({ path: `e2e-out/extensions-rail-${theme}.png` });
+  }
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; document.documentElement.style.colorScheme = 'light'; });
+  await extensionsPopup.getByRole('button', { name: /^Open MCP/ }).click();
+  const mcpDialog = page.getByRole('dialog', { name: 'MCP', exact: true });
+  await mcpDialog.waitFor();
+  await mcpDialog.getByText('stdio', { exact: true }).waitFor();
+  assert.equal(await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().tab), 'skills');
+  await mcpDialog.getByRole('button', { name: 'Agent settings', exact: true }).click();
+  const agentSettings = page.getByRole('dialog', { name: 'Settings', exact: true });
+  await agentSettings.waitFor();
+  await agentSettings.getByRole('button', { name: 'Close settings', exact: true }).click();
+  assert.equal(await page.getByRole('dialog', { name: 'MCP', exact: true }).count(), 0);
   await nav.getByRole("button", { name: /^Open Guide/ }).click();
   assert.equal(await page.locator(".sidebar-collapsed").count(), 1, "navigation clicks must not expand the sidebar");
-  await skillsButton().click();
+  await openExtension('Skills');
   const tabs = page.getByRole("tablist", { name: "Skills sections" });
   await tabs.getByRole("tab", { name: "My skills", exact: true }).click();
   await page.getByRole("tabpanel").getByRole("heading", { name: "My skills", exact: true }).waitFor();
@@ -239,7 +276,7 @@ try {
   await checkSidebarSurface();
   await page.screenshot({ path: "e2e-out/navigation-skills-narrow-dark.png" });
   await page.setViewportSize({ width: 1280, height: 900 });
-  await nav.getByRole("button", { name: /^Open Connectors/ }).click();
+  await openExtension('Connectors');
   const connectorsDialog = page.getByRole('dialog', { name: 'Connectors', exact: true });
   await connectorsDialog.waitFor();
   for (const theme of ['light', 'dark']) {
@@ -275,7 +312,7 @@ try {
   await connectorsDialog.waitFor({ state: 'detached' });
   assert.equal(await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().tab), 'skills');
   assert.deepEqual(errors, []);
-  console.log("Navigation journey passed: titlebar toggle, five monoline destinations, footer Settings, stable sidebar positions, no horizontal overflow, keyboard navigation, narrow layout, themes and Multilogin connection.");
+  console.log("Navigation journey passed: titlebar toggle/version, Extensions hover/click flyout and MCP, monoline destinations, footer Settings, stable sidebar positions, no horizontal overflow, keyboard navigation, narrow layout, themes and Multilogin connection.");
 } catch (error) {
   if (page) {
     await mkdir("e2e-out", { recursive: true });

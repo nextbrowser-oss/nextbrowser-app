@@ -12,3 +12,11 @@
 .utility-dialog .connectors-page { padding: 0; }
 .utility-dialog .scheduled-page-card { width: auto; min-height: 0; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
 .utility-dialog .scheduled-page-head { justify-content: flex-end; margin-bottom: 12px; }
+.mcp-server-head { display: flex; align-items: center; gap: 12px; }
+.mcp-server-head p { margin: 4px 0 0; }
+.mcp-server-head > span { margin-inline-start: auto; }
+.mcp-server-details { display: grid; gap: 10px; padding-block: 12px; font-size: 13px; }
+.mcp-server-details > div { display: flex; justify-content: space-between; gap: 16px; }
+.mcp-server-details dt { color: var(--muted); }
+.mcp-server-details dd { margin: 0; overflow-wrap: anywhere; }
+.mcp-server-actions { display: flex; justify-content: flex-end; margin-top: 16px; }

@@ -30,7 +30,7 @@ export function DesktopShell({ children }: { children: ReactNode }) {
           aria-expanded={!collapsed} aria-controls="app-sidebar" disabled={!available} onClick={() => toggle(!collapsed)}>
           <Glyph name="panel-left" size={18} />
         </IconButton>
-        <span className="app-titlebar-name" aria-hidden="true">Nextbrowser</span>
+        <span className="app-titlebar-brand"><span className="app-titlebar-version">({__APP_VERSION__})</span><span className="app-titlebar-name">Nextbrowser</span></span>
         <div ref={setActionsHost} className="app-titlebar-actions" />
       </header>
       <TitlebarHost.Provider value={actionsHost}><div className="desktop-shell-body">{children}</div></TitlebarHost.Provider>

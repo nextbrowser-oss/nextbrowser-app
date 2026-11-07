@@ -5134,7 +5134,7 @@ export const useStore = create<State>((set, get) => {
 
   setTab: (t) => {
     if (isUtilityDialogTab(t)) {
-      set({ utilityDialog: t, ...(t === "scheduled" ? { connectorPrompt: undefined } : {}) });
+      set({ utilityDialog: t, ...(t !== "connectors" ? { connectorPrompt: undefined } : {}) });
       trackEvent("utility_dialog_opened", { dialog: t });
       return;
     }

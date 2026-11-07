@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, expect, it, vi } from "vitest";
 import { Popover } from "./index";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
 function Fixture() {
   const [open, setOpen] = useState(false);
   return <><Popover label="Choices" open={open} onOpenChange={setOpen} trigger={props => <button {...props}>Open</button>}>
@@ -20,6 +20,47 @@ it("opens a portaled dialog with focus and an accessible relationship", () => {
   expect(container.contains(popup)).toBe(false);
   expect(button.getAttribute("aria-controls")).toBe(popup.id);
   expect(document.activeElement).toBe(screen.getByRole("textbox"));
+});
+function HoverFixture() {
+  const [open, setOpen] = useState(false);
+  return <><input aria-label="Draft" /><Popover label="Extensions" open={open} onOpenChange={setOpen} openOnHover side="right" align="start"
+    trigger={props => <button {...props}>Extensions</button>}><button>Skills</button></Popover></>;
+}
+it("opens on hover without stealing focus and bridges the gap to the flyout", () => {
+  vi.useFakeTimers();
+  render(<HoverFixture />);
+  const draft = screen.getByRole("textbox");
+  draft.focus();
+  const trigger = screen.getByRole("button", { name: "Extensions" });
+  fireEvent.pointerEnter(trigger, { pointerType: "mouse" });
+  expect(document.activeElement).toBe(draft);
+  const popup = screen.getByRole("dialog", { name: "Extensions" });
+  fireEvent.pointerLeave(trigger);
+  act(() => vi.advanceTimersByTime(100));
+  fireEvent.pointerEnter(popup);
+  act(() => vi.advanceTimersByTime(200));
+  expect(screen.queryByRole("dialog")).not.toBeNull();
+  fireEvent.pointerLeave(popup);
+  act(() => vi.advanceTimersByTime(200));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(draft);
+});
+it("pins a hovered flyout on click and opens it with keyboard focus", () => {
+  vi.useFakeTimers();
+  render(<HoverFixture />);
+  const trigger = screen.getByRole("button", { name: "Extensions" });
+  fireEvent.pointerEnter(trigger);
+  fireEvent.click(trigger);
+  fireEvent.pointerLeave(trigger);
+  act(() => vi.advanceTimersByTime(300));
+  expect(screen.queryByRole("dialog")).not.toBeNull();
+  fireEvent.click(trigger);
+  expect(screen.queryByRole("dialog")).toBeNull();
+  fireEvent.keyDown(trigger, { key: "ArrowRight" });
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Skills" }));
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(trigger);
 });
 it("closes on Escape and restores focus to the trigger", () => {
   render(<Fixture />);

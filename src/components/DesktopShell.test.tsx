@@ -16,6 +16,9 @@ it("places the sidebar toggle in the global titlebar and preserves its expanded 
   expect(buttons[0]).toBe(home);
   expect(buttons[1]).toBe(toggle);
   expect(home.querySelector('img')?.getAttribute('alt')).toBe('Nextbrowser');
+  const brand = toggle.closest("header")!.querySelector(".app-titlebar-brand")!;
+  expect(brand.firstElementChild?.textContent).toBe(`(${__APP_VERSION__})`);
+  expect(brand.lastElementChild?.textContent).toBe("Nextbrowser");
   fireEvent.click(home);
   expect(fixture.state.setTab).toHaveBeenCalledWith("chat");
   expect(toggle.closest("header")).not.toBeNull();
@@ -44,16 +47,24 @@ it("allows local sidebar navigation without an account sign-in", () => {
   render(<DesktopShell>Local workspace</DesktopShell>);
   expect((screen.getByRole("button", { name: "Expand sidebar" }) as HTMLButtonElement).disabled).toBe(false);
 });
-it("keeps five destinations with consistent monoline icons and a single active page", () => {
+it("groups extensions while keeping the remaining destinations and a single active page", () => {
   const select = vi.fn();
   render(<SidebarNavigation collapsed tab="live" badgeFor={() => undefined} onSelect={select} />);
   const buttons = screen.getAllByRole("button");
-  expect(buttons).toHaveLength(5);
+  expect(buttons).toHaveLength(4);
   for (const button of buttons) expect(button.querySelector("svg")?.style.strokeWidth).toBe("1.5");
   const live = screen.getByRole("button", { name: "Open Live profiles" });
   expect(live.getAttribute("aria-current")).toBe("page");
   fireEvent.click(live);
   expect(select).toHaveBeenCalledWith("live");
+  expect(screen.queryByRole("button", { name: "Open Skills" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Open Extensions" }));
+  expect(screen.getByRole("dialog", { name: "Extensions" })).not.toBeNull();
+  expect(screen.getByRole("button", { name: "Open Skills" })).not.toBeNull();
+  expect(screen.getByRole("button", { name: "Open Connectors" })).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Open MCP" }));
+  expect(select).toHaveBeenLastCalledWith("mcp");
+  expect(screen.queryByRole("dialog", { name: "Extensions" })).toBeNull();
 });
 it("opens full Settings from the replacement footer and exposes update attention", () => {
   const open = vi.fn();
