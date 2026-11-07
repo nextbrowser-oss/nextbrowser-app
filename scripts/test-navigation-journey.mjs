@@ -50,6 +50,11 @@ try {
   await skillsButton().click();
   const expandedY = (await skillsButton().boundingBox()).y;
   await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  assert.equal(await page.getByRole("button", { name: "Expand sidebar", exact: true }).evaluate(node => !!node.closest(".app-titlebar")), true);
+  assert.equal(await page.locator(".sidebar-mini").getByRole("button", { name: /^Agent:/ }).count(), 0);
+  assert.equal(await nav.getByRole("button").count(), 5);
+  assert.equal(await nav.locator("svg").evaluateAll(nodes => nodes.every(node => getComputedStyle(node).strokeWidth === "1.5px")), true);
+  assert.equal(await page.locator(".sidebar-mini").evaluate(node => node.scrollWidth <= node.clientWidth), true);
   const collapsedY = (await skillsButton().boundingBox()).y;
   assert.ok(Math.abs(expandedY - collapsedY) < 1, `Navigation moved: ${expandedY} → ${collapsedY}`);
   assert.equal(await skillsButton().innerText().then((text) => text.includes("Skills")), true);
@@ -68,6 +73,11 @@ try {
   await page.screenshot({ path: "e2e-out/navigation-skills-light.png" });
   const rail = await page.locator(".sidebar-mini").boundingBox();
   await page.mouse.click(rail.x + rail.width / 2, rail.y + rail.height - 130);
+  assert.equal(await page.locator(".sidebar-collapsed").count(), 1, "blank rail space is no longer an expand trigger");
+  await page.locator(".sidebar-mini").getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("dialog", { name: "Settings", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   await page.getByRole("button", { name: "Collapse sidebar", exact: true }).waitFor();
   await page.setViewportSize({ width: 960, height: 640 });
   assert.equal(await page.locator(".skills-root").evaluate((node) => node.scrollWidth <= node.clientWidth + 1), true);
@@ -91,7 +101,7 @@ try {
   await modal.getByText("qa@example.com", { exact: true }).waitFor();
   assert.deepEqual(await page.evaluate(() => window.__navigationQA.calls.filter((call) => call.command.startsWith("multilogin_login_")).map((call) => call.command).slice(-2)), ["multilogin_login_open", "multilogin_login_complete"]);
   assert.deepEqual(errors, []);
-  console.log("Navigation journey passed: stable sidebar positions, labels, blank-area expansion, tab keyboard navigation, narrow layout, themes and Multilogin connection.");
+  console.log("Navigation journey passed: titlebar toggle, five monoline destinations, footer Settings, stable sidebar positions, no horizontal overflow, keyboard navigation, narrow layout, themes and Multilogin connection.");
 } catch (error) {
   if (page) {
     await mkdir("e2e-out", { recursive: true });

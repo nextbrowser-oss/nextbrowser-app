@@ -1,0 +1,38 @@
+.desktop-shell { display: flex; flex-direction: column; height: 100%; min-width: 0; overflow: hidden; background: var(--bg); }
+.desktop-shell-body { flex: 1; min-height: 0; min-width: 0; position: relative; }
+.desktop-shell .floating-controls { top: 52px; }
+.app-titlebar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0 148px 0 20px;
+  background: var(--bg);
+  color: var(--muted);
+  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
+}
+.app-titlebar button { -webkit-app-region: no-drag; app-region: no-drag; }
+.app-titlebar-name { font-size: 12px; font-weight: 500; letter-spacing: -0.01em; }
+.desktop-shell[data-platform="darwin"] .app-titlebar { padding-left: calc(82px / var(--window-zoom, 1)); padding-right: 16px; }
+.sidebar .sidebar-mini { cursor: default; }
+.sidebar-mini .sidebar-mini-header { height: 56px; padding-block: 8px; }
+.sidebar-shell .sidebar-brand { height: 56px; padding: 10px 16px; border: 0; }
+.sidebar .sidebar-destinations { gap: 4px; padding-top: 8px; }
+.sidebar-destinations .sidebar-destination { height: 42px; border-radius: 10px; }
+.sidebar .sidebar-destinations.is-compact { padding: 8px; gap: 8px; }
+.sidebar-destinations.is-compact .sidebar-destination { height: 50px; gap: 5px; }
+.sidebar-destinations .sidebar-destination-label { font-weight: 500; }
+.sidebar-destinations .sidebar-destination.active { box-shadow: none; }
+.sidebar-destinations .sidebar-destination-count,
+.sidebar-destinations.is-compact .sidebar-destination-count { background: transparent; font-size: 9px; }
+.sidebar-settings-footer { display: flex; align-items: center; gap: 8px; padding: 8px 12px 14px; flex: none; }
+.sidebar-settings-button { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 8px 10px; border: 0; border-radius: 10px; background: transparent; color: var(--muted); text-align: left; font: inherit; font-size: 13px; }
+.sidebar-settings-button:hover { background: var(--surface-3); color: var(--text); }
+.sidebar-settings-button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
+.sidebar-settings-button.is-compact { flex: none; flex-direction: column; justify-content: center; gap: 5px; width: 52px; min-height: 54px; margin: 8px 0 12px; padding: 6px 0; font-size: 9px; }
+.sidebar-settings-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent-text); margin-inline-start: auto; }
+.is-compact .sidebar-settings-dot { position: absolute; top: 6px; right: 8px; }

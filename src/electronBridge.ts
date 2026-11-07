@@ -2,6 +2,7 @@ import type { RendererErrorReport } from "./lib/errorReporting";
 import type { SettingsUpdate } from "./lib/settingsStorage";
 
 export interface NextbrowserBridge {
+  readonly platform?: string;
   invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
   filePathForFile?(file: File): string;
   on(channel: string, listener: (payload: unknown) => void): () => void;

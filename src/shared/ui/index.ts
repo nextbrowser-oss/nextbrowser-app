@@ -4,3 +4,5 @@ export { IconButton } from "./icon-button";
 export type { IconButtonProps } from "./icon-button";
 export { OverlayScrollArea } from "./overlay-scroll-area";
 export { FileDropArea } from "./file-drop-area";
+export { Glyph } from "./glyph";
+export type { GlyphName } from "./glyph";

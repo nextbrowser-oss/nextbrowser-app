@@ -1485,6 +1485,7 @@ export function App() {
     // window's own size and broke scrolling and fixed-position overlays
     // (like the Settings modal) at higher scales.
     void invoke("app_set_zoom_factor", { factor: uiScale }).catch(() => undefined);
+    document.documentElement.style.setProperty("--window-zoom", String(uiScale));
     settingsStorage.setItem("nextbrowser.uiScale", String(uiScale));
   }, [uiScale]);
 
@@ -1492,7 +1493,8 @@ export function App() {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
     settingsStorage.setItem("nextbrowser.theme", theme);
-    void invoke("app_set_theme", { theme }).catch(() => undefined);
+    const palette = getComputedStyle(document.documentElement);
+    void invoke("app_set_theme", { theme, background: palette.getPropertyValue("--bg").trim(), foreground: palette.getPropertyValue("--text").trim() }).catch(() => undefined);
     if (!didTrackThemeChange.current) {
       didTrackThemeChange.current = true;
       return;
@@ -1785,11 +1787,13 @@ export function App() {
   return (
     <div className="app">
       <aside
+        id="app-sidebar"
         className={"sidebar thin-material" + (sidebarCollapsed ? " sidebar-collapsed" : "")}
         style={{ width: sidebarCollapsed ? 68 : sidebarWidth }}
       >
         <Sidebar
-          onOpenAgentSettings={() => openSettings("agent")}
+          onOpenSettings={openSettingsFromButton}
+          settingsAttention={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)}
           onHome={() => setTab("chat")}
           footerAccessory={!uiScaleFloatingHidden && !sidebarCollapsed
             ? <UIScaleControl inline value={uiScale} onChange={setUiScale} onDismiss={dismissUiScaleFloating} />
@@ -1829,7 +1833,6 @@ export function App() {
             {backgroundTaskPills}
             {feedbackAvailable && <FeedbackButton onClick={() => setFeedbackOpen(true)} />}
             <SocialButtons />
-            <SettingsButton onClick={openSettingsFromButton} hasUpdate={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)} />
             <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
           </div>
         </nav>
@@ -1925,8 +1928,7 @@ export function App() {
       )}
       {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
       {feedbackModal}
-      {/* The control lives in the sidebar footer. A floating copy over the collapsed rail covered the agent
-          button (and the composer when moved right), so a collapsed sidebar shows none; Settings keeps it. */}
+      {/* Interface size stays in the expanded footer and Settings; it never floats over navigation. */}
     </div>
   );
 }

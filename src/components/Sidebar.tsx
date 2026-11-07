@@ -7,7 +7,7 @@ import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { trackEvent } from "../lib/analytics";
 import { reportUserFacingError } from "../lib/errorReporting";
 import { BrandHeader, BrandLogo } from "./BrandLogo";
-import { SidebarNavigation } from "./SidebarNavigation";
+import { SidebarNavigation, SidebarSettingsButton } from "./SidebarNavigation";
 import { Icon, Spinner } from "./Icon";
 import { withLocalScripts } from "../skillsCatalog";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
@@ -91,15 +91,16 @@ function multiloginCreationError(error: unknown, kind: MultiloginProfileKind): s
 }
 
 interface SidebarProps {
-  onOpenAgentSettings: () => void;
+  onOpenSettings: () => void;
+  settingsAttention?: boolean;
   onHome: () => void;
-  /** Rendered right of the agent status in the footer, e.g. the interface size control, so nothing floats over the footer. */
+  /** Optional compact controls next to Settings, e.g. the interface size control. */
   footerAccessory?: ReactNode;
 }
 
 const SIDEBAR_OPEN_SECTION_KEY = "sidebar.openSection";
 
-export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: SidebarProps) {
+export function Sidebar({ onOpenSettings, settingsAttention, onHome, footerAccessory }: SidebarProps) {
   const s = useStore();
   const [menuProfile, setMenuProfile] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -353,8 +354,6 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
     return () => window.removeEventListener("keydown", dismissChatDelete);
   }, [confirmDeleteChat]);
 
-  const agentName = agentById(s.agentId).name;
-  const ready = s.agentReady();
   const searchQuery = s.profileSearch.trim();
   // Search reveals both result types without overwriting the accordion selection.
   const projectsOpen = !!searchQuery || openSection === "projects";
@@ -914,6 +913,7 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
   ]);
 
   const badgeFor = (id: AppTab) => {
+    if (id === "live") return workspaceProfileCount ? `${runningCount}/${workspaceProfileCount}` : undefined;
     if (id === "skills") return skillCount ? String(skillCount) : undefined;
     if (id === "connectors") return String(CONNECTORS.length);
     if (id === "scheduled") return String(s.scheduledRuns.length);
@@ -1312,33 +1312,14 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
 
   if (s.sidebarCollapsed) {
     return (
-      <div className="sidebar-mini" onClick={(event) => {
-        if (event.target instanceof Element && !event.target.closest("button, a, input, select, textarea")) s.setSidebarCollapsed(false);
-      }}>
+      <div className="sidebar-mini">
         <div className="sidebar-mini-header">
           <Tooltip content="Back to main view" side="right"><button className="sidebar-logo-home" onClick={onHome} aria-label="Back to main view"><BrandLogo size={24} /></button></Tooltip>
-          <Tooltip content="Expand sidebar" side="right"><button
-            className="plain-icon-btn sidebar-collapse-toggle"
-            aria-label="Expand sidebar"
-            onClick={() => s.setSidebarCollapsed(false)}
-          >
-            <Icon name="sidebar.left" size={17} />
-            <span>Expand</span>
-          </button></Tooltip>
         </div>
         <SidebarNavigation collapsed tab={s.tab} badgeFor={badgeFor} onSelect={s.setTab} />
-        <Tooltip content={`${visibleProfileCount} profiles, ${runningCount} running`} side="right"><button className="mini-nav-btn" aria-label={`Open Live, ${visibleProfileCount} profiles, ${runningCount} running`} onClick={() => s.setTab("live")}>
-          <Icon name="person.crop.circle" size={18} />
-          <span>Live</span>
-          <span>{runningCount}/{visibleProfileCount}</span>
-        </button></Tooltip>
         {activeRecording && <Tooltip content={recordingMiniLabel} side="right"><button className="mini-nav-btn mini-recording-control recording" aria-label={`${activeRecording.destination === "workflow" ? "Open workflow recording" : "Open active recording"}.`} onClick={openRecorder}><Icon name="circle.fill" size={18} /><span>{recordingDuration(activeRecording.startedAt, recordingClock)}</span></button></Tooltip>}
         <span className="spacer" />
-        <Tooltip content={`Agent: ${agentName}`} side="right"><button className="mini-nav-btn" aria-label={`Agent: ${agentName}`} onClick={onOpenAgentSettings}>
-          <Icon name="cpu.fill" size={18} />
-          <span>Agent</span>
-          <span>{ready ? "on" : "off"}</span>
-        </button></Tooltip>
+        <SidebarSettingsButton collapsed attention={settingsAttention} onClick={onOpenSettings} />
       </div>
     );
   }
@@ -1348,14 +1329,6 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
       <div className="sidebar-brand">
         <div className="row">
           <Tooltip content="Back to main view" side="right"><button className="sidebar-brand-home" onClick={onHome} aria-label="Back to main view"><BrandHeader subtitle="native agent console" /></button></Tooltip>
-          <span className="spacer" />
-          <Tooltip content="Collapse sidebar" side="right"><button
-            className="plain-icon-btn plain-icon-btn-compact sidebar-collapse-toggle"
-            aria-label="Collapse sidebar"
-            onClick={() => s.setSidebarCollapsed(true)}
-          >
-            <Icon name="sidebar.leading" size={15} />
-          </button></Tooltip>
         </div>
       </div>
 
@@ -1694,19 +1667,10 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
         {s.nextctlUpdateStatus && <span>· {s.nextctlUpdateStatus}</span>}
         {!s.nextctlSupportsSkill && !s.nextctlCompatibilityError && <span className="warn"> · no skill cmd</span>}
         <span className="spacer" />
-        {/* The agent status and the accessory wrap together, so the accessory never lands on a line of its own. */}
-        <span className="agent-footer-group">
-          <Tooltip content="Agent settings"><button
-            className={"agent-footer-status" + (ready ? " is-ready" : "")}
-            aria-label="Open agent settings"
-            onClick={onOpenAgentSettings}
-          >
-            <span className="status-dot" />
-            <span>{agentName} · {ready ? "Connected" : s.agentLoggedIn() === false ? "Sign-in required" : "Not connected"}</span>
-            <Icon name="chevron.down" size={11} />
-          </button></Tooltip>
-          {footerAccessory}
-        </span>
+      </div>
+      <div className="sidebar-settings-footer">
+        <SidebarSettingsButton attention={settingsAttention} onClick={onOpenSettings} />
+        {footerAccessory}
       </div>
 
       {createProfileOpen && createPortal((

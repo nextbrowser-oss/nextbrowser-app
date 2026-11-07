@@ -21,6 +21,8 @@
 .shared-icon-button--embedded { background: var(--glass-inverse-control); box-shadow: none; backdrop-filter: none; }
 .shared-icon-button:hover:not(:disabled) { background: var(--glass-inverse-solid); }
 .shared-icon-button--embedded:hover:not(:disabled) { background: var(--glass-inverse-control-hover); }
+.shared-icon-button--plain { background: transparent; color: var(--muted); box-shadow: none; backdrop-filter: none; border-radius: 7px; }
+.shared-icon-button--plain:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
 .shared-icon-button:active:not(:disabled) { transform: scale(0.94); }
 .shared-icon-button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 3px; }
 .shared-icon-button:disabled { opacity: 0.4; cursor: default; }

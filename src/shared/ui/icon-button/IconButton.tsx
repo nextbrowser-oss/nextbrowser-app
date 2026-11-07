@@ -8,7 +8,7 @@ export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonEle
   children: ReactNode;
   text?: string;
   size?: "small" | "medium";
-  appearance?: "glass" | "embedded";
+  appearance?: "glass" | "embedded" | "plain";
 }
 
 /** Compact icon action, optionally a labelled pill. Surface and hint are shared. */
