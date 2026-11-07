@@ -1,0 +1,6 @@
+.shared-command-list { position: absolute; left: 0; bottom: calc(100% + 10px); z-index: 9000; box-sizing: border-box; width: min(420px, 100%); max-height: min(300px, calc(100dvh - 250px)); overflow: auto; padding: 6px; border: 0; border-radius: 16px; background: var(--tooltip-bg); color: var(--tooltip-text); backdrop-filter: blur(28px) saturate(140%); box-shadow: var(--tooltip-shadow); }
+.shared-command-list__option { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 10px; cursor: pointer; font-size: 12px; }
+.shared-command-list__option strong { font-weight: 700; }
+.shared-command-list__option span { font-size: 11px; opacity: .8; }
+.shared-command-list__option[aria-selected="true"], .shared-command-list__option:hover { background: var(--glass-inverse-control); }
+@media (prefers-reduced-transparency: reduce) { .shared-command-list { background: var(--tooltip-solid-bg); backdrop-filter: none; } }

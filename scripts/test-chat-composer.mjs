@@ -55,7 +55,7 @@ try {
   page.on("pageerror", error => errors.push(error.message));
   page.on("console", message => { if (message.type() === "error" && /ResizeObserver/.test(message.text())) errors.push(message.text()); });
   const url = `http://127.0.0.1:${server.httpServer.address().port}/composer-fixture`;
-  const textarea = page.getByRole("textbox", { name: "Message Codex", exact: true });
+  const textarea = page.locator(".composer textarea");
   const send = page.getByRole("button", { name: "Send message to the selected agent" });
   const latest = page.locator(".messages .msg-assistant-wrap").last();
   const jump = page.getByRole("button", { name: "Scroll to latest message", exact: true });
@@ -79,7 +79,10 @@ try {
     assert.equal(await page.getByText(/Separate chat context/).count(), 0);
     const projectTitle = page.getByRole('button', { name: 'Project 1', exact: true });
     assert.ok(await projectTitle.locator('strong').evaluate(node => Number(getComputedStyle(node).fontWeight)) >= 700);
-    assert.ok((await page.locator('.chat-header').boundingBox()).height < 50);
+    assert.equal(await page.locator('.chat-header').evaluate(node => getComputedStyle(node).position), 'absolute');
+    const floatingHeader = await page.locator('.chat-header').boundingBox();
+    const historyBounds = await page.locator('.messages').boundingBox();
+    assert.ok(floatingHeader.y >= historyBounds.y && floatingHeader.y + floatingHeader.height > historyBounds.y, 'project title floats above the same scroll area');
     await scrollToEnd();
     await lastIsVisible();
     assert.equal(await jump.count(), 0, "no jump action while already at the bottom");
@@ -214,22 +217,37 @@ try {
     await scrollToEnd();
     await lastIsVisible();
     await page.evaluate(() => window.fixtureStore.setState({ agentReady: () => true, workingDir: '/fixture/project', runtime: {} }));
-    await page.getByRole('button', { name: 'Open commands', exact: true }).click();
-    const commandDialog = page.getByRole('dialog', { name: 'Run command', exact: true });
-    await commandDialog.waitFor();
-    await page.getByRole('textbox', { name: 'Command to run' }).fill('git status --short');
-    await page.screenshot({ path: resolve(output, `${theme}-commands.png`) });
-    await commandDialog.getByRole('button', { name: 'Run in chat' }).click();
-    await commandDialog.waitFor({ state: 'detached' });
-    const commandRequest = await page.evaluate(() => window.sent.at(-1)[0]);
-    assert.ok(commandRequest.includes('git status --short') && commandRequest.includes('/fixture/project'));
-    assert.equal(await page.getByRole('textbox', { name: 'Message Codex' }).isVisible(), true);
+    assert.equal(await page.getByRole('button', { name: 'Open commands' }).count(), 0);
+    const sentBeforeCommands = await page.evaluate(() => window.sent.length);
+    await textarea.fill('/');
+    const commands = page.getByRole('listbox', { name: 'Agent commands' });
+    await commands.waitFor();
+    await page.screenshot({ path: resolve(output, `${theme}-slash-commands.png`) });
+    await textarea.fill('/tit');
+    await textarea.press('Tab');
+    assert.equal(await textarea.inputValue(), '/title ');
+    await textarea.fill('/title Renamed project');
+    await send.click();
+    await page.getByRole('button', { name: 'Renamed project', exact: true }).waitFor();
+    await textarea.fill('/title Project 1');
+    await send.click();
+    await projectTitle.waitFor();
+    await textarea.fill('/version ');
+    await textarea.press('Enter');
+    await page.getByRole('status').filter({ hasText: 'Codex: 1.0.0' }).waitFor();
+    assert.equal(await page.evaluate(() => window.sent.length), sentBeforeCommands, 'client commands never go to the model');
+    await textarea.fill('/compress ');
+    await send.click();
+    await page.getByRole('alert').filter({ hasText: 'not supported by this chat adapter' }).waitFor();
+    assert.equal(await page.evaluate(() => window.sent.length), sentBeforeCommands);
+    await textarea.fill('');
     // Switching uses the existing selector, including another agent/workspace.
     await page.evaluate(() => window.fixtureStore.setState(state => ({
       conversations: [...state.conversations, { id: 'recent-project', agent: 'claude', workspaceId: 'other', title: 'Recent customer research', messages: [], createdAt: Date.now(), updatedAt: Date.now() + 1 }],
       selectConversation: id => { window.selectedProject = id; },
     })));
-    await projectTitle.click();
+    await textarea.fill('/sessions ');
+    await send.click();
     const recent = page.getByRole('dialog', { name: 'Recent projects' });
     await recent.waitFor();
     assert.ok((await recent.getByRole('button').first().innerText()).includes('Recent customer research'));
@@ -245,12 +263,11 @@ try {
     assert.equal(await textarea.isVisible(), true);
     await page.getByText('Previous terminal activity', { exact: true }).click();
     await page.getByText('Saved terminal activity for this project.', { exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Open commands', exact: true }).click();
-    await page.getByRole('textbox', { name: 'Command to run' }).fill('pwd');
-    await page.getByRole('button', { name: 'Run in chat' }).click();
-    const remoteRequest = await page.evaluate(() => window.sent.at(-1));
-    assert.ok(remoteRequest[0].includes('selected VPS only') && remoteRequest[0].includes('pwd'));
-    assert.ok(remoteRequest[4].includes('Saved terminal activity for this project.'));
+    await textarea.fill('Continue from the previous activity');
+    await send.click();
+    const continuedRequest = await page.evaluate(() => window.sent.at(-1));
+    assert.equal(continuedRequest[0], 'Continue from the previous activity');
+    assert.ok(continuedRequest[4].includes('Saved terminal activity for this project.'));
     await page.evaluate(() => window.fixtureStore.setState({
       runScript: (script, host) => { window.scriptRun = { title: script.title, host }; },
       runCustomScript: script => { window.scriptRun = { title: script.title, host: script.domain }; },
@@ -261,8 +278,10 @@ try {
     assert.equal(await textarea.isVisible(), true);
     for (const width of [420, 320]) {
       await page.setViewportSize({ width, height: 620 });
-      await page.getByRole('button', { name: 'Open commands', exact: true }).click();
-      const bounds = await commandDialog.boundingBox();
+      await textarea.fill('');
+      await textarea.fill('/');
+      await commands.waitFor();
+      const bounds = await commands.boundingBox();
       assert.ok(bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= width && bounds.y + bounds.height <= 620);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       await page.keyboard.press('Escape');

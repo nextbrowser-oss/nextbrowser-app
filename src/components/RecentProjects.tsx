@@ -3,8 +3,10 @@ import { Popover, Tooltip } from "../shared/ui";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
 
-export function RecentProjects({ title, activeId }: { title: string; activeId?: string }) {
-  const [open, setOpen] = useState(false);
+export function RecentProjects({ title, activeId, open: controlledOpen, onOpenChange }: { title: string; activeId?: string; open?: boolean; onOpenChange?: (open: boolean) => void }) {
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = controlledOpen ?? localOpen;
+  const setOpen = onOpenChange ?? setLocalOpen;
   const conversations = useStore(state => state.conversations);
   const workspaces = useStore(state => state.workspaces);
   const select = useStore(state => state.selectConversation);

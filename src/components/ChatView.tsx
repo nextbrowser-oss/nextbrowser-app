@@ -1,6 +1,6 @@
-import { FileDropArea, IconButton, OverlayScrollArea, Tooltip } from "../shared/ui";
+import { CommandList, FileDropArea, IconButton, OverlayScrollArea, Tooltip } from "../shared/ui";
 import "./chat.css";
-import { type ClipboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ClipboardEvent, useEffect, useLayoutEffect, useRef, useState, useId } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store";
 import { SCRIPTS } from "../skillsCatalog";
@@ -19,7 +19,7 @@ import { takeGuideDraft } from "../lib/guideDraft";
 import { entityNameLimits } from "../lib/entityValidation";
 import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { RecentProjects } from "./RecentProjects";
-import { ChatCommands } from "./ChatCommands";
+import { matchingAgentChatCommands, parseAgentChatCommand } from "../lib/agentChatCommands";
 import { uid } from "../lib/ids";
 import {
   capturedWorkflowDomain,
@@ -119,6 +119,13 @@ export function ChatView() {
   const [guideDraftLoaded, setGuideDraftLoaded] = useState(false);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [scriptOpen, setScriptOpen] = useState(false);
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [commandNotice, setCommandNotice] = useState<string>();
+  const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
+  const [commandIndex, setCommandIndex] = useState(0);
+  const commandMenuId = useId();
+  const commandMatches = commandMenuDismissed ? [] : matchingAgentChatCommands(draft);
+  const activeCommand = commandMatches[Math.min(commandIndex, commandMatches.length - 1)];
   const [editingReply, setEditingReply] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [actionError, setActionError] = useState<string>();
@@ -168,6 +175,9 @@ export function ChatView() {
     setAttachments([]);
     setDraft("");
     setGuideDraftLoaded(false);
+    setProjectMenuOpen(false);
+    setCommandNotice(undefined);
+    setCommandMenuDismissed(false);
     // Menus and workflow modals belong to the chat they were opened in.
     setScriptOpen(false);
     setWorkflowDraft(null);
@@ -240,9 +250,55 @@ export function ChatView() {
     s.enqueue(text, undefined, undefined, files, chatPromptWithDeferredContext(previous, text));
     if (previous) legacyContextSent.current.add(conversationKey);
   };
+  const acceptCommand = (name: string) => {
+    setDraft("/" + name + " "); setCommandMenuDismissed(true); composerRef.current?.focus();
+  };
+  const runChatCommand = (parsed: NonNullable<ReturnType<typeof parseAgentChatCommand>>) => {
+    setActionError(undefined); setCommandNotice(undefined);
+    if (attachments.length) { setActionError("Send or remove attached files before using a chat command."); return; }
+    const { name, args, rawName } = parsed;
+    if (!name) { setActionError("/" + rawName + " is not supported by this chat adapter. Use /help for available commands."); return; }
+    if (args && !["new", "title", "help"].includes(name)) { setActionError("Use /" + name + " without arguments in this chat."); return; }
+    switch (name) {
+      case "help": setDraft("/" + args); setCommandMenuDismissed(false); setCommandIndex(0); window.requestAnimationFrame(() => composerRef.current?.focus()); return;
+      case "new": {
+        const id = s.newChat();
+        if (args) s.renameConversation(id, args.slice(0, entityNameLimits.project));
+        break;
+      }
+      case "sessions": setProjectMenuOpen(true); break;
+      case "title":
+        if (args && conv) s.renameConversation(conv.id, args.slice(0, entityNameLimits.project));
+        else setCommandNotice("Project: " + (conv?.title ?? "New project"));
+        break;
+      case "stop":
+        if (running) s.stopRunning();
+        else setCommandNotice("This project has no running response.");
+        break;
+      case "retry": {
+        if (running) { setActionError("Wait for this response or use /stop before retrying."); return; }
+        const last = [...messages].reverse().find(message => message.role === "user");
+        if (!last) { setActionError("There is no user message to retry yet."); return; }
+        enqueueInChat(last.text, last.attachments); break;
+      }
+      case "history": composerRef.current?.closest(".chat")?.querySelector<HTMLElement>(".messages")?.scrollTo({ top: 0 }); break;
+      case "model": case "config": openAgentSettings(); break;
+      case "skills": s.setTab("skills"); break;
+      case "scripts": setScriptOpen(true); break;
+      case "usage": s.setTab("usage"); break;
+      case "version": setCommandNotice(agentById(agentId).name + ": " + (s.agentVersion() ?? "not connected")); break;
+      case "status": setCommandNotice(agentById(agentId).name + " · " + (running ? "responding" : ready ? "ready" : "not connected") + " · " + s.queuedCount() + " queued"); break;
+    }
+    setDraft(""); setGuideDraftLoaded(false); setCommandMenuDismissed(true);
+  };
   const send = () => {
     const t = draft.trim();
     if (!t && attachments.length === 0) return;
+    if (t === "/") { setCommandMenuDismissed(false); return; }
+    const parsed = parseAgentChatCommand(t);
+    if (parsed) { runChatCommand(parsed); return; }
+    setCommandNotice(undefined);
+    setActionError(undefined);
     const visiblePrompt = t || "Please inspect the attached file(s).";
     setDraft("");
     setGuideDraftLoaded(false);
@@ -384,7 +440,7 @@ export function ChatView() {
       <FileDropArea className="chat" onFiles={handleDroppedFiles} disabled={!ready}
         unavailableLabel="Connect an agent to attach files">
         <div className="chat-header">
-          <RecentProjects key={conversationKey} title={conv?.title ?? "New project"} activeId={conv?.id} />
+          <RecentProjects key={conversationKey} title={conv?.title ?? "New project"} activeId={conv?.id} open={projectMenuOpen} onOpenChange={setProjectMenuOpen} />
           <span className="spacer" />
           {remoteOnly && (
             <Tooltip content={conv?.vpsConnectionLabel
@@ -481,21 +537,41 @@ export function ChatView() {
               {actionError && !editingReply && (
                 <div className="chat-action-error error small" role="alert">{actionError}</div>
               )}
+              {commandNotice && <div className="chat-command-notice" role="status">{commandNotice}</div>}
               <div className="composer">
+                {activeCommand && <CommandList id={commandMenuId} label="Agent commands" activeId={activeCommand.name} anchor={composerRef.current?.closest<HTMLElement>(".composer")}
+                  options={commandMatches.map(command => ({ id: command.name, title: "/" + command.name, description: command.description }))}
+                  onChoose={acceptCommand} />}
                 <textarea
                   ref={composerRef}
                   aria-label={`Message ${agentName}`}
                   rows={2}
+                  role={activeCommand ? "combobox" : undefined}
+                  aria-autocomplete="list"
+                  aria-haspopup={activeCommand ? "listbox" : undefined}
+                  aria-expanded={!!activeCommand}
+                  aria-controls={activeCommand ? commandMenuId : undefined}
+                  aria-activedescendant={activeCommand ? commandMenuId + "-" + activeCommand.name : undefined}
                   value={draft}
                   placeholder={
                     ready
-                      ? `Message ${agentName} — Enter to queue`
+                      ? `Message ${agentName} — / for commands`
                       : "Connect an agent first"
                   }
                   disabled={!ready}
-                  onChange={(e) => setDraft(e.target.value)}
+                  onChange={(e) => { setDraft(e.target.value); setCommandIndex(0); setCommandMenuDismissed(false); }}
+                  onFocus={() => setCommandMenuDismissed(false)}
+                  onBlur={event => { if (!event.currentTarget.closest(".composer")?.contains(event.relatedTarget as Node)) setCommandMenuDismissed(true); }}
                   onPaste={handlePaste}
                   onKeyDown={(e) => {
+                    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                    if (activeCommand) {
+                      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setCommandMenuDismissed(true); return; }
+                      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                        e.preventDefault(); setCommandIndex((Math.max(0, commandMatches.findIndex(command => command.name === activeCommand.name)) + (e.key === "ArrowDown" ? 1 : -1) + commandMatches.length) % commandMatches.length); return;
+                      }
+                      if ((e.key === "Tab" && !e.shiftKey) || (e.key === "Enter" && !e.shiftKey)) { e.preventDefault(); acceptCommand(activeCommand.name); return; }
+                    }
                     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
                       e.preventDefault();
                       send();
@@ -513,12 +589,6 @@ export function ChatView() {
                   >
                     <Icon name="paperclip" size={14} />
                   </IconButton>
-                  <ChatCommands key={conversationKey} ready={ready} remote={remoteOnly} onRun={command => {
-                    const target = remoteOnly
-                      ? "on the selected VPS only. Do not run it on the local computer"
-                      : s.workingDir ? `in this project's working directory (${s.workingDir})` : "in this project's working directory";
-                    enqueueInChat("Run the following command " + target + ". Report its output and exit status in this chat. Use the selected agent's normal execution tools and permissions.\n\n```shell\n" + command + "\n```");
-                  }} />
                   <div className="script-wrap" ref={scriptWrapRef}>
                     <IconButton
                       label="Open scripts menu"
