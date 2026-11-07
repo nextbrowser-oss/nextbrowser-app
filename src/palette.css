@@ -91,6 +91,9 @@
   --glass-inverse-control: rgba(25, 25, 32, 0.08);
   --glass-inverse-control-hover: rgba(25, 25, 32, 0.16);
   --glass-inverse-shadow: 0 10px 36px rgba(0, 0, 0, 0.2);
+  --composer-glass-bg: rgba(244, 244, 250, 0.56);
+  --composer-control-bg: rgba(255, 255, 255, 0.12);
+  --composer-control-hover: rgba(255, 255, 255, 0.24);
   --tooltip-bg: var(--glass-inverse-bg);
   --tooltip-solid-bg: var(--glass-inverse-solid);
   --tooltip-text: var(--glass-inverse-text);
@@ -220,6 +223,9 @@
   --glass-inverse-control: rgba(255, 255, 255, 0.1);
   --glass-inverse-control-hover: rgba(255, 255, 255, 0.2);
   --glass-inverse-shadow: 0 10px 36px rgba(0, 0, 0, 0.16);
+  --composer-glass-bg: rgba(25, 25, 32, 0.6);
+  --composer-control-bg: rgba(0, 0, 0, 0.16);
+  --composer-control-hover: rgba(0, 0, 0, 0.26);
   --tooltip-bg: var(--glass-inverse-bg);
   --tooltip-solid-bg: var(--glass-inverse-solid);
   --tooltip-text: var(--glass-inverse-text);

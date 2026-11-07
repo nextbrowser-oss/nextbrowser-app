@@ -49,6 +49,13 @@ function contrast(a: string, b: string): number {
   return (values[0] + 0.05) / (values[1] + 0.05);
 }
 
+function compositeRgba(value: string, backdrop: number): string {
+  const rgba = /^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/.exec(value);
+  if (!rgba) throw new Error(`Expected translucent palette color: ${value}`);
+  const alpha = Number(rgba[4]);
+  return "#" + rgba.slice(1, 4).map(channel => Math.round(Number(channel) * alpha + backdrop * (1 - alpha)).toString(16).padStart(2, "0")).join("");
+}
+
 describe("theme selection", () => {
   it("prefers an explicit saved theme", () => {
     expect(resolveTheme("dark", true)).toBe("dark");
@@ -103,6 +110,13 @@ describe("theme stylesheet", () => {
     const levels = colors.map(luminance);
     for (let index = 1; index < levels.length; index++) expect(levels[index]).toBeGreaterThan(levels[index - 1]);
     expect(contrast(colors[0], colors[2])).toBeGreaterThanOrEqual(1.4);
+  });
+
+  it.each(["dark", "light"] as const)("keeps composer text readable through its %s glass tint", theme => {
+    const tokens = themeTokens(theme);
+    // Opposite extremes are the least favorable backgrounds for each inverted surface.
+    const background = compositeRgba(resolveToken(tokens, "--composer-glass-bg"), theme === "light" ? 255 : 0);
+    expect(contrast(resolveToken(tokens, "--glass-inverse-text"), background)).toBeGreaterThanOrEqual(4.5);
   });
 
   it.each(["dark", "light"] as const)("resolves every Xterm color from the %s palette", theme => {

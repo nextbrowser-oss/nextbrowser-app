@@ -1,6 +1,6 @@
-import { IconButton, OverlayScrollArea, Tooltip } from "../shared/ui";
+import { FileDropArea, IconButton, OverlayScrollArea, Tooltip } from "../shared/ui";
 import "./chat.css";
-import { type ClipboardEvent, type DragEvent, useEffect, useRef, useState } from "react";
+import { type ClipboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store";
 import { SCRIPTS } from "../skillsCatalog";
@@ -172,6 +172,7 @@ export function ChatView() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const scriptWrapRef = useRef<HTMLDivElement>(null);
+  const scriptMenuRef = useRef<HTMLDivElement>(null);
   const conversationKey = `${agentId}:${conv?.id ?? "new"}`;
 
   useEffect(() => {
@@ -335,11 +336,9 @@ export function ChatView() {
     if (addAttachmentFiles(files, "paste")) event.preventDefault();
   };
 
-  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
-    const files = Array.from(event.dataTransfer.files ?? []);
-    if (!files.length) return;
-    event.preventDefault();
-    addAttachmentFiles(files, "drop");
+  const handleDroppedFiles = (files: File[]) => {
+    setActionError(undefined);
+    if (!addAttachmentFiles(files, "drop")) setActionError("Could not attach these files. Try the Attach button.");
   };
 
   const looksLikeDomain = (text: string) =>
@@ -349,6 +348,28 @@ export function ChatView() {
   const officialScripts = [...SCRIPTS, ...s.appliedScripts].filter(
     (script, index, all) => all.findIndex((candidate) => candidate.id === script.id) === index,
   );
+  useLayoutEffect(() => {
+    if (!scriptOpen) return;
+    const anchor = scriptWrapRef.current;
+    const menu = scriptMenuRef.current;
+    const area = anchor?.closest(".overlay-scroll-area");
+    if (!anchor || !menu || !area) return;
+    const place = () => {
+      const trigger = anchor.getBoundingClientRect();
+      const bounds = area.getBoundingClientRect();
+      const left = Math.max(8, bounds.left + 8);
+      const right = Math.min(window.innerWidth - 8, bounds.right - 8);
+      menu.style.setProperty("--script-menu-width", `${Math.max(0, right - left)}px`);
+      menu.style.setProperty("--script-menu-room", `${Math.max(0, trigger.top - Math.max(8, bounds.top + 8) - 8)}px`);
+      const x = Math.max(left, Math.min(trigger.left, right - menu.offsetWidth));
+      menu.style.setProperty("--script-menu-shift", `${x - trigger.left}px`);
+    };
+    place();
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(place);
+    observer?.observe(area);
+    window.addEventListener("resize", place);
+    return () => { observer?.disconnect(); window.removeEventListener("resize", place); };
+  }, [scriptOpen, officialScripts.length, customScripts.length]);
   const openScriptCreator = () => {
     setScriptOpen(false);
     localStorage.setItem("openMyScriptsEditor", "1");
@@ -395,7 +416,8 @@ export function ChatView() {
 
   return (
     <div className="chat-layout">
-      <div className="chat">
+      <FileDropArea className="chat" onFiles={handleDroppedFiles} disabled={!ready || terminalChat}
+        unavailableLabel={terminalChat ? "Switch to Chat to attach files" : "Connect an agent to attach files"}>
         <div className="chat-header">
           <div className="chat-title-stack">
             <strong className="chat-title">{conv?.title ?? agentName}</strong>
@@ -578,7 +600,7 @@ export function ChatView() {
               {actionError && !editingReply && (
                 <div className="chat-action-error error small" role="alert">{actionError}</div>
               )}
-              <div className="composer" onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
+              <div className="composer">
                 <textarea
                   ref={composerRef}
                   aria-label={`Message ${agentName}`}
@@ -603,24 +625,28 @@ export function ChatView() {
                   <IconButton
                     label="Attach local files to the next message"
                     appearance="embedded"
+                    size="small"
+                    text="Attach"
                     disabled={!ready}
                     onClick={() => void attachFiles()}
                   >
-                    <Icon name="paperclip" size={19} />
+                    <Icon name="paperclip" size={14} />
                   </IconButton>
                   <div className="script-wrap" ref={scriptWrapRef}>
                     <IconButton
                       label="Open scripts menu"
                       appearance="embedded"
+                      size="small"
+                      text="Scripts"
                       aria-haspopup="true"
                       aria-expanded={scriptOpen}
                       onClick={() => setScriptOpen((o) => !o)}
                     >
-                      <Icon name="scroll" size={20} />
+                      <Icon name="scroll" size={14} />
                     </IconButton>
                     {scriptOpen && (
-                      <div className="script-menu">
-                        <div className="section">OFFICIAL SCRIPTS</div>
+                      <div className="script-menu" ref={scriptMenuRef}>
+                        {officialScripts.length > 0 && <div className="section">OFFICIAL SCRIPTS</div>}
                         {officialScripts.map((sc) => (
                           <Tooltip key={sc.id} content={`Run ${sc.title}`}><button
                             onClick={() => {
@@ -818,7 +844,7 @@ export function ChatView() {
           <div ref={bottomRef} />
           </OverlayScrollArea>
         )}
-      </div>
+      </FileDropArea>
       {projectCreatorOpen && createPortal((
         <div className="modal-overlay" onMouseDown={() => setProjectCreatorOpen(false)}>
           <form

@@ -18,7 +18,7 @@ import '@fontsource/hanken-grotesk/500.css';
 import '@fontsource/hanken-grotesk/600.css';
 document.documentElement.dataset.theme=new URL(location.href).searchParams.get('theme')||'light';
 window.sent=[];
-window.nextbrowser={invoke:async(command)=>command==='select_chat_files'?[{name:'brief.md',path:'/fixture/brief.md',size:42}]:command==='multilogin_status'?{connected:false,valid:false}:undefined,on:()=>()=>{}};
+window.nextbrowser={invoke:async(command)=>command==='select_chat_files'?[{name:'brief.md',path:'/fixture/brief.md',size:42}]:command==='multilogin_status'?{connected:false,valid:false}:undefined,on:()=>()=>{},filePathForFile:file=>'/fixture/'+file.name};
 const messages=Array.from({length:32},(_,i)=>({id:'message-'+i,role:i%2?'assistant':'user',text:i%2?'The shared palette keeps the interface consistent in both themes. Scroll this conversation to see the messages pass behind the floating glass composer.\\n\\nThe input stays available while you read earlier messages.':'Review the next part of the interface and keep the dialog easy to read.',status:'done',createdAt:Date.now()-60000*(32-i)}));
 useStore.setState({agentId:'codex',terminalChat:false,checking:false,authed:true,showOnboarding:false,
  conversations:[{id:'fixture-chat',agentId:'codex',workspaceId:'fixture',title:'Project 1',messages,createdAt:Date.now()}],
@@ -73,12 +73,34 @@ try {
     assert.equal(colors.border, "0px");
     assert.equal(colors.text, theme === "light" ? "rgb(255, 255, 255)" : "rgb(23, 23, 28)");
     assert.ok(colors.bg.includes(theme === "light" ? "25, 25, 32" : "244, 244, 250"));
-    assert.ok(colors.blur.includes("blur(32px)"));
+    assert.ok(colors.blur.includes("blur(72px)"));
+    assert.ok(Number(colors.bg.match(/,\s*([\d.]+)\)$/)?.[1]) <= 0.6, "glass tint stays translucent");
     assert.equal(await textarea.evaluate(element => getComputedStyle(element).borderWidth), "0px");
     assert.equal(await send.isDisabled(), true);
     const button = await send.boundingBox();
     assert.equal(button.width, button.height);
     assert.equal(await send.evaluate(element => getComputedStyle(element).borderRadius), "50%");
+    for (const label of ["Attach local files to the next message", "Open scripts menu"]) {
+      const action = page.getByRole("button", { name: label });
+      const bounds = await action.boundingBox();
+      assert.equal(bounds.height, 28);
+      assert.ok(bounds.width > bounds.height);
+      assert.ok((await action.textContent()).trim().length > 0);
+    }
+    const transfer = await page.evaluateHandle(() => {
+      const data = new DataTransfer();
+      data.items.add(new File(["Drop feedback test"], "drop-note.txt", { type: "text/plain" }));
+      return data;
+    });
+    await page.locator(".messages").dispatchEvent("dragenter", { dataTransfer: transfer });
+    await page.getByRole("status").filter({ hasText: "Drop files to attach" }).waitFor();
+    await textarea.dispatchEvent("dragenter", { dataTransfer: transfer });
+    await page.locator(".messages").dispatchEvent("dragleave", { dataTransfer: transfer });
+    await page.screenshot({ path: resolve(output, `${theme}-file-drag.png`) });
+    await textarea.dispatchEvent("drop", { dataTransfer: transfer });
+    await page.getByRole("button", { name: "Remove drop-note.txt" }).waitFor();
+    assert.equal(await page.locator(".file-drop-area__indicator").count(), 0);
+    await page.getByRole("button", { name: "Remove drop-note.txt" }).click();
     await textarea.fill("A multiline draft\n".repeat(12));
     await page.waitForFunction(() => document.querySelector('.composer').getBoundingClientRect().height>180);
     await lastIsVisible();
@@ -88,7 +110,13 @@ try {
     await lastIsVisible();
     await page.getByRole("button", { name: "Open scripts menu" }).click();
     await page.locator(".script-menu").waitFor();
-    assert.ok((await page.locator(".script-menu").boundingBox()).height > 0);
+    const menu = await page.locator(".script-menu").boundingBox();
+    const trigger = await page.getByRole("button", { name: "Open scripts menu" }).boundingBox();
+    const area = await page.locator(".overlay-scroll-area").boundingBox();
+    assert.ok(menu.height > 0 && menu.height <= 240 && menu.width <= 248);
+    assert.ok(Math.abs(menu.x - trigger.x) <= 1, "menu starts at its trigger when there is room");
+    assert.ok(menu.x >= area.x && menu.x + menu.width <= area.x + area.width);
+    await page.screenshot({ path: resolve(output, `${theme}-scripts.png`) });
     await page.keyboard.press("Escape");
     await page.locator(".script-menu").waitFor({ state: "detached" });
     await page.getByRole("button", { name: "Remove brief.md" }).click();
@@ -116,6 +144,15 @@ try {
     await lastIsVisible();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
     await page.screenshot({ path: resolve(output, `${theme}-compact.png`) });
+    await page.evaluate(() => window.fixtureStore.setState({ customScripts: Array.from({ length: 18 }, (_, index) => ({ id: 'script-'+index, title: 'Reusable script with a longer name '+index, domain: 'example.com', js: '' })) }));
+    await page.getByRole("button", { name: "Open scripts menu" }).click();
+    await page.locator(".script-menu").waitFor();
+    const narrowMenu = await page.locator(".script-menu").boundingBox();
+    const narrowArea = await page.locator(".overlay-scroll-area").boundingBox();
+    assert.ok(narrowMenu.height <= 240 && narrowMenu.width <= 248);
+    assert.ok(narrowMenu.x >= narrowArea.x && narrowMenu.x + narrowMenu.width <= narrowArea.x + narrowArea.width);
+    assert.ok(narrowMenu.y >= narrowArea.y, "menu remains inside the chat viewport");
+    await page.keyboard.press("Escape");
     await page.setViewportSize({ width: 1100, height: 800 });
     await page.evaluate(() => {
       window.fixtureStore.setState(state => ({
@@ -128,6 +165,12 @@ try {
     await page.evaluate(() => window.fixtureStore.setState({ agentReady: () => false }));
     await page.getByRole("button", { name: "Attach local files to the next message" }).waitFor();
     assert.equal(await textarea.isDisabled(), true);
+    await page.locator(".messages").dispatchEvent("dragenter", { dataTransfer: transfer });
+    await page.getByRole("status").filter({ hasText: "Connect an agent to attach files" }).waitFor();
+    await page.locator(".messages").dispatchEvent("drop", { dataTransfer: transfer });
+    assert.equal(await page.locator(".file-drop-area__indicator").count(), 0);
+    assert.equal(await page.getByRole("button", { name: "Remove drop-note.txt" }).count(), 0);
+    await transfer.dispose();
     await scrollToEnd();
     await lastIsVisible();
     console.log(`${theme}: glass inversion, round actions, text entry, send, attachments, menu, growing overlay and compact scrolling passed`);

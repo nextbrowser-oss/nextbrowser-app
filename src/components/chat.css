@@ -25,10 +25,10 @@
   padding: 14px;
   border: 0;
   border-radius: 28px;
-  background: var(--glass-inverse-bg);
+  background: var(--composer-glass-bg);
   color: var(--glass-inverse-text);
   box-shadow: var(--glass-inverse-shadow);
-  backdrop-filter: blur(32px) saturate(140%);
+  backdrop-filter: blur(72px) saturate(115%);
 }
 .chat-composer-dock .composer textarea,
 .chat-composer-dock .composer textarea:focus {
@@ -51,14 +51,30 @@
   line-height: 1.5;
 }
 .chat-composer-dock .composer:has(textarea:focus-visible) { box-shadow: var(--glass-inverse-shadow), 0 0 24px color-mix(in srgb, var(--accent) 16%, transparent); }
-.chat-composer-dock .composer textarea::placeholder { color: var(--glass-inverse-muted); opacity: 1; }
+.chat-composer-dock .composer textarea::placeholder { color: var(--glass-inverse-text); opacity: 1; }
 .chat-composer-dock .composer-actions { display: flex; align-items: center; gap: 8px; }
 .chat-composer-dock .composer-actions > .shared-icon-button:last-child { margin-inline-start: auto; }
+.chat-composer-dock .composer-actions .shared-icon-button--embedded { background: var(--composer-control-bg); }
+.chat-composer-dock .composer-actions .shared-icon-button--embedded:hover:not(:disabled) { background: var(--composer-control-hover); }
+.chat-composer-dock .script-wrap { flex: none; }
 .chat-composer-dock .pending-attachments { padding: 0 8px; max-height: 100px; overflow: auto; }
 .chat-composer-dock .chat-action-error,
 .chat-composer-dock .chat-agent-error,
 .chat-composer-dock .guide-draft-notice { margin: 0; max-height: 100px; overflow: auto; border: 0; border-radius: 16px; background: var(--bg-elevated); padding: 10px 14px; }
-.chat-composer-dock .script-menu { max-height: min(360px, calc(100dvh - 220px)); overflow-y: auto; border: 0; border-radius: 18px; }
+.chat-composer-dock .script-menu {
+  left: var(--script-menu-shift, 0px);
+  right: auto;
+  width: max-content;
+  min-width: 0;
+  max-width: min(248px, var(--script-menu-width, calc(100vw - 32px)));
+  max-height: min(240px, var(--script-menu-room, calc(100dvh - 220px)));
+  overflow-y: auto;
+  border: 0;
+  border-radius: 14px;
+  padding: 5px;
+}
+.chat-composer-dock .script-menu button { min-height: 30px; padding: 6px 8px; font-size: 12px; overflow-wrap: anywhere; }
+.chat-composer-dock .script-menu .section { padding: 5px 8px; font-size: 10px; }
 @media (max-width: 640px) {
   .chat-composer-dock { width: calc(100% - 24px); padding-bottom: 12px; }
 }

@@ -17,6 +17,7 @@
   transition: background-color 150ms ease, transform 120ms ease, opacity 150ms ease;
 }
 .shared-icon-button--small { width: 28px; height: 28px; }
+.shared-icon-button--labelled { display: inline-flex; justify-content: center; gap: 6px; width: auto; padding-inline: 10px; border-radius: 999px; font: inherit; font-size: 12px; font-weight: 500; white-space: nowrap; }
 .shared-icon-button--embedded { background: var(--glass-inverse-control); box-shadow: none; backdrop-filter: none; }
 .shared-icon-button:hover:not(:disabled) { background: var(--glass-inverse-solid); }
 .shared-icon-button--embedded:hover:not(:disabled) { background: var(--glass-inverse-control-hover); }
