@@ -1,4 +1,4 @@
-import { IconButton, Tooltip } from "./shared/ui";
+import { glassSurfaceClassName, IconButton, Tooltip } from "./shared/ui";
 import { addPendingRuntimeInstall, downloadableBrowsers, runtimeInstalling } from "./lib/settingsUpdates";
 import { RuntimeInstallationProgress } from "./components/RuntimeInstallationProgress";
 import { BrowserRuntimeUpdatePrompt, ClawbrowserCloseProfilesPrompt, type BrowserRuntimeUpdateEntry } from "./components/BrowserRuntimeUpdatePrompt";
@@ -1677,7 +1677,7 @@ export function App() {
       {titlebarActions}
       <aside
         id="app-sidebar"
-        className={"sidebar thin-material" + (sidebarCollapsed ? " sidebar-collapsed" : "")}
+        className={`${glassSurfaceClassName} sidebar${sidebarCollapsed ? " sidebar-collapsed" : ""}`}
         style={{ width: sidebarCollapsed ? 68 : sidebarWidth }}
       >
         <Sidebar

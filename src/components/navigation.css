@@ -32,6 +32,30 @@
   .community-github .github-star-count { display: none; }
 }
 .desktop-shell[data-platform="darwin"] .app-titlebar { padding-left: calc(82px / var(--window-zoom, 1)); padding-right: 16px; }
+.app > .sidebar {
+  --bg: var(--glass-inverse-solid);
+  --bg-elevated: var(--glass-inverse-control);
+  --panel: var(--glass-inverse-solid);
+  --card: var(--glass-inverse-control);
+  --text: var(--glass-inverse-text);
+  --text-secondary: var(--glass-inverse-muted);
+  --muted: var(--glass-inverse-muted);
+  --accent-text: var(--glass-inverse-text);
+  --line: var(--glass-inverse-control);
+  --line-strong: var(--glass-inverse-control-hover);
+  --surface-1: var(--glass-inverse-control);
+  --surface-2: var(--glass-inverse-control);
+  --surface-3: var(--glass-inverse-control-hover);
+  --nav-active-bg: var(--glass-inverse-control-hover);
+  margin: 8px;
+  height: calc(100% - 16px);
+  min-height: 0;
+  border-radius: 18px;
+  overflow: hidden;
+}
+.sidebar .sidebar-destination svg,
+.sidebar .sidebar-settings-button svg { color: var(--glass-inverse-text); }
+.app > .resize-handle { margin-block: 8px; }
 .sidebar .sidebar-mini { cursor: default; }
 .sidebar-mini .sidebar-mini-header { height: 56px; padding-block: 8px; }
 .sidebar-shell .sidebar-brand { height: 56px; padding: 10px 16px; border: 0; }

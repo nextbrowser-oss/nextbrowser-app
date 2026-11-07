@@ -119,6 +119,24 @@ try {
   assert.ok((await projectPopover.boundingBox()).width <= 240);
   await page.keyboard.press('Escape');
   const nav = page.getByRole("navigation", { name: "Sidebar pages" });
+  const checkSidebarSurface = async () => {
+    const surface = await page.locator('#app-sidebar').evaluate(node => {
+      const rect = node.getBoundingClientRect(), style = getComputedStyle(node);
+      const container = node.closest('.desktop-shell-body').getBoundingClientRect();
+      const icon = node.querySelector('.sidebar-destination svg');
+      return { left: rect.left, top: rect.top - container.top, bottom: container.bottom - rect.bottom,
+        radius: style.borderTopLeftRadius, blur: style.backdropFilter, bg: style.backgroundColor,
+        text: style.color, icon: getComputedStyle(icon).color, overflow: node.scrollWidth > node.clientWidth };
+    });
+    assert.ok(surface.left >= 8 && surface.top >= 8 && surface.bottom >= 8, JSON.stringify(surface));
+    assert.equal(surface.radius, '18px');
+    assert.ok(surface.blur.includes('blur(18px)'));
+    assert.match(surface.bg, /^rgba\(/);
+    assert.equal(surface.icon, surface.text, 'navigation icons use the glass foreground');
+    assert.equal(surface.overflow, false);
+  };
+  await checkSidebarSurface();
+  await page.screenshot({ path: 'e2e-out/sidebar-glass-expanded-light.png' });
   const skillsButton = () => nav.getByRole("button", { name: /^Open Skills/ });
   await skillsButton().click();
   const expandedY = (await skillsButton().boundingBox()).y;
@@ -128,6 +146,7 @@ try {
   assert.equal(await nav.getByRole("button").count(), 5);
   assert.equal(await nav.locator("svg").evaluateAll(nodes => nodes.every(node => getComputedStyle(node).strokeWidth === "1.5px")), true);
   assert.equal(await page.locator(".sidebar-mini").evaluate(node => node.scrollWidth <= node.clientWidth), true);
+  await checkSidebarSurface();
   const collapsedY = (await skillsButton().boundingBox()).y;
   assert.ok(Math.abs(expandedY - collapsedY) < 1, `Navigation moved: ${expandedY} → ${collapsedY}`);
   assert.equal(await skillsButton().innerText().then((text) => text.includes("Skills")), true);
@@ -152,12 +171,21 @@ try {
   await page.getByRole("button", { name: "Close settings", exact: true }).click();
   await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   await page.getByRole("button", { name: "Collapse sidebar", exact: true }).waitFor();
+  const beforeResize = await page.locator('#app-sidebar').boundingBox();
+  const resize = await page.locator('#sidebar-resize').boundingBox();
+  await page.mouse.move(resize.x + resize.width / 2, resize.y + 80);
+  await page.mouse.down();
+  await page.mouse.move(resize.x + resize.width / 2 + 40, resize.y + 80, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForFunction(width => Math.abs(document.querySelector('#app-sidebar').getBoundingClientRect().width - width - 40) < 1, beforeResize.width);
+  await checkSidebarSurface();
   await page.setViewportSize({ width: 960, height: 640 });
   assert.equal(await page.locator(".skills-root").evaluate((node) => node.scrollWidth <= node.clientWidth + 1), true);
   await tabs.getByRole("tab", { name: "All skills", exact: true }).press("End");
   assert.equal(await tabs.getByRole("tab", { name: "Scripts", exact: true }).evaluate((node) => { const box = node.getBoundingClientRect(); return box.left >= 0 && box.right <= innerWidth; }), true);
   await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
   await page.waitForTimeout(350); // Let the theme transition settle before visual QA.
+  await checkSidebarSurface();
   await page.screenshot({ path: "e2e-out/navigation-skills-narrow-dark.png" });
   await page.setViewportSize({ width: 1280, height: 900 });
   await nav.getByRole("button", { name: /^Open Connectors/ }).click();
