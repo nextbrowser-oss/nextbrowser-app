@@ -15,8 +15,8 @@ import { BuiltinAgentSetup } from "./BuiltinAgentSetup";
 describe("BuiltinAgentSetup", () => {
   it("offers the providers with their limits, NVIDIA first, and a free key link", () => {
     const html = renderToStaticMarkup(<BuiltinAgentSetup />);
-    for (const name of ["NVIDIA", "OpenRouter", "Google Gemini", "Custom"]) expect(html).toContain(`<strong>${name}</strong>`);
-    expect(html).toMatch(/role="radio" aria-checked="true" class="builtin-agent-provider is-selected"><span class="builtin-agent-provider-head"><strong>NVIDIA<\/strong>/);
+    for (const name of ["NVIDIA", "OpenRouter", "DeepSeek", "Anthropic", "Google Gemini", "Custom"]) expect(html).toContain(`<strong>${name}</strong>`);
+    expect(html).toMatch(/role="radio" aria-checked="true" class="builtin-agent-provider is-selected" disabled=""><span class="builtin-agent-provider-head"><strong>NVIDIA<\/strong>/);
     expect(html).toContain("about 40 requests a minute");
     expect(html).toContain("About 50 requests a day");
     expect(html).toContain('href="https://build.nvidia.com"');

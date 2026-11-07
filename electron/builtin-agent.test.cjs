@@ -620,14 +620,14 @@ test("NVIDIA preselects a chat Nemotron model: Super, then Ultra, then Nano", ()
   assert.equal(models.find((model) => model.id.endsWith("-vl")).vision, true);
 });
 
-test("OpenRouter offers its free router and free tool models; Gemini a Flash model", () => {
+test("OpenRouter offers free and paid tool models; Gemini a Flash model", () => {
   const openrouter = [
     { id: "openai/gpt-4o", supported_parameters: ["tools"] },
     { id: "meta-llama/llama-3.3-70b-instruct:free", supported_parameters: ["tools", "temperature"] },
     { id: "some/model:free", supported_parameters: ["temperature"], architecture: { input_modalities: ["text", "image"] } },
   ].map((item) => describeModel("openrouter", item));
   assert.equal(defaultModelFor("openrouter", openrouter), "meta-llama/llama-3.3-70b-instruct:free");
-  assert.deepEqual(offeredModels("openrouter", openrouter).map((model) => model.id), [OPENROUTER_FREE_ROUTER, "meta-llama/llama-3.3-70b-instruct:free"]);
+  assert.deepEqual(offeredModels("openrouter", openrouter).map((model) => model.id), [OPENROUTER_FREE_ROUTER, "openai/gpt-4o", "meta-llama/llama-3.3-70b-instruct:free"]);
   assert.equal(openrouter[2].vision, true);
   assert.equal(defaultModelFor("openrouter", []), OPENROUTER_FREE_ROUTER);
   const gemini = ["models/gemini-2.0-flash", "models/gemini-2.5-flash", "models/gemini-2.5-flash-lite", "models/text-embedding-004"].map((id) => describeModel("gemini", { id }));
@@ -717,4 +717,35 @@ test("the main process runs the built-in agent in-process, stops it, and keeps i
   assert.ok(!/console\.\w+\([^)]*(?:apiKey|builtinAgentKeys)/.test(main), "no key is logged");
   const { describeInvokeFailure } = require("./invoke-failure-report.cjs");
   assert.equal(describeInvokeFailure({ command: "builtin_agent_key_save", error: new Error(`bad ${SECRET}`) }).event.message.includes("TOPSECRET"), false);
+});
+test("Anthropic compatibility supplies a budget and omits unsupported sampling on every tool turn", async () => {
+  const sent = [];
+  const client = createProviderClient({ provider: "anthropic", baseURL: "https://api.anthropic.com/v1", apiKey: SECRET,
+    fetchImpl: async (url, init) => {
+      sent.push({ url, init, body: init.body && JSON.parse(init.body) });
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { role: "assistant", content: "ok" } }] }) };
+    } });
+  const body = { model: "claude-test", messages: [{ role: "user", content: "Hi" }], temperature: 0.2, tools: [ { type: "function", function: { name: "ping", parameters: { type: "object" } } } ], tool_choice: "auto" };
+  assert.equal((await client.chat(body)).message.content, "ok");
+  assert.equal(sent[0].url, "https://api.anthropic.com/v1/chat/completions");
+  assert.equal(sent[0].body.max_tokens, 4096);
+  assert.equal(sent[0].body.temperature, undefined);
+  assert.deepEqual(sent[0].body.tools, body.tools);
+  assert.equal(sent[0].init.headers.authorization, `Bearer ${SECRET}`);
+  assert.equal(body.temperature, 0.2, "caller's request is not mutated");
+  await client.chat({ ...body, max_tokens: 256 });
+  assert.equal(sent[1].body.max_tokens, 256, "connection tests keep their small budget");
+});
+
+test("Anthropic model discovery uses its versioned authenticated endpoint; DeepSeek resolves its own key and URL", async () => {
+  const client = createProviderClient({ provider: "anthropic", baseURL: "https://api.anthropic.com/v1", apiKey: SECRET,
+    fetchImpl: async (url, init) => {
+      assert.equal(url, "https://api.anthropic.com/v1/models?limit=1000");
+      assert.equal(init.headers["anthropic-version"], "2023-06-01");
+      assert.equal(init.headers.authorization, `Bearer ${SECRET}`);
+      return { ok: true, text: async () => JSON.stringify({ data: [{ id: "claude-test" }] }) };
+    } });
+  assert.deepEqual((await client.listModels()).map(item => item.id), ["claude-test"]);
+  assert.deepEqual(resolveProviderSettings({ provider: "deepseek", model: "deepseek-flash" }), { provider: "deepseek", providerName: "DeepSeek", baseURL: "https://api.deepseek.com", model: "deepseek-flash", keyRequired: true });
+  assert.equal(defaultModelFor("deepseek", [{ id: "deepseek-v4-pro" }, { id: "deepseek-flash" }]), "deepseek-flash");
 });

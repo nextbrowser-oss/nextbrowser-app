@@ -859,7 +859,7 @@ interface State {
   skillApplyError: (entryId: string) => string | undefined;
 
   newChat: () => string;
-  createProjectSession: (projectId: string) => string;
+  createProjectSession: (projectId: string, agentId?: string) => string;
   moveProjectTreeItem: (event: ProjectTreeDrop) => void;
   createProject: (name: string, mode: "chat" | "terminal", agentId?: string) => string;
   changeEmptyProjectAgent: (id: string, agentId: string) => boolean;
@@ -5945,14 +5945,16 @@ export const useStore = create<State>((set, get) => {
     set({ conversations });
   },
 
-  createProjectSession: (projectId) => {
+  createProjectSession: (projectId, requestedAgentId) => {
     const state = get();
     const source = state.conversations.find(item => item.id === projectId);
     const project = source && projectRoot(source, state.conversations);
     if (!project || project.workspaceId !== state.activeWorkspaceId || (project.workspaceId && deletingWorkspaceIds.has(project.workspaceId))) return "";
+    const agent = requestedAgentId ?? source!.agent;
+    if (!AGENTS.some(item => item.id === agent) || (isBuiltinAgent(agent) && project.executionTarget === "vps")) return "";
     const count = state.conversations.filter(item => item.projectId === project.id).length + 2;
     const session: Conversation = {
-      id: uid(), title: `Session ${count}`, agent: project.agent, messages: [], createdAt: now(), updatedAt: now(),
+      id: uid(), title: `Session ${count}`, agent, messages: [], createdAt: now(), updatedAt: now(),
       projectId: project.id, workspaceId: project.workspaceId, chatMode: "chat",
       executionTarget: project.executionTarget, vpsConnectionInstructions: project.vpsConnectionInstructions,
       vpsConnectionLabel: project.vpsConnectionLabel,
@@ -5962,14 +5964,14 @@ export const useStore = create<State>((set, get) => {
     set({ conversations });
     get().selectConversation(session.id);
     get().setTab("chat");
-    trackEvent("chat_created", { agent: project.agent, project_id: project.id });
+    trackEvent("chat_created", { agent, project_id: project.id });
     return session.id;
   },
 
   newChat: () => {
     const current = get().activeConversation();
     const project = current && projectRoot(current, get().conversations);
-    if (project && project.workspaceId === get().activeWorkspaceId) return get().createProjectSession(project.id);
+    if (project && project.workspaceId === get().activeWorkspaceId) return get().createProjectSession(current!.id);
     const agentId = get().agentId;
     const workspaceId = get().activeWorkspaceId;
     if (workspaceId && deletingWorkspaceIds.has(workspaceId)) throw new Error("This workspace is being deleted.");

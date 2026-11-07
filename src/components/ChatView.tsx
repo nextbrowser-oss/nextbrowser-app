@@ -8,7 +8,8 @@ import { MarkdownText } from "./MarkdownText";
 import { Icon, Spinner } from "./Icon";
 import type { ChatAttachment, ChatMessage } from "../types";
 import { filePathForFile, invoke } from "../electronBridge";
-import { AGENTS, agentById, agentInvocation, isBuiltinAgent, type AgentSpec } from "../agents";
+import { AGENTS, BUILTIN_AGENT_ID, agentById, agentInvocation, isBuiltinAgent, type AgentSpec } from "../agents";
+import { AgentModelPicker } from "./AgentModelPicker";
 import { OPEN_AGENT_SETTINGS_EVENT } from "../lib/appNavigation";
 import { trackEvent } from "../lib/analytics";
 import { needsSupportLink } from "../lib/userFacingError";
@@ -173,11 +174,29 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
   const scriptWrapRef = useRef<HTMLDivElement>(null);
   const scriptMenuRef = useRef<HTMLDivElement>(null);
   const conversationKey = `${agentId}:${conv?.id ?? "new"}`;
+  const providerDraft = useRef<{ key: string; text: string; attachments: ChatAttachment[] }>();
+
+  const activateApiAgent = () => {
+    if (builtinAgent) return;
+    if (remoteOnly || running) throw new Error("Stop the current agent and use a local chat to change providers.");
+    let id: string;
+    if (conv) {
+      id = s.changeEmptyProjectAgent(conv.id, BUILTIN_AGENT_ID) ? conv.id : s.createProjectSession(conv.id, BUILTIN_AGENT_ID);
+    } else {
+      s.switchAgent(BUILTIN_AGENT_ID);
+      id = useStore.getState().newChat();
+    }
+    if (!id) throw new Error("Could not open an API agent session in this project.");
+    providerDraft.current = { key: `${BUILTIN_AGENT_ID}:${id}`, text: draft, attachments };
+  };
 
   useEffect(() => {
-    // Pending attachments and an unsent draft belong to the previous chat.
-    setAttachments([]);
-    setDraft("");
+    // A provider switch carries the unsent prompt into the new agent session.
+    // Ordinary chat navigation still clears the previous chat's draft.
+    const staged = providerDraft.current?.key === conversationKey ? providerDraft.current : undefined;
+    providerDraft.current = undefined;
+    setAttachments(staged?.attachments ?? []);
+    setDraft(staged?.text ?? "");
     setGuideDraftLoaded(false);
     setCommandNotice(undefined);
     setCommandMenuDismissed(false);
@@ -651,6 +670,9 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
                       </div>
                     )}
                   </div>
+                  <AgentModelPicker key={conversationKey} agentId={agentId} version={builtinAgent ? s.agentVersion() : undefined}
+                    disabled={running || remoteOnly || !!s.runtime[BUILTIN_AGENT_ID]?.runningReplyId}
+                    onActivate={activateApiAgent} onRefresh={s.refreshBuiltinAgent} />
                   {running ? (
                     <IconButton label="Stop the running agent response" appearance="embedded" onClick={() => s.stopRunning()}>
                       <Icon name="stop.fill" size={16} />

@@ -1,0 +1,18 @@
+.agent-model-picker { width: 320px; max-height: min(560px, calc(100dvh - 16px)); padding: 12px; display: grid; gap: 8px; }
+.agent-model-picker-trigger > span { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-model-picker-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.agent-model-picker-heading span, .agent-model-picker-note { font-size: 11px; color: var(--glass-inverse-muted); }
+.agent-model-picker-note { margin: 0; line-height: 1.45; }
+.agent-model-picker-field { display: grid; gap: 5px; font-size: 11px; }
+.agent-model-picker input, .agent-model-picker select { box-sizing: border-box; width: 100%; min-width: 0; border: 0; border-radius: 8px; padding: 7px 9px; background: var(--glass-inverse-control); color: inherit; font: inherit; }
+.agent-model-picker select { color-scheme: dark; }
+.agent-model-picker input::placeholder { color: var(--glass-inverse-muted); }
+.agent-model-picker-models { overflow: auto; max-height: 150px; min-height: 32px; }
+.agent-model-picker-models button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: left; }
+.agent-model-picker-models button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-model-picker button { border: 0; border-radius: 8px; padding: 7px 8px; color: inherit; background: transparent; font: inherit; font-size: 12px; cursor: pointer; }
+.agent-model-picker button:hover:not(:disabled), .agent-model-picker button[aria-pressed="true"] { background: var(--glass-inverse-control-hover); }
+.agent-model-picker button:disabled { opacity: .5; cursor: default; }
+.agent-model-picker-actions { display: flex; justify-content: space-between; gap: 8px; }
+.agent-model-picker-actions button { background: var(--glass-inverse-control); }
+.agent-model-setup { width: min(680px, calc(100vw - 32px)); }

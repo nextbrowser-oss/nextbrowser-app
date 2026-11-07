@@ -34,6 +34,16 @@ it("rejects missing/cross-workspace parents and keeps orphaned sessions accessib
   expect(projectFolders([orphan], "work")[0].project.id).toBe("orphan");
   expect(projectFolders([orphan], "other")).toHaveLength(0);
 });
+it("switches a project's API session without replacing CLI history and keeps new chats on that agent", () => {
+  const id = useStore.getState().createProjectSession("project", "nextbrowser");
+  expect(useStore.getState().agentId).toBe("nextbrowser");
+  expect(useStore.getState().activeConvId.nextbrowser).toBe(id);
+  expect(useStore.getState().conversations[0]).toEqual(project());
+  expect(useStore.getState().conversations.find(item => item.id === id)).toMatchObject({ projectId: "project", agent: "nextbrowser", messages: [] });
+  const next = useStore.getState().newChat();
+  expect(useStore.getState().conversations.find(item => item.id === next)).toMatchObject({ projectId: "project", agent: "nextbrowser" });
+  expect(useStore.getState().createProjectSession("project", "not-an-agent")).toBe("");
+});
 it("persists a moved session without switching the active chat or copying history", () => {
   useStore.setState(state => ({ conversations: [...state.conversations, { ...project(), id: "destination", title: "Destination", messages: [] }] }));
   const id = useStore.getState().createProjectSession("project");

@@ -305,6 +305,63 @@ try {
     await createProject.getByRole('button', { name: 'Create project', exact: true }).click();
     assert.deepEqual(await page.evaluate(() => window.createdProject), ['New chat project', 'chat', 'codex']);
     await createProject.waitFor({ state: 'detached' });
+    // API model selection uses real session actions; only external IPC is faked.
+    await page.goto(`${url}?theme=${theme}`);
+    await textarea.waitFor();
+    await page.evaluate(() => {
+      window.providerSettings = { provider: 'nvidia', model: 'nemotron-test', baseURL: '' };
+      const status = () => ({ settings: window.providerSettings, keys: { nvidia: true, openrouter: true, deepseek: true }, configured: true, secureStorage: true, problem: '', providerName: window.providerSettings.provider, model: window.providerSettings.model });
+      const original = window.nextbrowser.invoke;
+      window.nextbrowser.invoke = async (command, args) => {
+        if (command === 'builtin_agent_status') return status();
+        if (command === 'builtin_agent_models') return { models: [{id: args.provider === 'openrouter' ? 'anthropic/claude-test' : 'nemotron-test'}, ...Array.from({length:24}, (_,i)=>({id:'fixture-model-'+i}))], defaultModel: 'nemotron-test' };
+        if (command === 'builtin_agent_settings_save') { window.providerSettings = args; return status(); }
+        return original(command, args);
+      };
+      window.fixtureStore.setState({ activeConvId: { codex: 'fixture-chat' }, activeConversation: () => { const s=window.fixtureStore.getState(); return s.conversations.find(c=>c.id===s.activeConvId[s.agentId]); } });
+    });
+    const providerTrigger = page.getByRole('button', { name: 'Choose agent provider and model', exact: true });
+    const scriptBounds = await page.getByRole('button', { name: 'Open scripts menu' }).boundingBox();
+    const providerBounds = await providerTrigger.boundingBox();
+    assert.ok(providerBounds.x > scriptBounds.x + scriptBounds.width, 'provider follows Scripts in the composer');
+    await textarea.fill('Keep this draft while switching providers');
+    await page.getByRole('button', { name: 'Attach local files to the next message' }).click();
+    await providerTrigger.click();
+    const providerMenu = page.getByRole('dialog', { name: 'Agent provider and model' });
+    await providerMenu.getByLabel('Agent provider', { exact: true }).selectOption('openrouter');
+    await providerMenu.getByRole('button', { name: 'anthropic/claude-test', exact: true }).waitFor();
+    assert.ok(await providerMenu.evaluate(node=>getComputedStyle(node).backdropFilter.includes('blur(18px)')));
+    assert.equal(await providerMenu.evaluate(node=>getComputedStyle(node).borderWidth), '0px');
+    assert.equal(await providerMenu.evaluate(node=>getComputedStyle(node).scrollbarWidth), 'none');
+    await page.screenshot({ path: resolve(output, `${theme}-provider-models.png`) });
+    for (const width of [420, 320]) {
+      await page.setViewportSize({width,height:620});
+      await page.waitForFunction(()=> { const b=document.querySelector('.agent-model-picker')?.getBoundingClientRect(); return b && b.x>=0 && b.y>=0 && b.right<=innerWidth && b.bottom<=innerHeight; });
+      const b=await providerMenu.boundingBox();
+      assert.ok(b.x >= 0 && b.y >= 0 && b.x+b.width <= width && b.y+b.height <= 620, 'provider menu stays in the viewport');
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth), false);
+    }
+    await page.setViewportSize({width:1100,height:800});
+    await providerMenu.getByLabel('Search provider models').pressSequentially('claude');
+    assert.equal(await providerMenu.getByLabel('Search provider models').inputValue(), 'claude');
+    assert.equal(await providerMenu.getByLabel('Search provider models').evaluate(node=>node===document.activeElement), true);
+    await providerMenu.getByRole('button', {name:'anthropic/claude-test',exact:true}).click();
+    await providerMenu.getByRole('button', {name:'Use model',exact:true}).click();
+    await page.waitForFunction(()=>window.fixtureStore.getState().agentId==='nextbrowser');
+    assert.equal(await textarea.inputValue(), 'Keep this draft while switching providers');
+    await page.getByRole('button', {name:'Remove brief.md',exact:true}).waitFor();
+    const selected = await page.evaluate(()=> {const s=window.fixtureStore.getState();return {settings:window.providerSettings,old:s.conversations[0],session:s.activeConversation()};});
+    assert.equal(selected.settings.provider, 'openrouter');
+    assert.equal(selected.settings.model, 'anthropic/claude-test');
+    assert.equal(selected.old.messages.length, 32);
+    assert.equal(selected.old.agent, 'codex');
+    assert.equal(selected.session.projectId, 'fixture-chat');
+    assert.equal(selected.session.agent, 'nextbrowser');
+    assert.equal(selected.session.messages.length, 0);
+    await send.click();
+    assert.equal((await page.evaluate(()=>window.sent.at(-1)))[0], 'Keep this draft while switching providers');
+    await page.evaluate(()=>window.fixtureStore.setState({runtime:{nextbrowser:{ready:true,loggedIn:true,runningReplyId:'other-session'}}}));
+    assert.equal(await providerTrigger.isDisabled(), true);
     console.log(`${theme}: glass inversion, round actions, text entry, send, attachments, menu, growing overlay and compact scrolling passed`);
   }
   assert.deepEqual(errors, []);

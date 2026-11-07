@@ -9,6 +9,8 @@
 const PROVIDERS = Object.freeze({
   nvidia: Object.freeze({ id: "nvidia", name: "NVIDIA", baseURL: "https://integrate.api.nvidia.com/v1", keyRequired: true }),
   openrouter: Object.freeze({ id: "openrouter", name: "OpenRouter", baseURL: "https://openrouter.ai/api/v1", keyRequired: true }),
+  deepseek: Object.freeze({ id: "deepseek", name: "DeepSeek", baseURL: "https://api.deepseek.com", keyRequired: true }),
+  anthropic: Object.freeze({ id: "anthropic", name: "Anthropic", baseURL: "https://api.anthropic.com/v1", keyRequired: true }),
   gemini: Object.freeze({ id: "gemini", name: "Google Gemini", baseURL: "https://generativelanguage.googleapis.com/v1beta/openai", keyRequired: true }),
   custom: Object.freeze({ id: "custom", name: "Custom provider", baseURL: "", keyRequired: false }),
 });
@@ -18,6 +20,7 @@ const FALLBACK_MODELS = Object.freeze({
   nvidia: "nvidia/llama-3.3-nemotron-super-49b-v1.5",
   openrouter: "openrouter/free",
   gemini: "gemini-2.5-flash",
+  deepseek: "deepseek-flash",
 });
 const OPENROUTER_FREE_ROUTER = "openrouter/free";
 const MODEL_ID_MAX = 200;
@@ -201,6 +204,13 @@ function createProviderClient({ provider, providerName, baseURL, apiKey = "", fe
   };
   return {
     async chat(body, { signal, timeoutMs = 120_000 } = {}) {
+      // Claude's compatibility endpoint requires an output budget. Newer
+      // Claude models reject non-default sampling temperatures.
+      if (provider === "anthropic") {
+        body = { max_tokens: 4096, ...body };
+        delete body.temperature;
+        delete body.top_p;
+      }
       const { response, text } = await fetchWithin(fetchImpl, `${baseURL}/chat/completions`, {
         method: "POST",
         headers,
@@ -223,9 +233,9 @@ function createProviderClient({ provider, providerName, baseURL, apiKey = "", fe
     },
 
     async listModels({ signal, timeoutMs = 20_000 } = {}) {
-      const { response, text } = await fetchWithin(fetchImpl, `${baseURL}/models`, {
+      const { response, text } = await fetchWithin(fetchImpl, `${baseURL}/models${provider === "anthropic" ? "?limit=1000" : ""}`, {
         method: "GET",
-        headers: { accept: "application/json", ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
+        headers: { accept: "application/json", ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}), ...(provider === "anthropic" ? { "anthropic-version": "2023-06-01" } : {}) },
       }, { signal, timeoutMs, providerName: name });
       const parsed = parseJSON(text);
       if (!response.ok) {
@@ -302,18 +312,19 @@ function defaultModelFor(provider, models = []) {
       .sort((a, b) => b.localeCompare(a, "en", { numeric: true }));
     return flash[0] || ids.find((id) => /flash/.test(id) && !/lite|image|tts|live|audio/.test(id)) || FALLBACK_MODELS.gemini;
   }
+  if (provider === "deepseek") return ids.includes("deepseek-flash") ? "deepseek-flash" : ids[0] || FALLBACK_MODELS.deepseek;
   return ids[0] || "";
 }
 
 /**
  * The models worth offering for a provider: chat models only for NVIDIA, the
- * free ones (and the free router) for OpenRouter, Gemini's Gemini models.
+ * tool-capable ones (including paid models) for OpenRouter, Gemini's Gemini models.
  */
 function offeredModels(provider, models = []) {
   if (provider === "nvidia") return models.filter((item) => !NVIDIA_NOT_CHAT.test(item.id));
   if (provider === "openrouter") {
-    const free = models.filter((item) => item.free && item.tools !== false);
-    return [{ id: OPENROUTER_FREE_ROUTER, vision: false, free: true }, ...free.filter((item) => item.id !== OPENROUTER_FREE_ROUTER)];
+    const chat = models.filter((item) => item.tools !== false);
+    return [{ id: OPENROUTER_FREE_ROUTER, vision: false, free: true }, ...chat.filter((item) => item.id !== OPENROUTER_FREE_ROUTER)];
   }
   if (provider === "gemini") return models.filter((item) => /^gemini-/.test(item.id) && !/embedding|aqa|imagen|veo|tts|live/i.test(item.id));
   return models;

@@ -22,7 +22,7 @@ export function RecentProjects({ activeId, open: controlledOpen, onOpenChange, b
     </button>}>
     <div className="project-popover-toolbar">
       <IconButton label="Create project" appearance="plain" size="small" className="project-new-session" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent("nextbrowser:create-project")); }}><Glyph name="folder" size={14} /></IconButton>
-      <IconButton label="New session" disabled={!root} appearance="plain" size="small" className="project-new-session" onClick={() => { if (root && createSession(root.id)) { setOpen(false); setTab("chat"); } }}><Icon name="plus" size={14} /></IconButton>
+      <IconButton label="New session" disabled={!root} appearance="plain" size="small" className="project-new-session" onClick={() => { if (current && createSession(current.id)) { setOpen(false); setTab("chat"); } }}><Icon name="plus" size={14} /></IconButton>
     </div>
     <div className="recent-project-list shared-scrollbarless">
       <ProjectTree onSelect={() => setOpen(false)} />

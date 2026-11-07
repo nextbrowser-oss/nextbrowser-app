@@ -92,7 +92,7 @@ function describeAgentResult({ agentId, result, outcome = {}, durationMs, plain 
   return { reason, event: event("AGENT_STOPPED_UNEXPECTEDLY", `${agent} exited with code ${code}: ${reported || "no error line in its output"}`) };
 }
 
-const BUILTIN_PROVIDERS = new Set(["nvidia", "openrouter", "gemini", "custom"]);
+const BUILTIN_PROVIDERS = new Set(Object.keys(require("./builtin-agent-providers.cjs").PROVIDERS));
 const BUILTIN_FAILURE_CODE = /^[a-z][a-z_]{1,31}$/;
 const BUILTIN_MODEL = /^[A-Za-z0-9._:/-]{1,120}$/;
 

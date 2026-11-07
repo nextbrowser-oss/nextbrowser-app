@@ -39,7 +39,7 @@ function modelLabel(model: BuiltinModelOption): string {
  * key goes to the main process on Save and never comes back; the field is
  * cleared as soon as it is saved.
  */
-export function BuiltinAgentSetup({ onReady }: { onReady?: () => void }) {
+export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = true }: { onReady?: () => void; initialProvider?: BuiltinProviderId; activateOnSave?: boolean }) {
   const agentId = useStore((s) => s.agentId);
   const switchAgent = useStore((s) => s.switchAgent);
   const refreshBuiltinAgent = useStore((s) => s.refreshBuiltinAgent);
@@ -81,7 +81,8 @@ export function BuiltinAgentSetup({ onReady }: { onReady?: () => void }) {
     let active = true;
     void invoke<BuiltinAgentStatus>("builtin_agent_status").then((next) => {
       if (!active) return;
-      const settings = builtinAgentSettings(next);
+      const saved = builtinAgentSettings(next);
+      const settings = initialProvider && initialProvider !== saved.provider ? { provider: initialProvider, baseURL: "", model: "" } : saved;
       setStatus(next);
       setProvider(settings.provider);
       setBaseURL(settings.baseURL);
@@ -90,7 +91,7 @@ export function BuiltinAgentSetup({ onReady }: { onReady?: () => void }) {
       if (hasKey && (settings.provider !== "custom" || settings.baseURL)) void loadModels(settings.provider, settings.baseURL, settings.model);
     }).catch((failure) => { if (active) setError(errorText(failure)); });
     return () => { active = false; };
-  }, [loadModels]);
+  }, [loadModels, initialProvider]);
 
   const chooseProvider = (next: BuiltinProviderId) => {
     if (next === provider) return;
@@ -169,7 +170,7 @@ export function BuiltinAgentSetup({ onReady }: { onReady?: () => void }) {
       setStatus(next);
       setSaved(true);
       trackEvent("builtin_agent_saved", { provider, configured: next.configured });
-      if (agentId !== BUILTIN_AGENT_ID) switchAgent(BUILTIN_AGENT_ID);
+      if (activateOnSave && agentId !== BUILTIN_AGENT_ID) switchAgent(BUILTIN_AGENT_ID);
       await refreshBuiltinAgent();
       if (next.configured) onReady?.();
     } catch (failure) {
@@ -189,6 +190,7 @@ export function BuiltinAgentSetup({ onReady }: { onReady?: () => void }) {
             aria-checked={item.id === provider}
             key={item.id}
             className={"builtin-agent-provider" + (item.id === provider ? " is-selected" : "")}
+            disabled={!status || !!busy}
             onClick={() => chooseProvider(item.id)}
           >
             <span className="builtin-agent-provider-head">
@@ -222,7 +224,7 @@ export function BuiltinAgentSetup({ onReady }: { onReady?: () => void }) {
           <span>{preset.keyRequired ? "API key" : "API key (optional)"}</span>
           {preset.keyURL && (
             <a href={preset.keyURL} target="_blank" rel="noreferrer" onClick={() => trackEvent("builtin_agent_key_link_opened", { provider })}>
-              Get a free key <Icon name="arrow.up.forward.app" size={11} />
+              {provider === "anthropic" || provider === "deepseek" ? "Get an API key" : "Get a free key"} <Icon name="arrow.up.forward.app" size={11} />
             </a>
           )}
         </span>
