@@ -9,10 +9,12 @@
 .chat-project-switcher { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: min(260px, 32vw); min-height: 30px; padding: 6px 10px; margin: 0; border-radius: var(--glass-radius); font: inherit; font-size: 12px; cursor: pointer; }
 .chat-project-switcher strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
 .chat-project-switcher svg { flex: none; opacity: .75; }
+.chat-project-title { display: inline-flex; align-items: center; gap: 4px; min-height: 30px; padding: 6px 10px; border-radius: var(--glass-radius); max-width: min(260px, 32vw); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; }
+.chat-project-title span { overflow: hidden; text-overflow: ellipsis; opacity: .65; }
 .chat-project-switcher:hover { background: var(--glass-inverse-solid); }
 .chat-project-switcher:focus-visible { outline: 2px solid var(--accent-text); }
 .chat-popover-heading { display: block; padding: 6px 8px 8px; font-size: 11px; font-weight: 700; opacity: .8; }
-.recent-projects { width: 240px; padding: 5px; max-height: 280px; }
+.recent-projects { width: 240px; padding: 5px; max-height: min(460px, calc(100dvh - 16px)); }
 .project-popover-toolbar { display: flex; align-items: center; gap: 3px; margin-bottom: 3px; }
 .project-popover-toolbar .project-search { flex: 1; min-width: 0; margin: 0; }
 .project-popover-toolbar .project-new-session { width: 24px; height: 24px; color: inherit; }
@@ -21,7 +23,7 @@
 .project-search input { box-sizing: border-box; width: 100%; min-width: 0; height: 26px; border: 0; padding: 0; outline: none; background: transparent; color: inherit; box-shadow: none; font: inherit; font-size: 12px; }
 .project-search input::placeholder { color: inherit; opacity: .65; }
 .project-search:focus-within { outline: 1px solid var(--glass-inverse-muted); outline-offset: -1px; }
-.recent-project-list { max-height: 220px; overflow: auto; }
+.recent-project-list { max-height: min(400px, calc(100dvh - 70px)); overflow: auto; }
 .recent-project-option { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 7px; border: 0; border-radius: 8px; text-align: left; background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
 .recent-project-option > span { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 1px; }
 .recent-project-option strong, .recent-project-option small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

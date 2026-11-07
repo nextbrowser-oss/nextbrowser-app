@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { projectRoot } from "./lib/projectTree";
 import { isUtilityDialogTab, type UtilityDialogTab } from "./lib/appNavigation";
 import { invoke, listen } from "./electronBridge";
 import {
@@ -858,6 +859,7 @@ interface State {
   skillApplyError: (entryId: string) => string | undefined;
 
   newChat: () => string;
+  createProjectSession: (projectId: string) => string;
   createProject: (name: string, mode: "chat" | "terminal", agentId?: string) => string;
   changeEmptyProjectAgent: (id: string, agentId: string) => boolean;
   assignProfileToProject: (profileName: string, toolset: BrowserToolset, projectId?: string, replaceToolset?: boolean, proxyId?: string) => Promise<void>;
@@ -5934,7 +5936,31 @@ export const useStore = create<State>((set, get) => {
     }
   },
 
+  createProjectSession: (projectId) => {
+    const state = get();
+    const source = state.conversations.find(item => item.id === projectId);
+    const project = source && projectRoot(source, state.conversations);
+    if (!project || project.workspaceId !== state.activeWorkspaceId || (project.workspaceId && deletingWorkspaceIds.has(project.workspaceId))) return "";
+    const count = state.conversations.filter(item => item.projectId === project.id).length + 2;
+    const session: Conversation = {
+      id: uid(), title: `Session ${count}`, agent: project.agent, messages: [], createdAt: now(), updatedAt: now(),
+      projectId: project.id, workspaceId: project.workspaceId, chatMode: "chat",
+      executionTarget: project.executionTarget, vpsConnectionInstructions: project.vpsConnectionInstructions,
+      vpsConnectionLabel: project.vpsConnectionLabel,
+    };
+    const conversations = [...state.conversations, session];
+    persistConvs(conversations);
+    set({ conversations });
+    get().selectConversation(session.id);
+    get().setTab("chat");
+    trackEvent("chat_created", { agent: project.agent, project_id: project.id });
+    return session.id;
+  },
+
   newChat: () => {
+    const current = get().activeConversation();
+    const project = current && projectRoot(current, get().conversations);
+    if (project && project.workspaceId === get().activeWorkspaceId) return get().createProjectSession(project.id);
     const agentId = get().agentId;
     const workspaceId = get().activeWorkspaceId;
     if (workspaceId && deletingWorkspaceIds.has(workspaceId)) throw new Error("This workspace is being deleted.");
@@ -6273,6 +6299,7 @@ export const useStore = create<State>((set, get) => {
       createdAt: now(),
       updatedAt: now(),
       parentId: conv.id,
+      projectId: conv.projectId ?? conv.id,
       forkedFromMessageId: atMessageId,
       executionTarget: conv.executionTarget,
       vpsConnectionInstructions: conv.vpsConnectionInstructions,

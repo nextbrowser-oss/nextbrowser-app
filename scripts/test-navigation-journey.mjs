@@ -104,7 +104,7 @@ try {
   await page.setViewportSize({ width: 1280, height: 900 });
   await chrome.getByRole("button", { name: "Switch to light theme" }).click();
   let mainViews = page.getByRole('tablist', { name: 'Main views' });
-  const projectName = page.locator('.chat-project-switcher');
+  const projectName = page.locator('.chat-project-title');
   const titleBounds = await projectName.boundingBox();
   const viewBounds = await mainViews.boundingBox();
   assert.ok(viewBounds.x >= titleBounds.x + titleBounds.width, 'minimal main navigation sits after the project name');
@@ -112,12 +112,56 @@ try {
   assert.equal(await page.locator('.content-chat > .tabbar').count(), 0, 'no separate navigation row above the chat');
   await mainViews.getByRole('tab', { name: 'Open Live', exact: true }).click();
   await page.getByRole('tablist', { name: 'Main views' }).getByRole('tab', { name: 'Open Project', exact: true }).click();
-  await projectName.click();
-  const projectPopover = page.getByRole('dialog', { name: 'Recent projects' });
+  await page.getByRole("button", { name: "Open Projects", exact: true }).click();
+  const projectPopover = page.getByRole('dialog', { name: 'Projects' });
   await projectPopover.waitFor();
   const side = await page.locator('#app-sidebar').boundingBox();
   assert.ok((await projectPopover.boundingBox()).x >= side.x + side.width, 'project popup stays beyond the left navigation');
-  assert.ok((await projectPopover.boundingBox()).width <= 240);
+  assert.ok((await projectPopover.boundingBox()).width <= 280);
+  const original = await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts');
+    const state = useStore.getState(), project = state.activeConversation();
+    return { id: project.id, title: project.title, messages: project.messages, workspaceId: state.activeWorkspaceId };
+  });
+  await projectPopover.getByRole('button', { name: `New session in ${original.title}`, exact: true }).click();
+  await projectPopover.waitFor({ state: 'detached' });
+  assert.equal(await page.evaluate(async ({ id, messages }) => {
+    const { useStore } = await import('/src/store.ts'); const state = useStore.getState();
+    return state.activeConversation().projectId === id && state.activeConversation().messages.length === 0 && JSON.stringify(state.conversations.find(item => item.id === id).messages) === JSON.stringify(messages);
+  }, original), true, 'new sessions preserve the original project history');
+  await page.getByRole('button', { name: 'Open Projects', exact: true }).click();
+  await projectPopover.getByRole('button', { name: `Collapse project ${original.title}`, exact: true }).click();
+  assert.equal(await projectPopover.getByRole('group', { name: `Sessions in ${original.title}`, exact: true }).count(), 0);
+  await projectPopover.getByRole('button', { name: `Expand project ${original.title}`, exact: true }).click();
+  await page.screenshot({ path: 'e2e-out/project-folders-light.png' });
+  await projectPopover.getByRole('button', { name: `Open Main session in ${original.title}`, exact: true }).click();
+  await page.getByRole('button', { name: /^Switch workspace,/ }).click();
+  const workspacePopover = page.getByRole('dialog', { name: 'Workspaces', exact: true });
+  await workspacePopover.waitFor();
+  assert.ok((await workspacePopover.boundingBox()).y >= 30);
+  await workspacePopover.getByRole('button', { name: 'Create workspace', exact: true }).click();
+  const workspaceCreate = page.getByRole('dialog', { name: 'Create workspace', exact: true });
+  await workspaceCreate.waitFor();
+  await workspaceCreate.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const workspaceBefore = await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts'); const state = useStore.getState(), current = state.workspaces.find(item => item.id === state.activeWorkspaceId);
+    const project = state.conversations.find(item => item.id === state.activeConvId[state.agentId]);
+    useStore.setState({ workspaces: [...state.workspaces, { ...current, id: 'qa-second-workspace', name: 'Other QA workspace' }],
+      conversations: [...state.conversations, { ...project, id: 'qa-second-project', title: 'Other workspace project', workspaceId: 'qa-second-workspace', projectId: undefined, messages: [] }] });
+    return { id: current.id, name: current.name };
+  });
+  await page.getByRole('button', { name: /^Switch workspace,/ }).click();
+  await workspacePopover.getByRole('button', { name: 'Other QA workspace', exact: true }).click();
+  await page.getByRole('button', { name: 'Switch workspace, Other QA workspace', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Open Projects', exact: true }).click();
+  await projectPopover.getByRole('button', { name: 'Expand project Other workspace project', exact: true }).count().then(async count => {
+    if (count) await projectPopover.getByRole('button', { name: 'Expand project Other workspace project', exact: true }).click();
+  });
+  assert.equal(await projectPopover.getByRole('button', { name: `Open Main session in ${original.title}`, exact: true }).count(), 0, 'project listings stay scoped to the selected workspace');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: /^Switch workspace,/ }).click();
+  await workspacePopover.getByRole('button', { name: workspaceBefore.name, exact: true }).click();
+  await page.getByRole('button', { name: 'Open Projects', exact: true }).click();
   await page.keyboard.press('Escape');
   const nav = page.getByRole("navigation", { name: "Sidebar pages" });
   const extensionsButton = () => nav.getByRole('button', { name: 'Open Extensions', exact: true });
@@ -195,16 +239,12 @@ try {
   assert.equal(await draft.inputValue(), 'Keep this unsent draft while opening utilities');
   await draft.fill('');
   await openExtension('Skills');
-  const expandedY = (await extensionsButton().boundingBox()).y;
-  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
-  assert.equal(await page.getByRole("button", { name: "Expand sidebar", exact: true }).evaluate(node => !!node.closest(".app-titlebar")), true);
-  assert.equal(await page.locator(".sidebar-mini").getByRole("button", { name: /^Agent:/ }).count(), 0);
-  assert.equal(await nav.getByRole("button").count(), 4);
-  assert.equal(await nav.locator("svg").evaluateAll(nodes => nodes.every(node => getComputedStyle(node).strokeWidth === "1.5px")), true);
-  assert.equal(await page.locator(".sidebar-mini").evaluate(node => node.scrollWidth <= node.clientWidth), true);
+  assert.equal(await page.getByRole('button', { name: /^(Expand|Collapse) sidebar$/ }).count(), 0);
+  assert.equal(await page.locator('#sidebar-resize').count(), 0);
+  assert.equal(await page.locator('.sidebar-collapsed').count(), 1);
+  assert.equal(await page.getByRole('button', { name: 'Open Projects', exact: true }).isVisible(), true, 'projects stay available on Skills');
+  assert.equal(await nav.getByRole('button').count(), 4);
   await checkSidebarSurface();
-  const collapsedY = (await extensionsButton().boundingBox()).y;
-  assert.ok(Math.abs(expandedY - collapsedY) < 1, `Navigation moved: ${expandedY} → ${collapsedY}`);
   assert.equal(await extensionsButton().innerText(), 'Extensions');
   await extensionsButton().hover();
   const extensionsPopup = page.getByRole('dialog', { name: 'Extensions', exact: true });
@@ -258,16 +298,11 @@ try {
   await page.locator(".sidebar-mini").getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("dialog", { name: "Settings", exact: true }).waitFor();
   await page.getByRole("button", { name: "Close settings", exact: true }).click();
-  await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
-  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).waitFor();
-  const beforeResize = await page.locator('#app-sidebar').boundingBox();
-  const resize = await page.locator('#sidebar-resize').boundingBox();
-  await page.mouse.move(resize.x + resize.width / 2, resize.y + 80);
-  await page.mouse.down();
-  await page.mouse.move(resize.x + resize.width / 2 + 40, resize.y + 80, { steps: 4 });
-  await page.mouse.up();
-  await page.waitForFunction(width => Math.abs(document.querySelector('#app-sidebar').getBoundingClientRect().width - width - 40) < 1, beforeResize.width);
-  await checkSidebarSurface();
+  await page.getByRole('button', { name: 'Manage profiles and proxies', exact: true }).click();
+  const tools = page.getByRole('dialog', { name: 'Profiles and proxies', exact: true });
+  await tools.waitFor();
+  await tools.getByRole('button', { name: 'Close Profiles and proxies' }).click();
+  await tools.waitFor({ state: 'detached' });
   await page.setViewportSize({ width: 960, height: 640 });
   assert.equal(await page.locator(".skills-root").evaluate((node) => node.scrollWidth <= node.clientWidth + 1), true);
   await tabs.getByRole("tab", { name: "All skills", exact: true }).press("End");
@@ -313,7 +348,7 @@ try {
   await connectorsDialog.waitFor({ state: 'detached' });
   assert.equal(await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().tab), 'skills');
   assert.deepEqual(errors, []);
-  console.log("Navigation journey passed: titlebar toggle/version, Extensions hover/click flyout and MCP, monoline destinations, footer Settings, stable sidebar positions, no horizontal overflow, keyboard navigation, narrow layout, themes and Multilogin connection.");
+  console.log("Navigation journey passed: permanent rail, project folders/independent sessions, global project access, titlebar workspace switch/create, Extensions/MCP, profile management, themes, narrow layout and Multilogin connection.");
 } catch (error) {
   if (page) {
     await mkdir("e2e-out", { recursive: true });

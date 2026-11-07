@@ -8,6 +8,8 @@ Import `Tooltip`, `TooltipProvider` and `TooltipContent` from `shared/ui` (using
 
 The existing palette in `src/palette.css` remains the color source during migration. Tooltip rendering, interaction, placement and glass styling belong to the shared tooltip module; features supply their own text or rich content. Keep one provider at the renderer entry point. See the [tooltip usage guide](../../src/shared/ui/tooltip/README.md).
 
+Project folders reuse existing `Conversation` records. The original project's ID and history remain its main session; independent sessions reference it through `projectId` in the same persisted/synced document. `ProjectTree` renders that relationship in the permanent rail's Projects popover and the workspace management dialog. It is product UI and stays outside `shared`; generic popover, dialog, icon actions and glyphs come from `shared/ui`. The titlebar workspace switcher uses the existing workspace selection and creation/deletion flows.
+
 ## Agent guidance evaluated
 
 Use the [official Feature-Sliced Design skill](https://github.com/feature-sliced/skills/tree/master/feature-sliced-design) as the primary FSD reference. It is maintained in the methodology's own organization and recommended by the [official LLM documentation](https://fsd.how/docs/llms/). The reviewed revision is `5e95aaebb84541742686e56352b7569acf4306f1`; its package includes layer, public-API and migration references plus evaluation cases. It covers FSD v2.1 and is a better starting point than unmaintained copies of generic architecture prompts.

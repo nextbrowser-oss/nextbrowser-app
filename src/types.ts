@@ -167,6 +167,8 @@ export interface Conversation {
   createdAt: number;
   updatedAt: number;
   parentId?: string;
+  /** Existing project conversation whose folder contains this independent session. */
+  projectId?: string;
   forkedFromMessageId?: string;
   executionTarget?: "local" | "vps";
   vpsConnectionInstructions?: string;

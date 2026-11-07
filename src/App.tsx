@@ -892,9 +892,6 @@ export function App() {
     if (workspaceSetupAuto === "running" || workspaceSetupAuto === "failed") return;
     void ensureDefaultWorkspaceSetup();
   }, [workspaceSetupRequired, workspaceSetupAuto, ensureDefaultWorkspaceSetup]);
-  const sidebarWidth = useStore((s) => s.sidebarWidth);
-  const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
-  const setSidebarWidth = useStore((s) => s.setSidebarWidth);
   const setAppActive = useStore((s) => s.setAppActive);
   const didTrackThemeChange = useRef(false);
   const tabHistory = useRef<AppTab[]>([]);
@@ -1507,70 +1504,6 @@ export function App() {
     if (agentReady) setAgentGateDismissed(false);
   }, [agentReady]);
 
-  useEffect(() => {
-    const minSidebarWidth = 320;
-    const maxSidebarWidth = 520;
-    let dragging = false;
-    let startX = 0;
-    let startW = sidebarWidth;
-    let settleAnimation: Animation | undefined;
-    const rubberband = (overshoot: number, dimension: number, constant = 0.42) =>
-      (overshoot * dimension * constant) / (dimension + constant * Math.abs(overshoot));
-    const projectedWidth = (rawWidth: number) => {
-      if (rawWidth < minSidebarWidth) return minSidebarWidth + rubberband(rawWidth - minSidebarWidth, minSidebarWidth);
-      if (rawWidth > maxSidebarWidth) return maxSidebarWidth + rubberband(rawWidth - maxSidebarWidth, maxSidebarWidth);
-      return rawWidth;
-    };
-    const onMove = (e: PointerEvent) => {
-      if (!dragging) return;
-      if (sidebarCollapsed) return;
-      setSidebarWidth(projectedWidth(startW + (e.clientX - startX)));
-    };
-    const onUp = () => {
-      if (!dragging) return;
-      dragging = false;
-      document.body.classList.remove("is-resizing-sidebar");
-      const currentWidth = useStore.getState().sidebarWidth;
-      const targetWidth = Math.min(maxSidebarWidth, Math.max(minSidebarWidth, currentWidth));
-      if (Math.abs(targetWidth - currentWidth) < 0.5) return;
-      const sidebar = document.querySelector<HTMLElement>(".sidebar");
-      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      settleAnimation?.cancel();
-      if (sidebar && !reduceMotion) {
-        settleAnimation = sidebar.animate(
-          [{ width: `${currentWidth}px` }, { width: `${targetWidth}px` }],
-          { duration: 240, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
-        );
-      }
-      setSidebarWidth(targetWidth);
-    };
-    const handle = document.getElementById("sidebar-resize");
-    const onDown = (e: PointerEvent) => {
-      const sidebar = document.querySelector<HTMLElement>(".sidebar");
-      const liveWidth = sidebar?.getBoundingClientRect().width ?? useStore.getState().sidebarWidth;
-      settleAnimation?.cancel();
-      settleAnimation = undefined;
-      dragging = true;
-      startX = e.clientX;
-      startW = liveWidth;
-      setSidebarWidth(liveWidth);
-      document.body.classList.add("is-resizing-sidebar");
-      handle?.setPointerCapture(e.pointerId);
-      e.preventDefault();
-    };
-    handle?.addEventListener("pointerdown", onDown);
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-    return () => {
-      settleAnimation?.cancel();
-      document.body.classList.remove("is-resizing-sidebar");
-      handle?.removeEventListener("pointerdown", onDown);
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
-    };
-  }, [checking, sidebarCollapsed, setSidebarWidth]);
 
   const browserInstallHidden = !!browserRuntimeInstall && browserInstallHiddenKey === browserRuntimeInstallKey(browserRuntimeInstall);
   const backgroundTaskPills = (
@@ -1678,18 +1611,15 @@ export function App() {
       {titlebarActions}
       <aside
         id="app-sidebar"
-        className={`${glassSurfaceClassName} sidebar${sidebarCollapsed ? " sidebar-collapsed" : ""}`}
-        style={{ width: sidebarCollapsed ? "var(--sidebar-rail-width)" : sidebarWidth }}
+        className={`${glassSurfaceClassName} sidebar sidebar-collapsed`}
+        style={{ width: "var(--sidebar-rail-width)" }}
       >
         <Sidebar
           onOpenSettings={openSettingsFromButton}
           settingsAttention={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)}
-          footerAccessory={!uiScaleFloatingHidden && !sidebarCollapsed
-            ? <UIScaleControl inline value={uiScale} onChange={setUiScale} onDismiss={dismissUiScaleFloating} />
-            : undefined}
+          footerAccessory={!uiScaleFloatingHidden ? <UIScaleControl inline value={uiScale} onChange={setUiScale} onDismiss={dismissUiScaleFloating} /> : undefined}
         />
       </aside>
-      {!sidebarCollapsed && <Tooltip content="Resize sidebar"><div id="sidebar-resize" className="resize-handle" aria-label="Resize sidebar" /></Tooltip>}
       <main className={"content" + (tab === "chat" ? " content-chat" : "")}>
         {tab !== "chat" && <nav className="tabbar">
           {!isPrimaryAppTab(tab) && backTarget && (

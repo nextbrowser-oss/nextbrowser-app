@@ -1,8 +1,9 @@
-import { Tooltip } from "../shared/ui";
+import { Dialog, Glyph, Tooltip } from "../shared/ui";
+import { RecentProjects } from "./RecentProjects";
+import { ProjectTree } from "./ProjectTree";
 import { type DragEvent, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { personalProxyUsers, useStore, type ManualProxyProfileInput } from "../store";
-import { agentById } from "../agents";
 import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { trackEvent } from "../lib/analytics";
 import { reportUserFacingError } from "../lib/errorReporting";
@@ -22,7 +23,7 @@ import { openMultiloginApp } from "../lib/multiloginApp";
 import { entityNameLimits, validateEntityName } from "../lib/entityValidation";
 import { workspaceHasNoLocalProfiles } from "../lib/workspaceProfiles";
 import { cancelNextctlRun } from "../nextctl";
-import { conversationPreview, type AppTab, type BrowserWorkflowAction, type BrowserWorkflowSkill } from "../types";
+import { type AppTab, type BrowserWorkflowAction, type BrowserWorkflowSkill } from "../types";
 import { CountrySelect } from "./CountrySelect";
 import { PersonalProxySelect } from "./PersonalProxySelect";
 import { PersonalProxyTestStatus, type PersonalProxyTestState } from "./PersonalProxyTestStatus";
@@ -100,6 +101,19 @@ const SIDEBAR_OPEN_SECTION_KEY = "sidebar.openSection";
 
 export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: SidebarProps) {
   const s = useStore();
+  const [managerOpen, setManagerOpen] = useState(false);
+  const [projectsMenuOpen, setProjectsMenuOpen] = useState(false);
+  useEffect(() => {
+    const projects = () => setProjectsMenuOpen(true);
+    const manage = () => setManagerOpen(true);
+    const create = () => { setWorkspaceName(""); setWorkspaceError(null); setWorkspaceCreatorOpen(true); };
+    const remove = () => { setWorkspaceDeleteError(null); setWorkspaceDeleteOpen(true); };
+    window.addEventListener("nextbrowser:open-projects", projects);
+    window.addEventListener("nextbrowser:manage-workspace", manage);
+    window.addEventListener("nextbrowser:create-workspace", create);
+    window.addEventListener("nextbrowser:delete-workspace", remove);
+    return () => { window.removeEventListener("nextbrowser:open-projects", projects); window.removeEventListener("nextbrowser:manage-workspace", manage); window.removeEventListener("nextbrowser:create-workspace", create); window.removeEventListener("nextbrowser:delete-workspace", remove); };
+  }, []);
   const [menuProfile, setMenuProfile] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [profileDeleting, setProfileDeleting] = useState(false);
@@ -147,7 +161,6 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
   const [profileConnectionEditor, setProfileConnectionEditor] = useState<{ name: string; connection: "managed" | "direct" | "personal"; country: string; proxyId: string } | null>(null);
   const [profileConnectionSaving, setProfileConnectionSaving] = useState(false);
   const [profileConnectionError, setProfileConnectionError] = useState<string | null>(null);
-  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [workspaceCreatorOpen, setWorkspaceCreatorOpen] = useState(false);
   const [workspaceDeleteOpen, setWorkspaceDeleteOpen] = useState(false);
   const [workspaceDeletePending, setWorkspaceDeletePending] = useState(false);
@@ -198,7 +211,6 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
   const profilesSectionRef = useRef<HTMLElement | null>(null);
   const guideFocusFrameRef = useRef(0);
   const guideFocusTimerRef = useRef(0);
-  const workspacePickerRef = useRef<HTMLDivElement | null>(null);
 
   // Picking the workspace's Multilogin profile makes it the target for chat,
   // Live, and automation, like selecting a regular profile.
@@ -392,8 +404,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
       if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
       if (event.key.toLowerCase() === "k") {
         event.preventDefault();
-        searchInputRef.current?.focus();
-        searchInputRef.current?.select();
+        setProjectsMenuOpen(true);
         return;
       }
       const index = Number.parseInt(event.key, 10) - 1;
@@ -777,15 +788,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
     setProfilePersonalProxyId(s.personalProxies[0].id);
   }, [profilePersonalProxyId, s.personalProxies]);
 
-  useEffect(() => {
-    if (!workspaceMenuOpen) return;
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (workspacePickerRef.current?.contains(event.target as Node)) return;
-      setWorkspaceMenuOpen(false);
-    };
-    document.addEventListener("pointerdown", closeOnOutsidePointer);
-    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
-  }, [workspaceMenuOpen]);
+
 
   useEffect(() => {
     setProfileMoveError(null);
@@ -826,6 +829,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
 
   useEffect(() => {
     const focusProfiles = () => {
+      setManagerOpen(true);
       setOpenSection("profiles");
       s.setProfileSearch("");
       setProfileGuideFocus(false);
@@ -1308,21 +1312,17 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
     }
   };
 
-  if (s.sidebarCollapsed) {
-    return (
-      <div className="sidebar-mini">
-        <SidebarNavigation collapsed tab={s.tab} modal={s.utilityDialog} badgeFor={badgeFor} onSelect={s.setTab} />
-        {activeRecording && <Tooltip content={recordingMiniLabel} side="right"><button className="mini-nav-btn mini-recording-control recording" aria-label={`${activeRecording.destination === "workflow" ? "Open workflow recording" : "Open active recording"}.`} onClick={openRecorder}><Icon name="circle.fill" size={18} /><span>{recordingDuration(activeRecording.startedAt, recordingClock)}</span></button></Tooltip>}
-        <span className="spacer" />
-        <SidebarSettingsButton collapsed attention={settingsAttention} onClick={onOpenSettings} />
-      </div>
-    );
-  }
-
-  return (
+  return <>
+    <div className="sidebar-mini">
+      <div className="sidebar-destinations is-compact"><RecentProjects open={projectsMenuOpen} onOpenChange={setProjectsMenuOpen} /></div>
+      <SidebarNavigation collapsed tab={s.tab} modal={s.utilityDialog} badgeFor={badgeFor} onSelect={s.setTab} />
+      {activeRecording && <Tooltip content={recordingMiniLabel} side="right"><button className="mini-nav-btn mini-recording-control recording" aria-label="Open active recording" onClick={openRecorder}><Icon name="circle.fill" size={18} /></button></Tooltip>}
+      <span className="spacer" />
+      <Tooltip content="Profiles and proxies" side="right"><button className="sidebar-settings-button is-compact" aria-label="Manage profiles and proxies" onClick={() => setManagerOpen(true)}><Glyph name="users" /><span>Profiles</span></button></Tooltip>
+      <SidebarSettingsButton collapsed attention={settingsAttention} onClick={onOpenSettings} />
+    </div>
+    {managerOpen && <Dialog title="Profiles and proxies" className="workspace-tools utility-dialog" onClose={() => setManagerOpen(false)}>
     <div className="sidebar-shell">
-      <SidebarNavigation tab={s.tab} modal={s.utilityDialog} badgeFor={badgeFor} onSelect={s.setTab} />
-
       {activeRecording && <section className="sidebar-recording-control recording" aria-label={activeRecording.destination === "workflow" ? "Workflow recording in progress" : "Recording in progress"}>
         <div className="sidebar-recording-status"><span className="sidebar-recording-dot" /><div><strong>{activeRecording.destination === "workflow" ? "Recording a workflow" : "Recording in progress"}</strong><small>{recordingWorkspace?.name || "Current workspace"} · {recordingDestinationLabel}</small><small>{recordingDuration(activeRecording.startedAt, recordingClock)} elapsed</small></div></div>
         <div className="sidebar-recording-actions"><button onClick={openRecorder}>{activeRecording.destination === "workflow" ? "Open Workflow Builder" : "Open recorder"}</button><button className="stop" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={11} /> : <Icon name="stop.fill" size={11} />} {activeRecording.destination === "workflow" ? "Stop & open" : "Stop recording"}</button></div>
@@ -1339,54 +1339,6 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
 
       <div className="sidebar-scroll sidebar-nav-list">
         <div ref={profilesCardRef} className={"claw-card control-card profiles-card" + (profileGuideFocus ? " guide-focus" : "")}>
-          <div className="row profiles-panel-head">
-            <div className="workspace-picker-wrap" ref={workspacePickerRef}>
-              <Tooltip content="Switch workspace"><button
-                className="workspace-picker"
-                aria-expanded={workspaceMenuOpen}
-                onClick={() => setWorkspaceMenuOpen((open) => !open)}
-              >
-                <Icon name="square.grid.2x2.fill" size={12} />
-                <span>
-                  <small>Workspace</small>
-                  <strong>{activeWorkspace?.name ?? "Create workspace"}</strong>
-                </span>
-                <Icon name="chevron.down" size={11} className={workspaceMenuOpen ? "workspace-chevron open" : "workspace-chevron"} />
-              </button></Tooltip>
-              {workspaceMenuOpen && (
-                <div className="workspace-menu">
-                  <div className="workspace-menu-list">
-                    {s.workspaces.map((workspace) => (
-                      <Tooltip key={workspace.id} content={workspace.name}><button
-                        className={workspace.id === s.activeWorkspaceId ? "active" : ""}
-                        onClick={() => { setProfileActionError(null); s.selectWorkspace(workspace.id); setWorkspaceMenuOpen(false); }}
-                      >
-                        <Icon name={workspace.id === s.activeWorkspaceId ? "checkmark" : "square.grid.2x2"} size={11} />
-                        <span>{workspace.name}</span>
-                      </button></Tooltip>
-                    ))}
-                  </div>
-                  {activeWorkspace && <button className="workspace-delete-action" onClick={() => {
-                    setWorkspaceMenuOpen(false);
-                    setWorkspaceDeleteError(null);
-                    setWorkspaceDeleteOpen(true);
-                  }}><Icon name="trash" size={11} /><span>Delete current workspace…</span></button>}
-                </div>
-              )}
-            </div>
-            <Tooltip content="Create workspace"><button
-              className="workspace-create-btn"
-              aria-label="Create workspace"
-              onClick={() => {
-                setWorkspaceName("");
-                setWorkspaceError(null);
-                setWorkspaceMenuOpen(false);
-                setWorkspaceCreatorOpen(true);
-              }}
-            >
-              <Icon name="plus" size={13} />
-            </button></Tooltip>
-          </div>
           <Tooltip content="Create or manage personal proxies"><button
             className="proxy-manager-entry"
             onClick={() => {
@@ -1444,34 +1396,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
               </div>
               <div className={"workspace-section-reveal" + (projectsOpen ? " is-open" : "")} aria-hidden={!projectsOpen}>
                 <div ref={projectListRef} className="workspace-chat-list">
-                {visibleChats.map((chat) => (
-                  <Tooltip key={chat.id} content={`Open ${chat.title}`}><button
-                    className={"workspace-chat-row" + (chat.id === activeProject?.id ? " active" : "")}
-                    onClick={() => { s.selectConversation(chat.id); s.setTab("chat"); }}
-                  >
-                    <Icon name={chat.chatMode === "terminal" ? "terminal" : "bubble.left.and.bubble.right.fill"} size={12} />
-                    <span className="workspace-chat-copy">
-                      <strong><HighlightedName text={chat.title} query={searchQuery} /></strong>
-                      <small>{agentById(chat.agent).name} · {conversationPreview(chat)}</small>
-                    </span>
-                    {chat.id === activeProject?.id && <Tooltip content="Active chat"><span className="workspace-active-dot"  /></Tooltip>}
-                    <Tooltip content="Delete chat"><span
-                      className="workspace-chat-delete"
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`Delete ${chat.title}`}
-                      onClick={(event) => { event.stopPropagation(); setConfirmDeleteChat(chat.id); }}
-                      onKeyDown={(event) => {
-                        if (event.key !== "Enter" && event.key !== " ") return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setConfirmDeleteChat(chat.id);
-                      }}
-                    >
-                      <Icon name="trash" size={12} />
-                    </span></Tooltip>
-                  </button></Tooltip>
-                ))}
+                <ProjectTree query={searchQuery} />
                 </div>
               </div>
             </section>
@@ -1658,9 +1583,10 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
         <span className="spacer" />
       </div>
       <div className="sidebar-settings-footer">
-        <SidebarSettingsButton attention={settingsAttention} onClick={onOpenSettings} />
         {footerAccessory}
       </div>
+
+    </div></Dialog>}
 
       {createProfileOpen && createPortal((
         <div
@@ -2762,8 +2688,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
           </div>
         );
       })(), document.body)}
-    </div>
-  );
+  </>;
 }
 
 function HighlightedName({ text, query }: { text: string; query?: string }) {

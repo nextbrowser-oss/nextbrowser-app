@@ -77,8 +77,8 @@ try {
     await page.evaluate(() => document.fonts.ready);
     assert.equal(await page.getByRole('group', { name: 'Project chat mode' }).count(), 0);
     assert.equal(await page.getByText(/Separate chat context/).count(), 0);
-    const projectTitle = page.getByRole('button', { name: 'Project 1', exact: true });
-    assert.ok(await projectTitle.locator('strong').evaluate(node => Number(getComputedStyle(node).fontWeight)) >= 700);
+    const projectTitle = page.locator('.chat-project-title');
+    assert.ok(await projectTitle.evaluate(node => Number(getComputedStyle(node).fontWeight)) >= 700);
     assert.equal(await page.locator('.chat-header').evaluate(node => getComputedStyle(node).position), 'absolute');
     const floatingHeader = await page.locator('.chat-header').boundingBox();
     const historyBounds = await page.locator('.messages').boundingBox();
@@ -236,7 +236,7 @@ try {
     assert.equal(await textarea.inputValue(), '/title ');
     await textarea.fill('/title Renamed project');
     await send.click();
-    await page.getByRole('button', { name: 'Renamed project', exact: true }).waitFor();
+    await page.locator('.chat-project-title').filter({ hasText: 'Renamed project' }).waitFor();
     await textarea.fill('/title Project 1');
     await send.click();
     await projectTitle.waitFor();
@@ -249,33 +249,11 @@ try {
     await page.getByRole('alert').filter({ hasText: 'not supported by this chat adapter' }).waitFor();
     assert.equal(await page.evaluate(() => window.sent.length), sentBeforeCommands);
     await textarea.fill('');
-    // Switching uses the existing selector, including another agent/workspace.
-    await page.evaluate(() => window.fixtureStore.setState(state => ({
-      conversations: [...state.conversations, { id: 'recent-project', agent: 'claude', workspaceId: 'other', title: 'Recent customer research', messages: [], createdAt: Date.now(), updatedAt: Date.now() + 1 }],
-      selectConversation: id => { window.selectedProject = id; },
-    })));
+    // The project popover lives in the permanent rail, outside this ChatView fixture.
+    await page.evaluate(() => window.addEventListener('nextbrowser:open-projects', () => { window.projectMenuRequested = true; }));
     await textarea.fill('/sessions ');
     await send.click();
-    const recent = page.getByRole('dialog', { name: 'Recent projects' });
-    await recent.waitFor();
-    assert.ok((await recent.boundingBox()).width <= 240);
-    assert.ok((await recent.boundingBox()).x >= (await page.locator('.chat-layout').boundingBox()).x + 8);
-    const searchProjects = recent.getByRole('searchbox', { name: 'Search projects' });
-    await searchProjects.fill('customer');
-    assert.equal(await recent.locator('.recent-project-list').getByRole('button').count(), 1);
-    await searchProjects.fill('does-not-exist');
-    await recent.getByText('No matching projects.').waitFor();
-    await searchProjects.fill('');
-    assert.ok((await recent.locator('.recent-project-list').getByRole('button').first().innerText()).includes('Recent customer research'));
-    await page.screenshot({ path: resolve(output, `${theme}-recent-projects.png`) });
-    await recent.getByRole('button', { name: /Recent customer research/ }).click();
-    assert.equal(await page.evaluate(() => window.selectedProject), 'recent-project');
-    await recent.waitFor({ state: 'detached' });
-    await page.evaluate(() => window.fixtureStore.setState({ newChat: () => { window.newSessionCreated = true; return 'new'; } }));
-    await projectTitle.click();
-    await page.getByRole('button', { name: 'New session', exact: true }).click();
-    assert.equal(await page.evaluate(() => window.newSessionCreated), true);
-    await recent.waitFor({ state: 'detached' });
+    assert.equal(await page.evaluate(() => window.projectMenuRequested), true);
     // A persisted terminal project still opens the regular chat and retains its summary.
     await page.evaluate(() => window.fixtureStore.setState(state => ({
       terminalChat: true,

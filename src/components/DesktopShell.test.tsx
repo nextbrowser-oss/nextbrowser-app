@@ -4,34 +4,27 @@ import { afterEach, expect, it, vi } from "vitest";
 import { DesktopShell, TitlebarActions } from "./DesktopShell";
 import { SidebarNavigation, SidebarSettingsButton } from "./SidebarNavigation";
 
-const fixture = vi.hoisted(() => ({ state: { sidebarCollapsed: true, authed: true, checking: false, showOnboarding: false, setSidebarCollapsed: vi.fn(), setTab: vi.fn() } }));
+const fixture = vi.hoisted(() => ({ state: { sidebarCollapsed: true, authed: true, checking: false, showOnboarding: false, setSidebarCollapsed: vi.fn(), setTab: vi.fn(), workspaces: [{ id: "work", name: "Work" }], activeWorkspaceId: "work", selectWorkspace: vi.fn() } }));
 vi.mock("../store", () => ({ useStore: (select: (state: typeof fixture.state) => unknown) => select(fixture.state) }));
 afterEach(() => { cleanup(); fixture.state.checking = false; fixture.state.authed = true; delete window.nextbrowser; });
 
-it("places the sidebar toggle in the global titlebar and preserves its expanded state", () => {
+it("keeps the brand, version and workspace switcher in order without a sidebar toggle", () => {
   render(<DesktopShell><aside id="app-sidebar">Navigation</aside></DesktopShell>);
-  const toggle = screen.getByRole("button", { name: "Expand sidebar" });
   const home = screen.getByRole("button", { name: "Back to main view" });
-  const buttons = toggle.closest("header")!.querySelectorAll("button");
-  expect(buttons[0]).toBe(home);
-  expect(buttons[1]).toBe(toggle);
-  expect(home.querySelector('img')?.getAttribute('alt')).toBe('Nextbrowser');
-  const brand = toggle.closest("header")!.querySelector(".app-titlebar-brand")!;
-  expect(brand.firstElementChild?.textContent).toBe(`(${__APP_VERSION__})`);
-  expect(brand.lastElementChild?.textContent).toBe("Nextbrowser");
+  const brand = home.closest("header")!.querySelector(".app-titlebar-brand")!;
+  expect(brand.firstElementChild?.textContent).toBe("Nextbrowser");
+  expect(brand.lastElementChild?.textContent).toBe(`(${__APP_VERSION__})`);
+  expect(screen.queryByRole("button", { name: /sidebar/i })).toBeNull();
   fireEvent.click(home);
   expect(fixture.state.setTab).toHaveBeenCalledWith("chat");
-  expect(toggle.closest("header")).not.toBeNull();
-  expect(toggle.closest("aside")).toBeNull();
-  expect(toggle.getAttribute("aria-expanded")).toBe("false");
-  expect(toggle.getAttribute("aria-controls")).toBe("app-sidebar");
-  fireEvent.click(toggle);
-  expect(fixture.state.setSidebarCollapsed).toHaveBeenCalledWith(false);
+  fireEvent.click(screen.getByRole("button", { name: "Switch workspace, Work" }));
+  fireEvent.click(screen.getByRole("button", { name: "Work" }));
+  expect(fixture.state.selectWorkspace).toHaveBeenCalledWith("work");
 });
-it("does not offer sidebar interaction while startup is pending", () => {
+it("disables workspace changes during startup", () => {
   fixture.state.checking = true;
   render(<DesktopShell>Loading</DesktopShell>);
-  expect((screen.getByRole("button", { name: "Expand sidebar" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "Switch workspace, Work" }) as HTMLButtonElement).disabled).toBe(true);
 });
 it("keeps page-owned actions in the global titlebar with working event handlers", () => {
   const click = vi.fn();
@@ -45,7 +38,7 @@ it("keeps page-owned actions in the global titlebar with working event handlers"
 it("allows local sidebar navigation without an account sign-in", () => {
   fixture.state.authed = false;
   render(<DesktopShell>Local workspace</DesktopShell>);
-  expect((screen.getByRole("button", { name: "Expand sidebar" }) as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getByRole("button", { name: "Back to main view" }) as HTMLButtonElement).disabled).toBe(false);
 });
 it("dispatches caption actions and follows OS maximize/fullscreen events", async () => {
   let publish: ((value: unknown) => void) | undefined;

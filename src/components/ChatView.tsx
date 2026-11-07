@@ -19,9 +19,9 @@ import { takeGuideDraft } from "../lib/guideDraft";
 import { entityNameLimits } from "../lib/entityValidation";
 import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { MainViewNavigation } from "./MainViewNavigation";
-import { RecentProjects } from "./RecentProjects";
 import { matchingAgentChatCommands, parseAgentChatCommand } from "../lib/agentChatCommands";
 import { uid } from "../lib/ids";
+import { projectRoot } from "../lib/projectTree";
 import {
   capturedWorkflowDomain,
   workflowInstructions,
@@ -102,6 +102,7 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
   const agentId = s.agentId;
   const builtinAgent = isBuiltinAgent(agentId);
   const conv = s.activeConversation();
+  const project = conv && projectRoot(conv, s.conversations);
   const messages = conv?.messages ?? [];
   const remoteOnly = conv?.executionTarget === "vps";
   const ready = s.agentReady();
@@ -120,7 +121,6 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
   const [guideDraftLoaded, setGuideDraftLoaded] = useState(false);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [scriptOpen, setScriptOpen] = useState(false);
-  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [commandNotice, setCommandNotice] = useState<string>();
   const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
   const [commandIndex, setCommandIndex] = useState(0);
@@ -177,7 +177,6 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
     setAttachments([]);
     setDraft("");
     setGuideDraftLoaded(false);
-    setProjectMenuOpen(false);
     setCommandNotice(undefined);
     setCommandMenuDismissed(false);
     // Menus and workflow modals belong to the chat they were opened in.
@@ -268,7 +267,7 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
         if (args) s.renameConversation(id, args.slice(0, entityNameLimits.project));
         break;
       }
-      case "sessions": setProjectMenuOpen(true); break;
+      case "sessions": window.dispatchEvent(new CustomEvent("nextbrowser:open-projects")); break;
       case "title":
         if (args && conv) s.renameConversation(conv.id, args.slice(0, entityNameLimits.project));
         else setCommandNotice("Project: " + (conv?.title ?? "New project"));
@@ -442,7 +441,7 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
       <FileDropArea className="chat" onFiles={handleDroppedFiles} disabled={!ready}
         unavailableLabel="Connect an agent to attach files">
         <div className="chat-header">
-          <RecentProjects key={conversationKey} title={conv?.title ?? "New project"} activeId={conv?.id} open={projectMenuOpen} onOpenChange={setProjectMenuOpen} boundaryRef={chatBoundaryRef} />
+          <strong className={`${glassSurfaceClassName} chat-project-title`}>{project?.title ?? "New project"}{conv && project?.id !== conv.id && <span> · {conv.title}</span>}</strong>
           <MainViewNavigation />
           <span className="spacer" />
           {remoteOnly && (

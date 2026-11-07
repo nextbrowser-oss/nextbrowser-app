@@ -1,0 +1,12 @@
+.project-tree { color: inherit; }
+.project-folder-heading { display: flex; align-items: center; gap: 2px; }
+.project-folder-toggle { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; padding: 7px 5px; border: 0; background: transparent; color: inherit; box-shadow: none; text-align: left; font: inherit; font-size: 12px; }
+.project-folder-toggle strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.project-folder-toggle small { margin-inline-start: auto; opacity: .6; font-size: 10px; }
+.project-folder-toggle svg { flex: none; }
+.project-folder .shared-icon-button { width: 24px; height: 24px; color: inherit; }
+.project-folder-sessions { padding-left: 22px; }
+.project-session { display: flex; align-items: center; gap: 7px; width: 100%; min-width: 0; padding: 6px; border: 0; border-radius: 7px; background: transparent; color: inherit; box-shadow: none; font: inherit; font-size: 12px; text-align: left; }
+.project-session span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-tree button:hover:not(:disabled), .project-tree .project-session[aria-current] { background: var(--glass-inverse-control-hover); color: inherit; }
+.project-tree button:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
