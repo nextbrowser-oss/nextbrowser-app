@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { agentById, isBuiltinAgent } from "../agents";
 import { invoke } from "../electronBridge";
 import { BUILTIN_PROVIDERS, builtinAgentSettings, builtinProvider, type BuiltinAgentStatus, type BuiltinModelList, type BuiltinModelOption, type BuiltinProviderId } from "../lib/builtinAgent";
-import { Dialog, Glyph, IconButton, Popover } from "../shared/ui";
+import { Dialog, Glyph, IconButton, Popover, Select } from "../shared/ui";
 import { BuiltinAgentSetup } from "./BuiltinAgentSetup";
 import "./agent-model-picker.css";
 
@@ -82,12 +82,12 @@ export function AgentModelPicker({ agentId, version, disabled, onActivate, onRef
         <Glyph name="sparkles" size={14} />
       </IconButton>}>
       <div className="agent-model-picker-heading"><strong>Provider & model</strong><span>Nextbrowser agent</span></div>
-      <label className="agent-model-picker-field">Provider
-        <select aria-label="Agent provider" data-autofocus value={provider} disabled={!status || saving} onChange={event => {
-          const next = event.target.value as BuiltinProviderId;
+      <div className="agent-model-picker-field"><span>Provider</span>
+        <Select label="Agent provider" autoFocus value={provider} disabled={!status || saving} onChange={value => {
+          const next = value as BuiltinProviderId;
           setProvider(next); setModel(next === status?.settings.provider ? status.settings.model ?? "" : ""); setQuery(""); setError(undefined);
-        }}>{BUILTIN_PROVIDERS.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
-      </label>
+        }} options={BUILTIN_PROVIDERS.map(item => ({ value: item.id, label: item.name }))} />
+      </div>
       {status && !canChoose ? <div className="agent-model-picker-note">{keyReady ? "Add a base URL in provider settings." : `Add your ${preset.name} API key to choose a model.`}</div> : <>
         <label className="agent-model-picker-field">Find a model
           <input aria-label="Search provider models" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search models…" disabled={!status || saving} />

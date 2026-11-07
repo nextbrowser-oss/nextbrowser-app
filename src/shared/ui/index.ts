@@ -8,6 +8,8 @@ export { Glyph } from "./glyph";
 export type { GlyphName } from "./glyph";
 export { Popover } from "./popover";
 export { CommandList } from "./command-list";
+export { Select } from "./select";
+export type { SelectOption } from "./select";
 export { glassSurfaceClassName } from "./glass-surface";
 export { Dialog } from "./dialog";
 export { WindowControls } from "./window-controls";

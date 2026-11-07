@@ -73,6 +73,8 @@ export function Popover({ label, open, onOpenChange, trigger, children, side = "
     };
     const key = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.isComposing) return;
+      // The expanded inline select owns the first Escape; the next dismisses us.
+      if (event.target instanceof Element && event.target.closest('[role="combobox"][aria-expanded="true"]')) return;
       event.preventDefault(); event.stopPropagation(); onOpenChange(false);
     };
     const focus = (event: FocusEvent) => {

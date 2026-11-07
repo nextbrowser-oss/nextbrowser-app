@@ -14,6 +14,7 @@ const saved = (): BuiltinAgentStatus => ({ settings: { provider: "nvidia", model
 const activate = vi.fn(), refresh = vi.fn(async () => {});
 const mount = (disabled = false) => render(<TooltipProvider><AgentModelPicker agentId="codex" disabled={disabled} onActivate={activate} onRefresh={refresh} /></TooltipProvider>);
 const open = async () => { fireEvent.click(screen.getByRole("button", { name: "Choose agent provider and model" })); await waitFor(() => expect(screen.getByLabelText("Agent provider").hasAttribute("disabled")).toBe(false)); };
+const choose = (name: string) => { fireEvent.click(screen.getByRole("combobox", { name: "Agent provider" })); fireEvent.click(screen.getByRole("option", { name })); };
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(invoke).mockImplementation(async (command, args) => {
@@ -26,7 +27,7 @@ beforeEach(() => {
 afterEach(cleanup);
 it("loads real model options and saves a paid OpenRouter selection before activating the API agent", async () => {
   mount(); await open();
-  fireEvent.change(screen.getByLabelText("Agent provider"), { target: { value: "openrouter" } });
+  choose("OpenRouter");
   fireEvent.change(screen.getByLabelText("Search provider models"), { target: { value: "claude" } });
   fireEvent.click(await screen.findByRole("button", { name: "anthropic/claude-paid" }));
   fireEvent.click(screen.getByRole("button", { name: "Use model" }));
@@ -37,7 +38,7 @@ it("loads real model options and saves a paid OpenRouter selection before activa
 });
 it("routes a provider without a key to the existing secure setup without changing the current agent", async () => {
   mount(); await open();
-  fireEvent.change(screen.getByLabelText("Agent provider"), { target: { value: "anthropic" } });
+  choose("Anthropic");
   expect(screen.getByText("Add your Anthropic API key to choose a model.")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Use model" }).hasAttribute("disabled")).toBe(true);
   expect(vi.mocked(invoke).mock.calls.some(([command, args]) => command === "builtin_agent_models" && args?.provider === "anthropic")).toBe(false);
@@ -51,8 +52,8 @@ it("ignores a slow model list from a previously selected provider", async () => 
   const initial = vi.mocked(invoke).getMockImplementation()!;
   vi.mocked(invoke).mockImplementation((command, args) => command === "builtin_agent_models" && args?.provider === "openrouter" ? new Promise(resolve => { finish = resolve; }) : initial(command, args));
   mount(); await open();
-  fireEvent.change(screen.getByLabelText("Agent provider"), { target: { value: "openrouter" } });
-  fireEvent.change(screen.getByLabelText("Agent provider"), { target: { value: "deepseek" } });
+  choose("OpenRouter");
+  choose("DeepSeek");
   await screen.findByRole("button", { name: "nemotron" });
   finish({ models: [{ id: "stale-openrouter-model" }], defaultModel: "stale-openrouter-model" });
   await waitFor(() => expect(screen.getByLabelText("Agent model ID").getAttribute("value")).toBe("nemotron"));
