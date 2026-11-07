@@ -480,6 +480,30 @@ button, input, textarea, select { color: var(--text); }
 :root:not([data-theme="light"]) .mini-nav-btn:hover { border-color: transparent; background: var(--surface-3); }
 .mini-nav-btn:hover { background: var(--surface-3); border-color: var(--line-strong); }
 .mini-nav-btn span { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.navigation-tooltip {
+  position: fixed;
+  z-index: 1000;
+  width: max-content;
+  max-width: min(260px, calc(100vw - 16px));
+  padding: 9px 13px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 13px;
+  background: rgba(25, 25, 32, 0.82);
+  color: #fff;
+  backdrop-filter: blur(22px) saturate(160%);
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+:root:not([data-theme="light"]) .navigation-tooltip {
+  background: rgba(244, 244, 250, 0.86);
+  color: #17171c;
+  border-color: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 5px 24px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
 .sidebar-shell {
   display: flex;
   flex-direction: column;

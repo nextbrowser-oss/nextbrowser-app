@@ -1315,10 +1315,10 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
         if (event.target instanceof Element && !event.target.closest("button, a, input, select, textarea")) s.setSidebarCollapsed(false);
       }}>
         <div className="sidebar-mini-header">
-          <button className="sidebar-logo-home" onClick={onHome} title="Back to main view" aria-label="Back to main view"><BrandLogo size={24} /></button>
+          <button className="sidebar-logo-home" onClick={onHome} data-nav-tooltip="Back to main view" aria-label="Back to main view"><BrandLogo size={24} /></button>
           <button
             className="plain-icon-btn sidebar-collapse-toggle"
-            title="Expand sidebar"
+            data-nav-tooltip="Expand sidebar"
             aria-label="Expand sidebar"
             onClick={() => s.setSidebarCollapsed(false)}
           >
@@ -1327,14 +1327,14 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
           </button>
         </div>
         <SidebarNavigation collapsed tab={s.tab} badgeFor={badgeFor} onSelect={s.setTab} />
-        <button className="mini-nav-btn" title={`${visibleProfileCount} profiles, ${runningCount} running`} aria-label={`Open Live, ${visibleProfileCount} profiles, ${runningCount} running`} onClick={() => s.setTab("live")}>
+        <button className="mini-nav-btn" data-nav-tooltip={`${visibleProfileCount} profiles, ${runningCount} running`} aria-label={`Open Live, ${visibleProfileCount} profiles, ${runningCount} running`} onClick={() => s.setTab("live")}>
           <Icon name="person.crop.circle" size={18} />
           <span>Live</span>
           <span>{runningCount}/{visibleProfileCount}</span>
         </button>
-        {activeRecording && <button className="mini-nav-btn mini-recording-control recording" title={recordingMiniLabel} aria-label={`${activeRecording.destination === "workflow" ? "Open workflow recording" : "Open active recording"}.`} onClick={openRecorder}><Icon name="circle.fill" size={18} /><span>{recordingDuration(activeRecording.startedAt, recordingClock)}</span></button>}
+        {activeRecording && <button className="mini-nav-btn mini-recording-control recording" data-nav-tooltip={recordingMiniLabel} aria-label={`${activeRecording.destination === "workflow" ? "Open workflow recording" : "Open active recording"}.`} onClick={openRecorder}><Icon name="circle.fill" size={18} /><span>{recordingDuration(activeRecording.startedAt, recordingClock)}</span></button>}
         <span className="spacer" />
-        <button className="mini-nav-btn" title={`Agent: ${agentName}`} aria-label={`Agent: ${agentName}`} onClick={onOpenAgentSettings}>
+        <button className="mini-nav-btn" data-nav-tooltip={`Agent: ${agentName}`} aria-label={`Agent: ${agentName}`} onClick={onOpenAgentSettings}>
           <Icon name="cpu.fill" size={18} />
           <span>Agent</span>
           <span>{ready ? "on" : "off"}</span>
@@ -1347,11 +1347,11 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
     <div className="sidebar-shell">
       <div className="sidebar-brand">
         <div className="row">
-          <button className="sidebar-brand-home" onClick={onHome} title="Back to main view"><BrandHeader subtitle="native agent console" /></button>
+          <button className="sidebar-brand-home" onClick={onHome} data-nav-tooltip="Back to main view" aria-label="Back to main view"><BrandHeader subtitle="native agent console" /></button>
           <span className="spacer" />
           <button
             className="plain-icon-btn plain-icon-btn-compact sidebar-collapse-toggle"
-            title="Collapse sidebar"
+            data-nav-tooltip="Collapse sidebar"
             aria-label="Collapse sidebar"
             onClick={() => s.setSidebarCollapsed(true)}
           >

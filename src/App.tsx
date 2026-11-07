@@ -5,6 +5,7 @@ import { InstallationProgress, InstallationSpinner } from "./components/Installa
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useStore } from "./store";
 import { Sidebar } from "./components/Sidebar";
+import { NavigationTooltips } from "./components/NavigationTooltips";
 import { ChatView } from "./components/ChatView";
 import { SkillsView } from "./components/SkillsView";
 import { LiveView } from "./components/LiveView";
@@ -1793,6 +1794,7 @@ export function App() {
 
   return (
     <div className="app">
+      <NavigationTooltips />
       <aside
         className={"sidebar thin-material" + (sidebarCollapsed ? " sidebar-collapsed" : "")}
         style={{ width: sidebarCollapsed ? 68 : sidebarWidth }}

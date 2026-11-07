@@ -21,7 +21,7 @@ export function SidebarNavigation({ collapsed = false, tab, badgeFor, onSelect }
         return (
           <button key={item.id} type="button"
             className={"sidebar-destination" + (tab === item.id ? " active" : "")}
-            title={item.label}
+            data-nav-tooltip={item.label}
             aria-label={`Open ${item.label}${badge != null && badge !== "" ? `, ${badge}` : ""}`}
             aria-current={tab === item.id ? "page" : undefined}
             onClick={() => onSelect(item.id)}>
