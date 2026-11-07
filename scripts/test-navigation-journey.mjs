@@ -45,6 +45,63 @@ try {
     };
   });
   await page.goto(`${url}/?preview=main`);
+  const chrome = page.getByRole("banner", { name: "Application toolbar" });
+  const community = chrome.getByRole("button", { name: "Join Nextbrowser on Discord" });
+  await community.waitFor();
+  assert.equal(await page.getByRole("button", { name: "Join Nextbrowser on Discord" }).count(), 1);
+  assert.equal(await chrome.getByRole("button", { name: "Star Nextbrowser on GitHub" }).count(), 1);
+  await mkdir("e2e-out", { recursive: true });
+  for (const theme of ["light", "dark"]) {
+    if (await page.locator("html").getAttribute("data-theme") !== theme) {
+      await chrome.getByRole("button", { name: /Switch to .* theme/ }).click();
+    }
+    for (const [tone, claimed, revoked] of [["missing", false, false], ["verified", true, false], ["missing", false, true], ["unknown", null, false]]) {
+      await page.evaluate(async ({ claimed, revoked }) => {
+        const { useStore } = await import("/src/store.ts");
+        useStore.setState({ githubStar: claimed === null ? null : { required: !claimed, claimed, revoked, repoUrl: "https://github.com/nextbrowser-oss/nextbrowser-app", rewardBytes: 1e9 }, githubStarPromptOpen: false });
+        // Let the existing once-per-launch reward prompt run, then dismiss it
+        // in this isolated fixture so it does not cover the header under test.
+        await new Promise(requestAnimationFrame);
+        useStore.setState({ githubStarPromptOpen: false });
+      }, { claimed, revoked });
+      await page.waitForFunction(tone => document.querySelector(`.community-discord--${tone}`), tone);
+      const style = await community.evaluate((node, tone) => {
+        const s = getComputedStyle(node);
+        const probe = document.createElement("span");
+        probe.style.color = `var(${tone === "verified" ? "--green" : tone === "missing" ? "--red" : "--muted"})`;
+        document.body.append(probe);
+        const expected = getComputedStyle(probe).color; probe.remove();
+        return { color: s.color, expected, border: s.borderTopWidth, shadow: s.boxShadow, background: s.backgroundColor };
+      }, tone);
+      assert.equal(style.color, style.expected);
+      assert.equal(style.border, "0px");
+      assert.equal(style.shadow, "none");
+      if (tone !== "unknown") assert.notEqual(style.background, "rgba(0, 0, 0, 0)");
+      await community.hover();
+      const hint = page.getByRole("tooltip");
+      await hint.waitFor();
+      assert.match(await hint.innerText(), tone === "verified" ? /star verified/ : tone === "missing" ? /star is not verified/ : /verify your star/);
+      const hintBox = await hint.boundingBox();
+      assert.ok(hintBox.y >= 0 && hintBox.x >= 0 && hintBox.x + hintBox.width <= 1280);
+      if (!revoked && tone !== "unknown") await page.screenshot({ path: `e2e-out/community-${theme}-${tone}.png` });
+      await page.mouse.move(20, 100);
+      await hint.waitFor({ state: "hidden" });
+    }
+  }
+  for (const width of [1280, 540, 420, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    const boxes = await chrome.getByRole("button").evaluateAll(nodes => nodes.map(node => {
+      const b = node.getBoundingClientRect(), s = getComputedStyle(node);
+      return { left: b.left, right: b.right, bottom: b.bottom, border: s.borderTopWidth, drag: s.getPropertyValue("app-region") };
+    }));
+    for (const b of boxes) {
+      assert.ok(b.left >= 0 && b.right <= width - 148 && b.bottom <= 40, JSON.stringify({ width, b }));
+      assert.equal(b.border, "0px");
+      assert.equal(b.drag, "no-drag");
+    }
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await chrome.getByRole("button", { name: "Switch to light theme" }).click();
   const nav = page.getByRole("navigation", { name: "Sidebar pages" });
   const skillsButton = () => nav.getByRole("button", { name: /^Open Skills/ });
   await skillsButton().click();

@@ -1,10 +1,20 @@
-import type { ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Glyph, IconButton } from "../shared/ui";
 import { useStore } from "../store";
 import "./navigation.css";
 
+const TitlebarHost = createContext<HTMLDivElement | null>(null);
+
+/** Keep page-owned actions in the global chrome without duplicating their state. */
+export function TitlebarActions({ children }: { children: ReactNode }) {
+  const host = useContext(TitlebarHost);
+  return host ? createPortal(children, host) : null;
+}
+
 /** Application chrome stays available while the renderer is starting or showing sign-in. */
 export function DesktopShell({ children }: { children: ReactNode }) {
+  const [actionsHost, setActionsHost] = useState<HTMLDivElement | null>(null);
   const collapsed = useStore(state => state.sidebarCollapsed);
   const toggle = useStore(state => state.setSidebarCollapsed);
   const available = useStore(state => !state.checking && !state.showOnboarding);
@@ -17,8 +27,9 @@ export function DesktopShell({ children }: { children: ReactNode }) {
           <Glyph name="panel-left" size={18} />
         </IconButton>
         <span className="app-titlebar-name" aria-hidden="true">Nextbrowser</span>
+        <div ref={setActionsHost} className="app-titlebar-actions" />
       </header>
-      <div className="desktop-shell-body">{children}</div>
+      <TitlebarHost.Provider value={actionsHost}><div className="desktop-shell-body">{children}</div></TitlebarHost.Provider>
     </div>
   );
 }

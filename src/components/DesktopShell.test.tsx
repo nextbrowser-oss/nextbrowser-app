@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { DesktopShell } from "./DesktopShell";
+import { DesktopShell, TitlebarActions } from "./DesktopShell";
 import { SidebarNavigation, SidebarSettingsButton } from "./SidebarNavigation";
 
 const fixture = vi.hoisted(() => ({ state: { sidebarCollapsed: true, authed: true, checking: false, showOnboarding: false, setSidebarCollapsed: vi.fn() } }));
@@ -22,6 +22,15 @@ it("does not offer sidebar interaction while startup is pending", () => {
   fixture.state.checking = true;
   render(<DesktopShell>Loading</DesktopShell>);
   expect((screen.getByRole("button", { name: "Expand sidebar" }) as HTMLButtonElement).disabled).toBe(true);
+});
+it("keeps page-owned actions in the global titlebar with working event handlers", () => {
+  const click = vi.fn();
+  render(<DesktopShell><TitlebarActions><button onClick={click}>Community action</button></TitlebarActions><main>Page</main></DesktopShell>);
+  const action = screen.getByRole("button", { name: "Community action" });
+  expect(action.closest("header")?.getAttribute("aria-label")).toBe("Application toolbar");
+  expect(action.closest("main")).toBeNull();
+  fireEvent.click(action);
+  expect(click).toHaveBeenCalledOnce();
 });
 it("allows local sidebar navigation without an account sign-in", () => {
   fixture.state.authed = false;

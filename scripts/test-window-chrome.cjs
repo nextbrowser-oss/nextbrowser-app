@@ -45,15 +45,20 @@ app.whenReady().then(async () => {
       const info = await window.webContents.executeJavaScript(`(() => {
         const header=document.querySelector('.app-titlebar'), button=header.querySelector('button'), rect=button.getBoundingClientRect();
         const overlay=navigator.windowControlsOverlay;
-        return { headerHeight:header.getBoundingClientRect().height, buttonBottom:rect.bottom, buttonRight:rect.right, native:overlay?.visible, area:overlay?.getTitlebarAreaRect().toJSON(), drag:getComputedStyle(header).getPropertyValue('app-region'), controlDrag:getComputedStyle(button).getPropertyValue('app-region') };
+        const actions=header.querySelector('.app-titlebar-actions'), actionRect=actions.getBoundingClientRect();
+        return { headerHeight:header.getBoundingClientRect().height, buttonBottom:rect.bottom, buttonRight:rect.right, native:overlay?.visible, area:overlay?.getTitlebarAreaRect().toJSON(), drag:getComputedStyle(header).getPropertyValue('app-region'), controlDrag:getComputedStyle(button).getPropertyValue('app-region'), actionsRight:actionRect.right, actionsBottom:actionRect.bottom, actionsCount:actions.querySelectorAll('button').length, actionsSafe:[...actions.querySelectorAll('button')].every(b=>getComputedStyle(b).getPropertyValue('app-region')==='no-drag'&&getComputedStyle(b).borderTopWidth==='0px') };
       })()`);
       assert.ok(Math.abs(info.headerHeight - 40) < 0.1);
       assert.ok(info.buttonBottom <= info.headerHeight);
       assert.equal(info.drag, "drag");
       assert.equal(info.controlDrag, "no-drag");
+      assert.equal(info.actionsCount, 3);
+      assert.equal(info.actionsSafe, true);
+      assert.ok(info.actionsBottom <= info.headerHeight);
       if (process.platform !== "darwin") {
         assert.equal(info.native, true, "Native minimize/maximize/close controls remain enabled");
         assert.ok(info.buttonRight < info.area.x + info.area.width);
+        assert.ok(info.actionsRight <= info.area.x + info.area.width, `Community controls must stay left of native caption buttons: ${JSON.stringify({factor, info})}`);
         assert.ok(Math.abs(info.area.height - info.headerHeight) <= 2, JSON.stringify(info));
       }
     }
