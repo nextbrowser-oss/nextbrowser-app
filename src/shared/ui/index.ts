@@ -11,3 +11,5 @@ export { CommandList } from "./command-list";
 export { glassSurfaceClassName } from "./glass-surface";
 export { Dialog } from "./dialog";
 export { WindowControls } from "./window-controls";
+export { Tree, TREE_MIME } from "./tree";
+export type { TreeNode, TreeProps, TreeDropEvent, DropPosition } from "./tree";

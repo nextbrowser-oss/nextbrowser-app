@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { projectRoot } from "./lib/projectTree";
+import { applyProjectDrop, projectRoot, type ProjectTreeDrop } from "./lib/projectTree";
 import { isUtilityDialogTab, type UtilityDialogTab } from "./lib/appNavigation";
 import { invoke, listen } from "./electronBridge";
 import {
@@ -860,6 +860,7 @@ interface State {
 
   newChat: () => string;
   createProjectSession: (projectId: string) => string;
+  moveProjectTreeItem: (event: ProjectTreeDrop) => void;
   createProject: (name: string, mode: "chat" | "terminal", agentId?: string) => string;
   changeEmptyProjectAgent: (id: string, agentId: string) => boolean;
   assignProfileToProject: (profileName: string, toolset: BrowserToolset, projectId?: string, replaceToolset?: boolean, proxyId?: string) => Promise<void>;
@@ -5934,6 +5935,14 @@ export const useStore = create<State>((set, get) => {
       defaultSetupInFlight = false;
       set({ defaultProfilesCreating: false });
     }
+  },
+
+  moveProjectTreeItem: (event) => {
+    const state = get();
+    if (state.activeWorkspaceId && deletingWorkspaceIds.has(state.activeWorkspaceId)) throw new Error("This workspace is being deleted.");
+    const conversations = applyProjectDrop(state.conversations, state.activeWorkspaceId, event, now());
+    persistConvs(conversations);
+    set({ conversations });
   },
 
   createProjectSession: (projectId) => {

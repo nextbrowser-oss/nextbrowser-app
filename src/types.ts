@@ -169,6 +169,9 @@ export interface Conversation {
   parentId?: string;
   /** Existing project conversation whose folder contains this independent session. */
   projectId?: string;
+  /** Persisted ordering for the project tree, independent of chat activity. */
+  projectOrder?: number;
+  sessionOrder?: number;
   forkedFromMessageId?: string;
   executionTarget?: "local" | "vps";
   vpsConnectionInstructions?: string;

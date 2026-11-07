@@ -1,12 +1,6 @@
-.project-tree { color: inherit; }
-.project-folder-heading { display: flex; align-items: center; gap: 2px; }
-.project-folder-toggle { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; padding: 7px 5px; border: 0; background: transparent; color: inherit; box-shadow: none; text-align: left; font: inherit; font-size: 12px; }
-.project-folder-toggle strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.project-folder-toggle small { margin-inline-start: auto; opacity: .6; font-size: 10px; }
-.project-folder-toggle svg { flex: none; }
-.project-folder .shared-icon-button { width: 24px; height: 24px; color: inherit; }
-.project-folder-sessions { padding-left: 22px; }
-.project-session { display: flex; align-items: center; gap: 7px; width: 100%; min-width: 0; padding: 6px; border: 0; border-radius: 7px; background: transparent; color: inherit; box-shadow: none; font: inherit; font-size: 12px; text-align: left; }
-.project-session span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-tree button:hover:not(:disabled), .project-tree .project-session[aria-current] { background: var(--glass-inverse-control-hover); color: inherit; }
-.project-tree button:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
+.project-tree { color: inherit; position: relative; }
+.project-tree .shared-icon-button { width: 24px; height: 24px; color: inherit; }
+.project-tree .shared-tree-meta small { opacity: .65; font-size: 10px; }
+.recent-projects .project-popover-toolbar { position: absolute; top: 7px; right: 7px; z-index: 1; }
+.recent-projects .shared-tree-search { padding-right: 56px; }
+.recent-projects .shared-tree-list { max-height: min(370px, calc(100dvh - 80px)); }

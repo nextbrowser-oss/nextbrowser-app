@@ -62,6 +62,16 @@ it("pins a hovered flyout on click and opens it with keyboard focus", () => {
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(document.activeElement).toBe(trigger);
 });
+it("keeps a hover-open popover mounted during a drag interaction", () => {
+  vi.useFakeTimers();
+  render(<HoverFixture />);
+  fireEvent.pointerEnter(screen.getByRole("button", { name: "Extensions" }));
+  const popup = screen.getByRole("dialog", { name: "Extensions" });
+  fireEvent.dragStart(screen.getByRole("button", { name: "Skills" }));
+  fireEvent.pointerLeave(popup);
+  act(() => vi.advanceTimersByTime(300));
+  expect(screen.queryByRole("dialog", { name: "Extensions" })).not.toBeNull();
+});
 it("closes on Escape and restores focus to the trigger", () => {
   render(<Fixture />);
   fireEvent.click(screen.getByRole("button", { name: "Open" }));

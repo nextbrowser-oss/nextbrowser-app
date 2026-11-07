@@ -67,7 +67,7 @@ export function Popover({ label, open, onOpenChange, trigger, children, side = "
     if (!open) return;
     const popup = surface.current;
     const button = anchor.current;
-    if (!pointerOpened.current) (popup?.querySelector<HTMLElement>("[data-autofocus], input:not(:disabled), textarea:not(:disabled), button:not(:disabled), [tabindex='0']") ?? popup)?.focus();
+    if (!pointerOpened.current) (popup?.querySelector<HTMLElement>("[data-autofocus]") ?? popup?.querySelector<HTMLElement>("input:not(:disabled), textarea:not(:disabled), button:not(:disabled), [tabindex='0']") ?? popup)?.focus();
     const outside = (event: PointerEvent) => {
       if (event.target instanceof Node && !popup?.contains(event.target) && !button?.contains(event.target)) onOpenChange(false);
     };
@@ -104,6 +104,7 @@ export function Popover({ label, open, onOpenChange, trigger, children, side = "
         pointerOpened.current = false; pinned.current = !open; onOpenChange(!open);
       } })}
     {open && createPortal(<div ref={surface} id={id} role="dialog" aria-label={label} tabIndex={-1}
+      onDragStartCapture={openOnHover ? () => { cancelLeave(); pinned.current = true; } : undefined}
       onPointerEnter={openOnHover ? cancelLeave : undefined} onPointerLeave={openOnHover ? leave : undefined}
       className={`${glassSurfaceClassName} shared-popover ${className}`.trim()} style={{ left: position?.left ?? 0, top: position?.top ?? 0, maxWidth: position?.maxWidth, visibility: position ? "visible" : "hidden" }}>{children}</div>, document.body)}
   </>;

@@ -112,6 +112,10 @@ try {
   assert.equal(await page.locator('.content-chat > .tabbar').count(), 0, 'no separate navigation row above the chat');
   await mainViews.getByRole('tab', { name: 'Open Live', exact: true }).click();
   await page.getByRole('tablist', { name: 'Main views' }).getByRole('tab', { name: 'Open Project', exact: true }).click();
+  const focusBeforeProjectHover = await page.evaluate(() => document.activeElement?.getAttribute('aria-label'));
+  await page.getByRole("button", { name: "Open Projects", exact: true }).hover();
+  await page.getByRole('dialog', { name: 'Projects', exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), focusBeforeProjectHover, 'hover does not steal input focus');
   await page.getByRole("button", { name: "Open Projects", exact: true }).click();
   const projectPopover = page.getByRole('dialog', { name: 'Projects' });
   await projectPopover.waitFor();
@@ -131,10 +135,33 @@ try {
   }, original), true, 'new sessions preserve the original project history');
   await page.getByRole('button', { name: 'Open Projects', exact: true }).click();
   await projectPopover.getByRole('button', { name: `Collapse project ${original.title}`, exact: true }).click();
-  assert.equal(await projectPopover.getByRole('group', { name: `Sessions in ${original.title}`, exact: true }).count(), 0);
+  assert.equal(await projectPopover.getByRole('treeitem', { name: `Open Main session in ${original.title}`, exact: true }).count(), 0);
   await projectPopover.getByRole('button', { name: `Expand project ${original.title}`, exact: true }).click();
-  await page.screenshot({ path: 'e2e-out/project-folders-light.png' });
-  await projectPopover.getByRole('button', { name: `Open Main session in ${original.title}`, exact: true }).click();
+  const dragFixture = await page.evaluate(async originalId => {
+    const { useStore } = await import('/src/store.ts'); const state = useStore.getState();
+    return { session: state.activeConversation(), other: state.conversations.find(item => !item.projectId && item.id !== originalId && item.workspaceId === state.activeWorkspaceId) };
+  }, original.id);
+  const sessionRow = () => projectPopover.locator(`[data-node-id=${JSON.stringify(`session:${dragFixture.session.id}`)}]`);
+  const folderRow = id => projectPopover.locator(`[data-node-id=${JSON.stringify(`folder:${id}`)}]`);
+  assert.equal(await projectPopover.locator(`[data-node-id=${JSON.stringify(`session:${original.id}`)}]`).getAttribute('draggable'), 'false');
+  await sessionRow().dragTo(folderRow(dragFixture.other.id));
+  assert.equal(await page.evaluate(async id => {
+    const { useStore } = await import('/src/store.ts'); return useStore.getState().conversations.find(item => item.id === id).projectId;
+  }, dragFixture.session.id), dragFixture.other.id, 'real FractalUI DnD moves the saved session to the target folder');
+  await folderRow(dragFixture.other.id).dragTo(folderRow(original.id), { targetPosition: { x: 40, y: 2 } });
+  assert.equal(await projectPopover.getByRole('treeitem').first().getAttribute('data-node-id'), `folder:${dragFixture.other.id}`, 'folder order follows the drop');
+  await sessionRow().dragTo(folderRow(original.id));
+  await projectPopover.getByRole('searchbox', { name: 'Search projects' }).fill('Session');
+  assert.equal(await sessionRow().getAttribute('draggable'), 'false', 'search disables ambiguous reordering');
+  await projectPopover.getByRole('searchbox', { name: 'Search projects' }).fill('');
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme; }, theme);
+    await page.waitForTimeout(250);
+    assert.equal(await projectPopover.locator('.shared-tree-list').evaluate(node => getComputedStyle(node).scrollbarWidth), 'none');
+    await page.screenshot({ path: `e2e-out/project-folders-${theme}.png` });
+  }
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; document.documentElement.style.colorScheme = 'light'; });
+  await projectPopover.getByRole('treeitem', { name: `Open Main session in ${original.title}`, exact: true }).click();
   await page.getByRole('button', { name: /^Switch workspace,/ }).click();
   const workspacePopover = page.getByRole('dialog', { name: 'Workspaces', exact: true });
   await workspacePopover.waitFor();
@@ -157,7 +184,7 @@ try {
   await projectPopover.getByRole('button', { name: 'Expand project Other workspace project', exact: true }).count().then(async count => {
     if (count) await projectPopover.getByRole('button', { name: 'Expand project Other workspace project', exact: true }).click();
   });
-  assert.equal(await projectPopover.getByRole('button', { name: `Open Main session in ${original.title}`, exact: true }).count(), 0, 'project listings stay scoped to the selected workspace');
+  assert.equal(await projectPopover.getByRole('treeitem', { name: `Open Main session in ${original.title}`, exact: true }).count(), 0, 'project listings stay scoped to the selected workspace');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: /^Switch workspace,/ }).click();
   await workspacePopover.getByRole('button', { name: workspaceBefore.name, exact: true }).click();

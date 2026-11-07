@@ -34,3 +34,14 @@ it("rejects missing/cross-workspace parents and keeps orphaned sessions accessib
   expect(projectFolders([orphan], "work")[0].project.id).toBe("orphan");
   expect(projectFolders([orphan], "other")).toHaveLength(0);
 });
+it("persists a moved session without switching the active chat or copying history", () => {
+  useStore.setState(state => ({ conversations: [...state.conversations, { ...project(), id: "destination", title: "Destination", messages: [] }] }));
+  const id = useStore.getState().createProjectSession("project");
+  const messages = useStore.getState().conversations.find(item => item.id === id)!.messages;
+  useStore.getState().moveProjectTreeItem({ dragId: `session:${id}`, targetId: "folder:destination", position: "inside" });
+  expect(useStore.getState().activeConvId.codex).toBe(id);
+  expect(useStore.getState().conversations.find(item => item.id === id)).toMatchObject({ projectId: "destination", messages });
+  const before = useStore.getState().conversations;
+  expect(() => useStore.getState().moveProjectTreeItem({ dragId: "session:project", targetId: "folder:destination", position: "inside" })).toThrow();
+  expect(useStore.getState().conversations).toBe(before);
+});
