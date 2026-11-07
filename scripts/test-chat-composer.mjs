@@ -294,6 +294,14 @@ try {
     await createProject.waitFor();
     assert.equal(await createProject.getByRole('radio').count(), 0);
     await createProject.getByPlaceholder('Product research').fill('New chat project');
+    await page.evaluate(() => window.fixtureStore.setState({ createProject: () => '' }));
+    await createProject.getByRole('button', { name: 'Create project', exact: true }).click();
+    await createProject.getByRole('alert').filter({ hasText: "couldn't create the project" }).waitFor();
+    assert.equal(await createProject.getByPlaceholder('Product research').inputValue(), 'New chat project');
+    await page.evaluate(() => window.fixtureStore.setState({ createProject: () => { throw new Error('This workspace is being deleted.'); } }));
+    await createProject.getByRole('button', { name: 'Create project', exact: true }).click();
+    await createProject.getByRole('alert').filter({ hasText: 'This workspace is being deleted.' }).waitFor();
+    await page.evaluate(() => window.fixtureStore.setState({ createProject: (...args) => { window.createdProject = args; return 'created'; } }));
     await createProject.getByRole('button', { name: 'Create project', exact: true }).click();
     assert.deepEqual(await page.evaluate(() => window.createdProject), ['New chat project', 'chat', 'codex']);
     await createProject.waitFor({ state: 'detached' });

@@ -797,6 +797,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
 
   useEffect(() => {
     const revealProject = () => {
+      setProjectsMenuOpen(true);
       setOpenSection("projects");
       window.requestAnimationFrame(() => projectListRef.current?.scrollTo({ top: 0, behavior: "smooth" }));
     };

@@ -6001,10 +6001,12 @@ export const useStore = create<State>((set, get) => {
 
   createProject: (name, requestedMode, selectedAgentId) => {
     const agentId = selectedAgentId ?? get().agentId;
-    if (!AGENTS.some((agent) => agent.id === agentId)) return "";
+    if (!AGENTS.some((agent) => agent.id === agentId)) throw new Error("Choose an available agent for the project.");
     const mode = agentSupportsTerminal(agentId) ? requestedMode : "chat";
     const workspaceId = get().activeWorkspaceId;
-    if (!workspaceId || deletingWorkspaceIds.has(workspaceId)) return "";
+    // Local chats/projects are valid before the user connects a workspace.
+    // Keep the same undefined-workspace scope used by newChat and ProjectTree.
+    if (workspaceId && deletingWorkspaceIds.has(workspaceId)) throw new Error("This workspace is being deleted. Choose another workspace and try again.");
     const cleanName = validateEntityName("project", name);
     const c: Conversation = {
       id: uid(),

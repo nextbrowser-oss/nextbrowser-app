@@ -45,3 +45,10 @@ it("persists a moved session without switching the active chat or copying histor
   expect(() => useStore.getState().moveProjectTreeItem({ dragId: "session:project", targetId: "folder:destination", position: "inside" })).toThrow();
   expect(useStore.getState().conversations).toBe(before);
 });
+it("creates a local project folder without an active workspace", () => {
+  useStore.setState({ authed: false, activeWorkspaceId: undefined, workspaces: [], conversations: [], activeConvId: {} });
+  const id = useStore.getState().createProject("Local research", "chat", "codex");
+  expect(id).not.toBe("");
+  expect(projectFolders(useStore.getState().conversations, undefined).map(folder => folder.project.title)).toEqual(["Local research"]);
+  expect(useStore.getState().activeConvId.codex).toBe(id);
+});

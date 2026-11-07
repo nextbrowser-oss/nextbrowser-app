@@ -134,6 +134,7 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
   const [projectCreatorOpen, setProjectCreatorOpen] = useState(false);
   const [projectAgentId, setProjectAgentId] = useState(s.agentId);
   const [projectName, setProjectName] = useState("");
+  const [projectCreateError, setProjectCreateError] = useState<string>();
   const [workflowDraft, setWorkflowDraft] = useState<{ task: string; answer: ChatMessage; prepared: DistilledWorkflow } | null>(null);
   const [preparingWorkflowId, setPreparingWorkflowId] = useState<string | null>(null);
   const [workflowRejection, setWorkflowRejection] = useState<string | null>(null);
@@ -150,6 +151,7 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
     const openProjectCreator = () => {
       setProjectAgentId(useStore.getState().agentId);
       setProjectName("");
+      setProjectCreateError(undefined);
       setProjectCreatorOpen(true);
     };
     window.addEventListener("nextbrowser:create-project", openProjectCreator);
@@ -816,9 +818,15 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
             onMouseDown={(event) => event.stopPropagation()}
             onSubmit={(event) => {
               event.preventDefault();
-              const projectId = s.createProject(projectName, "chat", projectAgentId);
-              if (projectId) window.dispatchEvent(new CustomEvent("nextbrowser:project-created", { detail: { id: projectId } }));
-              setProjectCreatorOpen(false);
+              setProjectCreateError(undefined);
+              try {
+                const projectId = s.createProject(projectName, "chat", projectAgentId);
+                if (!projectId) throw new Error("We couldn't create the project. Please try again.");
+                window.dispatchEvent(new CustomEvent("nextbrowser:project-created", { detail: { id: projectId } }));
+                setProjectCreatorOpen(false);
+              } catch (error) {
+                setProjectCreateError(error instanceof Error ? error.message : "We couldn't create the project. Please try again.");
+              }
             }}
           >
             <div className="profile-menu-head">
@@ -833,17 +841,18 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
             </p>
             <label className="modal-field">
               <span className="modal-field-heading"><span>Project name</span><small>Max {entityNameLimits.project}</small></span>
-              <input autoFocus value={projectName} maxLength={entityNameLimits.project} onChange={(event) => setProjectName(event.target.value)} placeholder="Product research" />
+              <input autoFocus value={projectName} maxLength={entityNameLimits.project} onChange={(event) => { setProjectName(event.target.value); setProjectCreateError(undefined); }} placeholder="Product research" />
             </label>
             <label className="modal-field">
               <span>Agent</span>
-              <select value={projectAgentId} onChange={(event) => setProjectAgentId(event.target.value)}>
+              <select value={projectAgentId} onChange={(event) => { setProjectAgentId(event.target.value); setProjectCreateError(undefined); }}>
                 {AGENTS.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
               </select>
               <small className="muted">{s.runtime[projectAgentId]?.ready && s.runtime[projectAgentId]?.loggedIn !== false
                 ? "Connected" : s.runtime[projectAgentId]?.loggedIn === false ? "Sign-in required — you can sign in after creating the project."
                 : "Not connected — you can connect after creating the project."}</small>
             </label>
+            {projectCreateError && <div className="error small" role="alert">{projectCreateError}</div>}
             <div className="modal-actions">
               <button type="button" className="secondary" onClick={() => setProjectCreatorOpen(false)}>Cancel</button>
               <button type="submit" className="primary" disabled={!projectName.trim()}>Create project</button>

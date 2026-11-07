@@ -374,6 +374,26 @@ try {
   await connectorsDialog.getByRole('button', { name: 'Close Connectors' }).click();
   await connectorsDialog.waitFor({ state: 'detached' });
   assert.equal(await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().tab), 'skills');
+  // Use the real createProject action, including the local/no-workspace state
+  // where the old guard silently returned an empty ID and closed the form.
+  await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts'); const state = useStore.getState();
+    useStore.setState({ authed: false, activeWorkspaceId: undefined, workspaces: [], conversations: [], activeConvId: {}, workspaceSetupRequired: false });
+    state.setTab('chat');
+  });
+  await page.getByRole('button', { name: 'Open Projects', exact: true }).click();
+  await projectPopover.getByRole('button', { name: 'Create project', exact: true }).click();
+  const createLocal = page.getByRole('dialog', { name: 'New project', exact: true });
+  await createLocal.getByPlaceholder('Product research').fill('Local project from modal');
+  await createLocal.getByRole('button', { name: 'Create project', exact: true }).click();
+  await createLocal.waitFor({ state: 'detached' });
+  await projectPopover.getByRole('treeitem', { name: 'project Local project from modal', exact: true }).waitFor();
+  assert.equal(await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts'); const state = useStore.getState();
+    const project = state.conversations.find(item => item.title === 'Local project from modal');
+    return !!project && project.workspaceId === undefined && state.activeConvId[project.agent] === project.id;
+  }), true);
+  await page.screenshot({ path: 'e2e-out/project-create-local.png' });
   assert.deepEqual(errors, []);
   console.log("Navigation journey passed: permanent rail, project folders/independent sessions, global project access, titlebar workspace switch/create, Extensions/MCP, profile management, themes, narrow layout and Multilogin connection.");
 } catch (error) {
