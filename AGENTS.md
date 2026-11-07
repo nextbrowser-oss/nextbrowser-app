@@ -25,6 +25,15 @@ Use `npm run dev` for interactive application testing. Use `npm run dist:mac` or
 
 Live viewing and control must go through the Nextbrowser backend. A profile may run on a separate VPS, so do not add a direct desktop-to-profile stream or a local fallback that bypasses the backend.
 
+## Renderer architecture and shared UI
+
+- We are migrating to Feature-Sliced Design incrementally. Follow `docs/architecture/fsd.md`; do not move unrelated legacy code or create empty layers for symmetry.
+- Before writing UI, inspect `src/shared/ui` and reuse its components. Extend an existing generic component when appropriate instead of duplicating its behavior or styling in a feature.
+- Import shared components through their public API (`shared/ui` or the component's directory index), not internal implementation files.
+- Keep `shared` independent of product state, entities, features, legacy components and Electron integrations. Pass product-specific content and callbacks from callers.
+- Use `Tooltip` for element hints and `TooltipContent` for controlled rich hints such as charts. Mount one `TooltipProvider` at app initialization. Do not introduce native HTML `title` hints or CSS pseudo-element tooltip implementations; semantic iframe titles remain valid.
+- Shared UI colors must use the tokens in `src/palette.css`, including both themes. See `src/shared/AGENTS.md` for local rules.
+
 ## README internationalization
 
 - `README.md` is the canonical English source.

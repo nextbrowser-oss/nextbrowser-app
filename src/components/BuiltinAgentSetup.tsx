@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import { useCallback, useEffect, useState } from "react";
 import { BUILTIN_AGENT_ID } from "../agents";
 import { invoke } from "../electronBridge";
@@ -256,16 +257,15 @@ export function BuiltinAgentSetup({ onReady }: { onReady?: () => void }) {
       <label className="modal-field">
         <span className="modal-field-heading">
           <span>Model</span>
-          <button
+          <Tooltip content="Reload the provider's models"><button
             type="button"
             className="plain-icon-btn plain-icon-btn-compact"
-            title="Reload the provider's models"
             aria-label="Reload the provider's models"
             disabled={!keyReady || !baseURLReady || !!busy}
             onClick={() => void loadModels(provider, baseURL, model)}
           >
             {busy === "models" ? <Spinner size={11} /> : <Icon name="arrow.clockwise" size={11} />}
-          </button>
+          </button></Tooltip>
         </span>
         {models.length ? (
           <select value={model} onChange={(event) => { setModel(event.target.value); setTest(undefined); setSaved(false); }}>

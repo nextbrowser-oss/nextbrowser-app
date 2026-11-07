@@ -1,9 +1,13 @@
+// @vitest-environment jsdom
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render as renderDom, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "../shared/ui";
 import { MultiloginChatProfilePickerView } from "./MultiloginChatProfilePicker";
 import type { MultiloginConnectionStatus } from "../lib/multiloginProfiles";
 
 const noop = vi.fn();
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 const connectedStatus: MultiloginConnectionStatus = {
   connected: true,
@@ -16,7 +20,7 @@ const connectedStatus: MultiloginConnectionStatus = {
   cloudPhones: [{ id: "17", name: "Android US", status: "Running" }],
 };
 
-function render({
+function picker({
   status = connectedStatus,
   open = false,
   query = "",
@@ -31,7 +35,7 @@ function render({
   selection?: { kind: "browser" | "mobile"; id: string; name: string; folderId?: string };
   onReconnect?: () => void;
 } = {}) {
-  return renderToStaticMarkup(
+  return (
     <MultiloginChatProfilePickerView
       status={status}
       selection={selection}
@@ -49,18 +53,21 @@ function render({
       onClear={noop}
       onManage={noop}
       onReconnect={onReconnect}
-    />,
+    />
   );
 }
+const render = (options?: Parameters<typeof picker>[0]) => renderToStaticMarkup(picker(options));
 
 describe("MultiloginChatProfilePickerView", () => {
   it("shows a compact chat trigger when Multilogin is connected", () => {
-    const html = render();
-
-    expect(html).toContain("Multilogin");
-    expect(html).toContain("Choose a Multilogin profile");
-    expect(html).toContain('aria-haspopup="dialog"');
-    expect(html).not.toContain("Search browser profiles");
+    vi.useFakeTimers();
+    renderDom(<TooltipProvider>{picker()}</TooltipProvider>);
+    const trigger = screen.getByRole("button", { name: "Multilogin" });
+    expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(screen.queryByPlaceholderText("Search browser profiles")).toBeNull();
+    fireEvent.pointerOver(trigger);
+    act(() => vi.advanceTimersByTime(180));
+    expect(screen.getByRole("tooltip").textContent).toBe("Choose a Multilogin profile");
   });
 
   it("lists browser profiles and cloud phone counts in the open picker", () => {

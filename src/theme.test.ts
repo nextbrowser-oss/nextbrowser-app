@@ -5,7 +5,8 @@ import { resolveTheme, terminalColorKeys, terminalThemeFromPalette } from "./the
 
 const palette = readFileSync(new URL("./palette.css", import.meta.url), "utf8")
   .replace(/\/\*[\s\S]*?\*\//g, "");
-const styles = (palette + readFileSync(new URL("./styles.css", import.meta.url), "utf8"))
+const styles = (palette + readFileSync(new URL("./styles.css", import.meta.url), "utf8")
+  + readFileSync(new URL("./shared/ui/tooltip/tooltip.css", import.meta.url), "utf8"))
   .replace(/\/\*[\s\S]*?\*\//g, "");
 
 function declaredTokens(css: string): Set<string> {
@@ -87,6 +88,7 @@ describe("theme stylesheet", () => {
       ["--on-primary-action", "--primary-action"],
       ["--on-primary-action", "--primary-action-hover"],
       ["--on-danger", "--danger-action"],
+      ["--tooltip-text", "--tooltip-solid-bg"],
     ]) expect(contrast(color(foreground), color(background))).toBeGreaterThanOrEqual(4.5);
   });
 

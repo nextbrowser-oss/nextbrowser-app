@@ -1,3 +1,4 @@
+import { Tooltip } from "./shared/ui";
 import { addPendingRuntimeInstall, downloadableBrowsers, runtimeInstalling } from "./lib/settingsUpdates";
 import { RuntimeInstallationProgress } from "./components/RuntimeInstallationProgress";
 import { BrowserRuntimeUpdatePrompt, ClawbrowserCloseProfilesPrompt, type BrowserRuntimeUpdateEntry } from "./components/BrowserRuntimeUpdatePrompt";
@@ -5,7 +6,6 @@ import { InstallationProgress, InstallationSpinner } from "./components/Installa
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useStore } from "./store";
 import { Sidebar } from "./components/Sidebar";
-import { NavigationTooltips } from "./components/NavigationTooltips";
 import { ChatView } from "./components/ChatView";
 import { SkillsView } from "./components/SkillsView";
 import { LiveView } from "./components/LiveView";
@@ -96,43 +96,40 @@ function clampUiScale(value: number): number {
 function UIScaleSlider({ value, onChange }: { value: number; onChange: (next: number) => void }) {
   return (
     <>
-      <button
+      <Tooltip content="Decrease interface size"><button
         className="plain-icon-btn plain-icon-btn-compact"
         onClick={() => onChange(clampUiScale(value - UI_SCALE_STEP))}
         disabled={value <= UI_SCALE_MIN}
-        title="Decrease interface size"
         aria-label="Decrease interface size"
       >
         <Icon name="minus" size={12} />
-      </button>
+      </button></Tooltip>
       <span className="muted small ui-scale-value">{Math.round(value * 100)}%</span>
-      <button
+      <Tooltip content="Increase interface size"><button
         className="plain-icon-btn plain-icon-btn-compact"
         onClick={() => onChange(clampUiScale(value + UI_SCALE_STEP))}
         disabled={value >= UI_SCALE_MAX}
-        title="Increase interface size"
         aria-label="Increase interface size"
       >
         <Icon name="plus" size={12} />
-      </button>
+      </button></Tooltip>
     </>
   );
 }
 
 function UIScaleControl({ value, onChange, onDismiss, inline = false }: { value: number; onChange: (next: number) => void; onDismiss: () => void; inline?: boolean }) {
   return (
-    <div className={"ui-scale-control" + (inline ? " ui-scale-control-inline" : "")} title="Interface size">
+    <Tooltip content="Interface size"><div className={"ui-scale-control" + (inline ? " ui-scale-control-inline" : "")}>
       <Icon name="magnifyingglass" size={inline ? 11 : 13} />
       <UIScaleSlider value={value} onChange={onChange} />
-      <button
+      <Tooltip content="Hide this control (it stays in Settings)"><button
         className="plain-icon-btn plain-icon-btn-compact ui-scale-dismiss"
         onClick={onDismiss}
-        title="Hide this control (it stays in Settings)"
         aria-label="Hide the interface size control"
       >
         <Icon name="xmark" size={11} />
-      </button>
-    </div>
+      </button></Tooltip>
+    </div></Tooltip>
   );
 }
 
@@ -150,14 +147,13 @@ function BrowserRuntimeInstallModal({ status, onCancel, onHide }: { status: Brow
   return (
     <div className="browser-install-overlay" role="status" aria-live="polite">
       <div className="modal-card browser-install-modal" aria-labelledby="browser-install-title">
-        <button
+        <Tooltip content="Hide — the download keeps running"><button
           className="plain-icon-btn plain-icon-btn-compact background-card-hide"
           onClick={onHide}
-          title="Hide — the download keeps running"
           aria-label={`Hide ${name} download progress`}
         >
           <Icon name="xmark" size={12} />
-        </button>
+        </button></Tooltip>
         <InstallationSpinner />
         <div className="browser-install-copy">
           <strong id="browser-install-title">{installing ? `Installing ${name}` : `Downloading ${name}`}</strong>
@@ -180,10 +176,10 @@ function BrowserRuntimeInstallModal({ status, onCancel, onHide }: { status: Brow
 // it is still visibly running and one click brings the full card back.
 function BackgroundTaskPill({ label, onShow }: { label: string; onShow: () => void }) {
   return (
-    <button type="button" className="background-task-pill" onClick={onShow} title={`${label} — show progress`}>
+    <Tooltip content={`${label} — show progress`}><button type="button" className="background-task-pill" onClick={onShow}>
       <Spinner size={11} />
       <span>{label}</span>
-    </button>
+    </button></Tooltip>
   );
 }
 
@@ -223,7 +219,7 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onCancel, onRetry, onOp
               <section className="runtime-update-error" key={error.runtime}>
                 <div className="runtime-update-error-heading">
                   <span>{error.name} couldn’t update</span>
-                  {error.code && <span className="runtime-update-error-code" title={error.code}>{error.category ?? "Update could not finish"}</span>}
+                  {error.code && <Tooltip content={error.code}><span className="runtime-update-error-code">{error.category ?? "Update could not finish"}</span></Tooltip>}
                 </div>
                 {/* The next step is what the user needs first; the raw message is
                     supporting detail, not the headline. */}
@@ -245,14 +241,13 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onCancel, onRetry, onOp
         {needsAttention && <p className="runtime-update-requirements">Before retrying: keep Nextbrowser open, use a stable connection, make sure there is free disk space, and close any running browser toolset.</p>}
       </div>
       {/* Hiding never cancels: the update keeps running behind a top-bar chip. */}
-      <button
+      <Tooltip content={installing ? "Hide — the update keeps running" : "Dismiss"}><button
         className="plain-icon-btn plain-icon-btn-compact"
         onClick={onClose}
-        title={installing ? "Hide — the update keeps running" : "Dismiss"}
         aria-label={installing ? "Hide update progress" : "Dismiss update status"}
       >
         <Icon name="xmark" size={12} />
-      </button>
+      </button></Tooltip>
       {!!status.items?.length && <div className="runtime-install-items">{status.items.map((item) => <RuntimeInstallationProgress key={item.runtime} item={item} onCancel={onCancel} />)}</div>}
       {installing && !status.items?.length && <InstallationProgress label={`Updating ${status.currentName ?? "browser toolsets"}`} percent={status.percent} />}
     </div>
@@ -316,28 +311,26 @@ function ThemeToggle({ theme, onToggle, floating = false }: {
 }) {
   const label = theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
   return (
-    <button
+    <Tooltip content={label}><button
       className={`theme-toggle plain-icon-btn${floating ? " theme-toggle-floating" : ""}`}
       onClick={onToggle}
-      title={label}
       aria-label={label}
     >
       <Icon name={theme === "dark" ? "sun" : "moon"} size={18} />
-    </button>
+    </button></Tooltip>
   );
 }
 
 function SettingsButton({ onClick, hasUpdate }: { onClick: () => void; hasUpdate?: boolean }) {
   return (
-    <button
+    <Tooltip content={hasUpdate ? "Settings — update available" : "Settings"}><button
       className="settings-toggle plain-icon-btn"
       onClick={onClick}
-      title={hasUpdate ? "Settings — update available" : "Settings"}
       aria-label={hasUpdate ? "Settings, update available" : "Settings"}
     >
       <Icon name="gearshape" size={18} />
       {hasUpdate && <span className="settings-update-dot" aria-hidden="true" />}
-    </button>
+    </button></Tooltip>
   );
 }
 
@@ -374,10 +367,9 @@ const GITHUB_STARS_SETTLE_MS = 20 * 1000;
 function GithubStarButton({ stars }: { stars?: number | null }) {
   const label = "Star Nextbrowser on GitHub";
   return (
-    <button
+    <Tooltip content={label}><button
       className="social-button github-star-btn"
       onClick={() => window.open(repoUrl, "_blank", "noopener,noreferrer")}
-      title={label}
       aria-label={label}
     >
       <GithubMark size={17} />
@@ -385,34 +377,32 @@ function GithubStarButton({ stars }: { stars?: number | null }) {
         <Icon name="star.fill" size={11} fill="currentColor" className="github-star-glyph" />
         {formatStars(stars)}
       </span>
-    </button>
+    </button></Tooltip>
   );
 }
 
 function DiscordButton() {
   return (
-    <button
+    <Tooltip content="Join Nextbrowser on Discord"><button
       className="social-button discord-button"
       onClick={() => window.open(discordUrl, "_blank", "noopener,noreferrer")}
-      title="Join Nextbrowser on Discord"
       aria-label="Join Nextbrowser on Discord"
     >
       <DiscordMark size={18} />
-    </button>
+    </button></Tooltip>
   );
 }
 
 function FeedbackButton({ onClick }: { onClick: () => void }) {
   return (
-    <button
+    <Tooltip content="Send feedback (⌘⇧F on macOS, Ctrl+Shift+F on Windows/Linux)"><button
       className="social-button feedback-button"
       onClick={onClick}
-      title="Send feedback (⌘⇧F on macOS, Ctrl+Shift+F on Windows/Linux)"
       aria-label="Send feedback. Shortcut: Command or Control, Shift, F"
     >
       <Icon name="bubble.left.and.bubble.right.fill" size={17} />
       <span>Feedback</span>
-    </button>
+    </button></Tooltip>
   );
 }
 
@@ -465,9 +455,9 @@ function GlobalErrorNotice({ error, onClose }: { error: { reference: string; det
     <div className="global-error-notice" role="alert">
       <Icon name="exclamationmark.triangle.fill" size={15} />
       <span className="global-error-copy">
-        <span title={error.detail}>
+        <Tooltip content={error.detail}><span>
           <UserFacingError message={`Unexpected app error. Ref: ${error.reference}`} surface="unexpected_app_error" />
-        </span>
+        </span></Tooltip>
       </span>
       <button className="plain-icon-btn plain-icon-btn-compact" onClick={onClose} aria-label="Dismiss error">
         <Icon name="xmark" size={12} />
@@ -495,10 +485,10 @@ function ManualReleaseDownload({ onOpen, version, onLater }: { onOpen: () => Pro
   return <div className="manual-release-download">
     <div className="manual-release-actions">
       {onLater && <button className="secondary" autoFocus onClick={onLater}>Later</button>}
-      <button className={onLater ? "primary release-download-button" : "mini primary-mini release-download-button"} title={downloadUrl} disabled={state === "opening"} onClick={() => void open()}>
+      <Tooltip content={downloadUrl}><button className={onLater ? "primary release-download-button" : "mini primary-mini release-download-button"} disabled={state === "opening"} onClick={() => void open()}>
         {state === "opening" && <Spinner size={12} />}
         {state === "opening" ? "Opening download…" : "Download update"}
-      </button>
+      </button></Tooltip>
     </div>
     {state === "opened" && <p className="muted small" role="status">Download opened in your browser. When it finishes, open the DMG from Downloads and drag Nextbrowser into Applications.</p>}
     {state === "error" && <p className="error small" role="alert">Could not open the download. Please try again.</p>}
@@ -667,9 +657,9 @@ function SettingsModal({
       <div ref={dialogRef} className={"modal-card settings-modal" + (section === "proxy" && usageOpen ? " has-usage" : "")} role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1} onMouseDown={(e) => e.stopPropagation()}>
         <div className="settings-modal-header">
           <strong id="settings-title">Settings</strong>
-          <button className="plain-icon-btn" onClick={onClose} title="Close" aria-label="Close settings">
+          <Tooltip content="Close"><button className="plain-icon-btn" onClick={onClose} aria-label="Close settings">
             <Icon name="xmark" size={16} />
-          </button>
+          </button></Tooltip>
         </div>
         <div className="settings-layout">
           <SettingsRail section={section} attention={attention} onSelect={setSection} />
@@ -685,7 +675,7 @@ function SettingsModal({
                   <span className="muted small">Interface size</span>
                   <div className="ui-scale-control ui-scale-control-settings">
                     <UIScaleSlider value={uiScale} onChange={onUiScaleChange} />
-                    {uiScaleFloatingHidden && <button className="plain-icon-btn plain-icon-btn-compact" onClick={onRestoreFloatingScale} title="Return the quick-access control to the main screen" aria-label="Return the interface-size quick-access control to the main screen"><Icon name="arrow.uturn.left" size={12} /></button>}
+                    {uiScaleFloatingHidden && <Tooltip content="Return the quick-access control to the main screen"><button className="plain-icon-btn plain-icon-btn-compact" onClick={onRestoreFloatingScale} aria-label="Return the interface-size quick-access control to the main screen"><Icon name="arrow.uturn.left" size={12} /></button></Tooltip>}
                   </div>
                 </div>
               </div>
@@ -715,7 +705,7 @@ function SettingsModal({
                   <div className="settings-group">
                     <div className="settings-row">
                       <span className="small">Send error reports</span>
-                      <label className="toggle" title={errorReporting.available ? ERROR_REPORTING_HINT : "Development builds do not send error reports."}>
+                      <Tooltip content={errorReporting.available ? ERROR_REPORTING_HINT : "Development builds do not send error reports."}><label className="toggle">
                         <input
                           type="checkbox"
                           aria-label="Send error reports"
@@ -723,7 +713,7 @@ function SettingsModal({
                           onChange={(event) => changeErrorReporting(event.target.checked)}
                         />
                         <span className="toggle-track"><span className="toggle-knob" /></span>
-                      </label>
+                      </label></Tooltip>
                     </div>
                     <p className="muted small settings-group-note">
                       {ERROR_REPORTING_HINT}
@@ -755,14 +745,14 @@ function SettingsModal({
                   <AgentPicker label="Active" />
                   {!builtinAgent && <div className="settings-agent-actions">
                     {!agentDetected && (
-                      <button className="mini primary-mini" title={`Connect ${agentName}`} onClick={() => authorizeAgent()}>
+                      <Tooltip content={`Connect ${agentName}`}><button className="mini primary-mini" onClick={() => authorizeAgent()}>
                         Connect
-                      </button>
+                      </button></Tooltip>
                     )}
                     {agentDetected && agentLoggedIn !== true && !agentLogoutPending && (
-                      <button className="mini" title={`Open ${agentName} login`} onClick={() => loginAgent()}>
+                      <Tooltip content={`Open ${agentName} login`}><button className="mini" onClick={() => loginAgent()}>
                         Login
-                      </button>
+                      </button></Tooltip>
                     )}
                     {agentDetected && agentLogoutPending && (
                       <button className="mini" disabled aria-live="polite">
@@ -770,9 +760,9 @@ function SettingsModal({
                       </button>
                     )}
                     {agentReady && agentLoggedIn === true && !agentLogoutPending && agentById(agentId).logoutArgs.length > 0 && (
-                      <button className="mini" title={`Sign out of ${agentName}`} onClick={() => void handleAgentLogout()}>
+                      <Tooltip content={`Sign out of ${agentName}`}><button className="mini" onClick={() => void handleAgentLogout()}>
                         Log out
-                      </button>
+                      </button></Tooltip>
                     )}
                   </div>}
                 </div>
@@ -1794,7 +1784,6 @@ export function App() {
 
   return (
     <div className="app">
-      <NavigationTooltips />
       <aside
         className={"sidebar thin-material" + (sidebarCollapsed ? " sidebar-collapsed" : "")}
         style={{ width: sidebarCollapsed ? 68 : sidebarWidth }}
@@ -1807,19 +1796,18 @@ export function App() {
             : undefined}
         />
       </aside>
-      {!sidebarCollapsed && <div id="sidebar-resize" className="resize-handle" title="Resize sidebar" aria-label="Resize sidebar" />}
+      {!sidebarCollapsed && <Tooltip content="Resize sidebar"><div id="sidebar-resize" className="resize-handle" aria-label="Resize sidebar" /></Tooltip>}
       <main className="content">
         <nav className="tabbar">
           {!isPrimaryAppTab(tab) && backTarget && (
-            <button
+            <Tooltip content={`Back to ${appTabLabel(backTarget)} · Esc`}><button
               className="tabbar-back"
               type="button"
               onClick={navigateBack}
-              title={`Back to ${appTabLabel(backTarget)} · Esc`}
               aria-label={`Back to ${appTabLabel(backTarget)}`}
             >
               <Icon name="chevron.left" size={18} strokeWidth={2.25} />
-            </button>
+            </button></Tooltip>
           )}
           <div className="tabbar-group" role="tablist" aria-label="Main views">
             {TABS.map((t) => (

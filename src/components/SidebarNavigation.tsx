@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import type { AppTab } from "../types";
 import { Icon } from "./Icon";
 
@@ -19,16 +20,15 @@ export function SidebarNavigation({ collapsed = false, tab, badgeFor, onSelect }
       {destinations.map((item) => {
         const badge = badgeFor(item.id);
         return (
-          <button key={item.id} type="button"
+          <Tooltip key={item.id} content={item.label} side="right"><button type="button"
             className={"sidebar-destination" + (tab === item.id ? " active" : "")}
-            data-nav-tooltip={item.label}
             aria-label={`Open ${item.label}${badge != null && badge !== "" ? `, ${badge}` : ""}`}
             aria-current={tab === item.id ? "page" : undefined}
             onClick={() => onSelect(item.id)}>
             <Icon name={item.icon} size={18} />
             <span className="sidebar-destination-label">{collapsed ? item.compact : item.label}</span>
             {badge != null && badge !== "" && <span className="sidebar-destination-count" aria-hidden="true">{badge}</span>}
-          </button>
+          </button></Tooltip>
         );
       })}
     </nav>

@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import { useEffect, useState } from "react";
 import { useStore, X_REPLY_LOG_FILE } from "../store";
 import { invoke } from "../electronBridge";
@@ -270,9 +271,9 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
           </div>
           <span className="spacer" />
           {!engine && (
-            <button className="plain-icon-btn" title="Reload what the agent recorded" onClick={() => void loadWatchReports(entry)}>
+            <Tooltip content="Reload what the agent recorded"><button className="plain-icon-btn" onClick={() => void loadWatchReports(entry)}>
               <Icon name="arrow.clockwise" size={15} />
-            </button>
+            </button></Tooltip>
           )}
           <button className="plain-icon-btn" onClick={onClose} aria-label="Close watched profiles">
             <Icon name="xmark" size={15} />
@@ -304,15 +305,13 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
             <label className="muted small">Runs on</label>
             <div className="watchlist-transport" role="group" aria-label="Where a pass runs">
               {transports.map((option) => (
-                <button
-                  key={option.id}
+                <Tooltip key={option.id} content={option.blurb ?? option.label}><button
                   className={"mini" + (option.id === transport?.id ? " selected" : "")}
                   aria-pressed={option.id === transport?.id}
-                  title={option.blurb ?? option.label}
                   onClick={() => setWatchlistTransport(entry, option.id)}
                 >
                   {option.label}
-                </button>
+                </button></Tooltip>
               ))}
             </div>
           </div>
@@ -321,10 +320,9 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
         {!engine && onDevice && (
           <div className="row watchlist-profile">
             <label className="muted small">Phone</label>
-            <select
+            <Tooltip content="The cloud phone this skill runs its passes on"><select
               value={watchlistDevice?.id ?? ""}
               disabled={watchlistBusy}
-              title="The cloud phone this skill runs its passes on"
               onChange={(event) => {
                 const phone = cloudPhones.find((item) => item.id === event.target.value);
                 setWatchlistDevice(entry, phone ? { kind: "mobile", ...phone } : undefined);
@@ -334,25 +332,23 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
               {cloudPhones.map((phone) => (
                 <option key={phone.id} value={phone.id}>{phone.name}</option>
               ))}
-            </select>
+            </select></Tooltip>
             <span className="spacer" />
             {/* There is no page to open and no password to type: the way into a
                 phone is its own screen, so this hands the user the screen. */}
-            <button className="mini" disabled={watchlistBusy || !watchlistDevice}
-              title="Open the phone screen and sign in to the Reddit app yourself"
+            <Tooltip content="Open the phone screen and sign in to the Reddit app yourself"><button className="mini" disabled={watchlistBusy || !watchlistDevice}
               onClick={() => void openSite(entry)}>
               Open phone
-            </button>
+            </button></Tooltip>
           </div>
         )}
 
         {!engine && signInConfig && !onDevice && (
           <div className="row watchlist-profile">
             <label className="muted small">Profile</label>
-            <select
+            <Tooltip content="The browser profile this skill signs in and runs its passes with"><select
               value={profileValue}
               disabled={watchlistBusy || run?.enabled}
-              title="The browser profile this skill signs in and runs its passes with"
               onChange={(event) => setWatchlistProfile(entry, event.target.value || undefined)}
             >
               {!profileAvailable && <option value="__choose_profile__" disabled>Choose a profile in this workspace</option>}
@@ -362,13 +358,12 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                   {profile.name}{profile.country ? ` · ${profile.country.toUpperCase()}` : ""}
                 </option>
               ))}
-            </select>
+            </select></Tooltip>
             <span className="spacer" />
-            <button className="mini" disabled={watchlistBusy || !profileAvailable}
-              title={`Open ${site} in this profile to sign in or switch account`}
+            <Tooltip content={`Open ${site} in this profile to sign in or switch account`}><button className="mini" disabled={watchlistBusy || !profileAvailable}
               onClick={() => { armRecheck(); void openSite(entry); }}>
               Open {site}
-            </button>
+            </button></Tooltip>
           </div>
         )}
 
@@ -387,11 +382,10 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                     : `Sign-in to ${site} not checked yet`}
             </span>
             <span className="spacer" />
-            <button className="mini" disabled={watchlistBusy || !profileAvailable}
-              title={`Read which account is signed in to ${site} in this profile`}
+            <Tooltip content={`Read which account is signed in to ${site} in this profile`}><button className="mini" disabled={watchlistBusy || !profileAvailable}
               onClick={() => void checkWatchlistSignIn(entry)}>
               {watchlistBusy ? "Checking…" : "Check"}
-            </button>
+            </button></Tooltip>
           </div>
         )}
 
@@ -417,10 +411,10 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
               ))}
             </select>
             <span className="spacer" />
-            <button className="mini" disabled={busy || !profileAvailable} title={`Open ${site} in this profile to sign in or switch account`}
+            <Tooltip content={`Open ${site} in this profile to sign in or switch account`}><button className="mini" disabled={busy || !profileAvailable}
               onClick={() => void openSkillSite(entry)}>
               Open {site}
-            </button>
+            </button></Tooltip>
           </div>
         )}
 
@@ -431,14 +425,13 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
         {engine && (
           <div className="row watchlist-profile">
             <label className="muted small">Source</label>
-            <select
+            <Tooltip content="Where new posts are found: each watched profile's own timeline, or the signed-in account's notifications feed"><select
               value={engineState.watchSource}
-              title="Where new posts are found: each watched profile's own timeline, or the signed-in account's notifications feed"
               onChange={(event) => updateSettings({ watchSource: event.target.value === "notifications" ? "notifications" : "profile" })}
             >
               <option value="profile">Profile timelines</option>
               <option value="notifications">Notifications feed</option>
-            </select>
+            </select></Tooltip>
             <span className="muted small">
               {engineState.watchSource === "notifications"
                 ? "Checks the notifications feed for new posts. Turn on notifications for each watched account."
@@ -486,15 +479,14 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                 <div key={profile.id} className={"watchlist-row" + (profile.enabled ? "" : " is-paused")}>
                   <div className="watchlist-avatar" aria-hidden>{profile.handle.slice(0, 1).toUpperCase()}</div>
                   <div className="watchlist-info">
-                    <button
+                    <Tooltip content={watchlist.profileUrl ? "Open the profile" : undefined}><button
                       className="watchlist-handle"
                       disabled={!watchlist.profileUrl}
-                      title={watchlist.profileUrl ? "Open the profile" : undefined}
                       onClick={() => openProfile(profile.handle)}
                     >
                       {prefix}{profile.handle}
                       {watchlist.profileUrl && <Icon name="arrow.up.right.square" size={11} />}
-                    </button>
+                    </button></Tooltip>
                     <div className="watchlist-chips">
                       {!profile.enabled && <span className="watchlist-chip">Paused</span>}
                       {working && <span className="watchlist-chip">Working…</span>}
@@ -516,30 +508,28 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                     {report?.note && <div className="muted small watchlist-note">{report.note}</div>}
                   </div>
                   <div className="watchlist-actions">
-                    <button
-                      className="mini"
-                      disabled={!profileAvailable || !ready || busy}
-                      title={!engine
+                    <Tooltip content={!engine
                         ? "Ask the agent to subscribe"
                         : engineState.watchSource === "notifications"
                           ? "Open this profile and turn on post notifications"
-                          : "Open this profile and record where it stands now"}
+                          : "Open this profile and record where it stands now"}><button
+                      className="mini"
+                      disabled={!profileAvailable || !ready || busy}
                       onClick={() => void (engine
                         ? withSignIn({ kind: "add", handle: profile.handle })
                         : subscribeWatchedProfile(entry, profile.id))}
                     >
                       Subscribe
-                    </button>
-                    <button
+                    </button></Tooltip>
+                    <Tooltip content={profile.enabled ? "Pause this account" : "Resume this account"}><button
                       className="plain-icon-btn"
-                      title={profile.enabled ? "Pause this account" : "Resume this account"}
                       onClick={() => setWatchedProfileEnabled(profile.id, !profile.enabled)}
                     >
                       <Icon name={profile.enabled ? "stop" : "play.circle"} size={15} />
-                    </button>
-                    <button className="plain-icon-btn" title="Remove from the list" onClick={() => removeWatchedProfile(profile.id)}>
+                    </button></Tooltip>
+                    <Tooltip content="Remove from the list"><button className="plain-icon-btn" onClick={() => removeWatchedProfile(profile.id)}>
                       <Icon name="trash" size={14} />
-                    </button>
+                    </button></Tooltip>
                   </div>
                 </div>
               );
@@ -617,13 +607,12 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                   a read went wrong — it is what to send when the reasons do
                   not explain a pass. */}
               {engine && (
-                <button
+                <Tooltip content="Reveal the engine's log file"><button
                   className="link small"
-                  title="Reveal the engine's log file"
                   onClick={() => void invoke("app_data_reveal", { name: X_REPLY_LOG_FILE })}
                 >
                   Show log
-                </button>
+                </button></Tooltip>
               )}
             </div>
           </div>
@@ -645,8 +634,8 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
               </select>
             </label>
             {engine && (
-              <label className="muted small watchlist-limits"
-                title="Unused hourly budget carries over, up to the daily cap.">
+              <Tooltip content="Unused hourly budget carries over, up to the daily cap."><label className="muted small watchlist-limits"
+                >
                 Max
                 <input type="number" min={1} max={60} value={engineState.hourlyMax}
                   onChange={(event) => {
@@ -660,35 +649,33 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                     updateSettings({ dailyMax: value });
                   }} />
                 /day
-              </label>
+              </label></Tooltip>
             )}
             {engine && (
-              <span className="watchlist-chip" title="Replies that may go out right now — the stacked hourly budget, capped by the day.">
+              <Tooltip content="Replies that may go out right now — the stacked hourly budget, capped by the day."><span className="watchlist-chip">
                 {replyBudget(engineState, Date.now())} ready
-              </span>
+              </span></Tooltip>
             )}
             <span className="spacer" />
-            <button
+            <Tooltip content="Run one pass now without starting the loop"><button
               className="btn-bordered"
               disabled={!profileAvailable || !ready || busy || activeCount === 0 || run?.enabled}
-              title="Run one pass now without starting the loop"
               onClick={() => void runWatchlistPass(entry)}
             >
               Check once
-            </button>
+            </button></Tooltip>
             {run?.enabled ? (
-              <button className="btn-bordered" title="Stop the loop and the pass in progress" onClick={() => stopWatchlistRun(entry.id)}>
+              <Tooltip content="Stop the loop and the pass in progress"><button className="btn-bordered" onClick={() => stopWatchlistRun(entry.id)}>
                 <Icon name="stop" size={14} /> Stop
-              </button>
+              </button></Tooltip>
             ) : (
-              <button
+              <Tooltip content="Check the watched profiles on this interval"><button
                 className="btn-bordered-prominent"
                 disabled={!profileAvailable || !ready || busy || activeCount === 0}
-                title="Check the watched profiles on this interval"
                 onClick={() => void withSignIn({ kind: "start", minutes: interval })}
               >
                 <Icon name="play.fill" size={13} /> Start
-              </button>
+              </button></Tooltip>
             )}
           </div>
         </div>

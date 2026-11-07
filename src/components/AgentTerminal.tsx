@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import type { MultiloginProfileSelection } from "../lib/multiloginSelection";
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
@@ -503,43 +504,40 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
         <span className="experimental-pill">Experimental</span>
         <span className="spacer" />
         {status === "starting" && <Spinner size={12} />}
-        {status === "running" && <span className="terminal-status-dot" title="Running" />}
+        {status === "running" && <Tooltip content="Running"><span className="terminal-status-dot"  /></Tooltip>}
         {status === "exited" && <span className="muted small">Exited</span>}
-        {status === "failed" && <span className="error small" title={error}>Failed</span>}
-        <button
+        {status === "failed" && <Tooltip content={error}><span className="error small">Failed</span></Tooltip>}
+        <Tooltip content="Attach local files to the next terminal prompt"><button
           className="mini terminal-attach-file"
           disabled={status !== "running"}
           onClick={() => void attachFiles()}
-          title="Attach local files to the next terminal prompt"
           aria-label="Attach local files to the next terminal prompt"
         >
           <Icon name="paperclip" size={13} />
-        </button>
+        </button></Tooltip>
         {(status === "exited" || status === "failed") && (
-          <button
+          <Tooltip content={`Restart ${agentName} terminal`}><button
             className="mini"
             onClick={() => setRestartNonce((value) => value + 1)}
-            title={`Restart ${agentName} terminal`}
           >
             Restart
-          </button>
+          </button></Tooltip>
         )}
-        <button
+        <Tooltip content="Save this terminal browser workflow as a private skill"><button
           className="mini terminal-save-skill"
           disabled={status !== "running" || savingWorkflow}
           onClick={() => {
             const value = transcript();
             if (value) onSaveWorkflow(value);
           }}
-          title="Save this terminal browser workflow as a private skill"
         >
           {savingWorkflow && <Spinner size={11} />} {savingWorkflow ? "Preparing…" : "Save as skill"}
-        </button>
+        </button></Tooltip>
       </header>
       {attachments.length > 0 && (
         <div className="terminal-attachments" aria-label="Files attached to the next terminal prompt">
           {attachments.map((file) => (
-            <span className="attachment-chip" key={file.path} title={file.path}>
+            <Tooltip key={file.path} content={file.path}><span className="attachment-chip">
               <Icon name="paperclip" size={12} />
               <span>{file.name}</span>
               <button
@@ -547,7 +545,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
                 aria-label={`Remove ${file.name}`}
                 onClick={() => void removeAttachment(file)}
               >×</button>
-            </span>
+            </span></Tooltip>
           ))}
         </div>
       )}

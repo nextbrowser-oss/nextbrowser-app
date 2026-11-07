@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import { useEffect, useMemo, useState } from "react";
 import { nextctlJson } from "../nextctl";
 import { useStore } from "../store";
@@ -287,15 +288,14 @@ export function UsageView() {
           <h2>Proxy usage</h2>
           <p className="muted">Traffic, requests, and domains from NodeMaven.</p>
         </div>
-        <button
+        <Tooltip content={s.authed ? "Refresh proxy usage" : "Sign in to refresh proxy usage"}><button
           className="btn-bordered"
           disabled={s.isRefreshing || !s.authed}
-          title={s.authed ? "Refresh proxy usage" : "Sign in to refresh proxy usage"}
           onClick={() => void refreshUsage()}
         >
           {s.isRefreshing ? <Spinner size={13} /> : <Icon name="arrow.clockwise" size={13} />}
           Refresh
-        </button>
+        </button></Tooltip>
       </div>
 
       <div className="claw-card control-card proxy-card proxy-usage-card">
@@ -606,7 +606,7 @@ export function UsageView() {
                             <td className="proxy-usage-domain-rank">
                               {(domainPage.page - 1) * proxyTrafficDomainsPageSize + index + 1}
                             </td>
-                            <td className="proxy-usage-domain-name" title={domain.domain}>{domain.domain}</td>
+                            <Tooltip content={domain.domain}><td className="proxy-usage-domain-name">{domain.domain}</td></Tooltip>
                             <td>{humanBytes(domain.used_bytes)}</td>
                             <td>{numberFormatter.format(domain.requests)}</td>
                           </tr>

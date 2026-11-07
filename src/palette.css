@@ -85,6 +85,7 @@
   --shadow-color: #000000;
   --section-text: var(--text-secondary);
   --tooltip-bg: rgba(244, 244, 250, 0.86);
+  --tooltip-solid-bg: #f4f4fa;
   --tooltip-text: #17171c;
   --tooltip-border: rgba(255, 255, 255, 0.7);
   --tooltip-shadow: 0 5px 24px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.65);
@@ -206,6 +207,7 @@
   --shadow-color: #4c3ba0;
   --section-text: #4d475f;
   --tooltip-bg: rgba(25, 25, 32, 0.82);
+  --tooltip-solid-bg: #191920;
   --tooltip-text: #ffffff;
   --tooltip-border: rgba(255, 255, 255, 0.18);
   --tooltip-shadow: 0 5px 20px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.08);

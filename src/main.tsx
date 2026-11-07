@@ -12,6 +12,7 @@ import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "./styles.css";
+import { TooltipProvider } from "./shared/ui";
 
 // Before the first render, so errors while the app starts are reported too.
 installErrorReporting();
@@ -19,7 +20,7 @@ installErrorReporting();
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <AppErrorBoundary>
-      <App />
+      <TooltipProvider><App /></TooltipProvider>
     </AppErrorBoundary>
   </React.StrictMode>,
 );

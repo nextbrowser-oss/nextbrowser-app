@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import { type DragEvent, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { personalProxyUsers, useStore, type ManualProxyProfileInput } from "../store";
@@ -1315,30 +1316,29 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
         if (event.target instanceof Element && !event.target.closest("button, a, input, select, textarea")) s.setSidebarCollapsed(false);
       }}>
         <div className="sidebar-mini-header">
-          <button className="sidebar-logo-home" onClick={onHome} data-nav-tooltip="Back to main view" aria-label="Back to main view"><BrandLogo size={24} /></button>
-          <button
+          <Tooltip content="Back to main view" side="right"><button className="sidebar-logo-home" onClick={onHome} aria-label="Back to main view"><BrandLogo size={24} /></button></Tooltip>
+          <Tooltip content="Expand sidebar" side="right"><button
             className="plain-icon-btn sidebar-collapse-toggle"
-            data-nav-tooltip="Expand sidebar"
             aria-label="Expand sidebar"
             onClick={() => s.setSidebarCollapsed(false)}
           >
             <Icon name="sidebar.left" size={17} />
             <span>Expand</span>
-          </button>
+          </button></Tooltip>
         </div>
         <SidebarNavigation collapsed tab={s.tab} badgeFor={badgeFor} onSelect={s.setTab} />
-        <button className="mini-nav-btn" data-nav-tooltip={`${visibleProfileCount} profiles, ${runningCount} running`} aria-label={`Open Live, ${visibleProfileCount} profiles, ${runningCount} running`} onClick={() => s.setTab("live")}>
+        <Tooltip content={`${visibleProfileCount} profiles, ${runningCount} running`} side="right"><button className="mini-nav-btn" aria-label={`Open Live, ${visibleProfileCount} profiles, ${runningCount} running`} onClick={() => s.setTab("live")}>
           <Icon name="person.crop.circle" size={18} />
           <span>Live</span>
           <span>{runningCount}/{visibleProfileCount}</span>
-        </button>
-        {activeRecording && <button className="mini-nav-btn mini-recording-control recording" data-nav-tooltip={recordingMiniLabel} aria-label={`${activeRecording.destination === "workflow" ? "Open workflow recording" : "Open active recording"}.`} onClick={openRecorder}><Icon name="circle.fill" size={18} /><span>{recordingDuration(activeRecording.startedAt, recordingClock)}</span></button>}
+        </button></Tooltip>
+        {activeRecording && <Tooltip content={recordingMiniLabel} side="right"><button className="mini-nav-btn mini-recording-control recording" aria-label={`${activeRecording.destination === "workflow" ? "Open workflow recording" : "Open active recording"}.`} onClick={openRecorder}><Icon name="circle.fill" size={18} /><span>{recordingDuration(activeRecording.startedAt, recordingClock)}</span></button></Tooltip>}
         <span className="spacer" />
-        <button className="mini-nav-btn" data-nav-tooltip={`Agent: ${agentName}`} aria-label={`Agent: ${agentName}`} onClick={onOpenAgentSettings}>
+        <Tooltip content={`Agent: ${agentName}`} side="right"><button className="mini-nav-btn" aria-label={`Agent: ${agentName}`} onClick={onOpenAgentSettings}>
           <Icon name="cpu.fill" size={18} />
           <span>Agent</span>
           <span>{ready ? "on" : "off"}</span>
-        </button>
+        </button></Tooltip>
       </div>
     );
   }
@@ -1347,16 +1347,15 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
     <div className="sidebar-shell">
       <div className="sidebar-brand">
         <div className="row">
-          <button className="sidebar-brand-home" onClick={onHome} data-nav-tooltip="Back to main view" aria-label="Back to main view"><BrandHeader subtitle="native agent console" /></button>
+          <Tooltip content="Back to main view" side="right"><button className="sidebar-brand-home" onClick={onHome} aria-label="Back to main view"><BrandHeader subtitle="native agent console" /></button></Tooltip>
           <span className="spacer" />
-          <button
+          <Tooltip content="Collapse sidebar" side="right"><button
             className="plain-icon-btn plain-icon-btn-compact sidebar-collapse-toggle"
-            data-nav-tooltip="Collapse sidebar"
             aria-label="Collapse sidebar"
             onClick={() => s.setSidebarCollapsed(true)}
           >
             <Icon name="sidebar.leading" size={15} />
-          </button>
+          </button></Tooltip>
         </div>
       </div>
 
@@ -1369,7 +1368,7 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
       </section>}
 
       {s.authed && s.workspaces.some((workspace) => workspace.id === automationExecution?.workspaceId) && automationExecution && automationExecutionState && <section className={`sidebar-execution-control ${automationExecutionState.phase}`} aria-label="Automation execution status">
-        <div className="sidebar-execution-status"><span className="sidebar-execution-icon"><Icon name={automationExecutionState.phase === "completed" ? "checkmark.circle.fill" : ["failed", "cancelled"].includes(automationExecutionState.phase) ? "xmark.circle.fill" : automationExecutionState.phase === "stopping" ? "stop.fill" : "play.fill"} size={12} /></span><div><strong>{automationExecutionState.phase === "completed" ? `${automationExecutionLabel} completed` : automationExecutionState.phase === "cancelled" ? `${automationExecutionLabel} stopped` : automationExecutionState.phase === "failed" ? `${automationExecutionLabel} failed` : automationExecutionState.phase === "stopping" ? `Stopping ${automationExecutionLabel.toLowerCase()}` : automationExecutionState.phase === "preparing" ? `Preparing ${automationExecutionLabel.toLowerCase()}` : `${automationExecutionLabel} running`}</strong><small title={automationExecution.workflowTitle}>{automationExecution.workflowTitle} · {automationExecutionWorkspace?.name || "Current workspace"}</small></div><b>{automationExecutionState.progress}%</b></div>
+        <div className="sidebar-execution-status"><span className="sidebar-execution-icon"><Icon name={automationExecutionState.phase === "completed" ? "checkmark.circle.fill" : ["failed", "cancelled"].includes(automationExecutionState.phase) ? "xmark.circle.fill" : automationExecutionState.phase === "stopping" ? "stop.fill" : "play.fill"} size={12} /></span><div><strong>{automationExecutionState.phase === "completed" ? `${automationExecutionLabel} completed` : automationExecutionState.phase === "cancelled" ? `${automationExecutionLabel} stopped` : automationExecutionState.phase === "failed" ? `${automationExecutionLabel} failed` : automationExecutionState.phase === "stopping" ? `Stopping ${automationExecutionLabel.toLowerCase()}` : automationExecutionState.phase === "preparing" ? `Preparing ${automationExecutionLabel.toLowerCase()}` : `${automationExecutionLabel} running`}</strong><Tooltip content={automationExecution.workflowTitle}><small>{automationExecution.workflowTitle} · {automationExecutionWorkspace?.name || "Current workspace"}</small></Tooltip></div><b>{automationExecutionState.progress}%</b></div>
         <div className="sidebar-execution-track"><i style={{ width: `${automationExecutionState.progress}%` }} /></div>
         <small className="sidebar-execution-detail">{automationExecutionState.detail}</small>
         <div className="sidebar-recording-actions"><button onClick={openAutomationExecution}>Open</button>{["completed", "failed", "cancelled"].includes(automationExecutionState.phase) ? <button onClick={clearActiveAutomationExecution}>Dismiss</button> : <button className="stop" disabled={automationExecution.phase === "stopping"} onClick={() => void stopAutomationExecution()}>{automationExecution.phase === "stopping" ? <Spinner size={11} /> : <Icon name="stop.fill" size={11} />} {automationExecution.phase === "stopping" ? "Stopping" : "Stop"}</button>}</div>
@@ -1380,9 +1379,8 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
         <div ref={profilesCardRef} className={"claw-card control-card profiles-card" + (profileGuideFocus ? " guide-focus" : "")}>
           <div className="row profiles-panel-head">
             <div className="workspace-picker-wrap" ref={workspacePickerRef}>
-              <button
+              <Tooltip content="Switch workspace"><button
                 className="workspace-picker"
-                title="Switch workspace"
                 aria-expanded={workspaceMenuOpen}
                 onClick={() => setWorkspaceMenuOpen((open) => !open)}
               >
@@ -1392,20 +1390,18 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
                   <strong>{activeWorkspace?.name ?? "Create workspace"}</strong>
                 </span>
                 <Icon name="chevron.down" size={11} className={workspaceMenuOpen ? "workspace-chevron open" : "workspace-chevron"} />
-              </button>
+              </button></Tooltip>
               {workspaceMenuOpen && (
                 <div className="workspace-menu">
                   <div className="workspace-menu-list">
                     {s.workspaces.map((workspace) => (
-                      <button
-                        key={workspace.id}
+                      <Tooltip key={workspace.id} content={workspace.name}><button
                         className={workspace.id === s.activeWorkspaceId ? "active" : ""}
-                        title={workspace.name}
                         onClick={() => { setProfileActionError(null); s.selectWorkspace(workspace.id); setWorkspaceMenuOpen(false); }}
                       >
                         <Icon name={workspace.id === s.activeWorkspaceId ? "checkmark" : "square.grid.2x2"} size={11} />
                         <span>{workspace.name}</span>
-                      </button>
+                      </button></Tooltip>
                     ))}
                   </div>
                   {activeWorkspace && <button className="workspace-delete-action" onClick={() => {
@@ -1416,9 +1412,8 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
                 </div>
               )}
             </div>
-            <button
+            <Tooltip content="Create workspace"><button
               className="workspace-create-btn"
-              title="Create workspace"
               aria-label="Create workspace"
               onClick={() => {
                 setWorkspaceName("");
@@ -1428,11 +1423,10 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
               }}
             >
               <Icon name="plus" size={13} />
-            </button>
+            </button></Tooltip>
           </div>
-          <button
+          <Tooltip content="Create or manage personal proxies"><button
             className="proxy-manager-entry"
-            title="Create or manage personal proxies"
             onClick={() => {
               if (!s.authed) {
                 s.setDashboardKeyPromptOpen(true);
@@ -1448,7 +1442,7 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
             <Icon name="network" size={13} />
             <span>Create proxy</span>
             {s.personalProxies.length > 0 && <span className="workspace-count">{s.personalProxies.length}</span>}
-          </button>
+          </button></Tooltip>
 
           <div className="search-box">
             <Icon name="magnifyingglass" size={12} className="muted" />
@@ -1460,13 +1454,12 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
               onChange={(e) => s.setProfileSearch(e.target.value)}
             />
             {s.profileSearch && (
-              <button
+              <Tooltip content="Clear search"><button
                 className="plain-icon-btn plain-icon-btn-compact"
-                title="Clear search"
                 onClick={() => s.setProfileSearch("")}
               >
                 <Icon name="xmark.circle.fill" size={14} className="muted" />
-              </button>
+              </button></Tooltip>
             )}
           </div>
 
@@ -1482,18 +1475,16 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
                   <span className="workspace-count">{projects.length}</span>
                 </button>
                 <span className="spacer" />
-                <button className="workspace-create-action" title="Create project" aria-label="Create project" onClick={() => window.dispatchEvent(new CustomEvent("nextbrowser:create-project"))}>
+                <Tooltip content="Create project"><button className="workspace-create-action" aria-label="Create project" onClick={() => window.dispatchEvent(new CustomEvent("nextbrowser:create-project"))}>
                   <Icon name="plus" size={12} />
                   <span>Create</span>
-                </button>
+                </button></Tooltip>
               </div>
               <div className={"workspace-section-reveal" + (projectsOpen ? " is-open" : "")} aria-hidden={!projectsOpen}>
                 <div ref={projectListRef} className="workspace-chat-list">
                 {visibleChats.map((chat) => (
-                  <button
-                    key={chat.id}
+                  <Tooltip key={chat.id} content={`Open ${chat.title}`}><button
                     className={"workspace-chat-row" + (chat.id === activeProject?.id ? " active" : "")}
-                    title={`Open ${chat.title}`}
                     onClick={() => { s.selectConversation(chat.id); s.setTab("chat"); }}
                   >
                     <Icon name={chat.chatMode === "terminal" ? "terminal" : "bubble.left.and.bubble.right.fill"} size={12} />
@@ -1501,12 +1492,11 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
                       <strong><HighlightedName text={chat.title} query={searchQuery} /></strong>
                       <small>{agentById(chat.agent).name} · {conversationPreview(chat)}</small>
                     </span>
-                    {chat.id === activeProject?.id && <span className="workspace-active-dot" title="Active chat" />}
-                    <span
+                    {chat.id === activeProject?.id && <Tooltip content="Active chat"><span className="workspace-active-dot"  /></Tooltip>}
+                    <Tooltip content="Delete chat"><span
                       className="workspace-chat-delete"
                       role="button"
                       tabIndex={0}
-                      title="Delete chat"
                       aria-label={`Delete ${chat.title}`}
                       onClick={(event) => { event.stopPropagation(); setConfirmDeleteChat(chat.id); }}
                       onKeyDown={(event) => {
@@ -1517,8 +1507,8 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
                       }}
                     >
                       <Icon name="trash" size={12} />
-                    </span>
-                  </button>
+                    </span></Tooltip>
+                  </button></Tooltip>
                 ))}
                 </div>
               </div>
@@ -1535,16 +1525,15 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
                   <span className="workspace-count">{workspaceProfileCount}</span>
                 </button>
                 <span className="spacer" />
-                <button
+                <Tooltip content="Create profile"><button
                   className="workspace-create-action"
-                  title="Create profile"
                   aria-label="Create profile"
                   disabled={s.isRefreshing || profileDeleting}
                   onClick={() => openProfileCreator()}
                 >
                   <Icon name={s.authed ? "plus" : "lock"} size={12} />
                   <span>Create</span>
-                </button>
+                </button></Tooltip>
               </div>
               <div className={"workspace-section-reveal" + (profilesOpen ? " is-open" : "")} aria-hidden={!profilesOpen}>
                 <div ref={profileListRef} className="workspace-profile-list">
@@ -1664,13 +1653,12 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
       <hr className="divider" />
       <div className={"sidebar-account-footer" + (s.authed ? " is-connected" : "")}>
         <Icon name={s.authed ? "person.crop.circle" : "lock"} size={14} />
-        <span title={s.nextctlCompatibilityError || (s.authed ? s.accountEmail || "Browser account connected" : "Browser account not connected")}>
+        <Tooltip content={s.nextctlCompatibilityError || (s.authed ? s.accountEmail || "Browser account connected" : "Browser account not connected")}><span>
           {s.nextctlCompatibilityError ? "Update nextctl to check account" : s.authed ? s.accountEmail || "Browser account connected" : "Browser account not connected"}
-        </span>
+        </span></Tooltip>
         {s.authed ? (
-          <button
+          <Tooltip content="Sign out of Nextbrowser"><button
             className="plain-icon-btn plain-icon-btn-compact"
-            title="Sign out of Nextbrowser"
             aria-label="Sign out of Nextbrowser"
             disabled={logoutPending}
             onClick={() => void logout()}
@@ -1678,7 +1666,7 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
             {logoutPending
               ? <Spinner size={13} />
               : <Icon name="rectangle.portrait.and.arrow.right" size={13} />}
-          </button>
+          </button></Tooltip>
         ) : (
           <button
             className="sidebar-account-action"
@@ -1693,9 +1681,8 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
       <div className="nextctl-footer muted small">
         <Icon name="terminal" size={12} />
         <span>nextctl {s.nextctlVersion || "..."}</span>
-        <button
+        <Tooltip content={s.nextctlUpdateError || "Check for a newer nextctl and update"}><button
           className={"plain-icon-btn plain-icon-btn-compact nextctl-refresh" + (s.nextctlUpdateError ? " is-failed" : "")}
-          title={s.nextctlUpdateError || "Check for a newer nextctl and update"}
           aria-label={s.nextctlUpdateError || "Check for a newer nextctl and update"}
           disabled={s.nextctlUpdating}
           onClick={() => s.checkNextctlUpdate()}
@@ -1703,22 +1690,21 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
           {s.nextctlUpdating
             ? <Spinner size={12} />
             : <Icon name={s.nextctlUpdateError ? "exclamationmark.triangle.fill" : "arrow.triangle.2.circlepath"} size={12} />}
-        </button>
+        </button></Tooltip>
         {s.nextctlUpdateStatus && <span>· {s.nextctlUpdateStatus}</span>}
         {!s.nextctlSupportsSkill && !s.nextctlCompatibilityError && <span className="warn"> · no skill cmd</span>}
         <span className="spacer" />
         {/* The agent status and the accessory wrap together, so the accessory never lands on a line of its own. */}
         <span className="agent-footer-group">
-          <button
+          <Tooltip content="Agent settings"><button
             className={"agent-footer-status" + (ready ? " is-ready" : "")}
-            title="Agent settings"
             aria-label="Open agent settings"
             onClick={onOpenAgentSettings}
           >
             <span className="status-dot" />
             <span>{agentName} · {ready ? "Connected" : s.agentLoggedIn() === false ? "Sign-in required" : "Not connected"}</span>
             <Icon name="chevron.down" size={11} />
-          </button>
+          </button></Tooltip>
           {footerAccessory}
         </span>
       </div>
@@ -1744,15 +1730,14 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
             <div className="profile-menu-head">
               <span id="create-profile-title" className="profile-menu-name">Create profile</span>
               <span className="spacer" />
-              <button
+              <Tooltip content={profileSaving ? "Cancel profile creation" : "Close"}><button
                 type="button"
                 className="plain-icon-btn"
-                title={profileSaving ? "Cancel profile creation" : "Close"}
                 aria-label={profileSaving ? "Cancel profile creation" : "Close profile creation"}
                 onClick={closeProfileCreator}
               >
                 <Icon name="xmark.circle.fill" size={18} />
-              </button>
+              </button></Tooltip>
             </div>
             <div className="profile-workspace-context">
               <Icon name="square.grid.2x2.fill" size={13} />
@@ -2036,16 +2021,15 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
                             <strong>{multiloginCloudPhones.length}</strong>
                           </button>
                         </div>
-                        <button
+                        <Tooltip content="Refresh Multilogin profiles"><button
                           type="button"
                           className="plain-icon-btn plain-icon-btn-compact"
-                          title="Refresh Multilogin profiles"
                           aria-label="Refresh Multilogin profiles"
                           disabled={multiloginChecking}
                           onClick={() => void refreshMultiloginStatus()}
                         >
                           {multiloginChecking ? <Spinner size={12} /> : <Icon name="arrow.clockwise" size={12} />}
-                        </button>
+                        </button></Tooltip>
                         </div>
                         <label className="profile-multilogin-search">
                           <Icon name="magnifyingglass" size={13} />
@@ -2202,9 +2186,9 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
               <Icon name="square.grid.2x2.fill" size={15} />
               <span id="workspace-create-title" className="profile-menu-name">Create workspace</span>
               <span className="spacer" />
-              <button type="button" className="plain-icon-btn" title="Close" disabled={workspaceSaving} onClick={() => { setWorkspaceCreatorOpen(false); setWorkspaceError(null); }}>
+              <Tooltip content="Close"><button type="button" className="plain-icon-btn" disabled={workspaceSaving} onClick={() => { setWorkspaceCreatorOpen(false); setWorkspaceError(null); }}>
                 <Icon name="xmark.circle.fill" size={18} />
-              </button>
+              </button></Tooltip>
             </div>
             <label className="modal-field">
               <span className="modal-field-heading"><span>Workspace name</span><small>Max {entityNameLimits.workspace}</small></span>
@@ -2267,29 +2251,27 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
           <div className="modal-overlay" role="presentation" onClick={() => setMenuProfile(null)}>
             <div className="modal-card profile-menu" role="dialog" aria-modal="true" aria-label={`Profile actions for ${isDefaultProfile ? "default" : menuProfile}`} onClick={(e) => e.stopPropagation()}>
               <div className="profile-menu-head">
-                <span
+                <Tooltip content={status}><span
                   className={"dot " + (status === "running" ? "green" : status === "unknown" ? "gray" : "orange")}
-                  title={status}
-                />
+                /></Tooltip>
                 <span className="profile-menu-name">{isDefaultProfile ? "default" : menuProfile}</span>
                 {activeCountry && (
-                  <span className="badge profile-country-badge" title={countryLabel(activeCountry, identity?.city ?? prof?.city)}>
+                  <Tooltip content={countryLabel(activeCountry, identity?.city ?? prof?.city)}><span className="badge profile-country-badge">
                     {countryFlag(activeCountry)} {activeCountry.toUpperCase()}
-                  </span>
+                  </span></Tooltip>
                 )}
-                {identity?.ip && <span className="badge profile-ip-badge" title="Current proxy IP">{identity.ip}</span>}
+                {identity?.ip && <Tooltip content="Current proxy IP"><span className="badge profile-ip-badge">{identity.ip}</span></Tooltip>}
                 {manual && (
-                  <span
+                  <Tooltip content={`${prof.manual_proxy?.host ?? ""}:${prof.manual_proxy?.port ?? ""}`}><span
                     className="badge manual-proxy-badge"
-                    title={`${prof.manual_proxy?.host ?? ""}:${prof.manual_proxy?.port ?? ""}`}
                   >
                     {(prof.manual_proxy?.scheme ?? "http").toUpperCase()}
-                  </span>
+                  </span></Tooltip>
                 )}
                 <span className="spacer" />
-                <button className="plain-icon-btn" title="Close" onClick={() => setMenuProfile(null)}>
+                <Tooltip content="Close"><button className="plain-icon-btn" onClick={() => setMenuProfile(null)}>
                   <Icon name="xmark.circle.fill" size={18} />
-                </button>
+                </button></Tooltip>
               </div>
 
               <button
@@ -2323,11 +2305,10 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
               {!isDefaultProfile && profileWorkspace && (
                 <>
                   <div className="section profile-menu-label">Connection</div>
-                  <button
+                  <Tooltip content={profileBusy ? "Stop the profile before changing its connection" : "Change profile connection"}><button
                     type="button"
                     className="profile-connection-edit-button"
                     disabled={profileBusy}
-                    title={profileBusy ? "Stop the profile before changing its connection" : "Change profile connection"}
                     onClick={() => {
                       setProfileConnectionError(null);
                       setProfileConnectionEditor({
@@ -2343,7 +2324,7 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
                     <span className="profile-connection-edit-icon"><Icon name={manual ? "network" : direct ? "lock.open" : "globe"} size={14} /></span>
                     <span><strong>{manual ? "Personal proxy" : direct ? "No proxy" : "Managed proxy"}</strong><small>{profileBusy ? "Stop profile to change" : "Change connection"}</small></span>
                     <Icon name="chevron.right" size={12} className="muted" />
-                  </button>
+                  </button></Tooltip>
                   <div className="section profile-menu-label">Workspace</div>
                   <select
                     className="profile-workspace-select"
@@ -2433,7 +2414,7 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
               <Icon name="network" size={15} className="accent-icon" />
               <span id="profile-connection-editor-title" className="profile-menu-name">Change connection</span>
               <span className="spacer" />
-              <button type="button" className="plain-icon-btn" title="Close" disabled={profileConnectionSaving} onClick={() => setProfileConnectionEditor(null)}><Icon name="xmark.circle.fill" size={18} /></button>
+              <Tooltip content="Close"><button type="button" className="plain-icon-btn" disabled={profileConnectionSaving} onClick={() => setProfileConnectionEditor(null)}><Icon name="xmark.circle.fill" size={18} /></button></Tooltip>
             </div>
             <p className="muted personal-proxy-note">Profile <strong>{profileConnectionEditor.name}</strong> keeps its browser data and identity. The new connection is used on its next start.</p>
             <fieldset className="project-mode-field profile-connection-field">
@@ -2470,15 +2451,14 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
               <Icon name="network" size={16} className="accent-icon" />
               <span id="manual-proxy-title" className="profile-menu-name">{manualProxyEditing ? (manualProxyMode === "bulk" ? "Add proxies" : "Create proxy") : "Personal proxies"}</span>
               <span className="spacer" />
-              <button
+              <Tooltip content="Close"><button
                 type="button"
                 className="plain-icon-btn"
-                title="Close"
                 disabled={manualSaving || manualProxyDeletePending}
                 onClick={() => { setManualProxyOpen(false); setManualProxyDeleting(null); }}
               >
                 <Icon name="xmark.circle.fill" size={18} />
-              </button>
+              </button></Tooltip>
             </div>
             {manualProxyEditing ? (
               <form className="personal-proxy-editor" onSubmit={submitManualProxy}>
@@ -2571,9 +2551,9 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
                       <span className="modal-field-heading"><span>Password</span><small>Max {manualProxyLimits.password.toLocaleString("en-US")}</small></span>
                       <span className="password-input-wrap">
                         <input type={manualPasswordVisible ? "text" : "password"} value={manualPassword} maxLength={manualProxyLimits.password} onChange={(e) => setManualPassword(e.target.value)} />
-                        <button type="button" className="password-visibility" title={manualPasswordVisible ? "Hide password" : "Show password"} aria-label={manualPasswordVisible ? "Hide password" : "Show password"} onClick={() => setManualPasswordVisible((visible) => !visible)}>
+                        <Tooltip content={manualPasswordVisible ? "Hide password" : "Show password"}><button type="button" className="password-visibility" aria-label={manualPasswordVisible ? "Hide password" : "Show password"} onClick={() => setManualPasswordVisible((visible) => !visible)}>
                           <Icon name={manualPasswordVisible ? "eye.slash" : "eye"} size={14} />
-                        </button>
+                        </button></Tooltip>
                       </span>
                     </label>
                   </>
@@ -2666,10 +2646,9 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
                             <strong>{proxy.name}</strong>
                             <small>{proxy.scheme.toUpperCase()} · {proxy.host}:{proxy.port}</small>
                           </span>
-                          <button
+                          <Tooltip content={testTitle}><button
                             type="button"
                             className={"plain-icon-btn plain-icon-btn-compact proxy-test-btn" + (test ? ` proxy-test-${test.status}` : "")}
-                            title={testTitle}
                             aria-label={testTitle}
                             disabled={test?.status === "testing"}
                             onClick={() => runProxyTest(proxy.id)}
@@ -2677,16 +2656,15 @@ export function Sidebar({ onOpenAgentSettings, onHome, footerAccessory }: Sideba
                             {test?.status === "testing"
                               ? <Spinner size={13} />
                               : <Icon name={test?.status === "ok" ? "hand.thumbsup.fill" : test?.status === "fail" ? "hand.thumbsdown.fill" : "bolt.fill"} size={13} />}
-                          </button>
-                          <button
+                          </button></Tooltip>
+                          <Tooltip content={`Delete ${proxy.name}`}><button
                             type="button"
                             className="plain-icon-btn plain-icon-btn-compact"
-                            title={`Delete ${proxy.name}`}
                             aria-label={`Delete ${proxy.name}`}
                             onClick={() => setManualProxyDeleting(proxy.id)}
                           >
                             <Icon name="trash" size={13} />
-                          </button>
+                          </button></Tooltip>
                         </div>
                         <PersonalProxyTestStatus test={test} />
                         </div>
@@ -2951,37 +2929,36 @@ function ProfileRow({
         onClick={onSelect}
         style={{ background: "none", border: "none", padding: 0, color: "inherit", textAlign: "left", display: "flex", alignItems: "center", gap: 7, flex: "1 1 auto", minWidth: 0, cursor: "pointer" }}
       >
-      <span className={"dot " + (running ? "green" : busy ? "orange" : "gray")} title={external ? `${toolsetLabel} · ${status}` : status} />
+      <Tooltip content={external ? `${toolsetLabel} · ${status}` : status}><span className={"dot " + (running ? "green" : busy ? "orange" : "gray")}  /></Tooltip>
       <span className="profile-main">
         <span className="profile-title-line">
-          <span className="profile-name" title={displayName || name}><HighlightedName text={displayName || name} query={searchQuery} /></span>
+          <Tooltip content={displayName || name}><span className="profile-name"><HighlightedName text={displayName || name} query={searchQuery} /></span></Tooltip>
         </span>
         {/* Badges share the status line so a narrow sidebar keeps the name readable. */}
         <span className="profile-meta-line">
-        {occupiedBy && <span className="profile-in-use-badge" title={`In use by “${occupiedBy}”`}>In use</span>}
-        <span className="profile-meta" title={occupiedBy ? `In use by “${occupiedBy}”` : undefined}>
+        {occupiedBy && <Tooltip content={`In use by “${occupiedBy}”`}><span className="profile-in-use-badge">In use</span></Tooltip>}
+        <Tooltip content={occupiedBy ? `In use by “${occupiedBy}”` : undefined}><span className="profile-meta">
           {profileRowStatusText({ status, ip, occupiedBy, metaOverride })}
-        </span>
+        </span></Tooltip>
       <span className="profile-badges">
         {country && (
-          <span className="badge profile-country-badge" title={countryLabel(country, city)}>
+          <Tooltip content={countryLabel(country, city)}><span className="badge profile-country-badge">
             {countryFlag(country)} {country.toUpperCase()}
-          </span>
+          </span></Tooltip>
         )}
         {toolset && (
-          <span
+          <Tooltip content={toolsetLabel}><span
             className="profile-toolset-logo"
-            title={toolsetLabel}
             role="img"
             aria-label={toolsetLabel}
           >
             <img src={toolsetIcon} alt="" draggable={false} />
-          </span>
+          </span></Tooltip>
         )}
         {manualScheme && (
-          <span className="badge manual-proxy-badge" title={manualTitle}>
+          <Tooltip content={manualTitle}><span className="badge manual-proxy-badge">
             {manualScheme.toUpperCase()}
-          </span>
+          </span></Tooltip>
         )}
       </span>
         </span>
@@ -2990,11 +2967,9 @@ function ProfileRow({
       <div className="profile-actions">
         {external ? (
           <>
-            <button
+            <Tooltip content={running ? "Stop" : "Start"}><button
               className="plain-icon-btn"
-              title={running ? "Stop" : "Start"}
               aria-label={`${running ? "Stop" : "Start"} ${name}`}
-              data-tooltip={running ? "Stop" : "Start"}
               disabled={busy}
               onClick={(event) => {
                 event.stopPropagation();
@@ -3003,41 +2978,35 @@ function ProfileRow({
               }}
             >
               <Icon name={running ? "stop.fill" : "play.fill"} size={16} />
-            </button>
-            <button
+            </button></Tooltip>
+            <Tooltip content="Live view"><button
               className="plain-icon-btn"
-              title="Live view"
               aria-label={`Open live view for ${name}`}
-              data-tooltip="Live view"
               onClick={(event) => {
                 event.stopPropagation();
                 onLive();
               }}
             >
               <Icon name="video.fill" size={16} />
-            </button>
+            </button></Tooltip>
             {onRemove && (
-              <button
+              <Tooltip content={removeTitle ?? "Remove"}><button
                 className="plain-icon-btn"
-                title={removeTitle ?? "Remove"}
                 aria-label={removeTitle ?? `Remove ${name}`}
-                data-tooltip="Remove"
                 onClick={(event) => {
                   event.stopPropagation();
                   onRemove();
                 }}
               >
                 <Icon name="xmark" size={16} />
-              </button>
+              </button></Tooltip>
             )}
           </>
         ) : running ? (
           <>
-            <button
+            <Tooltip content="Stop"><button
               className="plain-icon-btn"
-              title="Stop"
               aria-label={`Stop ${name}`}
-              data-tooltip="Stop"
               disabled={busy}
               onClick={(event) => {
                 event.stopPropagation();
@@ -3045,26 +3014,22 @@ function ProfileRow({
               }}
             >
               <Icon name="stop.fill" size={16} />
-            </button>
-            <button
+            </button></Tooltip>
+            <Tooltip content="Live view"><button
               className="plain-icon-btn"
-              title="Live view"
               aria-label={`Open live view for ${name}`}
-              data-tooltip="Live view"
               onClick={(event) => {
                 event.stopPropagation();
                 onLive();
               }}
             >
               <Icon name="video.fill" size={16} />
-            </button>
+            </button></Tooltip>
           </>
         ) : (
-          <button
+          <Tooltip content={startDisabled ? "Create a project first" : "Start"}><button
             className="plain-icon-btn"
-            title={startDisabled ? "Create a project first" : "Start"}
             aria-label={`Start ${name}`}
-            data-tooltip="Start"
             disabled={busy || startDisabled}
             onClick={(event) => {
               event.stopPropagation();
@@ -3072,14 +3037,12 @@ function ProfileRow({
             }}
           >
             <Icon name="play.fill" size={16} />
-          </button>
+          </button></Tooltip>
         )}
         {!external && (
-          <button
+          <Tooltip content="Profile actions"><button
             className="plain-icon-btn"
-            title="Profile actions"
             aria-label={`Profile actions for ${name}`}
-            data-tooltip="Actions"
             disabled={busy}
             onClick={(event) => {
               event.stopPropagation();
@@ -3087,7 +3050,7 @@ function ProfileRow({
             }}
           >
             <Icon name="ellipsis.circle" size={18} />
-          </button>
+          </button></Tooltip>
         )}
       </div>
     </div>

@@ -1,4 +1,5 @@
-import { useId, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useId, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { TooltipContent, type TooltipAnchor } from "../shared/ui";
 import {
   formatHistoryDateLabel,
   sortTrafficHistoryPoints,
@@ -34,6 +35,11 @@ function areaPath(points: PositionedTrafficPoint[]): string {
 
 export function TrafficChart({ points }: { points: ProxyTrafficHistoryPoint[] }) {
   const gradientId = useId().replace(/:/g, "");
+  const tooltipId = useId();
+  const activeDot = useRef<SVGCircleElement>(null);
+  const tooltipAnchor = useMemo<TooltipAnchor>(() => ({
+    getBoundingClientRect: () => activeDot.current?.getBoundingClientRect() ?? new DOMRect(),
+  }), []);
   const [hoveredIndex, setHoveredIndex] = useState<number>();
   const chartPoints = useMemo(() => sortTrafficHistoryPoints(points), [points]);
   const maximumBytes = useMemo(
@@ -64,20 +70,12 @@ export function TrafficChart({ points }: { points: ProxyTrafficHistoryPoint[] })
     setHoveredIndex(Math.round(ratio * (positionedPoints.length - 1)));
   };
 
-  const tooltipPosition = activePoint
-    ? activePoint.x < 210
-      ? "is-left"
-      : activePoint.x > 790
-        ? "is-right"
-        : ""
-    : "";
-  const tooltipVerticalPosition = activePoint && activePoint.y < 92 ? "is-below" : "";
-
   return (
     <div
       className="proxy-traffic-chart"
       role="img"
       aria-label="Proxy traffic trend by date"
+      aria-describedby={activePoint ? tooltipId : undefined}
       onPointerMove={updateHoveredPoint}
       onPointerLeave={() => setHoveredIndex(undefined)}
     >
@@ -140,29 +138,25 @@ export function TrafficChart({ points }: { points: ProxyTrafficHistoryPoint[] })
               y2={plotBottom}
             />
             <circle className="proxy-traffic-chart-active-ring" cx={activePoint.x} cy={activePoint.y} r="8" />
-            <circle className="proxy-traffic-chart-active-dot" cx={activePoint.x} cy={activePoint.y} r="4" />
+            <circle ref={activeDot} className="proxy-traffic-chart-active-dot" cx={activePoint.x} cy={activePoint.y} r="4" />
           </g>
         )}
       </svg>
 
       {activePoint && (
-        <div
-          className={`proxy-traffic-chart-tooltip ${tooltipPosition} ${tooltipVerticalPosition}`}
-          style={{
-            left: `${activePoint.x / chartWidth * 100}%`,
-            top: `${activePoint.y / chartHeight * 100}%`,
-          }}
-        >
-          <strong>{formatHistoryDateLabel(activePoint.label)}</strong>
-          <span>
-            <span>Traffic</span>
-            <b>{humanBytes(activePoint.used_bytes)}</b>
-          </span>
-          <span>
-            <span>Requests</span>
-            <b>{numberFormatter.format(activePoint.requests)}</b>
-          </span>
-        </div>
+        <TooltipContent id={tooltipId} anchor={tooltipAnchor} side={activePoint.y < 92 ? "bottom" : "top"} interactive={false}>
+          <div className="traffic-tooltip-details">
+            <strong>{formatHistoryDateLabel(activePoint.label)}</strong>
+            <span>
+              <span>Traffic</span>
+              <b>{humanBytes(activePoint.used_bytes)}</b>
+            </span>
+            <span>
+              <span>Requests</span>
+              <b>{numberFormatter.format(activePoint.requests)}</b>
+            </span>
+          </div>
+        </TooltipContent>
       )}
     </div>
   );

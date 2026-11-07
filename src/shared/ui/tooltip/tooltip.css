@@ -1,0 +1,26 @@
+.shared-tooltip {
+  box-sizing: border-box;
+  position: fixed;
+  z-index: 10000;
+  width: max-content;
+  max-width: min(340px, calc(100vw - 16px));
+  max-height: min(320px, calc(100vh - 16px));
+  overflow: auto;
+  padding: 9px 13px;
+  border: 1px solid var(--tooltip-border);
+  border-radius: 13px;
+  background: var(--tooltip-bg);
+  color: var(--tooltip-text);
+  backdrop-filter: blur(22px) saturate(160%);
+  box-shadow: var(--tooltip-shadow);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: default;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .shared-tooltip { backdrop-filter: none; background: var(--tooltip-solid-bg); }
+}

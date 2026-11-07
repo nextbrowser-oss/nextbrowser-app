@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import { type ClipboardEvent, type DragEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store";
@@ -401,36 +402,33 @@ export function ChatView() {
           </div>
           <span className="spacer" />
           {remoteOnly && (
-            <span
-              className="vps-target-pill"
-              title={conv?.vpsConnectionLabel
+            <Tooltip content={conv?.vpsConnectionLabel
                 ? `Remote target: ${conv.vpsConnectionLabel}`
-                : "This chat runs Clawbrowser commands on a VPS"}
+                : "This chat runs Clawbrowser commands on a VPS"}><span
+              className="vps-target-pill"
             >
               <Icon name="terminal" size={12} />
               <span>VPS{conv?.vpsConnectionLabel ? ` · ${conv.vpsConnectionLabel}` : ""}</span>
-            </span>
+            </span></Tooltip>
           )}
           <div className="chat-mode-toggle" role="group" aria-label="Project chat mode">
-            <button
+            <Tooltip content={terminalAvailable ? "Open terminal chat" : `${agentName} has no terminal; it works in Chat`}><button
               className={terminalChat ? "active" : ""}
               aria-pressed={terminalChat}
-              title={terminalAvailable ? "Open terminal chat" : `${agentName} has no terminal; it works in Chat`}
               disabled={!terminalAvailable}
               onClick={() => s.setTerminalChat(true)}
             >
               <Icon name="terminal" size={12} />
               Terminal
-            </button>
-            <button
+            </button></Tooltip>
+            <Tooltip content="Open regular chat"><button
               className={!terminalChat ? "active" : ""}
               aria-pressed={!terminalChat}
-              title="Open regular chat"
               onClick={() => s.setTerminalChat(false)}
             >
               <Icon name="bubble.left.and.bubble.right.fill" size={12} />
               Chat
-            </button>
+            </button></Tooltip>
           </div>
           {!remoteOnly && s.selectedProfile && (
             <span className="profile-pill">
@@ -448,14 +446,13 @@ export function ChatView() {
             />
           )}
           {!remoteOnly && showDefaultSession && (
-            <span
+            <Tooltip content="Local browser session without a named profile"><span
               className="default-session-pill"
-              data-tooltip="Local browser session without a named profile"
               tabIndex={0}
             >
               <Icon name="globe" size={12} />
               default
-            </span>
+            </span></Tooltip>
           )}
         </div>
         <hr className="divider" />
@@ -551,46 +548,43 @@ export function ChatView() {
               )}
               <div className="empty-actions">
                 {!ready && builtinAgent && (
-                  <button
+                  <Tooltip content="Choose a model provider and add its key"><button
                     className="btn-bordered-prominent"
-                    title="Choose a model provider and add its key"
                     onClick={openAgentSettings}
                   >
                     <Icon name="bolt.fill" size={14} />
                     Set up {agentName}
-                  </button>
+                  </button></Tooltip>
                 )}
                 {!ready && !builtinAgent && (
-                  <button
+                  <Tooltip content={agentNeedsLogin ? `Log in to ${agentName}` : "Connect the selected agent CLI"}><button
                     className="btn-bordered-prominent"
-                    title={agentNeedsLogin ? `Log in to ${agentName}` : "Connect the selected agent CLI"}
                     disabled={s.runtime[agentId]?.authorizing}
                     onClick={() => agentNeedsLogin ? s.loginAgent() : s.authorizeAgent()}
                   >
                     <Icon name="bolt.fill" size={14} />
                     {s.runtime[agentId]?.authorizing ? "Checking…" : agentNeedsLogin ? `Sign in to ${agentName}` : agentError ? "Check again" : `Connect ${agentName}`}
-                  </button>
+                  </button></Tooltip>
                 )}
-                <button className="btn-bordered" title="Open Skills" onClick={() => s.setTab("skills")}>
+                <Tooltip content="Open Skills"><button className="btn-bordered" onClick={() => s.setTab("skills")}>
                   <Icon name="square.grid.2x2.fill" size={14} />
                   Open Skills
-                </button>
+                </button></Tooltip>
                 {s.proxy ? (
-                  <button className="btn-bordered" title="Choose a profile in this workspace" onClick={() => window.dispatchEvent(new CustomEvent("nextbrowser:start-selected-profile"))}>
+                  <Tooltip content="Choose a profile in this workspace"><button className="btn-bordered" onClick={() => window.dispatchEvent(new CustomEvent("nextbrowser:start-selected-profile"))}>
                     <Icon name="play.fill" size={14} />
                     Start session
-                  </button>
+                  </button></Tooltip>
                 ) : (
-                  <button className="btn-bordered" title="Sign in to create managed profiles" onClick={() => s.setDashboardKeyPromptOpen(true)}>
+                  <Tooltip content="Sign in to create managed profiles"><button className="btn-bordered" onClick={() => s.setDashboardKeyPromptOpen(true)}>
                     <Icon name="lock" size={14} />
                     Create first profile
-                  </button>
+                  </button></Tooltip>
                 )}
               </div>
               <div className="empty-suggestion-grid">
-                <button
+                <Tooltip content="Start the active browser profile and verify its connection country and IP"><button
                   className="empty-suggestion"
-                  title="Start the active browser profile and verify its connection country and IP"
                   onClick={() =>
                     s.tryGuidePrompt(
                       "Using the nextctl CLI, start the active browser profile with verification and confirm its current proxy country and IP.",
@@ -602,18 +596,17 @@ export function ChatView() {
                     <strong>Proxy check</strong>
                     <span className="muted small">Verify proxy country and IP</span>
                   </span>
-                </button>
-                <button
+                </button></Tooltip>
+                <Tooltip content="Open the Live tab to inspect a running browser session"><button
                   className="empty-suggestion"
                   onClick={() => s.setTab("live")}
-                  title="Open the Live tab to inspect a running browser session"
                 >
                   <Icon name="video.fill" size={15} />
                   <span>
                     <strong>Open live view</strong>
                     <span className="muted small">Inspect the running browser</span>
                   </span>
-                </button>
+                </button></Tooltip>
               </div>
             </div>
           )}
@@ -706,7 +699,7 @@ export function ChatView() {
         {attachments.length > 0 && (
           <div className="pending-attachments">
             {attachments.map((file) => (
-              <span className="attachment-chip" key={file.path} title={file.path}>
+              <Tooltip key={file.path} content={file.path}><span className="attachment-chip">
                 <Icon name="paperclip" size={12} />
                 <span>{file.name}</span>
                 <button
@@ -717,7 +710,7 @@ export function ChatView() {
                     setAttachments((items) => items.filter((item) => item.path !== file.path));
                   }}
                 >×</button>
-              </span>
+              </span></Tooltip>
             ))}
           </div>
         )}
@@ -744,33 +737,29 @@ export function ChatView() {
             }}
           />
           <div className="composer-actions">
-            <button
+            <Tooltip content="Attach local files to the next message"><button
               className="plain-icon-btn"
-              title="Attach local files to the next message"
               aria-label="Attach local files to the next message"
               disabled={!ready}
               onClick={() => void attachFiles()}
             >
               <Icon name="paperclip" size={19} />
-            </button>
+            </button></Tooltip>
             <div className="script-wrap" ref={scriptWrapRef}>
-              <button
+              <Tooltip content="Open scripts menu"><button
                 className="plain-icon-btn"
-                title="Open scripts menu"
                 aria-label="Open scripts menu"
                 aria-haspopup="true"
                 aria-expanded={scriptOpen}
                 onClick={() => setScriptOpen((o) => !o)}
               >
                 <Icon name="scroll" size={20} />
-              </button>
+              </button></Tooltip>
               {scriptOpen && (
                 <div className="script-menu">
                   <div className="section">OFFICIAL SCRIPTS</div>
                   {officialScripts.map((sc) => (
-                    <button
-                      key={sc.id}
-                      title={`Run ${sc.title}`}
+                    <Tooltip key={sc.id} content={`Run ${sc.title}`}><button
                       onClick={() => {
                         setScriptOpen(false);
                         const domain = looksLikeDomain(draft.trim()) ? draft.trim() : "";
@@ -779,15 +768,13 @@ export function ChatView() {
                       }}
                     >
                       {sc.title}
-                    </button>
+                    </button></Tooltip>
                   ))}
                   {customScripts.length > 0 && (
                     <>
                       <div className="section">MY SCRIPTS</div>
                       {customScripts.map((cs) => (
-                        <button
-                          key={cs.id}
-                          title={`Run ${cs.title}`}
+                        <Tooltip key={cs.id} content={`Run ${cs.title}`}><button
                           onClick={() => {
                             setScriptOpen(false);
                             const domain = looksLikeDomain(draft.trim()) ? draft.trim() : "";
@@ -796,37 +783,36 @@ export function ChatView() {
                           }}
                         >
                           {cs.title}
-                        </button>
+                        </button></Tooltip>
                       ))}
                     </>
                   )}
                   {officialScripts.length === 0 && customScripts.length === 0 && (
-                    <button title="Create a custom script" onClick={openScriptCreator}>
+                    <Tooltip content="Create a custom script"><button onClick={openScriptCreator}>
                       <Icon name="plus" size={13} /> Create script
-                    </button>
+                    </button></Tooltip>
                   )}
                   {(officialScripts.length > 0 || customScripts.length > 0) && (
-                    <button title="Create a new custom script" onClick={openScriptCreator}>
+                    <Tooltip content="Create a new custom script"><button onClick={openScriptCreator}>
                       <Icon name="plus" size={13} /> Create script
-                    </button>
+                    </button></Tooltip>
                   )}
                 </div>
               )}
             </div>
             {running ? (
-              <button className="plain-icon-btn stop-btn" onClick={() => s.stopRunning()} title="Stop the running agent response" aria-label="Stop the running agent response">
+              <Tooltip content="Stop the running agent response"><button className="plain-icon-btn stop-btn" onClick={() => s.stopRunning()} aria-label="Stop the running agent response">
                 <Icon name="stop.circle.fill" size={22} className="error" />
-              </button>
+              </button></Tooltip>
             ) : (
-              <button
+              <Tooltip content="Send message to the selected agent"><button
                 className="plain-icon-btn send-btn"
                 disabled={!ready || (!draft.trim() && attachments.length === 0)}
                 onClick={send}
-                title="Send message to the selected agent"
                 aria-label="Send message to the selected agent"
               >
                 <Icon name="arrow.up.circle.fill" size={22} />
-              </button>
+              </button></Tooltip>
             )}
           </div>
         </div>
@@ -1037,7 +1023,7 @@ function MessageBubble({
       <div className="msg-user-wrap">
         <div className="msg-user-inner">
           {m.commandChip ? (
-            <button className="user-command-chip" onClick={onShowPrompt} title="Show full prompt sent to the agent">
+            <Tooltip content="Show full prompt sent to the agent"><button className="user-command-chip" onClick={onShowPrompt}>
               <span className="user-command-icon">
                 <Icon
                   name={m.commandChip.kind === "skill" ? "sparkles" : "scroll.fill"}
@@ -1054,22 +1040,20 @@ function MessageBubble({
                 )}
               </div>
               <Icon name="info.circle" size={12} className="muted" />
-            </button>
+            </button></Tooltip>
           ) : (
             <div className="msg-user-bubble">{m.text}</div>
           )}
           {m.attachments && m.attachments.length > 0 && (
             <div className="message-attachments">
               {m.attachments.map((file) => (
-                <button
+                <Tooltip key={file.path} content={file.path}><button
                   className="message-attachment"
-                  key={file.path}
-                  title={file.path}
                   onClick={() => void runMessageAction(() => invoke("open_path", { path: file.path }), "Could not open this attachment. Check that the file still exists.")}
                 >
                   <Icon name="doc" size={14} />
                   <span>{file.name}</span>
-                </button>
+                </button></Tooltip>
               ))}
             </div>
           )}
@@ -1080,23 +1064,22 @@ function MessageBubble({
                 <span className="queue-badge">Waiting</span>
                 {canQueue && (
                   <>
-                    <button className="plain-icon-btn plain-icon-btn-compact" onClick={onEdit} title="Edit queued message">
+                    <Tooltip content="Edit queued message"><button className="plain-icon-btn plain-icon-btn-compact" onClick={onEdit}>
                       <Icon name="pencil" size={12} />
-                    </button>
-                    <button className="plain-icon-btn plain-icon-btn-compact" onClick={onCancel} title="Remove queued message">
+                    </button></Tooltip>
+                    <Tooltip content="Remove queued message"><button className="plain-icon-btn plain-icon-btn-compact" onClick={onCancel}>
                       <Icon name="trash" size={12} className="error" />
-                    </button>
+                    </button></Tooltip>
                   </>
                 )}
               </>
             )}
-            <button
+            <Tooltip content="Copy message"><button
               className="plain-icon-btn plain-icon-btn-compact"
-              title="Copy message"
               onClick={() => void runMessageAction(() => navigator.clipboard.writeText(m.text), "Could not copy the message. Try again.")}
             >
               <Icon name="doc.on.doc" size={12} />
-            </button>
+            </button></Tooltip>
             <span>{formatTime(m.createdAt)}</span>
           </div>
         </div>
@@ -1122,10 +1105,10 @@ function MessageBubble({
               : statusLabel(m)}
           </span>
           {running && m.status === "streaming" && (
-            <button className="stop-inline" onClick={onStop} title="Stop this request" aria-label="Stop this request">
+            <Tooltip content="Stop this request"><button className="stop-inline" onClick={onStop} aria-label="Stop this request">
               <Icon name="stop.fill" size={9} />
               <span>Stop</span>
-            </button>
+            </button></Tooltip>
           )}
         </div>
         {m.toolEvents && m.toolEvents.length > 0 && (
@@ -1153,20 +1136,19 @@ function MessageBubble({
       {m.text && (
         <div className="msg-assistant-meta muted small">
           {actionError && <span role="alert">{actionError}</span>}
-          <button
+          <Tooltip content="Copy message"><button
             className="plain-icon-btn plain-icon-btn-compact"
-            title="Copy message"
             onClick={() => void runMessageAction(() => navigator.clipboard.writeText(visibleText), "Could not copy the message. Try again.")}
           >
             <Icon name="doc.on.doc" size={12} />
-          </button>
+          </button></Tooltip>
           {m.status === "done" && showSaveWorkflow && (
-            <button className="save-workflow-btn" disabled={savingWorkflow} title="Save this browser workflow as a local skill" onClick={onSaveWorkflow}>
+            <Tooltip content="Save this browser workflow as a local skill"><button className="save-workflow-btn" disabled={savingWorkflow} onClick={onSaveWorkflow}>
               {savingWorkflow && <Spinner size={11} />} {savingWorkflow ? "Preparing…" : "Save as skill"}
-            </button>
+            </button></Tooltip>
           )}
           {(m.status === "failed" || m.status === "timedOut") && (
-            <button className="save-workflow-btn" onClick={onRetry} title="Review the original request before sending it again">Retry</button>
+            <Tooltip content="Review the original request before sending it again"><button className="save-workflow-btn" onClick={onRetry}>Retry</button></Tooltip>
           )}
           <span>{formatTime(m.createdAt)}</span>
         </div>
@@ -1184,28 +1166,27 @@ function AgentSteps({ steps, live }: { steps: NonNullable<ChatMessage["toolEvent
   const failed = (detail?: string) => /^Failed:/.test(detail ?? "");
   return (
     <div className={"agent-steps" + (live ? " is-live" : "")}>
-      <button
+      <Tooltip content={open ? "Hide the agent's steps" : "Show every step the agent took"}><button
         type="button"
         className="agent-steps-toggle"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        title={open ? "Hide the agent's steps" : "Show every step the agent took"}
       >
         <Icon name={open ? "chevron.down" : "chevron.right"} size={11} />
         <span className="agent-steps-count">{steps.length} {steps.length === 1 ? "step" : "steps"}</span>
         {!open && (
-          <span className={"agent-steps-latest" + (failed(latest.detail) ? " is-failed" : "")} title={latest.detail}>
+          <Tooltip content={latest.detail}><span className={"agent-steps-latest" + (failed(latest.detail) ? " is-failed" : "")}>
             {latest.detail ?? latest.name}
-          </span>
+          </span></Tooltip>
         )}
-      </button>
+      </button></Tooltip>
       {open && (
         <ol className="agent-steps-list">
           {steps.map((step) => (
-            <li key={step.id} className={failed(step.detail) ? "is-failed" : undefined} title={step.detail}>
+            <Tooltip key={step.id} content={step.detail}><li className={failed(step.detail) ? "is-failed" : undefined}>
               <Icon name={step.name === "nextctl" ? "terminal" : step.name === "step" ? "chevron.right" : "wrench"} size={10} />
               <span>{step.detail ?? step.name}</span>
-            </li>
+            </li></Tooltip>
           ))}
         </ol>
       )}
