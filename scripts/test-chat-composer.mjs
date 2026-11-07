@@ -53,21 +53,48 @@ try {
   await page.route("**/*", route => new URL(route.request().url()).hostname === "127.0.0.1" ? route.continue() : route.abort());
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
+  page.on("console", message => { if (message.type() === "error" && /ResizeObserver/.test(message.text())) errors.push(message.text()); });
   const url = `http://127.0.0.1:${server.httpServer.address().port}/composer-fixture`;
   const textarea = page.getByRole("textbox", { name: "Message Codex", exact: true });
   const send = page.getByRole("button", { name: "Send message to the selected agent" });
-  const latest = page.locator(".messages > .msg-assistant-wrap").last();
+  const latest = page.locator(".messages .msg-assistant-wrap").last();
+  const jump = page.getByRole("button", { name: "Scroll to latest message", exact: true });
   const composer = page.locator(".composer");
   const scrollToEnd = async () => {
     await page.locator(".messages").evaluate(element => { element.scrollTop = element.scrollHeight; });
     await page.waitForFunction(() => { const scroll = document.querySelector('.messages'); return scroll.scrollHeight-scroll.clientHeight-scroll.scrollTop<2; });
   };
-  const lastIsVisible = async () => assert.ok((await latest.boundingBox()).y + (await latest.boundingBox()).height <= (await composer.boundingBox()).y, "last message clears the floating input");
+  const lastIsVisible = async () => {
+    await page.waitForFunction(() => {
+      const rows = document.querySelectorAll('.messages .msg-assistant-wrap');
+      return rows[rows.length - 1].getBoundingClientRect().bottom <= document.querySelector('.composer').getBoundingClientRect().top;
+    });
+    assert.ok((await latest.boundingBox()).y + (await latest.boundingBox()).height <= (await composer.boundingBox()).y, "last message clears the floating input");
+  };
   for (const theme of ["light", "dark"]) {
     await page.goto(`${url}?theme=${theme}`);
     await textarea.waitFor();
     await page.evaluate(() => document.fonts.ready);
     await scrollToEnd();
+    await lastIsVisible();
+    assert.equal(await jump.count(), 0, "no jump action while already at the bottom");
+    await page.locator(".messages").evaluate(element => { element.scrollTop -= 200; });
+    await jump.waitFor();
+    const jumpBox = await jump.boundingBox();
+    const composerBox = await composer.boundingBox();
+    assert.ok(Math.abs(jumpBox.x + jumpBox.width / 2 - composerBox.x - composerBox.width / 2) <= 1, "jump action is centered over the composer");
+    assert.ok(jumpBox.y + jumpBox.height < composerBox.y, "jump action clears the input");
+    const readingPosition = await page.locator(".messages").evaluate(element => element.scrollTop);
+    await page.evaluate(() => {
+      const state = window.fixtureStore.getState();
+      state.conversations[0].messages[state.conversations[0].messages.length - 1].text += '\n\nIncoming text while reading history. '.repeat(15);
+      window.fixtureStore.setState({ conversations: [...state.conversations] });
+    });
+    await page.waitForTimeout(100);
+    assert.ok(Math.abs(await page.locator(".messages").evaluate(element => element.scrollTop) - readingPosition) < 2, "incoming content does not pull the reader down");
+    await page.screenshot({ path: resolve(output, `${theme}-scroll-to-latest.png`) });
+    await jump.click();
+    await jump.waitFor({ state: "detached" });
     await lastIsVisible();
     const colors = await composer.evaluate(element => ({ bg: getComputedStyle(element).backgroundColor, text: getComputedStyle(element).color, border: getComputedStyle(element).borderWidth, blur: getComputedStyle(element).backdropFilter }));
     assert.equal(colors.border, "0px");
@@ -142,6 +169,14 @@ try {
     await textarea.fill("Long draft on a narrow window\n".repeat(8));
     await scrollToEnd();
     await lastIsVisible();
+    await page.locator(".messages").evaluate(element => { element.scrollTop -= 100; });
+    await jump.waitFor();
+    const compactJump = await jump.boundingBox();
+    const compactComposer = await composer.boundingBox();
+    assert.ok(Math.abs(compactJump.x + compactJump.width / 2 - compactComposer.x - compactComposer.width / 2) <= 1);
+    assert.ok(compactJump.y + compactJump.height < compactComposer.y);
+    await jump.click();
+    await jump.waitFor({ state: "detached" });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
     await page.screenshot({ path: resolve(output, `${theme}-compact.png`) });
     await page.evaluate(() => window.fixtureStore.setState({ customScripts: Array.from({ length: 18 }, (_, index) => ({ id: 'script-'+index, title: 'Reusable script with a longer name '+index, domain: 'example.com', js: '' })) }));

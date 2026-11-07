@@ -23,3 +23,5 @@
   pointer-events: none;
 }
 .overlay-scroll-area__overlay > * { pointer-events: auto; }
+.overlay-scroll-area__items { display: inherit; flex-direction: inherit; gap: inherit; flex: none; min-width: 0; }
+.overlay-scroll-area__end { position: absolute; z-index: 1; left: 50%; bottom: calc(var(--overlay-height) + 12px); transform: translateX(-50%); }

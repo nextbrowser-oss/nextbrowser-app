@@ -169,7 +169,6 @@ export function ChatView() {
   }, [projectCreatorOpen]);
   const previousTerminalChat = useRef(terminalChat);
   const chatMessagesSharedWithTerminal = useRef(new Map<string, number>());
-  const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const scriptWrapRef = useRef<HTMLDivElement>(null);
   const scriptMenuRef = useRef<HTMLDivElement>(null);
@@ -267,10 +266,6 @@ export function ChatView() {
     window.addEventListener("nextbrowser:guide-draft", onGuideDraft);
     return () => window.removeEventListener("nextbrowser:guide-draft", onGuideDraft);
   }, []);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, messages[messages.length - 1]?.text]);
 
   const send = () => {
     const t = draft.trim();
@@ -540,7 +535,7 @@ export function ChatView() {
           </div>
         )}
         {!terminalChat && (
-          <OverlayScrollArea contentClassName="messages" overlayClassName="chat-composer-dock" overlay={
+          <OverlayScrollArea contentClassName="messages" overlayClassName="chat-composer-dock" endButtonLabel="Scroll to latest message" autoFollow resetKey={conversationKey} overlay={
             <>
               {!ready && messages.length > 0 && (
                 <div className="chat-agent-error small" role="status">
@@ -841,7 +836,6 @@ export function ChatView() {
               showSaveWorkflow={m.id === latestCompletedAssistantId}
             />
           ))}
-          <div ref={bottomRef} />
           </OverlayScrollArea>
         )}
       </FileDropArea>
