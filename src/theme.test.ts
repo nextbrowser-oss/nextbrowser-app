@@ -99,6 +99,8 @@ describe("theme stylesheet", () => {
       ["--on-primary-action", "--primary-action-hover"],
       ["--on-danger", "--danger-action"],
       ["--tooltip-text", "--tooltip-solid-bg"],
+      ["--dialog-text", "--dialog-bg"],
+      ["--dialog-muted", "--dialog-bg"],
       ["--glass-inverse-text", "--glass-inverse-solid"],
       ["--glass-inverse-muted", "--glass-inverse-solid"],
     ]) expect(contrast(color(foreground), color(background))).toBeGreaterThanOrEqual(4.5);

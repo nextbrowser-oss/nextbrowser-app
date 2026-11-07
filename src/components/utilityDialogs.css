@@ -1,25 +1,11 @@
 .utility-dialog {
-  color-scheme: dark;
-  --text: var(--glass-inverse-text);
-  --text-secondary: var(--glass-inverse-muted);
-  --muted: var(--glass-inverse-muted);
-  --accent-text: var(--glass-inverse-text);
-  --bg: var(--glass-inverse-solid);
-  --panel: var(--glass-inverse-solid);
-  --bg-elevated: var(--glass-inverse-control);
-  --card: var(--glass-inverse-control);
-  --line: var(--glass-inverse-control);
-  --line-strong: var(--glass-inverse-control-hover);
-  --input-border: var(--glass-inverse-muted);
-  --surface-1: var(--glass-inverse-control);
-  --surface-2: var(--glass-inverse-control);
-  --surface-3: var(--glass-inverse-control-hover);
-  /* Rebind derived materials here: inherited values were resolved against
-     the page palette before its surface roles were overridden above. */
-  --material-modal: var(--glass-inverse-solid);
-  --material-popover: var(--glass-inverse-solid);
+  color-scheme: inherit;
+  /* Nested legacy cards use the dialog palette, rather than the fixed dark
+     material reserved for floating controls and popovers. */
+  --material-modal: var(--dialog-bg);
+  --material-popover: var(--dialog-bg);
   --button-shadow: none;
-  --button-shadow-hover: var(--glass-inverse-shadow);
+  --button-shadow-hover: var(--dialog-shadow);
 }
 .utility-dialog .modal-card :is(input, textarea)::placeholder { color: var(--muted); opacity: 1; }
 .utility-dialog select option { color: var(--text); background: var(--bg); }

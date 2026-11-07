@@ -153,7 +153,7 @@ try {
   const editorBounds = await editorDialog.boundingBox();
   assert.ok(editorBounds.x >= 0 && editorBounds.y >= 0 && editorBounds.y + editorBounds.height <= 900);
   for (const theme of ['light', 'dark']) {
-    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme; }, theme);
     await page.waitForTimeout(250);
     const contrastResults = await editorDialog.evaluate(editor => {
       const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
@@ -173,12 +173,13 @@ try {
       }
       return { background: base, colorScheme: getComputedStyle(editor).colorScheme, checks };
     });
-    assert.ok(contrastResults.background[3] >= 240 && contrastResults.background.slice(0, 3).every(c => c < 100), `nested schedule uses a dark surface in ${theme}: ${JSON.stringify(contrastResults)}`);
-    assert.equal(contrastResults.colorScheme, 'dark');
+    assert.ok(contrastResults.background[3] >= 240 && contrastResults.background.slice(0, 3).every(c => theme === 'light' ? c > 220 : c < 110), `nested schedule follows ${theme} theme: ${JSON.stringify(contrastResults)}`);
+    assert.equal(contrastResults.colorScheme, theme);
+    assert.equal(await scheduleDialog.evaluate(node => getComputedStyle(node).backgroundColor), await editorDialog.evaluate(node => getComputedStyle(node).backgroundColor));
     for (const check of contrastResults.checks) assert.ok(check.ratio >= 4.5, `${theme} schedule contrast: ${JSON.stringify(check)}`);
     await page.screenshot({ path: `e2e-out/schedule-editor-${theme}.png` });
   }
-  await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; document.documentElement.style.colorScheme = 'light'; });
   await page.keyboard.press('Escape');
   await editorDialog.waitFor({ state: 'detached' });
   assert.equal(await scheduleDialog.isVisible(), true);
@@ -241,6 +242,19 @@ try {
   await nav.getByRole("button", { name: /^Open Connectors/ }).click();
   const connectorsDialog = page.getByRole('dialog', { name: 'Connectors', exact: true });
   await connectorsDialog.waitFor();
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme; }, theme);
+    await page.waitForTimeout(250);
+    const colors = await connectorsDialog.evaluate(node => {
+      const style = getComputedStyle(node);
+      return { bg: style.backgroundColor, text: style.color, scheme: style.colorScheme, heading: getComputedStyle(node.querySelector('h2')).color };
+    });
+    assert.equal(colors.bg, theme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(52, 62, 76)');
+    assert.equal(colors.text, theme === 'light' ? 'rgb(26, 28, 28)' : 'rgb(244, 246, 251)');
+    assert.equal(colors.heading, colors.text);
+    assert.equal(colors.scheme, theme);
+    await page.screenshot({ path: `e2e-out/connectors-modal-${theme}.png` });
+  }
   assert.equal(await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().tab), 'skills');
   await connectorsDialog.getByRole("button", { name: "Connect", exact: true }).click();
   const modal = page.getByRole("dialog", { name: /Multilogin/ });

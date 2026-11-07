@@ -19,6 +19,10 @@
   --text: #f4f6fb;
   --text-secondary: #bec8d7;
   --muted: var(--text-secondary);
+  --dialog-bg: var(--card);
+  --dialog-text: var(--text);
+  --dialog-muted: var(--text-secondary);
+  --dialog-shadow: 0 20px 60px var(--shadow-strong);
   --accent: #7c65dc;
   --accent-soft: rgba(156, 136, 244, 0.2);
   --accent-text: #d2c6ff;
