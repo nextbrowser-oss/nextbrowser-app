@@ -333,9 +333,9 @@ export function UsageView() {
                     fraction >= 1
                       ? "var(--red)"
                       : fraction >= 0.9
-                        ? "#ff9500"
+                        ? "var(--warn)"
                         : fraction >= 0.7
-                          ? "#ffd60a"
+                          ? "var(--rating-star)"
                           : undefined,
                 }}
               />

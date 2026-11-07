@@ -235,7 +235,7 @@ export const GUIDE_USAGE_DEMOS: Array<{
   {
     title: "Collect a live list",
     caption: "Prepare a Chat task that saves five live results as JSON.",
-    tint: "#5ac8fa",
+    tint: "var(--info)",
     action: {
       kind: "chat",
       prompt:
@@ -247,7 +247,7 @@ export const GUIDE_USAGE_DEMOS: Array<{
   {
     title: "Change proxy country",
     caption: "Prepare a Chat task that changes country and verifies the result.",
-    tint: "#ff9500",
+    tint: "var(--warn)",
     action: {
       kind: "chat",
       prompt:
@@ -259,7 +259,7 @@ export const GUIDE_USAGE_DEMOS: Array<{
   {
     title: "Run a reusable skill",
     caption: "Open Skills to choose a saved browser workflow.",
-    tint: "#63e6e2",
+    tint: "var(--cyan)",
     action: { kind: "skills" },
     actionLabel: "Browse skills",
     Demo: PublishedSkillDemo,

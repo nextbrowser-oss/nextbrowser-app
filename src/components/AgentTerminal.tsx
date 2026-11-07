@@ -14,6 +14,7 @@ import { codexMcpRecovery } from "../lib/codexMcpRecovery";
 import { terminalBrowserSession } from "../lib/terminalBrowserSession";
 import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT } from "../lib/automationRecording";
 import { openTerminalWebLink } from "../lib/terminalWebLinks";
+import { terminalThemeFromPalette } from "../theme";
 
 interface AgentTerminalProps {
   agentId: string;
@@ -37,58 +38,10 @@ interface AgentTerminalProps {
   onPreviewChange?: (preview?: string) => void;
 }
 
-const DARK_TERMINAL_THEME = {
-  background: "#181818",
-  foreground: "#d9d9dc",
-  cursor: "#a5a6ff",
-  cursorAccent: "#181818",
-  selectionBackground: "#55578080",
-  black: "#242426",
-  red: "#ef6b73",
-  green: "#61c98b",
-  yellow: "#d7b76a",
-  blue: "#7697e8",
-  magenta: "#b48cdb",
-  cyan: "#64b8c5",
-  white: "#d9d9dc",
-  brightBlack: "#85858d",
-  brightRed: "#ff848b",
-  brightGreen: "#78dda0",
-  brightYellow: "#e9cb80",
-  brightBlue: "#91aff5",
-  brightMagenta: "#c8a2ec",
-  brightCyan: "#7bcbd6",
-  brightWhite: "#f4f4f5",
-};
-
-const LIGHT_TERMINAL_THEME = {
-  background: "#f7f7f8",
-  foreground: "#29292d",
-  cursor: "#5555d9",
-  cursorAccent: "#f7f7f8",
-  selectionBackground: "#b9baf080",
-  black: "#29292d",
-  red: "#b52c39",
-  green: "#247a48",
-  yellow: "#86630b",
-  blue: "#355fb3",
-  magenta: "#7745a2",
-  cyan: "#17717d",
-  white: "#e8e8ea",
-  brightBlack: "#707078",
-  brightRed: "#cf3e49",
-  brightGreen: "#318e56",
-  brightYellow: "#987316",
-  brightBlue: "#4972c7",
-  brightMagenta: "#8b59b5",
-  brightCyan: "#25838f",
-  brightWhite: "#ffffff",
-};
-
 function activeTerminalTheme() {
-  return document.documentElement.dataset.theme === "light"
-    ? LIGHT_TERMINAL_THEME
-    : DARK_TERMINAL_THEME;
+  // Xterm needs resolved colors, so read the same CSS palette as the renderer.
+  const palette = getComputedStyle(document.documentElement);
+  return terminalThemeFromPalette((property) => palette.getPropertyValue(property));
 }
 
 function handoffFingerprint(value: string): string {
