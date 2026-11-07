@@ -25,6 +25,7 @@ try {
     localStorage.setItem("nextbrowser.theme", "light");
     window.__navigationQA = { calls: [] };
     window.nextbrowser = {
+      customWindowControls: true,
       on() { return () => {}; },
       async invoke(command, args = {}) {
         window.__navigationQA.calls.push({ command, args });
@@ -95,7 +96,7 @@ try {
       return { left: b.left, right: b.right, bottom: b.bottom, border: s.borderTopWidth, drag: s.getPropertyValue("app-region") };
     }));
     for (const b of boxes) {
-      assert.ok(b.left >= 0 && b.right <= width - 148 && b.bottom <= 40, JSON.stringify({ width, b }));
+      assert.ok(b.left >= 0 && b.right <= width - 8 && b.bottom <= 40, JSON.stringify({ width, b }));
       assert.equal(b.border, "0px");
       assert.equal(b.drag, "no-drag");
     }

@@ -1,13 +1,13 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { windowChromeOptions, applyWindowChrome, applyWindowZoom } = require("./window-chrome.cjs");
+const { windowChromeOptions, applyWindowChrome, applyWindowZoom, controlWindow, watchWindowState } = require("./window-chrome.cjs");
+const { EventEmitter } = require("node:events");
 
-test("Windows and Linux retain native caption buttons above the renderer", () => {
+test("Windows and Linux use renderer controls without a native caption overlay", () => {
   for (const platform of ["win32", "linux"]) {
     const options = windowChromeOptions(platform, false);
     assert.equal(options.titleBarStyle, "hidden");
-    assert.equal(options.titleBarOverlay.height, 40);
-    assert.equal(options.titleBarOverlay.symbolColor, "#17171c");
+    assert.equal(options.titleBarOverlay, false);
     assert.equal(options.frame, undefined);
   }
 });
@@ -17,13 +17,13 @@ test("macOS retains its native inset traffic lights", () => {
   assert.equal(options.titleBarOverlay, undefined);
   assert.deepEqual(options.trafficLightPosition, { x: 14, y: 13 });
 });
-test("palette updates theme native controls and follow renderer scale", () => {
+test("palette updates never recreate a native overlay above modal blur", () => {
   const calls = [];
   const window = { setBackgroundColor: value => calls.push(value), setTitleBarOverlay: value => calls.push(value) };
   assert.equal(applyWindowChrome(window, { background: "#20242b", foreground: "#f4f6fb", factor: 1.25 }, "win32"), true);
-  assert.deepEqual(calls, ["#20242b", { color: "#20242b", symbolColor: "#f4f6fb", height: 50 }]);
+  assert.deepEqual(calls, ["#20242b"]);
   assert.equal(applyWindowChrome(window, { background: "url(https://example.com)", foreground: "#ffffff" }, "win32"), false);
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 1);
 });
 test("secondary windows and macOS never receive unsupported overlay calls", () => {
   const calls = [];
@@ -37,5 +37,32 @@ test("caption controls remain aligned at small and large interface scales", () =
   applyWindowZoom(window, 0.5, "win32");
   applyWindowZoom(window, 2, "win32");
   applyWindowZoom(window, 0.5, "darwin");
-  assert.deepEqual(calls, [{ height: 20 }, { height: 80 }, { x: 14, y: 3 }]);
+  assert.deepEqual(calls, [{ x: 14, y: 3 }]);
+});
+
+test("caption actions control their window and restore both maximized and fullscreen states", () => {
+  let maximized = false, fullscreen = false;
+  const calls = [];
+  const window = { isMaximized: () => maximized, isFullScreen: () => fullscreen,
+    maximize: () => { maximized = true; }, unmaximize: () => { maximized = false; },
+    setFullScreen: value => { fullscreen = value; }, minimize: () => calls.push("minimize"), close: () => calls.push("close") };
+  assert.deepEqual(controlWindow(window, "toggle-maximize"), { maximized: true, fullscreen: false });
+  assert.deepEqual(controlWindow(window, "toggle-maximize"), { maximized: false, fullscreen: false });
+  fullscreen = true;
+  assert.deepEqual(controlWindow(window, "toggle-maximize"), { maximized: false, fullscreen: false });
+  controlWindow(window, "minimize"); controlWindow(window, "close");
+  assert.deepEqual(calls, ["minimize", "close"]);
+  assert.throws(() => controlWindow(window, "destroy"), /Unknown window control/);
+});
+
+test("OS window state changes are published and listeners are removed on close", () => {
+  const window = new EventEmitter();
+  const sent = [];
+  Object.assign(window, { isDestroyed: () => false, isMaximized: () => true, isFullScreen: () => false,
+    webContents: { isDestroyed: () => false, send: (...args) => sent.push(args) } });
+  watchWindowState(window);
+  window.emit("maximize");
+  assert.deepEqual(sent, [["window-state", { maximized: true, fullscreen: false }]]);
+  window.emit("closed");
+  assert.equal(window.listenerCount("maximize"), 0);
 });

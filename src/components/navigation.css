@@ -16,6 +16,7 @@
   user-select: none;
 }
 .app-titlebar button { -webkit-app-region: no-drag; app-region: no-drag; }
+.desktop-shell[data-custom-caption] .app-titlebar { padding-right: 8px; }
 .app-titlebar-logo .brand-logo { width: 24px; height: 24px; }
 .app-titlebar-name { font-size: 12px; font-weight: 500; letter-spacing: -0.01em; }
 .app-titlebar-brand { display: flex; align-items: baseline; gap: 6px; min-width: 0; white-space: nowrap; }

@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("nextbrowser", {
   platform: process.platform,
+  customWindowControls: process.argv.includes("--nextbrowser-custom-caption"),
   invoke: (command, args = {}) => ipcRenderer.invoke("nextbrowser:invoke", command, args),
   filePathForFile: (file) => webUtils.getPathForFile(file),
   on: (channel, listener) => {

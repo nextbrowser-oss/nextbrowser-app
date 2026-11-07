@@ -1,5 +1,5 @@
 const { readCLIVersion } = require("./cli-version.cjs");
-const { windowChromeOptions, applyWindowChrome, applyWindowZoom } = require("./window-chrome.cjs");
+const { windowChromeOptions, applyWindowChrome, applyWindowZoom, windowState, controlWindow, watchWindowState } = require("./window-chrome.cjs");
 const chromeWindows = new WeakSet();
 const { mcpProfileScope } = require("./mcp-profile-scope.cjs");
 const { addChatWorkspaceProfile } = require("./chat-profile-scope.cjs");
@@ -2535,6 +2535,12 @@ async function invokeCommand(command, args = {}, sender) {
       setTimeout(() => focusMainWindow(), 400);
       return null;
     }
+    case "app_window_state":
+    case "app_window_control": {
+      const owner = sender && !sender.isDestroyed() ? BrowserWindow.fromWebContents(sender) : null;
+      if (!owner || !chromeWindows.has(owner) || owner.webContents !== sender) throw userError("Window controls are unavailable here.");
+      return command === "app_window_state" ? windowState(owner) : controlWindow(owner, args.action);
+    }
     case "app_set_theme": {
       const theme = args.theme === "light" ? "light" : "dark";
       nativeTheme.themeSource = theme;
@@ -3447,9 +3453,11 @@ function createWindow() {
     // Keep keyboard access through Alt without reserving visual space for it.
     ...(process.platform === "win32" ? { autoHideMenuBar: true } : {}),
     ...(icon ? { icon } : {}),
-    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: true, backgroundThrottling: false },
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: true, backgroundThrottling: false,
+      additionalArguments: process.platform === "darwin" ? [] : ["--nextbrowser-custom-caption"] },
   });
   chromeWindows.add(window);
+  watchWindowState(window);
   window.once("ready-to-show", () => window.show());
   window.on("unresponsive", () => {
     if (appQuitting) return;

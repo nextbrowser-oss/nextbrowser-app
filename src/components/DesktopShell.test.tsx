@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { DesktopShell, TitlebarActions } from "./DesktopShell";
 import { SidebarNavigation, SidebarSettingsButton } from "./SidebarNavigation";
 
 const fixture = vi.hoisted(() => ({ state: { sidebarCollapsed: true, authed: true, checking: false, showOnboarding: false, setSidebarCollapsed: vi.fn(), setTab: vi.fn() } }));
 vi.mock("../store", () => ({ useStore: (select: (state: typeof fixture.state) => unknown) => select(fixture.state) }));
-afterEach(() => { cleanup(); fixture.state.checking = false; fixture.state.authed = true; });
+afterEach(() => { cleanup(); fixture.state.checking = false; fixture.state.authed = true; delete window.nextbrowser; });
 
 it("places the sidebar toggle in the global titlebar and preserves its expanded state", () => {
   render(<DesktopShell><aside id="app-sidebar">Navigation</aside></DesktopShell>);
@@ -46,6 +46,35 @@ it("allows local sidebar navigation without an account sign-in", () => {
   fixture.state.authed = false;
   render(<DesktopShell>Local workspace</DesktopShell>);
   expect((screen.getByRole("button", { name: "Expand sidebar" }) as HTMLButtonElement).disabled).toBe(false);
+});
+it("dispatches caption actions and follows OS maximize/fullscreen events", async () => {
+  let publish: ((value: unknown) => void) | undefined;
+  const unlisten = vi.fn();
+  const invoke = vi.fn(async () => ({ maximized: false, fullscreen: false }));
+  window.nextbrowser = { platform: "win32", customWindowControls: true, invoke: invoke as never, on: (_channel, callback) => { publish = callback; return unlisten; } };
+  const view = render(<DesktopShell>Chat</DesktopShell>);
+  await act(async () => {});
+  fireEvent.click(screen.getByRole("button", { name: "Minimize window" }));
+  expect(invoke).toHaveBeenCalledWith("app_window_control", { action: "minimize" });
+  fireEvent.click(screen.getByRole("button", { name: "Maximize window" }));
+  expect(invoke).toHaveBeenCalledWith("app_window_control", { action: "toggle-maximize" });
+  act(() => publish?.({ maximized: true, fullscreen: false }));
+  expect(screen.getByRole("button", { name: "Restore window" })).not.toBeNull();
+  act(() => publish?.({ maximized: false, fullscreen: true }));
+  expect(screen.getByRole("button", { name: "Restore window" })).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Close window" }));
+  expect(invoke).toHaveBeenCalledWith("app_window_control", { action: "close" });
+  view.unmount();
+  expect(unlisten).toHaveBeenCalledOnce();
+});
+it("keeps native macOS controls and avoids duplicate captions in an older main process", () => {
+  window.nextbrowser = { platform: "darwin", customWindowControls: true, invoke: vi.fn(), on: vi.fn() };
+  const view = render(<DesktopShell>Chat</DesktopShell>);
+  expect(screen.queryByRole("group", { name: "Window controls" })).toBeNull();
+  view.unmount();
+  window.nextbrowser = { ...window.nextbrowser, platform: "win32", customWindowControls: false };
+  render(<DesktopShell>Chat</DesktopShell>);
+  expect(screen.queryByRole("group", { name: "Window controls" })).toBeNull();
 });
 it("groups extensions while keeping the remaining destinations and a single active page", () => {
   const select = vi.fn();
