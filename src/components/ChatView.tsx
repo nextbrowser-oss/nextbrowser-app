@@ -1,4 +1,5 @@
-import { Tooltip } from "../shared/ui";
+import { IconButton, OverlayScrollArea, Tooltip } from "../shared/ui";
+import "./chat.css";
 import { type ClipboardEvent, type DragEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store";
@@ -455,8 +456,6 @@ export function ChatView() {
             </span></Tooltip>
           )}
         </div>
-        <hr className="divider" />
-
         {terminalMounted && (
           <div className={"terminal-chat-layer" + (terminalChat ? "" : " is-hidden")} aria-hidden={!terminalChat}>
             <AgentTerminal
@@ -519,8 +518,169 @@ export function ChatView() {
           </div>
         )}
         {!terminalChat && (
-          <>
-        <div className="messages">
+          <OverlayScrollArea contentClassName="messages" overlayClassName="chat-composer-dock" overlay={
+            <>
+              {!ready && messages.length > 0 && (
+                <div className="chat-agent-error small" role="status">
+                  <span>{agentName} · {agentNeedsLogin ? "Sign-in required" : builtinAgent ? "Not set up" : "Not connected"}</span>{" "}
+                  {builtinAgent ? (
+                    <button className="btn-bordered" onClick={openAgentSettings}>Set up {agentName}</button>
+                  ) : (
+                    <button className="btn-bordered" disabled={s.runtime[agentId]?.authorizing}
+                      onClick={() => agentNeedsLogin ? s.loginAgent() : s.authorizeAgent()}>
+                      {s.runtime[agentId]?.authorizing ? "Checking…" : agentNeedsLogin ? `Sign in to ${agentName}` : `Connect ${agentName}`}
+                    </button>
+                  )}
+                </div>
+              )}
+              {!ready && agentError && (messages.length > 0 || terminalChat) && (
+                <div className="chat-agent-error error small">
+                  <UserFacingError message={agentError} surface="agent_chat" />
+                  <AgentInstallLink agent={agentSpec} error={agentError} surface="agent_chat" />
+                </div>
+              )}
+              {guideDraftLoaded && (
+                <div className="guide-draft-notice" role="status">
+                  <Icon name="doc.text" size={14} />
+                  <span>
+                    <strong>Example loaded.</strong>{" "}
+                    {ready ? "Review it, then send when ready." : "Connect an agent before sending."}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraft("");
+                      setGuideDraftLoaded(false);
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+              {attachments.length > 0 && (
+                <div className="pending-attachments">
+                  {attachments.map((file) => (
+                    <Tooltip key={file.path} content={file.path}><span className="attachment-chip">
+                      <Icon name="paperclip" size={12} />
+                      <span>{file.name}</span>
+                      <button
+                        className="attachment-remove"
+                        aria-label={`Remove ${file.name}`}
+                        onClick={() => {
+                          trackEvent("chat_file_removed");
+                          setAttachments((items) => items.filter((item) => item.path !== file.path));
+                        }}
+                      >×</button>
+                    </span></Tooltip>
+                  ))}
+                </div>
+              )}
+              {actionError && !editingReply && (
+                <div className="chat-action-error error small" role="alert">{actionError}</div>
+              )}
+              <div className="composer" onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
+                <textarea
+                  ref={composerRef}
+                  aria-label={`Message ${agentName}`}
+                  rows={2}
+                  value={draft}
+                  placeholder={
+                    ready
+                      ? `Message ${agentName} — Enter to queue`
+                      : "Connect an agent first"
+                  }
+                  disabled={!ready}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onPaste={handlePaste}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                      e.preventDefault();
+                      send();
+                    }
+                  }}
+                />
+                <div className="composer-actions">
+                  <IconButton
+                    label="Attach local files to the next message"
+                    appearance="embedded"
+                    disabled={!ready}
+                    onClick={() => void attachFiles()}
+                  >
+                    <Icon name="paperclip" size={19} />
+                  </IconButton>
+                  <div className="script-wrap" ref={scriptWrapRef}>
+                    <IconButton
+                      label="Open scripts menu"
+                      appearance="embedded"
+                      aria-haspopup="true"
+                      aria-expanded={scriptOpen}
+                      onClick={() => setScriptOpen((o) => !o)}
+                    >
+                      <Icon name="scroll" size={20} />
+                    </IconButton>
+                    {scriptOpen && (
+                      <div className="script-menu">
+                        <div className="section">OFFICIAL SCRIPTS</div>
+                        {officialScripts.map((sc) => (
+                          <Tooltip key={sc.id} content={`Run ${sc.title}`}><button
+                            onClick={() => {
+                              setScriptOpen(false);
+                              const domain = looksLikeDomain(draft.trim()) ? draft.trim() : "";
+                              if (domain) setDraft("");
+                              s.runScript(sc, domain);
+                            }}
+                          >
+                            {sc.title}
+                          </button></Tooltip>
+                        ))}
+                        {customScripts.length > 0 && (
+                          <>
+                            <div className="section">MY SCRIPTS</div>
+                            {customScripts.map((cs) => (
+                              <Tooltip key={cs.id} content={`Run ${cs.title}`}><button
+                                onClick={() => {
+                                  setScriptOpen(false);
+                                  const domain = looksLikeDomain(draft.trim()) ? draft.trim() : "";
+                                  if (domain) setDraft("");
+                                  s.runCustomScript({ ...cs, domain: domain || cs.domain });
+                                }}
+                              >
+                                {cs.title}
+                              </button></Tooltip>
+                            ))}
+                          </>
+                        )}
+                        {officialScripts.length === 0 && customScripts.length === 0 && (
+                          <Tooltip content="Create a custom script"><button onClick={openScriptCreator}>
+                            <Icon name="plus" size={13} /> Create script
+                          </button></Tooltip>
+                        )}
+                        {(officialScripts.length > 0 || customScripts.length > 0) && (
+                          <Tooltip content="Create a new custom script"><button onClick={openScriptCreator}>
+                            <Icon name="plus" size={13} /> Create script
+                          </button></Tooltip>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {running ? (
+                    <IconButton label="Stop the running agent response" appearance="embedded" onClick={() => s.stopRunning()}>
+                      <Icon name="stop.fill" size={16} />
+                    </IconButton>
+                  ) : (
+                    <IconButton
+                      label="Send message to the selected agent"
+                      appearance="embedded"
+                      disabled={!ready || (!draft.trim() && attachments.length === 0)}
+                      onClick={send}
+                    >
+                      <Icon name="arrow.up" size={21} />
+                    </IconButton>
+                  )}
+                </div>
+              </div>
+            </>
+          }>
           {messages.length === 0 && (
             <div className="empty-state chat-empty-state">
               <div className="empty-state-mark">
@@ -656,167 +816,7 @@ export function ChatView() {
             />
           ))}
           <div ref={bottomRef} />
-        </div>
-
-        <hr className="divider" />
-        {!ready && messages.length > 0 && (
-          <div className="chat-agent-error small" role="status">
-            <span>{agentName} · {agentNeedsLogin ? "Sign-in required" : builtinAgent ? "Not set up" : "Not connected"}</span>{" "}
-            {builtinAgent ? (
-              <button className="btn-bordered" onClick={openAgentSettings}>Set up {agentName}</button>
-            ) : (
-              <button className="btn-bordered" disabled={s.runtime[agentId]?.authorizing}
-                onClick={() => agentNeedsLogin ? s.loginAgent() : s.authorizeAgent()}>
-                {s.runtime[agentId]?.authorizing ? "Checking…" : agentNeedsLogin ? `Sign in to ${agentName}` : `Connect ${agentName}`}
-              </button>
-            )}
-          </div>
-        )}
-        {!ready && agentError && (messages.length > 0 || terminalChat) && (
-          <div className="chat-agent-error error small">
-            <UserFacingError message={agentError} surface="agent_chat" />
-            <AgentInstallLink agent={agentSpec} error={agentError} surface="agent_chat" />
-          </div>
-        )}
-        {guideDraftLoaded && (
-          <div className="guide-draft-notice" role="status">
-            <Icon name="doc.text" size={14} />
-            <span>
-              <strong>Example loaded.</strong>{" "}
-              {ready ? "Review it, then send when ready." : "Connect an agent before sending."}
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                setDraft("");
-                setGuideDraftLoaded(false);
-              }}
-            >
-              Clear
-            </button>
-          </div>
-        )}
-        {attachments.length > 0 && (
-          <div className="pending-attachments">
-            {attachments.map((file) => (
-              <Tooltip key={file.path} content={file.path}><span className="attachment-chip">
-                <Icon name="paperclip" size={12} />
-                <span>{file.name}</span>
-                <button
-                  className="attachment-remove"
-                  aria-label={`Remove ${file.name}`}
-                  onClick={() => {
-                    trackEvent("chat_file_removed");
-                    setAttachments((items) => items.filter((item) => item.path !== file.path));
-                  }}
-                >×</button>
-              </span></Tooltip>
-            ))}
-          </div>
-        )}
-        {actionError && !editingReply && (
-          <div className="chat-action-error error small" role="alert">{actionError}</div>
-        )}
-        <div className="composer" onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
-          <textarea
-            ref={composerRef}
-            value={draft}
-            placeholder={
-              ready
-                ? `Message ${agentName} — Enter to queue`
-                : "Connect an agent first"
-            }
-            disabled={!ready}
-            onChange={(e) => setDraft(e.target.value)}
-            onPaste={handlePaste}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
-                e.preventDefault();
-                send();
-              }
-            }}
-          />
-          <div className="composer-actions">
-            <Tooltip content="Attach local files to the next message"><button
-              className="plain-icon-btn"
-              aria-label="Attach local files to the next message"
-              disabled={!ready}
-              onClick={() => void attachFiles()}
-            >
-              <Icon name="paperclip" size={19} />
-            </button></Tooltip>
-            <div className="script-wrap" ref={scriptWrapRef}>
-              <Tooltip content="Open scripts menu"><button
-                className="plain-icon-btn"
-                aria-label="Open scripts menu"
-                aria-haspopup="true"
-                aria-expanded={scriptOpen}
-                onClick={() => setScriptOpen((o) => !o)}
-              >
-                <Icon name="scroll" size={20} />
-              </button></Tooltip>
-              {scriptOpen && (
-                <div className="script-menu">
-                  <div className="section">OFFICIAL SCRIPTS</div>
-                  {officialScripts.map((sc) => (
-                    <Tooltip key={sc.id} content={`Run ${sc.title}`}><button
-                      onClick={() => {
-                        setScriptOpen(false);
-                        const domain = looksLikeDomain(draft.trim()) ? draft.trim() : "";
-                        if (domain) setDraft("");
-                        s.runScript(sc, domain);
-                      }}
-                    >
-                      {sc.title}
-                    </button></Tooltip>
-                  ))}
-                  {customScripts.length > 0 && (
-                    <>
-                      <div className="section">MY SCRIPTS</div>
-                      {customScripts.map((cs) => (
-                        <Tooltip key={cs.id} content={`Run ${cs.title}`}><button
-                          onClick={() => {
-                            setScriptOpen(false);
-                            const domain = looksLikeDomain(draft.trim()) ? draft.trim() : "";
-                            if (domain) setDraft("");
-                            s.runCustomScript({ ...cs, domain: domain || cs.domain });
-                          }}
-                        >
-                          {cs.title}
-                        </button></Tooltip>
-                      ))}
-                    </>
-                  )}
-                  {officialScripts.length === 0 && customScripts.length === 0 && (
-                    <Tooltip content="Create a custom script"><button onClick={openScriptCreator}>
-                      <Icon name="plus" size={13} /> Create script
-                    </button></Tooltip>
-                  )}
-                  {(officialScripts.length > 0 || customScripts.length > 0) && (
-                    <Tooltip content="Create a new custom script"><button onClick={openScriptCreator}>
-                      <Icon name="plus" size={13} /> Create script
-                    </button></Tooltip>
-                  )}
-                </div>
-              )}
-            </div>
-            {running ? (
-              <Tooltip content="Stop the running agent response"><button className="plain-icon-btn stop-btn" onClick={() => s.stopRunning()} aria-label="Stop the running agent response">
-                <Icon name="stop.circle.fill" size={22} className="error" />
-              </button></Tooltip>
-            ) : (
-              <Tooltip content="Send message to the selected agent"><button
-                className="plain-icon-btn send-btn"
-                disabled={!ready || (!draft.trim() && attachments.length === 0)}
-                onClick={send}
-                aria-label="Send message to the selected agent"
-              >
-                <Icon name="arrow.up.circle.fill" size={22} />
-              </button></Tooltip>
-            )}
-          </div>
-        </div>
-          </>
+          </OverlayScrollArea>
         )}
       </div>
       {projectCreatorOpen && createPortal((

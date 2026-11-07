@@ -2755,32 +2755,6 @@ body.is-resizing-sidebar {
 .mode-badge { display: inline-flex; align-items: center; gap: 4px; }
 .target-line { display: flex; align-items: center; gap: 6px; }
 .skill-status { display: flex; align-items: center; gap: 4px; }
-.composer {
-  display: flex;
-  gap: 8px;
-  padding: 12px 14px;
-  border-top: 1px solid var(--line-strong);
-  align-items: center;
-  flex: none;
-  background: var(--surface-1);
-}
-.composer textarea {
-  flex: 1;
-  resize: none;
-  min-height: 40px;
-  max-height: 140px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--line);
-  color: var(--text);
-  border-radius: 10px;
-  padding: 10px;
-  outline: none;
-}
-.composer textarea:focus {
-  border-color: color-mix(in srgb, var(--accent) 48%, var(--line-strong));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
-}
-.composer-actions { display: flex; gap: 6px; align-items: center; }
 .pending-attachments { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 0; }
 .attachment-chip, .message-attachment {
   display: inline-flex;
@@ -7837,7 +7811,6 @@ pre,
 .sidebar,
 .tabbar,
 .chat-header,
-.composer,
 .claw-card,
 .modal-card,
 .profiles-panel-head,
@@ -7979,8 +7952,7 @@ pre,
 .search-box,
 .modal-card input,
 .modal-card textarea,
-.modal-card select,
-.composer textarea {
+.modal-card select {
   border-color: var(--input-border);
   background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--white) 5%, transparent);
@@ -7989,8 +7961,7 @@ pre,
 .search-box:focus-within,
 .modal-card input:focus,
 .modal-card textarea:focus,
-.modal-card select:focus,
-.composer textarea:focus {
+.modal-card select:focus {
   outline: none;
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line-strong));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
@@ -8087,19 +8058,6 @@ pre,
   background: var(--surface-3);
 }
 
-.composer {
-  padding: 12px 16px 14px;
-  border-top-color: var(--line);
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
-  backdrop-filter: blur(24px);
-}
-
-.composer textarea {
-  min-height: 44px;
-  border-radius: var(--radius-md);
-  padding: 11px 12px;
-}
-
 .agent-terminal-panel {
   border-color: var(--line-strong);
   background: var(--terminal-background);
@@ -8167,8 +8125,7 @@ pre,
 }
 
 .tabbar,
-.chat-header,
-.composer {
+.chat-header {
   background: var(--material-floating);
   backdrop-filter: blur(24px) saturate(135%);
 }
@@ -8280,7 +8237,6 @@ pre,
   .sidebar,
   .tabbar,
   .chat-header,
-  .composer,
   .workspace-menu,
   .script-menu,
   .agent-picker-menu,
@@ -8292,8 +8248,7 @@ pre,
 
   .sidebar,
   .tabbar,
-  .chat-header,
-  .composer { background: var(--panel); }
+  .chat-header { background: var(--panel); }
   .workspace-menu,
   .script-menu,
   .agent-picker-menu,
@@ -8308,7 +8263,6 @@ pre,
   .sidebar,
   .tabbar,
   .chat-header,
-  .composer,
   .workspace-menu,
   .modal-card {
     background: var(--bg-elevated);

@@ -1797,7 +1797,7 @@ export function App() {
         />
       </aside>
       {!sidebarCollapsed && <Tooltip content="Resize sidebar"><div id="sidebar-resize" className="resize-handle" aria-label="Resize sidebar" /></Tooltip>}
-      <main className="content">
+      <main className={"content" + (tab === "chat" ? " content-chat" : "")}>
         <nav className="tabbar">
           {!isPrimaryAppTab(tab) && backTarget && (
             <Tooltip content={`Back to ${appTabLabel(backTarget)} · Esc`}><button

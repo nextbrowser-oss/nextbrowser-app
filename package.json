@@ -22,7 +22,8 @@
     "icons": "node scripts/generate-icons.mjs",
     "validate:skills": "node scripts/validate-skills.mjs",
     "test:critical": "node scripts/test-critical.mjs",
-    "test:tooltips": "node scripts/test-shared-tooltips.mjs"
+    "test:tooltips": "node scripts/test-shared-tooltips.mjs",
+    "test:composer": "node scripts/test-chat-composer.mjs"
   },
   "dependencies": {
     "@fontsource/hanken-grotesk": "^5.3.0",

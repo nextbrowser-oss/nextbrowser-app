@@ -5,9 +5,12 @@ import { resolveTheme, terminalColorKeys, terminalThemeFromPalette } from "./the
 
 const palette = readFileSync(new URL("./palette.css", import.meta.url), "utf8")
   .replace(/\/\*[\s\S]*?\*\//g, "");
-const styles = (palette + readFileSync(new URL("./styles.css", import.meta.url), "utf8")
-  + readFileSync(new URL("./shared/ui/tooltip/tooltip.css", import.meta.url), "utf8"))
-  .replace(/\/\*[\s\S]*?\*\//g, "");
+function rendererStyles(directory: URL): string {
+  return readdirSync(directory, { withFileTypes: true }).map(entry => entry.isDirectory()
+    ? rendererStyles(new URL(`${entry.name}/`, directory))
+    : entry.name.endsWith(".css") ? readFileSync(new URL(entry.name, directory), "utf8") : "").join("\n");
+}
+const styles = rendererStyles(new URL("./", import.meta.url)).replace(/\/\*[\s\S]*?\*\//g, "");
 
 function declaredTokens(css: string): Set<string> {
   return new Set([...css.matchAll(/(--[\w-]+)\s*:/g)].map((match) => match[1]));
@@ -89,6 +92,8 @@ describe("theme stylesheet", () => {
       ["--on-primary-action", "--primary-action-hover"],
       ["--on-danger", "--danger-action"],
       ["--tooltip-text", "--tooltip-solid-bg"],
+      ["--glass-inverse-text", "--glass-inverse-solid"],
+      ["--glass-inverse-muted", "--glass-inverse-solid"],
     ]) expect(contrast(color(foreground), color(background))).toBeGreaterThanOrEqual(4.5);
   });
 

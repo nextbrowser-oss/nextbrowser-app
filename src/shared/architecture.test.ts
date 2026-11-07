@@ -28,7 +28,7 @@ describe("shared UI architecture", () => {
         const fromShared = path.startsWith(shared + "/") || path.startsWith(shared + "\\");
         const toShared = target === shared || target.startsWith(shared + "/") || target.startsWith(shared + "\\");
         if (fromShared && !toShared) violations.push(`${label(path)} imports upwards: ${specifier}`);
-        if (!fromShared && toShared && !/^shared\/ui(?:\/tooltip)?(?:\/index)?$/.test(label(target))) violations.push(`${label(path)} imports a private shared file: ${specifier}`);
+        if (!fromShared && toShared && !/^shared\/ui(?:\/[a-z][a-z0-9-]*)?(?:\/index)?$/.test(label(target))) violations.push(`${label(path)} imports a private shared file: ${specifier}`);
       }
     }
     expect(violations).toEqual([]);

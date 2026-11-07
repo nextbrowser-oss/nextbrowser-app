@@ -1,0 +1,140 @@
+import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
+import { resolve } from "node:path";
+import { createServer } from "vite";
+import { chromium } from "playwright-core";
+
+// Mount the real ChatView and shared UI with a disposable store. All external traffic is blocked.
+const fixture = `
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import {ChatView} from '/src/components/ChatView.tsx';
+import {TooltipProvider} from '/src/shared/ui/index.ts';
+import {useStore} from '/src/store.ts';
+import '/src/styles.css';
+import '@fontsource/hanken-grotesk/400.css';
+import '@fontsource/hanken-grotesk/500.css';
+import '@fontsource/hanken-grotesk/600.css';
+document.documentElement.dataset.theme=new URL(location.href).searchParams.get('theme')||'light';
+window.sent=[];
+window.nextbrowser={invoke:async(command)=>command==='select_chat_files'?[{name:'brief.md',path:'/fixture/brief.md',size:42}]:command==='multilogin_status'?{connected:false,valid:false}:undefined,on:()=>()=>{}};
+const messages=Array.from({length:32},(_,i)=>({id:'message-'+i,role:i%2?'assistant':'user',text:i%2?'The shared palette keeps the interface consistent in both themes. Scroll this conversation to see the messages pass behind the floating glass composer.\\n\\nThe input stays available while you read earlier messages.':'Review the next part of the interface and keep the dialog easy to read.',status:'done',createdAt:Date.now()-60000*(32-i)}));
+useStore.setState({agentId:'codex',terminalChat:false,checking:false,authed:true,showOnboarding:false,
+ conversations:[{id:'fixture-chat',agentId:'codex',workspaceId:'fixture',title:'Project 1',messages,createdAt:Date.now()}],
+ workspaces:[{id:'fixture',name:'UI review',profileNames:[],profileToolsets:{},createdAt:Date.now(),updatedAt:Date.now()}],activeWorkspaceId:'fixture',
+ activeConversation:()=>useStore.getState().conversations[0],agentReady:()=>true,agentVersion:()=>'1.0.0',agentLoggedIn:()=>true,agentError:()=>undefined,
+ enqueue:(...args)=>window.sent.push(args),selectedProfile:undefined,defaultSession:undefined,customScripts:[],appliedScripts:[]});
+window.fixtureStore=useStore;
+createRoot(document.getElementById('root')).render(React.createElement(TooltipProvider,null,React.createElement(ChatView)));
+`;
+const executablePath = [process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+  "C:/Program Files/Google/Chrome/Application/chrome.exe", "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", chromium.executablePath()].find(path => path && existsSync(path));
+if (!executablePath) throw new Error("Set PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH to an installed Chromium browser.");
+const output = resolve("e2e-out/chat-composer");
+await mkdir(output, { recursive: true });
+const server = await createServer({ configFile: false, define: { __APP_VERSION__: JSON.stringify("composer-fixture") }, server: { host: "127.0.0.1", port: 0 }, plugins: [{
+  name: "chat-composer-fixture",
+  resolveId: id => id === "virtual:chat-composer-fixture" ? "\0chat-composer-fixture" : undefined,
+  load: id => id === "\0chat-composer-fixture" ? fixture : undefined,
+  configureServer(server) {
+    server.middlewares.use((request, response, next) => {
+      if (!request.url?.startsWith("/composer-fixture")) return next();
+      response.setHeader("Content-Type", "text/html");
+      response.end('<!doctype html><html><head><meta charset="utf-8"><title>Isolated ChatView fixture</title><style>#root{display:flex;height:100dvh}</style></head><body><div id="root"></div><script type="module" src="/@id/__x00__chat-composer-fixture"></script></body></html>');
+    });
+  },
+}] });
+let browser;
+try {
+  await server.listen();
+  browser = await chromium.launch({ executablePath, headless: true });
+  const page = await browser.newPage({ viewport: { width: 1100, height: 800 }, reducedMotion: "reduce" });
+  await page.route("**/*", route => new URL(route.request().url()).hostname === "127.0.0.1" ? route.continue() : route.abort());
+  const errors = [];
+  page.on("pageerror", error => errors.push(error.message));
+  const url = `http://127.0.0.1:${server.httpServer.address().port}/composer-fixture`;
+  const textarea = page.getByRole("textbox", { name: "Message Codex", exact: true });
+  const send = page.getByRole("button", { name: "Send message to the selected agent" });
+  const latest = page.locator(".messages > .msg-assistant-wrap").last();
+  const composer = page.locator(".composer");
+  const scrollToEnd = async () => {
+    await page.locator(".messages").evaluate(element => { element.scrollTop = element.scrollHeight; });
+    await page.waitForFunction(() => { const scroll = document.querySelector('.messages'); return scroll.scrollHeight-scroll.clientHeight-scroll.scrollTop<2; });
+  };
+  const lastIsVisible = async () => assert.ok((await latest.boundingBox()).y + (await latest.boundingBox()).height <= (await composer.boundingBox()).y, "last message clears the floating input");
+  for (const theme of ["light", "dark"]) {
+    await page.goto(`${url}?theme=${theme}`);
+    await textarea.waitFor();
+    await page.evaluate(() => document.fonts.ready);
+    await scrollToEnd();
+    await lastIsVisible();
+    const colors = await composer.evaluate(element => ({ bg: getComputedStyle(element).backgroundColor, text: getComputedStyle(element).color, border: getComputedStyle(element).borderWidth, blur: getComputedStyle(element).backdropFilter }));
+    assert.equal(colors.border, "0px");
+    assert.equal(colors.text, theme === "light" ? "rgb(255, 255, 255)" : "rgb(23, 23, 28)");
+    assert.ok(colors.bg.includes(theme === "light" ? "25, 25, 32" : "244, 244, 250"));
+    assert.ok(colors.blur.includes("blur(32px)"));
+    assert.equal(await textarea.evaluate(element => getComputedStyle(element).borderWidth), "0px");
+    assert.equal(await send.isDisabled(), true);
+    const button = await send.boundingBox();
+    assert.equal(button.width, button.height);
+    assert.equal(await send.evaluate(element => getComputedStyle(element).borderRadius), "50%");
+    await textarea.fill("A multiline draft\n".repeat(12));
+    await page.waitForFunction(() => document.querySelector('.composer').getBoundingClientRect().height>180);
+    await lastIsVisible();
+    await page.getByRole("button", { name: "Attach local files to the next message" }).click();
+    await page.getByText("brief.md", { exact: true }).waitFor();
+    await scrollToEnd();
+    await lastIsVisible();
+    await page.getByRole("button", { name: "Open scripts menu" }).click();
+    await page.locator(".script-menu").waitFor();
+    assert.ok((await page.locator(".script-menu").boundingBox()).height > 0);
+    await page.keyboard.press("Escape");
+    await page.locator(".script-menu").waitFor({ state: "detached" });
+    await page.getByRole("button", { name: "Remove brief.md" }).click();
+    await textarea.fill("Hello");
+    await textarea.press("Shift+Enter");
+    assert.ok((await textarea.inputValue()).includes("\n"));
+    assert.equal(await page.evaluate(() => window.sent.length), 0);
+    await textarea.press("Enter");
+    assert.equal(await page.evaluate(() => window.sent[0][0]), "Hello");
+    assert.equal(await textarea.inputValue(), "");
+    await textarea.fill("Preview the lighter interface");
+    await page.getByRole("button", { name: "Send message to the selected agent" }).click();
+    assert.equal(await page.evaluate(() => window.sent.length), 2);
+
+    // Put an earlier message under the glass, rather than only taking an empty-background screenshot.
+    await page.locator(".messages").evaluate(element => {
+      const earlier = element.querySelectorAll('.msg-assistant-wrap')[12];
+      const panel = document.querySelector('.composer').getBoundingClientRect();
+      element.scrollTop += earlier.getBoundingClientRect().top - panel.top - 12;
+    });
+    await page.screenshot({ path: resolve(output, `${theme}-chat.png`) });
+    await page.setViewportSize({ width: 420, height: 620 });
+    await textarea.fill("Long draft on a narrow window\n".repeat(8));
+    await scrollToEnd();
+    await lastIsVisible();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
+    await page.screenshot({ path: resolve(output, `${theme}-compact.png`) });
+    await page.setViewportSize({ width: 1100, height: 800 });
+    await page.evaluate(() => {
+      window.fixtureStore.setState(state => ({
+        runtime: { ...state.runtime, codex: { ...state.runtime.codex, runningReplyId: 'message-31' } },
+        stopRunning: () => { window.stopped = true; },
+      }));
+    });
+    await page.getByRole("button", { name: "Stop the running agent response" }).click();
+    assert.equal(await page.evaluate(() => window.stopped), true);
+    await page.evaluate(() => window.fixtureStore.setState({ agentReady: () => false }));
+    await page.getByRole("button", { name: "Attach local files to the next message" }).waitFor();
+    assert.equal(await textarea.isDisabled(), true);
+    await scrollToEnd();
+    await lastIsVisible();
+    console.log(`${theme}: glass inversion, round actions, text entry, send, attachments, menu, growing overlay and compact scrolling passed`);
+  }
+  assert.deepEqual(errors, []);
+  console.log(`Screenshots: ${output}`);
+} finally {
+  await browser?.close();
+  await server.close();
+}

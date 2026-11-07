@@ -1,0 +1,25 @@
+.overlay-scroll-area {
+  --overlay-height: 112px;
+  position: relative;
+  isolation: isolate;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.overlay-scroll-area > .overlay-scroll-area__content {
+  box-sizing: border-box;
+  height: 100%;
+  overflow: auto;
+  padding-bottom: calc(var(--overlay-height) + 24px);
+  scroll-padding-bottom: calc(var(--overlay-height) + 24px);
+}
+.overlay-scroll-area__overlay {
+  position: absolute;
+  z-index: 2;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+.overlay-scroll-area__overlay > * { pointer-events: auto; }
