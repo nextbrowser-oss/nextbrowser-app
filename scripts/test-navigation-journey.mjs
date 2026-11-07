@@ -152,6 +152,33 @@ try {
   await editorDialog.waitFor();
   const editorBounds = await editorDialog.boundingBox();
   assert.ok(editorBounds.x >= 0 && editorBounds.y >= 0 && editorBounds.y + editorBounds.height <= 900);
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+    await page.waitForTimeout(250);
+    const contrastResults = await editorDialog.evaluate(editor => {
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
+      const ctx = canvas.getContext('2d');
+      const rgba = color => { ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = color; ctx.fillRect(0, 0, 1, 1); return [...ctx.getImageData(0, 0, 1, 1).data]; };
+      const over = (color, base) => color.slice(0, 3).map((v, i) => v * color[3] / 255 + base[i] * (1 - color[3] / 255));
+      const luminance = rgb => rgb.map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }).reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i], 0);
+      const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + .05) / (Math.min(luminance(a), luminance(b)) + .05);
+      const base = rgba(getComputedStyle(editor).backgroundColor);
+      const checks = [...editor.querySelectorAll('h3, p, label, .field-label, input, textarea, select, .weekday-btn, .preset-row button, .secondary')].map(node => {
+        const style = getComputedStyle(node), background = over(rgba(style.backgroundColor), base);
+        return { element: node.tagName + ':' + (node.textContent || node.getAttribute('placeholder') || node.getAttribute('type') || '').slice(0, 45), ratio: contrast(over(rgba(style.color), background), background) };
+      });
+      for (const node of editor.querySelectorAll('input[placeholder], textarea[placeholder]')) {
+        const style = getComputedStyle(node), placeholder = getComputedStyle(node, '::placeholder'), background = over(rgba(style.backgroundColor), base);
+        checks.push({ element: 'placeholder:' + node.getAttribute('placeholder'), ratio: contrast(over(rgba(placeholder.color), background), background) });
+      }
+      return { background: base, colorScheme: getComputedStyle(editor).colorScheme, checks };
+    });
+    assert.ok(contrastResults.background[3] >= 240 && contrastResults.background.slice(0, 3).every(c => c < 100), `nested schedule uses a dark surface in ${theme}: ${JSON.stringify(contrastResults)}`);
+    assert.equal(contrastResults.colorScheme, 'dark');
+    for (const check of contrastResults.checks) assert.ok(check.ratio >= 4.5, `${theme} schedule contrast: ${JSON.stringify(check)}`);
+    await page.screenshot({ path: `e2e-out/schedule-editor-${theme}.png` });
+  }
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
   await page.keyboard.press('Escape');
   await editorDialog.waitFor({ state: 'detached' });
   assert.equal(await scheduleDialog.isVisible(), true);
