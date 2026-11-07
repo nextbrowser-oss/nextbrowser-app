@@ -21,7 +21,7 @@ window.sent=[];
 window.nextbrowser={invoke:async(command)=>command==='select_chat_files'?[{name:'brief.md',path:'/fixture/brief.md',size:42}]:command==='multilogin_status'?{connected:false,valid:false}:undefined,on:()=>()=>{},filePathForFile:file=>'/fixture/'+file.name};
 const messages=Array.from({length:32},(_,i)=>({id:'message-'+i,role:i%2?'assistant':'user',text:i%2?'The shared palette keeps the interface consistent in both themes. Scroll this conversation to see the messages pass behind the floating glass composer.\\n\\nThe input stays available while you read earlier messages.':'Review the next part of the interface and keep the dialog easy to read.',status:'done',createdAt:Date.now()-60000*(32-i)}));
 useStore.setState({agentId:'codex',terminalChat:false,checking:false,authed:true,showOnboarding:false,
- conversations:[{id:'fixture-chat',agentId:'codex',workspaceId:'fixture',title:'Project 1',messages,createdAt:Date.now()}],
+ conversations:[{id:'fixture-chat',agent:'codex',workspaceId:'fixture',title:'Project 1',messages,createdAt:Date.now(),updatedAt:Date.now()}],
  workspaces:[{id:'fixture',name:'UI review',profileNames:[],profileToolsets:{},createdAt:Date.now(),updatedAt:Date.now()}],activeWorkspaceId:'fixture',
  activeConversation:()=>useStore.getState().conversations[0],agentReady:()=>true,agentVersion:()=>'1.0.0',agentLoggedIn:()=>true,agentError:()=>undefined,
  enqueue:(...args)=>window.sent.push(args),selectedProfile:undefined,defaultSession:undefined,customScripts:[],appliedScripts:[]});
@@ -75,6 +75,11 @@ try {
     await page.goto(`${url}?theme=${theme}`);
     await textarea.waitFor();
     await page.evaluate(() => document.fonts.ready);
+    assert.equal(await page.getByRole('group', { name: 'Project chat mode' }).count(), 0);
+    assert.equal(await page.getByText(/Separate chat context/).count(), 0);
+    const projectTitle = page.getByRole('button', { name: 'Project 1', exact: true });
+    assert.ok(await projectTitle.locator('strong').evaluate(node => Number(getComputedStyle(node).fontWeight)) >= 700);
+    assert.ok((await page.locator('.chat-header').boundingBox()).height < 50);
     await scrollToEnd();
     await lastIsVisible();
     assert.equal(await jump.count(), 0, "no jump action while already at the bottom");
@@ -208,6 +213,72 @@ try {
     await transfer.dispose();
     await scrollToEnd();
     await lastIsVisible();
+    await page.evaluate(() => window.fixtureStore.setState({ agentReady: () => true, workingDir: '/fixture/project', runtime: {} }));
+    await page.getByRole('button', { name: 'Open commands', exact: true }).click();
+    const commandDialog = page.getByRole('dialog', { name: 'Run command', exact: true });
+    await commandDialog.waitFor();
+    await page.getByRole('textbox', { name: 'Command to run' }).fill('git status --short');
+    await page.screenshot({ path: resolve(output, `${theme}-commands.png`) });
+    await commandDialog.getByRole('button', { name: 'Run in chat' }).click();
+    await commandDialog.waitFor({ state: 'detached' });
+    const commandRequest = await page.evaluate(() => window.sent.at(-1)[0]);
+    assert.ok(commandRequest.includes('git status --short') && commandRequest.includes('/fixture/project'));
+    assert.equal(await page.getByRole('textbox', { name: 'Message Codex' }).isVisible(), true);
+    // Switching uses the existing selector, including another agent/workspace.
+    await page.evaluate(() => window.fixtureStore.setState(state => ({
+      conversations: [...state.conversations, { id: 'recent-project', agent: 'claude', workspaceId: 'other', title: 'Recent customer research', messages: [], createdAt: Date.now(), updatedAt: Date.now() + 1 }],
+      selectConversation: id => { window.selectedProject = id; },
+    })));
+    await projectTitle.click();
+    const recent = page.getByRole('dialog', { name: 'Recent projects' });
+    await recent.waitFor();
+    assert.ok((await recent.getByRole('button').first().innerText()).includes('Recent customer research'));
+    await page.screenshot({ path: resolve(output, `${theme}-recent-projects.png`) });
+    await recent.getByRole('button', { name: /Recent customer research/ }).click();
+    assert.equal(await page.evaluate(() => window.selectedProject), 'recent-project');
+    await recent.waitFor({ state: 'detached' });
+    // A persisted terminal project still opens the regular chat and retains its summary.
+    await page.evaluate(() => window.fixtureStore.setState(state => ({
+      terminalChat: true,
+      conversations: state.conversations.map((c, i) => i ? c : { ...c, chatMode: 'terminal', terminalPreview: 'Saved terminal activity for this project.', executionTarget: 'vps' }),
+    })));
+    assert.equal(await textarea.isVisible(), true);
+    await page.getByText('Previous terminal activity', { exact: true }).click();
+    await page.getByText('Saved terminal activity for this project.', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Open commands', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Command to run' }).fill('pwd');
+    await page.getByRole('button', { name: 'Run in chat' }).click();
+    const remoteRequest = await page.evaluate(() => window.sent.at(-1));
+    assert.ok(remoteRequest[0].includes('selected VPS only') && remoteRequest[0].includes('pwd'));
+    assert.ok(remoteRequest[4].includes('Saved terminal activity for this project.'));
+    await page.evaluate(() => window.fixtureStore.setState({
+      runScript: (script, host) => { window.scriptRun = { title: script.title, host }; },
+      runCustomScript: script => { window.scriptRun = { title: script.title, host: script.domain }; },
+    }));
+    await page.getByRole('button', { name: 'Open scripts menu' }).click();
+    await page.locator('.script-menu button').first().click();
+    assert.ok((await page.evaluate(() => window.scriptRun)).title);
+    assert.equal(await textarea.isVisible(), true);
+    for (const width of [420, 320]) {
+      await page.setViewportSize({ width, height: 620 });
+      await page.getByRole('button', { name: 'Open commands', exact: true }).click();
+      const bounds = await commandDialog.boundingBox();
+      assert.ok(bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= width && bounds.y + bounds.height <= 620);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      await page.keyboard.press('Escape');
+    }
+    await page.setViewportSize({ width: 1100, height: 800 });
+    await page.evaluate(() => {
+      window.fixtureStore.setState({ createProject: (...args) => { window.createdProject = args; return 'created'; } });
+      window.dispatchEvent(new Event('nextbrowser:create-project'));
+    });
+    const createProject = page.getByRole('dialog', { name: 'New project', exact: true });
+    await createProject.waitFor();
+    assert.equal(await createProject.getByRole('radio').count(), 0);
+    await createProject.getByPlaceholder('Product research').fill('New chat project');
+    await createProject.getByRole('button', { name: 'Create project', exact: true }).click();
+    assert.deepEqual(await page.evaluate(() => window.createdProject), ['New chat project', 'chat', 'codex']);
+    await createProject.waitFor({ state: 'detached' });
     console.log(`${theme}: glass inversion, round actions, text entry, send, attachments, menu, growing overlay and compact scrolling passed`);
   }
   assert.deepEqual(errors, []);

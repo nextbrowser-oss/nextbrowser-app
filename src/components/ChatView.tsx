@@ -8,7 +8,7 @@ import { MarkdownText } from "./MarkdownText";
 import { Icon, Spinner } from "./Icon";
 import type { ChatAttachment, ChatMessage } from "../types";
 import { filePathForFile, invoke } from "../electronBridge";
-import { AGENTS, agentById, agentInvocation, agentSupportsTerminal, isBuiltinAgent, type AgentSpec } from "../agents";
+import { AGENTS, agentById, agentInvocation, isBuiltinAgent, type AgentSpec } from "../agents";
 import { OPEN_AGENT_SETTINGS_EVENT } from "../lib/appNavigation";
 import { trackEvent } from "../lib/analytics";
 import { needsSupportLink } from "../lib/userFacingError";
@@ -18,10 +18,10 @@ import { AgentInstallLink } from "./AgentInstallLink";
 import { takeGuideDraft } from "../lib/guideDraft";
 import { entityNameLimits } from "../lib/entityValidation";
 import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
-import { AgentTerminal } from "./AgentTerminal";
+import { RecentProjects } from "./RecentProjects";
+import { ChatCommands } from "./ChatCommands";
 import { uid } from "../lib/ids";
 import {
-  terminalBrowserTask,
   capturedWorkflowDomain,
   workflowInstructions,
   workflowQuality,
@@ -34,8 +34,7 @@ import {
   workflowDistillationPrompt,
   type DistilledWorkflow,
 } from "../lib/workflowDistillation";
-import { chatPromptWithDeferredContext, chatToTerminalHandoff, pendingChatContextFor, terminalToChatHandoff, type PendingChatContext } from "../lib/contextHandoff";
-import { agentVisibleProfileNames, browserProfileContext } from "../lib/browserProfileContext";
+import { chatPromptWithDeferredContext, terminalToChatHandoff } from "../lib/contextHandoff";
 import {
   MULTILOGIN_SELECTION_EVENT,
   activeMultiloginSelectionForWorkspace,
@@ -100,9 +99,6 @@ function errorSummary(text: string): string {
 export function ChatView() {
   const s = useStore();
   const agentId = s.agentId;
-  // The built-in Nextbrowser agent has no terminal: its projects stay in Chat.
-  const terminalAvailable = agentSupportsTerminal(agentId);
-  const terminalChat = s.terminalChat && terminalAvailable;
   const builtinAgent = isBuiltinAgent(agentId);
   const conv = s.activeConversation();
   const messages = conv?.messages ?? [];
@@ -130,14 +126,9 @@ export function ChatView() {
   const [projectCreatorOpen, setProjectCreatorOpen] = useState(false);
   const [projectAgentId, setProjectAgentId] = useState(s.agentId);
   const [projectName, setProjectName] = useState("");
-  const [projectMode, setProjectMode] = useState<"chat" | "terminal">("chat");
   const [workflowDraft, setWorkflowDraft] = useState<{ task: string; answer: ChatMessage; prepared: DistilledWorkflow } | null>(null);
   const [preparingWorkflowId, setPreparingWorkflowId] = useState<string | null>(null);
   const [workflowRejection, setWorkflowRejection] = useState<string | null>(null);
-  const [terminalMounted, setTerminalMounted] = useState(terminalChat);
-  const [terminalHandoff, setTerminalHandoff] = useState<{ id: string; text: string }>();
-  const [terminalToChatRequest, setTerminalToChatRequest] = useState<string>();
-  const [pendingTerminalContext, setPendingTerminalContext] = useState<PendingChatContext>();
   const [multiloginSelection, setMultiloginSelection] = useState<MultiloginProfileSelection>();
 
   useEffect(() => {
@@ -151,7 +142,6 @@ export function ChatView() {
     const openProjectCreator = () => {
       setProjectAgentId(useStore.getState().agentId);
       setProjectName("");
-      setProjectMode("chat");
       setProjectCreatorOpen(true);
     };
     window.addEventListener("nextbrowser:create-project", openProjectCreator);
@@ -167,17 +157,13 @@ export function ChatView() {
     window.addEventListener("keydown", dismissProjectCreator);
     return () => window.removeEventListener("keydown", dismissProjectCreator);
   }, [projectCreatorOpen]);
-  const previousTerminalChat = useRef(terminalChat);
-  const chatMessagesSharedWithTerminal = useRef(new Map<string, number>());
+  const legacyContextSent = useRef(new Set<string>());
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const scriptWrapRef = useRef<HTMLDivElement>(null);
   const scriptMenuRef = useRef<HTMLDivElement>(null);
   const conversationKey = `${agentId}:${conv?.id ?? "new"}`;
 
   useEffect(() => {
-    setTerminalHandoff(undefined);
-    setTerminalToChatRequest(undefined);
-    setPendingTerminalContext(undefined);
     // Pending attachments and an unsent draft belong to the previous chat.
     setAttachments([]);
     setDraft("");
@@ -186,9 +172,6 @@ export function ChatView() {
     setScriptOpen(false);
     setWorkflowDraft(null);
     setWorkflowRejection(null);
-    // Opening another project is not a chat/terminal handoff.
-    previousTerminalChat.current = terminalChat;
-    setTerminalMounted(terminalChat);
   }, [conversationKey]);
 
   useEffect(() => {
@@ -234,22 +217,6 @@ export function ChatView() {
   }, [scriptOpen]);
 
   useEffect(() => {
-    const wasTerminalChat = previousTerminalChat.current;
-    previousTerminalChat.current = terminalChat;
-    if (terminalChat) {
-      setTerminalMounted(true);
-      const sharedCount = chatMessagesSharedWithTerminal.current.get(conversationKey) ?? 0;
-      if (!wasTerminalChat && messages.length > sharedCount) {
-        // Only send messages created since the previous handoff. Replaying the
-        // whole conversation can make an agent execute an already-finished task.
-        setTerminalHandoff({ id: uid(), text: chatToTerminalHandoff(messages.slice(sharedCount), s.selectedProfile) });
-      }
-      return;
-    }
-    if (wasTerminalChat && terminalMounted) setTerminalToChatRequest(uid());
-  }, [terminalChat, terminalMounted, agentId, conv?.id, messages.length, s.selectedProfile]);
-
-  useEffect(() => {
     const stageDraft = (value: string) => {
       const next = value.trim();
       if (!next) return;
@@ -267,16 +234,19 @@ export function ChatView() {
     return () => window.removeEventListener("nextbrowser:guide-draft", onGuideDraft);
   }, []);
 
+  const enqueueInChat = (text: string, files: ChatAttachment[] = []) => {
+    const previous = !legacyContextSent.current.has(conversationKey) && conv?.terminalPreview
+      ? terminalToChatHandoff(conv.terminalPreview, s.selectedProfile) : undefined;
+    s.enqueue(text, undefined, undefined, files, chatPromptWithDeferredContext(previous, text));
+    if (previous) legacyContextSent.current.add(conversationKey);
+  };
   const send = () => {
     const t = draft.trim();
     if (!t && attachments.length === 0) return;
     const visiblePrompt = t || "Please inspect the attached file(s).";
-    const deferredContext = pendingChatContextFor(pendingTerminalContext, conv?.id);
-    const agentPrompt = chatPromptWithDeferredContext(deferredContext, visiblePrompt);
     setDraft("");
     setGuideDraftLoaded(false);
-    setPendingTerminalContext(undefined);
-    s.enqueue(visiblePrompt, undefined, undefined, attachments, agentPrompt);
+    enqueueInChat(visiblePrompt, attachments);
     setAttachments([]);
   };
 
@@ -411,13 +381,10 @@ export function ChatView() {
 
   return (
     <div className="chat-layout">
-      <FileDropArea className="chat" onFiles={handleDroppedFiles} disabled={!ready || terminalChat}
-        unavailableLabel={terminalChat ? "Switch to Chat to attach files" : "Connect an agent to attach files"}>
+      <FileDropArea className="chat" onFiles={handleDroppedFiles} disabled={!ready}
+        unavailableLabel="Connect an agent to attach files">
         <div className="chat-header">
-          <div className="chat-title-stack">
-            <strong className="chat-title">{conv?.title ?? agentName}</strong>
-            <span className="muted small">Separate chat context · {agentName}</span>
-          </div>
+          <RecentProjects key={conversationKey} title={conv?.title ?? "New project"} activeId={conv?.id} />
           <span className="spacer" />
           {remoteOnly && (
             <Tooltip content={conv?.vpsConnectionLabel
@@ -429,25 +396,6 @@ export function ChatView() {
               <span>VPS{conv?.vpsConnectionLabel ? ` · ${conv.vpsConnectionLabel}` : ""}</span>
             </span></Tooltip>
           )}
-          <div className="chat-mode-toggle" role="group" aria-label="Project chat mode">
-            <Tooltip content={terminalAvailable ? "Open terminal chat" : `${agentName} has no terminal; it works in Chat`}><button
-              className={terminalChat ? "active" : ""}
-              aria-pressed={terminalChat}
-              disabled={!terminalAvailable}
-              onClick={() => s.setTerminalChat(true)}
-            >
-              <Icon name="terminal" size={12} />
-              Terminal
-            </button></Tooltip>
-            <Tooltip content="Open regular chat"><button
-              className={!terminalChat ? "active" : ""}
-              aria-pressed={!terminalChat}
-              onClick={() => s.setTerminalChat(false)}
-            >
-              <Icon name="bubble.left.and.bubble.right.fill" size={12} />
-              Chat
-            </button></Tooltip>
-          </div>
           {!remoteOnly && s.selectedProfile && (
             <span className="profile-pill">
               <Icon name="person.crop.circle" size={12} />
@@ -473,68 +421,6 @@ export function ChatView() {
             </span></Tooltip>
           )}
         </div>
-        {terminalMounted && (
-          <div className={"terminal-chat-layer" + (terminalChat ? "" : " is-hidden")} aria-hidden={!terminalChat}>
-            <AgentTerminal
-              multiloginSelection={multiloginSelection}
-              agentId={agentId}
-              agentName={agentName}
-              conversationId={conv?.id}
-              workspaceId={conv?.workspaceId}
-              workingDir={s.workingDir}
-              browserContext={browserProfileContext(
-                s.workspaces,
-                conv?.workspaceId,
-                s.selectedProfile,
-                multiloginSelection,
-                s.statuses,
-                s.profileIdentities,
-                s.profiles,
-              )}
-              browserProfiles={agentVisibleProfileNames(s.workspaces.find((workspace) => workspace.id === conv?.workspaceId)?.profileNames ?? [], s.profiles).map((name) => ({
-                name,
-                runtime: s.workspaces.find((workspace) => workspace.id === conv?.workspaceId)?.profileToolsets[name] ?? "clawbrowser",
-                running: s.statuses[name] === "running",
-                selected: s.selectedProfile === name,
-                ownerConversationId: s.profileChatOwners[name],
-              }))}
-              onProfileStarted={(profile) => {
-                if (conv?.id) s.setProfileChatOwner(profile, conv.id);
-                void s.loadProfiles();
-              }}
-              onProfileStopped={(profile) => {
-                s.setProfileChatOwner(profile, undefined);
-                void s.loadProfiles();
-              }}
-              onProfilesRefresh={() => void s.loadProfiles()}
-              onPreviewChange={(preview) => {
-                if (conv?.id) s.updateTerminalPreview(conv.id, preview);
-              }}
-              savingWorkflow={preparingWorkflowId === "terminal"}
-              pendingHandoff={terminalHandoff}
-              handoffToChatRequest={terminalToChatRequest}
-              onHandoffConsumed={(id) => {
-                setTerminalHandoff((current) => current?.id === id ? undefined : current);
-                chatMessagesSharedWithTerminal.current.set(conversationKey, messages.length);
-              }}
-              onChatHandoffConsumed={(id) => setTerminalToChatRequest((current) => current === id ? undefined : current)}
-              onContinueInChat={(transcript) => {
-                // A new chat gets its conversation only from the first message,
-                // so stage the context without one instead of dropping it.
-                const handoff = terminalToChatHandoff(transcript, s.selectedProfile);
-                setPendingTerminalContext({ conversationId: conv?.id, text: handoff });
-              }}
-              onSaveWorkflow={(transcript) => {
-                const answer = {
-                  id: uid(), role: "assistant" as const, text: transcript, status: "done" as const,
-                  createdAt: Date.now(),
-                };
-                void prepareWorkflow(terminalBrowserTask(transcript), answer, "terminal");
-              }}
-            />
-          </div>
-        )}
-        {!terminalChat && (
           <OverlayScrollArea contentClassName="messages" overlayClassName="chat-composer-dock" endButtonLabel="Scroll to latest message" autoFollow resetKey={conversationKey} overlay={
             <>
               {!ready && messages.length > 0 && (
@@ -550,7 +436,7 @@ export function ChatView() {
                   )}
                 </div>
               )}
-              {!ready && agentError && (messages.length > 0 || terminalChat) && (
+              {!ready && agentError && messages.length > 0 && (
                 <div className="chat-agent-error error small">
                   <UserFacingError message={agentError} surface="agent_chat" />
                   <AgentInstallLink agent={agentSpec} error={agentError} surface="agent_chat" />
@@ -627,6 +513,12 @@ export function ChatView() {
                   >
                     <Icon name="paperclip" size={14} />
                   </IconButton>
+                  <ChatCommands key={conversationKey} ready={ready} remote={remoteOnly} onRun={command => {
+                    const target = remoteOnly
+                      ? "on the selected VPS only. Do not run it on the local computer"
+                      : s.workingDir ? `in this project's working directory (${s.workingDir})` : "in this project's working directory";
+                    enqueueInChat("Run the following command " + target + ". Report its output and exit status in this chat. Use the selected agent's normal execution tools and permissions.\n\n```shell\n" + command + "\n```");
+                  }} />
                   <div className="script-wrap" ref={scriptWrapRef}>
                     <IconButton
                       label="Open scripts menu"
@@ -702,6 +594,9 @@ export function ChatView() {
               </div>
             </>
           }>
+          {conv?.terminalPreview && <details className="chat-legacy-activity">
+            <summary>Previous terminal activity</summary><pre>{conv.terminalPreview}</pre>
+          </details>}
           {messages.length === 0 && (
             <div className="empty-state chat-empty-state">
               <div className="empty-state-mark">
@@ -837,7 +732,6 @@ export function ChatView() {
             />
           ))}
           </OverlayScrollArea>
-        )}
       </FileDropArea>
       {projectCreatorOpen && createPortal((
         <div className="modal-overlay" onMouseDown={() => setProjectCreatorOpen(false)}>
@@ -849,7 +743,7 @@ export function ChatView() {
             onMouseDown={(event) => event.stopPropagation()}
             onSubmit={(event) => {
               event.preventDefault();
-              const projectId = s.createProject(projectName, projectMode, projectAgentId);
+              const projectId = s.createProject(projectName, "chat", projectAgentId);
               if (projectId) window.dispatchEvent(new CustomEvent("nextbrowser:project-created", { detail: { id: projectId } }));
               setProjectCreatorOpen(false);
             }}
@@ -877,19 +771,6 @@ export function ChatView() {
                 ? "Connected" : s.runtime[projectAgentId]?.loggedIn === false ? "Sign-in required — you can sign in after creating the project."
                 : "Not connected — you can connect after creating the project."}</small>
             </label>
-            <fieldset className="project-mode-field">
-              <legend>Agent workspace</legend>
-              <label className={"project-mode-option" + (projectMode === "chat" || !agentSupportsTerminal(projectAgentId) ? " is-selected" : "")}>
-                <input type="radio" name="project-mode" checked={projectMode === "chat" || !agentSupportsTerminal(projectAgentId)} onChange={() => setProjectMode("chat")} />
-                <Icon name="bubble.left.and.bubble.right.fill" size={16} />
-                <span><strong>Chat</strong><small>Structured messages and results</small></span>
-              </label>
-              <label className={"project-mode-option" + (projectMode === "terminal" && agentSupportsTerminal(projectAgentId) ? " is-selected" : "") + (agentSupportsTerminal(projectAgentId) ? "" : " is-disabled")}>
-                <input type="radio" name="project-mode" disabled={!agentSupportsTerminal(projectAgentId)} checked={projectMode === "terminal" && agentSupportsTerminal(projectAgentId)} onChange={() => setProjectMode("terminal")} />
-                <Icon name="terminal" size={16} />
-                <span><strong>Terminal</strong><small>{agentSupportsTerminal(projectAgentId) ? "Persistent native agent session" : `${agentById(projectAgentId).name} works in Chat only`}</small></span>
-              </label>
-            </fieldset>
             <div className="modal-actions">
               <button type="button" className="secondary" onClick={() => setProjectCreatorOpen(false)}>Cancel</button>
               <button type="submit" className="primary" disabled={!projectName.trim()}>Create project</button>
