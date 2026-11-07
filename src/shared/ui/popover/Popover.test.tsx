@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { useState } from "react";
+import { createRef, useState } from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { Popover } from "./index";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 function Fixture() {
   const [open, setOpen] = useState(false);
   return <><Popover label="Choices" open={open} onOpenChange={setOpen} trigger={props => <button {...props}>Open</button>}>
@@ -47,4 +47,18 @@ it("closes after a selection without stealing focus from the trigger", () => {
   fireEvent.click(screen.getByRole("button", { name: "Choose" }));
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "Open" }));
+});
+it("places a start-aligned popup inside its content boundary, beyond the sidebar", () => {
+  const boundary = createRef<HTMLDivElement>();
+  function Bounded() {
+    const [open, setOpen] = useState(false);
+    return <div ref={boundary}><Popover label="Bounded" open={open} onOpenChange={setOpen} align="start" boundaryRef={boundary}
+      trigger={props => <button {...props}>Open bounded</button>}>Content</Popover></div>;
+  }
+  render(<Bounded />);
+  vi.spyOn(boundary.current!, "getBoundingClientRect").mockReturnValue({ left: 320, right: 1000, top: 40, bottom: 800, width: 680, height: 760, x: 320, y: 40, toJSON: () => ({}) });
+  fireEvent.click(screen.getByRole("button", { name: "Open bounded" }));
+  const popup = screen.getByRole("dialog", { name: "Bounded" });
+  expect(Number.parseFloat(popup.style.left)).toBeGreaterThanOrEqual(328);
+  expect(Number.parseFloat(popup.style.maxWidth)).toBeLessThanOrEqual(664);
 });

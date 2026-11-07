@@ -102,6 +102,22 @@ try {
   }
   await page.setViewportSize({ width: 1280, height: 900 });
   await chrome.getByRole("button", { name: "Switch to light theme" }).click();
+  let mainViews = page.getByRole('tablist', { name: 'Main views' });
+  const projectName = page.locator('.chat-project-switcher');
+  const titleBounds = await projectName.boundingBox();
+  const viewBounds = await mainViews.boundingBox();
+  assert.ok(viewBounds.x >= titleBounds.x + titleBounds.width, 'minimal main navigation sits after the project name');
+  assert.ok(Math.abs(viewBounds.y - titleBounds.y) <= 2);
+  assert.equal(await page.locator('.content-chat > .tabbar').count(), 0, 'no separate navigation row above the chat');
+  await mainViews.getByRole('tab', { name: 'Open Live', exact: true }).click();
+  await page.getByRole('tablist', { name: 'Main views' }).getByRole('tab', { name: 'Open Project', exact: true }).click();
+  await projectName.click();
+  const projectPopover = page.getByRole('dialog', { name: 'Recent projects' });
+  await projectPopover.waitFor();
+  const side = await page.locator('#app-sidebar').boundingBox();
+  assert.ok((await projectPopover.boundingBox()).x >= side.x + side.width, 'project popup stays beyond the left navigation');
+  assert.ok((await projectPopover.boundingBox()).width <= 240);
+  await page.keyboard.press('Escape');
   const nav = page.getByRole("navigation", { name: "Sidebar pages" });
   const skillsButton = () => nav.getByRole("button", { name: /^Open Skills/ });
   await skillsButton().click();

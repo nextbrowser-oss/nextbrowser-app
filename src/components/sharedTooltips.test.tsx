@@ -45,7 +45,8 @@ describe("shared hints in product components", () => {
     fireEvent(chart, new MouseEvent("pointermove", { bubbles: true, clientX: 500, clientY: 100 }));
     const popup = screen.getByRole("tooltip");
     expect(popup.parentElement).toBe(document.body);
-    expect(popup.className).toBe("shared-tooltip");
+    expect(popup.classList.contains("shared-tooltip")).toBe(true);
+    expect(popup.classList.contains("shared-glass-surface")).toBe(true);
     expect(popup.textContent).toContain("Current period");
     expect(popup.textContent).toContain("Traffic1 KiB");
     expect(popup.textContent).toContain("Requests42");

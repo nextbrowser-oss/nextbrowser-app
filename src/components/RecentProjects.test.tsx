@@ -24,3 +24,17 @@ it("shows the eight most recently updated projects across the user's workspaces"
   expect(fixture.selectConversation).toHaveBeenCalledWith("project-8");
   expect(screen.queryByRole("dialog")).toBeNull();
 });
+it("searches project titles beyond the recent eight, ignoring case and extra spaces", () => {
+  render(<RecentProjects title="Project 9" activeId="project-9" />);
+  fireEvent.click(screen.getByRole("button", { name: "Project 9" }));
+  const popup = screen.getByRole("dialog", { name: "Recent projects" });
+  const search = within(popup).getByRole("searchbox", { name: "Search projects" });
+  expect(document.activeElement).toBe(search);
+  fireEvent.change(search, { target: { value: " PROJECT 0 " } });
+  const options = within(popup).getAllByRole("button");
+  expect(options).toHaveLength(1);
+  expect(options[0].textContent).toContain("Project 0");
+  fireEvent.change(search, { target: { value: "not a project" } });
+  expect(within(popup).queryAllByRole("button")).toHaveLength(0);
+  expect(within(popup).getByText("No matching projects.")).toBeTruthy();
+});

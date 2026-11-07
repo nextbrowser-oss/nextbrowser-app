@@ -33,7 +33,7 @@ const executablePath = [process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
 if (!executablePath) throw new Error("Set PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH to an installed Chromium browser.");
 const output = resolve("e2e-out/chat-composer");
 await mkdir(output, { recursive: true });
-const server = await createServer({ configFile: false, define: { __APP_VERSION__: JSON.stringify("composer-fixture") }, server: { host: "127.0.0.1", port: 0 }, plugins: [{
+const server = await createServer({ cacheDir: resolve(output, "vite-cache"), configFile: false, define: { __APP_VERSION__: JSON.stringify("composer-fixture") }, server: { host: "127.0.0.1", port: 0 }, plugins: [{
   name: "chat-composer-fixture",
   resolveId: id => id === "virtual:chat-composer-fixture" ? "\0chat-composer-fixture" : undefined,
   load: id => id === "\0chat-composer-fixture" ? fixture : undefined,
@@ -73,7 +73,7 @@ try {
   };
   for (const theme of ["light", "dark"]) {
     await page.goto(`${url}?theme=${theme}`);
-    await textarea.waitFor();
+    await textarea.waitFor().catch(async error => { console.error(errors); console.error((await page.locator("body").innerText()).slice(-3000)); throw error; });
     await page.evaluate(() => document.fonts.ready);
     assert.equal(await page.getByRole('group', { name: 'Project chat mode' }).count(), 0);
     assert.equal(await page.getByText(/Separate chat context/).count(), 0);
@@ -106,10 +106,10 @@ try {
     await lastIsVisible();
     const colors = await composer.evaluate(element => ({ bg: getComputedStyle(element).backgroundColor, text: getComputedStyle(element).color, border: getComputedStyle(element).borderWidth, blur: getComputedStyle(element).backdropFilter }));
     assert.equal(colors.border, "0px");
-    assert.equal(colors.text, theme === "light" ? "rgb(255, 255, 255)" : "rgb(23, 23, 28)");
-    assert.ok(colors.bg.includes(theme === "light" ? "25, 25, 32" : "244, 244, 250"));
-    assert.ok(colors.blur.includes("blur(72px)"));
-    assert.ok(Number(colors.bg.match(/,\s*([\d.]+)\)$/)?.[1]) <= 0.6, "glass tint stays translucent");
+    assert.equal(colors.text, theme === "light" ? "rgb(255, 255, 255)" : "rgb(244, 246, 251)");
+    assert.ok(colors.bg.includes(theme === "light" ? "25, 28, 35" : "29, 32, 40"));
+    assert.ok(colors.blur.includes("blur(18px)"));
+    assert.ok(Number(colors.bg.match(/,\s*([\d.]+)\)$/)?.[1]) < 0.9, "glass tint stays translucent");
     assert.equal(await textarea.evaluate(element => getComputedStyle(element).borderWidth), "0px");
     assert.equal(await send.isDisabled(), true);
     const button = await send.boundingBox();
@@ -222,6 +222,14 @@ try {
     await textarea.fill('/');
     const commands = page.getByRole('listbox', { name: 'Agent commands' });
     await commands.waitFor();
+    assert.equal(await commands.evaluate(node => getComputedStyle(node).scrollbarWidth), 'none');
+    assert.ok(await commands.evaluate(node => getComputedStyle(node).backdropFilter.includes('blur(18px)')));
+    assert.equal(await commands.evaluate(node => node.parentElement === document.body), true);
+    await commands.hover();
+    await page.mouse.wheel(0, 200);
+    await page.waitForFunction(() => document.querySelector('.shared-command-list').scrollTop > 0);
+    await textarea.press('ArrowDown');
+    assert.equal(await commands.getByRole('option', { selected: true }).getAttribute('id'), (await textarea.getAttribute('aria-activedescendant')));
     await page.screenshot({ path: resolve(output, `${theme}-slash-commands.png`) });
     await textarea.fill('/tit');
     await textarea.press('Tab');
@@ -250,6 +258,14 @@ try {
     await send.click();
     const recent = page.getByRole('dialog', { name: 'Recent projects' });
     await recent.waitFor();
+    assert.ok((await recent.boundingBox()).width <= 240);
+    assert.ok((await recent.boundingBox()).x >= (await page.locator('.chat-layout').boundingBox()).x + 8);
+    const searchProjects = recent.getByRole('searchbox', { name: 'Search projects' });
+    await searchProjects.fill('customer');
+    assert.equal(await recent.getByRole('button').count(), 1);
+    await searchProjects.fill('does-not-exist');
+    await recent.getByText('No matching projects.').waitFor();
+    await searchProjects.fill('');
     assert.ok((await recent.getByRole('button').first().innerText()).includes('Recent customer research'));
     await page.screenshot({ path: resolve(output, `${theme}-recent-projects.png`) });
     await recent.getByRole('button', { name: /Recent customer research/ }).click();

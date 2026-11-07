@@ -7,12 +7,7 @@
   max-height: min(320px, calc(100vh - 16px));
   overflow: auto;
   padding: 9px 13px;
-  border: 1px solid var(--tooltip-border);
-  border-radius: 13px;
-  background: var(--tooltip-bg);
-  color: var(--tooltip-text);
-  backdrop-filter: blur(22px) saturate(160%);
-  box-shadow: var(--tooltip-shadow);
+  border-radius: var(--glass-radius);
   font-family: var(--font-ui);
   font-size: 12px;
   font-weight: 500;

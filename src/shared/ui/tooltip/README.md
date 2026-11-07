@@ -18,6 +18,6 @@ Hover opens after a short delay; keyboard focus opens immediately. Escape dismis
 
 Use `TooltipContent` for controlled rich content such as a chart. Supply an element or a virtual `TooltipAnchor` with `getBoundingClientRect()`, a stable `id`, rich children, and `interactive={false}` when pointer events should pass through. The caller owns visibility and `aria-describedby` for this lower-level API. Both APIs share the same positioning and glass surface.
 
-Style and theme tokens are centralized in `tooltip.css` and `src/palette.css`. Do not add per-feature tooltip shells, native `title` hints or CSS pseudo-element variants. Semantic iframe `title` attributes are unrelated to hover hints.
+Geometry belongs in `tooltip.css`; material comes from the shared glass-surface module and `src/palette.css`, matching popovers and floating controls in both themes. Do not add per-feature tooltip shells, native `title` hints or CSS pseudo-element variants. Semantic iframe `title` attributes are unrelated to hover hints.
 
 Validation: the regular Vitest suite covers interactions, product integration and shared-layer boundaries. `npm run test:tooltips` runs an isolated Chromium fixture against the actual component and palette in both themes, including real keyboard focus, disabled hover, clipping and viewport bounds. It uses an installed Chrome/Edge or the browser at `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`; screenshots go to ignored `e2e-out/shared-tooltips`.

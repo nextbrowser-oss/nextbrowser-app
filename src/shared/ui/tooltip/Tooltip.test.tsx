@@ -130,7 +130,8 @@ describe("shared Tooltip", () => {
     const anchor = { getBoundingClientRect: () => ({ left: 100, right: 120, top: 100, bottom: 120, width: 20, height: 20 }) };
     render(<TooltipContent anchor={anchor} side="right" interactive={false}><strong>Traffic</strong><span>42 MB</span></TooltipContent>);
     const popup = screen.getByRole("tooltip");
-    expect(popup.className).toBe("shared-tooltip");
+    expect(popup.classList.contains("shared-tooltip")).toBe(true);
+    expect(popup.classList.contains("shared-glass-surface")).toBe(true);
     expect(popup.textContent).toBe("Traffic42 MB");
     expect(popup.style.pointerEvents).toBe("none");
     expect(popup.style.left).toBe("130px");

@@ -1,6 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { tooltipPosition, type TooltipAnchor, type TooltipSide } from "./tooltipPosition";
+import { glassSurfaceClassName } from "../glass-surface";
 import "./tooltip.css";
 
 export function TooltipContent({ anchor, children, side = "top", id, interactive = true, onPointerEnter, onPointerLeave }: {
@@ -29,7 +30,7 @@ export function TooltipContent({ anchor, children, side = "top", id, interactive
   }, [anchor, children, side]);
 
   if (typeof document === "undefined") return null;
-  return createPortal(<div ref={ref} id={id || generatedId} role="tooltip" className="shared-tooltip" data-tooltip-content="" data-side={position?.side}
+  return createPortal(<div ref={ref} id={id || generatedId} role="tooltip" className={`${glassSurfaceClassName} shared-tooltip`} data-tooltip-content="" data-side={position?.side}
     style={{ left: position?.left ?? 0, top: position?.top ?? 0, visibility: position ? "visible" : "hidden", pointerEvents: interactive ? "auto" : "none" }}
     onPointerEnter={onPointerEnter} onPointerLeave={onPointerLeave}>{children}</div>, document.body);
 }

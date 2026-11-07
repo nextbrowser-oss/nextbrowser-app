@@ -118,6 +118,15 @@ describe("theme stylesheet", () => {
     const background = compositeRgba(resolveToken(tokens, "--composer-glass-bg"), theme === "light" ? 255 : 0);
     expect(contrast(resolveToken(tokens, "--glass-inverse-text"), background)).toBeGreaterThanOrEqual(4.5);
   });
+  it.each(["dark", "light"] as const)("keeps floating glass dark and readable over either backdrop in %s", theme => {
+    const tokens = themeTokens(theme);
+    for (const backdrop of [0, 255]) {
+      const background = compositeRgba(resolveToken(tokens, "--glass-inverse-bg"), backdrop);
+      expect(contrast(resolveToken(tokens, "--glass-inverse-text"), background)).toBeGreaterThanOrEqual(4.5);
+    }
+    expect(luminance(resolveToken(tokens, "--glass-inverse-solid"))).toBeLessThan(.04);
+    expect(resolveToken(tokens, "--glass-filter")).toBe("blur(18px) saturate(110%)");
+  });
 
   it.each(["dark", "light"] as const)("resolves every Xterm color from the %s palette", theme => {
     const tokens = themeTokens(theme);

@@ -8,3 +8,4 @@ export { Glyph } from "./glyph";
 export type { GlyphName } from "./glyph";
 export { Popover } from "./popover";
 export { CommandList } from "./command-list";
+export { glassSurfaceClassName } from "./glass-surface";

@@ -7,6 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { useStore } from "./store";
 import { TitlebarActions } from "./components/DesktopShell";
 import { CommunityControls } from "./components/CommunityControls";
+import { MainViewNavigation } from "./components/MainViewNavigation";
 import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
 import { SkillsView } from "./components/SkillsView";
@@ -63,12 +64,6 @@ import { feedbackPromptBlocked, feedbackPromptConfig, markFeedbackSubmitted, sho
 import { multiloginSelectionForWorkspace } from "./lib/multiloginSelection";
 import { settingsStorage } from "./lib/settingsStorage";
 import { countWorkspaceProfiles } from "./lib/workspaceProfiles";
-
-const TABS: { id: AppTab; label: string; icon?: string }[] = [
-  { id: "chat", label: "Project", icon: "folder" },
-  { id: "live", label: "Live", icon: "video.fill" },
-  { id: "automation", label: "Automation", icon: "arrow.triangle.branch" },
-];
 
 const PREVIEW_TABS = new Set<string>(["chat", "automation", "skills", "connectors", "live", "usage", "guide", "scheduled"]);
 
@@ -1696,7 +1691,7 @@ export function App() {
       </aside>
       {!sidebarCollapsed && <Tooltip content="Resize sidebar"><div id="sidebar-resize" className="resize-handle" aria-label="Resize sidebar" /></Tooltip>}
       <main className={"content" + (tab === "chat" ? " content-chat" : "")}>
-        <nav className="tabbar">
+        {tab !== "chat" && <nav className="tabbar">
           {!isPrimaryAppTab(tab) && backTarget && (
             <Tooltip content={`Back to ${appTabLabel(backTarget)} · Esc`}><button
               className="tabbar-back"
@@ -1707,34 +1702,20 @@ export function App() {
               <Icon name="chevron.left" size={18} strokeWidth={2.25} />
             </button></Tooltip>
           )}
-          <div className="tabbar-group" role="tablist" aria-label="Main views">
-            {TABS.map((t) => (
-              <button
-                key={t.id}
-                className={"tab-hit" + (tab === t.id ? " tab-hit-active" : "")}
-                onClick={() => setTab(t.id)}
-                aria-label={`Open ${t.label}`}
-              >
-                <span className={"tab-pill" + (tab === t.id ? " tab-pill-active" : "")}>
-                  {t.icon && <Icon name={t.icon} size={16} strokeWidth={2.25} />}
-                  {t.label}
-                </span>
-              </button>
-            ))}
-          </div>
+          <MainViewNavigation />
           <span className="tabbar-spacer" />
           <div className="tabbar-controls">
             {backgroundTaskPills}
             {feedbackAvailable && <FeedbackButton onClick={() => setFeedbackOpen(true)} />}
           </div>
-        </nav>
+        </nav>}
         <hr className="divider" />
         {workspaceSyncing && <div className="workspace-sync-status muted small" role="status">
           <Spinner size={12} /> Syncing workspace…
         </div>}
         <div className={"tab-content" + (tab === "skills" ? " tab-content-bleed" : "")}>
           <div className={"persistent-tab-panel" + (tab === "chat" ? "" : " is-hidden")}>
-            <ChatView />
+            <ChatView headerAccessory={<>{backgroundTaskPills}{feedbackAvailable && <FeedbackButton onClick={() => setFeedbackOpen(true)} />}</>} />
           </div>
           {tab === "skills" && <SkillsView onOpenAgentSettings={() => openSettings("agent")} />}
           {tab === "automation" && <AutomationStudio />}

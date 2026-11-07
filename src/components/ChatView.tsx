@@ -1,6 +1,6 @@
-import { CommandList, FileDropArea, IconButton, OverlayScrollArea, Tooltip } from "../shared/ui";
+import { glassSurfaceClassName, CommandList, FileDropArea, IconButton, OverlayScrollArea, Tooltip } from "../shared/ui";
 import "./chat.css";
-import { type ClipboardEvent, useEffect, useLayoutEffect, useRef, useState, useId } from "react";
+import { type ClipboardEvent, useEffect, useLayoutEffect, useRef, useState, useId, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store";
 import { SCRIPTS } from "../skillsCatalog";
@@ -18,6 +18,7 @@ import { AgentInstallLink } from "./AgentInstallLink";
 import { takeGuideDraft } from "../lib/guideDraft";
 import { entityNameLimits } from "../lib/entityValidation";
 import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
+import { MainViewNavigation } from "./MainViewNavigation";
 import { RecentProjects } from "./RecentProjects";
 import { matchingAgentChatCommands, parseAgentChatCommand } from "../lib/agentChatCommands";
 import { uid } from "../lib/ids";
@@ -96,7 +97,7 @@ function errorSummary(text: string): string {
 }
 
 
-export function ChatView() {
+export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = {}) {
   const s = useStore();
   const agentId = s.agentId;
   const builtinAgent = isBuiltinAgent(agentId);
@@ -165,6 +166,7 @@ export function ChatView() {
     return () => window.removeEventListener("keydown", dismissProjectCreator);
   }, [projectCreatorOpen]);
   const legacyContextSent = useRef(new Set<string>());
+  const chatBoundaryRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const scriptWrapRef = useRef<HTMLDivElement>(null);
   const scriptMenuRef = useRef<HTMLDivElement>(null);
@@ -436,11 +438,12 @@ export function ChatView() {
     !s.selectedProfile && !multiloginSelection && s.defaultSession?.status === "running";
 
   return (
-    <div className="chat-layout">
+    <div ref={chatBoundaryRef} className="chat-layout">
       <FileDropArea className="chat" onFiles={handleDroppedFiles} disabled={!ready}
         unavailableLabel="Connect an agent to attach files">
         <div className="chat-header">
-          <RecentProjects key={conversationKey} title={conv?.title ?? "New project"} activeId={conv?.id} open={projectMenuOpen} onOpenChange={setProjectMenuOpen} />
+          <RecentProjects key={conversationKey} title={conv?.title ?? "New project"} activeId={conv?.id} open={projectMenuOpen} onOpenChange={setProjectMenuOpen} boundaryRef={chatBoundaryRef} />
+          <MainViewNavigation />
           <span className="spacer" />
           {remoteOnly && (
             <Tooltip content={conv?.vpsConnectionLabel
@@ -476,6 +479,7 @@ export function ChatView() {
               default
             </span></Tooltip>
           )}
+          {headerAccessory && <div className="chat-header-accessories">{headerAccessory}</div>}
         </div>
           <OverlayScrollArea contentClassName="messages" overlayClassName="chat-composer-dock" endButtonLabel="Scroll to latest message" autoFollow resetKey={conversationKey} overlay={
             <>
@@ -538,7 +542,7 @@ export function ChatView() {
                 <div className="chat-action-error error small" role="alert">{actionError}</div>
               )}
               {commandNotice && <div className="chat-command-notice" role="status">{commandNotice}</div>}
-              <div className="composer">
+              <div className={`${glassSurfaceClassName} composer`}>
                 {activeCommand && <CommandList id={commandMenuId} label="Agent commands" activeId={activeCommand.name} anchor={composerRef.current?.closest<HTMLElement>(".composer")}
                   options={commandMatches.map(command => ({ id: command.name, title: "/" + command.name, description: command.description }))}
                   onChoose={acceptCommand} />}
@@ -602,7 +606,7 @@ export function ChatView() {
                       <Icon name="scroll" size={14} />
                     </IconButton>
                     {scriptOpen && (
-                      <div className="script-menu" ref={scriptMenuRef}>
+                      <div className={`${glassSurfaceClassName} script-menu`} ref={scriptMenuRef}>
                         {officialScripts.length > 0 && <div className="section">OFFICIAL SCRIPTS</div>}
                         {officialScripts.map((sc) => (
                           <Tooltip key={sc.id} content={`Run ${sc.title}`}><button

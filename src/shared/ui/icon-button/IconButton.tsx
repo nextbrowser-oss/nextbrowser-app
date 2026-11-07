@@ -1,5 +1,6 @@
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Tooltip } from "../tooltip";
+import { glassSurfaceClassName } from "../glass-surface";
 import "./iconButton.css";
 
 export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "title" | "aria-label" | "children"> {
@@ -18,7 +19,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
   return (
     <Tooltip content={hint ?? label}>
       <button {...props} ref={ref} type={type} aria-label={label}
-        className={`shared-icon-button shared-icon-button--${size} shared-icon-button--${appearance}${text ? " shared-icon-button--labelled" : ""} ${className}`.trim()}>
+        className={`${appearance === "glass" ? glassSurfaceClassName + " " : ""}shared-icon-button shared-icon-button--${size} shared-icon-button--${appearance}${text ? " shared-icon-button--labelled" : ""} ${className}`.trim()}>
         {children}
         {text && <span>{text}</span>}
       </button>

@@ -35,7 +35,7 @@ const executablePath = candidates.find(path => path && existsSync(path));
 if (!executablePath) throw new Error("Set PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH to an installed Chromium browser.");
 const output = resolve("e2e-out/shared-tooltips");
 await mkdir(output, { recursive: true });
-const server = await createServer({ configFile: false, server: { host: "127.0.0.1", port: 0 }, plugins: [{
+const server = await createServer({ cacheDir: resolve(output, "vite-cache"), configFile: false, server: { host: "127.0.0.1", port: 0 }, plugins: [{
   name: "shared-tooltip-fixture",
   resolveId: id => id === "virtual:tooltip-fixture" ? "\0tooltip-fixture" : undefined,
   load: id => id === "\0tooltip-fixture" ? fixture : undefined,
@@ -66,10 +66,10 @@ try {
     const hint = await popup.boundingBox();
     assert.ok(hint.x >= rail.x + rail.width, "portal escapes the rail's clipped container");
     const style = await popup.evaluate(element => ({ bg: getComputedStyle(element).backgroundColor, text: getComputedStyle(element).color, blur: getComputedStyle(element).backdropFilter, radius: getComputedStyle(element).borderRadius }));
-    assert.equal(style.text, theme === "light" ? "rgb(255, 255, 255)" : "rgb(23, 23, 28)");
-    assert.ok(style.bg.includes(theme === "light" ? "25, 25, 32" : "244, 244, 250"));
-    assert.ok(style.blur.includes("blur(22px)"));
-    assert.equal(style.radius, "13px");
+    assert.equal(style.text, theme === "light" ? "rgb(255, 255, 255)" : "rgb(244, 246, 251)");
+    assert.ok(style.bg.includes(theme === "light" ? "25, 28, 35" : "29, 32, 40"));
+    assert.ok(style.blur.includes("blur(18px)"));
+    assert.equal(style.radius, "12px");
     await page.screenshot({ path: resolve(output, `${theme}-rail.png`) });
     await page.keyboard.press("Escape");
     await popup.waitFor({ state: "detached" });

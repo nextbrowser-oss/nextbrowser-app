@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { tooltipPosition } from "../tooltip";
+import { glassSurfaceClassName } from "../glass-surface";
 import "./commandList.css";
 
 export function CommandList({ id, label, options, activeId, onChoose, anchor }: {
@@ -31,7 +32,7 @@ export function CommandList({ id, label, options, activeId, onChoose, anchor }: 
     return () => { observer?.disconnect(); if (frame !== undefined) cancelAnimationFrame(frame); window.removeEventListener("resize", schedule); window.removeEventListener("scroll", schedule, true); };
   }, [anchor]);
   useEffect(() => { root.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView?.({ block: "nearest" }); }, [activeId]);
-  const list = <div ref={root} id={id} className="shared-command-list" role="listbox" aria-label={label}
+  const list = <div ref={root} id={id} className={`${glassSurfaceClassName} shared-command-list shared-scrollbarless`} role="listbox" aria-label={label}
     style={anchor ? { position: "fixed", left: position?.left ?? 0, top: position?.top ?? 0, bottom: "auto", width: `min(420px, ${position?.width ?? 420}px, calc(100vw - 16px))`, maxHeight: Math.min(300, position?.room ?? 300), visibility: position ? "visible" : "hidden" } : undefined}>
     {options.map(option => <div key={option.id} id={`${id}-${option.id}`} role="option" aria-selected={option.id === activeId}
       className="shared-command-list__option" onPointerDown={event => event.preventDefault()} onClick={() => onChoose(option.id)}>
