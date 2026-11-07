@@ -1,26 +1,30 @@
+import { glassSurfaceClassName, IconButton, Tooltip } from "./shared/ui";
 import { addPendingRuntimeInstall, downloadableBrowsers, runtimeInstalling } from "./lib/settingsUpdates";
 import { RuntimeInstallationProgress } from "./components/RuntimeInstallationProgress";
 import { BrowserRuntimeUpdatePrompt, ClawbrowserCloseProfilesPrompt, type BrowserRuntimeUpdateEntry } from "./components/BrowserRuntimeUpdatePrompt";
 import { InstallationProgress, InstallationSpinner } from "./components/InstallationProgress";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useStore } from "./store";
+import { TitlebarActions } from "./components/DesktopShell";
+import { CommunityControls } from "./components/CommunityControls";
+import { MainViewNavigation } from "./components/MainViewNavigation";
 import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
 import { SkillsView } from "./components/SkillsView";
 import { LiveView } from "./components/LiveView";
 import { UsageView } from "./components/UsageView";
 import { GuideView } from "./components/GuideView";
-import { ScheduledRunsPanel } from "./components/ScheduledRunsPanel";
+import { UtilityDialogs } from "./components/UtilityDialogs";
 import { OnboardingView } from "./components/OnboardingView";
 import { DashboardKeyModal } from "./components/DashboardKeyModal";
 import { TrafficGateModal } from "./components/TrafficGateModal";
 import { GitHubStarModal } from "./components/GitHubStarReward";
-import { GITHUB_STARS_REFRESH_EVENT, shouldAskForGitHubStar } from "./lib/githubStarReward";
+import { shouldAskForGitHubStar } from "./lib/githubStarReward";
 import { ProfileCreateRequestModal } from "./components/ProfileCreateRequestModal";
 import { BrandLogo } from "./components/BrandLogo";
 import { Icon, Spinner } from "./components/Icon";
 import { AgentPicker } from "./components/AgentPicker";
-import { brandName, discordUrl, latestReleaseUrl, repoUrl } from "./constants";
+import { brandName, latestReleaseUrl } from "./constants";
 import { trafficAllowanceBytes, trafficAllowanceFraction, trafficGateState, trafficGateStateLabel, trafficGateStateTone } from "./lib/trafficGate";
 import { getPreviewMode, getPreviewNodeMavenState, getPreviewTab } from "./preview";
 import { humanBytes, type AppTab, type Conversation } from "./types";
@@ -29,6 +33,7 @@ import { confirmedBrowserRuntimeUpdates } from "./lib/browserRuntimeUpdate";
 import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
 import {
   OPEN_AGENT_SETTINGS_EVENT,
+  isUtilityDialogTab,
   appTabLabel,
   isAppBackShortcut,
   isPrimaryAppTab,
@@ -53,19 +58,12 @@ import { SettingsPanel, SettingsRail } from "./components/SettingsSections";
 import { SettingsUpdates } from "./components/SettingsUpdates";
 import { availableRuntimeUpdates, latestRuntimeOperation, type AppUpdateStatus, type BrowserRuntimeUpdateStatus, type BrowserRuntimeUpdateInstallStatus } from "./lib/settingsUpdates";
 import { settingsAttention, settingsSectionForUpdates, type SettingsSection } from "./lib/settingsSections";
-import { ConnectorsView } from "./components/ConnectorsView";
 import { AutomationStudio } from "./components/AutomationStudio";
 import { FeedbackModal } from "./components/FeedbackModal";
 import { feedbackPromptBlocked, feedbackPromptConfig, markFeedbackSubmitted, shouldPromptForFeedback } from "./lib/feedbackPrompt";
 import { multiloginSelectionForWorkspace } from "./lib/multiloginSelection";
 import { settingsStorage } from "./lib/settingsStorage";
 import { countWorkspaceProfiles } from "./lib/workspaceProfiles";
-
-const TABS: { id: AppTab; label: string; icon?: string }[] = [
-  { id: "chat", label: "Project", icon: "folder" },
-  { id: "live", label: "Live", icon: "video.fill" },
-  { id: "automation", label: "Automation", icon: "arrow.triangle.branch" },
-];
 
 const PREVIEW_TABS = new Set<string>(["chat", "automation", "skills", "connectors", "live", "usage", "guide", "scheduled"]);
 
@@ -95,43 +93,40 @@ function clampUiScale(value: number): number {
 function UIScaleSlider({ value, onChange }: { value: number; onChange: (next: number) => void }) {
   return (
     <>
-      <button
+      <Tooltip content="Decrease interface size"><button
         className="plain-icon-btn plain-icon-btn-compact"
         onClick={() => onChange(clampUiScale(value - UI_SCALE_STEP))}
         disabled={value <= UI_SCALE_MIN}
-        title="Decrease interface size"
         aria-label="Decrease interface size"
       >
         <Icon name="minus" size={12} />
-      </button>
+      </button></Tooltip>
       <span className="muted small ui-scale-value">{Math.round(value * 100)}%</span>
-      <button
+      <Tooltip content="Increase interface size"><button
         className="plain-icon-btn plain-icon-btn-compact"
         onClick={() => onChange(clampUiScale(value + UI_SCALE_STEP))}
         disabled={value >= UI_SCALE_MAX}
-        title="Increase interface size"
         aria-label="Increase interface size"
       >
         <Icon name="plus" size={12} />
-      </button>
+      </button></Tooltip>
     </>
   );
 }
 
 function UIScaleControl({ value, onChange, onDismiss, inline = false }: { value: number; onChange: (next: number) => void; onDismiss: () => void; inline?: boolean }) {
   return (
-    <div className={"ui-scale-control" + (inline ? " ui-scale-control-inline" : "")} title="Interface size">
+    <Tooltip content="Interface size"><div className={"ui-scale-control" + (inline ? " ui-scale-control-inline" : "")}>
       <Icon name="magnifyingglass" size={inline ? 11 : 13} />
       <UIScaleSlider value={value} onChange={onChange} />
-      <button
+      <Tooltip content="Hide this control (it stays in Settings)"><button
         className="plain-icon-btn plain-icon-btn-compact ui-scale-dismiss"
         onClick={onDismiss}
-        title="Hide this control (it stays in Settings)"
         aria-label="Hide the interface size control"
       >
         <Icon name="xmark" size={11} />
-      </button>
-    </div>
+      </button></Tooltip>
+    </div></Tooltip>
   );
 }
 
@@ -149,14 +144,13 @@ function BrowserRuntimeInstallModal({ status, onCancel, onHide }: { status: Brow
   return (
     <div className="browser-install-overlay" role="status" aria-live="polite">
       <div className="modal-card browser-install-modal" aria-labelledby="browser-install-title">
-        <button
+        <Tooltip content="Hide — the download keeps running"><button
           className="plain-icon-btn plain-icon-btn-compact background-card-hide"
           onClick={onHide}
-          title="Hide — the download keeps running"
           aria-label={`Hide ${name} download progress`}
         >
           <Icon name="xmark" size={12} />
-        </button>
+        </button></Tooltip>
         <InstallationSpinner />
         <div className="browser-install-copy">
           <strong id="browser-install-title">{installing ? `Installing ${name}` : `Downloading ${name}`}</strong>
@@ -179,10 +173,10 @@ function BrowserRuntimeInstallModal({ status, onCancel, onHide }: { status: Brow
 // it is still visibly running and one click brings the full card back.
 function BackgroundTaskPill({ label, onShow }: { label: string; onShow: () => void }) {
   return (
-    <button type="button" className="background-task-pill" onClick={onShow} title={`${label} — show progress`}>
+    <Tooltip content={`${label} — show progress`}><button type="button" className="background-task-pill" onClick={onShow}>
       <Spinner size={11} />
       <span>{label}</span>
-    </button>
+    </button></Tooltip>
   );
 }
 
@@ -222,7 +216,7 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onCancel, onRetry, onOp
               <section className="runtime-update-error" key={error.runtime}>
                 <div className="runtime-update-error-heading">
                   <span>{error.name} couldn’t update</span>
-                  {error.code && <span className="runtime-update-error-code" title={error.code}>{error.category ?? "Update could not finish"}</span>}
+                  {error.code && <Tooltip content={error.code}><span className="runtime-update-error-code">{error.category ?? "Update could not finish"}</span></Tooltip>}
                 </div>
                 {/* The next step is what the user needs first; the raw message is
                     supporting detail, not the headline. */}
@@ -244,14 +238,13 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onCancel, onRetry, onOp
         {needsAttention && <p className="runtime-update-requirements">Before retrying: keep Nextbrowser open, use a stable connection, make sure there is free disk space, and close any running browser toolset.</p>}
       </div>
       {/* Hiding never cancels: the update keeps running behind a top-bar chip. */}
-      <button
+      <Tooltip content={installing ? "Hide — the update keeps running" : "Dismiss"}><button
         className="plain-icon-btn plain-icon-btn-compact"
         onClick={onClose}
-        title={installing ? "Hide — the update keeps running" : "Dismiss"}
         aria-label={installing ? "Hide update progress" : "Dismiss update status"}
       >
         <Icon name="xmark" size={12} />
-      </button>
+      </button></Tooltip>
       {!!status.items?.length && <div className="runtime-install-items">{status.items.map((item) => <RuntimeInstallationProgress key={item.runtime} item={item} onCancel={onCancel} />)}</div>}
       {installing && !status.items?.length && <InstallationProgress label={`Updating ${status.currentName ?? "browser toolsets"}`} percent={status.percent} />}
     </div>
@@ -308,154 +301,36 @@ function updateLabel(status?: AppUpdateStatus | null): string {
   return "Check for updates";
 }
 
-function ThemeToggle({ theme, onToggle, floating = false }: {
-  theme: Theme;
-  onToggle: () => void;
-  floating?: boolean;
-}) {
+function ThemeToggle({ theme, onToggle }: { theme: Theme; onToggle: () => void }) {
   const label = theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
-  return (
-    <button
-      className={`theme-toggle plain-icon-btn${floating ? " theme-toggle-floating" : ""}`}
-      onClick={onToggle}
-      title={label}
-      aria-label={label}
-    >
-      <Icon name={theme === "dark" ? "sun" : "moon"} size={18} />
-    </button>
-  );
+  return <IconButton appearance="plain" size="small" className="theme-toggle" label={label} onClick={onToggle}>
+    <Icon name={theme === "dark" ? "sun" : "moon"} size={18} />
+  </IconButton>;
 }
 
 function SettingsButton({ onClick, hasUpdate }: { onClick: () => void; hasUpdate?: boolean }) {
   return (
-    <button
+    <Tooltip content={hasUpdate ? "Settings — update available" : "Settings"}><button
       className="settings-toggle plain-icon-btn"
       onClick={onClick}
-      title={hasUpdate ? "Settings — update available" : "Settings"}
       aria-label={hasUpdate ? "Settings, update available" : "Settings"}
     >
       <Icon name="gearshape" size={18} />
       {hasUpdate && <span className="settings-update-dot" aria-hidden="true" />}
-    </button>
-  );
-}
-
-function GithubMark({ size = 15 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" aria-hidden focusable="false">
-      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.02-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
-    </svg>
-  );
-}
-
-function DiscordMark({ size = 17 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden focusable="false">
-      <path d="M20.32 4.37A19.8 19.8 0 0 0 15.36 2.8a.08.08 0 0 0-.09.04c-.21.38-.45.88-.62 1.27a18.38 18.38 0 0 0-5.5 0 12.38 12.38 0 0 0-.63-1.27.08.08 0 0 0-.09-.04 19.73 19.73 0 0 0-4.96 1.57.07.07 0 0 0-.03.03C.31 9.1-.55 13.68-.13 18.21c0 .02.01.05.03.06a19.9 19.9 0 0 0 6.08 3.07.08.08 0 0 0 .09-.03c.47-.64.88-1.31 1.24-2.01a.08.08 0 0 0-.04-.11 13.04 13.04 0 0 1-1.9-.91.08.08 0 0 1-.01-.13c.13-.09.25-.19.37-.29a.08.08 0 0 1 .08-.01c3.98 1.82 8.3 1.82 12.24 0a.08.08 0 0 1 .08.01c.12.1.25.2.38.29a.08.08 0 0 1-.01.13c-.6.36-1.23.66-1.9.91a.08.08 0 0 0-.04.11c.36.7.77 1.37 1.24 2.01a.08.08 0 0 0 .09.03 19.84 19.84 0 0 0 6.08-3.07.08.08 0 0 0 .03-.06c.5-5.23-.84-9.77-3.63-13.81a.06.06 0 0 0-.03-.03ZM8.02 15.45c-1.2 0-2.18-1.1-2.18-2.45s.96-2.45 2.18-2.45c1.23 0 2.2 1.11 2.18 2.45 0 1.35-.96 2.45-2.18 2.45Zm7.96 0c-1.2 0-2.18-1.1-2.18-2.45s.96-2.45 2.18-2.45c1.23 0 2.2 1.11 2.18 2.45 0 1.35-.95 2.45-2.18 2.45Z" />
-    </svg>
-  );
-}
-
-function formatStars(count?: number | null): string {
-  if (count == null) return "—";
-  if (count < 1000) return `${count}`;
-  const rounded = count < 10_000 ? Math.round(count / 100) / 10 : Math.round(count / 1000);
-  return `${rounded}k`;
-}
-
-// The host reuses a count for two minutes and answers a refresh no more than
-// every 15 seconds, so polling and focus refreshes cost little.
-const GITHUB_STARS_POLL_MS = 2 * 60 * 1000;
-// A count that just changed on GitHub (the user's own star) can trail the
-// stargazer list by a moment, so a verified star reads it twice.
-const GITHUB_STARS_SETTLE_MS = 20 * 1000;
-
-function GithubStarButton({ stars }: { stars?: number | null }) {
-  const label = "Star Nextbrowser on GitHub";
-  return (
-    <button
-      className="social-button github-star-btn"
-      onClick={() => window.open(repoUrl, "_blank", "noopener,noreferrer")}
-      title={label}
-      aria-label={label}
-    >
-      <GithubMark size={17} />
-      <span className="github-star-count">
-        <Icon name="star.fill" size={11} fill="currentColor" className="github-star-glyph" />
-        {formatStars(stars)}
-      </span>
-    </button>
-  );
-}
-
-function DiscordButton() {
-  return (
-    <button
-      className="social-button discord-button"
-      onClick={() => window.open(discordUrl, "_blank", "noopener,noreferrer")}
-      title="Join Nextbrowser on Discord"
-      aria-label="Join Nextbrowser on Discord"
-    >
-      <DiscordMark size={18} />
-    </button>
+    </button></Tooltip>
   );
 }
 
 function FeedbackButton({ onClick }: { onClick: () => void }) {
   return (
-    <button
+    <Tooltip content="Send feedback (⌘⇧F on macOS, Ctrl+Shift+F on Windows/Linux)"><button
       className="social-button feedback-button"
       onClick={onClick}
-      title="Send feedback (⌘⇧F on macOS, Ctrl+Shift+F on Windows/Linux)"
       aria-label="Send feedback. Shortcut: Command or Control, Shift, F"
     >
       <Icon name="bubble.left.and.bubble.right.fill" size={17} />
       <span>Feedback</span>
-    </button>
-  );
-}
-
-function SocialButtons() {
-  // No number until the host answers: a stale one would read as a lost star.
-  const [stars, setStars] = useState<number | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    let settleTimer: number | undefined;
-    const load = (refresh: boolean) => {
-      invoke<number | null>("github_stars", refresh ? { refresh: true } : {})
-        .then((count) => {
-          if (!cancelled && typeof count === "number") setStars(count);
-        })
-        .catch(() => undefined);
-    };
-    load(false);
-    const poll = window.setInterval(() => {
-      if (document.visibilityState === "visible") load(false);
-    }, GITHUB_STARS_POLL_MS);
-    // Coming back from the repository page is when a star was likely added.
-    const onFocus = () => load(true);
-    const onStarVerified = () => {
-      load(true);
-      window.clearTimeout(settleTimer);
-      settleTimer = window.setTimeout(() => load(true), GITHUB_STARS_SETTLE_MS);
-    };
-    window.addEventListener("focus", onFocus);
-    window.addEventListener(GITHUB_STARS_REFRESH_EVENT, onStarVerified);
-    return () => {
-      cancelled = true;
-      window.clearInterval(poll);
-      window.clearTimeout(settleTimer);
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener(GITHUB_STARS_REFRESH_EVENT, onStarVerified);
-    };
-  }, []);
-
-  return (
-    <div className="social-buttons">
-      <GithubStarButton stars={stars} />
-      <DiscordButton />
-    </div>
+    </button></Tooltip>
   );
 }
 
@@ -464,9 +339,9 @@ function GlobalErrorNotice({ error, onClose }: { error: { reference: string; det
     <div className="global-error-notice" role="alert">
       <Icon name="exclamationmark.triangle.fill" size={15} />
       <span className="global-error-copy">
-        <span title={error.detail}>
+        <Tooltip content={error.detail}><span>
           <UserFacingError message={`Unexpected app error. Ref: ${error.reference}`} surface="unexpected_app_error" />
-        </span>
+        </span></Tooltip>
       </span>
       <button className="plain-icon-btn plain-icon-btn-compact" onClick={onClose} aria-label="Dismiss error">
         <Icon name="xmark" size={12} />
@@ -494,10 +369,10 @@ function ManualReleaseDownload({ onOpen, version, onLater }: { onOpen: () => Pro
   return <div className="manual-release-download">
     <div className="manual-release-actions">
       {onLater && <button className="secondary" autoFocus onClick={onLater}>Later</button>}
-      <button className={onLater ? "primary release-download-button" : "mini primary-mini release-download-button"} title={downloadUrl} disabled={state === "opening"} onClick={() => void open()}>
+      <Tooltip content={downloadUrl}><button className={onLater ? "primary release-download-button" : "mini primary-mini release-download-button"} disabled={state === "opening"} onClick={() => void open()}>
         {state === "opening" && <Spinner size={12} />}
         {state === "opening" ? "Opening download…" : "Download update"}
-      </button>
+      </button></Tooltip>
     </div>
     {state === "opened" && <p className="muted small" role="status">Download opened in your browser. When it finishes, open the DMG from Downloads and drag Nextbrowser into Applications.</p>}
     {state === "error" && <p className="error small" role="alert">Could not open the download. Please try again.</p>}
@@ -666,9 +541,9 @@ function SettingsModal({
       <div ref={dialogRef} className={"modal-card settings-modal" + (section === "proxy" && usageOpen ? " has-usage" : "")} role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1} onMouseDown={(e) => e.stopPropagation()}>
         <div className="settings-modal-header">
           <strong id="settings-title">Settings</strong>
-          <button className="plain-icon-btn" onClick={onClose} title="Close" aria-label="Close settings">
+          <Tooltip content="Close"><button className="plain-icon-btn" onClick={onClose} aria-label="Close settings">
             <Icon name="xmark" size={16} />
-          </button>
+          </button></Tooltip>
         </div>
         <div className="settings-layout">
           <SettingsRail section={section} attention={attention} onSelect={setSection} />
@@ -684,7 +559,7 @@ function SettingsModal({
                   <span className="muted small">Interface size</span>
                   <div className="ui-scale-control ui-scale-control-settings">
                     <UIScaleSlider value={uiScale} onChange={onUiScaleChange} />
-                    {uiScaleFloatingHidden && <button className="plain-icon-btn plain-icon-btn-compact" onClick={onRestoreFloatingScale} title="Return the quick-access control to the main screen" aria-label="Return the interface-size quick-access control to the main screen"><Icon name="arrow.uturn.left" size={12} /></button>}
+                    {uiScaleFloatingHidden && <Tooltip content="Return the quick-access control to the main screen"><button className="plain-icon-btn plain-icon-btn-compact" onClick={onRestoreFloatingScale} aria-label="Return the interface-size quick-access control to the main screen"><Icon name="arrow.uturn.left" size={12} /></button></Tooltip>}
                   </div>
                 </div>
               </div>
@@ -714,7 +589,7 @@ function SettingsModal({
                   <div className="settings-group">
                     <div className="settings-row">
                       <span className="small">Send error reports</span>
-                      <label className="toggle" title={errorReporting.available ? ERROR_REPORTING_HINT : "Development builds do not send error reports."}>
+                      <Tooltip content={errorReporting.available ? ERROR_REPORTING_HINT : "Development builds do not send error reports."}><label className="toggle">
                         <input
                           type="checkbox"
                           aria-label="Send error reports"
@@ -722,7 +597,7 @@ function SettingsModal({
                           onChange={(event) => changeErrorReporting(event.target.checked)}
                         />
                         <span className="toggle-track"><span className="toggle-knob" /></span>
-                      </label>
+                      </label></Tooltip>
                     </div>
                     <p className="muted small settings-group-note">
                       {ERROR_REPORTING_HINT}
@@ -754,14 +629,14 @@ function SettingsModal({
                   <AgentPicker label="Active" />
                   {!builtinAgent && <div className="settings-agent-actions">
                     {!agentDetected && (
-                      <button className="mini primary-mini" title={`Connect ${agentName}`} onClick={() => authorizeAgent()}>
+                      <Tooltip content={`Connect ${agentName}`}><button className="mini primary-mini" onClick={() => authorizeAgent()}>
                         Connect
-                      </button>
+                      </button></Tooltip>
                     )}
                     {agentDetected && agentLoggedIn !== true && !agentLogoutPending && (
-                      <button className="mini" title={`Open ${agentName} login`} onClick={() => loginAgent()}>
+                      <Tooltip content={`Open ${agentName} login`}><button className="mini" onClick={() => loginAgent()}>
                         Login
-                      </button>
+                      </button></Tooltip>
                     )}
                     {agentDetected && agentLogoutPending && (
                       <button className="mini" disabled aria-live="polite">
@@ -769,9 +644,9 @@ function SettingsModal({
                       </button>
                     )}
                     {agentReady && agentLoggedIn === true && !agentLogoutPending && agentById(agentId).logoutArgs.length > 0 && (
-                      <button className="mini" title={`Sign out of ${agentName}`} onClick={() => void handleAgentLogout()}>
+                      <Tooltip content={`Sign out of ${agentName}`}><button className="mini" onClick={() => void handleAgentLogout()}>
                         Log out
-                      </button>
+                      </button></Tooltip>
                     )}
                   </div>}
                 </div>
@@ -1494,6 +1369,7 @@ export function App() {
     // window's own size and broke scrolling and fixed-position overlays
     // (like the Settings modal) at higher scales.
     void invoke("app_set_zoom_factor", { factor: uiScale }).catch(() => undefined);
+    document.documentElement.style.setProperty("--window-zoom", String(uiScale));
     settingsStorage.setItem("nextbrowser.uiScale", String(uiScale));
   }, [uiScale]);
 
@@ -1501,7 +1377,8 @@ export function App() {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
     settingsStorage.setItem("nextbrowser.theme", theme);
-    void invoke("app_set_theme", { theme }).catch(() => undefined);
+    const palette = getComputedStyle(document.documentElement);
+    void invoke("app_set_theme", { theme, background: palette.getPropertyValue("--bg").trim(), foreground: palette.getPropertyValue("--text").trim() }).catch(() => undefined);
     if (!didTrackThemeChange.current) {
       didTrackThemeChange.current = true;
       return;
@@ -1598,7 +1475,8 @@ export function App() {
           pricing_url: "https://dashboard.nodemaven.com/pricing?tab=MONTHLY_PLANS",
         },
         showOnboarding: false,
-        ...(tabParam && PREVIEW_TABS.has(tabParam) ? { tab: tabParam as AppTab } : {}),
+        ...(tabParam && isUtilityDialogTab(tabParam) ? { tab: "chat" as const, utilityDialog: tabParam }
+          : tabParam && PREVIEW_TABS.has(tabParam) ? { tab: tabParam as AppTab } : {}),
       });
       return;
     }
@@ -1716,14 +1594,18 @@ export function App() {
     trackEvent("feedback_submitted", { rating });
   }} /> : null;
 
+  const titlebarActions = <TitlebarActions>
+    <CommunityControls />
+    <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
+  </TitlebarActions>;
+
   if ((checking || startupError) && preview !== "login" && preview !== "main" && preview !== "onboarding") {
     return (
       <>
+        {titlebarActions}
         <div className="floating-controls">
           {backgroundTaskPills}
-          <SocialButtons />
           <SettingsButton onClick={openSettingsFromButton} hasUpdate={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)} />
-          <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
         </div>
         {settingsOpen && (
           <SettingsModal
@@ -1793,79 +1675,58 @@ export function App() {
 
   return (
     <div className="app">
+      {titlebarActions}
       <aside
-        className={"sidebar thin-material" + (sidebarCollapsed ? " sidebar-collapsed" : "")}
-        style={{ width: sidebarCollapsed ? 68 : sidebarWidth }}
+        id="app-sidebar"
+        className={`${glassSurfaceClassName} sidebar${sidebarCollapsed ? " sidebar-collapsed" : ""}`}
+        style={{ width: sidebarCollapsed ? "var(--sidebar-rail-width)" : sidebarWidth }}
       >
         <Sidebar
-          onOpenAgentSettings={() => openSettings("agent")}
-          onHome={() => setTab("chat")}
+          onOpenSettings={openSettingsFromButton}
+          settingsAttention={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)}
           footerAccessory={!uiScaleFloatingHidden && !sidebarCollapsed
             ? <UIScaleControl inline value={uiScale} onChange={setUiScale} onDismiss={dismissUiScaleFloating} />
             : undefined}
         />
       </aside>
-      {!sidebarCollapsed && <div id="sidebar-resize" className="resize-handle" title="Resize sidebar" aria-label="Resize sidebar" />}
-      <main className="content">
-        <nav className="tabbar">
+      {!sidebarCollapsed && <Tooltip content="Resize sidebar"><div id="sidebar-resize" className="resize-handle" aria-label="Resize sidebar" /></Tooltip>}
+      <main className={"content" + (tab === "chat" ? " content-chat" : "")}>
+        {tab !== "chat" && <nav className="tabbar">
           {!isPrimaryAppTab(tab) && backTarget && (
-            <button
+            <Tooltip content={`Back to ${appTabLabel(backTarget)} · Esc`}><button
               className="tabbar-back"
               type="button"
               onClick={navigateBack}
-              title={`Back to ${appTabLabel(backTarget)} · Esc`}
               aria-label={`Back to ${appTabLabel(backTarget)}`}
             >
               <Icon name="chevron.left" size={18} strokeWidth={2.25} />
-            </button>
+            </button></Tooltip>
           )}
-          <div className="tabbar-group" role="tablist" aria-label="Main views">
-            {TABS.map((t) => (
-              <button
-                key={t.id}
-                className={"tab-hit" + (tab === t.id ? " tab-hit-active" : "")}
-                onClick={() => setTab(t.id)}
-                aria-label={`Open ${t.label}`}
-              >
-                <span className={"tab-pill" + (tab === t.id ? " tab-pill-active" : "")}>
-                  {t.icon && <Icon name={t.icon} size={16} strokeWidth={2.25} />}
-                  {t.label}
-                </span>
-              </button>
-            ))}
-          </div>
+          <MainViewNavigation />
           <span className="tabbar-spacer" />
           <div className="tabbar-controls">
             {backgroundTaskPills}
             {feedbackAvailable && <FeedbackButton onClick={() => setFeedbackOpen(true)} />}
-            <SocialButtons />
-            <SettingsButton onClick={openSettingsFromButton} hasUpdate={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)} />
-            <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
           </div>
-        </nav>
+        </nav>}
         <hr className="divider" />
         {workspaceSyncing && <div className="workspace-sync-status muted small" role="status">
           <Spinner size={12} /> Syncing workspace…
         </div>}
         <div className={"tab-content" + (tab === "skills" ? " tab-content-bleed" : "")}>
           <div className={"persistent-tab-panel" + (tab === "chat" ? "" : " is-hidden")}>
-            <ChatView />
+            <ChatView headerAccessory={<>{backgroundTaskPills}{feedbackAvailable && <FeedbackButton onClick={() => setFeedbackOpen(true)} />}</>} />
           </div>
           {tab === "skills" && <SkillsView onOpenAgentSettings={() => openSettings("agent")} />}
           {tab === "automation" && <AutomationStudio />}
-          {tab === "connectors" && <ConnectorsView />}
           <div className={"persistent-tab-panel" + (tab === "live" ? "" : " is-hidden")}>
             <LiveView active={tab === "live"} />
           </div>
           {tab === "usage" && <UsageView />}
           {tab === "guide" && <GuideView onOpenAgentSettings={() => openSettings("agent")} />}
-          {tab === "scheduled" && (
-            <div className="page scheduled-page">
-              <ScheduledRunsPanel asPage />
-            </div>
-          )}
         </div>
       </main>
+      <UtilityDialogs />
       {settingsOpen && (
         <SettingsModal
           onClose={closeSettings}
@@ -1935,8 +1796,7 @@ export function App() {
       )}
       {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
       {feedbackModal}
-      {/* The control lives in the sidebar footer. A floating copy over the collapsed rail covered the agent
-          button (and the composer when moved right), so a collapsed sidebar shows none; Settings keeps it. */}
+      {/* Interface size stays in the expanded footer and Settings; it never floats over navigation. */}
     </div>
   );
 }

@@ -95,7 +95,7 @@ export function GuideActionModal({
         <div className="guide-action-modal-heading">
           <span
             className="guide-action-modal-mark"
-            style={{ background: confirmation.tint + "22", color: confirmation.tint }}
+            style={{ background: `color-mix(in srgb, ${confirmation.tint} 13%, transparent)`, color: confirmation.tint }}
           >
             <Icon name={confirmation.icon} size={24} strokeWidth={2.15} />
           </span>

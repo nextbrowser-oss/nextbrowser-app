@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import type { ReactNode } from "react";
 import type { BrowserRuntimeUpdateEntry } from "./BrowserRuntimeUpdatePrompt";
 import { InstallationProgress } from "./InstallationProgress";
@@ -40,7 +41,7 @@ export function SettingsUpdates({ appVersion, appUpdate, appLabel, appActions, r
     <div className="settings-updates-toolbar">
       <button className="secondary small" disabled={checking || !canStart} onClick={onCheck}>{checking ? <Spinner size={12} /> : <Icon name="arrow.clockwise" size={12} />} Check for updates</button>
       <div className="row">
-        <button className="secondary small" disabled={!canInstall || !downloads.length} onClick={onDownloadAll} title="Download and install missing Clawbrowser and Camoufox browsers">Download all</button>
+        <Tooltip content="Download and install missing Clawbrowser and Camoufox browsers"><button className="secondary small" disabled={!canInstall || !downloads.length} onClick={onDownloadAll}>Download all</button></Tooltip>
         <button className="primary small" disabled={checking || !canStart} onClick={onUpdateAll}>{bulkUpdating ? "Updating…" : "Update all"}</button>
       </div>
     </div>

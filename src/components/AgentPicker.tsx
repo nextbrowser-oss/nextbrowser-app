@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AGENTS, agentById } from "../agents";
@@ -68,11 +69,10 @@ export function AgentPicker({ compact = false, createChatOnSwitch = false, label
 
   return (
     <div className={"agent-picker" + (compact ? " agent-picker-compact" : "") + (tabLike ? " agent-picker-tab" : "")}>
-      <button
+      <Tooltip content={title}><button
         ref={buttonRef}
         className={tabLike ? "tab-hit agent-tab-hit" : "agent-picker-button"}
         onClick={() => setOpen((value) => !value)}
-        title={title}
         aria-label={title}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -90,7 +90,7 @@ export function AgentPicker({ compact = false, createChatOnSwitch = false, label
             {!compact && <Icon name="chevron.down" size={12} className="muted" />}
           </>
         )}
-      </button>
+      </button></Tooltip>
       {open && createPortal(
         <>
           <button className="menu-dismiss-layer" onClick={() => setOpen(false)} aria-label="Close agent picker" />
@@ -112,17 +112,15 @@ export function AgentPicker({ compact = false, createChatOnSwitch = false, label
             </div>
             <div className="agent-picker-list" role="listbox" aria-label="Agents">
               {matches.map((agent) => (
-                <button
-                  key={agent.id}
+                <Tooltip key={agent.id} content={agent.id === agentId ? `${agent.name} is active` : `Switch to ${agent.name}`}><button
                   className={"agent-row" + (agent.id === agentId ? " agent-row-active" : "")}
                   role="option"
                   aria-selected={agent.id === agentId}
-                  title={agent.id === agentId ? `${agent.name} is active` : `Switch to ${agent.name}`}
                   onClick={() => choose(agent.id)}
                 >
                   <span>{agent.name}</span>
                   {agent.id === agentId && <Icon name="checkmark" size={12} className="accent-icon" />}
-                </button>
+                </button></Tooltip>
               ))}
             </div>
           </div>

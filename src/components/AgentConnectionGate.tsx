@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import { useEffect, useState } from "react";
 import { PRIMARY_AGENTS, ADDITIONAL_AGENTS, BUILTIN_AGENT_ID, agentById, isBuiltinAgent, isMissingAgentInstallError } from "../agents";
 import { useStore } from "../store";
@@ -59,15 +60,14 @@ export function AgentConnectionGate({ onDismiss }: { onDismiss: () => void }) {
   return (
     <div className="agent-gate-overlay">
       <div className="agent-gate-card" role="dialog" aria-modal="true" aria-labelledby="agent-gate-title">
-        <button
+        <Tooltip content="Close"><button
           type="button"
           className="agent-gate-close"
           aria-label="Close agent setup"
-          title="Close"
           onClick={onDismiss}
         >
           <Icon name="xmark" size={18} />
-        </button>
+        </button></Tooltip>
         <BrandLogo size={44} />
         <div className="agent-gate-copy">
           <h2 id="agent-gate-title">Connect an agent to continue</h2>

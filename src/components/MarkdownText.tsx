@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import { useState, type MouseEvent, type ReactNode } from "react";
 import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -62,25 +63,24 @@ function LocalFileCard({ path, label }: { path: string; label: string }) {
     catch { setError("Could not open this location. Check that it still exists."); }
   };
   return (
-    <span className="local-file-card" title={path}>
+    <Tooltip content={path}><span className="local-file-card">
       <Icon name="doc" size={15} />
       <span className="local-file-name">{label || fileNameFromPath(path)}</span>
       {error && <span role="alert">{error}</span>}
       <button className="local-file-open" onClick={() => void open(path)}>Open</button>
-      <button
+      <Tooltip content="Show in Finder / Explorer"><button
         className="local-file-reveal plain-icon-btn plain-icon-btn-compact"
-        title="Show in Finder / Explorer"
         aria-label={`Show ${label || fileNameFromPath(path)} in folder`}
         onClick={() => void open(containingFolderPath(path))}
       >
         <Icon name="folder" size={13} />
-      </button>
-    </span>
+      </button></Tooltip>
+    </span></Tooltip>
   );
 }
 
 const markdownComponents: Components = {
-  a({ href = "", children }) {
+  a({ href = "", children, title }) {
     const decodedHref = (() => {
       try { return decodeURI(href); } catch { return href; }
     })();
@@ -93,7 +93,10 @@ const markdownComponents: Components = {
       event.preventDefault();
       void invoke("open_external", { url: href });
     };
-    return <a href={href} onClick={open} target={external ? "_blank" : undefined} rel={external ? "noreferrer" : undefined}>{children}</a>;
+    return <Tooltip content={title}><a href={href} onClick={open} target={external ? "_blank" : undefined} rel={external ? "noreferrer" : undefined}>{children}</a></Tooltip>;
+  },
+  img({ title, node: _node, ...props }) {
+    return <Tooltip content={title}><img {...props} /></Tooltip>;
   },
 };
 

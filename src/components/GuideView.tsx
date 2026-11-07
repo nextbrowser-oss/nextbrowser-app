@@ -39,7 +39,7 @@ export function GuideFeatureCard({
     >
       <span className="feature-card-accent" style={{ background: feature.tint }} />
       <span className="feature-card-main">
-        <span className="feature-icon" style={{ background: feature.tint + "26", color: feature.tint }}>
+        <span className="feature-icon" style={{ background: `color-mix(in srgb, ${feature.tint} 15%, transparent)`, color: feature.tint }}>
           <Icon name={feature.icon} size={22} strokeWidth={2.25} />
         </span>
         <span className="feature-card-copy">
@@ -170,7 +170,7 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
       action: "account",
       actionLabel: authed ? "View usage" : "Connect account",
       icon: "key.fill",
-      tint: "#007aff",
+      tint: "var(--info)",
     },
     {
       label: agentReady ? `${agentName} connected` : "Connect agent",
@@ -180,7 +180,7 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
       action: "agent",
       actionLabel: "Open agent settings",
       icon: "cpu.fill",
-      tint: "#af52de",
+      tint: "var(--purple)",
     },
     {
       label: sessionRunning
@@ -211,7 +211,7 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
           ? `Start ${sessionProfileLabel}?`
           : "Create a profile?",
       icon: "play.circle",
-      tint: "#34c759",
+      tint: "var(--success)",
     },
     {
       label: firstTaskSent ? "Continue in Chat" : "Start a chat",
@@ -221,7 +221,7 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
       action: "chat",
       actionLabel: "Open Chat",
       icon: "bubble.left.and.bubble.right.fill",
-      tint: "#ff2d55",
+      tint: "var(--pink)",
     },
   ];
 

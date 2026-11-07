@@ -1,4 +1,6 @@
 const { readCLIVersion } = require("./cli-version.cjs");
+const { windowChromeOptions, applyWindowChrome, applyWindowZoom } = require("./window-chrome.cjs");
+const chromeWindows = new WeakSet();
 const { mcpProfileScope } = require("./mcp-profile-scope.cjs");
 const { addChatWorkspaceProfile } = require("./chat-profile-scope.cjs");
 const { requireVerificationCapableCLI, verificationFailureDialogOptions, verificationFailureDialogChoice } = require("./verification-policy.cjs");
@@ -2537,7 +2539,9 @@ async function invokeCommand(command, args = {}, sender) {
       const theme = args.theme === "light" ? "light" : "dark";
       nativeTheme.themeSource = theme;
       for (const window of BrowserWindow.getAllWindows()) {
-        window.setBackgroundColor(theme === "light" ? "#f5f5f7" : "#15141c");
+        if (!applyWindowChrome(window, { background: args.background, foreground: args.foreground, factor: window.webContents.getZoomFactor() }, process.platform, chromeWindows.has(window))) {
+          window.setBackgroundColor(theme === "light" ? "#f5f5f7" : "#15141c");
+        }
       }
       return null;
     }
@@ -2548,7 +2552,11 @@ async function invokeCommand(command, args = {}, sender) {
       // that were never meant to grow past the window's own size.
       const factor = Number(args.factor);
       if (!Number.isFinite(factor) || factor < 0.5 || factor > 2) throw userError("Zoom factor out of range.");
-      if (sender && !sender.isDestroyed()) sender.setZoomFactor(factor);
+      if (sender && !sender.isDestroyed()) {
+        sender.setZoomFactor(factor);
+        const owner = BrowserWindow.fromWebContents(sender);
+        if (owner && chromeWindows.has(owner)) applyWindowZoom(owner, factor, process.platform);
+      }
       return null;
     }
     case "builtin_agent_status": return await builtinAgentStatus();
@@ -3434,12 +3442,14 @@ function createWindow() {
   const window = new BrowserWindow({
     title: isDevBuild ? "Nextbrowser DEV" : "Nextbrowser", width: 1180, height: 760, minWidth: 960, minHeight: 640,
     backgroundColor: "#0e0e0e", show: false,
+    ...windowChromeOptions(process.platform, nativeTheme.shouldUseDarkColors),
     // The native menu looks like Electron chrome in the Windows product UI.
     // Keep keyboard access through Alt without reserving visual space for it.
     ...(process.platform === "win32" ? { autoHideMenuBar: true } : {}),
     ...(icon ? { icon } : {}),
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: true, backgroundThrottling: false },
   });
+  chromeWindows.add(window);
   window.once("ready-to-show", () => window.show());
   window.on("unresponsive", () => {
     if (appQuitting) return;

@@ -118,6 +118,16 @@ export function MultiloginConnectorView({
   const kindFolders = folders.filter((folder) => folder.kind === profileKind);
   const connected = Boolean(status?.connected && status.valid);
   const needsReconnect = Boolean(status?.connected && !status.valid);
+  useEffect(() => {
+    if (!dialogOpen) return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing || busy) return;
+      event.preventDefault(); event.stopPropagation(); onClose();
+    };
+    window.addEventListener("keydown", dismiss);
+    return () => window.removeEventListener("keydown", dismiss);
+  }, [dialogOpen, busy, onClose]);
+
   // A refused token reads as "expired, reconnect" next to the Reconnect button rather than as nbc's wording.
   const visibleError = error || (status?.error ? userFacingMultiloginError(status.error) : undefined);
   const statusLabel = connectionLabel(status, checking);

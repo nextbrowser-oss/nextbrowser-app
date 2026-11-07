@@ -21,7 +21,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
     title: "How it works",
     description: "Set the goal. The agent uses your selected profile, and Live shows the browser.",
     icon: "sparkles",
-    tint: "#8e8cff",
+    tint: "var(--accent)",
   },
   {
     id: "agent",
@@ -29,7 +29,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
     title: "Setup agent",
     description: "",
     icon: "cpu.fill",
-    tint: "#af52de",
+    tint: "var(--purple)",
   },
   {
     id: "profile",
@@ -37,7 +37,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
     title: "Setup profile",
     description: "Choose the profile the agent should use, then start it.",
     icon: "person.2.fill",
-    tint: "#34c759",
+    tint: "var(--success)",
   },
   {
     id: "prompt",
@@ -45,7 +45,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
     title: "Try your first task",
     description: "Tell the agent what to do and what result you want.",
     icon: "scroll.fill",
-    tint: "#ff9500",
+    tint: "var(--warn)",
   },
   {
     id: "control",
@@ -53,7 +53,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
     title: "Watch the browser live",
     description: "When you ask the agent to use the browser, Live Streaming starts automatically.",
     icon: "video.fill",
-    tint: "#32ade6",
+    tint: "var(--info)",
   },
 ];
 

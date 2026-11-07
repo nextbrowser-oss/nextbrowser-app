@@ -1,0 +1,4 @@
+:root .shared-glass-surface { border: 0; background: var(--glass-inverse-bg); color: var(--glass-inverse-text); box-shadow: var(--glass-inverse-shadow); backdrop-filter: var(--glass-filter); }
+.shared-scrollbarless { scrollbar-width: none; }
+.shared-scrollbarless::-webkit-scrollbar { display: none; width: 0; height: 0; }
+@media (prefers-reduced-transparency: reduce) { :root .shared-glass-surface { background: var(--glass-inverse-solid); backdrop-filter: none; } }

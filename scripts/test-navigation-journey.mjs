@@ -45,11 +45,159 @@ try {
     };
   });
   await page.goto(`${url}/?preview=main`);
+  const chrome = page.getByRole("banner", { name: "Application toolbar" });
+  const community = chrome.getByRole("button", { name: "Join Nextbrowser on Discord" });
+  await community.waitFor();
+  assert.equal(await page.getByRole("button", { name: "Join Nextbrowser on Discord" }).count(), 1);
+  assert.equal(await chrome.getByRole("button", { name: "Star Nextbrowser on GitHub" }).count(), 1);
+  await mkdir("e2e-out", { recursive: true });
+  for (const theme of ["light", "dark"]) {
+    if (await page.locator("html").getAttribute("data-theme") !== theme) {
+      await chrome.getByRole("button", { name: /Switch to .* theme/ }).click();
+    }
+    for (const [tone, claimed, revoked] of [["missing", false, false], ["verified", true, false], ["missing", false, true], ["unknown", null, false]]) {
+      await page.evaluate(async ({ claimed, revoked }) => {
+        const { useStore } = await import("/src/store.ts");
+        useStore.setState({ githubStar: claimed === null ? null : { required: !claimed, claimed, revoked, repoUrl: "https://github.com/nextbrowser-oss/nextbrowser-app", rewardBytes: 1e9 }, githubStarPromptOpen: false });
+        // Let the existing once-per-launch reward prompt run, then dismiss it
+        // in this isolated fixture so it does not cover the header under test.
+        await new Promise(requestAnimationFrame);
+        useStore.setState({ githubStarPromptOpen: false });
+      }, { claimed, revoked });
+      await page.waitForFunction(tone => document.querySelector(`.community-discord--${tone}`), tone);
+      const style = await community.evaluate((node, tone) => {
+        const s = getComputedStyle(node);
+        const probe = document.createElement("span");
+        probe.style.color = `var(${tone === "verified" ? "--green" : tone === "missing" ? "--red" : "--muted"})`;
+        document.body.append(probe);
+        const expected = getComputedStyle(probe).color; probe.remove();
+        return { color: s.color, expected, border: s.borderTopWidth, shadow: s.boxShadow, background: s.backgroundColor };
+      }, tone);
+      assert.equal(style.color, style.expected);
+      assert.equal(style.border, "0px");
+      assert.equal(style.shadow, "none");
+      if (tone !== "unknown") assert.notEqual(style.background, "rgba(0, 0, 0, 0)");
+      await community.hover();
+      const hint = page.getByRole("tooltip");
+      await hint.waitFor();
+      assert.match(await hint.innerText(), tone === "verified" ? /star verified/ : tone === "missing" ? /star is not verified/ : /verify your star/);
+      const hintBox = await hint.boundingBox();
+      assert.ok(hintBox.y >= 0 && hintBox.x >= 0 && hintBox.x + hintBox.width <= 1280);
+      if (!revoked && tone !== "unknown") await page.screenshot({ path: `e2e-out/community-${theme}-${tone}.png` });
+      await page.mouse.move(20, 100);
+      await hint.waitFor({ state: "hidden" });
+    }
+  }
+  for (const width of [1280, 540, 420, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    const boxes = await chrome.getByRole("button").evaluateAll(nodes => nodes.map(node => {
+      const b = node.getBoundingClientRect(), s = getComputedStyle(node);
+      return { left: b.left, right: b.right, bottom: b.bottom, border: s.borderTopWidth, drag: s.getPropertyValue("app-region") };
+    }));
+    for (const b of boxes) {
+      assert.ok(b.left >= 0 && b.right <= width - 148 && b.bottom <= 40, JSON.stringify({ width, b }));
+      assert.equal(b.border, "0px");
+      assert.equal(b.drag, "no-drag");
+    }
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await chrome.getByRole("button", { name: "Switch to light theme" }).click();
+  let mainViews = page.getByRole('tablist', { name: 'Main views' });
+  const projectName = page.locator('.chat-project-switcher');
+  const titleBounds = await projectName.boundingBox();
+  const viewBounds = await mainViews.boundingBox();
+  assert.ok(viewBounds.x >= titleBounds.x + titleBounds.width, 'minimal main navigation sits after the project name');
+  assert.ok(Math.abs(viewBounds.y - titleBounds.y) <= 2);
+  assert.equal(await page.locator('.content-chat > .tabbar').count(), 0, 'no separate navigation row above the chat');
+  await mainViews.getByRole('tab', { name: 'Open Live', exact: true }).click();
+  await page.getByRole('tablist', { name: 'Main views' }).getByRole('tab', { name: 'Open Project', exact: true }).click();
+  await projectName.click();
+  const projectPopover = page.getByRole('dialog', { name: 'Recent projects' });
+  await projectPopover.waitFor();
+  const side = await page.locator('#app-sidebar').boundingBox();
+  assert.ok((await projectPopover.boundingBox()).x >= side.x + side.width, 'project popup stays beyond the left navigation');
+  assert.ok((await projectPopover.boundingBox()).width <= 240);
+  await page.keyboard.press('Escape');
   const nav = page.getByRole("navigation", { name: "Sidebar pages" });
+  const checkSidebarSurface = async () => {
+    const surface = await page.locator('#app-sidebar').evaluate(node => {
+      const rect = node.getBoundingClientRect(), style = getComputedStyle(node);
+      const container = node.closest('.desktop-shell-body').getBoundingClientRect();
+      const icon = node.querySelector('.sidebar-destination svg');
+      return { left: rect.left, top: rect.top - container.top, bottom: container.bottom - rect.bottom,
+        radius: style.borderTopLeftRadius, blur: style.backdropFilter, bg: style.backgroundColor,
+        text: style.color, icon: getComputedStyle(icon).color, overflow: node.scrollWidth > node.clientWidth };
+    });
+    assert.ok(surface.left >= 8 && surface.top >= 8 && surface.bottom >= 8, JSON.stringify(surface));
+    assert.equal(surface.radius, '18px');
+    assert.ok(surface.blur.includes('blur(18px)'));
+    assert.match(surface.bg, /^rgba\(/);
+    assert.equal(surface.icon, surface.text, 'navigation icons use the glass foreground');
+    assert.equal(surface.overflow, false);
+  };
+  await checkSidebarSurface();
+  await page.screenshot({ path: 'e2e-out/sidebar-glass-expanded-light.png' });
+  await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts');
+    useStore.setState(state => ({ runtime: { ...state.runtime, claude: { ...state.runtime.claude, ready: true, loggedIn: true } } }));
+  });
+  const draft = page.locator('.composer textarea');
+  await draft.fill('Keep this unsent draft while opening utilities');
+  await nav.getByRole('button', { name: /^Open Scheduled/ }).click();
+  const scheduleDialog = page.getByRole('dialog', { name: 'Schedule', exact: true });
+  await scheduleDialog.waitFor();
+  assert.equal(await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().tab), 'chat');
+  await scheduleDialog.getByRole('button', { name: 'New schedule', exact: true }).click();
+  const editorDialog = page.getByRole('dialog', { name: 'New scheduled run', exact: true });
+  await editorDialog.waitFor();
+  const editorBounds = await editorDialog.boundingBox();
+  assert.ok(editorBounds.x >= 0 && editorBounds.y >= 0 && editorBounds.y + editorBounds.height <= 900);
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme; }, theme);
+    await page.waitForTimeout(250);
+    const contrastResults = await editorDialog.evaluate(editor => {
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
+      const ctx = canvas.getContext('2d');
+      const rgba = color => { ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = color; ctx.fillRect(0, 0, 1, 1); return [...ctx.getImageData(0, 0, 1, 1).data]; };
+      const over = (color, base) => color.slice(0, 3).map((v, i) => v * color[3] / 255 + base[i] * (1 - color[3] / 255));
+      const luminance = rgb => rgb.map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }).reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i], 0);
+      const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + .05) / (Math.min(luminance(a), luminance(b)) + .05);
+      const base = rgba(getComputedStyle(editor).backgroundColor);
+      const checks = [...editor.querySelectorAll('h3, p, label, .field-label, input, textarea, select, .weekday-btn, .preset-row button, .secondary')].map(node => {
+        const style = getComputedStyle(node), background = over(rgba(style.backgroundColor), base);
+        return { element: node.tagName + ':' + (node.textContent || node.getAttribute('placeholder') || node.getAttribute('type') || '').slice(0, 45), ratio: contrast(over(rgba(style.color), background), background) };
+      });
+      for (const node of editor.querySelectorAll('input[placeholder], textarea[placeholder]')) {
+        const style = getComputedStyle(node), placeholder = getComputedStyle(node, '::placeholder'), background = over(rgba(style.backgroundColor), base);
+        checks.push({ element: 'placeholder:' + node.getAttribute('placeholder'), ratio: contrast(over(rgba(placeholder.color), background), background) });
+      }
+      return { background: base, colorScheme: getComputedStyle(editor).colorScheme, checks };
+    });
+    assert.ok(contrastResults.background[3] >= 240 && contrastResults.background.slice(0, 3).every(c => theme === 'light' ? c > 220 : c < 110), `nested schedule follows ${theme} theme: ${JSON.stringify(contrastResults)}`);
+    assert.equal(contrastResults.colorScheme, theme);
+    assert.equal(await scheduleDialog.evaluate(node => getComputedStyle(node).backgroundColor), await editorDialog.evaluate(node => getComputedStyle(node).backgroundColor));
+    for (const check of contrastResults.checks) assert.ok(check.ratio >= 4.5, `${theme} schedule contrast: ${JSON.stringify(check)}`);
+    await page.screenshot({ path: `e2e-out/schedule-editor-${theme}.png` });
+  }
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; document.documentElement.style.colorScheme = 'light'; });
+  await page.keyboard.press('Escape');
+  await editorDialog.waitFor({ state: 'detached' });
+  assert.equal(await scheduleDialog.isVisible(), true);
+  await page.screenshot({ path: 'e2e-out/schedule-modal-light.png' });
+  await page.keyboard.press('Escape');
+  await scheduleDialog.waitFor({ state: 'detached' });
+  assert.equal(await draft.inputValue(), 'Keep this unsent draft while opening utilities');
+  await draft.fill('');
   const skillsButton = () => nav.getByRole("button", { name: /^Open Skills/ });
   await skillsButton().click();
   const expandedY = (await skillsButton().boundingBox()).y;
   await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  assert.equal(await page.getByRole("button", { name: "Expand sidebar", exact: true }).evaluate(node => !!node.closest(".app-titlebar")), true);
+  assert.equal(await page.locator(".sidebar-mini").getByRole("button", { name: /^Agent:/ }).count(), 0);
+  assert.equal(await nav.getByRole("button").count(), 5);
+  assert.equal(await nav.locator("svg").evaluateAll(nodes => nodes.every(node => getComputedStyle(node).strokeWidth === "1.5px")), true);
+  assert.equal(await page.locator(".sidebar-mini").evaluate(node => node.scrollWidth <= node.clientWidth), true);
+  await checkSidebarSurface();
   const collapsedY = (await skillsButton().boundingBox()).y;
   assert.ok(Math.abs(expandedY - collapsedY) < 1, `Navigation moved: ${expandedY} → ${collapsedY}`);
   assert.equal(await skillsButton().innerText().then((text) => text.includes("Skills")), true);
@@ -68,17 +216,47 @@ try {
   await page.screenshot({ path: "e2e-out/navigation-skills-light.png" });
   const rail = await page.locator(".sidebar-mini").boundingBox();
   await page.mouse.click(rail.x + rail.width / 2, rail.y + rail.height - 130);
+  assert.equal(await page.locator(".sidebar-collapsed").count(), 1, "blank rail space is no longer an expand trigger");
+  await page.locator(".sidebar-mini").getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("dialog", { name: "Settings", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   await page.getByRole("button", { name: "Collapse sidebar", exact: true }).waitFor();
+  const beforeResize = await page.locator('#app-sidebar').boundingBox();
+  const resize = await page.locator('#sidebar-resize').boundingBox();
+  await page.mouse.move(resize.x + resize.width / 2, resize.y + 80);
+  await page.mouse.down();
+  await page.mouse.move(resize.x + resize.width / 2 + 40, resize.y + 80, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForFunction(width => Math.abs(document.querySelector('#app-sidebar').getBoundingClientRect().width - width - 40) < 1, beforeResize.width);
+  await checkSidebarSurface();
   await page.setViewportSize({ width: 960, height: 640 });
   assert.equal(await page.locator(".skills-root").evaluate((node) => node.scrollWidth <= node.clientWidth + 1), true);
   await tabs.getByRole("tab", { name: "All skills", exact: true }).press("End");
   assert.equal(await tabs.getByRole("tab", { name: "Scripts", exact: true }).evaluate((node) => { const box = node.getBoundingClientRect(); return box.left >= 0 && box.right <= innerWidth; }), true);
   await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
   await page.waitForTimeout(350); // Let the theme transition settle before visual QA.
+  await checkSidebarSurface();
   await page.screenshot({ path: "e2e-out/navigation-skills-narrow-dark.png" });
   await page.setViewportSize({ width: 1280, height: 900 });
   await nav.getByRole("button", { name: /^Open Connectors/ }).click();
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  const connectorsDialog = page.getByRole('dialog', { name: 'Connectors', exact: true });
+  await connectorsDialog.waitFor();
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme; }, theme);
+    await page.waitForTimeout(250);
+    const colors = await connectorsDialog.evaluate(node => {
+      const style = getComputedStyle(node);
+      return { bg: style.backgroundColor, text: style.color, scheme: style.colorScheme, heading: getComputedStyle(node.querySelector('h2')).color };
+    });
+    assert.equal(colors.bg, theme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(52, 62, 76)');
+    assert.equal(colors.text, theme === 'light' ? 'rgb(26, 28, 28)' : 'rgb(244, 246, 251)');
+    assert.equal(colors.heading, colors.text);
+    assert.equal(colors.scheme, theme);
+    await page.screenshot({ path: `e2e-out/connectors-modal-${theme}.png` });
+  }
+  assert.equal(await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().tab), 'skills');
+  await connectorsDialog.getByRole("button", { name: "Connect", exact: true }).click();
   const modal = page.getByRole("dialog", { name: /Multilogin/ });
   await modal.getByText("wails", { exact: true }).waitFor();
   await modal.getByText("Session storage", { exact: true }).waitFor();
@@ -90,8 +268,14 @@ try {
   await modal.getByRole("button", { name: "Connect selected workspace", exact: true }).click();
   await modal.getByText("qa@example.com", { exact: true }).waitFor();
   assert.deepEqual(await page.evaluate(() => window.__navigationQA.calls.filter((call) => call.command.startsWith("multilogin_login_")).map((call) => call.command).slice(-2)), ["multilogin_login_open", "multilogin_login_complete"]);
+  await page.keyboard.press('Escape');
+  await modal.waitFor({ state: 'detached' });
+  assert.equal(await connectorsDialog.isVisible(), true);
+  await connectorsDialog.getByRole('button', { name: 'Close Connectors' }).click();
+  await connectorsDialog.waitFor({ state: 'detached' });
+  assert.equal(await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().tab), 'skills');
   assert.deepEqual(errors, []);
-  console.log("Navigation journey passed: stable sidebar positions, labels, blank-area expansion, tab keyboard navigation, narrow layout, themes and Multilogin connection.");
+  console.log("Navigation journey passed: titlebar toggle, five monoline destinations, footer Settings, stable sidebar positions, no horizontal overflow, keyboard navigation, narrow layout, themes and Multilogin connection.");
 } catch (error) {
   if (page) {
     await mkdir("e2e-out", { recursive: true });

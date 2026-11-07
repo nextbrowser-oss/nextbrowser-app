@@ -36,7 +36,7 @@ describe("Settings section rail", () => {
     const html = rail("general", { agent: "not connected" });
     const all = tabs(html);
     expect(all.agent).toContain('aria-label="Agent, not connected"');
-    expect(all.agent).toContain('title="Agent: not connected"');
+    expect(all.agent).toContain('data-tooltip-id=');
     expect(all.general).not.toContain("aria-label=");
     expect(html.match(/settings-rail-dot/g)).toHaveLength(1);
     expect(html).toContain('<span class="settings-rail-dot" aria-hidden="true"></span>');

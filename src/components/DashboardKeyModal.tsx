@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import { useEffect, useRef } from "react";
 import { useStore } from "../store";
 import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
@@ -93,27 +94,25 @@ export function DashboardKeyModal() {
               <strong>{pairing.status === "pending" ? "Waiting for browser sign-in…" : pairing.status}</strong>
               <p className="muted small">Nextbrowser connects automatically when you finish in the browser.</p>
               {pairingFailed ? (
-                <button
+                <Tooltip content="Start a new sign-in request"><button
                   type="button"
                   className="pairing-reopen"
                   disabled={loading}
                   onClick={startAgain}
-                  title="Start a new sign-in request"
                 >
                   <Icon name="arrow.clockwise" size={13} />
                   Start again
-                </button>
+                </button></Tooltip>
               ) : (
-                <button
+                <Tooltip content="Open the sign-in page again"><button
                   type="button"
                   className="pairing-reopen"
                   disabled={loading}
                   onClick={() => void reopenPairing()}
-                  title="Open the sign-in page again"
                 >
                   <Icon name="arrow.clockwise" size={13} />
                   Reopen sign-in page
-                </button>
+                </button></Tooltip>
               )}
             </div>
           ) : (

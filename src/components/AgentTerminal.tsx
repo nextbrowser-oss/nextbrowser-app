@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import type { MultiloginProfileSelection } from "../lib/multiloginSelection";
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
@@ -14,6 +15,7 @@ import { codexMcpRecovery } from "../lib/codexMcpRecovery";
 import { terminalBrowserSession } from "../lib/terminalBrowserSession";
 import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT } from "../lib/automationRecording";
 import { openTerminalWebLink } from "../lib/terminalWebLinks";
+import { terminalThemeFromPalette } from "../theme";
 
 interface AgentTerminalProps {
   agentId: string;
@@ -37,58 +39,10 @@ interface AgentTerminalProps {
   onPreviewChange?: (preview?: string) => void;
 }
 
-const DARK_TERMINAL_THEME = {
-  background: "#181818",
-  foreground: "#d9d9dc",
-  cursor: "#a5a6ff",
-  cursorAccent: "#181818",
-  selectionBackground: "#55578080",
-  black: "#242426",
-  red: "#ef6b73",
-  green: "#61c98b",
-  yellow: "#d7b76a",
-  blue: "#7697e8",
-  magenta: "#b48cdb",
-  cyan: "#64b8c5",
-  white: "#d9d9dc",
-  brightBlack: "#85858d",
-  brightRed: "#ff848b",
-  brightGreen: "#78dda0",
-  brightYellow: "#e9cb80",
-  brightBlue: "#91aff5",
-  brightMagenta: "#c8a2ec",
-  brightCyan: "#7bcbd6",
-  brightWhite: "#f4f4f5",
-};
-
-const LIGHT_TERMINAL_THEME = {
-  background: "#f7f7f8",
-  foreground: "#29292d",
-  cursor: "#5555d9",
-  cursorAccent: "#f7f7f8",
-  selectionBackground: "#b9baf080",
-  black: "#29292d",
-  red: "#b52c39",
-  green: "#247a48",
-  yellow: "#86630b",
-  blue: "#355fb3",
-  magenta: "#7745a2",
-  cyan: "#17717d",
-  white: "#e8e8ea",
-  brightBlack: "#707078",
-  brightRed: "#cf3e49",
-  brightGreen: "#318e56",
-  brightYellow: "#987316",
-  brightBlue: "#4972c7",
-  brightMagenta: "#8b59b5",
-  brightCyan: "#25838f",
-  brightWhite: "#ffffff",
-};
-
 function activeTerminalTheme() {
-  return document.documentElement.dataset.theme === "light"
-    ? LIGHT_TERMINAL_THEME
-    : DARK_TERMINAL_THEME;
+  // Xterm needs resolved colors, so read the same CSS palette as the renderer.
+  const palette = getComputedStyle(document.documentElement);
+  return terminalThemeFromPalette((property) => palette.getPropertyValue(property));
 }
 
 function handoffFingerprint(value: string): string {
@@ -550,43 +504,40 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
         <span className="experimental-pill">Experimental</span>
         <span className="spacer" />
         {status === "starting" && <Spinner size={12} />}
-        {status === "running" && <span className="terminal-status-dot" title="Running" />}
+        {status === "running" && <Tooltip content="Running"><span className="terminal-status-dot"  /></Tooltip>}
         {status === "exited" && <span className="muted small">Exited</span>}
-        {status === "failed" && <span className="error small" title={error}>Failed</span>}
-        <button
+        {status === "failed" && <Tooltip content={error}><span className="error small">Failed</span></Tooltip>}
+        <Tooltip content="Attach local files to the next terminal prompt"><button
           className="mini terminal-attach-file"
           disabled={status !== "running"}
           onClick={() => void attachFiles()}
-          title="Attach local files to the next terminal prompt"
           aria-label="Attach local files to the next terminal prompt"
         >
           <Icon name="paperclip" size={13} />
-        </button>
+        </button></Tooltip>
         {(status === "exited" || status === "failed") && (
-          <button
+          <Tooltip content={`Restart ${agentName} terminal`}><button
             className="mini"
             onClick={() => setRestartNonce((value) => value + 1)}
-            title={`Restart ${agentName} terminal`}
           >
             Restart
-          </button>
+          </button></Tooltip>
         )}
-        <button
+        <Tooltip content="Save this terminal browser workflow as a private skill"><button
           className="mini terminal-save-skill"
           disabled={status !== "running" || savingWorkflow}
           onClick={() => {
             const value = transcript();
             if (value) onSaveWorkflow(value);
           }}
-          title="Save this terminal browser workflow as a private skill"
         >
           {savingWorkflow && <Spinner size={11} />} {savingWorkflow ? "Preparing…" : "Save as skill"}
-        </button>
+        </button></Tooltip>
       </header>
       {attachments.length > 0 && (
         <div className="terminal-attachments" aria-label="Files attached to the next terminal prompt">
           {attachments.map((file) => (
-            <span className="attachment-chip" key={file.path} title={file.path}>
+            <Tooltip key={file.path} content={file.path}><span className="attachment-chip">
               <Icon name="paperclip" size={12} />
               <span>{file.name}</span>
               <button
@@ -594,7 +545,7 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
                 aria-label={`Remove ${file.name}`}
                 onClick={() => void removeAttachment(file)}
               >×</button>
-            </span>
+            </span></Tooltip>
           ))}
         </div>
       )}

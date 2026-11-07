@@ -1,0 +1,14 @@
+.utility-dialog {
+  color-scheme: inherit;
+  /* Nested legacy cards use the dialog palette, rather than the fixed dark
+     material reserved for floating controls and popovers. */
+  --material-modal: var(--dialog-bg);
+  --material-popover: var(--dialog-bg);
+  --button-shadow: none;
+  --button-shadow-hover: var(--dialog-shadow);
+}
+.utility-dialog .modal-card :is(input, textarea)::placeholder { color: var(--muted); opacity: 1; }
+.utility-dialog select option { color: var(--text); background: var(--bg); }
+.utility-dialog .connectors-page { padding: 0; }
+.utility-dialog .scheduled-page-card { width: auto; min-height: 0; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.utility-dialog .scheduled-page-head { justify-content: flex-end; margin-bottom: 12px; }

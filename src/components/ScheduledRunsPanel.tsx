@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import { useStore } from "../store";
 import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
@@ -14,7 +15,7 @@ import { DAILY_WEEKDAYS } from "../lib/scheduleDue";
 // Sentinel for the "create a dedicated chat" option in the session selector.
 const NEW_DEDICATED_CHAT = "__new_dedicated_chat__";
 
-export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
+export function ScheduledRunsPanel({ asPage = false, embedded = false }: { asPage?: boolean; embedded?: boolean }) {
   const runs = useStore((s) => s.scheduledRuns);
   const chatTitle = useStore((s) => s.scheduledRunChatTitle);
   const setEnabled = useStore((s) => s.setScheduledRunEnabled);
@@ -72,29 +73,28 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
     <div className={(asPage ? "scheduled-page-card " : "") + "claw-card scheduled-panel"}>
       {asPage && (
         <div className="page-head scheduled-page-head">
-          <div>
+          {!embedded && <div>
             <h2>Scheduled runs</h2>
             <p className="muted">Automate recurring tasks while Nextbrowser is open.</p>
-          </div>
+          </div>}
           <button className="btn-bordered-prominent" onClick={() => { setExpanded(true); setEditor("new"); }}>
             <Icon name="plus" size={14} /> New schedule
           </button>
         </div>
       )}
       {!asPage && <div className="row scheduled-panel-head">
-        <button
+        <Tooltip content={expanded ? "Hide scheduled runs" : "Show scheduled runs"}><button
           className="scheduled-panel-toggle"
-          title={expanded ? "Hide scheduled runs" : "Show scheduled runs"}
           aria-expanded={expanded}
           onClick={() => !asPage && setExpanded((value) => !value)}
         >
           {!asPage && <Icon name={expanded ? "chevron.down" : "chevron.right"} size={13} />}
           <span className="section">Scheduled runs</span>
-          {runs.length > 0 && <span className="profiles-count" title="Scheduled runs">{runs.length}</span>}
-        </button>
-        <button className="plain-icon-btn" title="New schedule" onClick={() => { setExpanded(true); setEditor("new"); }}>
+          {runs.length > 0 && <Tooltip content="Scheduled runs"><span className="profiles-count">{runs.length}</span></Tooltip>}
+        </button></Tooltip>
+        <Tooltip content="New schedule"><button className="plain-icon-btn" onClick={() => { setExpanded(true); setEditor("new"); }}>
           <Icon name="plus.circle" size={18} />
-        </button>
+        </button></Tooltip>
       </div>}
       {expanded && (runs.length === 0 ? (
           <div className="scheduled-empty-state">
@@ -146,13 +146,12 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
               />
               <span className="toggle-track"><span className="toggle-knob" /></span>
             </label>
-            <button
+            <Tooltip content="Edit or delete scheduled run"><button
               className="plain-icon-btn schedule-menu-button"
               onClick={() => setMenuRunId(menuRunId === run.id ? null : run.id)}
-              title="Edit or delete scheduled run"
             >
               <Icon name="ellipsis.circle" size={16} />
-            </button>
+            </button></Tooltip>
             {menuRunId === run.id && (
               <>
                 <button
@@ -279,17 +278,17 @@ function MonitorScheduleRow({ run, entry, lastPassAt, note, busy, menuOpen, menu
         {!entry && <div className="error small">The skill for this schedule is not installed.</div>}
       </div>
       {run.enabled ? (
-        <button className="btn-bordered schedule-monitor-action" title="Stop monitoring" onClick={onStop}>
+        <Tooltip content="Stop monitoring"><button className="btn-bordered schedule-monitor-action" onClick={onStop}>
           <Icon name="stop" size={13} /> Stop
-        </button>
+        </button></Tooltip>
       ) : (
-        <button className="btn-bordered-prominent schedule-monitor-action" disabled={!entry} title="Start monitoring" onClick={() => entry && onStart(entry)}>
+        <Tooltip content="Start monitoring"><button className="btn-bordered-prominent schedule-monitor-action" disabled={!entry} onClick={() => entry && onStart(entry)}>
           <Icon name="play.fill" size={12} /> Start
-        </button>
+        </button></Tooltip>
       )}
-      <button className="plain-icon-btn schedule-menu-button" onClick={onMenu} title="Delete this schedule">
+      <Tooltip content="Delete this schedule"><button className="plain-icon-btn schedule-menu-button" onClick={onMenu}>
         <Icon name="ellipsis.circle" size={16} />
-      </button>
+      </button></Tooltip>
       {menuOpen && (
         <>
           <button className="menu-dismiss-layer" aria-label="Close schedule menu" onClick={onCloseMenu} />

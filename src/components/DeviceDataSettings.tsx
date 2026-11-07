@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import { useEffect, useState } from "react";
 import { invoke } from "../electronBridge";
 import {
@@ -26,7 +27,7 @@ export function DeviceDataGroups({
       </div>
       <div className="settings-device-data-list">
         {DEVICE_DATA_GROUPS.map((group) => (
-          <div className="settings-device-data-row" key={group.key} title={group.detail}>
+          <Tooltip key={group.key} content={group.detail}><div className="settings-device-data-row">
             <span className="settings-device-data-copy">
               <span className="small">{group.label}</span>
               <span className="muted small">{group.summary}</span>
@@ -40,7 +41,7 @@ export function DeviceDataGroups({
               />
               <span className="toggle-track"><span className="toggle-knob" /></span>
             </label>
-          </div>
+          </div></Tooltip>
         ))}
       </div>
     </div>

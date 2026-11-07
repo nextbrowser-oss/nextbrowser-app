@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import { useEffect, useState } from "react";
 import type { FeedPost } from "@nextbrowser-oss/x-monitoring";
 import { useStore } from "../store";
@@ -109,20 +110,19 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
   const hasData = !!account || hasStats || feed.posts.length > 0;
   const notes = !busy ? lastPass?.notes ?? [] : [];
   const logLink = (
-    <button className="link small" title="Reveal the monitor's log file"
+    <Tooltip content="Reveal the monitor's log file"><button className="link small"
       onClick={() => void invoke("app_data_reveal", { name: X_MONITOR_LOG_FILE })}>
       Show log
-    </button>
+    </button></Tooltip>
   );
 
   return (
     <>
       <div className="row watchlist-profile">
         <label className="muted small">Profile</label>
-        <select
+        <Tooltip content={running ? "Stop monitoring to change the profile" : "The browser profile signed in to x.com"}><select
           value={profileAvailable ? profile : "__choose_profile__"}
           disabled={busy || running}
-          title={running ? "Stop monitoring to change the profile" : "The browser profile signed in to x.com"}
           onChange={(event) => chooseProfile(event.target.value)}
         >
           {!profileAvailable && <option value="__choose_profile__" disabled>Choose a profile in this workspace</option>}
@@ -131,12 +131,12 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
               {item.name}{item.country ? ` · ${item.country.toUpperCase()}` : ""}
             </option>
           ))}
-        </select>
+        </select></Tooltip>
         <span className="spacer" />
-        <button className="mini" disabled={busy || !profileAvailable} title={`Open ${site} in this profile to sign in or switch account`}
+        <Tooltip content={`Open ${site} in this profile to sign in or switch account`}><button className="mini" disabled={busy || !profileAvailable}
           onClick={() => void openSite(entry, profile)}>
           Open {site}
-        </button>
+        </button></Tooltip>
       </div>
       {!profileAvailable && (
         <p className="muted small" role="status">Choose a browser profile from this workspace to monitor its X account.</p>
@@ -160,11 +160,11 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
           </div>
           <span className="spacer" />
           {!running && (
-            <button className="plain-icon-btn" disabled={busy || !profileAvailable}
-              title="Read the signed-in account again" aria-label="Read the signed-in account again"
+            <Tooltip content="Read the signed-in account again"><button className="plain-icon-btn" disabled={busy || !profileAvailable}
+               aria-label="Read the signed-in account again"
               onClick={() => void openSite(entry, profile)}>
               <Icon name="arrow.clockwise" size={14} />
-            </button>
+            </button></Tooltip>
           )}
         </div>
       )}
@@ -186,14 +186,13 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
           <div className="row xmon-setup-actions">
             {hasData ? logLink : <span />}
             <span className="spacer" />
-            <button
+            <Tooltip content="Read the account now and then on this interval"><button
               className="btn-bordered-prominent"
               disabled={!profileAvailable || busy}
-              title="Read the account now and then on this interval"
               onClick={() => void startSchedule(entry, { intervalMinutes: interval, profileName: profile })}
             >
               <Icon name="play.fill" size={13} /> Start
-            </button>
+            </button></Tooltip>
           </div>
         </div>
       )}
@@ -252,9 +251,9 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
             </div>
             <span className="spacer" />
             {logLink}
-            <button className="btn-bordered" title="Stop monitoring" onClick={() => stopSchedule(entry.id)}>
+            <Tooltip content="Stop monitoring"><button className="btn-bordered" onClick={() => stopSchedule(entry.id)}>
               <Icon name="stop" size={14} /> Stop
-            </button>
+            </button></Tooltip>
           </div>
           {notes.map((text) => <div key={text} className="small watchlist-pass-note"><UserFacingError message={text} surface="x_monitor" /></div>)}
         </div>
@@ -274,9 +273,9 @@ function PostRow({ post, fresh }: { post: FeedPost; fresh: boolean }) {
       <span className="xmon-post-avatar" aria-hidden>{post.author.slice(0, 1).toUpperCase()}</span>
       <div className="xmon-post-body">
         <div className="xmon-post-head small">
-          <button className="watchlist-handle" title={`Open @${post.author}`} onClick={() => openUrl(`https://x.com/${post.author}`)}>
+          <Tooltip content={`Open @${post.author}`}><button className="watchlist-handle" onClick={() => openUrl(`https://x.com/${post.author}`)}>
             @{post.author}
-          </button>
+          </button></Tooltip>
           {post.repost && post.repostedBy && <span className="muted">reposted by @{post.repostedBy}</span>}
           {post.reply && <span className="watchlist-chip">Reply</span>}
           {fresh && <span className="watchlist-chip ok">New</span>}
@@ -291,9 +290,9 @@ function PostRow({ post, fresh }: { post: FeedPost; fresh: boolean }) {
           </div>
         )}
       </div>
-      <button className="plain-icon-btn" title="Open the post on x.com" onClick={() => openUrl(post.url)}>
+      <Tooltip content="Open the post on x.com"><button className="plain-icon-btn" onClick={() => openUrl(post.url)}>
         <Icon name="arrow.up.right.square" size={14} />
-      </button>
+      </button></Tooltip>
     </div>
   );
 }

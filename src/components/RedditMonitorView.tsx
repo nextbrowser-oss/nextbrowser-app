@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import { useEffect, useState } from "react";
 import { normalizeCommunity, splitKeywords, type Match } from "@nextbrowser-oss/reddit-monitoring";
 import { useStore } from "../store";
@@ -119,20 +120,19 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
   };
 
   const logLink = (
-    <button className="link small" title="Reveal the monitor's log file"
+    <Tooltip content="Reveal the monitor's log file"><button className="link small"
       onClick={() => void invoke("app_data_reveal", { name: REDDIT_MONITOR_LOG_FILE })}>
       Show log
-    </button>
+    </button></Tooltip>
   );
 
   return (
     <>
       <div className="row watchlist-profile">
         <label className="muted small">Profile</label>
-        <select
+        <Tooltip content={running ? "Stop monitoring to change the profile" : "The browser profile signed in to reddit.com"}><select
           value={profileAvailable ? profile : "__choose_profile__"}
           disabled={busy || running}
-          title={running ? "Stop monitoring to change the profile" : "The browser profile signed in to reddit.com"}
           onChange={(event) => chooseProfile(event.target.value)}
         >
           {!profileAvailable && <option value="__choose_profile__" disabled>Choose a profile in this workspace</option>}
@@ -141,12 +141,12 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
               {item.name}{item.country ? ` · ${item.country.toUpperCase()}` : ""}
             </option>
           ))}
-        </select>
+        </select></Tooltip>
         <span className="spacer" />
-        <button className="mini" disabled={busy || !profileAvailable} title={`Open ${site} in this profile to sign in or switch account`}
+        <Tooltip content={`Open ${site} in this profile to sign in or switch account`}><button className="mini" disabled={busy || !profileAvailable}
           onClick={() => void openSite(entry, profile)}>
           Open {site}
-        </button>
+        </button></Tooltip>
       </div>
       {!profileAvailable && (
         <p className="muted small" role="status">Choose a browser profile from this workspace to monitor Reddit with.</p>
@@ -170,11 +170,11 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
           </div>
           <span className="spacer" />
           {!running && (
-            <button className="plain-icon-btn" disabled={busy || !profileAvailable}
-              title="Read the signed-in account again" aria-label="Read the signed-in account again"
+            <Tooltip content="Read the signed-in account again"><button className="plain-icon-btn" disabled={busy || !profileAvailable}
+               aria-label="Read the signed-in account again"
               onClick={() => void openSite(entry, profile)}>
               <Icon name="arrow.clockwise" size={14} />
-            </button>
+            </button></Tooltip>
           )}
         </div>
       )}
@@ -199,10 +199,10 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
           parse={(text) => text.split(/[\s,]+/).map(normalizeCommunity).filter(Boolean)}
           onChange={(communities) => updateSettings({ communities })}
           extra={missingCommunities.length > 0 && (
-            <button className="link small" title="The communities the reply agent answers in"
+            <Tooltip content="The communities the reply agent answers in"><button className="link small"
               onClick={() => updateSettings({ communities: [...settings.communities, ...missingCommunities] })}>
               Add the reply agent's {missingCommunities.length === 1 ? `r/${missingCommunities[0]}` : `${missingCommunities.length} communities`}
-            </button>
+            </button></Tooltip>
           )}
         />
         <TermList
@@ -237,14 +237,13 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
           <div className="row xmon-setup-actions">
             {hasData ? logLink : <span />}
             <span className="spacer" />
-            <button
+            <Tooltip content={somethingToWatch ? "Read Reddit now and then on this interval" : "Add a keyword or a community first"}><button
               className="btn-bordered-prominent"
               disabled={!profileAvailable || busy || !somethingToWatch}
-              title={somethingToWatch ? "Read Reddit now and then on this interval" : "Add a keyword or a community first"}
               onClick={() => void startSchedule(entry, { intervalMinutes: interval, profileName: profile })}
             >
               <Icon name="play.fill" size={13} /> Start
-            </button>
+            </button></Tooltip>
           </div>
         </div>
       )}
@@ -318,9 +317,9 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
             </div>
             <span className="spacer" />
             {logLink}
-            <button className="btn-bordered" title="Stop monitoring" onClick={() => stopSchedule(entry.id)}>
+            <Tooltip content="Stop monitoring"><button className="btn-bordered" onClick={() => stopSchedule(entry.id)}>
               <Icon name="stop" size={14} /> Stop
-            </button>
+            </button></Tooltip>
           </div>
           {notes.map((text) => <div key={text} className="small watchlist-pass-note"><UserFacingError message={text} surface="reddit_monitor" /></div>)}
         </div>
@@ -357,10 +356,10 @@ export function TermList({ label, prefix, placeholder, values, parse, onChange, 
         {values.map((value) => (
           <span key={value} className="rmon-term">
             {prefix}{value}
-            <button className="rmon-term-remove" title={`Remove ${prefix ?? ""}${value}`} aria-label={`Remove ${prefix ?? ""}${value}`}
+            <Tooltip content={`Remove ${prefix ?? ""}${value}`}><button className="rmon-term-remove" aria-label={`Remove ${prefix ?? ""}${value}`}
               onClick={() => onChange(values.filter((item) => item !== value))}>
               <Icon name="xmark" size={9} />
-            </button>
+            </button></Tooltip>
           </span>
         ))}
         <input
@@ -386,10 +385,10 @@ export function TermList({ label, prefix, placeholder, values, parse, onChange, 
 
 export function Toggle({ label, value, onChange, title }: { label: string; value: boolean; onChange: (value: boolean) => void; title?: string }) {
   return (
-    <label className="rmon-toggle small" title={title}>
+    <Tooltip content={title}><label className="rmon-toggle small">
       <input type="checkbox" checked={value} onChange={(event) => onChange(event.target.checked)} />
       {label}
-    </label>
+    </label></Tooltip>
   );
 }
 
@@ -413,9 +412,9 @@ function MatchRow({ match, fresh, done, replyReady, onReply, onDone }: {
         <div className="xmon-post-head small">
           <span className={"watchlist-chip rmon-urgency " + triage.urgency}>{URGENCY_LABEL[triage.urgency]}</span>
           <span className="muted">{where}</span>
-          <button className="watchlist-handle" title={`Open u/${item.author}`} onClick={() => openUrl(`https://www.reddit.com/user/${item.author}`)}>
+          <Tooltip content={`Open u/${item.author}`}><button className="watchlist-handle" onClick={() => openUrl(`https://www.reddit.com/user/${item.author}`)}>
             u/{item.author}
-          </button>
+          </button></Tooltip>
           {fresh && <span className="watchlist-chip ok">New</span>}
           <span className="spacer" />
           <span className="muted">{since(item.createdAt)}</span>
@@ -425,17 +424,17 @@ function MatchRow({ match, fresh, done, replyReady, onReply, onDone }: {
         {triage.reasons.length > 0 && <div className="muted small rmon-reasons">{triage.reasons.join(" · ")}</div>}
       </div>
       <div className="rmon-actions">
-        <button className="mini" disabled={!replyReady} title="Hand this to the reply agent: it shows you a draft and posts only what you approve"
+        <Tooltip content="Hand this to the reply agent: it shows you a draft and posts only what you approve"><button className="mini" disabled={!replyReady}
           onClick={onReply}>
           <Icon name="square.and.pencil" size={12} /> Draft reply
-        </button>
+        </button></Tooltip>
         <div className="row rmon-actions-icons">
-          <button className="plain-icon-btn" title="Open on reddit.com" onClick={() => openUrl(item.url)}>
+          <Tooltip content="Open on reddit.com"><button className="plain-icon-btn" onClick={() => openUrl(item.url)}>
             <Icon name="arrow.up.right.square" size={14} />
-          </button>
-          <button className="plain-icon-btn" title={done ? "Bring it back" : "Mark done"} aria-label={done ? "Bring it back" : "Mark done"} onClick={onDone}>
+          </button></Tooltip>
+          <Tooltip content={done ? "Bring it back" : "Mark done"}><button className="plain-icon-btn" aria-label={done ? "Bring it back" : "Mark done"} onClick={onDone}>
             <Icon name={done ? "arrow.uturn.left" : "checkmark.circle.fill"} size={14} />
-          </button>
+          </button></Tooltip>
         </div>
       </div>
     </div>
