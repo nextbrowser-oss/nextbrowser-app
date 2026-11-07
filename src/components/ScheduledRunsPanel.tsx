@@ -15,7 +15,7 @@ import { DAILY_WEEKDAYS } from "../lib/scheduleDue";
 // Sentinel for the "create a dedicated chat" option in the session selector.
 const NEW_DEDICATED_CHAT = "__new_dedicated_chat__";
 
-export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
+export function ScheduledRunsPanel({ asPage = false, embedded = false }: { asPage?: boolean; embedded?: boolean }) {
   const runs = useStore((s) => s.scheduledRuns);
   const chatTitle = useStore((s) => s.scheduledRunChatTitle);
   const setEnabled = useStore((s) => s.setScheduledRunEnabled);
@@ -73,10 +73,10 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
     <div className={(asPage ? "scheduled-page-card " : "") + "claw-card scheduled-panel"}>
       {asPage && (
         <div className="page-head scheduled-page-head">
-          <div>
+          {!embedded && <div>
             <h2>Scheduled runs</h2>
             <p className="muted">Automate recurring tasks while Nextbrowser is open.</p>
-          </div>
+          </div>}
           <button className="btn-bordered-prominent" onClick={() => { setExpanded(true); setEditor("new"); }}>
             <Icon name="plus" size={14} /> New schedule
           </button>

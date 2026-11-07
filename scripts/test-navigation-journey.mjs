@@ -137,6 +137,29 @@ try {
   };
   await checkSidebarSurface();
   await page.screenshot({ path: 'e2e-out/sidebar-glass-expanded-light.png' });
+  await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts');
+    useStore.setState(state => ({ runtime: { ...state.runtime, claude: { ...state.runtime.claude, ready: true, loggedIn: true } } }));
+  });
+  const draft = page.locator('.composer textarea');
+  await draft.fill('Keep this unsent draft while opening utilities');
+  await nav.getByRole('button', { name: /^Open Scheduled/ }).click();
+  const scheduleDialog = page.getByRole('dialog', { name: 'Schedule', exact: true });
+  await scheduleDialog.waitFor();
+  assert.equal(await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().tab), 'chat');
+  await scheduleDialog.getByRole('button', { name: 'New schedule', exact: true }).click();
+  const editorDialog = page.getByRole('dialog', { name: 'New scheduled run', exact: true });
+  await editorDialog.waitFor();
+  const editorBounds = await editorDialog.boundingBox();
+  assert.ok(editorBounds.x >= 0 && editorBounds.y >= 0 && editorBounds.y + editorBounds.height <= 900);
+  await page.keyboard.press('Escape');
+  await editorDialog.waitFor({ state: 'detached' });
+  assert.equal(await scheduleDialog.isVisible(), true);
+  await page.screenshot({ path: 'e2e-out/schedule-modal-light.png' });
+  await page.keyboard.press('Escape');
+  await scheduleDialog.waitFor({ state: 'detached' });
+  assert.equal(await draft.inputValue(), 'Keep this unsent draft while opening utilities');
+  await draft.fill('');
   const skillsButton = () => nav.getByRole("button", { name: /^Open Skills/ });
   await skillsButton().click();
   const expandedY = (await skillsButton().boundingBox()).y;
@@ -189,7 +212,10 @@ try {
   await page.screenshot({ path: "e2e-out/navigation-skills-narrow-dark.png" });
   await page.setViewportSize({ width: 1280, height: 900 });
   await nav.getByRole("button", { name: /^Open Connectors/ }).click();
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  const connectorsDialog = page.getByRole('dialog', { name: 'Connectors', exact: true });
+  await connectorsDialog.waitFor();
+  assert.equal(await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().tab), 'skills');
+  await connectorsDialog.getByRole("button", { name: "Connect", exact: true }).click();
   const modal = page.getByRole("dialog", { name: /Multilogin/ });
   await modal.getByText("wails", { exact: true }).waitFor();
   await modal.getByText("Session storage", { exact: true }).waitFor();
@@ -201,6 +227,12 @@ try {
   await modal.getByRole("button", { name: "Connect selected workspace", exact: true }).click();
   await modal.getByText("qa@example.com", { exact: true }).waitFor();
   assert.deepEqual(await page.evaluate(() => window.__navigationQA.calls.filter((call) => call.command.startsWith("multilogin_login_")).map((call) => call.command).slice(-2)), ["multilogin_login_open", "multilogin_login_complete"]);
+  await page.keyboard.press('Escape');
+  await modal.waitFor({ state: 'detached' });
+  assert.equal(await connectorsDialog.isVisible(), true);
+  await connectorsDialog.getByRole('button', { name: 'Close Connectors' }).click();
+  await connectorsDialog.waitFor({ state: 'detached' });
+  assert.equal(await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().tab), 'skills');
   assert.deepEqual(errors, []);
   console.log("Navigation journey passed: titlebar toggle, five monoline destinations, footer Settings, stable sidebar positions, no horizontal overflow, keyboard navigation, narrow layout, themes and Multilogin connection.");
 } catch (error) {

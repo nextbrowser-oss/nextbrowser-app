@@ -14,7 +14,7 @@ import { SkillsView } from "./components/SkillsView";
 import { LiveView } from "./components/LiveView";
 import { UsageView } from "./components/UsageView";
 import { GuideView } from "./components/GuideView";
-import { ScheduledRunsPanel } from "./components/ScheduledRunsPanel";
+import { UtilityDialogs } from "./components/UtilityDialogs";
 import { OnboardingView } from "./components/OnboardingView";
 import { DashboardKeyModal } from "./components/DashboardKeyModal";
 import { TrafficGateModal } from "./components/TrafficGateModal";
@@ -33,6 +33,7 @@ import { confirmedBrowserRuntimeUpdates } from "./lib/browserRuntimeUpdate";
 import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
 import {
   OPEN_AGENT_SETTINGS_EVENT,
+  isUtilityDialogTab,
   appTabLabel,
   isAppBackShortcut,
   isPrimaryAppTab,
@@ -57,7 +58,6 @@ import { SettingsPanel, SettingsRail } from "./components/SettingsSections";
 import { SettingsUpdates } from "./components/SettingsUpdates";
 import { availableRuntimeUpdates, latestRuntimeOperation, type AppUpdateStatus, type BrowserRuntimeUpdateStatus, type BrowserRuntimeUpdateInstallStatus } from "./lib/settingsUpdates";
 import { settingsAttention, settingsSectionForUpdates, type SettingsSection } from "./lib/settingsSections";
-import { ConnectorsView } from "./components/ConnectorsView";
 import { AutomationStudio } from "./components/AutomationStudio";
 import { FeedbackModal } from "./components/FeedbackModal";
 import { feedbackPromptBlocked, feedbackPromptConfig, markFeedbackSubmitted, shouldPromptForFeedback } from "./lib/feedbackPrompt";
@@ -1475,7 +1475,8 @@ export function App() {
           pricing_url: "https://dashboard.nodemaven.com/pricing?tab=MONTHLY_PLANS",
         },
         showOnboarding: false,
-        ...(tabParam && PREVIEW_TABS.has(tabParam) ? { tab: tabParam as AppTab } : {}),
+        ...(tabParam && isUtilityDialogTab(tabParam) ? { tab: "chat" as const, utilityDialog: tabParam }
+          : tabParam && PREVIEW_TABS.has(tabParam) ? { tab: tabParam as AppTab } : {}),
       });
       return;
     }
@@ -1718,19 +1719,14 @@ export function App() {
           </div>
           {tab === "skills" && <SkillsView onOpenAgentSettings={() => openSettings("agent")} />}
           {tab === "automation" && <AutomationStudio />}
-          {tab === "connectors" && <ConnectorsView />}
           <div className={"persistent-tab-panel" + (tab === "live" ? "" : " is-hidden")}>
             <LiveView active={tab === "live"} />
           </div>
           {tab === "usage" && <UsageView />}
           {tab === "guide" && <GuideView onOpenAgentSettings={() => openSettings("agent")} />}
-          {tab === "scheduled" && (
-            <div className="page scheduled-page">
-              <ScheduledRunsPanel asPage />
-            </div>
-          )}
         </div>
       </main>
+      <UtilityDialogs />
       {settingsOpen && (
         <SettingsModal
           onClose={closeSettings}

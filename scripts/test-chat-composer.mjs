@@ -262,14 +262,19 @@ try {
     assert.ok((await recent.boundingBox()).x >= (await page.locator('.chat-layout').boundingBox()).x + 8);
     const searchProjects = recent.getByRole('searchbox', { name: 'Search projects' });
     await searchProjects.fill('customer');
-    assert.equal(await recent.getByRole('button').count(), 1);
+    assert.equal(await recent.locator('.recent-project-list').getByRole('button').count(), 1);
     await searchProjects.fill('does-not-exist');
     await recent.getByText('No matching projects.').waitFor();
     await searchProjects.fill('');
-    assert.ok((await recent.getByRole('button').first().innerText()).includes('Recent customer research'));
+    assert.ok((await recent.locator('.recent-project-list').getByRole('button').first().innerText()).includes('Recent customer research'));
     await page.screenshot({ path: resolve(output, `${theme}-recent-projects.png`) });
     await recent.getByRole('button', { name: /Recent customer research/ }).click();
     assert.equal(await page.evaluate(() => window.selectedProject), 'recent-project');
+    await recent.waitFor({ state: 'detached' });
+    await page.evaluate(() => window.fixtureStore.setState({ newChat: () => { window.newSessionCreated = true; return 'new'; } }));
+    await projectTitle.click();
+    await page.getByRole('button', { name: 'New session', exact: true }).click();
+    assert.equal(await page.evaluate(() => window.newSessionCreated), true);
     await recent.waitFor({ state: 'detached' });
     // A persisted terminal project still opens the regular chat and retains its summary.
     await page.evaluate(() => window.fixtureStore.setState(state => ({

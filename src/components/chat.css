@@ -13,6 +13,10 @@
 .chat-project-switcher:focus-visible { outline: 2px solid var(--accent-text); }
 .chat-popover-heading { display: block; padding: 6px 8px 8px; font-size: 11px; font-weight: 700; opacity: .8; }
 .recent-projects { width: 240px; padding: 5px; max-height: 280px; }
+.project-popover-toolbar { display: flex; align-items: center; gap: 3px; margin-bottom: 3px; }
+.project-popover-toolbar .project-search { flex: 1; min-width: 0; margin: 0; }
+.project-popover-toolbar .project-new-session { width: 24px; height: 24px; color: inherit; }
+.project-popover-toolbar .project-new-session:hover:not(:disabled) { color: inherit; background: var(--glass-inverse-control); }
 .project-search { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 7px; margin-bottom: 3px; border-radius: 8px; background: var(--glass-inverse-control); }
 .project-search input { box-sizing: border-box; width: 100%; min-width: 0; height: 26px; border: 0; padding: 0; outline: none; background: transparent; color: inherit; box-shadow: none; font: inherit; font-size: 12px; }
 .project-search input::placeholder { color: inherit; opacity: .65; }

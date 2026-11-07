@@ -1,0 +1,4 @@
+.utility-dialog { --text: var(--glass-inverse-text); --text-secondary: var(--glass-inverse-muted); --muted: var(--glass-inverse-muted); --bg: var(--glass-inverse-solid); --panel: var(--glass-inverse-solid); --bg-elevated: var(--glass-inverse-control); --card: var(--glass-inverse-control); --line: var(--glass-inverse-control); --line-strong: var(--glass-inverse-control-hover); --surface-2: var(--glass-inverse-control); --surface-3: var(--glass-inverse-control-hover); }
+.utility-dialog .connectors-page { padding: 0; }
+.utility-dialog .scheduled-page-card { width: auto; min-height: 0; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.utility-dialog .scheduled-page-head { justify-content: flex-end; margin-bottom: 12px; }

@@ -10,9 +10,10 @@ const destinations: Array<{ id: AppTab; label: string; compact: string; icon: Gl
   { id: "live", label: "Live", compact: "Live", icon: "monitor" },
 ];
 
-export function SidebarNavigation({ collapsed = false, tab, badgeFor, onSelect }: {
+export function SidebarNavigation({ collapsed = false, tab, modal, badgeFor, onSelect }: {
   collapsed?: boolean;
   tab: AppTab;
+  modal?: "connectors" | "scheduled";
   badgeFor: (tab: AppTab) => string | number | undefined;
   onSelect: (tab: AppTab) => void;
 }) {
@@ -20,11 +21,14 @@ export function SidebarNavigation({ collapsed = false, tab, badgeFor, onSelect }
     <nav className={"sidebar-destinations" + (collapsed ? " is-compact" : "")} aria-label="Sidebar pages">
       {destinations.map((item) => {
         const badge = badgeFor(item.id);
+        const opensDialog = item.id === "connectors" || item.id === "scheduled";
         return (
           <Tooltip key={item.id} content={item.label} side="right"><button type="button"
-            className={"sidebar-destination" + (tab === item.id ? " active" : "")}
+            className={"sidebar-destination" + ((opensDialog ? modal === item.id : tab === item.id) ? " active" : "")}
             aria-label={`Open ${item.label}${item.id === "live" ? " profiles" : ""}${badge != null && badge !== "" ? `, ${badge}` : ""}`}
-            aria-current={tab === item.id ? "page" : undefined}
+            aria-current={!opensDialog && tab === item.id ? "page" : undefined}
+            aria-haspopup={opensDialog ? "dialog" : undefined}
+            aria-expanded={opensDialog ? modal === item.id : undefined}
             onClick={() => onSelect(item.id)}>
             <Glyph name={item.icon} />
             <span className="sidebar-destination-label">{collapsed ? item.compact : item.label}</span>

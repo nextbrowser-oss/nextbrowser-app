@@ -7,14 +7,16 @@ const fixture = vi.hoisted(() => ({
   conversations: Array.from({ length: 10 }, (_, i) => ({ id: `project-${i}`, title: `Project ${i}`, updatedAt: i, workspaceId: i % 2 ? "work" : "other" })),
   workspaces: [{ id: "work", name: "Work" }, { id: "other", name: "Other workspace" }],
   selectConversation: vi.fn(),
+  newChat: vi.fn(() => "new-session"),
+  setTab: vi.fn(),
 }));
 vi.mock("../store", () => ({ useStore: (select: (state: typeof fixture) => unknown) => select(fixture) }));
-afterEach(() => { cleanup(); fixture.selectConversation.mockClear(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); });
 it("shows the eight most recently updated projects across the user's workspaces", () => {
   render(<RecentProjects title="Project 9" activeId="project-9" />);
   fireEvent.click(screen.getByRole("button", { name: "Project 9" }));
   const popup = screen.getByRole("dialog", { name: "Recent projects" });
-  const projects = within(popup).getAllByRole("button");
+  const projects = within(popup.querySelector('.recent-project-list')!).getAllByRole("button");
   expect(projects).toHaveLength(8);
   expect(projects[0].textContent).toContain("Project 9");
   expect(projects[0].getAttribute("aria-current")).toBe("true");
@@ -31,10 +33,18 @@ it("searches project titles beyond the recent eight, ignoring case and extra spa
   const search = within(popup).getByRole("searchbox", { name: "Search projects" });
   expect(document.activeElement).toBe(search);
   fireEvent.change(search, { target: { value: " PROJECT 0 " } });
-  const options = within(popup).getAllByRole("button");
+  const options = within(popup.querySelector('.recent-project-list')!).getAllByRole("button");
   expect(options).toHaveLength(1);
   expect(options[0].textContent).toContain("Project 0");
   fireEvent.change(search, { target: { value: "not a project" } });
-  expect(within(popup).queryAllByRole("button")).toHaveLength(0);
+  expect(within(popup.querySelector('.recent-project-list')!).queryAllByRole("button")).toHaveLength(0);
   expect(within(popup).getByText("No matching projects.")).toBeTruthy();
+});
+it("creates a fresh session from the small toolbar action and closes the popover", () => {
+  render(<RecentProjects title="Project 9" activeId="project-9" />);
+  fireEvent.click(screen.getByRole("button", { name: "Project 9" }));
+  fireEvent.click(screen.getByRole("button", { name: "New session" }));
+  expect(fixture.newChat).toHaveBeenCalledOnce();
+  expect(fixture.setTab).toHaveBeenCalledWith("chat");
+  expect(screen.queryByRole("dialog")).toBeNull();
 });

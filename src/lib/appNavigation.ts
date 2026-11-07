@@ -1,6 +1,11 @@
 import type { AppTab } from "../types";
 
 export type PrimaryAppTab = Extract<AppTab, "chat" | "live">;
+export type UtilityDialogTab = Extract<AppTab, "connectors" | "scheduled">;
+
+export function isUtilityDialogTab(tab: string): tab is UtilityDialogTab {
+  return tab === "connectors" || tab === "scheduled";
+}
 
 const APP_TAB_HISTORY_LIMIT = 50;
 

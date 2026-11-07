@@ -1,0 +1,8 @@
+.shared-dialog-overlay { z-index: 200; }
+.shared-dialog { display: flex; flex-direction: column; width: min(820px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); min-width: 0; border: 0; border-radius: 20px; background: var(--glass-inverse-solid); color: var(--glass-inverse-text); box-shadow: var(--glass-inverse-shadow); outline: none; }
+.shared-dialog-header { display: flex; align-items: center; gap: 12px; padding: 14px 18px 8px; flex: none; }
+.shared-dialog-header h2 { flex: 1; margin: 0; font: inherit; font-size: 16px; font-weight: 700; }
+.shared-dialog-header .shared-icon-button--plain { color: inherit; }
+.shared-dialog-header .shared-icon-button--plain:hover { color: inherit; background: var(--glass-inverse-control); }
+.shared-dialog-body { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 8px 18px 18px; }
+@media (max-width: 540px) { .shared-dialog-header { padding-inline: 12px; } .shared-dialog-body { padding-inline: 12px; } }

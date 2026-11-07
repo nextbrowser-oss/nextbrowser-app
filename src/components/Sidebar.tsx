@@ -1311,7 +1311,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
   if (s.sidebarCollapsed) {
     return (
       <div className="sidebar-mini">
-        <SidebarNavigation collapsed tab={s.tab} badgeFor={badgeFor} onSelect={s.setTab} />
+        <SidebarNavigation collapsed tab={s.tab} modal={s.utilityDialog} badgeFor={badgeFor} onSelect={s.setTab} />
         {activeRecording && <Tooltip content={recordingMiniLabel} side="right"><button className="mini-nav-btn mini-recording-control recording" aria-label={`${activeRecording.destination === "workflow" ? "Open workflow recording" : "Open active recording"}.`} onClick={openRecorder}><Icon name="circle.fill" size={18} /><span>{recordingDuration(activeRecording.startedAt, recordingClock)}</span></button></Tooltip>}
         <span className="spacer" />
         <SidebarSettingsButton collapsed attention={settingsAttention} onClick={onOpenSettings} />
@@ -1321,7 +1321,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
 
   return (
     <div className="sidebar-shell">
-      <SidebarNavigation tab={s.tab} badgeFor={badgeFor} onSelect={s.setTab} />
+      <SidebarNavigation tab={s.tab} modal={s.utilityDialog} badgeFor={badgeFor} onSelect={s.setTab} />
 
       {activeRecording && <section className="sidebar-recording-control recording" aria-label={activeRecording.destination === "workflow" ? "Workflow recording in progress" : "Recording in progress"}>
         <div className="sidebar-recording-status"><span className="sidebar-recording-dot" /><div><strong>{activeRecording.destination === "workflow" ? "Recording a workflow" : "Recording in progress"}</strong><small>{recordingWorkspace?.name || "Current workspace"} · {recordingDestinationLabel}</small><small>{recordingDuration(activeRecording.startedAt, recordingClock)} elapsed</small></div></div>
