@@ -218,10 +218,10 @@ function normalizedReplayArguments(call: CapturedCall): Record<string, unknown> 
 }
 
 function replayActionsForCall(call: CapturedCall): Array<{ tool: string; arguments: Record<string, unknown> }> {
-  const args = normalizedReplayArguments(call);
+  const { profile: _profile, ...args } = normalizedReplayArguments(call);
   if (call.name !== "navigate_extract") return [{ tool: call.name, arguments: args }];
   if (typeof args.url !== "string" || !args.url.trim()) return [];
-  const { url, ready_selector, profile: _profile, runtime: _runtime, cdp: _cdp, remote: _remote, ...extractArguments } = args;
+  const { url, ready_selector, runtime: _runtime, cdp: _cdp, remote: _remote, ...extractArguments } = args;
   const actions: Array<{ tool: string; arguments: Record<string, unknown> }> = [{ tool: "open", arguments: { url } }];
   if (typeof ready_selector === "string" && ready_selector.trim()) {
     actions.push({ tool: "wait", arguments: { selector: ready_selector.trim(), timeout: typeof args.timeout === "number" ? args.timeout : 30 } });
@@ -309,7 +309,8 @@ function fastPath(transcript: string): string[] {
     if (["paginate_extract", "extract"].includes(name)) {
       return [`clawbrowser.${name}(${JSON.stringify(pick(args, ["container", "fields", "filters", "dedupe_by", "transform", "scroll", "max_pages", "limit", "initial_wait", "timeout"]))})`];
     }
-    return [`clawbrowser.${name}(${JSON.stringify(args)})`];
+    const { profile: _profile, ...portableArgs } = args;
+    return [`clawbrowser.${name}(${JSON.stringify(portableArgs)})`];
   });
 }
 

@@ -171,7 +171,7 @@ describe("hybrid browser recording", () => {
     ] };
     const result = capturedRunFromHybridRecording("hybrid", recording, agent);
     expect(recordedBrowserActions(result?.evidence || "")).toEqual([
-      { tool: "open", arguments: { profile: "demo", url: "https://example.com" } },
+      { tool: "open", arguments: { url: "https://example.com" } },
       { tool: "evaluate", arguments: { expression: "(() => [{ rank: 1 }])()" } },
       { tool: "save_artifact", arguments: { source: "last_result", format: "json", name: "top-five.json" } },
     ]);

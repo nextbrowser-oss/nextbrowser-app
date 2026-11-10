@@ -70,6 +70,17 @@ describe("terminal workflow capture", () => {
     expect(recipe.actions.some((action) => ["start", "prepare"].includes(action.tool))).toBe(false);
   });
 
+  it("drops the source profile from saved actions and generated instructions", () => {
+    const recording = `Called clawbrowser.open({"profile":"Claw EE","url":"https://example.com"})
+Called clawbrowser.evaluate({"profile":"Claw EE","expression":"document.title"})
+Called clawbrowser.save_artifact({"profile":"Claw EE","source":"last_result","name":"results.json"})`;
+    const task = "Read the page title and save the result";
+    const actions = workflowRecipe(task, recording).actions;
+    expect(actions.map((action) => action.tool)).toEqual(["open", "evaluate", "save_artifact"]);
+    expect(actions.every((action) => !("profile" in action.arguments))).toBe(true);
+    expect(workflowInstructions(task, recording)).not.toContain("Claw EE");
+  });
+
   it("keeps one successful extraction and marks a non-self-contained search", () => {
     const retryTranscript = `
 › открой makler.md c американской проксей и найди все матизы
