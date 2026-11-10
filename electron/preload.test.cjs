@@ -47,10 +47,13 @@ test("the bridge sends error reports and breadcrumbs fire-and-forget on dedicate
   assert.deepEqual(invoked, []);
 });
 
-test("the bridge still exposes only functions", () => {
+test("the bridge exposes only its declared functions and window metadata", () => {
   const { exposed } = loadPreload();
-  for (const [name, value] of Object.entries(exposed.api)) assert.equal(typeof value, "function", name);
-  assert.deepEqual(Object.keys(exposed.api).sort(), ["breadcrumb", "filePathForFile", "invoke", "on", "readSettings", "reportError", "updateSettings"]);
+  const { platform, customWindowControls, ...functions } = exposed.api;
+  assert.equal(platform, process.platform);
+  assert.equal(customWindowControls, process.argv.includes("--nextbrowser-custom-caption"));
+  assert.deepEqual(Object.keys(functions).sort(), ["breadcrumb", "filePathForFile", "invoke", "on", "readSettings", "reportError", "updateSettings"]);
+  for (const [name, value] of Object.entries(functions)) assert.equal(typeof value, "function", name);
 });
 
 test("the bridge reads the settings file synchronously and updates it fire-and-forget", () => {
