@@ -1,0 +1,8 @@
+.shared-popover {
+  position: fixed; z-index: 9000; box-sizing: border-box;
+  width: 300px; max-width: calc(100vw - 16px); max-height: min(400px, calc(100dvh - 16px));
+  overflow: auto; padding: 8px; border-radius: var(--glass-radius);
+  font: inherit; font-size: 13px;
+}
+.shared-popover button:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
+@media (prefers-reduced-transparency: reduce) { .shared-popover { background: var(--tooltip-solid-bg); backdrop-filter: none; } }

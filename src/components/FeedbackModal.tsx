@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import { useEffect, useState } from "react";
 import { invoke } from "../electronBridge";
 import { feedbackErrorMessage } from "../lib/feedbackError";
@@ -68,8 +69,7 @@ export function FeedbackModal({ onClose, onSubmitted }: { onClose: () => void; o
               {RATING_LABELS.map((label, index) => {
                 const value = index + 1;
                 return (
-                  <button
-                    key={label}
+                  <Tooltip key={label} content={`${value}: ${label}`}><button
                     type="button"
                     role="radio"
                     aria-checked={rating === value}
@@ -83,10 +83,9 @@ export function FeedbackModal({ onClose, onSubmitted }: { onClose: () => void; o
                     onFocus={() => setHoverRating(value)}
                     onBlur={() => setHoverRating(null)}
                     onClick={() => setRating(value)}
-                    title={`${value}: ${label}`}
                   >
                     <Icon name="star.fill" size={26} fill="currentColor" />
-                  </button>
+                  </button></Tooltip>
                 );
               })}
             </div>

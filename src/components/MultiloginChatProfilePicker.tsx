@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { invoke } from "../electronBridge";
 import {
@@ -82,10 +83,9 @@ export function MultiloginChatProfilePickerView({
 
   return (
     <div className="multilogin-chat-picker">
-      <button
+      <Tooltip content={selection ? `Change Multilogin profile · ${selection.name}` : "Choose a Multilogin profile"}><button
         type="button"
         className={`profile-pill multilogin-profile-trigger${selection ? " is-selected" : ""}${open ? " is-open" : ""}${!connected ? " is-warning" : ""}`}
-        title={selection ? `Change Multilogin profile · ${selection.name}` : "Choose a Multilogin profile"}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={onToggle}
@@ -93,7 +93,7 @@ export function MultiloginChatProfilePickerView({
         <img src="./multilogin-icon.svg" alt="" />
         <span>{triggerLabel}</span>
         {checking ? <Spinner size={10} /> : <Icon name="chevron.down" size={10} className="multilogin-profile-chevron" />}
-      </button>
+      </button></Tooltip>
 
       {open && (
         <div className="multilogin-chat-menu" role="dialog" aria-label="Choose Multilogin profile">

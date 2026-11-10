@@ -167,6 +167,11 @@ export interface Conversation {
   createdAt: number;
   updatedAt: number;
   parentId?: string;
+  /** Existing project conversation whose folder contains this independent session. */
+  projectId?: string;
+  /** Persisted ordering for the project tree, independent of chat activity. */
+  projectOrder?: number;
+  sessionOrder?: number;
   forkedFromMessageId?: string;
   executionTarget?: "local" | "vps";
   vpsConnectionInstructions?: string;
@@ -525,7 +530,7 @@ export interface TabsList {
   }[];
 }
 
-export type AppTab = "chat" | "automation" | "skills" | "connectors" | "live" | "usage" | "guide" | "scheduled";
+export type AppTab = "chat" | "automation" | "skills" | "connectors" | "mcp" | "live" | "usage" | "guide" | "scheduled";
 
 export interface AutomationArtifact {
   id: string;

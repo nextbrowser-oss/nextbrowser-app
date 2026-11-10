@@ -1,4 +1,6 @@
-import { type ClipboardEvent, type DragEvent, useEffect, useRef, useState } from "react";
+import { glassSurfaceClassName, CommandList, FileDropArea, IconButton, OverlayScrollArea, Tooltip } from "../shared/ui";
+import "./chat.css";
+import { type ClipboardEvent, useEffect, useLayoutEffect, useRef, useState, useId, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store";
 import { SCRIPTS } from "../skillsCatalog";
@@ -6,7 +8,8 @@ import { MarkdownText } from "./MarkdownText";
 import { Icon, Spinner } from "./Icon";
 import type { ChatAttachment, ChatMessage } from "../types";
 import { filePathForFile, invoke } from "../electronBridge";
-import { AGENTS, agentById, agentInvocation, agentSupportsTerminal, isBuiltinAgent, type AgentSpec } from "../agents";
+import { AGENTS, BUILTIN_AGENT_ID, agentById, agentInvocation, isBuiltinAgent, type AgentSpec } from "../agents";
+import { AgentModelPicker } from "./AgentModelPicker";
 import { OPEN_AGENT_SETTINGS_EVENT } from "../lib/appNavigation";
 import { trackEvent } from "../lib/analytics";
 import { needsSupportLink } from "../lib/userFacingError";
@@ -16,10 +19,11 @@ import { AgentInstallLink } from "./AgentInstallLink";
 import { takeGuideDraft } from "../lib/guideDraft";
 import { entityNameLimits } from "../lib/entityValidation";
 import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
-import { AgentTerminal } from "./AgentTerminal";
+import { MainViewNavigation } from "./MainViewNavigation";
+import { matchingAgentChatCommands, parseAgentChatCommand } from "../lib/agentChatCommands";
 import { uid } from "../lib/ids";
+import { projectRoot } from "../lib/projectTree";
 import {
-  terminalBrowserTask,
   capturedWorkflowDomain,
   workflowInstructions,
   workflowQuality,
@@ -32,8 +36,7 @@ import {
   workflowDistillationPrompt,
   type DistilledWorkflow,
 } from "../lib/workflowDistillation";
-import { chatPromptWithDeferredContext, chatToTerminalHandoff, pendingChatContextFor, terminalToChatHandoff, type PendingChatContext } from "../lib/contextHandoff";
-import { agentVisibleProfileNames, browserProfileContext } from "../lib/browserProfileContext";
+import { chatPromptWithDeferredContext, terminalToChatHandoff } from "../lib/contextHandoff";
 import {
   MULTILOGIN_SELECTION_EVENT,
   activeMultiloginSelectionForWorkspace,
@@ -95,14 +98,12 @@ function errorSummary(text: string): string {
 }
 
 
-export function ChatView() {
+export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = {}) {
   const s = useStore();
   const agentId = s.agentId;
-  // The built-in Nextbrowser agent has no terminal: its projects stay in Chat.
-  const terminalAvailable = agentSupportsTerminal(agentId);
-  const terminalChat = s.terminalChat && terminalAvailable;
   const builtinAgent = isBuiltinAgent(agentId);
   const conv = s.activeConversation();
+  const project = conv && projectRoot(conv, s.conversations);
   const messages = conv?.messages ?? [];
   const remoteOnly = conv?.executionTarget === "vps";
   const ready = s.agentReady();
@@ -121,6 +122,12 @@ export function ChatView() {
   const [guideDraftLoaded, setGuideDraftLoaded] = useState(false);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [scriptOpen, setScriptOpen] = useState(false);
+  const [commandNotice, setCommandNotice] = useState<string>();
+  const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
+  const [commandIndex, setCommandIndex] = useState(0);
+  const commandMenuId = useId();
+  const commandMatches = commandMenuDismissed ? [] : matchingAgentChatCommands(draft);
+  const activeCommand = commandMatches[Math.min(commandIndex, commandMatches.length - 1)];
   const [editingReply, setEditingReply] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [actionError, setActionError] = useState<string>();
@@ -128,14 +135,10 @@ export function ChatView() {
   const [projectCreatorOpen, setProjectCreatorOpen] = useState(false);
   const [projectAgentId, setProjectAgentId] = useState(s.agentId);
   const [projectName, setProjectName] = useState("");
-  const [projectMode, setProjectMode] = useState<"chat" | "terminal">("chat");
+  const [projectCreateError, setProjectCreateError] = useState<string>();
   const [workflowDraft, setWorkflowDraft] = useState<{ task: string; answer: ChatMessage; prepared: DistilledWorkflow } | null>(null);
   const [preparingWorkflowId, setPreparingWorkflowId] = useState<string | null>(null);
   const [workflowRejection, setWorkflowRejection] = useState<string | null>(null);
-  const [terminalMounted, setTerminalMounted] = useState(terminalChat);
-  const [terminalHandoff, setTerminalHandoff] = useState<{ id: string; text: string }>();
-  const [terminalToChatRequest, setTerminalToChatRequest] = useState<string>();
-  const [pendingTerminalContext, setPendingTerminalContext] = useState<PendingChatContext>();
   const [multiloginSelection, setMultiloginSelection] = useState<MultiloginProfileSelection>();
 
   useEffect(() => {
@@ -149,7 +152,7 @@ export function ChatView() {
     const openProjectCreator = () => {
       setProjectAgentId(useStore.getState().agentId);
       setProjectName("");
-      setProjectMode("chat");
+      setProjectCreateError(undefined);
       setProjectCreatorOpen(true);
     };
     window.addEventListener("nextbrowser:create-project", openProjectCreator);
@@ -165,28 +168,42 @@ export function ChatView() {
     window.addEventListener("keydown", dismissProjectCreator);
     return () => window.removeEventListener("keydown", dismissProjectCreator);
   }, [projectCreatorOpen]);
-  const previousTerminalChat = useRef(terminalChat);
-  const chatMessagesSharedWithTerminal = useRef(new Map<string, number>());
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const legacyContextSent = useRef(new Set<string>());
+  const chatBoundaryRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const scriptWrapRef = useRef<HTMLDivElement>(null);
+  const scriptMenuRef = useRef<HTMLDivElement>(null);
   const conversationKey = `${agentId}:${conv?.id ?? "new"}`;
+  const providerDraft = useRef<{ key: string; text: string; attachments: ChatAttachment[] }>();
+
+  const activateApiAgent = () => {
+    if (builtinAgent) return;
+    if (remoteOnly || running) throw new Error("Stop the current agent and use a local chat to change providers.");
+    let id: string;
+    if (conv) {
+      id = s.changeEmptyProjectAgent(conv.id, BUILTIN_AGENT_ID) ? conv.id : s.createProjectSession(conv.id, BUILTIN_AGENT_ID);
+    } else {
+      s.switchAgent(BUILTIN_AGENT_ID);
+      id = useStore.getState().newChat();
+    }
+    if (!id) throw new Error("Could not open an API agent session in this project.");
+    providerDraft.current = { key: `${BUILTIN_AGENT_ID}:${id}`, text: draft, attachments };
+  };
 
   useEffect(() => {
-    setTerminalHandoff(undefined);
-    setTerminalToChatRequest(undefined);
-    setPendingTerminalContext(undefined);
-    // Pending attachments and an unsent draft belong to the previous chat.
-    setAttachments([]);
-    setDraft("");
+    // A provider switch carries the unsent prompt into the new agent session.
+    // Ordinary chat navigation still clears the previous chat's draft.
+    const staged = providerDraft.current?.key === conversationKey ? providerDraft.current : undefined;
+    providerDraft.current = undefined;
+    setAttachments(staged?.attachments ?? []);
+    setDraft(staged?.text ?? "");
     setGuideDraftLoaded(false);
+    setCommandNotice(undefined);
+    setCommandMenuDismissed(false);
     // Menus and workflow modals belong to the chat they were opened in.
     setScriptOpen(false);
     setWorkflowDraft(null);
     setWorkflowRejection(null);
-    // Opening another project is not a chat/terminal handoff.
-    previousTerminalChat.current = terminalChat;
-    setTerminalMounted(terminalChat);
   }, [conversationKey]);
 
   useEffect(() => {
@@ -232,22 +249,6 @@ export function ChatView() {
   }, [scriptOpen]);
 
   useEffect(() => {
-    const wasTerminalChat = previousTerminalChat.current;
-    previousTerminalChat.current = terminalChat;
-    if (terminalChat) {
-      setTerminalMounted(true);
-      const sharedCount = chatMessagesSharedWithTerminal.current.get(conversationKey) ?? 0;
-      if (!wasTerminalChat && messages.length > sharedCount) {
-        // Only send messages created since the previous handoff. Replaying the
-        // whole conversation can make an agent execute an already-finished task.
-        setTerminalHandoff({ id: uid(), text: chatToTerminalHandoff(messages.slice(sharedCount), s.selectedProfile) });
-      }
-      return;
-    }
-    if (wasTerminalChat && terminalMounted) setTerminalToChatRequest(uid());
-  }, [terminalChat, terminalMounted, agentId, conv?.id, messages.length, s.selectedProfile]);
-
-  useEffect(() => {
     const stageDraft = (value: string) => {
       const next = value.trim();
       if (!next) return;
@@ -265,20 +266,65 @@ export function ChatView() {
     return () => window.removeEventListener("nextbrowser:guide-draft", onGuideDraft);
   }, []);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, messages[messages.length - 1]?.text]);
-
+  const enqueueInChat = (text: string, files: ChatAttachment[] = []) => {
+    const previous = !legacyContextSent.current.has(conversationKey) && conv?.terminalPreview
+      ? terminalToChatHandoff(conv.terminalPreview, s.selectedProfile) : undefined;
+    s.enqueue(text, undefined, undefined, files, chatPromptWithDeferredContext(previous, text));
+    if (previous) legacyContextSent.current.add(conversationKey);
+  };
+  const acceptCommand = (name: string) => {
+    setDraft("/" + name + " "); setCommandMenuDismissed(true); composerRef.current?.focus();
+  };
+  const runChatCommand = (parsed: NonNullable<ReturnType<typeof parseAgentChatCommand>>) => {
+    setActionError(undefined); setCommandNotice(undefined);
+    if (attachments.length) { setActionError("Send or remove attached files before using a chat command."); return; }
+    const { name, args, rawName } = parsed;
+    if (!name) { setActionError("/" + rawName + " is not supported by this chat adapter. Use /help for available commands."); return; }
+    if (args && !["new", "title", "help"].includes(name)) { setActionError("Use /" + name + " without arguments in this chat."); return; }
+    switch (name) {
+      case "help": setDraft("/" + args); setCommandMenuDismissed(false); setCommandIndex(0); window.requestAnimationFrame(() => composerRef.current?.focus()); return;
+      case "new": {
+        const id = s.newChat();
+        if (args) s.renameConversation(id, args.slice(0, entityNameLimits.project));
+        break;
+      }
+      case "sessions": window.dispatchEvent(new CustomEvent("nextbrowser:open-projects")); break;
+      case "title":
+        if (args && conv) s.renameConversation(conv.id, args.slice(0, entityNameLimits.project));
+        else setCommandNotice("Project: " + (conv?.title ?? "New project"));
+        break;
+      case "stop":
+        if (running) s.stopRunning();
+        else setCommandNotice("This project has no running response.");
+        break;
+      case "retry": {
+        if (running) { setActionError("Wait for this response or use /stop before retrying."); return; }
+        const last = [...messages].reverse().find(message => message.role === "user");
+        if (!last) { setActionError("There is no user message to retry yet."); return; }
+        enqueueInChat(last.text, last.attachments); break;
+      }
+      case "history": composerRef.current?.closest(".chat")?.querySelector<HTMLElement>(".messages")?.scrollTo({ top: 0 }); break;
+      case "model": case "config": openAgentSettings(); break;
+      case "skills": s.setTab("skills"); break;
+      case "scripts": setScriptOpen(true); break;
+      case "usage": s.setTab("usage"); break;
+      case "version": setCommandNotice(agentById(agentId).name + ": " + (s.agentVersion() ?? "not connected")); break;
+      case "status": setCommandNotice(agentById(agentId).name + " · " + (running ? "responding" : ready ? "ready" : "not connected") + " · " + s.queuedCount() + " queued"); break;
+    }
+    setDraft(""); setGuideDraftLoaded(false); setCommandMenuDismissed(true);
+  };
   const send = () => {
     const t = draft.trim();
     if (!t && attachments.length === 0) return;
+    if (t === "/") { setCommandMenuDismissed(false); return; }
+    const parsed = parseAgentChatCommand(t);
+    if (parsed) { runChatCommand(parsed); return; }
+    setCommandNotice(undefined);
+    setActionError(undefined);
     const visiblePrompt = t || "Please inspect the attached file(s).";
-    const deferredContext = pendingChatContextFor(pendingTerminalContext, conv?.id);
-    const agentPrompt = chatPromptWithDeferredContext(deferredContext, visiblePrompt);
     setDraft("");
     setGuideDraftLoaded(false);
-    setPendingTerminalContext(undefined);
-    s.enqueue(visiblePrompt, undefined, undefined, attachments, agentPrompt);
+    enqueueInChat(visiblePrompt, attachments);
     setAttachments([]);
   };
 
@@ -333,11 +379,9 @@ export function ChatView() {
     if (addAttachmentFiles(files, "paste")) event.preventDefault();
   };
 
-  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
-    const files = Array.from(event.dataTransfer.files ?? []);
-    if (!files.length) return;
-    event.preventDefault();
-    addAttachmentFiles(files, "drop");
+  const handleDroppedFiles = (files: File[]) => {
+    setActionError(undefined);
+    if (!addAttachmentFiles(files, "drop")) setActionError("Could not attach these files. Try the Attach button.");
   };
 
   const looksLikeDomain = (text: string) =>
@@ -347,6 +391,28 @@ export function ChatView() {
   const officialScripts = [...SCRIPTS, ...s.appliedScripts].filter(
     (script, index, all) => all.findIndex((candidate) => candidate.id === script.id) === index,
   );
+  useLayoutEffect(() => {
+    if (!scriptOpen) return;
+    const anchor = scriptWrapRef.current;
+    const menu = scriptMenuRef.current;
+    const area = anchor?.closest(".overlay-scroll-area");
+    if (!anchor || !menu || !area) return;
+    const place = () => {
+      const trigger = anchor.getBoundingClientRect();
+      const bounds = area.getBoundingClientRect();
+      const left = Math.max(8, bounds.left + 8);
+      const right = Math.min(window.innerWidth - 8, bounds.right - 8);
+      menu.style.setProperty("--script-menu-width", `${Math.max(0, right - left)}px`);
+      menu.style.setProperty("--script-menu-room", `${Math.max(0, trigger.top - Math.max(8, bounds.top + 8) - 8)}px`);
+      const x = Math.max(left, Math.min(trigger.left, right - menu.offsetWidth));
+      menu.style.setProperty("--script-menu-shift", `${x - trigger.left}px`);
+    };
+    place();
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(place);
+    observer?.observe(area);
+    window.addEventListener("resize", place);
+    return () => { observer?.disconnect(); window.removeEventListener("resize", place); };
+  }, [scriptOpen, officialScripts.length, customScripts.length]);
   const openScriptCreator = () => {
     setScriptOpen(false);
     localStorage.setItem("openMyScriptsEditor", "1");
@@ -392,46 +458,23 @@ export function ChatView() {
     !s.selectedProfile && !multiloginSelection && s.defaultSession?.status === "running";
 
   return (
-    <div className="chat-layout">
-      <div className="chat">
+    <div ref={chatBoundaryRef} className="chat-layout">
+      <FileDropArea className="chat" onFiles={handleDroppedFiles} disabled={!ready}
+        unavailableLabel="Connect an agent to attach files">
         <div className="chat-header">
-          <div className="chat-title-stack">
-            <strong className="chat-title">{conv?.title ?? agentName}</strong>
-            <span className="muted small">Separate chat context · {agentName}</span>
-          </div>
+          <strong className={`${glassSurfaceClassName} chat-project-title`}>{project?.title ?? "New project"}{conv && project?.id !== conv.id && <span> · {conv.title}</span>}</strong>
+          <MainViewNavigation />
           <span className="spacer" />
           {remoteOnly && (
-            <span
-              className="vps-target-pill"
-              title={conv?.vpsConnectionLabel
+            <Tooltip content={conv?.vpsConnectionLabel
                 ? `Remote target: ${conv.vpsConnectionLabel}`
-                : "This chat runs Clawbrowser commands on a VPS"}
+                : "This chat runs Clawbrowser commands on a VPS"}><span
+              className="vps-target-pill"
             >
               <Icon name="terminal" size={12} />
               <span>VPS{conv?.vpsConnectionLabel ? ` · ${conv.vpsConnectionLabel}` : ""}</span>
-            </span>
+            </span></Tooltip>
           )}
-          <div className="chat-mode-toggle" role="group" aria-label="Project chat mode">
-            <button
-              className={terminalChat ? "active" : ""}
-              aria-pressed={terminalChat}
-              title={terminalAvailable ? "Open terminal chat" : `${agentName} has no terminal; it works in Chat`}
-              disabled={!terminalAvailable}
-              onClick={() => s.setTerminalChat(true)}
-            >
-              <Icon name="terminal" size={12} />
-              Terminal
-            </button>
-            <button
-              className={!terminalChat ? "active" : ""}
-              aria-pressed={!terminalChat}
-              title="Open regular chat"
-              onClick={() => s.setTerminalChat(false)}
-            >
-              <Icon name="bubble.left.and.bubble.right.fill" size={12} />
-              Chat
-            </button>
-          </div>
           {!remoteOnly && s.selectedProfile && (
             <span className="profile-pill">
               <Icon name="person.crop.circle" size={12} />
@@ -448,82 +491,209 @@ export function ChatView() {
             />
           )}
           {!remoteOnly && showDefaultSession && (
-            <span
+            <Tooltip content="Local browser session without a named profile"><span
               className="default-session-pill"
-              data-tooltip="Local browser session without a named profile"
               tabIndex={0}
             >
               <Icon name="globe" size={12} />
               default
-            </span>
+            </span></Tooltip>
           )}
+          {headerAccessory && <div className="chat-header-accessories">{headerAccessory}</div>}
         </div>
-        <hr className="divider" />
-
-        {terminalMounted && (
-          <div className={"terminal-chat-layer" + (terminalChat ? "" : " is-hidden")} aria-hidden={!terminalChat}>
-            <AgentTerminal
-              multiloginSelection={multiloginSelection}
-              agentId={agentId}
-              agentName={agentName}
-              conversationId={conv?.id}
-              workspaceId={conv?.workspaceId}
-              workingDir={s.workingDir}
-              browserContext={browserProfileContext(
-                s.workspaces,
-                conv?.workspaceId,
-                s.selectedProfile,
-                multiloginSelection,
-                s.statuses,
-                s.profileIdentities,
-                s.profiles,
+          <OverlayScrollArea contentClassName="messages" overlayClassName="chat-composer-dock" endButtonLabel="Scroll to latest message" autoFollow resetKey={conversationKey} overlay={
+            <>
+              {!ready && messages.length > 0 && (
+                <div className="chat-agent-error small" role="status">
+                  <span>{agentName} · {agentNeedsLogin ? "Sign-in required" : builtinAgent ? "Not set up" : "Not connected"}</span>{" "}
+                  {builtinAgent ? (
+                    <button className="btn-bordered" onClick={openAgentSettings}>Set up {agentName}</button>
+                  ) : (
+                    <button className="btn-bordered" disabled={s.runtime[agentId]?.authorizing}
+                      onClick={() => agentNeedsLogin ? s.loginAgent() : s.authorizeAgent()}>
+                      {s.runtime[agentId]?.authorizing ? "Checking…" : agentNeedsLogin ? `Sign in to ${agentName}` : `Connect ${agentName}`}
+                    </button>
+                  )}
+                </div>
               )}
-              browserProfiles={agentVisibleProfileNames(s.workspaces.find((workspace) => workspace.id === conv?.workspaceId)?.profileNames ?? [], s.profiles).map((name) => ({
-                name,
-                runtime: s.workspaces.find((workspace) => workspace.id === conv?.workspaceId)?.profileToolsets[name] ?? "clawbrowser",
-                running: s.statuses[name] === "running",
-                selected: s.selectedProfile === name,
-                ownerConversationId: s.profileChatOwners[name],
-              }))}
-              onProfileStarted={(profile) => {
-                if (conv?.id) s.setProfileChatOwner(profile, conv.id);
-                void s.loadProfiles();
-              }}
-              onProfileStopped={(profile) => {
-                s.setProfileChatOwner(profile, undefined);
-                void s.loadProfiles();
-              }}
-              onProfilesRefresh={() => void s.loadProfiles()}
-              onPreviewChange={(preview) => {
-                if (conv?.id) s.updateTerminalPreview(conv.id, preview);
-              }}
-              savingWorkflow={preparingWorkflowId === "terminal"}
-              pendingHandoff={terminalHandoff}
-              handoffToChatRequest={terminalToChatRequest}
-              onHandoffConsumed={(id) => {
-                setTerminalHandoff((current) => current?.id === id ? undefined : current);
-                chatMessagesSharedWithTerminal.current.set(conversationKey, messages.length);
-              }}
-              onChatHandoffConsumed={(id) => setTerminalToChatRequest((current) => current === id ? undefined : current)}
-              onContinueInChat={(transcript) => {
-                // A new chat gets its conversation only from the first message,
-                // so stage the context without one instead of dropping it.
-                const handoff = terminalToChatHandoff(transcript, s.selectedProfile);
-                setPendingTerminalContext({ conversationId: conv?.id, text: handoff });
-              }}
-              onSaveWorkflow={(transcript) => {
-                const answer = {
-                  id: uid(), role: "assistant" as const, text: transcript, status: "done" as const,
-                  createdAt: Date.now(),
-                };
-                void prepareWorkflow(terminalBrowserTask(transcript), answer, "terminal");
-              }}
-            />
-          </div>
-        )}
-        {!terminalChat && (
-          <>
-        <div className="messages">
+              {!ready && agentError && messages.length > 0 && (
+                <div className="chat-agent-error error small">
+                  <UserFacingError message={agentError} surface="agent_chat" />
+                  <AgentInstallLink agent={agentSpec} error={agentError} surface="agent_chat" />
+                </div>
+              )}
+              {guideDraftLoaded && (
+                <div className="guide-draft-notice" role="status">
+                  <Icon name="doc.text" size={14} />
+                  <span>
+                    <strong>Example loaded.</strong>{" "}
+                    {ready ? "Review it, then send when ready." : "Connect an agent before sending."}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraft("");
+                      setGuideDraftLoaded(false);
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+              {attachments.length > 0 && (
+                <div className="pending-attachments">
+                  {attachments.map((file) => (
+                    <Tooltip key={file.path} content={file.path}><span className="attachment-chip">
+                      <Icon name="paperclip" size={12} />
+                      <span>{file.name}</span>
+                      <button
+                        className="attachment-remove"
+                        aria-label={`Remove ${file.name}`}
+                        onClick={() => {
+                          trackEvent("chat_file_removed");
+                          setAttachments((items) => items.filter((item) => item.path !== file.path));
+                        }}
+                      >×</button>
+                    </span></Tooltip>
+                  ))}
+                </div>
+              )}
+              {actionError && !editingReply && (
+                <div className="chat-action-error error small" role="alert">{actionError}</div>
+              )}
+              {commandNotice && <div className="chat-command-notice" role="status">{commandNotice}</div>}
+              <div className={`${glassSurfaceClassName} composer`}>
+                {activeCommand && <CommandList id={commandMenuId} label="Agent commands" activeId={activeCommand.name} anchor={composerRef.current?.closest<HTMLElement>(".composer")}
+                  options={commandMatches.map(command => ({ id: command.name, title: "/" + command.name, description: command.description }))}
+                  onChoose={acceptCommand} />}
+                <textarea
+                  ref={composerRef}
+                  aria-label={`Message ${agentName}`}
+                  rows={2}
+                  role={activeCommand ? "combobox" : undefined}
+                  aria-autocomplete="list"
+                  aria-haspopup={activeCommand ? "listbox" : undefined}
+                  aria-expanded={!!activeCommand}
+                  aria-controls={activeCommand ? commandMenuId : undefined}
+                  aria-activedescendant={activeCommand ? commandMenuId + "-" + activeCommand.name : undefined}
+                  value={draft}
+                  placeholder={
+                    ready
+                      ? `Message ${agentName} — / for commands`
+                      : "Connect an agent first"
+                  }
+                  disabled={!ready}
+                  onChange={(e) => { setDraft(e.target.value); setCommandIndex(0); setCommandMenuDismissed(false); }}
+                  onFocus={() => setCommandMenuDismissed(false)}
+                  onBlur={event => { if (!event.currentTarget.closest(".composer")?.contains(event.relatedTarget as Node)) setCommandMenuDismissed(true); }}
+                  onPaste={handlePaste}
+                  onKeyDown={(e) => {
+                    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                    if (activeCommand) {
+                      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setCommandMenuDismissed(true); return; }
+                      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                        e.preventDefault(); setCommandIndex((Math.max(0, commandMatches.findIndex(command => command.name === activeCommand.name)) + (e.key === "ArrowDown" ? 1 : -1) + commandMatches.length) % commandMatches.length); return;
+                      }
+                      if ((e.key === "Tab" && !e.shiftKey) || (e.key === "Enter" && !e.shiftKey)) { e.preventDefault(); acceptCommand(activeCommand.name); return; }
+                    }
+                    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                      e.preventDefault();
+                      send();
+                    }
+                  }}
+                />
+                <div className="composer-actions">
+                  <IconButton
+                    label="Attach local files to the next message"
+                    appearance="embedded"
+                    size="small"
+                    text="Attach"
+                    disabled={!ready}
+                    onClick={() => void attachFiles()}
+                  >
+                    <Icon name="paperclip" size={14} />
+                  </IconButton>
+                  <div className="script-wrap" ref={scriptWrapRef}>
+                    <IconButton
+                      label="Open scripts menu"
+                      appearance="embedded"
+                      size="small"
+                      text="Scripts"
+                      aria-haspopup="true"
+                      aria-expanded={scriptOpen}
+                      onClick={() => setScriptOpen((o) => !o)}
+                    >
+                      <Icon name="scroll" size={14} />
+                    </IconButton>
+                    {scriptOpen && (
+                      <div className={`${glassSurfaceClassName} script-menu`} ref={scriptMenuRef}>
+                        {officialScripts.length > 0 && <div className="section">OFFICIAL SCRIPTS</div>}
+                        {officialScripts.map((sc) => (
+                          <Tooltip key={sc.id} content={`Run ${sc.title}`}><button
+                            onClick={() => {
+                              setScriptOpen(false);
+                              const domain = looksLikeDomain(draft.trim()) ? draft.trim() : "";
+                              if (domain) setDraft("");
+                              s.runScript(sc, domain);
+                            }}
+                          >
+                            {sc.title}
+                          </button></Tooltip>
+                        ))}
+                        {customScripts.length > 0 && (
+                          <>
+                            <div className="section">MY SCRIPTS</div>
+                            {customScripts.map((cs) => (
+                              <Tooltip key={cs.id} content={`Run ${cs.title}`}><button
+                                onClick={() => {
+                                  setScriptOpen(false);
+                                  const domain = looksLikeDomain(draft.trim()) ? draft.trim() : "";
+                                  if (domain) setDraft("");
+                                  s.runCustomScript({ ...cs, domain: domain || cs.domain });
+                                }}
+                              >
+                                {cs.title}
+                              </button></Tooltip>
+                            ))}
+                          </>
+                        )}
+                        {officialScripts.length === 0 && customScripts.length === 0 && (
+                          <Tooltip content="Create a custom script"><button onClick={openScriptCreator}>
+                            <Icon name="plus" size={13} /> Create script
+                          </button></Tooltip>
+                        )}
+                        {(officialScripts.length > 0 || customScripts.length > 0) && (
+                          <Tooltip content="Create a new custom script"><button onClick={openScriptCreator}>
+                            <Icon name="plus" size={13} /> Create script
+                          </button></Tooltip>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <AgentModelPicker key={conversationKey} agentId={agentId} version={builtinAgent ? s.agentVersion() : undefined}
+                    disabled={running || remoteOnly || !!s.runtime[BUILTIN_AGENT_ID]?.runningReplyId}
+                    onActivate={activateApiAgent} onRefresh={s.refreshBuiltinAgent} />
+                  {running ? (
+                    <IconButton label="Stop the running agent response" appearance="embedded" onClick={() => s.stopRunning()}>
+                      <Icon name="stop.fill" size={16} />
+                    </IconButton>
+                  ) : (
+                    <IconButton
+                      label="Send message to the selected agent"
+                      appearance="embedded"
+                      disabled={!ready || (!draft.trim() && attachments.length === 0)}
+                      onClick={send}
+                    >
+                      <Icon name="arrow.up" size={21} />
+                    </IconButton>
+                  )}
+                </div>
+              </div>
+            </>
+          }>
+          {conv?.terminalPreview && <details className="chat-legacy-activity">
+            <summary>Previous terminal activity</summary><pre>{conv.terminalPreview}</pre>
+          </details>}
           {messages.length === 0 && (
             <div className="empty-state chat-empty-state">
               <div className="empty-state-mark">
@@ -551,46 +721,43 @@ export function ChatView() {
               )}
               <div className="empty-actions">
                 {!ready && builtinAgent && (
-                  <button
+                  <Tooltip content="Choose a model provider and add its key"><button
                     className="btn-bordered-prominent"
-                    title="Choose a model provider and add its key"
                     onClick={openAgentSettings}
                   >
                     <Icon name="bolt.fill" size={14} />
                     Set up {agentName}
-                  </button>
+                  </button></Tooltip>
                 )}
                 {!ready && !builtinAgent && (
-                  <button
+                  <Tooltip content={agentNeedsLogin ? `Log in to ${agentName}` : "Connect the selected agent CLI"}><button
                     className="btn-bordered-prominent"
-                    title={agentNeedsLogin ? `Log in to ${agentName}` : "Connect the selected agent CLI"}
                     disabled={s.runtime[agentId]?.authorizing}
                     onClick={() => agentNeedsLogin ? s.loginAgent() : s.authorizeAgent()}
                   >
                     <Icon name="bolt.fill" size={14} />
                     {s.runtime[agentId]?.authorizing ? "Checking…" : agentNeedsLogin ? `Sign in to ${agentName}` : agentError ? "Check again" : `Connect ${agentName}`}
-                  </button>
+                  </button></Tooltip>
                 )}
-                <button className="btn-bordered" title="Open Skills" onClick={() => s.setTab("skills")}>
+                <Tooltip content="Open Skills"><button className="btn-bordered" onClick={() => s.setTab("skills")}>
                   <Icon name="square.grid.2x2.fill" size={14} />
                   Open Skills
-                </button>
+                </button></Tooltip>
                 {s.proxy ? (
-                  <button className="btn-bordered" title="Choose a profile in this workspace" onClick={() => window.dispatchEvent(new CustomEvent("nextbrowser:start-selected-profile"))}>
+                  <Tooltip content="Choose a profile in this workspace"><button className="btn-bordered" onClick={() => window.dispatchEvent(new CustomEvent("nextbrowser:start-selected-profile"))}>
                     <Icon name="play.fill" size={14} />
                     Start session
-                  </button>
+                  </button></Tooltip>
                 ) : (
-                  <button className="btn-bordered" title="Sign in to create managed profiles" onClick={() => s.setDashboardKeyPromptOpen(true)}>
+                  <Tooltip content="Sign in to create managed profiles"><button className="btn-bordered" onClick={() => s.setDashboardKeyPromptOpen(true)}>
                     <Icon name="lock" size={14} />
                     Create first profile
-                  </button>
+                  </button></Tooltip>
                 )}
               </div>
               <div className="empty-suggestion-grid">
-                <button
+                <Tooltip content="Start the active browser profile and verify its connection country and IP"><button
                   className="empty-suggestion"
-                  title="Start the active browser profile and verify its connection country and IP"
                   onClick={() =>
                     s.tryGuidePrompt(
                       "Using the nextctl CLI, start the active browser profile with verification and confirm its current proxy country and IP.",
@@ -602,18 +769,17 @@ export function ChatView() {
                     <strong>Proxy check</strong>
                     <span className="muted small">Verify proxy country and IP</span>
                   </span>
-                </button>
-                <button
+                </button></Tooltip>
+                <Tooltip content="Open the Live tab to inspect a running browser session"><button
                   className="empty-suggestion"
                   onClick={() => s.setTab("live")}
-                  title="Open the Live tab to inspect a running browser session"
                 >
                   <Icon name="video.fill" size={15} />
                   <span>
                     <strong>Open live view</strong>
                     <span className="muted small">Inspect the running browser</span>
                   </span>
-                </button>
+                </button></Tooltip>
               </div>
             </div>
           )}
@@ -662,177 +828,8 @@ export function ChatView() {
               showSaveWorkflow={m.id === latestCompletedAssistantId}
             />
           ))}
-          <div ref={bottomRef} />
-        </div>
-
-        <hr className="divider" />
-        {!ready && messages.length > 0 && (
-          <div className="chat-agent-error small" role="status">
-            <span>{agentName} · {agentNeedsLogin ? "Sign-in required" : builtinAgent ? "Not set up" : "Not connected"}</span>{" "}
-            {builtinAgent ? (
-              <button className="btn-bordered" onClick={openAgentSettings}>Set up {agentName}</button>
-            ) : (
-              <button className="btn-bordered" disabled={s.runtime[agentId]?.authorizing}
-                onClick={() => agentNeedsLogin ? s.loginAgent() : s.authorizeAgent()}>
-                {s.runtime[agentId]?.authorizing ? "Checking…" : agentNeedsLogin ? `Sign in to ${agentName}` : `Connect ${agentName}`}
-              </button>
-            )}
-          </div>
-        )}
-        {!ready && agentError && (messages.length > 0 || terminalChat) && (
-          <div className="chat-agent-error error small">
-            <UserFacingError message={agentError} surface="agent_chat" />
-            <AgentInstallLink agent={agentSpec} error={agentError} surface="agent_chat" />
-          </div>
-        )}
-        {guideDraftLoaded && (
-          <div className="guide-draft-notice" role="status">
-            <Icon name="doc.text" size={14} />
-            <span>
-              <strong>Example loaded.</strong>{" "}
-              {ready ? "Review it, then send when ready." : "Connect an agent before sending."}
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                setDraft("");
-                setGuideDraftLoaded(false);
-              }}
-            >
-              Clear
-            </button>
-          </div>
-        )}
-        {attachments.length > 0 && (
-          <div className="pending-attachments">
-            {attachments.map((file) => (
-              <span className="attachment-chip" key={file.path} title={file.path}>
-                <Icon name="paperclip" size={12} />
-                <span>{file.name}</span>
-                <button
-                  className="attachment-remove"
-                  aria-label={`Remove ${file.name}`}
-                  onClick={() => {
-                    trackEvent("chat_file_removed");
-                    setAttachments((items) => items.filter((item) => item.path !== file.path));
-                  }}
-                >×</button>
-              </span>
-            ))}
-          </div>
-        )}
-        {actionError && !editingReply && (
-          <div className="chat-action-error error small" role="alert">{actionError}</div>
-        )}
-        <div className="composer" onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
-          <textarea
-            ref={composerRef}
-            value={draft}
-            placeholder={
-              ready
-                ? `Message ${agentName} — Enter to queue`
-                : "Connect an agent first"
-            }
-            disabled={!ready}
-            onChange={(e) => setDraft(e.target.value)}
-            onPaste={handlePaste}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
-                e.preventDefault();
-                send();
-              }
-            }}
-          />
-          <div className="composer-actions">
-            <button
-              className="plain-icon-btn"
-              title="Attach local files to the next message"
-              aria-label="Attach local files to the next message"
-              disabled={!ready}
-              onClick={() => void attachFiles()}
-            >
-              <Icon name="paperclip" size={19} />
-            </button>
-            <div className="script-wrap" ref={scriptWrapRef}>
-              <button
-                className="plain-icon-btn"
-                title="Open scripts menu"
-                aria-label="Open scripts menu"
-                aria-haspopup="true"
-                aria-expanded={scriptOpen}
-                onClick={() => setScriptOpen((o) => !o)}
-              >
-                <Icon name="scroll" size={20} />
-              </button>
-              {scriptOpen && (
-                <div className="script-menu">
-                  <div className="section">OFFICIAL SCRIPTS</div>
-                  {officialScripts.map((sc) => (
-                    <button
-                      key={sc.id}
-                      title={`Run ${sc.title}`}
-                      onClick={() => {
-                        setScriptOpen(false);
-                        const domain = looksLikeDomain(draft.trim()) ? draft.trim() : "";
-                        if (domain) setDraft("");
-                        s.runScript(sc, domain);
-                      }}
-                    >
-                      {sc.title}
-                    </button>
-                  ))}
-                  {customScripts.length > 0 && (
-                    <>
-                      <div className="section">MY SCRIPTS</div>
-                      {customScripts.map((cs) => (
-                        <button
-                          key={cs.id}
-                          title={`Run ${cs.title}`}
-                          onClick={() => {
-                            setScriptOpen(false);
-                            const domain = looksLikeDomain(draft.trim()) ? draft.trim() : "";
-                            if (domain) setDraft("");
-                            s.runCustomScript({ ...cs, domain: domain || cs.domain });
-                          }}
-                        >
-                          {cs.title}
-                        </button>
-                      ))}
-                    </>
-                  )}
-                  {officialScripts.length === 0 && customScripts.length === 0 && (
-                    <button title="Create a custom script" onClick={openScriptCreator}>
-                      <Icon name="plus" size={13} /> Create script
-                    </button>
-                  )}
-                  {(officialScripts.length > 0 || customScripts.length > 0) && (
-                    <button title="Create a new custom script" onClick={openScriptCreator}>
-                      <Icon name="plus" size={13} /> Create script
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-            {running ? (
-              <button className="plain-icon-btn stop-btn" onClick={() => s.stopRunning()} title="Stop the running agent response" aria-label="Stop the running agent response">
-                <Icon name="stop.circle.fill" size={22} className="error" />
-              </button>
-            ) : (
-              <button
-                className="plain-icon-btn send-btn"
-                disabled={!ready || (!draft.trim() && attachments.length === 0)}
-                onClick={send}
-                title="Send message to the selected agent"
-                aria-label="Send message to the selected agent"
-              >
-                <Icon name="arrow.up.circle.fill" size={22} />
-              </button>
-            )}
-          </div>
-        </div>
-          </>
-        )}
-      </div>
+          </OverlayScrollArea>
+      </FileDropArea>
       {projectCreatorOpen && createPortal((
         <div className="modal-overlay" onMouseDown={() => setProjectCreatorOpen(false)}>
           <form
@@ -843,9 +840,15 @@ export function ChatView() {
             onMouseDown={(event) => event.stopPropagation()}
             onSubmit={(event) => {
               event.preventDefault();
-              const projectId = s.createProject(projectName, projectMode, projectAgentId);
-              if (projectId) window.dispatchEvent(new CustomEvent("nextbrowser:project-created", { detail: { id: projectId } }));
-              setProjectCreatorOpen(false);
+              setProjectCreateError(undefined);
+              try {
+                const projectId = s.createProject(projectName, "chat", projectAgentId);
+                if (!projectId) throw new Error("We couldn't create the project. Please try again.");
+                window.dispatchEvent(new CustomEvent("nextbrowser:project-created", { detail: { id: projectId } }));
+                setProjectCreatorOpen(false);
+              } catch (error) {
+                setProjectCreateError(error instanceof Error ? error.message : "We couldn't create the project. Please try again.");
+              }
             }}
           >
             <div className="profile-menu-head">
@@ -860,30 +863,18 @@ export function ChatView() {
             </p>
             <label className="modal-field">
               <span className="modal-field-heading"><span>Project name</span><small>Max {entityNameLimits.project}</small></span>
-              <input autoFocus value={projectName} maxLength={entityNameLimits.project} onChange={(event) => setProjectName(event.target.value)} placeholder="Product research" />
+              <input autoFocus value={projectName} maxLength={entityNameLimits.project} onChange={(event) => { setProjectName(event.target.value); setProjectCreateError(undefined); }} placeholder="Product research" />
             </label>
             <label className="modal-field">
               <span>Agent</span>
-              <select value={projectAgentId} onChange={(event) => setProjectAgentId(event.target.value)}>
+              <select value={projectAgentId} onChange={(event) => { setProjectAgentId(event.target.value); setProjectCreateError(undefined); }}>
                 {AGENTS.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
               </select>
               <small className="muted">{s.runtime[projectAgentId]?.ready && s.runtime[projectAgentId]?.loggedIn !== false
                 ? "Connected" : s.runtime[projectAgentId]?.loggedIn === false ? "Sign-in required — you can sign in after creating the project."
                 : "Not connected — you can connect after creating the project."}</small>
             </label>
-            <fieldset className="project-mode-field">
-              <legend>Agent workspace</legend>
-              <label className={"project-mode-option" + (projectMode === "chat" || !agentSupportsTerminal(projectAgentId) ? " is-selected" : "")}>
-                <input type="radio" name="project-mode" checked={projectMode === "chat" || !agentSupportsTerminal(projectAgentId)} onChange={() => setProjectMode("chat")} />
-                <Icon name="bubble.left.and.bubble.right.fill" size={16} />
-                <span><strong>Chat</strong><small>Structured messages and results</small></span>
-              </label>
-              <label className={"project-mode-option" + (projectMode === "terminal" && agentSupportsTerminal(projectAgentId) ? " is-selected" : "") + (agentSupportsTerminal(projectAgentId) ? "" : " is-disabled")}>
-                <input type="radio" name="project-mode" disabled={!agentSupportsTerminal(projectAgentId)} checked={projectMode === "terminal" && agentSupportsTerminal(projectAgentId)} onChange={() => setProjectMode("terminal")} />
-                <Icon name="terminal" size={16} />
-                <span><strong>Terminal</strong><small>{agentSupportsTerminal(projectAgentId) ? "Persistent native agent session" : `${agentById(projectAgentId).name} works in Chat only`}</small></span>
-              </label>
-            </fieldset>
+            {projectCreateError && <div className="error small" role="alert">{projectCreateError}</div>}
             <div className="modal-actions">
               <button type="button" className="secondary" onClick={() => setProjectCreatorOpen(false)}>Cancel</button>
               <button type="submit" className="primary" disabled={!projectName.trim()}>Create project</button>
@@ -1037,7 +1028,7 @@ function MessageBubble({
       <div className="msg-user-wrap">
         <div className="msg-user-inner">
           {m.commandChip ? (
-            <button className="user-command-chip" onClick={onShowPrompt} title="Show full prompt sent to the agent">
+            <Tooltip content="Show full prompt sent to the agent"><button className="user-command-chip" onClick={onShowPrompt}>
               <span className="user-command-icon">
                 <Icon
                   name={m.commandChip.kind === "skill" ? "sparkles" : "scroll.fill"}
@@ -1054,22 +1045,20 @@ function MessageBubble({
                 )}
               </div>
               <Icon name="info.circle" size={12} className="muted" />
-            </button>
+            </button></Tooltip>
           ) : (
             <div className="msg-user-bubble">{m.text}</div>
           )}
           {m.attachments && m.attachments.length > 0 && (
             <div className="message-attachments">
               {m.attachments.map((file) => (
-                <button
+                <Tooltip key={file.path} content={file.path}><button
                   className="message-attachment"
-                  key={file.path}
-                  title={file.path}
                   onClick={() => void runMessageAction(() => invoke("open_path", { path: file.path }), "Could not open this attachment. Check that the file still exists.")}
                 >
                   <Icon name="doc" size={14} />
                   <span>{file.name}</span>
-                </button>
+                </button></Tooltip>
               ))}
             </div>
           )}
@@ -1080,23 +1069,22 @@ function MessageBubble({
                 <span className="queue-badge">Waiting</span>
                 {canQueue && (
                   <>
-                    <button className="plain-icon-btn plain-icon-btn-compact" onClick={onEdit} title="Edit queued message">
+                    <Tooltip content="Edit queued message"><button className="plain-icon-btn plain-icon-btn-compact" onClick={onEdit}>
                       <Icon name="pencil" size={12} />
-                    </button>
-                    <button className="plain-icon-btn plain-icon-btn-compact" onClick={onCancel} title="Remove queued message">
+                    </button></Tooltip>
+                    <Tooltip content="Remove queued message"><button className="plain-icon-btn plain-icon-btn-compact" onClick={onCancel}>
                       <Icon name="trash" size={12} className="error" />
-                    </button>
+                    </button></Tooltip>
                   </>
                 )}
               </>
             )}
-            <button
+            <Tooltip content="Copy message"><button
               className="plain-icon-btn plain-icon-btn-compact"
-              title="Copy message"
               onClick={() => void runMessageAction(() => navigator.clipboard.writeText(m.text), "Could not copy the message. Try again.")}
             >
               <Icon name="doc.on.doc" size={12} />
-            </button>
+            </button></Tooltip>
             <span>{formatTime(m.createdAt)}</span>
           </div>
         </div>
@@ -1122,10 +1110,10 @@ function MessageBubble({
               : statusLabel(m)}
           </span>
           {running && m.status === "streaming" && (
-            <button className="stop-inline" onClick={onStop} title="Stop this request" aria-label="Stop this request">
+            <Tooltip content="Stop this request"><button className="stop-inline" onClick={onStop} aria-label="Stop this request">
               <Icon name="stop.fill" size={9} />
               <span>Stop</span>
-            </button>
+            </button></Tooltip>
           )}
         </div>
         {m.toolEvents && m.toolEvents.length > 0 && (
@@ -1153,20 +1141,19 @@ function MessageBubble({
       {m.text && (
         <div className="msg-assistant-meta muted small">
           {actionError && <span role="alert">{actionError}</span>}
-          <button
+          <Tooltip content="Copy message"><button
             className="plain-icon-btn plain-icon-btn-compact"
-            title="Copy message"
             onClick={() => void runMessageAction(() => navigator.clipboard.writeText(visibleText), "Could not copy the message. Try again.")}
           >
             <Icon name="doc.on.doc" size={12} />
-          </button>
+          </button></Tooltip>
           {m.status === "done" && showSaveWorkflow && (
-            <button className="save-workflow-btn" disabled={savingWorkflow} title="Save this browser workflow as a local skill" onClick={onSaveWorkflow}>
+            <Tooltip content="Save this browser workflow as a local skill"><button className="save-workflow-btn" disabled={savingWorkflow} onClick={onSaveWorkflow}>
               {savingWorkflow && <Spinner size={11} />} {savingWorkflow ? "Preparing…" : "Save as skill"}
-            </button>
+            </button></Tooltip>
           )}
           {(m.status === "failed" || m.status === "timedOut") && (
-            <button className="save-workflow-btn" onClick={onRetry} title="Review the original request before sending it again">Retry</button>
+            <Tooltip content="Review the original request before sending it again"><button className="save-workflow-btn" onClick={onRetry}>Retry</button></Tooltip>
           )}
           <span>{formatTime(m.createdAt)}</span>
         </div>
@@ -1184,28 +1171,27 @@ function AgentSteps({ steps, live }: { steps: NonNullable<ChatMessage["toolEvent
   const failed = (detail?: string) => /^Failed:/.test(detail ?? "");
   return (
     <div className={"agent-steps" + (live ? " is-live" : "")}>
-      <button
+      <Tooltip content={open ? "Hide the agent's steps" : "Show every step the agent took"}><button
         type="button"
         className="agent-steps-toggle"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        title={open ? "Hide the agent's steps" : "Show every step the agent took"}
       >
         <Icon name={open ? "chevron.down" : "chevron.right"} size={11} />
         <span className="agent-steps-count">{steps.length} {steps.length === 1 ? "step" : "steps"}</span>
         {!open && (
-          <span className={"agent-steps-latest" + (failed(latest.detail) ? " is-failed" : "")} title={latest.detail}>
+          <Tooltip content={latest.detail}><span className={"agent-steps-latest" + (failed(latest.detail) ? " is-failed" : "")}>
             {latest.detail ?? latest.name}
-          </span>
+          </span></Tooltip>
         )}
-      </button>
+      </button></Tooltip>
       {open && (
         <ol className="agent-steps-list">
           {steps.map((step) => (
-            <li key={step.id} className={failed(step.detail) ? "is-failed" : undefined} title={step.detail}>
+            <Tooltip key={step.id} content={step.detail}><li className={failed(step.detail) ? "is-failed" : undefined}>
               <Icon name={step.name === "nextctl" ? "terminal" : step.name === "step" ? "chevron.right" : "wrench"} size={10} />
               <span>{step.detail ?? step.name}</span>
-            </li>
+            </li></Tooltip>
           ))}
         </ol>
       )}

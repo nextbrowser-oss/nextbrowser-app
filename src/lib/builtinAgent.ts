@@ -5,7 +5,7 @@
 // key goes from the setup's field straight to the main process and comes back
 // only as "a key is saved".
 
-export type BuiltinProviderId = "nvidia" | "openrouter" | "gemini" | "custom";
+export type BuiltinProviderId = "nvidia" | "openrouter" | "deepseek" | "anthropic" | "gemini" | "custom";
 
 export interface BuiltinProviderPreset {
   id: BuiltinProviderId;
@@ -40,6 +40,24 @@ export const BUILTIN_PROVIDERS: readonly BuiltinProviderPreset[] = [
     keyRequired: true,
     limits: "Free models end in :free; openrouter/free picks one. About 50 requests a day on a free account.",
     dataUse: "Free models can come from providers that log or train on prompts.",
+  },
+  {
+    id: "deepseek",
+    name: "DeepSeek",
+    baseURL: "https://api.deepseek.com",
+    keyURL: "https://platform.deepseek.com/api_keys",
+    keyRequired: true,
+    limits: "Paid API; usage is billed to your DeepSeek account.",
+    dataUse: "Tasks and browser content are sent to DeepSeek under your account's data policy.",
+  },
+  {
+    id: "anthropic",
+    name: "Anthropic",
+    baseURL: "https://api.anthropic.com/v1",
+    keyURL: "https://platform.claude.com/settings/keys",
+    keyRequired: true,
+    limits: "Paid Claude API; use a workspace-scoped API key. A Claude subscription does not include API usage.",
+    dataUse: "Tasks and browser content are sent to Anthropic under your API account's data policy.",
   },
   {
     id: "gemini",

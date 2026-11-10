@@ -1,0 +1,6 @@
+.project-tree { color: inherit; position: relative; }
+.project-tree .shared-icon-button { width: 24px; height: 24px; color: inherit; }
+.project-tree .shared-tree-meta small { opacity: .65; font-size: 10px; }
+.recent-projects .project-popover-toolbar { position: absolute; top: 7px; right: 7px; z-index: 1; }
+.recent-projects .shared-tree-search { padding-right: 56px; }
+.recent-projects .shared-tree-list { max-height: min(370px, calc(100dvh - 80px)); }

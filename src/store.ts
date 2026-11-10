@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { applyProjectDrop, projectRoot, type ProjectTreeDrop } from "./lib/projectTree";
+import { isUtilityDialogTab, type UtilityDialogTab } from "./lib/appNavigation";
 import { invoke, listen } from "./electronBridge";
 import {
   nextctlEnvelope as rawNextctlEnvelope,
@@ -658,6 +660,7 @@ interface State {
   workspaceSetupAuto: "pending" | "running" | "done" | "failed";
   activeConvId: Record<string, string>;
   tab: AppTab;
+  utilityDialog?: UtilityDialogTab;
   skillState: Record<string, SkillApplyState | string>;
   scheduledRuns: ScheduledRun[];
   customScripts: CustomScript[];
@@ -812,6 +815,7 @@ interface State {
   logoutAgent: () => Promise<void>;
   recheckLogin: (agentId?: string) => Promise<void>;
   setTab: (t: AppTab) => void;
+  closeUtilityDialog: () => void;
   setAppActive: (v: boolean) => void;
   setProfileSearch: (q: string) => void;
   setSidebarWidth: (w: number) => void;
@@ -855,6 +859,8 @@ interface State {
   skillApplyError: (entryId: string) => string | undefined;
 
   newChat: () => string;
+  createProjectSession: (projectId: string, agentId?: string) => string;
+  moveProjectTreeItem: (event: ProjectTreeDrop) => void;
   createProject: (name: string, mode: "chat" | "terminal", agentId?: string) => string;
   changeEmptyProjectAgent: (id: string, agentId: string) => boolean;
   assignProfileToProject: (profileName: string, toolset: BrowserToolset, projectId?: string, replaceToolset?: boolean, proxyId?: string) => Promise<void>;
@@ -5130,12 +5136,19 @@ export const useStore = create<State>((set, get) => {
   },
 
   setTab: (t) => {
+    if (isUtilityDialogTab(t)) {
+      set({ utilityDialog: t, ...(t !== "connectors" ? { connectorPrompt: undefined } : {}) });
+      trackEvent("utility_dialog_opened", { dialog: t });
+      return;
+    }
     const previousTab = get().tab;
-    if (previousTab === t) return;
+    if (previousTab === t) { if (get().utilityDialog) get().closeUtilityDialog(); return; }
     trackEvent("tab_opened", { tab: t, previous_tab: previousTab });
     trackScreenView(t, { source: "tab_opened", previous_tab: previousTab });
-    set({ tab: t });
+    set({ tab: t, utilityDialog: undefined, ...(get().utilityDialog === "connectors" ? { connectorPrompt: undefined } : {}) });
   },
+  closeUtilityDialog: () => set(state => ({ utilityDialog: undefined,
+    ...(state.utilityDialog === "connectors" ? { connectorPrompt: undefined } : {}) })),
   setAppActive: (v) => {
     const wasActive = get().appActive;
     set({ appActive: v });
@@ -5213,7 +5226,7 @@ export const useStore = create<State>((set, get) => {
   openConnectorPrompt: (id, resume) => {
     const returnTab = get().tab;
     trackEvent("connector_prompt_opened", { connector: id, resume: resume ?? "none" });
-    set({ tab: "connectors", connectorPrompt: { id, returnTab, resume } });
+    set({ utilityDialog: "connectors", connectorPrompt: { id, returnTab, resume } });
   },
   clearConnectorPrompt: () => set({ connectorPrompt: undefined }),
   completeConnectorPrompt: () => {
@@ -5222,7 +5235,7 @@ export const useStore = create<State>((set, get) => {
     if (!prompt?.resume) return;
     // Hand the person back to the flow that sent them to the connector so a
     // one-time setup never costs them the profile they were creating.
-    set({ tab: prompt.returnTab ?? "chat" });
+    set({ tab: prompt.returnTab ?? "chat", utilityDialog: undefined });
     window.dispatchEvent(new CustomEvent(CONNECTOR_PROMPT_RESUMED_EVENT, {
       detail: { connector: prompt.id, resume: prompt.resume },
     }));
@@ -5924,7 +5937,41 @@ export const useStore = create<State>((set, get) => {
     }
   },
 
+  moveProjectTreeItem: (event) => {
+    const state = get();
+    if (state.activeWorkspaceId && deletingWorkspaceIds.has(state.activeWorkspaceId)) throw new Error("This workspace is being deleted.");
+    const conversations = applyProjectDrop(state.conversations, state.activeWorkspaceId, event, now());
+    persistConvs(conversations);
+    set({ conversations });
+  },
+
+  createProjectSession: (projectId, requestedAgentId) => {
+    const state = get();
+    const source = state.conversations.find(item => item.id === projectId);
+    const project = source && projectRoot(source, state.conversations);
+    if (!project || project.workspaceId !== state.activeWorkspaceId || (project.workspaceId && deletingWorkspaceIds.has(project.workspaceId))) return "";
+    const agent = requestedAgentId ?? source!.agent;
+    if (!AGENTS.some(item => item.id === agent) || (isBuiltinAgent(agent) && project.executionTarget === "vps")) return "";
+    const count = state.conversations.filter(item => item.projectId === project.id).length + 2;
+    const session: Conversation = {
+      id: uid(), title: `Session ${count}`, agent, messages: [], createdAt: now(), updatedAt: now(),
+      projectId: project.id, workspaceId: project.workspaceId, chatMode: "chat",
+      executionTarget: project.executionTarget, vpsConnectionInstructions: project.vpsConnectionInstructions,
+      vpsConnectionLabel: project.vpsConnectionLabel,
+    };
+    const conversations = [...state.conversations, session];
+    persistConvs(conversations);
+    set({ conversations });
+    get().selectConversation(session.id);
+    get().setTab("chat");
+    trackEvent("chat_created", { agent, project_id: project.id });
+    return session.id;
+  },
+
   newChat: () => {
+    const current = get().activeConversation();
+    const project = current && projectRoot(current, get().conversations);
+    if (project && project.workspaceId === get().activeWorkspaceId) return get().createProjectSession(current!.id);
     const agentId = get().agentId;
     const workspaceId = get().activeWorkspaceId;
     if (workspaceId && deletingWorkspaceIds.has(workspaceId)) throw new Error("This workspace is being deleted.");
@@ -5956,10 +6003,12 @@ export const useStore = create<State>((set, get) => {
 
   createProject: (name, requestedMode, selectedAgentId) => {
     const agentId = selectedAgentId ?? get().agentId;
-    if (!AGENTS.some((agent) => agent.id === agentId)) return "";
+    if (!AGENTS.some((agent) => agent.id === agentId)) throw new Error("Choose an available agent for the project.");
     const mode = agentSupportsTerminal(agentId) ? requestedMode : "chat";
     const workspaceId = get().activeWorkspaceId;
-    if (!workspaceId || deletingWorkspaceIds.has(workspaceId)) return "";
+    // Local chats/projects are valid before the user connects a workspace.
+    // Keep the same undefined-workspace scope used by newChat and ProjectTree.
+    if (workspaceId && deletingWorkspaceIds.has(workspaceId)) throw new Error("This workspace is being deleted. Choose another workspace and try again.");
     const cleanName = validateEntityName("project", name);
     const c: Conversation = {
       id: uid(),
@@ -6263,6 +6312,7 @@ export const useStore = create<State>((set, get) => {
       createdAt: now(),
       updatedAt: now(),
       parentId: conv.id,
+      projectId: conv.projectId ?? conv.id,
       forkedFromMessageId: atMessageId,
       executionTarget: conv.executionTarget,
       vpsConnectionInstructions: conv.vpsConnectionInstructions,

@@ -296,7 +296,7 @@ export function OnboardingView() {
             <div className="onboarding-copy">
               <span
                 className="onboarding-icon-wrap"
-                style={{ background: current.tint + "1f", color: current.tint }}
+                style={{ background: `color-mix(in srgb, ${current.tint} 12%, transparent)`, color: current.tint }}
               >
                 <Icon name={current.icon} size={24} strokeWidth={2.2} />
               </span>
@@ -609,7 +609,7 @@ export function OnboardingView() {
             title: "Try this task in Chat?",
             confirmLabel: "Try in Chat",
             icon: "bubble.left.and.bubble.right.fill",
-            tint: "#ff9500",
+            tint: "var(--warn)",
           }}
           onCancel={() => setTryChatConfirmOpen(false)}
           onConfirm={confirmTryChat}

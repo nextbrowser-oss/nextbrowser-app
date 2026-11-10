@@ -46,7 +46,7 @@ describe("AgentConnectionGate", () => {
     const html = renderToStaticMarkup(<AgentConnectionGate onDismiss={() => undefined} />);
 
     expect(html).toContain('aria-label="Close agent setup"');
-    expect(html).toContain('title="Close"');
+    expect(html).toMatch(/<button[^>]*aria-label="Close agent setup"[^>]*data-tooltip-id=/);
   });
 
   it("does not advertise a selection as connected before Connect is pressed", () => {

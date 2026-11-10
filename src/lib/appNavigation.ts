@@ -1,6 +1,11 @@
 import type { AppTab } from "../types";
 
 export type PrimaryAppTab = Extract<AppTab, "chat" | "live">;
+export type UtilityDialogTab = Extract<AppTab, "connectors" | "scheduled" | "mcp">;
+
+export function isUtilityDialogTab(tab: string): tab is UtilityDialogTab {
+  return tab === "connectors" || tab === "scheduled" || tab === "mcp";
+}
 
 const APP_TAB_HISTORY_LIMIT = 50;
 
@@ -12,6 +17,7 @@ const APP_TAB_LABELS: Record<AppTab, string> = {
   automation: "Automation",
   skills: "Skills",
   connectors: "Connectors",
+  mcp: "MCP",
   live: "Live",
   usage: "Usage",
   guide: "Guide",

@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import { useEffect, useState } from "react";
 import { useStore } from "../store";
 import {
@@ -197,9 +198,9 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                     </span>
                   )}
                   {running && (
-                    <span className="skill-running small" title={`Checking every ${running} min`}>
+                    <Tooltip content={`Checking every ${running} min`}><span className="skill-running small">
                       <span className="status-dot ok-dot" /> Running
-                    </span>
+                    </span></Tooltip>
                   )}
                 </div>
                 <div className="skill-desc small">{e.subtitle}</div>
@@ -213,13 +214,13 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                   ) : null
                 ) : (
                   <div className="skill-meta small">
-                    <span className="skill-meta-chip" title={targetText(e)}>
+                    <Tooltip content={targetText(e)}><span className="skill-meta-chip">
                       <Icon
                         name={selectorTargetHost(e.selector) ? "arrow.right.circle" : "play.circle"}
                         size={11}
                       />
                       {targetChip(e)}
-                    </span>
+                    </span></Tooltip>
                   </div>
                 )}
                 {publishedScript && st === "idle" && <div className="small muted skill-status">Not added</div>}
@@ -260,33 +261,32 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                     // stop and the accounts all live there, so the card opens it
                     // instead of offering a second way to run.
                     e.watchlist ? (
-                      <button className="btn-bordered-prominent full" title={e.watchlist.title} onClick={() => setWatchlistSkill(e)}>
+                      <Tooltip content={e.watchlist.title}><button className="btn-bordered-prominent full" onClick={() => setWatchlistSkill(e)}>
                         <Icon name="person.crop.circle" size={13} /> Open
-                      </button>
+                      </button></Tooltip>
                     ) : (
-                      <button className="btn-bordered-prominent full" disabled={!ready} title={`Run ${e.title} in chat`} onClick={() => setCatalogRun(e)}>
+                      <Tooltip content={`Run ${e.title} in chat`}><button className="btn-bordered-prominent full" disabled={!ready} onClick={() => setCatalogRun(e)}>
                         <Icon name="play.fill" size={13} /> Run
-                      </button>
+                      </button></Tooltip>
                     )
                   ) : e.js ? (
-                    <button className="btn-bordered-prominent full" title={`Run ${e.title}`} onClick={() => s.runScript(e)}>
+                    <Tooltip content={`Run ${e.title}`}><button className="btn-bordered-prominent full" onClick={() => s.runScript(e)}>
                       <Icon name="bolt.fill" size={14} />
                       Run
-                    </button>
+                    </button></Tooltip>
                   ) : (
                     <>
-                      <button className="btn-bordered-prominent full" disabled={st === "applying"} title={`${st === "installed" ? "Re-apply" : "Apply"} ${e.title}`} onClick={() => apply(e)}>
+                      <Tooltip content={`${st === "installed" ? "Re-apply" : "Apply"} ${e.title}`}><button className="btn-bordered-prominent full" disabled={st === "applying"} onClick={() => apply(e)}>
                         {st === "applying" ? "Applying…" : publishedScript && st === "installed" ? "Applied" : st === "installed" ? "Re-apply" : "Apply"}
-                      </button>
+                      </button></Tooltip>
                       {!publishedScript && (st === "installed" || status[e.id]?.startsWith("installed")) && (
-                        <button
+                        <Tooltip content={`Run ${e.title} in chat`}><button
                           className="btn-bordered full"
                           disabled={!ready}
-                          title={`Run ${e.title} in chat`}
                           onClick={() => setCatalogRun(e)}
                         >
                           Run
-                        </button>
+                        </button></Tooltip>
                       )}
                     </>
                   )}
@@ -379,10 +379,10 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                   Backed up privately to your account and never shared with other users.
                 </p>
               </div>
-              <button className="btn-bordered-prominent" title="Create a new private custom script" onClick={() => setScriptEditor("new")}>
+              <Tooltip content="Create a new private custom script"><button className="btn-bordered-prominent" onClick={() => setScriptEditor("new")}>
                 <Icon name="plus" size={14} />
                 New script
-              </button>
+              </button></Tooltip>
             </div>
             {s.customScripts.length === 0 ? (
               <div className="empty-scripts">
@@ -597,15 +597,15 @@ function CustomScriptCard({
       {sync === "synced" && <span className="ok small"><Icon name="lock.fill" size={11} /> Private cloud backup</span>}
       {sync === "failed" && <button className="link small" onClick={onSync}>Backup failed · Retry</button>}
       <div className="skill-actions">
-        <button className="btn-bordered-prominent full" disabled={!ready} title={ready ? `Use ${script.title} in chat` : "Connect an agent to use this script"} onClick={onUse}>
+        <Tooltip content={ready ? `Use ${script.title} in chat` : "Connect an agent to use this script"}><button className="btn-bordered-prominent full" disabled={!ready} onClick={onUse}>
           Use
-        </button>
-        <button className="btn-bordered full" title={`Edit ${script.title}`} onClick={onEdit}>
+        </button></Tooltip>
+        <Tooltip content={`Edit ${script.title}`}><button className="btn-bordered full" onClick={onEdit}>
           Edit
-        </button>
-        <button className="mini" title={`Delete ${script.title}`} onClick={onDelete}>
+        </button></Tooltip>
+        <Tooltip content={`Delete ${script.title}`}><button className="mini" onClick={onDelete}>
           Delete
-        </button>
+        </button></Tooltip>
       </div>
     </div>
   );

@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
 import { RemoteControlClient, type InputEnvelope, type RemoteLiveTab, type RemoteMediaStats, type RemoteStreamInfo } from "../remoteControl";
 import { useStore } from "../store";
@@ -546,10 +547,9 @@ export function LiveView({ active }: { active: boolean }) {
     <div className="live">
       <div className="live-controls">
         <Icon name="video.fill" size={18} className="accent-icon" />
-        <select
+        <Tooltip content="Choose profile to stream"><select
           className="live-session-select"
           value={sessionKey}
-          title="Choose profile to stream"
           onChange={(e) => switchProfile(e.target.value)}
         >
           <option value="">Select profile</option>
@@ -558,7 +558,7 @@ export function LiveView({ active }: { active: boolean }) {
               {p.running === false ? `${p.label} (stopped)` : p.label}
             </option>
           ))}
-        </select>
+        </select></Tooltip>
         <span className={"live-pill " + state}>
           {state === "live" ? "live" : state}
         </span>
@@ -569,10 +569,10 @@ export function LiveView({ active }: { active: boolean }) {
         </span>
         <span className="spacer" />
         {streamUrl && (
-          <a className="btn-bordered" href={streamUrl} target="_blank" rel="noreferrer" title="Open Remote Control in your browser">
+          <Tooltip content="Open Remote Control in your browser"><a className="btn-bordered" href={streamUrl} target="_blank" rel="noreferrer">
             <Icon name="arrow.up.forward.app" size={14} />
             Open link
-          </a>
+          </a></Tooltip>
         )}
         {state === "live" && (
           <button className="btn-bordered live-stop-btn" onClick={stop}>
@@ -589,16 +589,14 @@ export function LiveView({ active }: { active: boolean }) {
             const active = tab.active || tab.target_id === pendingRemoteTab;
             const title = tab.title || tab.url || "Untitled";
             return (
-              <button
-                key={tab.target_id}
+              <Tooltip key={tab.target_id} content={tab.url || title}><button
                 className={"remote-tab-chip" + (active ? " active" : "")}
                 onClick={() => selectRemoteTab(tab.target_id)}
                 disabled={active || !!pendingRemoteTab}
-                title={tab.url || title}
               >
                 <span className="remote-tab-title">{title}</span>
                 {tab.loading && <span className="remote-tab-dot" />}
-              </button>
+              </button></Tooltip>
             );
           })}
         </div>
@@ -636,15 +634,14 @@ export function LiveView({ active }: { active: boolean }) {
                 ? "Start Remote Control for the selected running profile."
                 : "Launch a profile and open Remote Control."}
             </p>
-            <button
+            <Tooltip content={runningProfiles.length || multiloginSelection ? "Start live view" : "Launch selected profile and open live view"}><button
               className="btn-bordered-prominent live-stream-btn"
               disabled={!launchTarget}
               onClick={() => launchAndStream()}
-              title={runningProfiles.length || multiloginSelection ? "Start live view" : "Launch selected profile and open live view"}
             >
               <Icon name="play.fill" size={12} />
               {runningProfiles.length || multiloginSelection ? "Stream" : "Launch to stream"}
-            </button>
+            </button></Tooltip>
           </div>
         )}
         {streamInfo && state !== "error" && nativeViewer && (

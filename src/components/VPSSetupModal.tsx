@@ -1,3 +1,4 @@
+import { Tooltip } from "../shared/ui";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "../electronBridge";
@@ -369,16 +370,15 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
             <p className="muted small">Run the agent and Clawbrowser tools on a remote server over SSH.</p>
           </div>
           <span className="spacer" />
-          <button
+          <Tooltip content="Close"><button
             type="button"
             className="plain-icon-btn"
             aria-label="Close VPS setup"
-            title="Close"
             disabled={submitting || mutatingConfig}
             onClick={onClose}
           >
             <Icon name="xmark.circle.fill" size={18} />
-          </button>
+          </button></Tooltip>
         </div>
 
         <fieldset className="vps-form-fields" disabled={submitting || mutatingConfig}>
@@ -417,38 +417,36 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
                   data-vps-autofocus="hosts"
                 />
               </label>
-              <button
+              <Tooltip content={customConfigPaths.length >= MAX_CUSTOM_CONFIGS
+                  ? `Up to ${MAX_CUSTOM_CONFIGS} custom SSH configs are supported`
+                  : "Add another SSH config file"}><button
                 type="button"
                 className="secondary small"
                 disabled={mutatingConfig || loading || customConfigPaths.length >= MAX_CUSTOM_CONFIGS}
-                title={customConfigPaths.length >= MAX_CUSTOM_CONFIGS
-                  ? `Up to ${MAX_CUSTOM_CONFIGS} custom SSH configs are supported`
-                  : "Add another SSH config file"}
                 onClick={() => void addConfig()}
               >
                 {configMutation === "add" ? <Spinner size={13} /> : <Icon name="plus" size={13} />}
                 Add SSH config
-              </button>
+              </button></Tooltip>
             </div>
 
             {customConfigPaths.length > 0 && (
               <div className="vps-custom-sources" aria-label="Additional SSH config files">
                 {customConfigPaths.map((path) => (
-                  <div className="vps-custom-source" key={path} title={path}>
+                  <Tooltip key={path} content={path}><div className="vps-custom-source">
                     <Icon name="doc" size={13} />
                     <span>{fileName(path)}</span>
                     <span className="muted vps-source-path">{path}</span>
-                    <button
+                    <Tooltip content="Remove custom SSH config"><button
                       type="button"
                       className="plain-icon-btn plain-icon-btn-compact"
                       aria-label={`Remove SSH config ${fileName(path)}`}
-                      title="Remove custom SSH config"
                       disabled={mutatingConfig}
                       onClick={() => void removeConfig(path)}
                     >
                       <Icon name="trash" size={12} />
-                    </button>
-                  </div>
+                    </button></Tooltip>
+                  </div></Tooltip>
                 ))}
               </div>
             )}
@@ -479,11 +477,11 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
                           <strong>{host.alias}</strong>
                           <span className="muted">{resolvedTarget(host)}</span>
                         </span>
-                        <span className="vps-host-meta" title={source}>
+                        <Tooltip content={source}><span className="vps-host-meta">
                           {fileName(host.configPath)}
                           {host.sourcePath && host.sourcePath !== host.configPath && ` · included from ${fileName(host.sourcePath)}`}
                           {host.identityFile && ` · ${fileName(host.identityFile)} configured`}
-                        </span>
+                        </span></Tooltip>
                       </span>
                       {selected && <Icon name="checkmark.circle.fill" size={15} className="ok" />}
                     </button>

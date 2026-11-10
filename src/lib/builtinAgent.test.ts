@@ -3,7 +3,7 @@ import { BUILTIN_PROVIDERS, builtinAgentRuntime, builtinAgentSettings, builtinPr
 
 describe("built-in agent setup", () => {
   it("offers NVIDIA first, with a free key link, and a custom provider without a required key", () => {
-    expect(BUILTIN_PROVIDERS.map((provider) => provider.id)).toEqual(["nvidia", "openrouter", "gemini", "custom"]);
+    expect(BUILTIN_PROVIDERS.map((provider) => provider.id)).toEqual(["nvidia", "openrouter", "deepseek", "anthropic", "gemini", "custom"]);
     expect(builtinProvider("nvidia").keyURL).toBe("https://build.nvidia.com");
     expect(builtinProvider("custom").keyRequired).toBe(false);
     expect(builtinProvider("unknown").id).toBe("nvidia");
