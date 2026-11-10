@@ -36,7 +36,7 @@ jobs:
             fi
             echo 'runner=["self-hosted","macOS","ARM64","nextbrowser-macos-signing"]' >> "$GITHUB_OUTPUT"
           else
-            echo 'runner=["macos-14"]' >> "$GITHUB_OUTPUT"
+            echo 'runner=["macos-15"]' >> "$GITHUB_OUTPUT"
           fi
 
   package:
