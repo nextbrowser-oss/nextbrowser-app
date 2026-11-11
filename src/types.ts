@@ -99,6 +99,7 @@ export interface SessionInfo {
   name?: string | null;
   endpoint?: string | null;
   source?: string | null;
+  runtime?: string | null;
 }
 
 export interface SessionStatus {

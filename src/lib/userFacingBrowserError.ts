@@ -55,6 +55,10 @@ export const VPN_SYSTEM_PROXY_HINT =
 const PROXY_PATH_FAILURE =
   /ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_CONNECTION_FAILED|ERR_CONNECTION_TIMED_OUT|ERR_TIMED_OUT|proxy[^.\n]*(?:refused|unreachable|timed? ?out|timeout)|proxy profile cannot continue without its proxy|proxy[_ ]required|failed browser checks:[^;]*\bproxy\b|Command timed out|did not complete before timeout|context deadline exceeded|did not become ready in time/i;
 
+export function isProxyTunnelFailure(error: unknown): boolean {
+  return /\b(?:ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_CONNECTION_FAILED|PROXY_CONNECTION_LOST)\b/i.test(rawErrorMessage(error));
+}
+
 /** True when a profile start failed the way a blocked path to its proxy fails: a proxy or tunnel error, or a timeout. */
 export function isProxyPathFailure(error: unknown): boolean {
   const raw = rawErrorMessage(error);

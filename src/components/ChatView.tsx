@@ -12,6 +12,7 @@ import { AGENTS, BUILTIN_AGENT_ID, agentById, agentInvocation, isBuiltinAgent, t
 import { AgentModelPicker } from "./AgentModelPicker";
 import { OPEN_AGENT_SETTINGS_EVENT } from "../lib/appNavigation";
 import { trackEvent } from "../lib/analytics";
+import { BROWSER_VERIFICATION_ATTENTION, BROWSER_VERIFICATION_INSTRUCTIONS, needsBrowserVerification } from "../lib/activityParser";
 import { needsSupportLink } from "../lib/userFacingError";
 import { userFacingBrowserError } from "../lib/userFacingBrowserError";
 import { UserFacingError } from "./UserFacingError";
@@ -1097,6 +1098,9 @@ function MessageBubble({
     (m.status === "failed" ? " bubble-failed" : "") +
     (m.status === "timedOut" ? " bubble-warn" : "");
   const visibleText = m.status === "failed" || m.status === "timedOut" ? userFacingBrowserError(m.text) : m.text;
+  const verificationNeedsAttention = m.status === "streaming" &&
+    (m.activityLabel === BROWSER_VERIFICATION_ATTENTION ||
+      m.toolEvents?.some((event) => needsBrowserVerification(event.detail ?? "")));
 
   return (
     <div className="msg-assistant-wrap">
@@ -1104,7 +1108,9 @@ function MessageBubble({
         <div className="msg-meta">
           <span className={"status-badge status-" + m.status}>
             {m.status === "streaming"
-              ? m.stalled
+              ? verificationNeedsAttention
+                ? BROWSER_VERIFICATION_ATTENTION
+                : m.stalled
                 ? `Still working · ${elapsed(m.runStartedAt)}`
                 : `${m.activityLabel ?? "Thinking"} · ${elapsed(m.runStartedAt)}`
               : statusLabel(m)}
@@ -1120,6 +1126,9 @@ function MessageBubble({
           <AgentSteps steps={m.toolEvents} live={m.status === "streaming"} />
         )}
         <div className="msg-body">
+          {verificationNeedsAttention && (
+            <p role="status">{BROWSER_VERIFICATION_INSTRUCTIONS}</p>
+          )}
           {needsSupportLink(visibleText) ? (
             <UserFacingError message={visibleText} surface="agent_turn" />
           ) : (m.status === "failed" || m.status === "timedOut") && visibleText.length > 180 ? (

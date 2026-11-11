@@ -5,19 +5,26 @@ export interface ToolEvent {
   createdAt: number;
 }
 
+export const BROWSER_VERIFICATION_ATTENTION = "Browser verification needs attention";
+export const BROWSER_VERIFICATION_INSTRUCTIONS = "Complete the verification in the browser, then tell the agent to continue.";
+
 export type AgentActivity =
   | "Thinking"
   | "Driving browser"
   | "Configuring proxy"
   | "Parsing data"
-  | "Solving captcha"
+  | typeof BROWSER_VERIFICATION_ATTENTION
   | "Running tool";
+
+export function needsBrowserVerification(text: string): boolean {
+  const explicitStatus = /\bCAPTCHA_(?:REQUIRED|DETECTED|FAILED)\b|(?<!\bno )\bcaptcha:?\s+detected\b(?!\s*[:=]\s*false)/i;
+  const manualChallenge = /\b(?:blocked by (?:a |the )?captcha|captcha (?:required|failed|appeared)|(?:complete|solve) (?:the )?captcha manually)\b|появилась капча|требуется капча/i;
+  return explicitStatus.test(text) || manualChallenge.test(text);
+}
 
 export function activityFromText(text: string): AgentActivity | undefined {
   const lower = text.toLowerCase();
-  if (lower.includes("captcha") || lower.includes("recaptcha") || lower.includes("hcaptcha")) {
-    return "Solving captcha";
-  }
+  if (needsBrowserVerification(text)) return BROWSER_VERIFICATION_ATTENTION;
   if (
     lower.includes("pars") ||
     lower.includes("extract") ||

@@ -89,7 +89,7 @@ import {
   type SocialFeed,
   type SocialMatch,
 } from "./lib/socialmonitor/feed";
-import { activityFromText, appendAgentStep, extractToolEvents } from "./lib/activityParser";
+import { BROWSER_VERIFICATION_ATTENTION, BROWSER_VERIFICATION_INSTRUCTIONS, activityFromText, appendAgentStep, extractToolEvents, needsBrowserVerification } from "./lib/activityParser";
 import { composePrompt } from "./lib/composePrompt";
 import { executionTargetForTurn, type ExecutionTarget } from "./lib/executionTarget";
 import { shouldApplyRemoteConversation } from "./lib/conversationSync";
@@ -2346,6 +2346,13 @@ export const useStore = create<State>((set, get) => {
           if (stopped) {
             status = "cancelled";
             text = text ? `${text}\n[stopped]` : "[stopped]";
+          } else if ((result.code !== 0 || !text) && (
+            message.activityLabel === BROWSER_VERIFICATION_ATTENTION ||
+            message.toolEvents?.some((event) => needsBrowserVerification(event.detail ?? "")) ||
+            needsBrowserVerification(result.reason ?? "")
+          )) {
+            status = "failed";
+            text = [text, BROWSER_VERIFICATION_INSTRUCTIONS].filter(Boolean).join("\n\n");
           } else if (result.code !== 0 && isBuiltinAgent(agentId) && result.reason) {
             // The built-in agent says what went wrong in the user's terms. A
             // failure they fix in Settings needs no reference for support.
@@ -3981,6 +3988,12 @@ export const useStore = create<State>((set, get) => {
         try {
           const runtime = runtimeForProfile(get().workspaces, p.name);
           const st = await nextctlJson<SessionStatus>(["status", "--profile", p.name, "--runtime", runtime]);
+          const reportedRuntime = st.session?.runtime;
+          const expectedRuntime = runtime === "dasbrowser" ? "chromium" : runtime;
+          if (st.status === "running" && reportedRuntime && reportedRuntime !== runtime && reportedRuntime !== expectedRuntime) {
+            statuses[p.name] = "unknown";
+            continue;
+          }
           statuses[p.name] = st.status;
           profileSessions[p.name] = st;
           if (st.status === "running") {

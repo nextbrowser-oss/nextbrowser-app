@@ -3,7 +3,7 @@
 
 import { nextctlErrorMessage, nextctlJson, nextctlRun } from "./nextctl";
 import type { SessionStatus, TabsList } from "./types";
-import { isBrowserStartFailure, isProxyAccountSetupFailure } from "./lib/userFacingBrowserError";
+import { isBrowserStartFailure, isProxyAccountSetupFailure, isProxyTunnelFailure } from "./lib/userFacingBrowserError";
 
 export function hostOf(raw?: string | null): string {
   if (!raw) return "";
@@ -249,7 +249,7 @@ export async function prepareSession(opts: {
       checkCancelled();
       if (!opts.startupVerifies) await requireGreenVerification(args, () => step("Reconnecting to the browser"));
       checkCancelled();
-      step(opts.startupVerifies && running ? "Using running session" : "Browser verified");
+      step(opts.startupVerifies && running ? "Using running session" : attempt > 0 ? "Browser verified after retry" : "Browser verified");
       lastError = undefined;
       break;
     } catch (error) {
@@ -264,7 +264,7 @@ export async function prepareSession(opts: {
       // proxy dialog would blame the proxy, and a retry only asks the backend
       // again.
       if (error instanceof HostCommandError || isProxyAccountSetupFailure(error)) throw error;
-      if (proxyExpected && !opts.startupVerifies && attempt < 2) step("Restarting the profile with the same proxy");
+      if (proxyExpected && !opts.startupVerifies && attempt < 2) step("Browser check failed. Retrying with the same proxy");
     }
   }
   // A start that failed before the browser was checked (runtime install,
@@ -300,33 +300,39 @@ export async function prepareSession(opts: {
 
   if (opts.verifyOnly) return { profileArgs: args, steps, directFallback };
 
-  if (rawHost) {
-    if (await activateMatchingTab(args, rawHost)) {
-      step(`Switched to ${rawHost}`);
-    } else {
-      const target = rawHost.includes("://") ? rawHost : `https://${rawHost}`;
-      await runChecked(
-        [...args, "open", target, "--format", "json"],
-        `Could not open ${rawHost}`,
-      );
-      step(`Opened ${rawHost}`);
+  try {
+    if (rawHost) {
+      if (await activateMatchingTab(args, rawHost)) {
+        step(`Switched to ${rawHost}`);
+      } else {
+        const target = rawHost.includes("://") ? rawHost : `https://${rawHost}`;
+        await runChecked(
+          [...args, "open", target, "--format", "json"],
+          `Could not open ${rawHost}`,
+        );
+        step(`Opened ${rawHost}`);
+      }
+      try {
+        await runChecked(
+          [...args, "wait", "--load", "--timeout", "10s", "--format", "json"],
+          `Could not finish loading ${rawHost}`,
+        );
+        step("Page ready");
+      } catch (error) {
+        // A page can be usable before a heavy site fires its load event.
+        if (isProxyTunnelFailure(error) || !/WAIT_TIMEOUT/.test(error instanceof Error ? error.message : String(error))) throw error;
+        step("Page still loading");
+      }
+    } else if (!(await hasUsablePage(args))) {
+      await openBlankActivePage(args);
+      step("Opened a blank page");
     }
-    try {
-      await runChecked(
-        [...args, "wait", "--load", "--timeout", "10s", "--format", "json"],
-        `Could not finish loading ${rawHost}`,
-      );
-      step("Page ready");
-    } catch (error) {
-      // The page is open; a heavy site through a proxy (Facebook) can take
-      // longer than this to fire load, and the agent works with it all the
-      // same. Only a wait that timed out is let through.
-      if (!/WAIT_TIMEOUT/.test(error instanceof Error ? error.message : String(error))) throw error;
-      step("Page still loading");
+  } catch (error) {
+    if (proxyExpected && !directFallback && isProxyTunnelFailure(error)) {
+      await stop();
+      step("The proxy connection failed. The browser was stopped.");
     }
-  } else if (!(await hasUsablePage(args))) {
-    await openBlankActivePage(args);
-    step("Opened a blank page");
+    throw error;
   }
 
   return { profileArgs: args, host: rawHost || undefined, steps, directFallback };

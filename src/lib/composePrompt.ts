@@ -77,6 +77,11 @@ export function composePrompt(
   } else {
     parts.push(LOCAL_NEXTCTL_PROMPT);
   }
+  if (!opts.builtinAgent) {
+    parts.push("If a website requires a CAPTCHA or another interactive browser verification, stop the affected task. " +
+      "Tell the user which page needs their attention, ask them to complete the check in the browser, and wait for them to tell you to continue. " +
+      "If the browser reports a proxy connection failure, stop browser work and report the failure and the affected profile.");
+  }
   if (conv) {
     let prior = messagesBeforeReply.filter(
       (m) =>
