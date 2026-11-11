@@ -52,8 +52,12 @@ export function AgentModelPicker({ agentId, version, disabled, onActivate, onRef
     setLoading(true);
     void invoke<BuiltinModelList>("builtin_agent_models", { provider, baseURL }).then(list => {
       if (!active) return;
-      setModels(list.models.filter(item => item.tools !== false));
-      setModel(current => current || list.defaultModel || list.models.find(item => item.tools !== false)?.id || "");
+      const offered = list.models.filter(item => item.tools !== false && (provider !== "openrouter" || item.free));
+      setModels(offered);
+      setModel(current => {
+        if (current && (provider !== "openrouter" || list.error || offered.some(item => item.id === current))) return current;
+        return list.defaultModel || offered[0]?.id || "";
+      });
       setModelsNote(list.error);
     }).catch(failure => { if (active) setModelsNote(message(failure)); })
       .finally(() => { if (active) setLoading(false); });
@@ -74,6 +78,25 @@ export function AgentModelPicker({ agentId, version, disabled, onActivate, onRef
     finally { setSaving(false); }
   };
   const label = isBuiltinAgent(agentId) ? (version || "Choose model") : agentById(agentId).name;
+  const freeModels = models.filter(item => item.free).map(item => ({
+    value: item.id, label: item.id === "openrouter/free" ? "OpenRouter Free (auto)" : item.id,
+  }));
+  const modelFields = <>
+    <label className="agent-model-picker-field">Find a model
+      <input aria-label="Search provider models" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search models…" disabled={!status || saving} />
+    </label>
+    <div className="agent-model-picker-models shared-scrollbarless" aria-label="Provider models" aria-busy={loading}>
+      {loading && <div role="status">Loading models…</div>}
+      {!loading && models.filter(item => item.id.toLowerCase().includes(query.toLowerCase())).map(item => <button type="button" key={item.id}
+        aria-pressed={model === item.id} disabled={saving} onClick={() => setModel(item.id)}>
+        <span>{item.id}</span>{item.free && <small>Free</small>}
+      </button>)}
+      {!loading && !models.some(item => item.id.toLowerCase().includes(query.toLowerCase())) && <div>No matching models. Enter a model ID below.</div>}
+    </div>
+    <label className="agent-model-picker-field">Model ID
+      <input aria-label="Agent model ID" value={model} spellCheck={false} disabled={!status || saving} onChange={event => setModel(event.target.value)} placeholder="Model ID" />
+    </label>
+  </>;
   return <>
     <Popover label="Agent provider and model" open={open && !disabled} onOpenChange={changeOpen} side="top" align="start"
       className="agent-model-picker shared-scrollbarless"
@@ -88,28 +111,22 @@ export function AgentModelPicker({ agentId, version, disabled, onActivate, onRef
           setProvider(next); setModel(next === status?.settings.provider ? status.settings.model ?? "" : ""); setQuery(""); setError(undefined);
         }} options={BUILTIN_PROVIDERS.map(item => ({ value: item.id, label: item.name }))} />
       </div>
-      {status && !canChoose ? <div className="agent-model-picker-note">{keyReady ? "Add a base URL in provider settings." : `Add your ${preset.name} API key to choose a model.`}</div> : <>
-        <label className="agent-model-picker-field">Find a model
-          <input aria-label="Search provider models" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search models…" disabled={!status || saving} />
-        </label>
-        <div className="agent-model-picker-models shared-scrollbarless" aria-label="Provider models" aria-busy={loading}>
-          {loading && <div role="status">Loading models…</div>}
-          {!loading && models.filter(item => item.id.toLowerCase().includes(query.toLowerCase())).map(item => <button type="button" key={item.id}
-            aria-pressed={model === item.id} disabled={saving} onClick={() => setModel(item.id)}>
-            <span>{item.id}</span>{item.free && <small>Free</small>}
-          </button>)}
-          {!loading && !models.some(item => item.id.toLowerCase().includes(query.toLowerCase())) && <div>No matching models. Enter a model ID below.</div>}
+      {status && !canChoose ? <div className="agent-model-picker-note">{keyReady ? "Add a base URL in provider settings." : `Add your ${preset.name} API key to choose a model.`}</div> : provider === "openrouter" ? <>
+        <div className="agent-model-picker-field">
+          <span>Free model</span>
+          <Select label="Free OpenRouter model" searchPlaceholder="Search free models…" value={model}
+            options={freeModels} onChange={setModel} disabled={!canChoose || loading || saving} />
+          {loading && <div role="status">Loading free models…</div>}
+          {!loading && model && !freeModels.some(item => item.value === model) &&
+            <span className="agent-model-picker-note">Selected model: {model}</span>}
         </div>
-        <label className="agent-model-picker-field">Model ID
-          <input aria-label="Agent model ID" value={model} spellCheck={false} disabled={!status || saving} onChange={event => setModel(event.target.value)} placeholder="Model ID" />
-        </label>
-      </>}
+      </> : modelFields}
       {modelsNote && <div className="agent-model-picker-note" role="status">{modelsNote}</div>}
-      <p className="agent-model-picker-note">{isBuiltinAgent(agentId) ? "Applies to your Nextbrowser agent chats." : "Uses the API agent. Your current chat is kept; a new session opens if it has messages."} Paid models use your provider balance.</p>
+      <p className="agent-model-picker-note">{isBuiltinAgent(agentId) ? "Applies to your Nextbrowser agent chats." : "Uses the API agent. Your current chat is kept; a new session opens if it has messages."}{provider !== "openrouter" && " Paid models use your provider balance."}</p>
       {error && <div className="agent-model-picker-note" role="alert">{error}</div>}
       <div className="agent-model-picker-actions">
         <button type="button" disabled={!status || saving} onClick={() => { setOpen(false); setSetup(provider); }}>Provider settings</button>
-        <button type="button" disabled={!canChoose || !model.trim() || saving || disabled} onClick={() => void activate()}>{saving ? "Saving…" : "Use model"}</button>
+        <button type="button" disabled={!canChoose || !model.trim() || saving || disabled || (provider === "openrouter" && !freeModels.some(item => item.value === model))} onClick={() => void activate()}>{saving ? "Saving…" : "Use model"}</button>
       </div>
     </Popover>
     {setup && <Dialog title="Agent provider settings" onClose={() => setSetup(undefined)} className="agent-model-setup">

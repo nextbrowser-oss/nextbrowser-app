@@ -63,3 +63,20 @@ it("closes the list on first Escape while keeping its owning popover open", () =
   expect(document.activeElement).toBe(trigger);
   fireEvent.keyDown(trigger, { key: "Escape" }); expect(screen.queryByRole("dialog")).toBeNull();
 });
+it("focuses search, filters by substring, and restores focus after choosing", () => {
+  const change = vi.fn();
+  render(<Select label="Provider" value="nvidia" options={options} onChange={change} searchPlaceholder="Find provider" />);
+  const trigger = screen.getByRole("combobox", { name: "Provider" });
+  fireEvent.click(trigger);
+  const search = screen.getByRole("combobox", { name: "Find provider" });
+  expect(document.activeElement).toBe(search);
+  fireEvent.change(search, { target: { value: "missing" } });
+  fireEvent.keyDown(search, { key: "Enter" });
+  expect(screen.getByRole("status").textContent).toBe("No matching options.");
+  expect(change).not.toHaveBeenCalled();
+  fireEvent.change(search, { target: { value: "ROUTER" } });
+  expect(screen.getAllByRole("option")).toHaveLength(1);
+  fireEvent.keyDown(search, { key: "Enter" });
+  expect(change).toHaveBeenCalledWith("openrouter");
+  expect(document.activeElement).toBe(trigger);
+});

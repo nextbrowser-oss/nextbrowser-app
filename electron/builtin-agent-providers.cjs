@@ -8,7 +8,7 @@
 
 const PROVIDERS = Object.freeze({
   nvidia: Object.freeze({ id: "nvidia", name: "NVIDIA", baseURL: "https://integrate.api.nvidia.com/v1", keyRequired: true }),
-  openrouter: Object.freeze({ id: "openrouter", name: "OpenRouter", baseURL: "https://openrouter.ai/api/v1", keyRequired: true }),
+  openrouter: Object.freeze({ id: "openrouter", name: "OpenRouter", baseURL: "", keyRequired: false }),
   deepseek: Object.freeze({ id: "deepseek", name: "DeepSeek", baseURL: "https://api.deepseek.com", keyRequired: true }),
   anthropic: Object.freeze({ id: "anthropic", name: "Anthropic", baseURL: "https://api.anthropic.com/v1", keyRequired: true }),
   gemini: Object.freeze({ id: "gemini", name: "Google Gemini", baseURL: "https://generativelanguage.googleapis.com/v1beta/openai", keyRequired: true }),
@@ -69,17 +69,23 @@ function cleanModelId(value) {
  * The provider, base URL and model from the saved settings. Throws a
  * user-facing message when something the run needs is missing.
  */
-function resolveProviderSettings(settings = {}) {
+function resolveProviderSettings(settings = {}, managedOpenRouterURL = "") {
   const preset = PROVIDERS[settings.provider] || PROVIDERS[DEFAULT_PROVIDER];
-  const baseURL = preset.id === "custom" ? normalizeBaseURL(settings.baseURL) : preset.baseURL;
+  const baseURL = preset.id === "openrouter" ? managedOpenRouterURL
+    : preset.id === "custom" ? normalizeBaseURL(settings.baseURL) : preset.baseURL;
   if (!baseURL) {
     throw new ProviderError("not_configured", "Enter the base URL of your provider in Settings → Agent.", { expected: true });
   }
-  const model = cleanModelId(settings.model);
+  const savedModel = cleanModelId(settings.model);
+  const model = preset.id === "openrouter" && !isFreeOpenRouterModel(savedModel) ? OPENROUTER_FREE_ROUTER : savedModel;
   if (!model) {
     throw new ProviderError("not_configured", "Pick a model for the Nextbrowser agent in Settings → Agent.", { expected: true });
   }
-  return { provider: preset.id, providerName: preset.name, baseURL, model, keyRequired: preset.keyRequired };
+  return { provider: preset.id, providerName: preset.name, baseURL, model, keyRequired: preset.keyRequired || preset.id === "openrouter" };
+}
+
+function isFreeOpenRouterModel(id) {
+  return id === OPENROUTER_FREE_ROUTER || id.endsWith(":free");
 }
 
 /** Replaces anything shaped like an API key, and the key itself, before a provider's text is shown. */
@@ -141,6 +147,9 @@ function classifyProviderFailure({ status, body, rawText, providerName, model, s
     return new ProviderError("payment", `${name} needs credits for “${model}”. Pick a free model in Settings → Agent.`, options);
   }
   if (status === 404) {
+    if (name === "OpenRouter" && body?.code === "model_not_found") {
+      return new ProviderError("model_not_found", `“${model}” is unavailable in Nextbrowser. Choose a different free model in the chat’s model picker and retry.`, options);
+    }
     return new ProviderError("model_not_found", `${name} has no model “${model}”. Pick another model in Settings → Agent.`, options);
   }
   if (status === 413 || CONTEXT_TOO_LONG.test(detail)) {
@@ -262,7 +271,7 @@ function describeModel(provider, item) {
     id,
     vision: Array.isArray(modalities) ? modalities.includes("image") : VISION_MODEL.test(id),
     ...(Array.isArray(parameters) ? { tools: parameters.includes("tools") } : {}),
-    ...(provider === "openrouter" ? { free: id.endsWith(":free") || id === OPENROUTER_FREE_ROUTER } : {}),
+    ...(provider === "openrouter" ? { free: isFreeOpenRouterModel(id) } : {}),
   };
 }
 
@@ -318,12 +327,12 @@ function defaultModelFor(provider, models = []) {
 
 /**
  * The models worth offering for a provider: chat models only for NVIDIA, the
- * tool-capable ones (including paid models) for OpenRouter, Gemini's Gemini models.
+ * free tool-capable ones for OpenRouter, Gemini's Gemini models.
  */
 function offeredModels(provider, models = []) {
   if (provider === "nvidia") return models.filter((item) => !NVIDIA_NOT_CHAT.test(item.id));
   if (provider === "openrouter") {
-    const chat = models.filter((item) => item.tools !== false);
+    const chat = models.filter((item) => item.free && item.tools !== false);
     return [{ id: OPENROUTER_FREE_ROUTER, vision: false, free: true }, ...chat.filter((item) => item.id !== OPENROUTER_FREE_ROUTER)];
   }
   if (provider === "gemini") return models.filter((item) => /^gemini-/.test(item.id) && !/embedding|aqa|imagen|veo|tts|live/i.test(item.id));
@@ -377,6 +386,7 @@ module.exports = {
   DEFAULT_PROVIDER,
   FALLBACK_MODELS,
   OPENROUTER_FREE_ROUTER,
+  isFreeOpenRouterModel,
   PROVIDERS,
   ProviderError,
   classifyProviderFailure,

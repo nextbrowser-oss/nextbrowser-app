@@ -145,6 +145,24 @@ function turn(provider, mcp, overrides = {}) {
 
 // ---- The loop ----------------------------------------------------------------
 
+test("OpenRouter chat uses the Nextbrowser backend and its runtime token", async (t) => {
+  const backend = await fakeProvider(() => reply({ content: "OK" }));
+  t.after(() => backend.close());
+  const endpoint = backend.baseURL + "/agent/openrouter";
+  const model = "vendor/model:free";
+  const { promise } = turn(backend, null, {
+    settings: { provider: "openrouter", model, baseURL: "https://ignored.test" },
+    managedOpenRouterURL: endpoint,
+    loadKey: async () => "nextbrowser-runtime-token",
+    plain: true,
+  });
+  assert.equal((await promise).status, "completed");
+  assert.equal(backend.requests.length, 1);
+  assert.equal(backend.requests[0].url, "/v1/agent/openrouter/chat/completions");
+  assert.equal(backend.requests[0].headers.authorization, "Bearer nextbrowser-runtime-token");
+  assert.equal(backend.requests[0].body.model, model);
+});
+
 test("a two-step tool loop ends in the model's final answer", async () => {
   const provider = await fakeProvider((body, _request, index) => {
     if (index === 0) return reply({ content: null, tool_calls: [toolCall("open", { url: "https://example.com" })] });
@@ -620,14 +638,15 @@ test("NVIDIA preselects a chat Nemotron model: Super, then Ultra, then Nano", ()
   assert.equal(models.find((model) => model.id.endsWith("-vl")).vision, true);
 });
 
-test("OpenRouter offers free and paid tool models; Gemini a Flash model", () => {
+test("Managed OpenRouter offers free tool models and maps a saved paid model to the free router", () => {
   const openrouter = [
     { id: "openai/gpt-4o", supported_parameters: ["tools"] },
     { id: "meta-llama/llama-3.3-70b-instruct:free", supported_parameters: ["tools", "temperature"] },
     { id: "some/model:free", supported_parameters: ["temperature"], architecture: { input_modalities: ["text", "image"] } },
   ].map((item) => describeModel("openrouter", item));
   assert.equal(defaultModelFor("openrouter", openrouter), "meta-llama/llama-3.3-70b-instruct:free");
-  assert.deepEqual(offeredModels("openrouter", openrouter).map((model) => model.id), [OPENROUTER_FREE_ROUTER, "openai/gpt-4o", "meta-llama/llama-3.3-70b-instruct:free"]);
+  assert.deepEqual(offeredModels("openrouter", openrouter).map((model) => model.id), [OPENROUTER_FREE_ROUTER, "meta-llama/llama-3.3-70b-instruct:free"]);
+  assert.equal(resolveProviderSettings({ provider: "openrouter", model: "openai/gpt-4o" }, "https://api.example.test/v1/agent/openrouter").model, OPENROUTER_FREE_ROUTER);
   assert.equal(openrouter[2].vision, true);
   assert.equal(defaultModelFor("openrouter", []), OPENROUTER_FREE_ROUTER);
   const gemini = ["models/gemini-2.0-flash", "models/gemini-2.5-flash", "models/gemini-2.5-flash-lite", "models/text-embedding-004"].map((id) => describeModel("gemini", { id }));

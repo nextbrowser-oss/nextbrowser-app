@@ -375,7 +375,7 @@ export function OnboardingView() {
                   <Icon name="bolt.fill" size={17} />
                   <span>
                     <strong>Use a free model</strong>
-                    <span className="muted small">No agent installed? The built-in Nextbrowser agent works with a free key from NVIDIA, OpenRouter or Google.</span>
+                    <span className="muted small">No agent installed? The built-in agent includes free OpenRouter models. You can also connect NVIDIA or Google with your own key.</span>
                   </span>
                   {isBuiltinAgent(agentId) && ready && <Icon name="checkmark.circle.fill" size={17} className="ok" />}
                 </button>

@@ -101,7 +101,7 @@ export function AgentConnectionGate({ onDismiss }: { onDismiss: () => void }) {
           <span>
             <strong>Use a free model</strong>
             <span className="muted small">
-              {noCLI ? "No agent CLI on this computer? " : ""}The built-in Nextbrowser agent works with a free key from NVIDIA, OpenRouter or Google. Nothing else to install.
+              {noCLI ? "No agent CLI on this computer? " : ""}The built-in agent includes free OpenRouter models. You can also connect NVIDIA or Google with your own key.
             </span>
           </span>
           {builtin && <Icon name="checkmark.circle.fill" size={16} className="ok" />}

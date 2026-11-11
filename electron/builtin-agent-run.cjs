@@ -69,6 +69,7 @@ function turnResult(outcome, limits) {
  */
 async function runBuiltinAgentTurn({
   settings,
+  managedOpenRouterURL,
   loadKey,
   prompt,
   plain = false,
@@ -83,7 +84,7 @@ async function runBuiltinAgentTurn({
   const limits = { ...DEFAULT_LIMITS, ...limitOverrides };
   let provider;
   try {
-    provider = resolveProviderSettings(settings);
+    provider = resolveProviderSettings(settings, managedOpenRouterURL);
   } catch (error) {
     return failedWith(error, "The Nextbrowser agent is not set up.");
   }
@@ -95,7 +96,9 @@ async function runBuiltinAgentTurn({
     return { ...failedWith(error, `Nextbrowser could not read the saved ${provider.providerName} key.`), ...identity };
   }
   if (provider.keyRequired && !apiKey) {
-    return { ...failed(`Add your ${provider.providerName} API key in Settings → Agent.`, { code: "not_configured", expected: true }), ...identity };
+    const message = provider.provider === "openrouter" ? "Sign in to Nextbrowser to use free OpenRouter models."
+      : `Add your ${provider.providerName} API key in Settings → Agent.`;
+    return { ...failed(message, { code: "not_configured", expected: true }), ...identity };
   }
   if (signal?.aborted) return { ...turnResult({ status: "cancelled" }, limits), ...identity };
   const client = createProviderClient({ ...provider, apiKey, ...(fetchImpl ? { fetchImpl } : {}) });

@@ -35,10 +35,9 @@ export const BUILTIN_PROVIDERS: readonly BuiltinProviderPreset[] = [
   {
     id: "openrouter",
     name: "OpenRouter",
-    baseURL: "https://openrouter.ai/api/v1",
-    keyURL: "https://openrouter.ai/keys",
-    keyRequired: true,
-    limits: "Free models end in :free; openrouter/free picks one. About 50 requests a day on a free account.",
+    baseURL: "",
+    keyRequired: false,
+    limits: "Free models are available through your Nextbrowser account, subject to shared capacity.",
     dataUse: "Free models can come from providers that log or train on prompts.",
   },
   {

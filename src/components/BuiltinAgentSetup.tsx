@@ -66,7 +66,7 @@ export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = t
     try {
       const list = await invoke<BuiltinModelList>("builtin_agent_models", { provider: target, baseURL: targetURL });
       setModels(list.models);
-      if (list.error) setModelsNote(`${list.error} You can still type a model ID.`);
+      if (list.error) setModelsNote(target === "openrouter" ? list.error : `${list.error} You can still type a model ID.`);
       const keep = current && (list.models.some((item) => item.id === current) || !list.models.length);
       setModel(keep ? current : list.defaultModel || list.models[0]?.id || "");
     } catch (failure) {
@@ -219,7 +219,7 @@ export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = t
         </label>
       )}
 
-      <div className="modal-field">
+      {provider !== "openrouter" && <div className="modal-field">
         <span className="modal-field-heading">
           <span>{preset.keyRequired ? "API key" : "API key (optional)"}</span>
           {preset.keyURL && (
@@ -254,7 +254,7 @@ export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = t
         {status && !status.secureStorage && (
           <span className="warn small">Secure key storage is unavailable on this computer, so a key cannot be saved.</span>
         )}
-      </div>
+      </div>}
 
       <label className="modal-field">
         <span className="modal-field-heading">
@@ -274,7 +274,7 @@ export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = t
             {!models.some((item) => item.id === model) && model && <option value={model}>{model}</option>}
             {models.map((item) => <option key={item.id} value={item.id}>{modelLabel(item)}</option>)}
           </select>
-        ) : (
+        ) : provider === "openrouter" ? null : (
           <input
             value={model}
             spellCheck={false}

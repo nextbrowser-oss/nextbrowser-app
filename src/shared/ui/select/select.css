@@ -6,8 +6,22 @@
 .shared-select .shared-select-trigger:hover:not(:disabled) { background: var(--glass-inverse-control-hover); }
 .shared-select .shared-select-trigger:disabled { opacity: .5; cursor: default; }
 .shared-select-trigger:focus-visible { outline: 2px solid var(--glass-inverse-muted); outline-offset: 2px; }
+.shared-select .shared-select-search {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 5px;
+  border: 0;
+  border-radius: 8px;
+  padding: 7px 9px;
+  background: var(--glass-inverse-control);
+  color: var(--glass-inverse-text);
+  font: inherit;
+}
+.shared-select-search::placeholder, .shared-select-empty { color: var(--glass-inverse-muted); }
+.shared-select-empty { padding: 5px 8px; }
 .shared-select .shared-command-list { position: static; width: 100%; max-height: 200px; margin-top: 5px; padding: 4px; border-radius: 10px; }
 .shared-select .shared-command-list__option { min-height: 28px; box-sizing: border-box; justify-content: center; padding: 6px 9px; border-radius: 7px; }
 .shared-select .shared-command-list__option strong { font-weight: 500; }
+.shared-select .shared-command-list__option strong { overflow-wrap: anywhere; }
 .shared-select .shared-command-list__option span:empty { display: none; }
 @media (prefers-reduced-motion: reduce) { .shared-select-trigger > svg { transition: none; } }

@@ -149,7 +149,7 @@ const { describeNbcResult, isNextctlBinary } = require("./nbc-failure-report.cjs
 const { describeAgentResult, describeBuiltinAgentResult, describeTerminalExit } = require("./agent-failure-report.cjs");
 const { BUILTIN_AGENT_ID } = require("./builtin-agent.cjs");
 const { BUILTIN_AGENT_SETTINGS_KEY, parseBuiltinAgentSettings, runBuiltinAgentTurn } = require("./builtin-agent-run.cjs");
-const { PROVIDERS: BUILTIN_AGENT_PROVIDERS, ProviderError, cleanModelId, createProviderClient, defaultModelFor, normalizeBaseURL, offeredModels, resolveProviderSettings, testProvider } = require("./builtin-agent-providers.cjs");
+const { PROVIDERS: BUILTIN_AGENT_PROVIDERS, ProviderError, cleanModelId, createProviderClient, defaultModelFor, isFreeOpenRouterModel, normalizeBaseURL, offeredModels, resolveProviderSettings, testProvider } = require("./builtin-agent-providers.cjs");
 const { createBuiltinAgentKeyStore } = require("./builtin-agent-credential.cjs");
 const { describeInvokeFailure, describeMainFailure } = require("./invoke-failure-report.cjs");
 const { describeAutomationResult } = require("./automation-failure-report.cjs");
@@ -385,25 +385,32 @@ function builtinAgentKeys() {
 function builtinAgentSettings() {
   return parseBuiltinAgentSettings(appSettings().snapshot().values[BUILTIN_AGENT_SETTINGS_KEY]);
 }
+async function managedOpenRouterEndpoint() {
+  const { baseURL, apiKey } = await runtimeBackendEndpoint();
+  return { baseURL: baseURL ? `${baseURL}/v1/agent/openrouter` : "", apiKey };
+}
 /** What the setup shows: the saved settings, which providers have a key, and whether the agent can run. */
 async function builtinAgentStatus() {
   const settings = builtinAgentSettings();
-  const [keys, secureStorage] = await Promise.all([
+  const [keys, secureStorage, managed] = await Promise.all([
     builtinAgentKeys().saved().catch(() => ({})),
     builtinAgentKeys().available().catch(() => false),
+    settings.provider === "openrouter" ? managedOpenRouterEndpoint() : undefined,
   ]);
+  delete keys.openrouter;
   let resolved;
-  try { resolved = resolveProviderSettings(settings); } catch { resolved = undefined; }
+  try { resolved = resolveProviderSettings(settings, managed?.baseURL); } catch { resolved = undefined; }
   const preset = BUILTIN_AGENT_PROVIDERS[settings.provider];
   const problem = !preset
     ? "Choose a model provider and add its key."
+    : managed && !managed.apiKey ? "Sign in to Nextbrowser to use free OpenRouter models."
     : preset.keyRequired && !keys[preset.id]
       ? `Add your ${preset.name} API key.`
       : preset.id === "custom" && !normalizeBaseURL(settings.baseURL)
         ? "Enter your provider's base URL."
         : !resolved ? "Pick a model." : "";
   return {
-    settings,
+    settings: managed && resolved ? { ...settings, model: resolved.model } : settings,
     keys,
     secureStorage,
     configured: !problem,
@@ -418,6 +425,11 @@ async function builtinAgentStatus() {
 async function builtinAgentSetupClient(args) {
   const preset = BUILTIN_AGENT_PROVIDERS[args.provider];
   if (!preset) throw userError("Choose a provider.");
+  if (preset.id === "openrouter") {
+    const { baseURL, apiKey } = await managedOpenRouterEndpoint();
+    if (!baseURL || !apiKey) throw userError("Sign in to Nextbrowser to use free OpenRouter models.");
+    return { preset, client: createProviderClient({ provider: preset.id, baseURL, apiKey, fetchImpl: (...request) => systemProxy.fetch(...request) }) };
+  }
   const baseURL = preset.id === "custom" ? normalizeBaseURL(args.baseURL) : preset.baseURL;
   if (!baseURL) throw userError("Enter the provider's base URL, such as http://localhost:11434/v1.");
   const apiKey = await builtinAgentKeys().load(preset.id);
@@ -461,9 +473,11 @@ async function runBuiltinAgent({ replyId, prompt, plain, run, mcpEnv, defaultPro
         onRunnerExit: reportRunnerExit,
       };
     }
+    const managed = settings.provider === "openrouter" ? await managedOpenRouterEndpoint() : undefined;
     const result = await runBuiltinAgentTurn({
       settings,
-      loadKey: (provider) => builtinAgentKeys().load(provider),
+      managedOpenRouterURL: managed?.baseURL,
+      loadKey: (provider) => managed ? managed.apiKey : builtinAgentKeys().load(provider),
       prompt,
       plain,
       mcp,
@@ -2575,12 +2589,14 @@ async function invokeCommand(command, args = {}, sender) {
       if (preset.id === "custom" && !baseURL) throw userError("Enter the provider's base URL, such as http://localhost:11434/v1. Put a key in the key field, not in the URL.");
       const model = cleanModelId(args.model);
       if (!model) throw userError("Pick a model.");
+      if (preset.id === "openrouter" && !isFreeOpenRouterModel(model)) throw userError("Pick a free OpenRouter model.");
       await appSettings().update({ values: { [BUILTIN_AGENT_SETTINGS_KEY]: JSON.stringify({ provider: preset.id, baseURL, model }) } });
       return await builtinAgentStatus();
     }
     case "builtin_agent_key_save": {
       const preset = BUILTIN_AGENT_PROVIDERS[args.provider];
       if (!preset) throw userError("Choose a provider.");
+      if (preset.id === "openrouter") throw userError("OpenRouter uses your Nextbrowser account.");
       await builtinAgentKeys().save(preset.id, args.key);
       return await builtinAgentStatus();
     }
