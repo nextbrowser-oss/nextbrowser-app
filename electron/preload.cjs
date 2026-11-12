@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("nextbrowser", {
     ipcRenderer.on(channel, wrapped);
     return () => ipcRenderer.removeListener(channel, wrapped);
   },
+  scheduleFlushed: () => { ipcRenderer.send("nextbrowser:schedule-flushed"); },
   // Error reporting is fire-and-forget: a report must never wait on, or fail
   // with, the main process. The main process validates and scrubs both.
   reportError: (event) => { ipcRenderer.send("nextbrowser:client-error", event); },

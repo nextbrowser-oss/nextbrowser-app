@@ -34,7 +34,7 @@ describe("Guide feature navigation", () => {
 
     expect(copy).not.toMatch(/killed|each its own tab|automatically solved|universal bypass|source totals/i);
     expect(copy).toContain("Live Streaming");
-    expect(copy).toContain("while Nextbrowser is open");
+    expect(copy).toContain("while this device is awake");
   });
 
   it("keeps every card description short", () => {

@@ -86,7 +86,7 @@ Preflight establishes a starting context. It does not guarantee that the page re
 
 ### Scheduled runs
 
-A scheduled run stores a prompt, selected agent, time, weekday selection, and enabled state. It runs locally while the Nextbrowser desktop app is open. Use schedules for recurring browser tasks that have clear authorization and a review path; they are not a service-level guarantee.
+A scheduled run stores a prompt, selected agent, time, weekday selection, and enabled state. Enabled schedules keep running locally in a background process after you close Nextbrowser. Keep the device awake and the account and agent signed in. Reopen Nextbrowser to see the results. Disable all schedules before closing the app to stop the background process.
 
 ### Live View and diagnostics
 

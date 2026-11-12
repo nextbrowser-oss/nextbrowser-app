@@ -4,6 +4,7 @@ import { App } from "./App";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { DesktopShell } from "./components/DesktopShell";
 import { installErrorReporting } from "./lib/errorReporting";
+import { enterScheduleForeground, flushScheduleHandoff } from "./store";
 import "@fontsource/hanken-grotesk/400.css";
 import "@fontsource/hanken-grotesk/500.css";
 import "@fontsource/hanken-grotesk/600.css";
@@ -17,6 +18,10 @@ import { TooltipProvider } from "./shared/ui";
 
 // Before the first render, so errors while the app starts are reported too.
 installErrorReporting();
+window.nextbrowser?.on("schedule:flush", () => {
+  void flushScheduleHandoff().finally(() => window.nextbrowser?.scheduleFlushed?.());
+});
+window.nextbrowser?.on("schedule:foreground", enterScheduleForeground);
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

@@ -108,7 +108,7 @@ export const GUIDE_FEATURE_GROUPS: GuideFeatureGroup[] = [
         id: "scheduled",
         icon: "clock.arrow.circlepath",
         title: "Schedules",
-        caption: "Run recurring tasks while Nextbrowser is open.",
+        caption: "Run recurring tasks while this device is awake.",
         tint: "var(--accent)",
         action: "scheduled",
         actionLabel: "Open schedules",

@@ -52,7 +52,7 @@ test("the bridge exposes only its declared functions and window metadata", () =>
   const { platform, customWindowControls, ...functions } = exposed.api;
   assert.equal(platform, process.platform);
   assert.equal(customWindowControls, process.argv.includes("--nextbrowser-custom-caption"));
-  assert.deepEqual(Object.keys(functions).sort(), ["breadcrumb", "filePathForFile", "invoke", "on", "readSettings", "reportError", "updateSettings"]);
+  assert.deepEqual(Object.keys(functions).sort(), ["breadcrumb", "filePathForFile", "invoke", "on", "readSettings", "reportError", "scheduleFlushed", "updateSettings"]);
   for (const [name, value] of Object.entries(functions)) assert.equal(typeof value, "function", name);
 });
 

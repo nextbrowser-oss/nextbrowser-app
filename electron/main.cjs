@@ -20,6 +20,13 @@ const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { SCHEDULE_WORKER_ARG, hasEnabledSchedules, flushScheduleWindow } = require("./schedule-background.cjs");
+let scheduleWorker = process.argv.includes(SCHEDULE_WORKER_ARG);
+let scheduleQuitPreparation;
+let scheduleQuitPrepared = false;
+let restartForSchedules = false;
+const checkingWindowClose = new WeakSet();
+const allowedWindowClose = new WeakSet();
 const isDevPackage = app.isPackaged && require("../package.json").nextBrowserBuildChannel === "dev";
 const isDevBuild = !app.isPackaged || isDevPackage;
 // Display branding must not move existing account/session storage.
@@ -1670,6 +1677,19 @@ function focusMainWindow() {
   window.focus();
   return window;
 }
+
+function openScheduledWorkerWindow() {
+  if (scheduleWorker) {
+    scheduleWorker = false;
+    if (app.isReady()) {
+      void app.dock?.show();
+      emit("schedule:foreground");
+      startAutoUpdater();
+      startBrowserRuntimeUpdateChecks();
+    }
+  }
+  return focusMainWindow();
+}
 function handleDeepLink(rawUrl) {
   if (!rawUrl || typeof rawUrl !== "string") return false;
   let parsed;
@@ -1683,7 +1703,7 @@ function handleDeepLink(rawUrl) {
     pairingId: parsed.searchParams.get("pairing_id") || "",
     status: parsed.searchParams.get("status") || "",
   };
-  focusMainWindow();
+  openScheduledWorkerWindow();
   emit("auth:deeplink", payload);
   return true;
 }
@@ -3474,7 +3494,29 @@ function createWindow() {
   });
   chromeWindows.add(window);
   watchWindowState(window);
-  window.once("ready-to-show", () => window.show());
+  window.once("ready-to-show", () => { if (!scheduleWorker) window.show(); });
+  window.webContents.once("did-finish-load", () => {
+    if (!scheduleWorker) window.webContents.send("schedule:foreground");
+  });
+  window.on("close", (event) => {
+    if (appQuitting || allowedWindowClose.has(window)) return;
+    const mainWindows = BrowserWindow.getAllWindows().filter(candidate => chromeWindows.has(candidate));
+    if (mainWindows.length !== 1) return;
+    event.preventDefault();
+    if (checkingWindowClose.has(window)) return;
+    checkingWindowClose.add(window);
+    void prepareScheduleQuit(window).then(() => {
+      if (window.isDestroyed() || appQuitting) return;
+      if (process.platform !== "darwin" || restartForSchedules) {
+        app.quit();
+      } else {
+        scheduleQuitPrepared = false;
+        scheduleQuitPreparation = undefined;
+        allowedWindowClose.add(window);
+        window.close();
+      }
+    });
+  });
   window.on("unresponsive", () => {
     if (appQuitting) return;
     errorReporter.capture({
@@ -3511,9 +3553,29 @@ function createWindow() {
   });
   window.webContents.on("render-process-gone", () => killTerminalsForWebContents(windowWebContentsId));
   window.on("closed", () => killTerminalsForWebContents(windowWebContentsId));
-  if (process.env.VITE_DEV_SERVER_URL) window.loadURL(process.env.VITE_DEV_SERVER_URL);
-  else window.loadFile(path.join(__dirname, "..", "dist", "index.html"));
+  const query = scheduleWorker ? { backgroundSchedule: "1" } : {};
+  if (process.env.VITE_DEV_SERVER_URL) {
+    const url = new URL(process.env.VITE_DEV_SERVER_URL);
+    if (scheduleWorker) url.searchParams.set("backgroundSchedule", "1");
+    void window.loadURL(url.href);
+  } else {
+    void window.loadFile(path.join(__dirname, "..", "dist", "index.html"), { query });
+  }
   return window;
+}
+
+function prepareScheduleQuit(window) {
+  if (!scheduleQuitPreparation) {
+    scheduleQuitPreparation = (async () => {
+      await flushScheduleWindow(ipcMain, window);
+      restartForSchedules = await hasEnabledSchedules(dataDir());
+    })().catch(error => {
+      logCrash("schedule-handoff", { message: error.message });
+    }).finally(() => {
+      scheduleQuitPrepared = true;
+    });
+  }
+  return scheduleQuitPreparation;
 }
 
 // Crash breadcrumbs. The app has been seen dying without a trace in stdout, so
@@ -3583,18 +3645,23 @@ if (!gotLock) {
   app.quit();
 } else {
   app.on("second-instance", (_event, argv) => {
-    focusMainWindow();
+    openScheduledWorkerWindow();
     for (const arg of argv) handleDeepLink(arg);
   });
   app.whenReady().then(() => {
     // Start the GitHub request before migrations and renderer loading. The
     // header joins this same request when it mounts.
-    void requestGitHubStars();
+    if (!scheduleWorker) void requestGitHubStars();
     return migrateLegacyData();
   }).then(() => {
     return migrateLegacyRuntimeConfig();
-  }).then(() => {
+  }).then(async () => {
+    if (scheduleWorker && !await hasEnabledSchedules(dataDir())) {
+      app.quit();
+      return;
+    }
     applyAppIcon();
+    if (scheduleWorker) app.dock?.hide();
     // The account-pairing flow is completed by polling, so a development build
     // never needs to own `nextbrowser://`. On macOS LaunchServices associates a
     // dev registration with Electron.app itself and silently drops the script
@@ -3607,7 +3674,7 @@ if (!gotLock) {
       if (app.getApplicationNameForProtocol(`${DEEP_LINK_PROTOCOL}://`) === "Electron") {
         app.removeAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
       }
-    } else {
+    } else if (!scheduleWorker) {
       app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
     }
     ipcMain.handle("nextbrowser:invoke", (event, command, args) => {
@@ -3651,12 +3718,20 @@ if (!gotLock) {
     });
     createWindow();
     for (const arg of process.argv) handleDeepLink(arg);
-    startAutoUpdater();
-    startBrowserRuntimeUpdateChecks();
+    if (!scheduleWorker) {
+      startAutoUpdater();
+      startBrowserRuntimeUpdateChecks();
+    }
     clientEnvironment.start();
     void refreshSystemProxyEnv();
     setInterval(() => { void refreshSystemProxyEnv(); }, 60_000).unref?.();
-    app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+    app.on("activate", () => {
+      if (scheduleWorker) openScheduledWorkerWindow();
+      else if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  }).catch(error => {
+    logCrash("startup", { message: error.message });
+    app.quit();
   });
 }
 app.on("open-url", (event, url) => {
@@ -3665,6 +3740,16 @@ app.on("open-url", (event, url) => {
 });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 app.on("before-quit", (event) => {
+  if (gotLock && !scheduleWorker && !quittingForUpdate && !scheduleQuitPrepared) {
+    event.preventDefault();
+    if (!scheduleQuitPreparation) {
+      const window = BrowserWindow.getAllWindows().find(candidate => chromeWindows.has(candidate));
+      void prepareScheduleQuit(window).then(() => app.quit());
+    } else {
+      void scheduleQuitPreparation.then(() => { if (!appQuitting) app.quit(); });
+    }
+    return;
+  }
   appQuitting = true;
   // One bounded attempt (at most 2 s) to send queued error reports; whatever
   // is left stays in userData for the next launch.
@@ -3693,4 +3778,9 @@ app.on("before-quit", (event) => {
   cancelAllAutomationRecipes();
   cancelAllAutomationElementPicks();
   cancelAllAutomationPageRecordings();
+});
+app.on("will-quit", () => {
+  if (!gotLock || scheduleWorker || !restartForSchedules || quittingForUpdate) return;
+  const args = process.argv.slice(1).filter(arg => arg !== SCHEDULE_WORKER_ARG && !arg.startsWith(`${DEEP_LINK_PROTOCOL}:`));
+  app.relaunch({ args: [...args, SCHEDULE_WORKER_ARG] });
 });

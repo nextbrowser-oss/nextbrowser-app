@@ -1602,6 +1602,20 @@ function flushConversations(): Promise<void> {
 }
 
 let scheduleWriteTail: Promise<void> = Promise.resolve();
+let scheduleHandoff = false;
+let scheduleWorker = typeof window !== "undefined" &&
+  new URLSearchParams(window.location?.search).has("backgroundSchedule");
+
+export function enterScheduleForeground() {
+  scheduleWorker = false;
+}
+
+export async function flushScheduleHandoff() {
+  // The new renderer takes over due work after this one has finished writing.
+  scheduleHandoff = true;
+  await Promise.allSettled([scheduleWriteTail, conversationWriteTail]);
+}
+
 function persistSchedules(runs: ScheduledRun[]) {
   const snapshot = serializeSchedules(runs);
   scheduleWriteTail = scheduleWriteTail.catch(() => {}).then(() => saveJson("scheduled-runs.json", snapshot));
@@ -2858,7 +2872,7 @@ export const useStore = create<State>((set, get) => {
     if (scheduleTimer) clearInterval(scheduleTimer);
     scheduleTimer = setInterval(() => {
       void get().tickScheduledRuns();
-      void get().tickWatchlistRuns();
+      if (!scheduleWorker && !scheduleHandoff) void get().tickWatchlistRuns();
     }, SCHEDULE_TICK_MS);
     if (nextctlDailyUpdateTimer) clearInterval(nextctlDailyUpdateTimer);
     nextctlDailyUpdateTimer = setInterval(
@@ -2892,7 +2906,7 @@ export const useStore = create<State>((set, get) => {
     // A development build may intentionally point at a locally compiled nbc.
     // Never replace that test binary with the latest published release while
     // the app is running under Vite/Electron development mode.
-    if (import.meta.env.DEV) return;
+    if (import.meta.env.DEV || scheduleWorker) return;
     // An incompatible CLI reports nextctlAvailable=false but still needs a
     // reinstall, so let the tick through for that case.
     if (!get().nextctlAvailable && !get().nextctlCompatibilityError) return;
@@ -2931,7 +2945,7 @@ export const useStore = create<State>((set, get) => {
   },
 
   tickScheduledRuns: async () => {
-    if (!get().authed || get().loggingOut) return;
+    if (scheduleHandoff || !get().authed || get().loggingOut) return;
     const d = new Date();
     const hour = d.getHours();
     const minute = d.getMinutes();
@@ -3025,6 +3039,7 @@ export const useStore = create<State>((set, get) => {
         // from a terminal since.
         if (agentRuntime()?.loggedIn === false) await get().recheckLogin(run.agent);
         if (!passes(scheduledAgentCheck(agentRuntime(), agentName))) continue;
+        if (scheduleHandoff) continue;
         let cid = run.conversationId;
         if (!cid || !get().conversations.some((c) => c.id === cid && c.agent === run.agent)) {
           const chatWorkspaceId = workspaceId ?? get().activeWorkspaceId;
