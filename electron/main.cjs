@@ -15,6 +15,41 @@ function requestStartPageDesktop(scope, action) {
   });
 }
 const { mcpProfileScope } = require("./mcp-profile-scope.cjs");
+const { createUserMcpStore, parseServerInput, inspectUserMcp } = require('./user-mcp.cjs');
+const { searchCatalog, githubConfig } = require('./mcp-catalog.cjs');
+let userMcpStore;
+function userMcp() {
+  return userMcpStore ??= createUserMcpStore({ filePath: path.join(app.getPath('userData'), 'mcp-servers.enc'), safeStorage });
+}
+function userMcpCommand(command, args) {
+  const binary = resolveBinary(command, '') || (path.isAbsolute(command) && fsSync.existsSync(command) ? command : '');
+  if (!binary) throw userError('The MCP executable was not found. Install its runtime or enter its full path.');
+  if (process.platform === 'win32' && /\.cmd$/i.test(binary) && /^(?:npx|npm)(?:\.cmd)?$/i.test(path.basename(command))) {
+    const name = /^npx/i.test(path.basename(command)) ? 'npx' : 'npm';
+    const script = path.join(path.dirname(binary), 'node_modules', 'npm', 'bin', `${name}-cli.js`);
+    const node = resolveBinary('node', '');
+    if (node && fsSync.existsSync(script)) return { file: node, args: [script, ...args] };
+  }
+  if (/\.(?:cmd|bat)$/i.test(binary)) throw userError('Use the server executable or its Node.js/Python entry point instead of a batch file.');
+  return commandSpec(binary, args);
+}
+function userMcpDependencies() { return { env: childEnv(), resolveCommand: userMcpCommand }; }
+function codexUserMcp(servers) {
+  const args = [], env = {};
+  for (const server of servers) {
+    const name = `custom_${server.id.replace(/-/g, '')}`;
+    const key = `NEXTBROWSER_MCP_${server.id.replace(/-/g, '')}`;
+    const spec = server.url ? { url: server.url, headers: server.headers } : userMcpCommand(server.command, server.args);
+    const node = resolveBinary('node', '');
+    if (!node) throw userError('Install Node.js to use additional MCP servers with Codex.');
+    const launcher = path.join(app.isPackaged ? path.join(process.resourcesPath, 'mcp-runtime') : __dirname, 'user-mcp-launcher.cjs');
+    args.push('-c', `mcp_servers.${name}.command=${JSON.stringify(node)}`, '-c', `mcp_servers.${name}.args=${JSON.stringify([launcher, key])}`);
+    // Secrets are passed through the process environment, never command arguments.
+    env[key] = JSON.stringify({ ...spec, env: server.env });
+    args.push('-c', `mcp_servers.${name}.env_vars=${JSON.stringify([key])}`, '-c', `mcp_servers.${name}.startup_timeout_sec=30`);
+  }
+  return { args, env };
+}
 const { addChatWorkspaceProfile } = require("./chat-profile-scope.cjs");
 const { requireVerificationCapableCLI, verificationFailureDialogOptions, verificationFailureDialogChoice } = require("./verification-policy.cjs");
 const { agentLoginStatus } = require("./agent-login-status.cjs");
@@ -537,6 +572,8 @@ async function runBuiltinAgent({ replyId, prompt, plain, run, mcpEnv, defaultPro
       prompt,
       plain,
       mcp,
+      userMcpServers: !plain && mcpEnv?.NEXTBROWSER_WORKSPACE_ID ? await userMcp().enabled(mcpEnv.NEXTBROWSER_WORKSPACE_ID) : [],
+      userMcpDeps: userMcpDependencies(),
       defaultProfile,
       fetchImpl: (...request) => systemProxy.fetch(...request),
       signal: controller.signal,
@@ -2572,6 +2609,27 @@ async function invokeCommand(command, args = {}, sender) {
         timeoutMs: args.timeoutMs,
       });
     }
+    case 'user_mcp_list': return userMcp().list(args.workspaceId);
+    case 'user_mcp_catalog': return searchCatalog(args, (...request) => systemProxy.fetch(...request));
+    case 'user_mcp_github': return githubConfig(args.url, (...request) => systemProxy.fetch(...request));
+    case 'user_mcp_add': {
+      const config = parseServerInput(args);
+      if (JSON.stringify(config).includes('REPLACE_')) throw userError('Fill in the required values marked REPLACE_ before connecting.');
+      if (!await userMcp().available()) throw userError('Secure storage is unavailable. Unlock your system keychain and try again.');
+      const existing = await userMcp().list(args.workspaceId);
+      if (existing.some(server => server.name.toLowerCase() === config.name.toLowerCase())) throw userError('A server with this name already exists.');
+      if (existing.length >= 20) throw userError('A workspace can contain up to 20 MCP servers.');
+      const tools = await inspectUserMcp(config, userMcpDependencies());
+      return userMcp().add(args.workspaceId, config, tools);
+    }
+    case 'user_mcp_test': {
+      const config = await userMcp().get(args.workspaceId, args.id);
+      const tools = await inspectUserMcp(config, userMcpDependencies());
+      await userMcp().change(args.workspaceId, args.id, { tools, checkedAt: new Date().toISOString() });
+      return { tools };
+    }
+    case 'user_mcp_toggle': await userMcp().change(args.workspaceId, args.id, { enabled: args.enabled === true }); return null;
+    case 'user_mcp_remove': await userMcp().remove(args.workspaceId, args.id); return null;
     case "nextctl_resolve": return await resolveOrInstallNextctl();
     case "nextctl_install_status": return nextctlInstallStatus;
     case "nextctl_reinstall": {
@@ -3182,6 +3240,7 @@ async function invokeCommand(command, args = {}, sender) {
       const cwd = plain ? await plainRunDir() : args.workingDir;
       if (!plain && !builtin && args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
       let agentArgs = args.args || [];
+      let customMcpEnv = {};
       if (!plain && args.agentId === "codex") {
         await ensureCodexTerminalProfile();
         const nextctlBin = await resolveOrInstallNextctl();
@@ -3190,7 +3249,13 @@ async function invokeCommand(command, args = {}, sender) {
         const supportedTraceFile = requestedTraceFile && await nextctlHasAutomationTrace(nextctlBin)
           ? requestedTraceFile
           : "";
-        agentArgs = [...codexClawbrowserMCPArgs(nextctlBin, supportedTraceFile, String(args.workspaceId || "")), ...agentArgs];
+        const browserMcpArgs = codexClawbrowserMCPArgs(nextctlBin, supportedTraceFile, String(args.workspaceId || ''));
+        agentArgs = [...browserMcpArgs, ...agentArgs];
+        if (args.workspaceId) {
+          const custom = codexUserMcp(await userMcp().enabled(args.workspaceId));
+          agentArgs = [...browserMcpArgs, ...custom.args, ...(args.args || [])];
+          customMcpEnv = custom.env;
+        }
       }
       const emitStep = (step) => { if (step) emit("agent:step", [args.replyId, step]); };
       const emitText = (text) => emit("agent:chunk", [args.replyId, text]);
@@ -3235,6 +3300,7 @@ async function invokeCommand(command, args = {}, sender) {
           args: spec.args,
           cwd,
           env: childEnv({
+            ...customMcpEnv,
             NEXTBROWSER_CONTROL_URL: controlURL,
             NEXTBROWSER_WORKSPACE_ID: String(args.workspaceId || ""),
             NEXTBROWSER_CONTROL_TOKEN: controlToken,
@@ -3875,6 +3941,7 @@ if (!gotLock) {
       app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
     }
     ipcMain.handle("nextbrowser:invoke", (event, command, args) => {
+      if (String(command).startsWith('user_mcp_') && (event.senderFrame !== event.sender.mainFrame || event.sender.getType() !== 'window')) throw userError('MCP setup is only available in the application window.');
       if ((command === "live_window" || command === "live_window_available") &&
           event.senderFrame !== event.sender.mainFrame) return null;
       const action = /^[a-z0-9_]{1,64}$/.test(String(command)) ? command : "unknown";

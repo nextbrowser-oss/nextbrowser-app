@@ -70,6 +70,13 @@
     "appId": "com.nextbrowser.desktop",
     "productName": "NextBrowser",
     "asar": true,
+    "extraResources": [
+      {
+        "from": "electron",
+        "to": "mcp-runtime",
+        "filter": ["user-mcp-launcher.cjs", "mcp-environment.cjs", "mcp-http-client.cjs"]
+      }
+    ],
     "publish": [
       {
         "provider": "github",

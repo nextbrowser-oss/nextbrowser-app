@@ -329,6 +329,28 @@ test("a plain run sends no tools and starts no browser", async () => {
   }
 });
 
+test('connected MCP tools reach the model, execute and do not enter plain runs', async () => {
+  const custom = fakeMCP(() => ({ content: [{ type: 'text', text: 'custom-service-result' }] }));
+  const provider = await fakeProvider((body, _request, index) => {
+    if (!index) {
+      const tool = body.tools.find(tool => tool.function.name.startsWith('mcp_'));
+      assert.ok(tool, 'custom tools offered alongside browser tools');
+      return reply({ tool_calls: [toolCall(tool.function.name, {})] });
+    }
+    assert.ok(body.messages.some(message => message.role === 'tool' && message.content.includes('custom-service-result')));
+    return reply({ content: 'Connected tool worked.' });
+  });
+  const options = { userMcpServers: [{ id: 'abc', name: 'Example service', command: '/fake/custom', args: [], env: {} }], userMcpDeps: { spawnImpl: custom.spawnImpl } };
+  try {
+    const result = await turn(provider, fakeMCP(), options).promise;
+    assert.equal(result.stdout, 'Connected tool worked.'); assert.equal(custom.toolCalls().length, 1);
+    assert.ok(custom.children.every(child => child.killed));
+  } finally { await provider.close(); }
+  const plainProvider = await fakeProvider(() => reply({ content: 'plain' }));
+  try { await turn(plainProvider, fakeMCP(), { ...options, plain: true }).promise; assert.equal(custom.spawned.length, 1); }
+  finally { await plainProvider.close(); }
+});
+
 test("browser tools that cannot start end the run with a reason", async () => {
   const provider = await fakeProvider(() => reply({ content: "never" }));
   const spawnImpl = () => {

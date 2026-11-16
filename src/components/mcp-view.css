@@ -1,0 +1,48 @@
+.mcp-setup { display: grid; gap: 16px; color: var(--text); }
+.mcp-intro, .mcp-agent-choice, .mcp-card-head, .mcp-card-foot, .mcp-form-actions { display: flex; align-items: center; gap: 12px; }
+.mcp-intro h3 { margin: 0; font-size: 22px; letter-spacing: -.5px; }
+.mcp-intro p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.mcp-intro-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 15px; background: var(--accent-soft); color: var(--accent-text); }
+.mcp-agent-choice { padding: 12px; border-radius: 14px; background: var(--surface-2); flex-wrap: wrap; }
+.mcp-agent-choice > div { display: grid; gap: 3px; flex: 1; }
+.mcp-agent-choice > button { display: flex; align-items: center; gap: 7px; }
+.mcp-tabs { display: flex; gap: 4px; padding: 4px; background: var(--surface-2); border-radius: 12px; width: fit-content; }
+.mcp-tabs button { background: transparent; border: 0; box-shadow: none; border-radius: 9px; color: var(--muted); }
+.mcp-tabs button[aria-pressed=true] { color: var(--text); background: var(--surface-5); }
+.mcp-card { padding: 15px; background: var(--surface-2); border-radius: 15px; min-width: 0; overflow-wrap: anywhere; }
+.mcp-card-head > div { display: grid; gap: 4px; flex: 1; }
+.mcp-card-head > strong { flex: 1; }
+.mcp-card p { font-size: 13px; color: var(--muted); line-height: 1.5; }
+.mcp-badge { background: var(--accent-soft); color: var(--accent-text); border: 0; border-radius: 8px; padding: 5px 8px; font-size: 11px; }
+.mcp-badge[aria-pressed=false] { color: var(--muted); background: var(--surface-2); }
+.mcp-server-list { display: grid; gap: 10px; }
+.mcp-tools { max-height: 220px; overflow: auto; list-style: none; padding: 0; font-size: 12px; }
+.mcp-tools li { display: grid; gap: 4px; padding-block: 8px; }
+.mcp-tools span { color: var(--muted); }
+.mcp-card details { margin-block: 12px; font-size: 12px; }
+.mcp-card summary { cursor: pointer; color: var(--muted); }
+.mcp-card-foot { margin-top: 12px; font-size: 12px; flex-wrap: wrap; }
+.mcp-card-foot > :first-child { margin-right: auto; }
+.mcp-card-foot button { font-size: 12px; }
+.mcp-empty { display: grid; justify-items: center; gap: 12px; padding: 28px 16px; text-align: center; }
+.mcp-empty p { margin: 0; color: var(--muted); font-size: 13px; }
+.mcp-search { display: flex; align-items: center; gap: 8px; background: var(--surface-2); border-radius: 12px; padding: 0 12px; }
+.mcp-search input { width: 100%; background: transparent; border: 0; box-shadow: none; }
+.mcp-search input, .mcp-custom input, .mcp-custom textarea { min-height: 38px; border: 0; border-radius: 10px; padding: 9px 12px; color: var(--text); background: var(--surface-2); font: inherit; }
+.mcp-search input:focus, .mcp-custom :is(input, textarea):focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mcp-search input::placeholder, .mcp-custom :is(input, textarea)::placeholder { color: var(--muted); opacity: .75; }
+.mcp-setup > .muted.small { margin: 0; }
+.mcp-catalog-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.mcp-catalog-grid .mcp-card { display: flex; flex-direction: column; gap: 6px; }
+.mcp-catalog-grid .mcp-card > p { flex: 1; margin: 4px 0; }
+.mcp-custom { display: grid; gap: 16px; }
+.mcp-custom label { display: grid; gap: 7px; font-size: 13px; min-width: 0; }
+.mcp-custom :is(input, textarea) { width: 100%; box-sizing: border-box; }
+.mcp-custom small { color: var(--muted); line-height: 1.5; }
+.mcp-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.mcp-github { display: flex; align-items: end; gap: 10px; }
+.mcp-github label { flex: 1; }
+.mcp-code { font: 12px/1.6 var(--font-mono); resize: vertical; }
+.mcp-form-actions { justify-content: space-between; }
+.mcp-info, .mcp-message { margin: 0; font-size: 12px; line-height: 1.6; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); }
+@media (max-width: 560px) { .mcp-catalog-grid, .mcp-form-row { grid-template-columns: 1fr; } .mcp-github { align-items: stretch; flex-direction: column; } }

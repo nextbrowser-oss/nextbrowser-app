@@ -391,11 +391,11 @@ function boundedOutput(value, maxBytes = 1_500_000) {
 // `onExit` hears about a runner that could not start or ended on its own,
 // with the same result shape as a finished nbc command; a runner the app
 // closed is not reported.
-function createMCPClient({ binary, args, env, spawnImpl = spawn, onExit }) {
+function createMCPClient({ binary, args, env, spawnImpl = spawn, onExit, inheritBrowserArguments = true }) {
   const startedAt = Date.now();
   const child = spawnImpl(binary, args, { env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
   const inheritedToolArguments = {};
-  for (const option of ["--profile", "--runtime", "--runtime-bin"]) {
+  for (const option of inheritBrowserArguments ? ["--profile", "--runtime", "--runtime-bin"] : []) {
     const index = args.indexOf(option);
     if (index >= 0 && typeof args[index + 1] === "string" && args[index + 1]) {
       inheritedToolArguments[option === "--runtime-bin" ? "browser_bin" : option.slice(2)] = args[index + 1];
@@ -416,6 +416,9 @@ function createMCPClient({ binary, args, env, spawnImpl = spawn, onExit }) {
   };
   child.stdout.on("data", (chunk) => {
     stdoutBuffer += chunk.toString();
+    if (!inheritBrowserArguments && stdoutBuffer.length > MAX_OUTPUT_BYTES) {
+      closed = true; rejectPending(new Error('MCP response exceeded its size limit.')); child.kill('SIGTERM'); return;
+    }
     const lines = stdoutBuffer.split(/\r?\n/);
     stdoutBuffer = lines.pop() || "";
     for (const line of lines) {
@@ -431,6 +434,8 @@ function createMCPClient({ binary, args, env, spawnImpl = spawn, onExit }) {
     }
   });
   child.stderr.on("data", (chunk) => { stderr = (stderr + chunk.toString()).slice(-MAX_OUTPUT_BYTES); });
+  // A server may exit between initialize and the next write.
+  child.stdin.on("error", error => rejectPending(error));
   const exited = (result, outcome) => {
     try { onExit?.(result, outcome, Date.now() - startedAt); } catch { /* reporting never changes the run */ }
   };
@@ -470,14 +475,23 @@ function createMCPClient({ binary, args, env, spawnImpl = spawn, onExit }) {
     callTool: (name, arguments, timeoutMs) => request("tools/call", { name, arguments: { ...inheritedToolArguments, ...arguments } }, timeoutMs),
     // The built-in agent offers the model the tools this nbc actually has.
     async listTools(timeoutMs) {
-      const result = await request("tools/list", {}, timeoutMs);
-      return Array.isArray(result?.tools) ? result.tools : [];
+      const tools = [], seen = new Set(); let cursor;
+      do {
+        const result = await request("tools/list", cursor ? { cursor } : {}, timeoutMs);
+        if (Array.isArray(result?.tools)) tools.push(...result.tools);
+        cursor = result?.nextCursor;
+        if (cursor && (seen.has(cursor) || seen.size >= 20)) throw new Error("MCP tool pagination exceeded its limit.");
+        if (cursor) seen.add(cursor);
+      } while (cursor);
+      return tools;
     },
     close() {
       if (closed) return;
       closed = true;
       rejectPending(new Error("Automation execution was cancelled."));
-      child.kill("SIGTERM");
+      if (!inheritBrowserArguments && child.pid) {
+        void require('./process-tree.cjs').terminateProcessTree(child.pid, { includeRoot: true }).finally(() => child.kill('SIGTERM'));
+      } else child.kill("SIGTERM");
     },
   };
 }

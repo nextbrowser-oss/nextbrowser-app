@@ -6,6 +6,7 @@
 const { createMCPClient } = require("./automation-runner.cjs");
 const { ProviderError, createProviderClient, modelSupportsVision, resolveProviderSettings } = require("./builtin-agent-providers.cjs");
 const { createMCPToolset } = require("./builtin-agent-tools.cjs");
+const { connectUserMcpTools, mergeToolsets } = require('./user-mcp.cjs');
 const { BUILTIN_AGENT_SYSTEM_PROMPT, DEFAULT_LIMITS, PLAIN_SYSTEM_PROMPT, runBuiltinAgent } = require("./builtin-agent.cjs");
 
 // The app settings key (src/lib/builtinAgent.ts) holding the provider, base
@@ -74,6 +75,8 @@ async function runBuiltinAgentTurn({
   prompt,
   plain = false,
   mcp,
+  userMcpServers = [],
+  userMcpDeps = {},
   defaultProfile = "",
   fetchImpl,
   signal,
@@ -105,7 +108,8 @@ async function runBuiltinAgentTurn({
 
   let mcpClient;
   let toolset;
-  const closeRunner = () => mcpClient?.close();
+  let userTools;
+  const closeRunner = () => { mcpClient?.close(); userTools?.close(); };
   signal?.addEventListener("abort", closeRunner, { once: true });
   try {
     if (!plain) {
@@ -144,6 +148,12 @@ async function runBuiltinAgentTurn({
       });
       if (!toolset.definitions.length) {
         return { ...failed("The browser tools of this Nextbrowser installation are not the ones the Nextbrowser agent uses. Update Nextbrowser, then try again.", { code: "tools_unavailable", expected: false }), ...identity };
+      }
+      if (userMcpServers.length) {
+        try {
+          userTools = await connectUserMcpTools(userMcpServers, { ...userMcpDeps, signal, onStep, vision: modelSupportsVision(provider.model), strict: provider.provider === 'gemini' });
+          toolset = mergeToolsets(toolset, userTools);
+        } catch (error) { return { ...failedWith(error, 'MCP setup failed.'), ...identity }; }
       }
     }
     const outcome = await runBuiltinAgent({
