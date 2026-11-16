@@ -31,7 +31,13 @@ try {
         window.__navigationQA.calls.push({ command, args });
         if (command === "nextctl_version") return "1.2.39";
         if (command === "nextctl_supports_skill") return true;
+        if (command === "nextctl_run" && args.args?.slice(0, 2).join(" ") === "remote close") return { code: 0 };
+        if (command === "nextctl_run" && args.args?.includes("screenshot")) {
+          const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l2UAAAAASUVORK5CYII=";
+          return { code: 0, stdout: JSON.stringify({ ok: true, data: { data: png } }), stderr: "" };
+        }
         if (command === "browser_runtime_update_status") return { status: "ready", checkedAt: Date.now(), runtimes: [] };
+        if (command === "browser_runtime_available") return window.__liveRuntimeAvailable !== false;
         if (command === "browser_runtime_install_status" || command === "browser_runtime_update_install_status") return { status: "idle" };
         if (command === "app_update_status") return { status: "not-available" };
         if (command === "app_platform") return { platform: "win32", arch: "x64" };
@@ -110,8 +116,143 @@ try {
   assert.ok(viewBounds.x >= titleBounds.x + titleBounds.width, 'minimal main navigation sits after the project name');
   assert.ok(Math.abs(viewBounds.y - titleBounds.y) <= 2);
   assert.equal(await page.locator('.content-chat > .tabbar').count(), 0, 'no separate navigation row above the chat');
+  await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts');
+    const s = useStore.getState();
+    window.__liveFixture = {
+      launched: [], streamed: [], startProfile: s.startProfile, startRemoteStream: s.startRemoteStream,
+      defaultSession: s.defaultSession, startDefaultSession: s.startDefaultSession,
+    };
+    useStore.setState({
+      profiles: [{ name: 'live-preview' }],
+      statuses: { 'live-preview': 'stopped' },
+      selectedProfile: 'live-preview',
+      workspaces: s.workspaces.map(workspace => ({ ...workspace, profileNames: ['live-preview'], profileToolsets: { 'live-preview': 'clawbrowser' } })),
+      startProfile: async (name, options) => {
+        assertLiveStart(options);
+        window.__liveFixture.launched.push(name);
+        useStore.setState({ statuses: { [name]: 'running' } });
+      },
+      startRemoteStream: async target => {
+        window.__liveFixture.streamed.push(target.profile || '__default');
+        return { id: 'live-preview', viewer_url: 'about:blank' };
+      },
+    });
+    function assertLiveStart(options) {
+      if (!options?.forLive) throw new Error('Live must request a background browser start');
+    }
+  });
+  const railLive = page.getByRole('button', { name: 'Open Live sessions', exact: true });
+  const liveMenu = page.getByRole('dialog', { name: 'Live sessions', exact: true });
+  const liveGrid = page.getByRole('region', { name: 'Live sessions', exact: true });
+  await railLive.hover();
+  await liveMenu.getByText('No active sessions').waitFor();
+  assert.ok((await liveMenu.boundingBox()).x > (await railLive.boundingBox()).x + (await railLive.boundingBox()).width);
+  await railLive.click();
+  await liveGrid.getByText('No active sessions').waitFor();
+  assert.deepEqual(await page.evaluate(() => window.__liveFixture.launched), [], 'opening Live does not start a profile');
+  await liveGrid.getByRole('button', { name: 'New Live session' }).click();
+  await page.getByRole('dialog', { name: 'New Live session' }).getByRole('button', { name: /live-preview/ }).click();
+  const liveViewer = page.locator('.remote-live-webview');
+  await liveViewer.waitFor();
+  assert.deepEqual(await page.evaluate(() => [window.__liveFixture.launched, window.__liveFixture.streamed]), [['live-preview'], ['live-preview']]);
+  const liveButton = page.getByRole('button', { name: 'Show Live controls', exact: true });
+  const initial = await liveButton.boundingBox();
+  assert.ok(initial.x <= 20 && initial.y + initial.height >= 880, 'controls button starts in the bottom-left corner');
+  assert.equal(await chrome.isVisible(), false);
+  assert.equal(await page.locator('#app-sidebar').isVisible(), false);
+  const fullWindow = await liveViewer.boundingBox();
+  assert.deepEqual(fullWindow, { x: 0, y: 0, width: 1280, height: 900 });
+  await page.mouse.move(initial.x + initial.width / 2, initial.y + initial.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(340, 630, { steps: 8 });
+  await page.mouse.up();
+  assert.equal(await page.getByRole('dialog', { name: 'Live controls', exact: true }).count(), 0);
+  const moved = await liveButton.boundingBox();
+  assert.ok(moved.x > 200 && moved.y < initial.y - 100, 'dragging moves the controls button');
+  await liveButton.click();
+  const liveControls = page.getByRole('dialog', { name: 'Live controls', exact: true });
+  await liveControls.waitFor();
+  assert.equal(await chrome.isVisible(), true);
+  assert.equal(await page.locator('#app-sidebar').isVisible(), true);
+  assert.deepEqual(await liveViewer.boundingBox(), fullWindow, 'controls overlay leaves the viewer size unchanged');
+  const [detached] = await Promise.all([
+    page.waitForEvent('popup'),
+    liveControls.getByRole('button', { name: 'Open in separate window', exact: true }).click(),
+  ]);
+  await detached.locator('.remote-live-webview').waitFor();
+  assert.equal(await liveViewer.count(), 0, 'only one viewer is mounted');
+  await detached.close();
+  await liveViewer.waitFor();
+  assert.deepEqual(await page.evaluate(() => window.__liveFixture.streamed), ['live-preview'],
+    'returning the viewer does not start another remote session');
+  await liveControls.getByRole('button', { name: 'Stop', exact: true }).click();
+  await liveViewer.waitFor({ state: 'detached' });
+  assert.equal(await page.getByRole('button', { name: 'Resume Live', exact: true }).isVisible(), true);
+  await liveControls.getByRole('button', { name: 'All Live sessions' }).click();
+  const card = liveGrid.getByRole('button', { name: 'Open live-preview' });
+  await card.locator('img').waitFor();
+  await railLive.hover();
+  await liveMenu.getByRole('searchbox').fill('missing');
+  await liveMenu.getByText('No matching sessions').waitFor();
+  await liveMenu.getByRole('searchbox').fill('live-preview');
+  await liveMenu.getByRole('button', { name: /live-preview/ }).waitFor();
+  await railLive.click();
+  await card.click();
+  await liveViewer.waitFor();
+  assert.deepEqual(await page.evaluate(() => window.__liveFixture.launched), ['live-preview'], 'opening the preview reuses the running profile');
+  await liveButton.click();
+  await liveControls.getByRole('button', { name: 'Stop', exact: true }).click();
+  await liveControls.getByRole('tab', { name: 'Open Project', exact: true }).click();
+  await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts');
+    const s = useStore.getState();
+    window.__liveRuntimeAvailable = false;
+    useStore.setState({
+      profiles: [], statuses: {}, selectedProfile: undefined, defaultSession: { status: 'stopped' },
+      workspaces: s.workspaces.map(workspace => ({ ...workspace, profileNames: ['__default'], profileToolsets: {} })),
+      startDefaultSession: async () => {
+        window.__liveFixture.launched.push('__default');
+        if (window.__liveRuntimeAvailable === false) {
+          throw new Error('[nbc-install] Requesting Windows administrator approval for silent Clawbrowser setup...\ninstall failed: administrator approval was canceled');
+        }
+        useStore.setState({ defaultSession: { status: 'running' } });
+      },
+    });
+  });
   await mainViews.getByRole('tab', { name: 'Open Live', exact: true }).click();
-  await page.getByRole('tablist', { name: 'Main views' }).getByRole('tab', { name: 'Open Project', exact: true }).click();
+  await liveGrid.getByRole('button', { name: 'New Live session' }).click();
+  await page.getByRole('dialog', { name: 'New Live session' }).getByRole('button', { name: /Default browser/ }).click();
+  const downloadLive = page.getByRole('button', { name: 'Download & start', exact: true });
+  await downloadLive.waitFor();
+  assert.deepEqual(await page.evaluate(() => window.__liveFixture.launched), ['live-preview'],
+    'entering Live with a missing runtime does not launch its installer');
+  await downloadLive.click();
+  await page.getByText(/Windows administrator approval was cancelled/).waitFor();
+  assert.equal(await page.getByText(/\[nbc-install\]/).count(), 0);
+  assert.deepEqual(await page.evaluate(() => window.__liveFixture.streamed), ['live-preview', 'live-preview'],
+    'cancelling the installer does not attempt to stream');
+  await page.evaluate(() => { window.__liveRuntimeAvailable = true; });
+  await page.getByRole('button', { name: 'Retry Live', exact: true }).click();
+  await liveViewer.waitFor();
+  const restored = await liveButton.boundingBox();
+  assert.ok(Math.abs(restored.x + restored.width / 2 - 340) <= 1 &&
+    Math.abs(restored.y + restored.height / 2 - 630) <= 1, 'button position survives leaving and reopening Live');
+  assert.deepEqual(await page.evaluate(() => [window.__liveFixture.launched, window.__liveFixture.streamed]),
+    [['live-preview', '__default', '__default'], ['live-preview', 'live-preview', '__default']]);
+  await liveButton.click();
+  await liveControls.getByRole('button', { name: 'Stop', exact: true }).click();
+  await liveControls.getByRole('tab', { name: 'Open Project', exact: true }).click();
+  await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts');
+    const s = useStore.getState();
+    useStore.setState({
+      profiles: [], statuses: {}, selectedProfile: undefined,
+      workspaces: s.workspaces.map(workspace => ({ ...workspace, profileNames: [], profileToolsets: {} })),
+      startProfile: window.__liveFixture.startProfile, startRemoteStream: window.__liveFixture.startRemoteStream,
+      defaultSession: window.__liveFixture.defaultSession, startDefaultSession: window.__liveFixture.startDefaultSession,
+    });
+  });
   const focusBeforeProjectHover = await page.evaluate(() => document.activeElement?.getAttribute('aria-label'));
   await page.getByRole("button", { name: "Open Projects", exact: true }).hover();
   await page.getByRole('dialog', { name: 'Projects', exact: true }).waitFor();
@@ -166,6 +307,7 @@ try {
   const workspacePopover = page.getByRole('dialog', { name: 'Workspaces', exact: true });
   await workspacePopover.waitFor();
   assert.ok((await workspacePopover.boundingBox()).y >= 30);
+  assert.equal(await workspacePopover.getByRole('button', { name: 'Profiles and proxies', exact: true }).count(), 0);
   await workspacePopover.getByRole('button', { name: 'Create workspace', exact: true }).click();
   const workspaceCreate = page.getByRole('dialog', { name: 'Create workspace', exact: true });
   await workspaceCreate.waitFor();
@@ -177,6 +319,25 @@ try {
       conversations: [...state.conversations, { ...project, id: 'qa-second-project', title: 'Other workspace project', workspaceId: 'qa-second-workspace', projectId: undefined, messages: [] }] });
     return { id: current.id, name: current.name };
   });
+  await page.getByRole('button', { name: /^Switch workspace,/ }).hover();
+  const workspaceSearch = workspacePopover.getByRole('textbox', { name: 'Search workspaces' });
+  await workspaceSearch.fill('other qa');
+  assert.equal(await workspacePopover.getByRole('button', { name: workspaceBefore.name, exact: true }).count(), 0);
+  await workspacePopover.getByRole('button', { name: 'Other QA workspace', exact: true }).hover();
+  await workspacePopover.getByRole('button', { name: 'Delete workspace Other QA workspace', exact: true }).click();
+  const deleteWorkspace = page.getByRole('alertdialog', { name: 'Delete “Other QA workspace”?' });
+  await deleteWorkspace.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: /^Switch workspace,/ }).click();
+  await workspacePopover.getByRole('button', { name: 'Emergency data reset', exact: true }).click();
+  const resetWorkspace = page.getByRole('dialog', { name: 'Emergency data reset', exact: true });
+  const confirmation = resetWorkspace.getByRole('textbox');
+  const resetAction = resetWorkspace.getByRole('button', { name: 'Delete all data', exact: true });
+  await confirmation.fill('drop');
+  assert.equal(await resetAction.isDisabled(), true);
+  await confirmation.fill('DROP');
+  assert.equal(await resetAction.isEnabled(), true);
+  await resetWorkspace.getByRole('button', { name: 'Cancel', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.__navigationQA.calls.some(call => call.command === 'workspace_emergency_reset')), false);
   await page.getByRole('button', { name: /^Switch workspace,/ }).click();
   await workspacePopover.getByRole('button', { name: 'Other QA workspace', exact: true }).click();
   await page.getByRole('button', { name: 'Switch workspace, Other QA workspace', exact: true }).waitFor();
@@ -328,6 +489,17 @@ try {
   await page.getByRole('button', { name: 'Manage profiles and proxies', exact: true }).click();
   const tools = page.getByRole('dialog', { name: 'Profiles and proxies', exact: true });
   await tools.waitFor();
+  assert.equal(await tools.getByRole('button', { name: 'Create project', exact: true }).count(), 0);
+  assert.equal(await tools.getByRole('tree', { name: 'Project folders' }).count(), 0);
+  await tools.getByRole('textbox', { name: 'Search profiles', exact: true }).waitFor();
+  await tools.getByRole('button', { name: 'Personal proxies' }).click();
+  const personalProxies = page.getByRole('dialog', { name: 'Personal proxies', exact: true });
+  await personalProxies.getByRole('button', { name: 'Add proxies', exact: true }).click();
+  await page.getByRole('button', { name: 'Bulk', exact: true }).click();
+  const bulkImport = page.getByRole('dialog', { name: 'Add proxies', exact: true });
+  await bulkImport.getByRole('textbox', { name: /Proxy list/ }).fill('http://proxy-one.example:8080\nsocks5://proxy-two.example:1080');
+  await bulkImport.getByText('2 valid', { exact: true }).waitFor();
+  await bulkImport.getByRole('button', { name: 'Close', exact: true }).click();
   await tools.getByRole('button', { name: 'Close Profiles and proxies' }).click();
   await tools.waitFor({ state: 'detached' });
   await page.setViewportSize({ width: 960, height: 640 });

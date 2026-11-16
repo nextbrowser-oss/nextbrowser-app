@@ -12,6 +12,8 @@ import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
 import { SkillsView } from "./components/SkillsView";
 import { LiveView } from "./components/LiveView";
+import { LiveSessionsGrid, LiveSessionsPopover } from "./components/LiveSessions";
+import { useLiveSessions } from "./lib/useLiveSessions";
 import { UsageView } from "./components/UsageView";
 import { GuideView } from "./components/GuideView";
 import { UtilityDialogs } from "./components/UtilityDialogs";
@@ -446,6 +448,7 @@ function SettingsModal({
   const nextctlVersion = useStore((s) => s.nextctlVersion);
   const nextctlUpdating = useStore((s) => s.nextctlUpdating);
   const nextctlUpdateError = useStore((s) => s.nextctlUpdateError);
+  const nextctlCompatibilityError = useStore((s) => s.nextctlCompatibilityError);
   const nextctlUpdateStatus = useStore((s) => s.nextctlUpdateStatus);
   const checkNextctlUpdate = useStore((s) => s.checkNextctlUpdate);
   const agentId = useStore((s) => s.agentId);
@@ -574,7 +577,7 @@ function SettingsModal({
                   {appUpdate.status === "downloaded" && <button className="mini primary-mini" disabled={bulkUpdating || runtimeOperation.status === "installing" || nextctlUpdating} onClick={onInstallUpdate}>Restart and update</button>}
                 </>}
                 runtimes={browserRuntimeUpdates} operation={runtimeOperation}
-                nextctlVersion={nextctlVersion} cliUpdating={nextctlUpdating} cliError={nextctlUpdateError} cliStatus={nextctlUpdateStatus}
+                nextctlVersion={nextctlVersion} cliUpdating={nextctlUpdating} cliError={nextctlUpdateError || nextctlCompatibilityError} cliStatus={nextctlUpdateStatus}
                 agentName={agentName} agentVersion={agentVersion || ""}
                 bulkUpdating={bulkUpdating} bulkOutcome={bulkOutcome}
                 onCheck={() => { onCheckUpdate(); onCheckBrowserRuntimeUpdates(); }}
@@ -663,10 +666,6 @@ function SettingsModal({
             {section === "browser" && (
               <>
                 <div className="settings-group">
-                  <div className="settings-row">
-                    <span className="muted small">nextctl</span>
-                    <strong>{nextctlVersion || "not detected"}</strong>
-                  </div>
                   <div className="settings-row">
                     <span className="muted small">Profiles</span>
                     <strong>{profiles}</strong>
@@ -822,6 +821,7 @@ export function App() {
     settingsStorage.removeItem("nextbrowser.uiScaleFloatingHidden");
   };
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [liveControlsOpen, setLiveControlsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [appUpdate, setAppUpdate] = useState<AppUpdateStatus>({ status: "idle" });
   const [browserRuntimeUpdates, setBrowserRuntimeUpdates] = useState<BrowserRuntimeUpdateStatus>({ status: "idle", runtimes: [] });
@@ -872,6 +872,14 @@ export function App() {
   const workspaceSyncing = useStore((s) => s.loggingOut && (s.projectsSyncing || s.isRefreshing));
   const tab = useStore((s) => s.tab);
   const setTab = useStore((s) => s.setTab);
+  const activeWorkspaceId = useStore(s => s.activeWorkspaceId);
+  const liveSession = useStore(s => s.liveSession);
+  const openLiveSession = useStore(s => s.openLiveSession);
+  const showLiveOverview = useStore(s => s.showLiveOverview);
+  const liveSessions = useLiveSessions();
+  const liveKey = liveSession?.workspaceId === activeWorkspaceId && liveSessions.some(session => session.key === liveSession?.key)
+    ? liveSession?.key : undefined;
+  const focusedLive = tab === "live" && !!liveKey;
   const bootstrap = useStore((s) => s.bootstrap);
   const showOnboarding = useStore((s) => s.showOnboarding);
   const agentReady = useStore((s) => s.agentReady());
@@ -1607,7 +1615,7 @@ export function App() {
   }
 
   return (
-    <div className="app">
+    <div className={"app" + (focusedLive ? " app-live" + (liveControlsOpen ? " app-live-controls-open" : "") : "")}>
       {titlebarActions}
       <aside
         id="app-sidebar"
@@ -1616,12 +1624,14 @@ export function App() {
       >
         <Sidebar
           onOpenSettings={openSettingsFromButton}
+          liveDestination={<LiveSessionsPopover key={activeWorkspaceId} sessions={liveSessions} selected={tab === "live"}
+            onOverview={showLiveOverview} onOpen={openLiveSession} />}
           settingsAttention={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)}
           footerAccessory={!uiScaleFloatingHidden ? <UIScaleControl inline value={uiScale} onChange={setUiScale} onDismiss={dismissUiScaleFloating} /> : undefined}
         />
       </aside>
       <main className={"content" + (tab === "chat" ? " content-chat" : "")}>
-        {tab !== "chat" && <nav className="tabbar">
+        {tab !== "chat" && tab !== "live" && <nav className="tabbar">
           {!isPrimaryAppTab(tab) && backTarget && (
             <Tooltip content={`Back to ${appTabLabel(backTarget)} · Esc`}><button
               className="tabbar-back"
@@ -1639,8 +1649,8 @@ export function App() {
             {feedbackAvailable && <FeedbackButton onClick={() => setFeedbackOpen(true)} />}
           </div>
         </nav>}
-        <hr className="divider" />
-        {workspaceSyncing && <div className="workspace-sync-status muted small" role="status">
+        {tab !== "live" && <hr className="divider" />}
+        {tab !== "live" && workspaceSyncing && <div className="workspace-sync-status muted small" role="status">
           <Spinner size={12} /> Syncing workspace…
         </div>}
         <div className={"tab-content" + (tab === "skills" ? " tab-content-bleed" : "")}>
@@ -1649,8 +1659,11 @@ export function App() {
           </div>
           {tab === "skills" && <SkillsView onOpenAgentSettings={() => openSettings("agent")} />}
           {tab === "automation" && <AutomationStudio />}
-          <div className={"persistent-tab-panel" + (tab === "live" ? "" : " is-hidden")}>
-            <LiveView active={tab === "live"} />
+          {tab === "live" && !focusedLive && <LiveSessionsGrid key={activeWorkspaceId} sessions={liveSessions} onOpen={openLiveSession} />}
+          <div className={"persistent-tab-panel" + (focusedLive ? "" : " is-hidden")}>
+            <LiveView active={focusedLive} requestedKey={liveKey ?? ""} profileOptions={liveSessions}
+              controlsOpen={liveControlsOpen} onControlsChange={setLiveControlsOpen} onOverview={showLiveOverview}
+              controlsAccessory={<>{backgroundTaskPills}{feedbackAvailable && <FeedbackButton onClick={() => setFeedbackOpen(true)} />}</>} />
           </div>
           {tab === "usage" && <UsageView />}
           {tab === "guide" && <GuideView onOpenAgentSettings={() => openSettings("agent")} />}

@@ -72,7 +72,7 @@ describe("Settings sections hold every setting", () => {
     ["updates", ["<SettingsUpdates", "Restart and update", "<ManualReleaseDownload"]],
     ["privacy", ["Send error reports", "<DeviceDataSettings />"]],
     ["agent", ["<AgentPicker", "Connect", "Login", "Log out", "<AgentInstallLink", "<BuiltinAgentSetup />"]],
-    ["browser", ["nextctl</span>", "Profiles</span>", "Browser toolsets and updates"]],
+    ["browser", ["Profiles</span>", "Browser toolsets and updates", "setSection(\"updates\")"]],
     ["proxy", ["Proxy</span>", "Proxy usage", "setUsageOpen(true)", "<UsageView />"]],
   ])("%s", (section, settings) => {
     const source = block(section as string);

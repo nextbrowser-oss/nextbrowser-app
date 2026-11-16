@@ -129,6 +129,13 @@ export interface BuiltinModelOption {
   tools?: boolean;
 }
 
+export function freeOpenRouterOptions(models: BuiltinModelOption[]) {
+  return models.filter((item) => item.free && item.tools !== false).map((item) => ({
+    value: item.id,
+    label: item.id === "openrouter/free" ? "OpenRouter Free (auto)" : item.id,
+  }));
+}
+
 export interface BuiltinModelList {
   models: BuiltinModelOption[];
   defaultModel: string;

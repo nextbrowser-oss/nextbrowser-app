@@ -201,7 +201,8 @@ test("terminal attachments are staged inside the sandboxed workspace", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const terminal = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AgentTerminal.tsx"), "utf8");
   assert.match(main, /case "select_terminal_files"/);
-  assert.match(main, /agentWorkspaceDir\(home\(\)\), "\.attachments", conversation/);
+  assert.match(main, /localAgentWorkspace\(\), "\.attachments", conversation/);
+  assert.match(main, /function localAgentWorkspace\(\).*devStorage\.userData.*agentWorkspaceDir\(home\(\)\)/);
   assert.match(main, /stat\.size > 30 \* 1024 \* 1024/);
   assert.match(main, /totalSize > 600 \* 1024 \* 1024/);
   assert.match(main, /COPYFILE_FICLONE/);
@@ -272,8 +273,8 @@ test("unfinished recording attempts are never persisted as library entities", ()
   assert.doesNotMatch(sidebar, /status: "recording"/);
   assert.match(sidebar, /automation_recording_put[\s\S]*status: "completed"/);
   assert.doesNotMatch(studio, /else \{\s*s\.setTab\("live"\)/);
-  assert.match(studio, /if \(s\.terminalChat\) s\.setTerminalChat\(false\);\s*s\.setTab\(recordingRuntime === "multilogin" \? "live" : "chat"\)/);
-  assert.match(studio, /s\.setTab\(recordingRuntime === "multilogin" \? "live" : "chat"\);\s*await invoke\("app_focus"\)/);
+  assert.match(studio, /if \(s\.terminalChat\) s\.setTerminalChat\(false\);\s*if \(recordingRuntime === "multilogin"\)/);
+  assert.match(studio, /if \(selection\) s\.openLiveSession\(multiloginTargetKey\(selection\)\);\s*\} else s\.setTab\("chat"\);\s*await invoke\("app_focus"\)/);
   assert.match(main, /case "app_focus":[\s\S]*focusMainWindow\(\)/);
   assert.match(main, /case "app_focus":[\s\S]*setTimeout\(\(\) => focusMainWindow\(\), 400\)/);
   assert.match(main, /process\.platform === "darwin"\) app\.focus\(\{ steal: true \}\)/);

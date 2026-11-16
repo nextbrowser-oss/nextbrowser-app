@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; form-action https://www.google.com; base-uri 'none'">
+  <title>Nextbrowser</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: system-ui, sans-serif;
+      --page: #f7f7f9;
+      --field: #fff;
+      --text: #191a20;
+      --muted: #565963;
+      --border: #d7d9e0;
+      --focus: #5b45cc;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --page: #18191f;
+        --field: #24262e;
+        --text: #f2f2f6;
+        --muted: #b6b9c5;
+        --border: #474b59;
+        --focus: #b3a2ff;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      display: grid;
+      min-height: 100vh;
+      margin: 0;
+      place-items: center;
+      padding: 24px;
+      background: var(--page);
+      color: var(--text);
+    }
+    main { width: min(100%, 440px); text-align: center; }
+    img { width: 56px; height: 56px; display: block; margin: 0 auto 16px; }
+    h1 { margin: 0 0 26px; font-size: clamp(28px, 6vw, 40px); letter-spacing: -.04em; }
+    form { display: flex; gap: 8px; }
+    input, button {
+      min-height: 46px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font: inherit;
+      color: var(--text);
+      background: var(--field);
+    }
+    input { flex: 1; min-width: 0; padding: 0 14px; }
+    input::placeholder { color: var(--muted); }
+    button { padding: 0 14px; cursor: pointer; }
+    :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  </style>
+</head>
+<body>
+  <main>
+    <img src="data:image/svg+xml;base64,{{LOGO}}" alt="">
+    <h1>Nextbrowser</h1>
+    <form action="https://www.google.com/search" method="get" role="search">
+      <input name="q" type="search" aria-label="Search the web" placeholder="Search the web" required>
+      <button type="submit">Search</button>
+    </form>
+  </main>
+</body>
+</html>

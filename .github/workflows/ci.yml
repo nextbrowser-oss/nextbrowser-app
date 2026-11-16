@@ -59,6 +59,11 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - uses: actions/setup-go@v6
+        if: runner.os == 'Windows'
+        with:
+          go-version: "1.26.x"
+          cache: false
       - name: Critical feature regressions (mandatory)
         run: npm run test:critical
       - run: npm test

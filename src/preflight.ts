@@ -69,8 +69,8 @@ class HostCommandError extends Error {
   }
 }
 
-async function runChecked(args: string[], message: string, requestId?: string): Promise<void> {
-  const result = await nextctlRun(args, {}, requestId ? { requestId } : {}).catch((error: unknown) => {
+async function runChecked(args: string[], message: string, requestId?: string, env?: Record<string, string>): Promise<void> {
+  const result = await nextctlRun(args, env, requestId ? { requestId } : {}).catch((error: unknown) => {
     throw new HostCommandError(error);
   });
   let envelopeFailed = false;
@@ -214,6 +214,8 @@ export async function prepareSession(opts: {
   onStep?: (step: string) => void;
   proxyExpected?: boolean;
   verifyOnly?: boolean;
+  forLive?: boolean;
+  liveWindow?: boolean;
   shouldContinue?: () => boolean;
   onVerificationFailure?: (failure: VerificationFailure) => Promise<VerificationFailureChoice>;
   /** The CLI verifies startup before returning success and stops on failure. */
@@ -222,6 +224,8 @@ export async function prepareSession(opts: {
   verifyEvery?: number;
 }): Promise<PrepareResult> {
   let args = profileArgs(opts.selectedProfile, opts.runtime);
+  const liveStartArgs = opts.forLive ? ["--no-remote"] : [];
+  const liveStartEnv = opts.forLive ? { NBC_START_HEADLESS: opts.liveWindow ? "0" : "1" } : undefined;
   const steps: string[] = [];
   let directFallback = false;
   const rawHost = opts.host?.trim();
@@ -241,7 +245,7 @@ export async function prepareSession(opts: {
     checkCancelled();
     try {
       if (!running) {
-        await runChecked([...args, "start", "--format", "json"], "Could not start Nextbrowser", opts.selectedProfile ? `profile-start:${opts.selectedProfile}` : undefined);
+        await runChecked([...args, "start", "--format", "json", ...liveStartArgs], "Could not start Nextbrowser", opts.selectedProfile ? `profile-start:${opts.selectedProfile}` : undefined, liveStartEnv);
         step("Started Nextbrowser for verification");
       } else {
         step("Session running");
@@ -286,7 +290,7 @@ export async function prepareSession(opts: {
     args = profileArgs(directProfile, opts.runtime);
     try {
       checkCancelled();
-      await runChecked([...args, "start", "--format", "json"], "Could not start the direct session");
+      await runChecked([...args, "start", "--format", "json", ...liveStartArgs], "Could not start the direct session", undefined, liveStartEnv);
       checkCancelled();
       if (!opts.startupVerifies) await requireGreenVerification(args);
       checkCancelled();

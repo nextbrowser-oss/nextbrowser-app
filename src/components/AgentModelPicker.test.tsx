@@ -68,6 +68,29 @@ it("proposes a replacement for a saved model missing from the OpenRouter catalog
     provider: "openrouter", baseURL: "", model: "openrouter/free",
   }));
 });
+it("shows the server error and allows retrying the free model catalog", async () => {
+  let unavailable = true;
+  const initial = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((command, args) => {
+    if (unavailable && command === "builtin_agent_models" && args?.provider === "openrouter") {
+      return Promise.resolve({
+        models: [], defaultModel: "openrouter/free",
+        error: "Free OpenRouter models are not available on this Nextbrowser server yet.",
+      });
+    }
+    return initial(command, args);
+  });
+  mount(); await open();
+  choose("OpenRouter");
+  await screen.findByText("Free OpenRouter models are not available on this Nextbrowser server yet.");
+  const trigger = screen.getByRole("combobox", { name: "Free OpenRouter model" });
+  expect(trigger.hasAttribute("disabled")).toBe(true);
+  expect(screen.getByRole("button", { name: "Use model" }).hasAttribute("disabled")).toBe(true);
+  unavailable = false;
+  fireEvent.click(screen.getByRole("button", { name: "Retry model list" }));
+  await waitFor(() => expect(trigger.hasAttribute("disabled")).toBe(false));
+  expect(trigger.textContent).toContain("OpenRouter Free (auto)");
+});
 it("routes a provider without a key to the existing secure setup without changing the current agent", async () => {
   mount(); await open();
   choose("Anthropic");

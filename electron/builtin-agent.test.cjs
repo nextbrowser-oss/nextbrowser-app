@@ -145,6 +145,17 @@ function turn(provider, mcp, overrides = {}) {
 
 // ---- The loop ----------------------------------------------------------------
 
+test("a missing managed OpenRouter route reports a server error for catalog and chat", async () => {
+  const client = createProviderClient({
+    provider: "openrouter",
+    baseURL: "https://api.example.test/v1/agent/openrouter",
+    fetchImpl: async () => Response.json({ code: "not_found" }, { status: 404 }),
+  });
+  for (const request of [() => client.listModels(), () => client.chat({ model: OPENROUTER_FREE_ROUTER })]) {
+    await assert.rejects(request, { code: "server", status: 404, message: "Free OpenRouter models are not available on this Nextbrowser server yet." });
+  }
+});
+
 test("OpenRouter chat uses the Nextbrowser backend and its runtime token", async (t) => {
   const backend = await fakeProvider(() => reply({ content: "OK" }));
   t.after(() => backend.close());

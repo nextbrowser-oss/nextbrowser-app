@@ -43,8 +43,11 @@ type CallbackSet = {
   onState?: (state: RemoteControlState) => void;
   onError?: (message: string) => void;
   onStream?: (stream: MediaStream) => void;
-  onTabs?: (tabs: RemoteLiveTab[]) => void;
+  onTabs?: (tabs: RemoteLiveTab[], removed?: string[]) => void;
   onTabSelected?: (targetID: string) => void;
+  onTabError?: (message: string) => void;
+  onBrowserControls?: (available: boolean) => void;
+  onBrowserResult?: (seq: number, message?: string) => void;
   onMediaStats?: (stats: RemoteMediaStats) => void;
   onInputError?: () => void;
 };
@@ -53,6 +56,10 @@ export type InputEnvelope = {
   type: "mouse" | "wheel" | "key" | "text";
   payload: Record<string, unknown>;
 };
+
+type WheelInput = { x: number; y: number; deltaX: number; deltaY: number; modifiers: number };
+
+export type LiveBrowserAction = "new" | "close" | "back" | "forward" | "reload" | "navigate";
 
 export class RemoteControlClient {
   private info: RemoteStreamInfo;
@@ -65,11 +72,14 @@ export class RemoteControlClient {
   private input: RTCDataChannel | null = null;
   private revision = 0;
   private seq = 0;
+  private tabSnapshotSeq = 0;
   private closed = false;
   private helloSent = false;
   private pendingControl: string[] = [];
   private pendingCandidates: RTCIceCandidateInit[] = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingWheel: WheelInput | undefined;
+  private wheelFrame: number | undefined;
 
   constructor(info: RemoteStreamInfo, cb: CallbackSet) {
     this.info = info;
@@ -86,6 +96,8 @@ export class RemoteControlClient {
 
   private async startPeerConnection() {
     if (this.closed) return;
+    this.clearWheel();
+    this.cb.onBrowserControls?.(false);
     this.clearReconnectTimer();
     this.control?.close();
     this.input?.close();
@@ -94,6 +106,7 @@ export class RemoteControlClient {
     this.input = null;
     this.pc = null;
     this.helloSent = false;
+    this.tabSnapshotSeq = 0;
     this.pendingCandidates = [];
     this.revision += 1;
     const revision = this.revision;
@@ -108,12 +121,16 @@ export class RemoteControlClient {
         })),
     });
     this.pc = pc;
-    pc.addTransceiver("video", { direction: "recvonly" });
+    const { receiver } = pc.addTransceiver("video", { direction: "recvonly" });
+    if ("jitterBufferTarget" in receiver) receiver.jitterBufferTarget = 0;
     this.control = pc.createDataChannel("remote-control", { ordered: true });
     this.input = pc.createDataChannel("remote-input", { ordered: true });
     this.control.onopen = () => {
       this.sendHello();
       this.flushControl();
+    };
+    this.control.onclose = () => {
+      if (this.pc === pc) this.cb.onBrowserControls?.(false);
     };
     this.control.onmessage = (event) => this.handleControlMessage(String(event.data));
     this.input.onopen = () => undefined;
@@ -173,6 +190,7 @@ export class RemoteControlClient {
 
   close() {
     this.closed = true;
+    this.clearWheel();
     this.clearReconnectTimer();
     this.sendControl({ type: "close" });
     if (this.signalID) void invoke("remote_signal_close", { id: this.signalID }).catch(() => undefined);
@@ -212,6 +230,7 @@ export class RemoteControlClient {
   }
 
   selectTab(targetID: string) {
+    this.clearWheel();
     this.sendControl({
       type: "tab_select",
       seq: this.nextSeq(),
@@ -220,7 +239,49 @@ export class RemoteControlClient {
     });
   }
 
+  runBrowserAction(action: LiveBrowserAction, targetID?: string, url?: string) {
+    if (this.control?.readyState !== "open") return;
+    this.clearWheel();
+    const seq = this.nextSeq();
+    this.sendControl({
+      type: "browser_command", seq, ts: Date.now(), payload: { action, target_id: targetID, url },
+    });
+    return seq;
+  }
+
   sendInput(message: InputEnvelope) {
+    // A hover update has no value after newer input has queued up. Keep
+    // button presses, releases and drag updates on the ordered channel.
+    if (message.type === "mouse" && message.payload.event === "mouseMoved" &&
+        message.payload.buttons === 0 && (!this.input || this.input.bufferedAmount > 512 || this.input.readyState !== "open")) return;
+    if (message.type !== "mouse" || message.payload.event !== "mouseMoved") this.flushWheel();
+    this.sendInputEnvelope(message);
+  }
+
+  scroll(wheel: WheelInput) {
+    if (this.input?.readyState !== "open") return;
+    if (this.pendingWheel && this.pendingWheel.modifiers !== wheel.modifiers) this.flushWheel();
+    this.pendingWheel = {
+      ...wheel,
+      deltaX: wheel.deltaX + (this.pendingWheel?.deltaX ?? 0),
+      deltaY: wheel.deltaY + (this.pendingWheel?.deltaY ?? 0),
+    };
+    this.wheelFrame ??= window.requestAnimationFrame(() => this.flushWheel());
+  }
+
+  private clearWheel() {
+    if (this.wheelFrame !== undefined) window.cancelAnimationFrame(this.wheelFrame);
+    this.wheelFrame = undefined;
+    this.pendingWheel = undefined;
+  }
+
+  private flushWheel() {
+    const wheel = this.pendingWheel;
+    this.clearWheel();
+    if (wheel && this.input?.readyState === "open") this.sendInputEnvelope({ type: "wheel", payload: wheel });
+  }
+
+  private sendInputEnvelope(message: InputEnvelope) {
     this.sendInputText(JSON.stringify({
       type: message.type,
       seq: this.nextSeq(),
@@ -289,15 +350,18 @@ export class RemoteControlClient {
       return;
     }
     if (message.type === "hello_ack") {
+      this.cb.onBrowserControls?.(message.capabilities?.includes("browser_controls") === true);
       this.cb.onState?.("connected");
       return;
     }
     if (message.type === "tabs_snapshot" && Array.isArray(message.payload?.tabs)) {
+      if (message.seq && message.seq <= this.tabSnapshotSeq) return;
+      this.tabSnapshotSeq = message.seq || this.tabSnapshotSeq;
       this.cb.onTabs?.(message.payload.tabs);
       return;
     }
-    if (message.type === "tabs_changed" && Array.isArray(message.payload?.upserted)) {
-      this.cb.onTabs?.(message.payload.upserted);
+    if (message.type === "tabs_changed" && message.payload) {
+      this.cb.onTabs?.(message.payload.upserted ?? [], message.payload.removed ?? []);
       return;
     }
     if (message.type === "tab_selected" && message.payload?.target_id) {
@@ -305,7 +369,11 @@ export class RemoteControlClient {
       return;
     }
     if (message.type === "tab_error") {
-      this.cb.onError?.(internalError("We couldn't switch browser tabs.", "LIVE_VIEW_TAB_SWITCH_FAILED"));
+      this.cb.onTabError?.("Couldn't switch browser tabs. Try again.");
+      return;
+    }
+    if (message.type === "browser_result" && Number.isSafeInteger(message.payload?.request_seq)) {
+      this.cb.onBrowserResult?.(message.payload.request_seq, message.payload.ok ? undefined : "Couldn't complete the browser action. Try again.");
       return;
     }
     if (message.type === "media_stats") this.cb.onMediaStats?.(message.payload || {});

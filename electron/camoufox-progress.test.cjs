@@ -45,7 +45,10 @@ for (const callback of [true, false]) test(`actual Python bridge preserves the f
       ? "def webdl(url, progress_callback=None):\n    progress_callback(50, 100)\n    progress_callback(100, 100)\n    return 'verified-download'\n"
       : "def webdl(url):\n    return 'verified-download'\n");
     fs.writeFileSync(path.join(root, "camoufox", "__main__.py"), "import sys\nfrom .pkgman import webdl\nassert sys.argv == ['camoufox','fetch']\nassert webdl('https://fixture.example/browser') == 'verified-download'\n");
-    const result = spawnSync(python, ["-u", "-c", CAMOUFOX_FETCH_PROGRESS_SCRIPT], { cwd: root, windowsHide: true, encoding: "utf8" });
+    // The Windows embedded Python ignores cwd in isolated mode. Import only
+    // the fixture package, independently of any installed user's Camoufox.
+    const script = `import sys\nsys.path.insert(0, ${JSON.stringify(root)})\n${CAMOUFOX_FETCH_PROGRESS_SCRIPT}`;
+    const result = spawnSync(python, ["-u", "-c", script], { cwd: root, windowsHide: true, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
     const updates = [];
     camoufoxProgressReader((update) => updates.push(update))(result.stderr);

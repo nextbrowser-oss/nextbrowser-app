@@ -2,6 +2,7 @@ import { Tooltip } from "../shared/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { activeMultiloginSelectionForWorkspace } from "../lib/multiloginSelection";
+import { clawbrowserTargetKey, multiloginTargetKey } from "../lib/liveProfileSwitch";
 import { multiloginSessionName } from "../lib/liveStreamTarget";
 import { invoke } from "../electronBridge";
 import { uid } from "../lib/ids";
@@ -635,9 +636,19 @@ export function AutomationStudio() {
       setRecordingDestination(destination);
       setStudioError(undefined);
       if (s.terminalChat) s.setTerminalChat(false);
-      s.setTab(recordingRuntime === "multilogin" ? "live" : "chat");
+      if (recordingRuntime === "multilogin") {
+        const selection = activeMultiloginSelectionForWorkspace(workspaceId);
+        if (selection) s.openLiveSession(multiloginTargetKey(selection));
+      } else s.setTab("chat");
       await invoke("app_focus");
     } catch (error) { reportError(error, "AUTOMATION_RECORDING_START_FAILED"); }
+  };
+
+  const openRecordingBrowser = () => {
+    const recording = activeAutomationRecording();
+    const selection = recording?.runtime === "multilogin" ? activeMultiloginSelectionForWorkspace(recording.workspaceId) : undefined;
+    if (selection) s.openLiveSession(multiloginTargetKey(selection));
+    else if (recording) s.openLiveSession(clawbrowserTargetKey(recording.profile));
   };
 
   useEffect(() => {
@@ -1449,7 +1460,7 @@ export function AutomationStudio() {
         <div className="automation-panel-head"><div><h2>Recordings</h2><p>Perform a task in the browser once, then replay the captured actions.</p></div>
           <div className="row">{recordingSince > 0 ? <button className="secondary danger-text" disabled={recordingStopping} onClick={() => void stopRecording()}>{recordingStopping ? <Spinner size={12} /> : <Icon name="stop.fill" size={12} />} {recordingModeButtonLabel}</button> : <Tooltip content={!s.authed ? "Connect your Nextbrowser account to record browser actions." : undefined}><button className="primary" disabled={!s.authed} onClick={() => void startRecording()}><span className="record-button-dot" aria-hidden="true" /> {s.authed ? "Start recording" : "Connect account to record"}</button></Tooltip>}</div>
         </div>
-        {recordingSince > 0 && <div className="recording-banner"><span className="recording-dot" /><span className="recording-banner-copy">{["manual", "hybrid"].includes(activeAutomationRecording()?.source || "agent") ? `Recording your actions and agent browser actions in ${activeAutomationRecording()?.profile || "the default browser"}. Press Stop when finished.` : recordedRun ? "Browser task captured — press Stop to save it." : `Recording is armed in ${recordingModeLabel}. Complete one browser task in Project Chat, then press Stop.`}</span>{["manual", "hybrid"].includes(activeAutomationRecording()?.source || "agent") && <span className="recording-banner-actions"><button className="secondary" onClick={() => s.setTab("live")}><Icon name="play.rectangle.on.rectangle.fill" size={12} /> Open browser</button><button className="secondary" onClick={() => { if (s.terminalChat) s.setTerminalChat(false); s.setTab("chat"); }}><Icon name="bubble.left.and.bubble.right.fill" size={12} /> Open Project Chat</button></span>}</div>}
+        {recordingSince > 0 && <div className="recording-banner"><span className="recording-dot" /><span className="recording-banner-copy">{["manual", "hybrid"].includes(activeAutomationRecording()?.source || "agent") ? `Recording your actions and agent browser actions in ${activeAutomationRecording()?.profile || "the default browser"}. Press Stop when finished.` : recordedRun ? "Browser task captured — press Stop to save it." : `Recording is armed in ${recordingModeLabel}. Complete one browser task in Project Chat, then press Stop.`}</span>{["manual", "hybrid"].includes(activeAutomationRecording()?.source || "agent") && <span className="recording-banner-actions"><button className="secondary" onClick={openRecordingBrowser}><Icon name="play.rectangle.on.rectangle.fill" size={12} /> Open browser</button><button className="secondary" onClick={() => { if (s.terminalChat) s.setTerminalChat(false); s.setTab("chat"); }}><Icon name="bubble.left.and.bubble.right.fill" size={12} /> Open Project Chat</button></span>}</div>}
         <div className="capture-list">
           {recordings.map((recording) => {
             const run = recording.document.run!;

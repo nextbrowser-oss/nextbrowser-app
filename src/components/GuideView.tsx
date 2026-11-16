@@ -10,6 +10,7 @@ import {
 import { guideBrowserSession, guideFirstTaskSent, guideSessionEverStarted, guideSessionSetupEvent, guideWorkspaceProfileNames, rememberGuideSessionStarted } from "../lib/guideQuickStart";
 import { sequentialProgress } from "../lib/sequentialProgress";
 import { useStore } from "../store";
+import { clawbrowserTargetKey } from "../lib/liveProfileSwitch";
 import { BrandLogo } from "./BrandLogo";
 import {
   GuideActionModal,
@@ -58,6 +59,7 @@ export function GuideFeatureCard({
 export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => void }) {
   const showTour = useStore((s) => s.showOnboardingAgain);
   const setTab = useStore((s) => s.setTab);
+  const openLiveSession = useStore((s) => s.openLiveSession);
   const setTerminalChat = useStore((s) => s.setTerminalChat);
   const setDashboardKeyPromptOpen = useStore((s) => s.setDashboardKeyPromptOpen);
   const setSidebarCollapsed = useStore((s) => s.setSidebarCollapsed);
@@ -135,7 +137,7 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
     }
     if (action === "start_session") {
       if (sessionRunning) {
-        setTab("live");
+        openLiveSession(clawbrowserTargetKey(session.profile === "__default" ? undefined : session.profile ?? undefined));
         return;
       }
       setSidebarCollapsed(false);

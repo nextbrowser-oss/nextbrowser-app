@@ -10,6 +10,7 @@ export const PERSISTENT_SETTINGS: readonly string[] = [
   "nextbrowser.theme",
   "nextbrowser.uiScale",
   "nextbrowser.uiScaleFloatingHidden",
+  "nextbrowser.liveControlsPosition",
   "activeWorkspaceId",
   "activeConversationId:*",
   "lastAgent",

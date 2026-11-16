@@ -23,7 +23,7 @@ Use `npm run dev` for interactive application testing. Use `npm run dist:mac` or
 
 ## Live architecture
 
-Live viewing and control must go through the Nextbrowser backend. A profile may run on a separate VPS, so do not add a direct desktop-to-profile stream or a local fallback that bypasses the backend.
+Use the Nextbrowser backend for streamed Live viewing and control, including profiles running on a separate VPS. On Windows, Live hosts the native window of local ClawBrowser, DasBrowser and Camoufox profiles after the managed nextctl launch checks.
 
 ## Renderer architecture and shared UI
 

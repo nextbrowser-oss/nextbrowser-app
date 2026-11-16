@@ -11,6 +11,7 @@ beforeEach(() => {
   bridge.invoke.mockImplementation(async (command: string) => {
     if (command === "agent_authorize") return "1.0.0";
     if (command === "agent_check_login") return true;
+    if (command === "browser_runtime_available") return true;
     if (command === "nextctl_run") return { code: 0, stdout: "", stderr: "" };
     return undefined;
   });
@@ -27,6 +28,16 @@ it("installs the nbc integration of an agent nbc has an adapter for", async () =
   await useStore.getState().authorizeAgent();
   await vi.waitFor(() => expect(installCalls()).toHaveLength(1));
   expect(installCalls()[0][1]).toMatchObject({ args: ["install", "--agent", "claude-code", "--no-api-key-prompt"] });
+});
+
+it("does not start the browser installer while connecting an agent", async () => {
+  const installed = bridge.invoke.getMockImplementation()!;
+  bridge.invoke.mockImplementation((command: string) => command === "browser_runtime_available" ? Promise.resolve(false) : installed(command));
+  const { useStore } = await import("./store");
+  useStore.setState({ agentId: "claude", conversations: [], nextctlAvailable: true });
+  await useStore.getState().authorizeAgent();
+  expect(useStore.getState().runtime.claude?.ready).toBe(true);
+  expect(installCalls()).toEqual([]);
 });
 
 it("does not ask nbc to install an integration it has no adapter for", async () => {

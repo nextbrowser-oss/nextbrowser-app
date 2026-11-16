@@ -59,6 +59,7 @@ beforeEach(() => {
       case "app_data_write": appData[payload?.name ?? ""] = payload?.content ?? ""; return undefined;
       case "agent_authorize": return "1.0.0";
       case "agent_check_login": return true;
+      case "browser_runtime_available": return true;
       case "nextctl_version": return "nbc 1.2.37";
       case "nextctl_supports_skill": return true;
       case "nextctl_run": return payload?.args?.[0] === "update" ? updateResult : { code: 0, stdout: "", stderr: "" };

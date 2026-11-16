@@ -773,7 +773,7 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
                 </button></Tooltip>
                 <Tooltip content="Open the Live tab to inspect a running browser session"><button
                   className="empty-suggestion"
-                  onClick={() => s.setTab("live")}
+                  onClick={s.showLiveOverview}
                 >
                   <Icon name="video.fill" size={15} />
                   <span>

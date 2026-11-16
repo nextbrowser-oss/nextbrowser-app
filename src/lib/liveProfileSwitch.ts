@@ -8,26 +8,6 @@ export function multiloginTargetKey(selection: MultiloginProfileSelection) {
   return `multilogin:${selection.kind}:${selection.id}`;
 }
 
-/**
- * Live can stream a target without launching anything first when it is a
- * Multilogin profile (started with Remote Control on demand), the default
- * session, or a profile that is already running. A stopped profile is left to
- * the Stream button, which launches it.
- */
-export function liveTargetStreamsWithoutLaunch(key: string, statuses: Readonly<Record<string, string>>): boolean {
-  if (key.startsWith("multilogin:")) return true;
-  if (!key.startsWith("clawbrowser:")) return false;
-  return key === clawbrowserTargetKey() || statuses[key.slice("clawbrowser:".length)] === "running";
-}
-
-/**
- * Picking another profile in Live only stopped the stream, so the user had to
- * press Stream again. While a stream is on or connecting, the pick switches it.
- */
-export function liveSwitchStartsStream(streaming: boolean, key: string, statuses: Readonly<Record<string, string>>): boolean {
-  return streaming && liveTargetStreamsWithoutLaunch(key, statuses);
-}
-
 export interface LiveStartTurn {
   /** Resolves once the previous start no longer holds a backend session call. */
   ready: Promise<void>;

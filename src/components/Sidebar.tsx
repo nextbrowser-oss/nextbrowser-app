@@ -1,6 +1,5 @@
 import { Dialog, Glyph, Tooltip } from "../shared/ui";
 import { RecentProjects } from "./RecentProjects";
-import { ProjectTree } from "./ProjectTree";
 import { type DragEvent, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { personalProxyUsers, useStore, type ManualProxyProfileInput } from "../store";
@@ -8,6 +7,8 @@ import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { trackEvent } from "../lib/analytics";
 import { reportUserFacingError } from "../lib/errorReporting";
 import { SidebarNavigation, SidebarSettingsButton } from "./SidebarNavigation";
+import { CREATE_LIVE_PROFILE_EVENT } from "./LiveSessions";
+import { clawbrowserTargetKey, multiloginTargetKey } from "../lib/liveProfileSwitch";
 import { Icon, Spinner } from "./Icon";
 import { withLocalScripts } from "../skillsCatalog";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
@@ -95,24 +96,26 @@ interface SidebarProps {
   settingsAttention?: boolean;
   /** Optional compact controls next to Settings, e.g. the interface size control. */
   footerAccessory?: ReactNode;
+  liveDestination: ReactNode;
 }
 
-const SIDEBAR_OPEN_SECTION_KEY = "sidebar.openSection";
-
-export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: SidebarProps) {
+export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, liveDestination }: SidebarProps) {
   const s = useStore();
   const [managerOpen, setManagerOpen] = useState(false);
   const [projectsMenuOpen, setProjectsMenuOpen] = useState(false);
   useEffect(() => {
     const projects = () => setProjectsMenuOpen(true);
-    const manage = () => setManagerOpen(true);
     const create = () => { setWorkspaceName(""); setWorkspaceError(null); setWorkspaceCreatorOpen(true); };
-    const remove = () => { setWorkspaceDeleteError(null); setWorkspaceDeleteOpen(true); };
+    const remove = (event: Event) => {
+      const id = (event as CustomEvent<string>).detail;
+      if (typeof id !== "string") return;
+      setWorkspaceDeleteError(null);
+      setWorkspaceDeleteId(id);
+    };
     window.addEventListener("nextbrowser:open-projects", projects);
-    window.addEventListener("nextbrowser:manage-workspace", manage);
     window.addEventListener("nextbrowser:create-workspace", create);
     window.addEventListener("nextbrowser:delete-workspace", remove);
-    return () => { window.removeEventListener("nextbrowser:open-projects", projects); window.removeEventListener("nextbrowser:manage-workspace", manage); window.removeEventListener("nextbrowser:create-workspace", create); window.removeEventListener("nextbrowser:delete-workspace", remove); };
+    return () => { window.removeEventListener("nextbrowser:open-projects", projects); window.removeEventListener("nextbrowser:create-workspace", create); window.removeEventListener("nextbrowser:delete-workspace", remove); };
   }, []);
   const [menuProfile, setMenuProfile] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -137,6 +140,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
   const [manualProxyDeletePending, setManualProxyDeletePending] = useState(false);
   const [proxyTestResults, setProxyTestResults] = useState<Record<string, PersonalProxyTestState>>({});
   const [createProfileOpen, setCreateProfileOpen] = useState(false);
+  const createForLive = useRef(false);
   const [vpsSetupOpen, setVPSSetupOpen] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [profileCountry, setProfileCountry] = useState("US");
@@ -162,7 +166,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
   const [profileConnectionSaving, setProfileConnectionSaving] = useState(false);
   const [profileConnectionError, setProfileConnectionError] = useState<string | null>(null);
   const [workspaceCreatorOpen, setWorkspaceCreatorOpen] = useState(false);
-  const [workspaceDeleteOpen, setWorkspaceDeleteOpen] = useState(false);
+  const [workspaceDeleteId, setWorkspaceDeleteId] = useState<string>();
   const [workspaceDeletePending, setWorkspaceDeletePending] = useState(false);
   const [workspaceDeleteProgress, setWorkspaceDeleteProgress] = useState<string | null>(null);
   const [workspaceDeleteError, setWorkspaceDeleteError] = useState<string | null>(null);
@@ -171,24 +175,6 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [chatDeleteError, setChatDeleteError] = useState<string | null>(null);
   const [chatDeleting, setChatDeleting] = useState(false);
-  // Remember which list the user expanded across reloads and restarts.
-  const [openSection, setOpenSectionState] = useState<"projects" | "profiles" | null>(() => {
-    try {
-      const saved = localStorage.getItem(SIDEBAR_OPEN_SECTION_KEY);
-      return saved === "profiles" ? "profiles" : saved === "none" ? null : "projects";
-    } catch {
-      return "projects";
-    }
-  });
-  const setOpenSection = (next: "projects" | "profiles" | null | ((current: "projects" | "profiles" | null) => "projects" | "profiles" | null)) => {
-    setOpenSectionState((current) => {
-      const value = typeof next === "function" ? next(current) : next;
-      try {
-        localStorage.setItem(SIDEBAR_OPEN_SECTION_KEY, value ?? "none");
-      } catch { /* the choice then lasts for this session */ }
-      return value;
-    });
-  };
   const [dragOverProfileName, setDragOverProfileName] = useState<string | null>(null);
   const [profileGuideFocus, setProfileGuideFocus] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
@@ -204,8 +190,6 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
   const [automationExecutionError, setAutomationExecutionError] = useState<string>();
   const profileCreateRequestRef = useRef<string | null>(null);
   const createdProfileRequests = useRef(new Map<string, string>());
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const projectListRef = useRef<HTMLDivElement | null>(null);
   const profileListRef = useRef<HTMLDivElement | null>(null);
   const profilesCardRef = useRef<HTMLDivElement | null>(null);
   const profilesSectionRef = useRef<HTMLElement | null>(null);
@@ -365,15 +349,14 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
   }, [confirmDeleteChat]);
 
   const searchQuery = s.profileSearch.trim();
-  // Search reveals both result types without overwriting the accordion selection.
-  const projectsOpen = !!searchQuery || openSection === "projects";
-  const profilesOpen = !!searchQuery || openSection === "profiles";
   const normalizedSearch = searchQuery.toLowerCase();
   const profiles = s.profiles;
   const projects = s.conversations.filter((project) => project.workspaceId === s.activeWorkspaceId)
     .sort((a, b) => b.updatedAt - a.updatedAt);
   const activeProject = s.activeConversation();
   const activeWorkspace = s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId);
+  const workspaceToDelete = s.workspaces.find(workspace => workspace.id === workspaceDeleteId);
+  const projectsToDelete = workspaceToDelete ? s.conversations.filter(project => project.workspaceId === workspaceToDelete.id).length : 0;
   const manualProxyBatch = useMemo(() => parseManualProxyBatch(manualProxyBulk), [manualProxyBulk]);
   const profileWorkspaceEntries = (activeWorkspace?.profileNames ?? []).flatMap((name) => {
     const profile = profiles.find((item) => item.name === name);
@@ -390,9 +373,6 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
     const displayName = profile.display_name || profile.name;
     profileDisplayNameCounts.set(displayName, (profileDisplayNameCounts.get(displayName) || 0) + 1);
   }
-  const visibleChats = normalizedSearch
-    ? projects.filter((project) => project.title.toLowerCase().includes(normalizedSearch))
-    : projects;
   const visibleWorkspaceProfiles = normalizedSearch
     ? profileWorkspaceEntries.filter(({ profile }) => (profile.display_name || profile.name).toLowerCase().includes(normalizedSearch))
     : profileWorkspaceEntries;
@@ -450,8 +430,6 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
   const multiloginReady = multiloginConnected(multiloginStatus);
   const multiloginExisting = profileToolset === "multilogin" && multiloginMode === "existing";
   const multiloginRowStatus = workspaceMultilogin ? s.multiloginStatuses[workspaceMultilogin.id] : undefined;
-  const runningCount = profileWorkspaceEntries.filter(({ profile }) => s.statuses[profile.name] === "running").length
-    + (multiloginRowStatus === "running" ? 1 : 0);
   const proxyCountries = s.proxyCountries.length ? s.proxyCountries : ROTATION_COUNTRIES;
   const recordingWorkspace = activeRecording ? s.workspaces.find((workspace) => workspace.id === activeRecording.workspaceId) : undefined;
   const automationExecutionWorkspace = automationExecution ? s.workspaces.find((workspace) => workspace.id === automationExecution.workspaceId) : undefined;
@@ -708,12 +686,13 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
     }
   };
 
-  const openProfileCreator = (options?: { toolset?: ProfileToolsetOption }) => {
+  const openProfileCreator = (options?: { toolset?: ProfileToolsetOption; forLive?: boolean }) => {
     if (!s.authed) {
       s.setDashboardKeyPromptOpen(true);
       return;
     }
     const toolset = options?.toolset ?? "clawbrowser";
+    createForLive.current = options?.forLive === true;
     setProfileName("");
     setProfileCountry("US");
     setProfileConnection("managed");
@@ -734,6 +713,11 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
 
   const openProfileCreatorRef = useRef(openProfileCreator);
   useEffect(() => { openProfileCreatorRef.current = openProfileCreator; });
+  useEffect(() => {
+    const create = () => openProfileCreatorRef.current({ forLive: true });
+    window.addEventListener(CREATE_LIVE_PROFILE_EVENT, create);
+    return () => window.removeEventListener(CREATE_LIVE_PROFILE_EVENT, create);
+  }, []);
 
   const routeToMultiloginConnector = () => {
     setCreateProfileOpen(false);
@@ -754,7 +738,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
       const detail = (event as CustomEvent).detail as { connector?: string; resume?: string } | undefined;
       if (detail?.connector !== "multilogin" || detail.resume !== "profile-create") return;
       void refreshMultiloginStatus();
-      openProfileCreatorRef.current({ toolset: "multilogin" });
+      openProfileCreatorRef.current({ toolset: "multilogin", forLive: createForLive.current });
     };
     window.addEventListener(CONNECTOR_PROMPT_RESUMED_EVENT, resumeProfileCreation);
     return () => window.removeEventListener(CONNECTOR_PROMPT_RESUMED_EVENT, resumeProfileCreation);
@@ -796,29 +780,18 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
   }, [menuProfile]);
 
   useEffect(() => {
-    const revealProject = () => {
-      setProjectsMenuOpen(true);
-      setOpenSection("projects");
-      window.requestAnimationFrame(() => projectListRef.current?.scrollTo({ top: 0, behavior: "smooth" }));
-    };
-    const revealProfile = () => {
-      setOpenSection("profiles");
-    };
+    const revealProject = () => setProjectsMenuOpen(true);
     window.addEventListener("nextbrowser:project-created", revealProject);
-    window.addEventListener("nextbrowser:profile-created", revealProfile);
-    return () => {
-      window.removeEventListener("nextbrowser:project-created", revealProject);
-      window.removeEventListener("nextbrowser:profile-created", revealProfile);
-    };
+    return () => window.removeEventListener("nextbrowser:project-created", revealProject);
   }, []);
 
   useEffect(() => {
-    if (!profilesOpen || !s.selectedProfile) return;
+    if (!managerOpen || !s.selectedProfile) return;
     const frame = window.requestAnimationFrame(() => {
       profileListRef.current?.querySelector<HTMLElement>(".profile-row.selected")?.scrollIntoView({ block: "nearest" });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [profilesOpen, s.selectedProfile, visibleWorkspaceProfiles.length]);
+  }, [managerOpen, s.selectedProfile, visibleWorkspaceProfiles.length]);
 
   // The highlight outlives this effect on purpose. Its dependency list contains
   // polled state, so keeping the timer inside meant a status refresh could clear
@@ -831,7 +804,6 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
   useEffect(() => {
     const focusProfiles = () => {
       setManagerOpen(true);
-      setOpenSection("profiles");
       s.setProfileSearch("");
       setProfileGuideFocus(false);
       window.cancelAnimationFrame(guideFocusFrameRef.current);
@@ -840,9 +812,6 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
       // flashes: re-adding a class that is already there animates nothing.
       guideFocusFrameRef.current = window.requestAnimationFrame(() => {
         setProfileGuideFocus(true);
-        // The profile list is still collapsed to zero height in this frame, so
-        // scrolling it would move nothing. Aim at the panel the user was told
-        // to look at instead.
         (profilesSectionRef.current ?? profilesCardRef.current ?? profileListRef.current)
           ?.scrollIntoView({ block: "center", behavior: "smooth" });
         guideFocusTimerRef.current = window.setTimeout(() => setProfileGuideFocus(false), 2_400);
@@ -916,7 +885,6 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
   ]);
 
   const badgeFor = (id: AppTab) => {
-    if (id === "live") return workspaceProfileCount ? `${runningCount}/${workspaceProfileCount}` : undefined;
     if (id === "skills") return skillCount ? String(skillCount) : undefined;
     if (id === "connectors") return String(CONNECTORS.length);
     if (id === "scheduled") return String(s.scheduledRuns.length);
@@ -994,6 +962,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
   };
 
   const closeProfileCreator = () => {
+    createForLive.current = false;
     const requestId = profileCreateRequestRef.current;
     profileCreateRequestRef.current = null;
     if (requestId) void cancelNextctlRun(requestId);
@@ -1153,7 +1122,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
     return true;
   };
 
-  const finishMultiloginProfile = () => {
+  const finishMultiloginProfile = (selection: MultiloginProfileSelection) => {
     setCreateProfileOpen(false);
     setProfileName("");
     setProfileCountry("US");
@@ -1162,6 +1131,8 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
     setMultiloginDraft(undefined);
     setMultiloginQuery("");
     s.resumeOnboardingAfterSetup();
+    if (createForLive.current) s.openLiveSession(multiloginTargetKey(selection));
+    createForLive.current = false;
   };
 
   const submitMultiloginProfile = async () => {
@@ -1178,7 +1149,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
     }
     if (multiloginMode === "existing") {
       if (!multiloginDraft || !applyMultiloginSelection(multiloginDraft)) return;
-      finishMultiloginProfile();
+      finishMultiloginProfile(multiloginDraft);
       return;
     }
     let createdName: string;
@@ -1205,12 +1176,14 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
         timeoutMs: PROFILE_CREATE_TIMEOUT_MS,
       });
       if (profileCreateRequestRef.current !== requestId) return;
-      applyMultiloginSelection(multiloginProfileSelection(creatingPhone ? "mobile" : "browser", created));
+      const selection = multiloginProfileSelection(creatingPhone ? "mobile" : "browser", created);
+      if (useStore.getState().activeWorkspaceId !== s.activeWorkspaceId || !applyMultiloginSelection(selection)) return;
       void refreshMultiloginStatus();
       setProfileCreationStage("Ready");
       await new Promise((resolve) => window.setTimeout(resolve, 450));
       if (profileCreateRequestRef.current !== requestId) return;
-      finishMultiloginProfile();
+      if (useStore.getState().activeWorkspaceId !== s.activeWorkspaceId) createForLive.current = false;
+      finishMultiloginProfile(selection);
     } catch (error) {
       if (profileCreateRequestRef.current !== requestId) return;
       setProfileError(multiloginCreationError(error, multiloginKind));
@@ -1292,6 +1265,10 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
       setProfileConnection("managed");
       setProfileToolset("clawbrowser");
       s.resumeOnboardingAfterSetup();
+      if (createForLive.current && useStore.getState().activeWorkspaceId === targetWorkspaceId) {
+        s.openLiveSession(clawbrowserTargetKey(createdName));
+      }
+      createForLive.current = false;
     } catch (error) {
       if (profileCreateRequestRef.current !== requestId) return;
       const message = error instanceof Error ? error.message : String(error);
@@ -1316,7 +1293,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
   return <>
     <div className="sidebar-mini">
       <div className="sidebar-destinations is-compact"><RecentProjects open={projectsMenuOpen} onOpenChange={setProjectsMenuOpen} /></div>
-      <SidebarNavigation collapsed tab={s.tab} modal={s.utilityDialog} badgeFor={badgeFor} onSelect={s.setTab} />
+      <SidebarNavigation collapsed tab={s.tab} modal={s.utilityDialog} badgeFor={badgeFor} onSelect={s.setTab} liveDestination={liveDestination} />
       {activeRecording && <Tooltip content={recordingMiniLabel} side="right"><button className="mini-nav-btn mini-recording-control recording" aria-label="Open active recording" onClick={openRecorder}><Icon name="circle.fill" size={18} /></button></Tooltip>}
       <span className="spacer" />
       <Tooltip content="Profiles and proxies" side="right"><button className="sidebar-settings-button is-compact" aria-label="Manage profiles and proxies" onClick={() => setManagerOpen(true)}><Glyph name="users" /><span>Profiles</span></button></Tooltip>
@@ -1355,16 +1332,16 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
             }}
           >
             <Icon name="network" size={13} />
-            <span>Create proxy</span>
+            <span>Personal proxies</span>
             {s.personalProxies.length > 0 && <span className="workspace-count">{s.personalProxies.length}</span>}
           </button></Tooltip>
 
           <div className="search-box">
             <Icon name="magnifyingglass" size={12} className="muted" />
             <input
-              ref={searchInputRef}
               className="search-inline"
-              placeholder="Search"
+              placeholder="Search profiles"
+              aria-label="Search profiles"
               value={s.profileSearch}
               onChange={(e) => s.setProfileSearch(e.target.value)}
             />
@@ -1379,39 +1356,13 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
           </div>
 
           <div className="profile-list workspace-content">
-            <section className={"workspace-section workspace-chats" + (projectsOpen ? " is-open" : "")}>
+            <section ref={profilesSectionRef} className={"workspace-section workspace-profiles is-open" + (profileGuideFocus ? " guide-focus" : "")}>
               <div className="workspace-section-head">
-                <button className="workspace-section-toggle" onClick={() => {
-                  if (!searchQuery) setOpenSection((current) => current === "projects" ? null : "projects");
-                }} disabled={!!searchQuery} aria-expanded={projectsOpen} aria-label={projectsOpen ? "Collapse projects" : "Expand projects"}>
-                  <Icon name="chevron.right" size={10} className={projectsOpen ? "section-chevron open" : "section-chevron"} />
-                  <Icon name="folder" size={12} />
-                  <span>Projects</span>
-                  <span className="workspace-count">{projects.length}</span>
-                </button>
-                <span className="spacer" />
-                <Tooltip content="Create project"><button className="workspace-create-action" aria-label="Create project" onClick={() => window.dispatchEvent(new CustomEvent("nextbrowser:create-project"))}>
-                  <Icon name="plus" size={12} />
-                  <span>Create</span>
-                </button></Tooltip>
-              </div>
-              <div className={"workspace-section-reveal" + (projectsOpen ? " is-open" : "")} aria-hidden={!projectsOpen}>
-                <div ref={projectListRef} className="workspace-chat-list">
-                <ProjectTree query={searchQuery} />
-                </div>
-              </div>
-            </section>
-
-            <section ref={profilesSectionRef} className={"workspace-section workspace-profiles" + (profilesOpen ? " is-open" : "") + (profileGuideFocus ? " guide-focus" : "")}>
-              <div className="workspace-section-head">
-                <button className="workspace-section-toggle" onClick={() => {
-                  if (!searchQuery) setOpenSection((current) => current === "profiles" ? null : "profiles");
-                }} disabled={!!searchQuery} aria-expanded={profilesOpen} aria-label={profilesOpen ? "Collapse profiles" : "Expand profiles"}>
-                  <Icon name="chevron.right" size={10} className={profilesOpen ? "section-chevron open" : "section-chevron"} />
+                <span className="workspace-section-label">
                   <Icon name="person.2.fill" size={12} />
                   <span>Profiles</span>
                   <span className="workspace-count">{workspaceProfileCount}</span>
-                </button>
+                </span>
                 <span className="spacer" />
                 <Tooltip content="Create profile"><button
                   className="workspace-create-action"
@@ -1423,8 +1374,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
                   <span>Create</span>
                 </button></Tooltip>
               </div>
-              <div className={"workspace-section-reveal" + (profilesOpen ? " is-open" : "")} aria-hidden={!profilesOpen}>
-                <div ref={profileListRef} className="workspace-profile-list">
+              <div ref={profileListRef} className="workspace-profile-list">
                 {visibleWorkspaceProfiles.map(({ profile: p, owner, toolset }) => {
                       const status = s.statuses[p.name] ?? "unknown";
                       const running = status === "running";
@@ -1466,12 +1416,16 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
                             runProfileAction("We couldn’t prepare this profile.", "PROFILE_ASSIGNMENT_FAILED", async () => {
                               await s.assignProfileToProject(p.name, toolset, s.activeWorkspaceId);
                               s.selectProfile(p.name);
-                              s.setTab(activeProject ? "chat" : "live");
+                              if (!activeProject) {
+                                s.openLiveSession(clawbrowserTargetKey(p.name));
+                                return;
+                              }
+                              s.setTab("chat");
                               await startProfileWithConfirmation(p.name, toolset);
                             });
                           }}
                           onStop={() => runProfileAction(`We couldn't stop “${p.name}”.`, "PROFILE_STOP_FAILED", () => s.stopProfile(p.name))}
-                          onLive={() => { s.selectProfile(p.name); s.setTab("live"); }}
+                          onLive={() => { s.selectProfile(p.name); s.openLiveSession(clawbrowserTargetKey(p.name)); }}
                           onMenu={() => setMenuProfile(p.name)}
                         />
                       );
@@ -1491,15 +1445,14 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
                       void runProfileAction(`We couldn't start “${multiloginRow.name}”.`, "MULTILOGIN_START_FAILED", () => s.setMultiloginRunning(multiloginRow, true));
                     }}
                     onStop={() => void runProfileAction(`We couldn't stop “${multiloginRow.name}”.`, "MULTILOGIN_STOP_FAILED", () => s.setMultiloginRunning(multiloginRow, false))}
-                    onLive={() => { activateWorkspaceMultilogin(multiloginRow); s.setTab("live"); }}
+                    onLive={() => { activateWorkspaceMultilogin(multiloginRow); s.openLiveSession(multiloginTargetKey(multiloginRow)); }}
                     onMenu={() => {}}
                     onRemove={() => clearMultiloginSelection(s.activeWorkspaceId)}
                     removeTitle={`Remove ${multiloginRow.name} from this workspace`}
                   />
                 )}
-                </div>
               </div>
-              {profilesOpen && noLocalProfiles && (
+              {noLocalProfiles && (
                 <div className="workspace-empty local-profiles-empty">
                   <strong>No profiles on this computer</strong>
                   <span className="muted small">Profiles stay on the computer where they were created.</span>
@@ -1519,9 +1472,9 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
                   )}
                 </div>
               )}
-              {profilesOpen && workspaceProfileCount === 0 && !noLocalProfiles && <div className="muted small workspace-empty">No profiles yet</div>}
+              {workspaceProfileCount === 0 && !noLocalProfiles && <div className="muted small workspace-empty">No profiles yet</div>}
             </section>
-            {normalizedSearch && visibleChats.length === 0 && visibleWorkspaceProfiles.length === 0 && !multiloginRow && (
+            {normalizedSearch && workspaceProfileCount > 0 && visibleWorkspaceProfiles.length === 0 && !multiloginRow && (
               <div className="muted small">No matches for "{s.profileSearch}".</div>
             )}
             {profileActionError && (
@@ -1566,23 +1519,6 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
         )}
       </div>
       {logoutError && <div className="sidebar-account-error" role="alert"><UserFacingError message={logoutError} surface="account_sign_out" /></div>}
-      <div className="nextctl-footer muted small">
-        <Icon name="terminal" size={12} />
-        <span>nextctl {s.nextctlVersion || "..."}</span>
-        <Tooltip content={s.nextctlUpdateError || "Check for a newer nextctl and update"}><button
-          className={"plain-icon-btn plain-icon-btn-compact nextctl-refresh" + (s.nextctlUpdateError ? " is-failed" : "")}
-          aria-label={s.nextctlUpdateError || "Check for a newer nextctl and update"}
-          disabled={s.nextctlUpdating}
-          onClick={() => s.checkNextctlUpdate()}
-        >
-          {s.nextctlUpdating
-            ? <Spinner size={12} />
-            : <Icon name={s.nextctlUpdateError ? "exclamationmark.triangle.fill" : "arrow.triangle.2.circlepath"} size={12} />}
-        </button></Tooltip>
-        {s.nextctlUpdateStatus && <span>· {s.nextctlUpdateStatus}</span>}
-        {!s.nextctlSupportsSkill && !s.nextctlCompatibilityError && <span className="warn"> · no skill cmd</span>}
-        <span className="spacer" />
-      </div>
       <div className="sidebar-settings-footer">
         {footerAccessory}
       </div>
@@ -2086,19 +2022,19 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
         </div>
       ), document.body)}
 
-      {workspaceDeleteOpen && activeWorkspace && createPortal((
-        <div className="modal-overlay" onMouseDown={() => { if (!workspaceDeletePending) setWorkspaceDeleteOpen(false); }}>
+      {workspaceToDelete && createPortal((
+        <div className="modal-overlay" onMouseDown={() => { if (!workspaceDeletePending) setWorkspaceDeleteId(undefined); }}>
           <section className="modal-card workspace-create-modal" role="alertdialog" aria-modal="true" aria-labelledby="workspace-delete-title" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="profile-menu-head"><Icon name="trash" size={15} /><strong id="workspace-delete-title">Delete “{activeWorkspace.name}”?</strong></div>
-            <p className="muted small">This permanently deletes the workspace, its {projects.length} project{projects.length === 1 ? "" : "s"} and chats, scheduled runs, local artifacts, and profiles used only here. Profiles also used by another workspace stay there. This cannot be undone.</p>
+            <div className="profile-menu-head"><Icon name="trash" size={15} /><strong id="workspace-delete-title">Delete “{workspaceToDelete.name}”?</strong></div>
+            <p className="muted small">This permanently deletes the workspace, its {projectsToDelete} project{projectsToDelete === 1 ? "" : "s"} and chats, scheduled runs, local artifacts, and profiles used only here. Profiles also used by another workspace stay there. This cannot be undone.</p>
             {workspaceDeletePending && workspaceDeleteProgress && <p className="muted small" role="status" aria-live="polite">{workspaceDeleteProgress}</p>}
             {workspaceDeleteError && <p className="error small" role="alert">{workspaceDeleteError}</p>}
             <div className="modal-actions">
-              <button type="button" className="secondary" disabled={workspaceDeletePending} onClick={() => setWorkspaceDeleteOpen(false)}>Cancel</button>
+              <button type="button" className="secondary" disabled={workspaceDeletePending} onClick={() => setWorkspaceDeleteId(undefined)}>Cancel</button>
               <button type="button" className="primary" disabled={workspaceDeletePending} onClick={() => {
                 setWorkspaceDeletePending(true);
                 setWorkspaceDeleteProgress(null);
-                void s.deleteWorkspace(activeWorkspace.id, setWorkspaceDeleteProgress).then(() => setWorkspaceDeleteOpen(false)).catch((error: unknown) => {
+                void s.deleteWorkspace(workspaceToDelete.id, setWorkspaceDeleteProgress).then(() => setWorkspaceDeleteId(undefined)).catch((error: unknown) => {
                   setWorkspaceDeleteError(error instanceof Error ? error.message : String(error));
                 }).finally(() => setWorkspaceDeletePending(false));
               }}>{workspaceDeletePending ? <Spinner size={13} /> : <Icon name="trash" size={13} />} Delete workspace and contents</button>
@@ -2334,6 +2270,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
               <Tooltip content="Close"><button
                 type="button"
                 className="plain-icon-btn"
+                aria-label="Close"
                 disabled={manualSaving || manualProxyDeletePending}
                 onClick={() => { setManualProxyOpen(false); setManualProxyDeleting(null); }}
               >
@@ -2605,7 +2542,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory }: 
                     resetManualProxyForm();
                     setManualProxyEditing(true);
                   }}>
-                    <Icon name="plus" size={13} /> Create proxy
+                    <Icon name="plus" size={13} /> Add proxies
                   </button>
                 </div>
               </>

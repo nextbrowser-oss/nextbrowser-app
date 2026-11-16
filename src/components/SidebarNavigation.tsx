@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Glyph, Popover, Tooltip, type GlyphName } from "../shared/ui";
 import { isUtilityDialogTab, type UtilityDialogTab } from "../lib/appNavigation";
 import type { AppTab } from "../types";
@@ -15,12 +15,13 @@ const destinations: typeof extensions = [
   { id: "live", label: "Live", compact: "Live", icon: "monitor" },
 ];
 
-export function SidebarNavigation({ collapsed = false, tab, modal, badgeFor, onSelect }: {
+export function SidebarNavigation({ collapsed = false, tab, modal, badgeFor, onSelect, liveDestination }: {
   collapsed?: boolean;
   tab: AppTab;
   modal?: UtilityDialogTab;
   badgeFor: (tab: AppTab) => string | number | undefined;
   onSelect: (tab: AppTab) => void;
+  liveDestination?: ReactNode;
 }) {
   const [extensionsOpen, setExtensionsOpen] = useState(false);
   const renderDestination = (item: typeof extensions[number], grouped = false) => {
@@ -50,7 +51,8 @@ export function SidebarNavigation({ collapsed = false, tab, modal, badgeFor, onS
         <div className="sidebar-extensions-heading">Extensions</div>
         {extensions.map(item => renderDestination(item, true))}
       </Popover>
-      {destinations.map(item => renderDestination(item))}
+      {destinations.map(item => item.id === "live" && liveDestination ? null : renderDestination(item))}
+      {liveDestination}
     </nav>
   );
 }

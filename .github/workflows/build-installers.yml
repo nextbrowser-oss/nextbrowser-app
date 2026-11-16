@@ -40,6 +40,10 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.x"
+          cache: false
       - name: Signing and updater metadata regressions
         run: node --test scripts/macos-signing.node.mjs
       - name: Critical feature regressions (mandatory)

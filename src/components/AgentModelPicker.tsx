@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { agentById, isBuiltinAgent } from "../agents";
 import { invoke } from "../electronBridge";
-import { BUILTIN_PROVIDERS, builtinAgentSettings, builtinProvider, type BuiltinAgentStatus, type BuiltinModelList, type BuiltinModelOption, type BuiltinProviderId } from "../lib/builtinAgent";
+import { BUILTIN_PROVIDERS, builtinAgentSettings, builtinProvider, freeOpenRouterOptions, type BuiltinAgentStatus, type BuiltinModelList, type BuiltinModelOption, type BuiltinProviderId } from "../lib/builtinAgent";
 import { Dialog, Glyph, IconButton, Popover, Select } from "../shared/ui";
 import { BuiltinAgentSetup } from "./BuiltinAgentSetup";
 import "./agent-model-picker.css";
 
-const message = (error: unknown) => error instanceof Error ? error.message : String(error);
+const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
+  .replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "");
 
 /** Composer entry point to the same encrypted keys and API settings as Agent settings. */
 export function AgentModelPicker({ agentId, version, disabled, onActivate, onRefresh }: {
@@ -24,6 +25,7 @@ export function AgentModelPicker({ agentId, version, disabled, onActivate, onRef
   const changeOpen = useCallback((value: boolean) => { if (!saving) setOpen(value); }, [saving]);
   const [error, setError] = useState<string>();
   const [modelsNote, setModelsNote] = useState<string>();
+  const [catalogAttempt, setCatalogAttempt] = useState(0);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const preset = builtinProvider(provider);
@@ -56,13 +58,14 @@ export function AgentModelPicker({ agentId, version, disabled, onActivate, onRef
       setModels(offered);
       setModel(current => {
         if (current && (provider !== "openrouter" || list.error || offered.some(item => item.id === current))) return current;
+        if (provider === "openrouter") return offered.find(item => item.id === list.defaultModel)?.id || offered[0]?.id || "";
         return list.defaultModel || offered[0]?.id || "";
       });
       setModelsNote(list.error);
     }).catch(failure => { if (active) setModelsNote(message(failure)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [open, provider, baseURL, canChoose]);
+  }, [open, provider, baseURL, canChoose, catalogAttempt]);
 
   const activate = async () => {
     setSaving(true); setError(undefined);
@@ -78,9 +81,7 @@ export function AgentModelPicker({ agentId, version, disabled, onActivate, onRef
     finally { setSaving(false); }
   };
   const label = isBuiltinAgent(agentId) ? (version || "Choose model") : agentById(agentId).name;
-  const freeModels = models.filter(item => item.free).map(item => ({
-    value: item.id, label: item.id === "openrouter/free" ? "OpenRouter Free (auto)" : item.id,
-  }));
+  const freeModels = freeOpenRouterOptions(models);
   const modelFields = <>
     <label className="agent-model-picker-field">Find a model
       <input aria-label="Search provider models" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search models…" disabled={!status || saving} />
@@ -115,16 +116,15 @@ export function AgentModelPicker({ agentId, version, disabled, onActivate, onRef
         <div className="agent-model-picker-field">
           <span>Free model</span>
           <Select label="Free OpenRouter model" searchPlaceholder="Search free models…" value={model}
-            options={freeModels} onChange={setModel} disabled={!canChoose || loading || saving} />
+            options={freeModels} onChange={setModel} disabled={!canChoose || loading || saving || !freeModels.length} />
           {loading && <div role="status">Loading free models…</div>}
-          {!loading && model && !freeModels.some(item => item.value === model) &&
-            <span className="agent-model-picker-note">Selected model: {model}</span>}
         </div>
       </> : modelFields}
       {modelsNote && <div className="agent-model-picker-note" role="status">{modelsNote}</div>}
       <p className="agent-model-picker-note">{isBuiltinAgent(agentId) ? "Applies to your Nextbrowser agent chats." : "Uses the API agent. Your current chat is kept; a new session opens if it has messages."}{provider !== "openrouter" && " Paid models use your provider balance."}</p>
       {error && <div className="agent-model-picker-note" role="alert">{error}</div>}
       <div className="agent-model-picker-actions">
+        {provider === "openrouter" && modelsNote && <button type="button" disabled={loading || saving} onClick={() => setCatalogAttempt(attempt => attempt + 1)}>Retry model list</button>}
         <button type="button" disabled={!status || saving} onClick={() => { setOpen(false); setSetup(provider); }}>Provider settings</button>
         <button type="button" disabled={!canChoose || !model.trim() || saving || disabled || (provider === "openrouter" && !freeModels.some(item => item.value === model))} onClick={() => void activate()}>{saving ? "Saving…" : "Use model"}</button>
       </div>

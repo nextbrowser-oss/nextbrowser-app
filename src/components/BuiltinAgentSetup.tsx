@@ -1,4 +1,4 @@
-import { Tooltip } from "../shared/ui";
+import { Select, Tooltip } from "../shared/ui";
 import { useCallback, useEffect, useState } from "react";
 import { BUILTIN_AGENT_ID } from "../agents";
 import { invoke } from "../electronBridge";
@@ -8,6 +8,7 @@ import {
   DEFAULT_BUILTIN_PROVIDER,
   builtinAgentSettings,
   builtinProvider,
+  freeOpenRouterOptions,
   type BuiltinAgentStatus,
   type BuiltinModelList,
   type BuiltinModelOption,
@@ -59,6 +60,8 @@ export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = t
   const keySaved = !!status?.keys[provider];
   const keyReady = keySaved || !preset.keyRequired;
   const baseURLReady = provider !== "custom" || !!baseURL.trim();
+  const freeModels = provider === "openrouter" ? freeOpenRouterOptions(models) : [];
+  const modelReady = provider === "openrouter" ? freeModels.some(option => option.value === model) : !!model.trim();
 
   const loadModels = useCallback(async (target: BuiltinProviderId, targetURL: string, current: string) => {
     setBusy("models");
@@ -168,6 +171,10 @@ export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = t
     try {
       const next = await invoke<BuiltinAgentStatus>("builtin_agent_settings_save", { provider, baseURL, model });
       setStatus(next);
+      if (provider === "openrouter" && !next.configured) {
+        setError(next.problem || "OpenRouter is unavailable. Try again.");
+        return;
+      }
       setSaved(true);
       trackEvent("builtin_agent_saved", { provider, configured: next.configured });
       if (activateOnSave && agentId !== BUILTIN_AGENT_ID) switchAgent(BUILTIN_AGENT_ID);
@@ -256,7 +263,7 @@ export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = t
         )}
       </div>}
 
-      <label className="modal-field">
+      <div className="modal-field">
         <span className="modal-field-heading">
           <span>Model</span>
           <Tooltip content="Reload the provider's models"><button
@@ -269,27 +276,32 @@ export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = t
             {busy === "models" ? <Spinner size={11} /> : <Icon name="arrow.clockwise" size={11} />}
           </button></Tooltip>
         </span>
-        {models.length ? (
-          <select value={model} onChange={(event) => { setModel(event.target.value); setTest(undefined); setSaved(false); }}>
+        {provider === "openrouter" ? (
+          <Select label="Free OpenRouter model" searchPlaceholder="Search free models…" value={model}
+            options={freeModels} disabled={!freeModels.length || !!busy}
+            onChange={value => { setModel(value); setTest(undefined); setSaved(false); }} />
+        ) : models.length ? (
+          <select aria-label="Model" value={model} onChange={(event) => { setModel(event.target.value); setTest(undefined); setSaved(false); }}>
             {!models.some((item) => item.id === model) && model && <option value={model}>{model}</option>}
             {models.map((item) => <option key={item.id} value={item.id}>{modelLabel(item)}</option>)}
           </select>
-        ) : provider === "openrouter" ? null : (
+        ) : (
           <input
             value={model}
+            aria-label="Model"
             spellCheck={false}
             placeholder={keyReady ? "Model ID, such as llama3.1" : "Save a key to load the models"}
             onChange={(event) => { setModel(event.target.value); setTest(undefined); setSaved(false); }}
           />
         )}
-        {modelsNote && <small className="muted">{modelsNote}</small>}
-      </label>
+        {modelsNote && <small className="muted" role="status">{modelsNote}</small>}
+      </div>
 
       <div className="builtin-agent-actions">
-        <button type="button" className="mini" disabled={!keyReady || !baseURLReady || !model.trim() || !!busy} onClick={() => void runTest()}>
+        <button type="button" className="mini" disabled={!keyReady || !baseURLReady || !modelReady || !!busy} onClick={() => void runTest()}>
           {busy === "test" ? <Spinner size={11} /> : <Icon name="checkmark.seal.fill" size={12} />} Test
         </button>
-        <button type="button" className="mini primary-mini" disabled={!keyReady || !baseURLReady || !model.trim() || !!busy} onClick={() => void save()}>
+        <button type="button" className="mini primary-mini" disabled={!keyReady || !baseURLReady || !modelReady || !!busy} onClick={() => void save()}>
           {busy === "save" ? <Spinner size={11} /> : null} Use this model
         </button>
         {saved && status?.configured && <span className="ok small" role="status">Saved. The Nextbrowser agent is ready.</span>}

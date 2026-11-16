@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import { multiloginSessionName, nextctlRemoteArgs } from "./liveStreamTarget";
 
 describe("Live stream targets", () => {
-  it("keeps the existing Clawbrowser remote command", () => {
+  it("limits screencast dimensions and JPEG quality for interactive viewing", () => {
     expect(nextctlRemoteArgs({ runtime: "clawbrowser", profile: "work" })).toEqual([
-      "remote", "--profile", "work", "--include-viewer-url", "--format", "json",
+      "remote", "--profile", "work", "--quality", "78", "--max-width", "1600", "--max-height", "900",
+      "--include-viewer-url", "--format", "json",
     ]);
   });
 
@@ -17,6 +18,7 @@ describe("Live stream targets", () => {
       "--multilogin-folder-id", "folder-1",
       "--profile", "mlx-browser-profile-id",
       "--multilogin-profile-id", "profile/id",
+      "--multilogin-headless",
       "start", "--remote", "--format", "json",
     ]);
   });

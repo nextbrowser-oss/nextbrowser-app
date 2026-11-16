@@ -196,6 +196,7 @@ import { clearAllSelectedProfiles, forgetSelectedProfileName, forgetWorkspaceSel
 import { cloudPhoneFromSelection, cloudPhoneSkillPrompt } from "./lib/cloudPhoneSkill";
 import { isMultiloginStartRequest, multiloginStartReply } from "./lib/multiloginChatCommand";
 import { nextctlRemoteArgs, type LiveStreamTarget } from "./lib/liveStreamTarget";
+import { multiloginTargetKey } from "./lib/liveProfileSwitch";
 import { customPrivateSlug, customPublishSelector } from "./types";
 
 interface QueuedItem {
@@ -772,11 +773,11 @@ interface State {
   loadProxyCountries: () => Promise<void>;
   loadDefaultSession: () => Promise<void>;
   loadSkillCatalog: () => Promise<void>;
-  startDefaultSession: () => Promise<void>;
+  startDefaultSession: (options?: { forLive?: boolean; liveWindow?: boolean }) => Promise<void>;
   stopDefaultSession: () => Promise<void>;
   rotateDefaultSession: () => Promise<void>;
   rotateDefaultSessionCountry: (country: string) => Promise<void>;
-  startProfile: (n: string) => Promise<void>;
+  startProfile: (n: string, options?: { forLive?: boolean; liveWindow?: boolean }) => Promise<void>;
   stopProfile: (n: string) => Promise<void>;
   rotateProfile: (n: string) => Promise<void>;
   rotateProfileCountry: (n: string, country: string) => Promise<void>;
@@ -815,6 +816,9 @@ interface State {
   logoutAgent: () => Promise<void>;
   recheckLogin: (agentId?: string) => Promise<void>;
   setTab: (t: AppTab) => void;
+  liveSession?: { workspaceId?: string; key: string };
+  openLiveSession: (key: string) => void;
+  showLiveOverview: () => void;
   closeUtilityDialog: () => void;
   setAppActive: (v: boolean) => void;
   setProfileSearch: (q: string) => void;
@@ -836,6 +840,7 @@ interface State {
   createWorkspace: (name: string) => Promise<string>;
   selectWorkspace: (id: string) => void;
   deleteWorkspace: (id: string, onProgress?: (message: string) => void) => Promise<void>;
+  resetWorkspaceData: (confirmation: string, onProgress: (message: string) => void) => Promise<void>;
   completeWorkspaceSetup: () => void;
   /** Create a default workspace, project, and one profile per toolset without
    *  showing the setup modal. Falls back to the gate only if it fails. */
@@ -1603,6 +1608,7 @@ function flushConversations(): Promise<void> {
 
 let scheduleWriteTail: Promise<void> = Promise.resolve();
 let scheduleHandoff = false;
+let workspaceResetPending = false;
 let scheduleWorker = typeof window !== "undefined" &&
   new URLSearchParams(window.location?.search).has("backgroundSchedule");
 
@@ -3356,7 +3362,7 @@ export const useStore = create<State>((set, get) => {
           status.status_name ?? "starting",
           /[А-Яа-яЁё]/.test(item.rawText),
         ));
-        set({ tab: "live" });
+        get().openLiveSession(multiloginTargetKey(multiloginSelection));
         trackEvent("multilogin_profile_start_completed", { direct: true, kind: multiloginSelection.kind });
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
@@ -4203,11 +4209,11 @@ export const useStore = create<State>((set, get) => {
     }
   },
 
-  startDefaultSession: async () => {
+  startDefaultSession: async (options) => {
     const startedAt = performance.now();
     trackEvent("profile_start_requested", { scope: "default" });
     try {
-      await prepareLocalSession({ statuses: {}, verifyOnly: true });
+      await prepareLocalSession({ statuses: {}, verifyOnly: true, ...options });
       await get().loadDefaultSession();
       const identity = await verifyProxyIdentity();
       if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
@@ -4264,7 +4270,7 @@ export const useStore = create<State>((set, get) => {
     }
   },
 
-  startProfile: (n) => {
+  startProfile: (n, options) => {
     const existing = pendingProfileStarts.get(n);
     if (existing) return existing;
     verifyingProfileStarts.add(n);
@@ -4282,7 +4288,7 @@ export const useStore = create<State>((set, get) => {
         const profile = get().profiles.find((item) => item.name === n);
         pendingProfileLaunches.set(n, operation);
         await prepareLocalSession({
-          selectedProfile: n, runtime, statuses: {}, verifyOnly: true,
+          selectedProfile: n, runtime, statuses: {}, verifyOnly: true, ...options,
           proxyExpected: profile?.proxy_mode !== "direct",
           shouldContinue: () => profileOperationEpoch.get(n) === operation,
         }).finally(() => {
@@ -4885,6 +4891,9 @@ export const useStore = create<State>((set, get) => {
       }
       // nbc has no integration to install for this agent.
       if (!adapter) return;
+      // The CLI's integration installer also installs Clawbrowser if it is
+      // absent. A background agent connection must not launch Windows setup.
+      if (!(await invoke<boolean>("browser_runtime_available", { runtime: "clawbrowser" }).catch(() => false))) return;
       // Installation is idempotent. Keep connection fast and refresh the
       // agent's bundled nextctl skill/integration in the background.
       void nextctlRun(["install", "--agent", adapter, "--no-api-key-prompt"], undefined, { timeoutMs: NEXTCTL_INSTALL_TIMEOUT_MS }).then((result) => {
@@ -5175,6 +5184,14 @@ export const useStore = create<State>((set, get) => {
     trackScreenView(t, { source: "tab_opened", previous_tab: previousTab });
     set({ tab: t, utilityDialog: undefined, ...(get().utilityDialog === "connectors" ? { connectorPrompt: undefined } : {}) });
   },
+  openLiveSession: (key) => {
+    set({ liveSession: { workspaceId: get().activeWorkspaceId, key } });
+    get().setTab("live");
+  },
+  showLiveOverview: () => {
+    set({ liveSession: undefined });
+    get().setTab("live");
+  },
   closeUtilityDialog: () => set(state => ({ utilityDialog: undefined,
     ...(state.utilityDialog === "connectors" ? { connectorPrompt: undefined } : {}) })),
   setAppActive: (v) => {
@@ -5427,7 +5444,7 @@ export const useStore = create<State>((set, get) => {
   },
 
   syncProjects: async () => {
-    if (!get().authed || get().projectsSyncing) return;
+    if (workspaceResetPending || !get().authed || get().projectsSyncing) return;
     const epoch = accountEpoch;
     set({ projectsSyncing: true });
     const initialWorkspaces = get().workspaces;
@@ -5779,6 +5796,39 @@ export const useStore = create<State>((set, get) => {
     });
   },
 
+  resetWorkspaceData: async (confirmation, onProgress) => {
+    if (confirmation !== "DROP") throw new Error("Type DROP to confirm.");
+    if (workspaceResetPending) throw new Error("Nextbrowser is already resetting its data.");
+    if (get().loggingOut || defaultSetupInFlight || deletingWorkspaceIds.size) {
+      throw new Error("Wait for the current workspace or account change to finish, then retry.");
+    }
+    workspaceResetPending = true;
+    const previousHandoff = scheduleHandoff;
+    scheduleHandoff = true;
+    try {
+      onProgress("Stopping local browser sessions and waiting for sync…");
+      const deadline = Date.now() + 30_000;
+      await workspaceMutationQueue;
+      while (get().projectsSyncing && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      if (get().projectsSyncing) throw new Error("Workspace sync is still running. Try the reset again shortly.");
+      for (const profile of get().profiles) {
+        if (pendingProfileStarts.has(profile.name) || ["running", "starting", "rotating", "stopping"].includes(get().statuses[profile.name])) {
+          await get().stopProfile(profile.name);
+        }
+      }
+      if (get().defaultSession?.status === "running") await get().stopDefaultSession();
+      await Promise.all([flushConversations(), scheduleWriteTail]);
+      onProgress("Deleting cloud workspaces and preparing the local reset…");
+      await invoke("workspace_emergency_reset", { confirmation, connected: get().authed });
+    } catch (error) {
+      workspaceResetPending = false;
+      scheduleHandoff = previousHandoff;
+      throw error;
+    }
+  },
+
   deleteWorkspace: async (id, onProgress) => {
     if (!get().workspaces.some((workspace) => workspace.id === id)) throw new Error("The workspace no longer exists.");
     if (deletingWorkspaceIds.has(id)) throw new Error("This workspace is already being deleted.");
@@ -5883,7 +5933,7 @@ export const useStore = create<State>((set, get) => {
   // a first project, and one profile per browser toolset. The manual gate is
   // kept only as a fallback when this cannot complete.
   ensureDefaultWorkspaceSetup: async () => {
-    if (!get().authed || !get().nextctlAvailable || pendingTarget(get(), "vps")) return;
+    if (workspaceResetPending || !get().authed || !get().nextctlAvailable || pendingTarget(get(), "vps")) return;
     if (defaultSetupInFlight) return;
     // Defaults belong to first-account setup only. Empty workspaces and
     // deleted defaults are intentional and must never be repopulated.

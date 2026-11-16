@@ -1,0 +1,32 @@
+.live-sessions-popover { width: 260px; }
+.live-session-tools, .live-session-search { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.live-session-search { flex: 1; padding: 6px 8px; border-radius: 9px; background: var(--glass-inverse-control); }
+.live-session-search svg { flex: none; }
+.live-session-search input { width: 100%; min-width: 0; border: 0; padding: 0; color: inherit; background: transparent; font: inherit; }
+.live-session-search:focus-within { outline: 1px solid currentColor; }
+.live-session-search input:focus { outline: 0; }
+.live-session-tools .shared-icon-button { flex: none; color: inherit; }
+.live-session-rows { display: grid; gap: 2px; margin-top: 4px; }
+.live-session-row { display: flex; align-items: center; gap: 8px; min-width: 0; width: 100%; padding: 6px 8px; border: 0; border-radius: 8px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.live-session-row:hover { background: var(--glass-inverse-control-hover); }
+.live-session-row svg { flex: none; }
+.live-session-row span, .live-session-card-label { display: grid; min-width: 0; gap: 2px; }
+.live-session-row strong, .live-session-card strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-session-row small, .live-sessions-popover .live-session-empty { color: var(--glass-inverse-muted); }
+.live-create-profile { margin-top: 4px; }
+.live-session-empty { margin: 12px 8px 6px; color: var(--muted); }
+.live-sessions-overview { min-height: 0; overflow: auto; flex: 1; padding: 22px clamp(12px, 3vw, 36px); }
+.live-sessions-header { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; }
+.live-sessions-header h1 { margin: 0; font-size: 22px; }
+.live-sessions-header .live-session-search, .live-session-picker .live-session-search { background: var(--panel); }
+.live-session-picker .live-session-row:hover { background: var(--accent-soft); }
+.live-session-picker .live-session-row small { color: var(--muted); }
+.live-sessions-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 255px), 1fr)); gap: 14px; }
+.live-session-card { display: grid; max-width: 580px; min-width: 0; padding: 0; overflow: hidden; border: 0; border-radius: 14px; background: var(--panel); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.live-session-card:hover, .live-session-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.live-session-preview { display: grid; position: relative; place-items: center; aspect-ratio: 16 / 10; min-height: 0; overflow: hidden; background: var(--surface-4); color: var(--muted); }
+.live-session-preview img { width: 100%; height: 100%; min-height: 0; object-fit: contain; }
+.live-session-preview span { display: grid; justify-items: center; gap: 6px; font-size: 12px; }
+.live-session-preview small { position: absolute; inset: auto 8px 8px auto; padding: 4px 6px; border-radius: 6px; background: var(--panel); }
+.live-session-card-label { padding: 10px 12px; }
+.live-session-card-label small { color: var(--muted); }

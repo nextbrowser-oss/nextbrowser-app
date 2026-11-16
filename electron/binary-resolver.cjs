@@ -68,6 +68,10 @@ function expand(raw, homeDir = os.homedir()) {
   return raw;
 }
 
+function isCodexSandboxDir(dir, name, platform) {
+  return name === "codex" && platform === "win32" && path.basename(dir).toLowerCase() === ".sandbox-bin";
+}
+
 function findBinaryUnderRoots(name, roots, platform = process.platform) {
   const names = new Set(executableNames(name, platform).map((candidate) => candidate.toLowerCase()));
   const queue = roots.filter((root) => fs.existsSync(root)).map((root) => ({ dir: root, depth: 0 }));
@@ -75,6 +79,9 @@ function findBinaryUnderRoots(name, roots, platform = process.platform) {
   let visited = 0;
   while (queue.length && visited < 500) {
     const { dir, depth } = queue.shift();
+    // Codex copies its executable here for sandboxed commands, without
+    // the companion processes that the installed executable starts.
+    if (isCodexSandboxDir(dir, name, platform)) continue;
     const key = dir.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
@@ -120,6 +127,7 @@ function binaryFallbackRoots(name, options = {}) {
     }
   }
   if (platform === "win32") {
+    if (env.LOCALAPPDATA) roots.unshift(path.join(env.LOCALAPPDATA, "OpenAI", "Codex", "bin"));
     const programDirs = [
       env.LOCALAPPDATA && path.join(env.LOCALAPPDATA, "Programs"),
       env.LOCALAPPDATA,
@@ -148,6 +156,7 @@ function resolveBinary(name, envVar, options = {}) {
 
   const dirs = options.searchPaths ?? searchDirs({ platform, homeDir, env });
   for (const dir of dirs) {
+    if (isCodexSandboxDir(dir, name, platform)) continue;
     for (const candidate of executableNames(name, platform)) {
       const file = path.join(dir, candidate);
       if (launchable(file, platform)) return file;

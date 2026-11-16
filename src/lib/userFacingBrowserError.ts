@@ -168,6 +168,15 @@ export function browserFailureCause(error: unknown): BrowserFailureCause | undef
 export function userFacingBrowserError(error: unknown): string {
   const raw = rawErrorMessage(error);
   if (!raw) return "The browser could not be prepared. Try again.";
+  if (/\[nbc-install\]|\[clawctl-install\]|Clawbrowser installation failed/i.test(raw)) {
+    if (/administrator approval was cancell?ed|operation was cancell?ed by the user/i.test(raw)) {
+      return "Windows administrator approval was cancelled. Try again and approve the ClawBrowser installer when Windows asks.";
+    }
+    if (/requesting Windows administrator approval/i.test(raw)) {
+      return "ClawBrowser setup did not finish. Try again and approve the installer when Windows asks.";
+    }
+    return "ClawBrowser could not be installed. Try again.";
+  }
 
   if (/workspace not found|workspace revision conflict/i.test(raw)) {
     return "The selected workspace is no longer available. Select or create a workspace, then try again.";

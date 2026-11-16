@@ -27,6 +27,13 @@ const MIGRATION_FAILED = "VERIFY_FAILED: migrate NodeMaven account before profil
 const MIGRATION_FAILED_IN_APP = `Could not start Nextbrowser: ${MIGRATION_FAILED} [VERIFY_FAILED] — The proxy account was not ready; the profile was not started. Retry to resume migration.`;
 
 describe("userFacingBrowserError", () => {
+  it("explains cancelled Windows approval without displaying installer diagnostics", () => {
+    const raw = String.raw`[nbc-install] Diagnostic log: C:\Users\person\install.log
+[nbc-install] Requesting Windows administrator approval for silent Clawbrowser setup...
+install failed: run Clawbrowser Windows setup C:\Temp\setup.exe: administrator approval was canceled`;
+    expect(userFacingBrowserError(raw)).toBe("Windows administrator approval was cancelled. Try again and approve the ClawBrowser installer when Windows asks.");
+  });
+
   it("turns a Remote Control 404 into an actionable message without internals", () => {
     const raw = "detached Remote Control child failed: create Remote Session: unexpected status 404 Not Found: {\"message\":\"Not Found\"}; see log /Users/person/.nextbrowser/runtime/child.log [REMOTE_BACKEND_ERROR]";
     const message = userFacingBrowserError(new Error(raw));

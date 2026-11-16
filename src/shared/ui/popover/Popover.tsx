@@ -7,7 +7,7 @@ import "./popover.css";
 type TriggerProps = ButtonHTMLAttributes<HTMLButtonElement> & { ref: Ref<HTMLButtonElement> };
 
 /** Non-modal anchored surface. The caller owns content, state and product actions. */
-export function Popover({ label, open, onOpenChange, trigger, children, side = "bottom", align = "center", boundaryRef, openOnHover = false, className = "" }: {
+export function Popover({ label, open, onOpenChange, trigger, children, side = "bottom", align = "center", boundaryRef, openOnHover = false, dismissOnOutside = true, className = "" }: {
   label: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -17,6 +17,7 @@ export function Popover({ label, open, onOpenChange, trigger, children, side = "
   align?: "start" | "center" | "end";
   boundaryRef?: RefObject<HTMLElement>;
   openOnHover?: boolean;
+  dismissOnOutside?: boolean;
   className?: string;
 }) {
   const anchor = useRef<HTMLButtonElement>(null);
@@ -72,7 +73,9 @@ export function Popover({ label, open, onOpenChange, trigger, children, side = "
       if (event.target instanceof Node && !popup?.contains(event.target) && !button?.contains(event.target)) onOpenChange(false);
     };
     const key = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.isComposing) return;
+      if (event.key !== "Escape" || event.isComposing || event.defaultPrevented) return;
+      const modal = [...document.querySelectorAll('[aria-modal="true"]')].at(-1);
+      if (modal && !modal.contains(button)) return;
       // The expanded inline select owns the first Escape; the next dismisses us.
       if (event.target instanceof Element && event.target.closest('[role="combobox"][aria-expanded="true"]')) return;
       event.preventDefault(); event.stopPropagation(); onOpenChange(false);
@@ -80,16 +83,16 @@ export function Popover({ label, open, onOpenChange, trigger, children, side = "
     const focus = (event: FocusEvent) => {
       if (event.target instanceof Node && !popup?.contains(event.target) && !button?.contains(event.target)) onOpenChange(false);
     };
-    document.addEventListener("pointerdown", outside, true);
+    if (dismissOnOutside) document.addEventListener("pointerdown", outside, true);
     document.addEventListener("keydown", key, true);
-    document.addEventListener("focusin", focus);
+    if (dismissOnOutside) document.addEventListener("focusin", focus);
     return () => {
       document.removeEventListener("pointerdown", outside, true);
       document.removeEventListener("keydown", key, true);
       document.removeEventListener("focusin", focus);
       if (popup?.contains(document.activeElement) || document.activeElement === document.body) button?.focus();
     };
-  }, [open, onOpenChange]);
+  }, [open, onOpenChange, dismissOnOutside]);
   return <>
     {trigger({ ref: anchor, type: "button", "aria-haspopup": "dialog", "aria-expanded": open, "aria-controls": open ? id : undefined,
       onPointerEnter: openOnHover ? event => { if (event.pointerType !== "touch") enter(); } : undefined,

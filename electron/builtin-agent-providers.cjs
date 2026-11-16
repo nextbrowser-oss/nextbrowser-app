@@ -130,10 +130,24 @@ const TOOL_SUPPORT_REJECTED = /(?:does not|doesn't|do not|not)\s+support(?:ed)?\
 const CONTEXT_TOO_LONG = /context (?:length|window)|maximum context|too many tokens|prompt is too long|input is too long|reduce the length/i;
 
 /** Turns a provider's failed answer into a ProviderError the chat can show. */
-function classifyProviderFailure({ status, body, rawText, providerName, model, secret, retryAfter }) {
+function classifyProviderFailure({ status, body, rawText, provider, providerName, model, secret, retryAfter }) {
   const detail = redactSecrets(oneLine(providerMessage(body, rawText)), secret);
   const name = providerName || "The provider";
   const options = { status, expected: true };
+  if (provider === "openrouter") {
+    if (status === 401) {
+      return new ProviderError("auth", "Sign in again to Nextbrowser to use free OpenRouter models.", options);
+    }
+    if (status === 403) {
+      return new ProviderError("auth", "Your Nextbrowser account does not have access to free OpenRouter models.", options);
+    }
+    if (body?.code === "not_found" && status === 404) {
+      return new ProviderError("server", "Free OpenRouter models are not available on this Nextbrowser server yet.", { status });
+    }
+    if (body?.code === "openrouter_unavailable") {
+      return new ProviderError("server", "Free OpenRouter models are temporarily unavailable on the Nextbrowser server. Try again later.", { status });
+    }
+  }
   if (TOOL_SUPPORT_REJECTED.test(detail)) {
     return new ProviderError("no_tools", `The model “${model}” cannot call tools, and the Nextbrowser agent needs them to use the browser. Pick another model in Settings → Agent.`, options);
   }
@@ -227,12 +241,12 @@ function createProviderClient({ provider, providerName, baseURL, apiKey = "", fe
       }, { signal, timeoutMs, providerName: name });
       const parsed = parseJSON(text);
       if (!response.ok) {
-        throw classifyProviderFailure({ status: response.status, body: parsed, rawText: text.slice(0, ERROR_BODY_LIMIT), providerName: name, model: body.model, secret: apiKey, retryAfter: retryAfterMs(response) });
+        throw classifyProviderFailure({ status: response.status, body: parsed, rawText: text.slice(0, ERROR_BODY_LIMIT), provider, providerName: name, model: body.model, secret: apiKey, retryAfter: retryAfterMs(response) });
       }
       // OpenRouter answers some upstream failures with HTTP 200 and an error body.
       if (parsed?.error && !Array.isArray(parsed?.choices)) {
         const status = Number(parsed.error.code) || 502;
-        throw classifyProviderFailure({ status, body: parsed, rawText: "", providerName: name, model: body.model, secret: apiKey });
+        throw classifyProviderFailure({ status, body: parsed, rawText: "", provider, providerName: name, model: body.model, secret: apiKey });
       }
       const message = parsed?.choices?.[0]?.message;
       if (!message || typeof message !== "object") {
@@ -248,7 +262,7 @@ function createProviderClient({ provider, providerName, baseURL, apiKey = "", fe
       }, { signal, timeoutMs, providerName: name });
       const parsed = parseJSON(text);
       if (!response.ok) {
-        throw classifyProviderFailure({ status: response.status, body: parsed, rawText: text.slice(0, ERROR_BODY_LIMIT), providerName: name, model: "", secret: apiKey });
+        throw classifyProviderFailure({ status: response.status, body: parsed, rawText: text.slice(0, ERROR_BODY_LIMIT), provider, providerName: name, model: "", secret: apiKey });
       }
       const list = Array.isArray(parsed?.data) ? parsed.data : Array.isArray(parsed?.models) ? parsed.models : [];
       return list

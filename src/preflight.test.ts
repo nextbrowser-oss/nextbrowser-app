@@ -144,6 +144,13 @@ describe("mandatory proxy startup", () => {
     expect(commands().map((args) => args[4])).toEqual(["start"]);
     expect(onStep).toHaveBeenLastCalledWith("Browser verified");
   });
+  it.each([[true, "0"], [false, "1"]])("starts the right browser mode for Live (native: %s)", async (liveWindow, headless) => {
+    await prepareSession({ ...options, statuses: {}, verifyOnly: true, startupVerifies: true, forLive: true, liveWindow });
+    expect(nextctl.run).toHaveBeenCalledExactlyOnceWith(
+      ["--profile", "work", "--runtime", "clawbrowser", "start", "--format", "json", "--no-remote"],
+      { NBC_START_HEADLESS: headless }, { requestId: "profile-start:work" },
+    );
+  });
   it("cancels without restarting when the user stops the pending startup", async () => {
     let active = true;
     nextctl.json.mockImplementation(async () => { active = false; return failed; });

@@ -6,6 +6,11 @@ const { addChatWorkspaceProfile } = require("./chat-profile-scope.cjs");
 const { requireVerificationCapableCLI, verificationFailureDialogOptions, verificationFailureDialogChoice } = require("./verification-policy.cjs");
 const { agentLoginStatus } = require("./agent-login-status.cjs");
 const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage, screen, session, net } = require("electron");
+if (process.platform === "win32") {
+  // A native Live window sits beneath the shaped Electron host. The Windows
+  // DirectComposition swap chain can cover the holes in that host's region.
+  app.commandLine.appendSwitch("disable-direct-composition");
+}
 const { createMultiloginLogin } = require("./multilogin-login.cjs");
 const multiloginLogin = createMultiloginLogin({ BrowserWindow });
 const { autoUpdater } = require("electron-updater");
@@ -21,10 +26,36 @@ const fsSync = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { SCHEDULE_WORKER_ARG, hasEnabledSchedules, flushScheduleWindow } = require("./schedule-background.cjs");
+const { RESET_MARKER, deleteCloudWorkspaces, finishPendingWorkspaceReset } = require("./workspace-reset.cjs");
+const { createLiveWindowManager, managedBrowserPID, nativeLiveRuntime } = require("./live-window.cjs");
+const liveWindowHelper = app.isPackaged
+  ? path.join(process.resourcesPath, "live-window-helper.exe")
+  : path.join(__dirname, "..", "build", "live-window-helper.exe");
+const liveWindows = createLiveWindowManager({
+  helperPath: liveWindowHelper,
+  browserExecutable: async runtime => {
+    if (runtime === "dasbrowser") return childEnv().DASBROWSER_BIN;
+    if (runtime !== "camoufox") return childEnv().CLAWBROWSER_BIN;
+    const python = camoufoxVenvPython();
+    if (!fsSync.existsSync(python)) return null;
+    const result = await run(python, ["-c", "from camoufox.pkgman import camoufox_path, launch_path; print(launch_path(camoufox_path(download_if_missing=False)))"], {}, { timeoutMs: 5_000 });
+    const executable = result.stdout.trim().split(/\r?\n/).at(-1);
+    return result.code === 0 && executable && path.isAbsolute(executable) && fsSync.existsSync(executable) ? executable : null;
+  },
+  sessionPID: async (profile, runtime) => {
+    if (profile !== undefined && (typeof profile !== "string" || !profile.trim() || profile.length > 256)) return null;
+    const result = await executeNextctl(["--runtime", runtime, ...(profile ? ["--profile", profile] : []), "status", "--format", "json"], { timeoutMs: 8_000 });
+    if (result.code !== 0) return null;
+    return managedBrowserPID(JSON.parse(result.stdout).data, runtime);
+  },
+});
+let drainingLiveWindows = false;
 let scheduleWorker = process.argv.includes(SCHEDULE_WORKER_ARG);
 let scheduleQuitPreparation;
 let scheduleQuitPrepared = false;
 let restartForSchedules = false;
+let workspaceResetInProgress = false;
+const pendingDesktopCommands = new Set();
 const checkingWindowClose = new WeakSet();
 const allowedWindowClose = new WeakSet();
 const isDevPackage = app.isPackaged && require("../package.json").nextBrowserBuildChannel === "dev";
@@ -280,7 +311,7 @@ async function systemProxyIsLoopback() {
   ]);
   return routes.some((route) => !route.failed && isLoopbackProxyList(route.value));
 }
-const errorReporter = createClientErrorReporter({
+const errorReporterOptions = {
   dir: path.join(app.getPath("userData"), "client-errors"),
   allowed: errorReportingAllowed({ isDevBuild }),
   client: {
@@ -294,6 +325,10 @@ const errorReporter = createClientErrorReporter({
   getAction: () => reportingContext.getStore()?.action,
   fetchImpl: (...args) => systemProxy.fetch(...args),
   enrich: (event) => (wantsNetworkDiagnostics(event) ? networkDiagnostics.snapshot() : undefined),
+};
+let errorReporter = createClientErrorReporter({
+  ...errorReporterOptions,
+  allowed: errorReporterOptions.allowed && !fsSync.existsSync(path.join(dataDir(), RESET_MARKER)),
 });
 const backendFetch = tracedBackendFetch();
 setBackendClientInfo({ name: "nextbrowser-app", version: app.getVersion() });
@@ -311,14 +346,15 @@ const environmentCollector = createEnvironmentCollector({
   installedRuntimes: installedBrowserRuntimes,
   multiloginConnected,
 });
-const clientEnvironment = createClientEnvironment({
+const clientEnvironmentOptions = {
   dir: path.join(app.getPath("userData"), "client-environment"),
   allowed: clientEnvironmentAllowed({ isDevBuild }),
   installId: () => errorReporter.installId,
   resolveEndpoint: runtimeBackendEndpoint,
   collect: environmentCollector.collect,
   fetchImpl: backendFetch,
-});
+};
+let clientEnvironment = createClientEnvironment(clientEnvironmentOptions);
 let appQuitting = false;
 let quittingForUpdate = false;
 let quitFlushStarted = false;
@@ -704,6 +740,7 @@ function terminalAgentId(value) {
 }
 
 function home() { return os.homedir(); }
+function localAgentWorkspace() { return devStorage ? path.join(devStorage.userData, "agent-workspace") : agentWorkspaceDir(home()); }
 function legacyAppRuntimeRoot() { return path.join(app.getPath("userData"), "runtime"); }
 function nextbrowserRuntimeRoot() {
   if (devStorage) return devStorage.runtime;
@@ -1285,7 +1322,12 @@ async function ensureClawbrowserRuntime(nextctlBin, options = {}) {
     });
     const installed = resolveBrowserRuntime(runtimeOptions);
     if (!installed) {
-      const detail = (result.stderr || result.stdout || "Clawbrowser installation failed").trim();
+      // In JSON mode stdout carries the actual installer failure; stderr can
+      // end at the last progress line (for example, requesting elevation).
+      let reason = "";
+      try { reason = String(JSON.parse(result.stdout)?.error?.message || "").trim(); } catch {}
+      const diagnostics = [result.stderr?.trim(), result.stdout?.trim()].filter(Boolean).join("\n");
+      const detail = reason ? `Clawbrowser installation failed: ${reason}` : diagnostics || "Clawbrowser installation failed";
       throw result.code === 0 ? new Error(detail) : nbcResultError(result, new Error(detail));
     }
     setBrowserRuntimeInstallStatus("clawbrowser", "ready");
@@ -2276,7 +2318,70 @@ async function apiFetchJSON(baseURL, route, options = {}) {
 }
 
 async function invokeCommand(command, args = {}, sender) {
+  if (workspaceResetInProgress) throw userError("Nextbrowser is resetting its data.");
   switch (command) {
+    case "live_window_available":
+    case "live_window": {
+      const window = sender && BrowserWindow.fromWebContents(sender);
+      const available = process.platform === "win32" && !scheduleWorker && window &&
+        chromeWindows.has(window) && window.webContents === sender && fsSync.existsSync(liveWindowHelper);
+      if (command === "live_window_available") return !!available && nativeLiveRuntime(args.runtime);
+      if (!available || appQuitting) return null;
+      return liveWindows.handle(window, args);
+    }
+    case "live_start_page_url": {
+      const [page, logo] = await Promise.all([
+        fs.readFile(path.join(__dirname, "live-start-page.html"), "utf8"),
+        fs.readFile(path.join(__dirname, "..", app.isPackaged ? "dist" : "public", "nextbrowser-logo.svg")),
+      ]);
+      return "data:text/html;base64," + Buffer.from(page.replace("{{LOGO}}", logo.toString("base64"))).toString("base64");
+    }
+    case "workspace_emergency_reset": {
+      const window = sender && BrowserWindow.fromWebContents(sender);
+      if (!window || !chromeWindows.has(window) || window.webContents !== sender || args.confirmation !== "DROP") {
+        throw userError("Type DROP in the emergency reset dialog to confirm.");
+      }
+      workspaceResetInProgress = true;
+      try {
+        cancelAllCommands();
+        for (const child of children.values()) child.kill();
+        for (const run of builtinAgentRuns.values()) run.abort();
+        for (const terminal of terminals.values()) terminal.process.kill();
+        agentControlScopes.clear();
+        agentControlArtifactScopes.clear();
+        cancelAllAutomationRecipes();
+        cancelAllAutomationElementPicks();
+        cancelAllAutomationPageRecordings();
+        // Drain writes already accepted before blocking new renderer commands.
+        const drained = await new Promise(resolve => {
+          const timeout = setTimeout(() => resolve(false), 30_000);
+          void Promise.allSettled(pendingDesktopCommands).then(() => {
+            clearTimeout(timeout);
+            resolve(true);
+          });
+        });
+        if (!drained) throw userError("Some Nextbrowser operations are still running. Close them and retry the reset.");
+        const configFile = path.join(nextbrowserRuntimeRoot(), "config", "config.json");
+        const saved = await fs.readFile(configFile, "utf8").catch(error => {
+          if (error.code === "ENOENT") return "{}";
+          throw error;
+        });
+        if (JSON.parse(saved).api_key || args.connected === true) {
+          const env = childEnv();
+          await deleteCloudWorkspaces({ list: () => listWorkspaces({ env }), remove: id => deleteWorkspace(id, { env }) });
+        }
+        await writeFileAtomic(path.join(dataDir(), RESET_MARKER), "pending", { durable: true });
+        scheduleQuitPrepared = true;
+        restartForSchedules = false;
+        const restartArgs = process.argv.slice(1).filter(arg => arg !== SCHEDULE_WORKER_ARG && !arg.startsWith(`${DEEP_LINK_PROTOCOL}:`));
+        app.relaunch({ args: restartArgs });
+        app.quit();
+        return null;
+      } catch (error) {
+        workspaceResetInProgress = false;
+        throw error;
+      }
+    }
     case "github_stars": {
       return requestGitHubStars({ refresh: args.refresh === true });
     }
@@ -2883,7 +2988,7 @@ async function invokeCommand(command, args = {}, sender) {
         .replace(/-+/g, "-")
         .replace(/^-|-$/g, "")
         .slice(0, 96) || "terminal";
-      const attachmentDir = path.join(agentWorkspaceDir(home()), ".attachments", conversation);
+      const attachmentDir = path.join(localAgentWorkspace(), ".attachments", conversation);
       await fs.mkdir(attachmentDir, { recursive: true, mode: 0o700 });
       const files = [];
       let totalSize = 0;
@@ -2906,7 +3011,7 @@ async function invokeCommand(command, args = {}, sender) {
       return files;
     }
     case "remove_terminal_file": {
-      const workspace = agentWorkspaceDir(home());
+      const workspace = localAgentWorkspace();
       const attachmentRoot = path.resolve(workspace, ".attachments");
       const target = path.resolve(String(args.path || ""));
       const relative = path.relative(attachmentRoot, target);
@@ -2980,7 +3085,7 @@ async function invokeCommand(command, args = {}, sender) {
       // Agents walk parent directories for config/instruction files; inside
       // Library that can make macOS attribute unrelated TCC access requests
       // (Music, other apps' data, protected folders) to Nextbrowser.
-      const dir = agentWorkspaceDir(home());
+      const dir = localAgentWorkspace();
       await fs.mkdir(dir, { recursive: true });
       await ensureWorkspaceInstructions(dir);
       return dir;
@@ -2989,7 +3094,7 @@ async function invokeCommand(command, args = {}, sender) {
     // the UI shows what a skill recorded. The renderer never writes there: the
     // file belongs to the agent, and a write from here could overwrite a run.
     case "workspace_file_read": {
-      const file = path.join(agentWorkspaceDir(home()), safeName(args.name));
+      const file = path.join(localAgentWorkspace(), safeName(args.name));
       try {
         const content = await fs.readFile(file, "utf8");
         return content.length > MAX_WORKSPACE_FILE_BYTES ? content.slice(0, MAX_WORKSPACE_FILE_BYTES) : content;
@@ -3231,7 +3336,7 @@ async function invokeCommand(command, args = {}, sender) {
       await fs.writeFile(profileScopeFile, JSON.stringify(mcpProfileScope(profileScope, args.multiloginSelection)), "utf8");
       if (args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
       // Only the app's own workspace folder is trusted on the user's behalf.
-      const workspaceDir = agentWorkspaceDir(home());
+      const workspaceDir = localAgentWorkspace();
       if (resolvedAgentId === "claude" && args.workingDir && path.resolve(String(args.workingDir)) === workspaceDir) {
         // Skip Claude Code's first-run screens; a failure only leaves them showing.
         await prepareClaudeTerminalConfig({ workspaceDir, homeDir: home() }).catch(() => undefined);
@@ -3493,12 +3598,35 @@ function createWindow() {
       additionalArguments: process.platform === "darwin" ? [] : ["--nextbrowser-custom-caption"] },
   });
   chromeWindows.add(window);
+  if (process.platform === "win32") {
+    const syncLiveWindow = () => liveWindows.syncBounds(window);
+    window.on("move", syncLiveWindow);
+    window.on("resize", syncLiveWindow);
+    window.on("restore", syncLiveWindow);
+    window.on("minimize", syncLiveWindow);
+    window.on("hide", syncLiveWindow);
+    window.on("show", syncLiveWindow);
+    window.on("resized", syncLiveWindow);
+  }
+  let nativeWindowCloseReady = false;
+  let nativeWindowClosing = false;
   watchWindowState(window);
   window.once("ready-to-show", () => { if (!scheduleWorker) window.show(); });
   window.webContents.once("did-finish-load", () => {
     if (!scheduleWorker) window.webContents.send("schedule:foreground");
   });
   window.on("close", (event) => {
+    if (!nativeWindowCloseReady && liveWindows.hasWork(window)) {
+      event.preventDefault();
+      if (nativeWindowClosing) return;
+      nativeWindowClosing = true;
+      void liveWindows.close(window).catch(error => console.warn("[live-window]", error.message)).finally(() => {
+        nativeWindowCloseReady = true;
+        if (window.isDestroyed()) return;
+        window.close();
+      });
+      return;
+    }
     if (appQuitting || allowedWindowClose.has(window)) return;
     const mainWindows = BrowserWindow.getAllWindows().filter(candidate => chromeWindows.has(candidate));
     if (mainWindows.length !== 1) return;
@@ -3543,15 +3671,33 @@ function createWindow() {
       if (!window.isDestroyed()) window.close();
     });
   });
-  window.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: "deny" }; });
+  window.webContents.setWindowOpenHandler(({ url, frameName }) => {
+    if (url === "about:blank" && frameName === "nextbrowser-live-viewer") {
+      return { action: "allow", overrideBrowserWindowOptions: { autoHideMenuBar: true, minWidth: 420, minHeight: 280 } };
+    }
+    if (/^https?:/.test(url)) shell.openExternal(url);
+    return { action: "deny" };
+  });
+  window.webContents.on("did-create-window", (viewer, { frameName }) => {
+    if (frameName !== "nextbrowser-live-viewer") return;
+    viewer.webContents.on("will-navigate", (event) => event.preventDefault());
+    viewer.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    viewer.webContents.on("did-attach-webview", (_event, guest) => guest.setWindowOpenHandler(() => ({ action: "deny" })));
+  });
   window.webContents.on("did-attach-webview", (_event, webContents) => {
     webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   });
   const windowWebContentsId = window.webContents.id;
   window.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
-    if (isMainFrame && !isInPlace) killTerminalsForWebContents(windowWebContentsId);
+    if (isMainFrame && !isInPlace) {
+      killTerminalsForWebContents(windowWebContentsId);
+      if (liveWindows.hasWork(window)) void liveWindows.reset(window).catch(() => undefined);
+    }
   });
-  window.webContents.on("render-process-gone", () => killTerminalsForWebContents(windowWebContentsId));
+  window.webContents.on("render-process-gone", () => {
+    killTerminalsForWebContents(windowWebContentsId);
+    if (liveWindows.hasWork(window)) void liveWindows.reset(window).catch(() => undefined);
+  });
   window.on("closed", () => killTerminalsForWebContents(windowWebContentsId));
   const query = scheduleWorker ? { backgroundSchedule: "1" } : {};
   if (process.env.VITE_DEV_SERVER_URL) {
@@ -3648,7 +3794,21 @@ if (!gotLock) {
     openScheduledWorkerWindow();
     for (const arg of argv) handleDeepLink(arg);
   });
-  app.whenReady().then(() => {
+  const pendingReset = fsSync.existsSync(path.join(dataDir(), RESET_MARKER));
+  finishPendingWorkspaceReset({
+    userData: dataDir(),
+    sessionData: app.getPath("sessionData"),
+    runtime: nextbrowserRuntimeRoot(),
+    nextctl: managedNextctlRoot(),
+    workspace: localAgentWorkspace(),
+    protectedRoots: [home(), app.getPath("appData"), app.getAppPath()],
+  }).then(() => {
+    if (pendingReset) {
+      errorReporter = createClientErrorReporter(errorReporterOptions);
+      clientEnvironment = createClientEnvironment(clientEnvironmentOptions);
+    }
+    return app.whenReady();
+  }).then(() => {
     // Start the GitHub request before migrations and renderer loading. The
     // header joins this same request when it mounts.
     if (!scheduleWorker) void requestGitHubStars();
@@ -3678,10 +3838,12 @@ if (!gotLock) {
       app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
     }
     ipcMain.handle("nextbrowser:invoke", (event, command, args) => {
+      if ((command === "live_window" || command === "live_window_available") &&
+          event.senderFrame !== event.sender.mainFrame) return null;
       const action = /^[a-z0-9_]{1,64}$/.test(String(command)) ? command : "unknown";
       // nbc calls get their own, more specific breadcrumb from run().
       if (action !== "nextctl_run") errorReporter.breadcrumb("ipc", action);
-      return reportingContext.run({ action }, async () => {
+      const pending = reportingContext.run({ action }, async () => {
         try {
           return await invokeCommand(command, args, event.sender);
         } catch (error) {
@@ -3690,6 +3852,9 @@ if (!gotLock) {
           throw error;
         }
       });
+      if (command === "workspace_emergency_reset") return pending;
+      pendingDesktopCommands.add(pending);
+      return pending.finally(() => pendingDesktopCommands.delete(pending));
     });
     // Fire-and-forget reports from the app window; webviews have no say.
     const fromAppWindow = (event) => {
@@ -3713,7 +3878,7 @@ if (!gotLock) {
     // Fire-and-forget like error reports: messages from one window arrive in
     // order, and dragging the sidebar must not flood the IPC breadcrumbs.
     ipcMain.on("nextbrowser:settings-update", (event, patch) => {
-      if (!fromAppWindow(event)) return;
+      if (!fromAppWindow(event) || workspaceResetInProgress) return;
       appSettings().update(patch).catch((error) => console.warn("[app_settings] could not save settings", error));
     });
     createWindow();
@@ -3731,6 +3896,10 @@ if (!gotLock) {
     });
   }).catch(error => {
     logCrash("startup", { message: error.message });
+    if (fsSync.existsSync(path.join(dataDir(), RESET_MARKER))) {
+      dialog.showErrorBox("Nextbrowser data reset incomplete", "Close any running Nextbrowser browser profiles and reopen Nextbrowser to finish the reset.");
+      scheduleQuitPrepared = true;
+    }
     app.quit();
   });
 }
@@ -3748,6 +3917,20 @@ app.on("before-quit", (event) => {
     } else {
       void scheduleQuitPreparation.then(() => { if (!appQuitting) app.quit(); });
     }
+    return;
+  }
+  if (drainingLiveWindows) {
+    event.preventDefault();
+    return;
+  }
+  const liveHosts = BrowserWindow.getAllWindows().filter(window => liveWindows.hasWork(window));
+  if (liveHosts.length) {
+    event.preventDefault();
+    drainingLiveWindows = true;
+    void Promise.allSettled(liveHosts.map(window => liveWindows.close(window))).then(() => {
+      drainingLiveWindows = false;
+      app.quit();
+    });
     return;
   }
   appQuitting = true;
