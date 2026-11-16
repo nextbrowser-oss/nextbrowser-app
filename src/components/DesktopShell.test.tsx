@@ -75,7 +75,7 @@ it("groups extensions while keeping the remaining destinations and a single acti
   const buttons = screen.getAllByRole("button");
   expect(buttons).toHaveLength(4);
   for (const button of buttons) expect(button.querySelector("svg")?.style.strokeWidth).toBe("1.5");
-  const live = screen.getByRole("button", { name: "Open Live profiles" });
+  const live = screen.getByRole("button", { name: "Open Profiles" });
   expect(live.getAttribute("aria-current")).toBe("page");
   fireEvent.click(live);
   expect(select).toHaveBeenCalledWith("live");

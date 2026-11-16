@@ -30,3 +30,29 @@
 .live-session-preview small { position: absolute; inset: auto 8px 8px auto; padding: 4px 6px; border-radius: 6px; background: var(--panel); }
 .live-session-card-label { padding: 10px 12px; }
 .live-session-card-label small { color: var(--muted); }
+.live-session-card { position: relative; cursor: default; }
+.live-session-open { display: grid; padding: 0; border: 0; min-width: 0; width: 100%; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.live-session-card-label { padding-right: 48px; }
+.profile-card-settings { position: absolute; bottom: 12px; right: 10px; color: var(--text); }
+.live-session-open:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; border-radius: inherit; }
+.profile-actions-popover { width: 300px; max-height: calc(100vh - 32px); overflow: auto; --text: var(--glass-inverse-text); --muted: var(--glass-inverse-muted); --surface-2: var(--glass-inverse-control); }
+.live-sessions-header .shared-icon-button--glass { color: var(--glass-inverse-text); }
+.profile-actions-popover .profile-menu { width: auto; min-width: 0; padding: 6px; background: transparent; color: inherit; box-shadow: none; }
+.profile-actions-popover .profile-menu-head { gap: 6px; flex-wrap: wrap; }
+.profile-actions-popover .profile-menu-name { flex: 1; min-width: 100px; }
+.profile-actions-popover .muted { color: var(--glass-inverse-muted); }
+.profile-actions-popover .section.profile-menu-label { color: var(--glass-inverse-muted); margin-top: 12px; }
+.profile-actions-popover .profile-menu-head { border: 0; margin-bottom: 4px; padding-bottom: 4px; }
+.profile-actions-popover select, .profile-actions-popover .profile-connection-edit-button, .profile-actions-popover .rotate-btn { background: var(--glass-inverse-control); color: inherit; border: 0; }
+.personal-proxy-popover { width: 320px; max-height: calc(100vh - 32px); overflow: auto; --text: var(--glass-inverse-text); --muted: var(--glass-inverse-muted); }
+.personal-proxy-popover .personal-proxy-list { max-height: 50vh; }
+.personal-proxy-popover .personal-proxy-item { background: transparent; border: 0; }
+.personal-proxy-popover .personal-proxy-copy small, .personal-proxy-popover .personal-proxy-empty { color: var(--glass-inverse-muted); }
+.personal-proxy-popover .plain-icon-btn { color: inherit; }
+.personal-proxy-popover .personal-proxy-row { padding: 8px 0; }
+.proxy-import-file { color: var(--accent); cursor: pointer; }
+.proxy-import-file input { width: 1px; height: 1px; position: absolute; opacity: 0; }
+.account-profile-page { flex: 1; overflow: auto; min-height: 0; padding: 22px clamp(12px, 3vw, 36px); }
+.account-profile-summary { display: flex; align-items: center; gap: 16px; padding: 18px; background: var(--panel); border-radius: 16px; margin-bottom: 20px; }
+.account-profile-summary > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.account-profile-summary p { margin: 4px 0 0; }

@@ -5,12 +5,44 @@ import { afterEach, expect, it, vi } from "vitest";
 import { Popover } from "./index";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
+it("anchors a context menu to an existing card and restores keyboard focus on Escape", () => {
+  function ContextFixture() {
+    const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+    return <><button onContextMenu={event => { event.preventDefault(); setAnchor(event.currentTarget); }}>Card</button>
+      <Popover label="Card settings" open={!!anchor} anchorElement={anchor} onOpenChange={open => { if (!open) setAnchor(null); }} trigger={() => null}>
+        <button>Change connection</button>
+      </Popover></>;
+  }
+  render(<ContextFixture />);
+  const card = screen.getByRole("button", { name: "Card" });
+  fireEvent.contextMenu(card);
+  expect(screen.getByRole("dialog", { name: "Card settings" })).not.toBeNull();
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Change connection" }));
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(card);
+});
 function Fixture() {
   const [open, setOpen] = useState(false);
   return <><Popover label="Choices" open={open} onOpenChange={setOpen} trigger={props => <button {...props}>Open</button>}>
     <input aria-label="Query" /><button onClick={() => setOpen(false)}>Choose</button>
   </Popover><button>Outside</button></>;
 }
+it("keeps input focus when the owner rerenders with a new callback", () => {
+  function UpdatingFixture() {
+    const [open, setOpen] = useState(false);
+    const [value, setValue] = useState("");
+    return <Popover label="Editable menu" open={open} onOpenChange={next => setOpen(next)} trigger={props => <button {...props}>Edit</button>}>
+      <button>First action</button><input aria-label="Filter" value={value} onChange={event => setValue(event.target.value)} />
+    </Popover>;
+  }
+  render(<UpdatingFixture />);
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  const input = screen.getByRole("textbox", { name: "Filter" });
+  input.focus(); fireEvent.change(input, { target: { value: "country" } });
+  expect(document.activeElement).toBe(input);
+  expect(screen.getByRole("dialog")).not.toBeNull();
+});
 it("opens a portaled dialog with focus and an accessible relationship", () => {
   const { container } = render(<Fixture />);
   const button = screen.getByRole("button", { name: "Open" });

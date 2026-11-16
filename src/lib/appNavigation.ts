@@ -13,12 +13,13 @@ const APP_TAB_HISTORY_LIMIT = 50;
 export const OPEN_AGENT_SETTINGS_EVENT = "nextbrowser:open-agent-settings";
 
 const APP_TAB_LABELS: Record<AppTab, string> = {
+  account: "Profile",
   chat: "Chat",
   automation: "Automation",
   skills: "Skills",
   connectors: "Connectors",
   mcp: "MCP",
-  live: "Live",
+  live: "Profiles",
   usage: "Usage",
   guide: "Guide",
   scheduled: "Scheduled",

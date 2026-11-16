@@ -893,7 +893,7 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
       </>}
       {active && <LiveControls open={controlsOpen} onOpenChange={onControlsChange}>
         <div className="live-controls-navigation"><MainViewNavigation />{controlsAccessory}</div>
-        <IconButton appearance="plain" label="All Live sessions" text="All sessions" onClick={onOverview}><Glyph name="blocks" size={14} /></IconButton>
+        <IconButton appearance="plain" label="All Profiles" text="Profiles" onClick={onOverview}><Glyph name="blocks" size={14} /></IconButton>
         <div className="live-controls">
           <Select label="Browser profile" value={launchTarget} onChange={switchProfile}
             options={profileOptions.map(profile => ({

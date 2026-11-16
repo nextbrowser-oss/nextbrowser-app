@@ -142,17 +142,55 @@ try {
       if (!options?.forLive) throw new Error('Live must request a background browser start');
     }
   });
-  const railLive = page.getByRole('button', { name: 'Open Live sessions', exact: true });
-  const liveMenu = page.getByRole('dialog', { name: 'Live sessions', exact: true });
-  const liveGrid = page.getByRole('region', { name: 'Live sessions', exact: true });
+  const railLive = page.getByRole('button', { name: 'Open Profiles', exact: true });
+  const liveMenu = page.getByRole('dialog', { name: 'Profiles', exact: true });
+  const liveGrid = page.getByRole('region', { name: 'Profiles', exact: true });
   await railLive.hover();
-  await liveMenu.getByText('No active sessions').waitFor();
+  await liveMenu.getByRole('button', { name: /live-preview/ }).waitFor();
   assert.ok((await liveMenu.boundingBox()).x > (await railLive.boundingBox()).x + (await railLive.boundingBox()).width);
   await railLive.click();
-  await liveGrid.getByText('No active sessions').waitFor();
+  await liveGrid.getByRole('button', { name: 'Open live-preview' }).waitFor();
   assert.deepEqual(await page.evaluate(() => window.__liveFixture.launched), [], 'opening Live does not start a profile');
-  await liveGrid.getByRole('button', { name: 'New Live session' }).click();
-  await page.getByRole('dialog', { name: 'New Live session' }).getByRole('button', { name: /live-preview/ }).click();
+  const profileCard = liveGrid.getByRole('button', { name: 'Open live-preview', exact: true });
+  await profileCard.click({ button: 'right' });
+  const profileActions = page.getByRole('dialog', { name: 'Profile actions for live-preview', exact: true });
+  await profileActions.getByRole('button', { name: /Use in chat/ }).waitFor();
+  await profileActions.getByRole('combobox', { name: 'Rotate country' }).click();
+  await profileActions.getByPlaceholder('Search countries').fill('United');
+  await profileActions.getByRole('option', { name: /United States/ }).waitFor();
+  await profileActions.getByPlaceholder('Search countries').press('Escape');
+  await profileActions.waitFor();
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+    const labels = await profileActions.locator('.profile-menu-label').evaluateAll(nodes => nodes.map(node => {
+      const s = getComputedStyle(node); const probe = document.createElement('span');
+      probe.style.color = 'var(--glass-inverse-muted)'; node.append(probe);
+      const expected = getComputedStyle(probe).color; probe.remove();
+      return { actual: s.color, expected };
+    }));
+    for (const label of labels) assert.equal(label.actual, label.expected, 'profile labels use glass contrast tokens');
+    await page.screenshot({ path: `e2e-out/profiles-context-${theme}.png`, animations: 'disabled' });
+  }
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+  await profileActions.press('Escape');
+  await liveGrid.getByRole('button', { name: 'Settings for live-preview' }).click();
+  await profileActions.waitFor();
+  await profileActions.getByRole('button', { name: /Managed proxy.*Change connection/ }).click();
+  const connectionEditor = page.getByRole('dialog', { name: 'Change connection', exact: true });
+  await connectionEditor.waitFor();
+  await connectionEditor.press('Escape');
+  await profileCard.click({ button: 'right' });
+  await profileActions.getByRole('button', { name: 'Delete profile', exact: true }).click();
+  const deleteProfile = page.getByRole('dialog', { name: 'Delete profile "live-preview"?', exact: true });
+  await deleteProfile.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await profileCard.waitFor();
+  await liveGrid.getByRole('button', { name: 'Create browser profile', exact: true }).click();
+  const createBrowser = page.getByRole('dialog', { name: 'Create profile', exact: true });
+  await createBrowser.waitFor();
+  await createBrowser.press('Escape');
+  // The session's Live tab must open its browser directly, without passing through the grid.
+  await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().setTab('chat'));
+  await mainViews.getByRole('tab', { name: 'Open Live', exact: true }).click();
   const liveViewer = page.locator('.remote-live-webview');
   await liveViewer.waitFor();
   assert.deepEqual(await page.evaluate(() => [window.__liveFixture.launched, window.__liveFixture.streamed]), [['live-preview'], ['live-preview']]);
@@ -189,12 +227,12 @@ try {
   await liveControls.getByRole('button', { name: 'Stop', exact: true }).click();
   await liveViewer.waitFor({ state: 'detached' });
   assert.equal(await page.getByRole('button', { name: 'Resume Live', exact: true }).isVisible(), true);
-  await liveControls.getByRole('button', { name: 'All Live sessions' }).click();
+  await liveControls.getByRole('button', { name: 'All Profiles' }).click();
   const card = liveGrid.getByRole('button', { name: 'Open live-preview' });
   await card.locator('img').waitFor();
   await railLive.hover();
   await liveMenu.getByRole('searchbox').fill('missing');
-  await liveMenu.getByText('No matching sessions').waitFor();
+  await liveMenu.getByText('No matching profiles').waitFor();
   await liveMenu.getByRole('searchbox').fill('live-preview');
   await liveMenu.getByRole('button', { name: /live-preview/ }).waitFor();
   await railLive.click();
@@ -221,8 +259,6 @@ try {
     });
   });
   await mainViews.getByRole('tab', { name: 'Open Live', exact: true }).click();
-  await liveGrid.getByRole('button', { name: 'New Live session' }).click();
-  await page.getByRole('dialog', { name: 'New Live session' }).getByRole('button', { name: /Default browser/ }).click();
   const downloadLive = page.getByRole('button', { name: 'Download & start', exact: true });
   await downloadLive.waitFor();
   assert.deepEqual(await page.evaluate(() => window.__liveFixture.launched), ['live-preview'],
@@ -486,22 +522,37 @@ try {
   await page.locator(".sidebar-mini").getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("dialog", { name: "Settings", exact: true }).waitFor();
   await page.getByRole("button", { name: "Close settings", exact: true }).click();
-  await page.getByRole('button', { name: 'Manage profiles and proxies', exact: true }).click();
-  const tools = page.getByRole('dialog', { name: 'Profiles and proxies', exact: true });
-  await tools.waitFor();
-  assert.equal(await tools.getByRole('button', { name: 'Create project', exact: true }).count(), 0);
-  assert.equal(await tools.getByRole('tree', { name: 'Project folders' }).count(), 0);
-  await tools.getByRole('textbox', { name: 'Search profiles', exact: true }).waitFor();
-  await tools.getByRole('button', { name: 'Personal proxies' }).click();
+  await page.getByRole('button', { name: 'Open Profile', exact: true }).click();
+  await page.getByRole('region', { name: 'Profile', exact: true }).getByRole('heading', { name: 'Profile', exact: true }).waitFor();
+  assert.equal(await page.getByRole('dialog', { name: 'Profiles and proxies', exact: true }).count(), 0);
+  await page.screenshot({ path: 'e2e-out/account-profile.png' });
+  await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts');
+    useStore.setState({ personalProxies: [
+      { id: 'p1', name: 'Office', scheme: 'http', host: 'office.example', port: 8080 },
+      { id: 'p2', name: 'Home', scheme: 'socks5', host: 'home.example', port: 1080 },
+    ], loadPersonalProxies: async () => {} });
+  });
+  const proxyRail = page.getByRole('button', { name: 'Personal proxy', exact: true });
+  await proxyRail.hover();
   const personalProxies = page.getByRole('dialog', { name: 'Personal proxies', exact: true });
-  await personalProxies.getByRole('button', { name: 'Add proxies', exact: true }).click();
-  await page.getByRole('button', { name: 'Bulk', exact: true }).click();
+  await personalProxies.getByRole('searchbox', { name: 'Search personal proxies' }).fill('office');
+  await personalProxies.getByText('Office', { exact: true }).waitFor();
+  assert.equal(await personalProxies.getByText('Home', { exact: true }).count(), 0);
+  await page.screenshot({ path: 'e2e-out/personal-proxy-search.png' });
+  await personalProxies.getByRole('button', { name: 'Create proxy', exact: true }).click();
+  const createProxy = page.getByRole('dialog', { name: 'Create proxy', exact: true });
+  await createProxy.getByRole('button', { name: 'Close', exact: true }).click();
+  await proxyRail.click();
+  await personalProxies.getByRole('button', { name: 'Import proxies', exact: true }).click();
   const bulkImport = page.getByRole('dialog', { name: 'Add proxies', exact: true });
-  await bulkImport.getByRole('textbox', { name: /Proxy list/ }).fill('http://proxy-one.example:8080\nsocks5://proxy-two.example:1080');
+  await bulkImport.locator('input[type=file]').setInputFiles({ name: 'proxies.txt', mimeType: 'text/plain', buffer: Buffer.from('http://proxy-one.example:8080\nsocks5://proxy-two.example:1080') });
   await bulkImport.getByText('2 valid', { exact: true }).waitFor();
+  await bulkImport.getByRole('textbox', { name: /Proxy list/ }).fill('bad proxy');
+  await bulkImport.getByText('1 need attention', { exact: true }).waitFor();
+  assert.equal(await bulkImport.getByRole('button', { name: 'Create proxy', exact: true }).isDisabled(), true);
   await bulkImport.getByRole('button', { name: 'Close', exact: true }).click();
-  await tools.getByRole('button', { name: 'Close Profiles and proxies' }).click();
-  await tools.waitFor({ state: 'detached' });
+  await openExtension('Skills');
   await page.setViewportSize({ width: 960, height: 640 });
   assert.equal(await page.locator(".skills-root").evaluate((node) => node.scrollWidth <= node.clientWidth + 1), true);
   await tabs.getByRole("tab", { name: "All skills", exact: true }).press("End");

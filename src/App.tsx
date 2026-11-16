@@ -1,3 +1,4 @@
+import { AccountProfileView } from "./components/AccountProfileView";
 import { glassSurfaceClassName, IconButton, Tooltip } from "./shared/ui";
 import { addPendingRuntimeInstall, downloadableBrowsers, runtimeInstalling } from "./lib/settingsUpdates";
 import { RuntimeInstallationProgress } from "./components/RuntimeInstallationProgress";
@@ -1627,7 +1628,6 @@ export function App() {
           liveDestination={<LiveSessionsPopover key={activeWorkspaceId} sessions={liveSessions} selected={tab === "live"}
             onOverview={showLiveOverview} onOpen={openLiveSession} />}
           settingsAttention={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)}
-          footerAccessory={!uiScaleFloatingHidden ? <UIScaleControl inline value={uiScale} onChange={setUiScale} onDismiss={dismissUiScaleFloating} /> : undefined}
         />
       </aside>
       <main className={"content" + (tab === "chat" ? " content-chat" : "")}>
@@ -1665,6 +1665,7 @@ export function App() {
               controlsOpen={liveControlsOpen} onControlsChange={setLiveControlsOpen} onOverview={showLiveOverview}
               controlsAccessory={<>{backgroundTaskPills}{feedbackAvailable && <FeedbackButton onClick={() => setFeedbackOpen(true)} />}</>} />
           </div>
+          {tab === "account" && <AccountProfileView accessory={!uiScaleFloatingHidden ? <UIScaleControl inline value={uiScale} onChange={setUiScale} onDismiss={dismissUiScaleFloating} /> : undefined} />}
           {tab === "usage" && <UsageView />}
           {tab === "guide" && <GuideView onOpenAgentSettings={() => openSettings("agent")} />}
         </div>

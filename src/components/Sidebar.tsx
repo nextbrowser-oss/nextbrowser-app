@@ -1,6 +1,8 @@
-import { Dialog, Glyph, Tooltip } from "../shared/ui";
+import { Dialog, Glyph, Popover, Select, Tooltip } from "../shared/ui";
+import { PersonalProxyNavigation } from "./PersonalProxyNavigation";
+import { PROFILE_ACTIONS_EVENT } from "../lib/profileNavigation";
 import { RecentProjects } from "./RecentProjects";
-import { type DragEvent, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { personalProxyUsers, useStore, type ManualProxyProfileInput } from "../store";
 import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
@@ -13,16 +15,14 @@ import { Icon, Spinner } from "./Icon";
 import { withLocalScripts } from "../skillsCatalog";
 import { countryFlag, countryLabel, ROTATION_COUNTRIES } from "../lib/countryFlag";
 import { guideProfileTarget, guideWorkspaceProfileNames } from "../lib/guideQuickStart";
-import { profileRowStatusText } from "../lib/profileRowStatus";
 import { manualProxyDefaultName, manualProxyLimits, parseManualProxyBatch, parseManualProxyClipboard, validateManualProxyFields, type ManualProxyScheme } from "../lib/manualProxy";
 import { actionFailureMessage, internalError } from "../lib/userFacingError";
 import { userFacingBrowserError } from "../lib/userFacingBrowserError";
 import { vpnSystemProxyHint } from "../lib/systemProxyHint";
-import { isProxyTrafficExhaustedError, isProxyTrafficGateMessage, proxyTrafficLaunchRefusedMessage } from "../lib/proxyTraffic";
+import { isProxyTrafficExhaustedError, proxyTrafficLaunchRefusedMessage } from "../lib/proxyTraffic";
 import { MULTILOGIN_APP_NOT_RUNNING, MULTILOGIN_TOKEN_EXPIRED, userFacingMultiloginError } from "../lib/userFacingMultiloginError";
 import { openMultiloginApp } from "../lib/multiloginApp";
 import { entityNameLimits, validateEntityName } from "../lib/entityValidation";
-import { workspaceHasNoLocalProfiles } from "../lib/workspaceProfiles";
 import { cancelNextctlRun } from "../nextctl";
 import { type AppTab, type BrowserWorkflowAction, type BrowserWorkflowSkill } from "../types";
 import { CountrySelect } from "./CountrySelect";
@@ -35,7 +35,6 @@ import { invoke, listen } from "../electronBridge";
 import { uid } from "../lib/ids";
 import { getPreviewMode } from "../preview";
 import {
-  clearMultiloginSelection,
   multiloginSelectionForWorkspace,
   setMultiloginSelection,
   MULTILOGIN_SELECTION_EVENT,
@@ -94,14 +93,13 @@ function multiloginCreationError(error: unknown, kind: MultiloginProfileKind): s
 interface SidebarProps {
   onOpenSettings: () => void;
   settingsAttention?: boolean;
-  /** Optional compact controls next to Settings, e.g. the interface size control. */
-  footerAccessory?: ReactNode;
+  /** Profiles rail destination, including the hover preview. */
   liveDestination: ReactNode;
 }
 
-export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, liveDestination }: SidebarProps) {
+export function Sidebar({ onOpenSettings, settingsAttention, liveDestination }: SidebarProps) {
   const s = useStore();
-  const [managerOpen, setManagerOpen] = useState(false);
+  const [automationStatusOpen, setAutomationStatusOpen] = useState(false);
   const [projectsMenuOpen, setProjectsMenuOpen] = useState(false);
   useEffect(() => {
     const projects = () => setProjectsMenuOpen(true);
@@ -118,6 +116,18 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
     return () => { window.removeEventListener("nextbrowser:open-projects", projects); window.removeEventListener("nextbrowser:create-workspace", create); window.removeEventListener("nextbrowser:delete-workspace", remove); };
   }, []);
   const [menuProfile, setMenuProfile] = useState<string | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    const open = (event: Event) => {
+      const { name, anchor } = (event as CustomEvent<{ name: string; anchor: HTMLElement }>).detail;
+      if (!useStore.getState().workspaces.find(w => w.id === useStore.getState().activeWorkspaceId)?.profileNames.includes(name)) return;
+      setMenuAnchor(anchor); setMenuProfile(name); setProfileMoveError(null);
+    };
+    window.addEventListener(PROFILE_ACTIONS_EVENT, open);
+    return () => window.removeEventListener(PROFILE_ACTIONS_EVENT, open);
+  }, []);
+  useEffect(() => { setMenuProfile(null); }, [s.activeWorkspaceId]);
+  useEffect(() => { if (s.tab !== "live") setMenuProfile(null); }, [s.tab]);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [profileDeleting, setProfileDeleting] = useState(false);
   const [profileDeleteError, setProfileDeleteError] = useState<string | null>(null);
@@ -175,10 +185,6 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [chatDeleteError, setChatDeleteError] = useState<string | null>(null);
   const [chatDeleting, setChatDeleting] = useState(false);
-  const [dragOverProfileName, setDragOverProfileName] = useState<string | null>(null);
-  const [profileGuideFocus, setProfileGuideFocus] = useState(false);
-  const [logoutPending, setLogoutPending] = useState(false);
-  const [logoutError, setLogoutError] = useState<string | null>(null);
   const [activeRecording, setActiveRecording] = useState<ActiveAutomationRecording | undefined>(activeAutomationRecording);
   const [recordingClock, setRecordingClock] = useState(Date.now());
   const [recordingStopping, setRecordingStopping] = useState(false);
@@ -190,19 +196,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
   const [automationExecutionError, setAutomationExecutionError] = useState<string>();
   const profileCreateRequestRef = useRef<string | null>(null);
   const createdProfileRequests = useRef(new Map<string, string>());
-  const profileListRef = useRef<HTMLDivElement | null>(null);
-  const profilesCardRef = useRef<HTMLDivElement | null>(null);
-  const profilesSectionRef = useRef<HTMLElement | null>(null);
-  const guideFocusFrameRef = useRef(0);
-  const guideFocusTimerRef = useRef(0);
 
-  // Picking the workspace's Multilogin profile makes it the target for chat,
-  // Live, and automation, like selecting a regular profile.
-  const activateWorkspaceMultilogin = (selection: MultiloginProfileSelection) => {
-    if (!s.activeWorkspaceId) return;
-    s.selectProfile(undefined);
-    setMultiloginSelection(s.activeWorkspaceId, { ...selection, active: true });
-  };
   // Resolves with the message shown for a failure, or undefined on success.
   const runProfileAction = (label: string, code: string, action: () => Promise<void>): Promise<string | undefined> => {
     setProfileActionError(null);
@@ -348,34 +342,13 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
     return () => window.removeEventListener("keydown", dismissChatDelete);
   }, [confirmDeleteChat]);
 
-  const searchQuery = s.profileSearch.trim();
-  const normalizedSearch = searchQuery.toLowerCase();
   const profiles = s.profiles;
   const projects = s.conversations.filter((project) => project.workspaceId === s.activeWorkspaceId)
     .sort((a, b) => b.updatedAt - a.updatedAt);
-  const activeProject = s.activeConversation();
   const activeWorkspace = s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId);
   const workspaceToDelete = s.workspaces.find(workspace => workspace.id === workspaceDeleteId);
   const projectsToDelete = workspaceToDelete ? s.conversations.filter(project => project.workspaceId === workspaceToDelete.id).length : 0;
   const manualProxyBatch = useMemo(() => parseManualProxyBatch(manualProxyBulk), [manualProxyBulk]);
-  const profileWorkspaceEntries = (activeWorkspace?.profileNames ?? []).flatMap((name) => {
-    const profile = profiles.find((item) => item.name === name);
-    if (!profile) return [];
-    const owner = s.conversations.find((project) => project.id === s.profileChatOwners[name]);
-    return {
-      profile,
-      owner,
-      toolset: activeWorkspace?.profileToolsets[name] ?? "clawbrowser" as const,
-    };
-  });
-  const profileDisplayNameCounts = new Map<string, number>();
-  for (const { profile } of profileWorkspaceEntries) {
-    const displayName = profile.display_name || profile.name;
-    profileDisplayNameCounts.set(displayName, (profileDisplayNameCounts.get(displayName) || 0) + 1);
-  }
-  const visibleWorkspaceProfiles = normalizedSearch
-    ? profileWorkspaceEntries.filter(({ profile }) => (profile.display_name || profile.name).toLowerCase().includes(normalizedSearch))
-    : profileWorkspaceEntries;
   // The Guide picks its target from the same list, so a workspace entry whose
   // profile was deleted can never become the profile a Guide step starts.
   const guideProfileNames = guideWorkspaceProfileNames(s.activeWorkspaceId, s.workspaces, profiles);
@@ -410,13 +383,6 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
   const showDefaultProfile = !!activeWorkspace?.profileNames.includes("__default") && defaultKnown &&
     !defaultSessionDuplicate &&
     !s.profiles.some((p) => p.name === "default");
-  const visibleProfileCount = profileWorkspaceEntries.length;
-  const multiloginRow = workspaceMultilogin
-    && (!normalizedSearch || workspaceMultilogin.name.toLowerCase().includes(normalizedSearch))
-    ? workspaceMultilogin
-    : undefined;
-  const workspaceProfileCount = visibleProfileCount + (workspaceMultilogin ? 1 : 0);
-  const noLocalProfiles = workspaceProfileCount === 0 && workspaceHasNoLocalProfiles(s);
   const multiloginBrowserProfiles = multiloginStatus?.browserProfiles ?? [];
   const multiloginCloudPhones = multiloginStatus?.cloudPhones ?? [];
   const multiloginKindProfiles = multiloginKind === "browser" ? multiloginBrowserProfiles : multiloginCloudPhones;
@@ -429,7 +395,6 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
     : undefined;
   const multiloginReady = multiloginConnected(multiloginStatus);
   const multiloginExisting = profileToolset === "multilogin" && multiloginMode === "existing";
-  const multiloginRowStatus = workspaceMultilogin ? s.multiloginStatuses[workspaceMultilogin.id] : undefined;
   const proxyCountries = s.proxyCountries.length ? s.proxyCountries : ROTATION_COUNTRIES;
   const recordingWorkspace = activeRecording ? s.workspaces.find((workspace) => workspace.id === activeRecording.workspaceId) : undefined;
   const automationExecutionWorkspace = automationExecution ? s.workspaces.find((workspace) => workspace.id === automationExecution.workspaceId) : undefined;
@@ -786,36 +751,8 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
   }, []);
 
   useEffect(() => {
-    if (!managerOpen || !s.selectedProfile) return;
-    const frame = window.requestAnimationFrame(() => {
-      profileListRef.current?.querySelector<HTMLElement>(".profile-row.selected")?.scrollIntoView({ block: "nearest" });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [managerOpen, s.selectedProfile, visibleWorkspaceProfiles.length]);
-
-  // The highlight outlives this effect on purpose. Its dependency list contains
-  // polled state, so keeping the timer inside meant a status refresh could clear
-  // it mid-flight and leave the panel lit up for good.
-  useEffect(() => () => {
-    window.cancelAnimationFrame(guideFocusFrameRef.current);
-    window.clearTimeout(guideFocusTimerRef.current);
-  }, []);
-
-  useEffect(() => {
     const focusProfiles = () => {
-      setManagerOpen(true);
-      s.setProfileSearch("");
-      setProfileGuideFocus(false);
-      window.cancelAnimationFrame(guideFocusFrameRef.current);
-      window.clearTimeout(guideFocusTimerRef.current);
-      // Restart the highlight on the next frame so a repeat click still
-      // flashes: re-adding a class that is already there animates nothing.
-      guideFocusFrameRef.current = window.requestAnimationFrame(() => {
-        setProfileGuideFocus(true);
-        (profilesSectionRef.current ?? profilesCardRef.current ?? profileListRef.current)
-          ?.scrollIntoView({ block: "center", behavior: "smooth" });
-        guideFocusTimerRef.current = window.setTimeout(() => setProfileGuideFocus(false), 2_400);
-      });
+      s.setProfileSearch(""); s.showLiveOverview();
     };
     const openCreator = () => {
       focusProfiles();
@@ -828,7 +765,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
     const openActions = () => {
       focusProfiles();
       const profile = guideProfileTarget(s.selectedProfile, guideProfileNames, showDefaultProfile);
-      if (profile && profile !== "__default") setMenuProfile(profile);
+      if (profile) { setMenuAnchor(null); setMenuProfile(profile); }
     };
     const startSelectedProfile = () => {
       focusProfiles();
@@ -946,19 +883,6 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
         const message = userFacingBrowserError(error);
         setProxyTestResults((current) => ({ ...current, [id]: { status: "fail", detail: message } }));
       });
-  };
-
-  const logout = async () => {
-    if (logoutPending) return;
-    setLogoutPending(true);
-    setLogoutError(null);
-    try {
-      await s.logout();
-    } catch {
-      setLogoutError(internalError("We couldn't sign you out.", "ACCOUNT_SIGN_OUT_FAILED"));
-    } finally {
-      setLogoutPending(false);
-    }
   };
 
   const closeProfileCreator = () => {
@@ -1290,16 +1214,122 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
     }
   };
 
+  const personalProxyList = (query: string) => {
+    const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const filtered = s.personalProxies.filter(proxy => words.every(word => `${proxy.name} ${proxy.host} ${proxy.port} ${proxy.scheme}`.toLowerCase().includes(word)));
+    return <>{!s.authed && <button type="button" onClick={() => s.setDashboardKeyPromptOpen(true)}>Sign in to load your proxies</button>}
+                {filtered.length ? (
+                  <div className="personal-proxy-list">
+                    {filtered.map((proxy) => {
+                      const test = proxyTestResults[proxy.id];
+                      const testTitle = test?.status === "testing"
+                        ? "Testing…"
+                        : test
+                          ? test.detail
+                          : `Test ${proxy.name}`;
+                      return (
+                        <div className="personal-proxy-item" key={proxy.id}>
+                        <div className="personal-proxy-row">
+                          <span className="personal-proxy-icon"><Icon name="network" size={13} /></span>
+                          <span className="personal-proxy-copy">
+                            <strong>{proxy.name}</strong>
+                            <small>{proxy.scheme.toUpperCase()} · {proxy.host}:{proxy.port}</small>
+                          </span>
+                          <Tooltip content={testTitle}><button
+                            type="button"
+                            className={"plain-icon-btn plain-icon-btn-compact proxy-test-btn" + (test ? ` proxy-test-${test.status}` : "")}
+                            aria-label={testTitle}
+                            disabled={test?.status === "testing"}
+                            onClick={() => runProxyTest(proxy.id)}
+                          >
+                            {test?.status === "testing"
+                              ? <Spinner size={13} />
+                              : <Icon name={test?.status === "ok" ? "hand.thumbsup.fill" : test?.status === "fail" ? "hand.thumbsdown.fill" : "bolt.fill"} size={13} />}
+                          </button></Tooltip>
+                          <Tooltip content={`Delete ${proxy.name}`}><button
+                            type="button"
+                            className="plain-icon-btn plain-icon-btn-compact"
+                            aria-label={`Delete ${proxy.name}`}
+                            onClick={() => setManualProxyDeleting(proxy.id)}
+                          >
+                            <Icon name="trash" size={13} />
+                          </button></Tooltip>
+                        </div>
+                        <PersonalProxyTestStatus test={test} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="personal-proxy-empty">
+                    <Icon name="network" size={20} />
+                    <strong>{query.trim() ? "No matching proxies" : "No personal proxies yet"}</strong>
+                    <span>{query.trim() ? "Try a different name or host." : "Create one and reuse it across browser profiles."}</span>
+                  </div>
+                )}
+                {manualProxyDeleting && (() => {
+                  const proxy = s.personalProxies.find((item) => item.id === manualProxyDeleting);
+                  if (!proxy) return null;
+                  const proxyUsers = personalProxyUsers(s.workspaces, proxy.id);
+                  return (
+                    <div className="personal-proxy-delete-confirm" role="alert">
+                      <span>{proxyUsers.length
+                        ? `“${proxy.name}” is used by ${proxyUsers.join(", ")}. Change their connection before deleting it.`
+                        : `Delete “${proxy.name}” from this device?`}</span>
+                      <div className="row">
+                        <button type="button" className="secondary" disabled={manualProxyDeletePending} onClick={() => setManualProxyDeleting(null)}>Cancel</button>
+                        <button
+                          type="button"
+                          className="primary danger"
+                          disabled={manualProxyDeletePending || proxyUsers.length > 0}
+                          onClick={() => {
+                            setManualProxyDeletePending(true);
+                            void s.deletePersonalProxy(proxy.id)
+                              .then(() => {
+                                if (profilePersonalProxyId === proxy.id) setProfilePersonalProxyId("");
+                                setManualProxyDeleting(null);
+                              })
+                              .catch((error: unknown) => {
+                                console.error("[PERSONAL_PROXY_DELETE_FAILED]", error);
+                                setManualError(internalError("We couldn't delete the proxy.", "PERSONAL_PROXY_DELETE_FAILED"));
+                                void s.loadPersonalProxies().catch(() => undefined);
+                              })
+                              .finally(() => setManualProxyDeletePending(false));
+                          }}
+                        >
+                          {manualProxyDeletePending ? <Spinner size={13} /> : "Delete"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+                {manualError && (
+                  <div className="error manual-proxy-error">
+                    <UserFacingError message={manualError} surface="manual_proxy" />
+                  </div>
+                )}
+    </>;
+  };
+
   return <>
     <div className="sidebar-mini">
       <div className="sidebar-destinations is-compact"><RecentProjects open={projectsMenuOpen} onOpenChange={setProjectsMenuOpen} /></div>
+      <div className="sidebar-destinations is-compact"><PersonalProxyNavigation count={s.personalProxies.length}
+        onLoad={() => { if (s.authed) void s.loadPersonalProxies().catch(() => setManualError("Could not load proxies. Try opening the list again.")); }}
+        onCreate={bulk => {
+          if (!s.authed) { s.setDashboardKeyPromptOpen(true); return; }
+          resetManualProxyForm(); setManualProxyMode(bulk ? "bulk" : "url");
+          setManualProxyEditing(true); setManualProxyOpen(true);
+        }} renderList={query => personalProxyList(query)} /></div>
       <SidebarNavigation collapsed tab={s.tab} modal={s.utilityDialog} badgeFor={badgeFor} onSelect={s.setTab} liveDestination={liveDestination} />
-      {activeRecording && <Tooltip content={recordingMiniLabel} side="right"><button className="mini-nav-btn mini-recording-control recording" aria-label="Open active recording" onClick={openRecorder}><Icon name="circle.fill" size={18} /></button></Tooltip>}
+      {activeRecording && <Tooltip content={recordingMiniLabel} side="right"><button className="mini-nav-btn mini-recording-control recording" aria-label="Open active recording" onClick={() => setAutomationStatusOpen(true)}><Icon name="circle.fill" size={18} /></button></Tooltip>}
+      {automationExecution && !activeRecording && <Tooltip content="Automation status" side="right"><button className="mini-nav-btn" aria-label="Automation status" onClick={() => setAutomationStatusOpen(true)}><Icon name="play.fill" size={18} /></button></Tooltip>}
       <span className="spacer" />
-      <Tooltip content="Profiles and proxies" side="right"><button className="sidebar-settings-button is-compact" aria-label="Manage profiles and proxies" onClick={() => setManagerOpen(true)}><Glyph name="users" /><span>Profiles</span></button></Tooltip>
+      <Tooltip content="Profile" side="right"><button className={"sidebar-settings-button is-compact" + (s.tab === "account" ? " active" : "")} aria-label="Open Profile" onClick={() => s.setTab("account")}><Glyph name="users" /><span>Profile</span></button></Tooltip>
       <SidebarSettingsButton collapsed attention={settingsAttention} onClick={onOpenSettings} />
     </div>
-    {managerOpen && <Dialog title="Profiles and proxies" className="workspace-tools utility-dialog" onClose={() => setManagerOpen(false)}>
+    {profileActionError && <Dialog title="Browser action failed" onClose={() => setProfileActionError(null)}><UserFacingError message={profileActionError} surface="profile_action" /></Dialog>}
+    {automationStatusOpen && <Dialog title="Automation status" className="workspace-tools utility-dialog" onClose={() => setAutomationStatusOpen(false)}>
     <div className="sidebar-shell">
       {activeRecording && <section className="sidebar-recording-control recording" aria-label={activeRecording.destination === "workflow" ? "Workflow recording in progress" : "Recording in progress"}>
         <div className="sidebar-recording-status"><span className="sidebar-recording-dot" /><div><strong>{activeRecording.destination === "workflow" ? "Recording a workflow" : "Recording in progress"}</strong><small>{recordingWorkspace?.name || "Current workspace"} · {recordingDestinationLabel}</small><small>{recordingDuration(activeRecording.startedAt, recordingClock)} elapsed</small></div></div>
@@ -1314,214 +1344,6 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
         <div className="sidebar-recording-actions"><button onClick={openAutomationExecution}>Open</button>{["completed", "failed", "cancelled"].includes(automationExecutionState.phase) ? <button onClick={clearActiveAutomationExecution}>Dismiss</button> : <button className="stop" disabled={automationExecution.phase === "stopping"} onClick={() => void stopAutomationExecution()}>{automationExecution.phase === "stopping" ? <Spinner size={11} /> : <Icon name="stop.fill" size={11} />} {automationExecution.phase === "stopping" ? "Stopping" : "Stop"}</button>}</div>
         {automationExecutionError && <small className="sidebar-recording-error" role="alert">{automationExecutionError}</small>}
       </section>}
-
-      <div className="sidebar-scroll sidebar-nav-list">
-        <div ref={profilesCardRef} className={"claw-card control-card profiles-card" + (profileGuideFocus ? " guide-focus" : "")}>
-          <Tooltip content="Create or manage personal proxies"><button
-            className="proxy-manager-entry"
-            onClick={() => {
-              if (!s.authed) {
-                s.setDashboardKeyPromptOpen(true);
-                return;
-              }
-              resetManualProxyForm();
-              setManualProxyEditing(false);
-              setManualProxyDeleting(null);
-              setManualProxyOpen(true);
-              void s.loadPersonalProxies().catch(() => undefined);
-            }}
-          >
-            <Icon name="network" size={13} />
-            <span>Personal proxies</span>
-            {s.personalProxies.length > 0 && <span className="workspace-count">{s.personalProxies.length}</span>}
-          </button></Tooltip>
-
-          <div className="search-box">
-            <Icon name="magnifyingglass" size={12} className="muted" />
-            <input
-              className="search-inline"
-              placeholder="Search profiles"
-              aria-label="Search profiles"
-              value={s.profileSearch}
-              onChange={(e) => s.setProfileSearch(e.target.value)}
-            />
-            {s.profileSearch && (
-              <Tooltip content="Clear search"><button
-                className="plain-icon-btn plain-icon-btn-compact"
-                onClick={() => s.setProfileSearch("")}
-              >
-                <Icon name="xmark.circle.fill" size={14} className="muted" />
-              </button></Tooltip>
-            )}
-          </div>
-
-          <div className="profile-list workspace-content">
-            <section ref={profilesSectionRef} className={"workspace-section workspace-profiles is-open" + (profileGuideFocus ? " guide-focus" : "")}>
-              <div className="workspace-section-head">
-                <span className="workspace-section-label">
-                  <Icon name="person.2.fill" size={12} />
-                  <span>Profiles</span>
-                  <span className="workspace-count">{workspaceProfileCount}</span>
-                </span>
-                <span className="spacer" />
-                <Tooltip content="Create profile"><button
-                  className="workspace-create-action"
-                  aria-label="Create profile"
-                  disabled={s.isRefreshing || profileDeleting}
-                  onClick={() => openProfileCreator()}
-                >
-                  <Icon name={s.authed ? "plus" : "lock"} size={12} />
-                  <span>Create</span>
-                </button></Tooltip>
-              </div>
-              <div ref={profileListRef} className="workspace-profile-list">
-                {visibleWorkspaceProfiles.map(({ profile: p, owner, toolset }) => {
-                      const status = s.statuses[p.name] ?? "unknown";
-                      const running = status === "running";
-                      const busy = s.nextctlUpdating || ["starting", "stopping", "rotating"].includes(status);
-                      const selected = s.selectedProfile === p.name;
-                      const occupiedByOther = running && !!owner && owner.id !== activeProject?.id;
-                      const manual = p.proxy_mode === "manual" && p.manual_proxy;
-                      const identity = s.profileIdentities[p.name];
-                      return (
-                        <ProfileRow
-                          key={p.name} name={p.name} displayName={profileDisplayNameCounts.get(p.display_name || p.name)! > 1 ? p.name : p.display_name || p.name} status={status} running={running} busy={busy || occupiedByOther} selected={selected}
-                          country={p.country ?? identity?.country} city={p.city ?? identity?.city} ip={identity?.ip}
-                          toolset={toolset} searchQuery={searchQuery}
-                          occupiedBy={occupiedByOther ? owner?.title ?? "Another chat" : undefined}
-                          manualScheme={manual ? p.manual_proxy?.scheme : undefined}
-                          manualTitle={manual ? `${p.manual_proxy?.host ?? ""}:${p.manual_proxy?.port ?? ""}` : undefined}
-                          draggable={!normalizedSearch}
-                          dragOver={dragOverProfileName === p.name}
-                          projectId={activeWorkspace?.id}
-                          onDragOverProfile={(event) => {
-                            const sourceWorkspace = event.dataTransfer.getData("application/x-nextbrowser-project");
-                            if (!activeWorkspace || (sourceWorkspace && sourceWorkspace !== activeWorkspace.id)) return;
-                            event.preventDefault();
-                            event.dataTransfer.dropEffect = "move";
-                            setDragOverProfileName(p.name);
-                          }}
-                          onDragLeaveProfile={() => setDragOverProfileName((current) => current === p.name ? null : current)}
-                          onDropProfile={(event) => {
-                            event.preventDefault();
-                            setDragOverProfileName(null);
-                            const sourceProfile = event.dataTransfer.getData("application/x-nextbrowser-profile");
-                            const sourceWorkspace = event.dataTransfer.getData("application/x-nextbrowser-project");
-                            if (!activeWorkspace || !sourceProfile || sourceWorkspace !== activeWorkspace.id) return;
-                            runProfileAction("We couldn’t save the profile order.", "PROFILE_ORDER_FAILED", () => s.reorderProfileInProject(activeWorkspace.id, sourceProfile, p.name));
-                          }}
-                          onSelect={() => s.selectProfile(selected ? undefined : p.name)}
-                          onStart={() => {
-                            if (occupiedByOther) return;
-                            runProfileAction("We couldn’t prepare this profile.", "PROFILE_ASSIGNMENT_FAILED", async () => {
-                              await s.assignProfileToProject(p.name, toolset, s.activeWorkspaceId);
-                              s.selectProfile(p.name);
-                              if (!activeProject) {
-                                s.openLiveSession(clawbrowserTargetKey(p.name));
-                                return;
-                              }
-                              s.setTab("chat");
-                              await startProfileWithConfirmation(p.name, toolset);
-                            });
-                          }}
-                          onStop={() => runProfileAction(`We couldn't stop “${p.name}”.`, "PROFILE_STOP_FAILED", () => s.stopProfile(p.name))}
-                          onLive={() => { s.selectProfile(p.name); s.openLiveSession(clawbrowserTargetKey(p.name)); }}
-                          onMenu={() => setMenuProfile(p.name)}
-                        />
-                      );
-                })}
-                {multiloginRow && (
-                  <ProfileRow
-                    key={multiloginRow.id} name={multiloginRow.name} status={multiloginStatusLabel(multiloginRowStatus)}
-                    metaOverride={`${multiloginStatusLabel(multiloginRowStatus)} · ${multiloginRow.kind === "mobile" ? "Cloud phone" : "Mimic browser"}`}
-                    running={multiloginRowStatus === "running"}
-                    busy={multiloginRowStatus === "starting" || multiloginRowStatus === "stopping"}
-                    selected={multiloginRow.active !== false && !s.selectedProfile}
-                    toolset="multilogin" searchQuery={searchQuery}
-                    external
-                    onSelect={() => activateWorkspaceMultilogin(multiloginRow)}
-                    onStart={() => {
-                      activateWorkspaceMultilogin(multiloginRow);
-                      void runProfileAction(`We couldn't start “${multiloginRow.name}”.`, "MULTILOGIN_START_FAILED", () => s.setMultiloginRunning(multiloginRow, true));
-                    }}
-                    onStop={() => void runProfileAction(`We couldn't stop “${multiloginRow.name}”.`, "MULTILOGIN_STOP_FAILED", () => s.setMultiloginRunning(multiloginRow, false))}
-                    onLive={() => { activateWorkspaceMultilogin(multiloginRow); s.openLiveSession(multiloginTargetKey(multiloginRow)); }}
-                    onMenu={() => {}}
-                    onRemove={() => clearMultiloginSelection(s.activeWorkspaceId)}
-                    removeTitle={`Remove ${multiloginRow.name} from this workspace`}
-                  />
-                )}
-              </div>
-              {noLocalProfiles && (
-                <div className="workspace-empty local-profiles-empty">
-                  <strong>No profiles on this computer</strong>
-                  <span className="muted small">Profiles stay on the computer where they were created.</span>
-                  <button
-                    type="button"
-                    className="btn-bordered"
-                    disabled={s.defaultProfilesCreating}
-                    onClick={() => void s.createDefaultProfiles()}
-                  >
-                    {s.defaultProfilesCreating ? <Spinner size={12} /> : <Icon name="plus" size={12} />}
-                    {s.defaultProfilesCreating ? "Creating…" : "Create default profiles"}
-                  </button>
-                  {s.defaultProfilesError && (
-                    <div className="error small" role="alert">
-                      <UserFacingError message={s.defaultProfilesError} surface="default_profiles" />
-                    </div>
-                  )}
-                </div>
-              )}
-              {workspaceProfileCount === 0 && !noLocalProfiles && <div className="muted small workspace-empty">No profiles yet</div>}
-            </section>
-            {normalizedSearch && workspaceProfileCount > 0 && visibleWorkspaceProfiles.length === 0 && !multiloginRow && (
-              <div className="muted small">No matches for "{s.profileSearch}".</div>
-            )}
-            {profileActionError && (
-              <div className="error small profile-action-error" role="alert">
-                <UserFacingError
-                  message={profileActionError}
-                  surface="profile_action"
-                  discordLabel={isProxyTrafficGateMessage(profileActionError) ? "Questions? Ask in Discord." : undefined}
-                />
-                <button type="button" onClick={() => setProfileActionError(null)}>Dismiss</button>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <hr className="divider" />
-      <div className={"sidebar-account-footer" + (s.authed ? " is-connected" : "")}>
-        <Icon name={s.authed ? "person.crop.circle" : "lock"} size={14} />
-        <Tooltip content={s.nextctlCompatibilityError || (s.authed ? s.accountEmail || "Browser account connected" : "Browser account not connected")}><span>
-          {s.nextctlCompatibilityError ? "Update nextctl to check account" : s.authed ? s.accountEmail || "Browser account connected" : "Browser account not connected"}
-        </span></Tooltip>
-        {s.authed ? (
-          <Tooltip content="Sign out of Nextbrowser"><button
-            className="plain-icon-btn plain-icon-btn-compact"
-            aria-label="Sign out of Nextbrowser"
-            disabled={logoutPending}
-            onClick={() => void logout()}
-          >
-            {logoutPending
-              ? <Spinner size={13} />
-              : <Icon name="rectangle.portrait.and.arrow.right" size={13} />}
-          </button></Tooltip>
-        ) : (
-          <button
-            className="sidebar-account-action"
-            type="button"
-            onClick={() => s.setDashboardKeyPromptOpen(true)}
-          >
-            Sign in
-          </button>
-        )}
-      </div>
-      {logoutError && <div className="sidebar-account-error" role="alert"><UserFacingError message={logoutError} surface="account_sign_out" /></div>}
-      <div className="sidebar-settings-footer">
-        {footerAccessory}
-      </div>
 
     </div></Dialog>}
 
@@ -2053,19 +1875,21 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
         </div>
       ), document.body)}
 
-      {menuProfile && createPortal((() => {
+      {menuProfile && (() => {
         const isDefaultProfile = menuProfile === "__default";
         const prof = s.profiles.find((p) => p.name === menuProfile);
         const identity = isDefaultProfile ? s.profileIdentities.__default : s.profileIdentities[menuProfile];
         const activeCountry = (isDefaultProfile ? identity?.country : prof?.country ?? identity?.country)?.toLowerCase();
-        const status = isDefaultProfile ? defaultStatus : s.statuses[menuProfile] ?? "unknown";
+        const status = isDefaultProfile ? defaultStatus : s.statuses[menuProfile] ?? s.profileSessions[menuProfile]?.status ?? "unknown";
         const manual = prof?.proxy_mode === "manual" && prof.manual_proxy;
         const direct = prof?.proxy_mode === "direct";
-        const profileWorkspace = s.workspaces.find((workspace) => workspace.profileNames.includes(menuProfile));
+        const profileWorkspace = activeWorkspace?.profileNames.includes(menuProfile) ? activeWorkspace : s.workspaces.find((workspace) => workspace.profileNames.includes(menuProfile));
         const profileBusy = ["running", "starting", "stopping", "rotating"].includes(status);
         return (
-          <div className="modal-overlay" role="presentation" onClick={() => setMenuProfile(null)}>
-            <div className="modal-card profile-menu" role="dialog" aria-modal="true" aria-label={`Profile actions for ${isDefaultProfile ? "default" : menuProfile}`} onClick={(e) => e.stopPropagation()}>
+          <Popover label={`Profile actions for ${isDefaultProfile ? "default" : menuProfile}`} open onOpenChange={open => { if (!open) setMenuProfile(null); }}
+            anchorElement={menuAnchor ?? document.querySelector<HTMLElement>(`[data-profile-key="${CSS.escape(clawbrowserTargetKey(menuProfile))}"]`)}
+            trigger={() => null} side="bottom" align="end" className="profile-actions-popover shared-scrollbarless">
+            <div className="profile-menu">
               <div className="profile-menu-head">
                 <Tooltip content={status}><span
                   className={"dot " + (status === "running" ? "green" : status === "unknown" ? "gray" : "orange")}
@@ -2090,6 +1914,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
                 </button></Tooltip>
               </div>
 
+              <button className="live-session-row" type="button" onClick={() => { s.selectProfile(isDefaultProfile ? undefined : menuProfile); setMenuProfile(null); }}>Use in chat{s.selectedProfile === menuProfile ? " · Selected" : ""}</button>
               <button
                 className="full rotate-btn"
                 onClick={() => {
@@ -2105,10 +1930,11 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
               {!manual && !direct && (
                 <>
                   <div className="section profile-menu-label">Rotate country</div>
-                  <CountrySelect
-                    countries={proxyCountries}
-                    value={activeCountry ?? ""}
-                    ariaLabel="Rotate country"
+                  <Select
+                    options={proxyCountries.map(country => ({ value: country.code, label: `${countryFlag(country.code)} ${country.name}`.trim() }))}
+                    value={activeCountry?.toUpperCase() ?? ""}
+                    label="Rotate country"
+                    searchPlaceholder="Search countries"
                     onChange={(country) => {
                       runProfileAction("We couldn't rotate the profile's country.", "PROFILE_ROTATE_COUNTRY_FAILED", () =>
                         isDefaultProfile ? s.rotateDefaultSessionCountry(country) : s.rotateProfileCountry(menuProfile, country));
@@ -2142,12 +1968,12 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
                     <Icon name="chevron.right" size={12} className="muted" />
                   </button></Tooltip>
                   <div className="section profile-menu-label">Workspace</div>
-                  <select
-                    className="profile-workspace-select"
+                  <Select
+                    label="Workspace"
                     value={profileWorkspace.id}
+                    options={s.workspaces.map(workspace => ({ value: workspace.id, label: workspace.name }))}
                     disabled={profileBusy || s.projectsSyncing || s.workspaces.length < 2}
-                    onChange={(event) => {
-                      const targetId = event.target.value;
+                    onChange={(targetId) => {
                       setProfileMoveError(null);
                       void s.moveProfileToWorkspace(menuProfile, targetId)
                         .then(() => setMenuProfile(null))
@@ -2159,9 +1985,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
                           setProfileMoveError(message);
                         });
                     }}
-                  >
-                    {s.workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
-                  </select>
+                  />
                   {profileBusy && <div className="muted small profile-workspace-note">Stop the profile to move it.</div>}
                   {!profileBusy && s.projectsSyncing && <div className="muted small profile-workspace-note">Syncing workspaces…</div>}
                   {profileMoveError && <div className="error small profile-workspace-note"><UserFacingError message={profileMoveError} surface="profile_workspace_move" /></div>}
@@ -2201,9 +2025,9 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
                 </>
               )}
             </div>
-          </div>
+          </Popover>
         );
-      })(), document.body)}
+      })()}
 
       {profileConnectionEditor && createPortal((
         <div className="modal-overlay" onMouseDown={() => !profileConnectionSaving && setProfileConnectionEditor(null)}>
@@ -2376,12 +2200,22 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
                   </>
                 ) : (
                   <>
-                    <label className="modal-field manual-proxy-bulk-field">
+                    <div className="modal-field manual-proxy-bulk-field">
                       <span className="modal-field-heading">
-                        <span>Proxy list</span>
+                        <label htmlFor="personal-proxy-bulk">Proxy list</label>
+                        <label className="proxy-import-file">Import file<input type="file" accept=".txt,.csv,text/plain,text/csv" onChange={async event => {
+                          const file = event.currentTarget.files?.[0]; event.currentTarget.value = "";
+                          if (!file) return;
+                          if (file.size > manualProxyLimits.batchText * 4) { setManualError("Proxy file is too large."); return; }
+                          try { const text = await file.text();
+                            if (text.length > manualProxyLimits.batchText) { setManualError("Proxy file is too large."); return; }
+                            setManualProxyBulk(text); setManualError(null);
+                          } catch { setManualError("Could not read the proxy file."); }
+                        }} /></label>
                         <small>Up to {manualProxyLimits.batchLines}</small>
                       </span>
                       <textarea
+                        id="personal-proxy-bulk"
                         value={manualProxyBulk}
                         onChange={(event) => {
                           setManualProxyBulk(event.target.value);
@@ -2392,7 +2226,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
                         spellCheck={false}
                         autoFocus
                       />
-                    </label>
+                    </div>
                     <p className="manual-proxy-format-help">
                       One proxy per line. Supports <code>host:port</code>, <code>host:port:user:pass</code>, <code>user:pass@host:port</code>, and full <code>http://</code> or <code>socks5://</code> URLs.
                       HTTP proxies also work for HTTPS websites through CONNECT; HTTPS and SOCKS4 proxy transports are not supported by the browser runtime.
@@ -2446,96 +2280,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
             ) : (
               <>
                 <p className="muted personal-proxy-note">Encrypted in your Nextbrowser account and available on every signed-in device.</p>
-                {s.personalProxies.length ? (
-                  <div className="personal-proxy-list">
-                    {s.personalProxies.map((proxy) => {
-                      const test = proxyTestResults[proxy.id];
-                      const testTitle = test?.status === "testing"
-                        ? "Testing…"
-                        : test
-                          ? test.detail
-                          : `Test ${proxy.name}`;
-                      return (
-                        <div className="personal-proxy-item" key={proxy.id}>
-                        <div className="personal-proxy-row">
-                          <span className="personal-proxy-icon"><Icon name="network" size={13} /></span>
-                          <span className="personal-proxy-copy">
-                            <strong>{proxy.name}</strong>
-                            <small>{proxy.scheme.toUpperCase()} · {proxy.host}:{proxy.port}</small>
-                          </span>
-                          <Tooltip content={testTitle}><button
-                            type="button"
-                            className={"plain-icon-btn plain-icon-btn-compact proxy-test-btn" + (test ? ` proxy-test-${test.status}` : "")}
-                            aria-label={testTitle}
-                            disabled={test?.status === "testing"}
-                            onClick={() => runProxyTest(proxy.id)}
-                          >
-                            {test?.status === "testing"
-                              ? <Spinner size={13} />
-                              : <Icon name={test?.status === "ok" ? "hand.thumbsup.fill" : test?.status === "fail" ? "hand.thumbsdown.fill" : "bolt.fill"} size={13} />}
-                          </button></Tooltip>
-                          <Tooltip content={`Delete ${proxy.name}`}><button
-                            type="button"
-                            className="plain-icon-btn plain-icon-btn-compact"
-                            aria-label={`Delete ${proxy.name}`}
-                            onClick={() => setManualProxyDeleting(proxy.id)}
-                          >
-                            <Icon name="trash" size={13} />
-                          </button></Tooltip>
-                        </div>
-                        <PersonalProxyTestStatus test={test} />
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="personal-proxy-empty">
-                    <Icon name="network" size={20} />
-                    <strong>No personal proxies yet</strong>
-                    <span>Create one and reuse it across browser profiles.</span>
-                  </div>
-                )}
-                {manualProxyDeleting && (() => {
-                  const proxy = s.personalProxies.find((item) => item.id === manualProxyDeleting);
-                  if (!proxy) return null;
-                  const proxyUsers = personalProxyUsers(s.workspaces, proxy.id);
-                  return (
-                    <div className="personal-proxy-delete-confirm" role="alert">
-                      <span>{proxyUsers.length
-                        ? `“${proxy.name}” is used by ${proxyUsers.join(", ")}. Change their connection before deleting it.`
-                        : `Delete “${proxy.name}” from this device?`}</span>
-                      <div className="row">
-                        <button type="button" className="secondary" disabled={manualProxyDeletePending} onClick={() => setManualProxyDeleting(null)}>Cancel</button>
-                        <button
-                          type="button"
-                          className="primary danger"
-                          disabled={manualProxyDeletePending || proxyUsers.length > 0}
-                          onClick={() => {
-                            setManualProxyDeletePending(true);
-                            void s.deletePersonalProxy(proxy.id)
-                              .then(() => {
-                                if (profilePersonalProxyId === proxy.id) setProfilePersonalProxyId("");
-                                setManualProxyDeleting(null);
-                              })
-                              .catch((error: unknown) => {
-                                console.error("[PERSONAL_PROXY_DELETE_FAILED]", error);
-                                setManualError(internalError("We couldn't delete the proxy.", "PERSONAL_PROXY_DELETE_FAILED"));
-                                void s.loadPersonalProxies().catch(() => undefined);
-                              })
-                              .finally(() => setManualProxyDeletePending(false));
-                          }}
-                        >
-                          {manualProxyDeletePending ? <Spinner size={13} /> : "Delete"}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })()}
-                {manualError && (
-                  <div className="error manual-proxy-error">
-                    <UserFacingError message={manualError} surface="manual_proxy" />
-                  </div>
-                )}
+                {personalProxyList("")}
                 <div className="modal-actions">
                   <button type="button" className="secondary" onClick={() => { setManualProxyOpen(false); setManualProxyDeleting(null); }}>Close</button>
                   <button type="button" className="primary" onClick={() => {
@@ -2627,248 +2372,4 @@ export function Sidebar({ onOpenSettings, settingsAttention, footerAccessory, li
         );
       })(), document.body)}
   </>;
-}
-
-function HighlightedName({ text, query }: { text: string; query?: string }) {
-  const normalizedQuery = query?.trim().toLowerCase();
-  if (!normalizedQuery) return <>{text}</>;
-  const index = text.toLowerCase().indexOf(normalizedQuery);
-  if (index < 0) return <>{text}</>;
-  return (
-    <>
-      {text.slice(0, index)}
-      <mark className="search-match">{text.slice(index, index + normalizedQuery.length)}</mark>
-      {text.slice(index + normalizedQuery.length)}
-    </>
-  );
-}
-
-function multiloginStatusLabel(status?: string): string {
-  switch (status) {
-    case "running": return "Running";
-    case "starting": return "Starting";
-    case "stopping": return "Stopping";
-    case "stopped": return "Stopped";
-    case "error": return "Error";
-    default: return "Multilogin";
-  }
-}
-
-function ProfileRow({
-  name,
-  displayName,
-  status,
-  metaOverride,
-  running,
-  busy,
-  selected,
-  startDisabled,
-  country,
-  city,
-  ip,
-  manualScheme,
-  manualTitle,
-  toolset,
-  occupiedBy,
-  searchQuery,
-  draggable,
-  dragOver,
-  projectId,
-  external,
-  onDragOverProfile,
-  onDropProfile,
-  onDragLeaveProfile,
-  onSelect,
-  onStart,
-  onStop,
-  onLive,
-  onMenu,
-  onRemove,
-  removeTitle,
-}: {
-  name: string;
-  displayName?: string;
-  status: string;
-  metaOverride?: string;
-  running: boolean;
-  busy: boolean;
-  selected: boolean;
-  startDisabled?: boolean;
-  country?: string | null;
-  city?: string | null;
-  ip?: string | null;
-  manualScheme?: string | null;
-  manualTitle?: string;
-  toolset?: "clawbrowser" | "dasbrowser" | "camoufox" | "multilogin";
-  occupiedBy?: string;
-  searchQuery?: string;
-  draggable?: boolean;
-  dragOver?: boolean;
-  projectId?: string;
-  // Profiles Nextbrowser doesn't itself start/stop (e.g. a Multilogin cloud
-  // resource): keep the same row shell, but swap the lifecycle actions for a
-  // single "open" + "remove" pair instead of start/stop/menu.
-  external?: boolean;
-  onDragOverProfile?: (event: DragEvent<HTMLDivElement>) => void;
-  onDropProfile?: (event: DragEvent<HTMLDivElement>) => void;
-  onDragLeaveProfile?: () => void;
-  onSelect: () => void;
-  onStart: () => void;
-  onStop: () => void;
-  onLive: () => void;
-  onMenu: () => void;
-  onRemove?: () => void;
-  removeTitle?: string;
-}) {
-  const toolsetLabel = toolset === "clawbrowser" ? "Clawbrowser" : toolset === "dasbrowser" ? "DasBrowser" : toolset === "multilogin" ? "Multilogin" : "Camoufox";
-  const toolsetIcon = toolset === "clawbrowser" ? "./clawbrowser-icon.png" : toolset === "dasbrowser" ? "./dasbrowser-icon.png" : toolset === "multilogin" ? "./multilogin-icon.svg" : "./camoufox-icon.svg";
-  return (
-    <div
-      className={"profile-row" + (selected ? " selected" : "") + (occupiedBy ? " is-occupied" : "") + (draggable ? " is-draggable" : "") + (dragOver ? " is-drag-over" : "")}
-      draggable={draggable}
-      onDragStart={(event) => {
-        if (!draggable) return;
-        event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer.setData("application/x-nextbrowser-profile", name);
-        event.dataTransfer.setData("application/x-nextbrowser-toolset", toolset ?? "clawbrowser");
-        event.dataTransfer.setData("application/x-nextbrowser-project", projectId ?? "");
-      }}
-      onDragOver={onDragOverProfile}
-      onDragLeave={onDragLeaveProfile}
-      onDrop={onDropProfile}
-    >
-      <button
-        type="button"
-        className="profile-select"
-        aria-label={`Select profile ${displayName || name}`}
-        aria-pressed={selected}
-        onClick={onSelect}
-        style={{ background: "none", border: "none", padding: 0, color: "inherit", textAlign: "left", display: "flex", alignItems: "center", gap: 7, flex: "1 1 auto", minWidth: 0, cursor: "pointer" }}
-      >
-      <Tooltip content={external ? `${toolsetLabel} · ${status}` : status}><span className={"dot " + (running ? "green" : busy ? "orange" : "gray")}  /></Tooltip>
-      <span className="profile-main">
-        <span className="profile-title-line">
-          <Tooltip content={displayName || name}><span className="profile-name"><HighlightedName text={displayName || name} query={searchQuery} /></span></Tooltip>
-        </span>
-        {/* Badges share the status line so a narrow sidebar keeps the name readable. */}
-        <span className="profile-meta-line">
-        {occupiedBy && <Tooltip content={`In use by “${occupiedBy}”`}><span className="profile-in-use-badge">In use</span></Tooltip>}
-        <Tooltip content={occupiedBy ? `In use by “${occupiedBy}”` : undefined}><span className="profile-meta">
-          {profileRowStatusText({ status, ip, occupiedBy, metaOverride })}
-        </span></Tooltip>
-      <span className="profile-badges">
-        {country && (
-          <Tooltip content={countryLabel(country, city)}><span className="badge profile-country-badge">
-            {countryFlag(country)} {country.toUpperCase()}
-          </span></Tooltip>
-        )}
-        {toolset && (
-          <Tooltip content={toolsetLabel}><span
-            className="profile-toolset-logo"
-            role="img"
-            aria-label={toolsetLabel}
-          >
-            <img src={toolsetIcon} alt="" draggable={false} />
-          </span></Tooltip>
-        )}
-        {manualScheme && (
-          <Tooltip content={manualTitle}><span className="badge manual-proxy-badge">
-            {manualScheme.toUpperCase()}
-          </span></Tooltip>
-        )}
-      </span>
-        </span>
-      </span>
-      </button>
-      <div className="profile-actions">
-        {external ? (
-          <>
-            <Tooltip content={running ? "Stop" : "Start"}><button
-              className="plain-icon-btn"
-              aria-label={`${running ? "Stop" : "Start"} ${name}`}
-              disabled={busy}
-              onClick={(event) => {
-                event.stopPropagation();
-                if (running) onStop();
-                else onStart();
-              }}
-            >
-              <Icon name={running ? "stop.fill" : "play.fill"} size={16} />
-            </button></Tooltip>
-            <Tooltip content="Live view"><button
-              className="plain-icon-btn"
-              aria-label={`Open live view for ${name}`}
-              onClick={(event) => {
-                event.stopPropagation();
-                onLive();
-              }}
-            >
-              <Icon name="video.fill" size={16} />
-            </button></Tooltip>
-            {onRemove && (
-              <Tooltip content={removeTitle ?? "Remove"}><button
-                className="plain-icon-btn"
-                aria-label={removeTitle ?? `Remove ${name}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onRemove();
-                }}
-              >
-                <Icon name="xmark" size={16} />
-              </button></Tooltip>
-            )}
-          </>
-        ) : running ? (
-          <>
-            <Tooltip content="Stop"><button
-              className="plain-icon-btn"
-              aria-label={`Stop ${name}`}
-              disabled={busy}
-              onClick={(event) => {
-                event.stopPropagation();
-                void onStop();
-              }}
-            >
-              <Icon name="stop.fill" size={16} />
-            </button></Tooltip>
-            <Tooltip content="Live view"><button
-              className="plain-icon-btn"
-              aria-label={`Open live view for ${name}`}
-              onClick={(event) => {
-                event.stopPropagation();
-                onLive();
-              }}
-            >
-              <Icon name="video.fill" size={16} />
-            </button></Tooltip>
-          </>
-        ) : (
-          <Tooltip content={startDisabled ? "Create a project first" : "Start"}><button
-            className="plain-icon-btn"
-            aria-label={`Start ${name}`}
-            disabled={busy || startDisabled}
-            onClick={(event) => {
-              event.stopPropagation();
-              void onStart();
-            }}
-          >
-            <Icon name="play.fill" size={16} />
-          </button></Tooltip>
-        )}
-        {!external && (
-          <Tooltip content="Profile actions"><button
-            className="plain-icon-btn"
-            aria-label={`Profile actions for ${name}`}
-            disabled={busy}
-            onClick={(event) => {
-              event.stopPropagation();
-              onMenu();
-            }}
-          >
-            <Icon name="ellipsis.circle" size={18} />
-          </button></Tooltip>
-        )}
-      </div>
-    </div>
-  );
 }

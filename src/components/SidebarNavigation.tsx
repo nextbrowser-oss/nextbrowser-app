@@ -12,7 +12,7 @@ const extensions: Array<{ id: AppTab; label: string; compact: string; icon: Glyp
 const destinations: typeof extensions = [
   { id: "scheduled", label: "Scheduled", compact: "Schedule", icon: "clock" },
   { id: "guide", label: "Guide", compact: "Guide", icon: "book-open" },
-  { id: "live", label: "Live", compact: "Live", icon: "monitor" },
+  { id: "live", label: "Profiles", compact: "Profiles", icon: "monitor" },
 ];
 
 export function SidebarNavigation({ collapsed = false, tab, modal, badgeFor, onSelect, liveDestination }: {
@@ -29,7 +29,7 @@ export function SidebarNavigation({ collapsed = false, tab, modal, badgeFor, onS
     const opensDialog = isUtilityDialogTab(item.id);
     const button = <button type="button"
       className={"sidebar-destination" + ((opensDialog ? modal === item.id : tab === item.id) ? " active" : "")}
-      aria-label={`Open ${item.label}${item.id === "live" ? " profiles" : ""}${badge != null && badge !== "" ? `, ${badge}` : ""}`}
+      aria-label={`Open ${item.label}${badge != null && badge !== "" ? `, ${badge}` : ""}`}
       aria-current={!opensDialog && tab === item.id ? "page" : undefined}
       aria-haspopup={opensDialog ? "dialog" : undefined}
       aria-expanded={opensDialog ? modal === item.id : undefined}
