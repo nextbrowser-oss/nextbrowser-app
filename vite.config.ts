@@ -24,6 +24,7 @@ export default defineConfig({
     strictPort: true,
   },
   build: {
+    rollupOptions: { input: { app: 'index.html', start: 'start.html' } },
     target: "es2020",
     // Match Electron 43's Chromium engine rather than legacy web browsers.
     // Modern Chromium no longer accepts -webkit-backdrop-filter.

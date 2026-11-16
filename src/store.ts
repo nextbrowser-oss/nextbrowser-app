@@ -874,6 +874,7 @@ interface State {
   reorderProfileInProject: (projectId: string, profileName: string, beforeProfileName: string) => Promise<void>;
   createNamedChat: (agentId: string, title: string) => string;
   selectConversation: (id: string) => void;
+  rememberConversationProfile: (id: string, name: string, toolset: BrowserToolset) => void;
   renameConversation: (id: string, title: string) => void;
   updateTerminalPreview: (id: string, preview?: string) => void;
   deleteConversation: (id: string) => Promise<void>;
@@ -6258,6 +6259,18 @@ export const useStore = create<State>((set, get) => {
     set({ conversations, activeConvId });
     get().selectConversation(id);
     return true;
+  },
+
+  rememberConversationProfile: (id, name, toolset) => {
+    const state = get();
+    const conversation = state.conversations.find(c => c.id === id);
+    const workspace = state.workspaces.find(w => w.id === conversation?.workspaceId);
+    if (!conversation || !workspace?.profileNames.includes(name) || (workspace.profileToolsets[name] || "clawbrowser") !== toolset) return;
+    if (conversation.profileNames?.includes(name) && conversation.profileToolsets?.[name] === toolset) return;
+    const conversations = state.conversations.map(c => c.id !== id ? c : { ...c,
+      profileNames: [...new Set([...(c.profileNames || []), name])], profileToolsets: { ...c.profileToolsets, [name]: toolset }, updatedAt: editedAt(c.updatedAt),
+    });
+    persistConvs(conversations); set({ conversations });
   },
 
   selectConversation: (id) => {

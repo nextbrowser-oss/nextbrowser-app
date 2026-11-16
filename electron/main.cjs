@@ -1,6 +1,19 @@
 const { readCLIVersion } = require("./cli-version.cjs");
 const { windowChromeOptions, applyWindowChrome, applyWindowZoom, windowState, controlWindow, watchWindowState } = require("./window-chrome.cjs");
 const chromeWindows = new WeakSet();
+const { createStartPageServer } = require('./start-page-server.cjs');
+const startPageTransports = require('./start-page-transport.cjs').createStartPageTransports();
+let startPageServer;
+const startPageRequests = new Map();
+function requestStartPageDesktop(scope, action) {
+  return new Promise((resolve, reject) => {
+    const id = randomUUID();
+    const timer = setTimeout(() => { startPageRequests.delete(id); reject(new Error('Nextbrowser did not respond. Reopen Live and try again.')); }, 15_000);
+    startPageRequests.set(id, { sender: scope.sender, action: action.type, resolve, reject, timer });
+    try { scope.sender.send('start-page:request', { id, scope: { workspaceId: scope.workspaceId, profile: scope.profile, runtime: scope.runtime }, action }); }
+    catch (error) { clearTimeout(timer); startPageRequests.delete(id); reject(error); }
+  });
+}
 const { mcpProfileScope } = require("./mcp-profile-scope.cjs");
 const { addChatWorkspaceProfile } = require("./chat-profile-scope.cjs");
 const { requireVerificationCapableCLI, verificationFailureDialogOptions, verificationFailureDialogChoice } = require("./verification-policy.cjs");
@@ -2330,11 +2343,35 @@ async function invokeCommand(command, args = {}, sender) {
       return liveWindows.handle(window, args);
     }
     case "live_start_page_url": {
-      const [page, logo] = await Promise.all([
-        fs.readFile(path.join(__dirname, "live-start-page.html"), "utf8"),
-        fs.readFile(path.join(__dirname, "..", app.isPackaged ? "dist" : "public", "nextbrowser-logo.svg")),
-      ]);
-      return "data:text/html;base64," + Buffer.from(page.replace("{{LOGO}}", logo.toString("base64"))).toString("base64");
+      const window = sender && BrowserWindow.fromWebContents(sender);
+      if (!window || !chromeWindows.has(window) || window.webContents !== sender ||
+          !['clawbrowser', 'camoufox', 'dasbrowser'].includes(args.runtime) || typeof args.workspaceId !== 'string' ||
+          (args.profile != null && (typeof args.profile !== 'string' || args.profile.length > 256))) throw userError('Select a browser profile in this workspace.');
+      const scope = { sender, workspaceId: args.workspaceId, runtime: args.runtime, profile: args.profile || '__default' };
+      await requestStartPageDesktop(scope, { type: 'authorize' });
+      startPageServer ??= createStartPageServer({ distDir: path.join(__dirname, '..', 'dist'), storageDir: dataDir(), requestDesktop: requestStartPageDesktop });
+      const url = await startPageServer.open(scope);
+      if (args.runtime !== 'camoufox') {
+        const result = await executeNextctl(['--runtime', args.runtime, ...(args.profile ? ['--profile', args.profile] : []), 'status', '--format', 'json'], { timeoutMs: 8_000 });
+        const status = result.code === 0 ? JSON.parse(result.stdout).data : null;
+        if (!managedBrowserPID(status, args.runtime)) throw userError('Open this local browser profile first.');
+        await startPageTransports.ensure(status.session.endpoint, url);
+      }
+      return url;
+    }
+    case "start_page_response": {
+      const pending = startPageRequests.get(args.id);
+      if (!pending || pending.sender !== sender) return null;
+      clearTimeout(pending.timer); startPageRequests.delete(args.id);
+      if (args.error) pending.reject(new Error(String(args.error).slice(0, 300)));
+      else {
+        pending.resolve(args.data);
+        if (['draft', 'resume'].includes(pending.action) && args.data?.opened) {
+          const window = BrowserWindow.fromWebContents(sender);
+          if (window && !window.isDestroyed()) { window.show(); window.focus(); }
+        }
+      }
+      return null;
     }
     case "workspace_emergency_reset": {
       const window = sender && BrowserWindow.fromWebContents(sender);
@@ -3956,6 +3993,10 @@ app.on("before-quit", (event) => {
   agentControlArtifactScopes.clear();
   agentControlProfileOwners.clear();
   agentControlServer?.close();
+  void startPageServer?.close();
+  startPageTransports.close();
+  for (const pending of startPageRequests.values()) { clearTimeout(pending.timer); pending.reject(new Error('Nextbrowser is closing.')); }
+  startPageRequests.clear();
   agentControlServer = null;
   cancelAllCommands();
   cancelAllAutomationRecipes();

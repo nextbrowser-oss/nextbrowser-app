@@ -18,7 +18,11 @@ export function MainViewNavigation() {
   const openBrowser = () => {
     const state = useStore.getState();
     const session = chatLiveSession(sessions, state.activeConversation(), state.profileChatOwners, state.selectedProfile);
-    if (session) state.openLiveSession(session.key);
+    if (session) {
+      const conversation = state.activeConversation();
+      if (conversation && session.target.runtime !== 'multilogin') state.rememberConversationProfile(conversation.id, session.target.profile || '__default', session.target.runtime);
+      state.openLiveSession(session.key);
+    }
     else window.dispatchEvent(new Event(CREATE_LIVE_PROFILE_EVENT));
   };
   return <div className={`${glassSurfaceClassName} main-view-navigation`} role="tablist" aria-label="Main views">

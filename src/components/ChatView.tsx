@@ -18,6 +18,7 @@ import { userFacingBrowserError } from "../lib/userFacingBrowserError";
 import { UserFacingError } from "./UserFacingError";
 import { AgentInstallLink } from "./AgentInstallLink";
 import { takeGuideDraft } from "../lib/guideDraft";
+import { takeStartPageDraft } from '../lib/startPageDraft';
 import { entityNameLimits } from "../lib/entityValidation";
 import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { MainViewNavigation } from "./MainViewNavigation";
@@ -266,6 +267,15 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
     window.addEventListener("nextbrowser:guide-draft", onGuideDraft);
     return () => window.removeEventListener("nextbrowser:guide-draft", onGuideDraft);
   }, []);
+
+  useEffect(() => {
+    const load = () => {
+      const text = takeStartPageDraft(conv?.id);
+      if (text) { setDraft(current => current.trim() ? `${current}\n\n${text}` : text); requestAnimationFrame(() => composerRef.current?.focus()); }
+    };
+    load(); window.addEventListener('nextbrowser:start-page-draft', load);
+    return () => window.removeEventListener('nextbrowser:start-page-draft', load);
+  }, [conv?.id]);
 
   const enqueueInChat = (text: string, files: ChatAttachment[] = []) => {
     const previous = !legacyContextSent.current.has(conversationKey) && conv?.terminalPreview

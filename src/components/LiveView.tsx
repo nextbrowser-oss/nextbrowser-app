@@ -335,7 +335,7 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
         if (session) {
           updateLiveWindow(session);
           setState("live");
-          await showLiveStartPage(target, current).catch(error => console.warn("[live-start-page]", error));
+          await showLiveStartPage(target, current, workspaceId).catch(error => console.warn("[live-start-page]", error));
           return;
         }
         if (alreadyRunning) {
@@ -345,7 +345,7 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
         throw new Error("Nextbrowser could not attach the local browser window.");
       }
       if (target.runtime !== "multilogin") {
-        await showLiveStartPage(target, current).catch(error => console.warn("[live-start-page]", error));
+        await showLiveStartPage(target, current, workspaceId).catch(error => console.warn("[live-start-page]", error));
         if (!current()) return;
       }
       const info = await s.startRemoteStream(target);

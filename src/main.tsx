@@ -15,6 +15,8 @@ import "@fontsource/inter/600.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "./styles.css";
 import { TooltipProvider } from "./shared/ui";
+import { installStartPageBridge } from './lib/startPageBridge';
+installStartPageBridge();
 
 // Before the first render, so errors while the app starts are reported too.
 installErrorReporting();

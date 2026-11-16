@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "../electronBridge";
 import { nextctlJson, nextctlRun } from "../nextctl";
-import { showLiveStartPage } from "./liveStartPage";
+import { showLiveStartPage, isBrowserPlaceholder } from "./liveStartPage";
 
 vi.mock("../electronBridge", () => ({ invoke: vi.fn() }));
 vi.mock("../nextctl", () => ({ nextctlJson: vi.fn(), nextctlRun: vi.fn() }));
@@ -17,6 +17,11 @@ beforeEach(() => {
 });
 
 describe("Live start page", () => {
+  it('migrates our legacy and expired local pages, preserving other data documents', () => {
+    expect(isBrowserPlaceholder('data:text/html;base64,' + btoa('<title>Nextbrowser</title>'))).toBe(true);
+    expect(isBrowserPlaceholder('data:text/html;base64,' + btoa('<title>My document</title>'))).toBe(false);
+    expect(isBrowserPlaceholder('http://127.0.0.1:12345/start/' + 'a'.repeat(32) + '/')).toBe(true);
+  });
   it("opens the bundled page when verification is the only tab", async () => {
     vi.mocked(nextctlJson).mockResolvedValue({ tabs: [{ id: "verify", url: "clawbrowser://verify/", active: true }] });
     await showLiveStartPage(target, () => true);
