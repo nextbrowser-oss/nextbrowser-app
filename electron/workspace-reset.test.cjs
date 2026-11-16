@@ -21,7 +21,9 @@ test("deletes the complete cloud list and checks that no workspace remains", asy
 });
 
 test("clears only Nextbrowser roots and leaves a signed-out config after restart", async t => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-reset-test-"));
+  // macOS exposes /var through /private/var. The reset deliberately rejects
+  // redirected roots, so exercise ordinary app directories using their real path.
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-reset-test-")));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const userData = path.join(root, "app");
   const runtime = path.join(root, "runtime");
