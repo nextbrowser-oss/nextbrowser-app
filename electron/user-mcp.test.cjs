@@ -43,8 +43,8 @@ test('real stdio handshake, pagination and namespaced tool call without browser 
 test('packaged external-agent launcher works outside app.asar without app dependencies', async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'nextbrowser-mcp-package-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
-  const config = require('../package.json').build.extraResources.find(entry => entry.to === 'mcp-runtime');
-  for (const file of config.filter) await fs.copyFile(path.join(__dirname, file), path.join(root, file));
+  const files = require('../package.json').build.asarUnpack;
+  for (const file of files) await fs.copyFile(path.join(__dirname, '..', file), path.join(root, path.basename(file)));
   const key = 'NEXTBROWSER_MCP_abcdef';
   const client = createMCPClient({ binary: process.execPath, args: [path.join(root, 'user-mcp-launcher.cjs'), key], env: { ...process.env, [key]: JSON.stringify({ file: server.command, args: server.args, env: server.env }) }, inheritBrowserArguments: false });
   try { await client.initialize(); assert.equal((await client.listTools()).length, 2); assert.equal(JSON.parse((await client.callTool('echo', { value: 'external' })).content[0].text).value, 'external'); }

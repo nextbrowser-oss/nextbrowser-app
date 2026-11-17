@@ -6,7 +6,7 @@
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
-  "main": "electron/main.cjs",
+  "main": "electron/bootstrap.cjs",
   "scripts": {
     "predev": "node scripts/build-live-window.cjs",
     "dev": "concurrently -k \"vite --port 1421\" \"wait-on tcp:1421 && cross-env VITE_DEV_SERVER_URL=http://localhost:1421 electron .\"",
@@ -70,12 +70,10 @@
     "appId": "com.nextbrowser.desktop",
     "productName": "NextBrowser",
     "asar": true,
-    "extraResources": [
-      {
-        "from": "electron",
-        "to": "mcp-runtime",
-        "filter": ["user-mcp-launcher.cjs", "mcp-environment.cjs", "mcp-http-client.cjs"]
-      }
+    "asarUnpack": [
+      "electron/user-mcp-launcher.cjs",
+      "electron/mcp-environment.cjs",
+      "electron/mcp-http-client.cjs"
     ],
     "publish": [
       {

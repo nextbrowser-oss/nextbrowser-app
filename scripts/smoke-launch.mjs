@@ -47,7 +47,7 @@ if (!target) throw new Error("Usage: node scripts/smoke-launch.mjs <path to .app
 const executable = executableFor(path.resolve(target));
 const userDataDir = mkdtempSync(path.join(tmpdir(), "nextbrowser-smoke-"));
 const child = spawn(executable, [`--user-data-dir=${userDataDir}`, "--remote-debugging-port=0"], {
-  env: { ...process.env, ELECTRON_ENABLE_LOGGING: "1" },
+  env: { ...process.env, ELECTRON_ENABLE_LOGGING: "1", NEXTBROWSER_SMOKE_LAUNCH: "1" },
   stdio: ["ignore", "pipe", "pipe"],
 });
 let output = "";

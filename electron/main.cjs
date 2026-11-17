@@ -42,7 +42,8 @@ function codexUserMcp(servers) {
     const spec = server.url ? { url: server.url, headers: server.headers } : userMcpCommand(server.command, server.args);
     const node = resolveBinary('node', '');
     if (!node) throw userError('Install Node.js to use additional MCP servers with Codex.');
-    const launcher = path.join(app.isPackaged ? path.join(process.resourcesPath, 'mcp-runtime') : __dirname, 'user-mcp-launcher.cjs');
+    const launcherDir = app.isPackaged ? path.join(process.resourcesPath, 'app.asar.unpacked', 'electron') : __dirname;
+    const launcher = path.join(launcherDir, 'user-mcp-launcher.cjs');
     args.push('-c', `mcp_servers.${name}.command=${JSON.stringify(node)}`, '-c', `mcp_servers.${name}.args=${JSON.stringify([launcher, key])}`);
     // Secrets are passed through the process environment, never command arguments.
     env[key] = JSON.stringify({ ...spec, env: server.env });
