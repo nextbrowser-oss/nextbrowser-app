@@ -54,7 +54,8 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   assert.doesNotMatch(main, /"-c", "mcp_servers\.clawbrowser\.enabled=false"/);
   assert.match(main, /mcp_servers\.nextbrowser\.env_vars=.*NEXTBROWSER_CONTROL_TOKEN/);
   assert.match(main, /nextctlHasAutomationTrace\(nextctlBin\)/);
-  assert.match(main, /codexClawbrowserMCPArgs\(nextctlBin, supportedTraceFile, String\(args\.workspaceId \|\| ""\)\)/);
+  assert.match(main, /function codexClawbrowserArgs\([^)]*\) \{\s*return \[\s*\.\.\.codexClawbrowserMCPArgs\(nextctlBin, automationTraceFile, workspaceId\)/);
+  assert.match(main, /NEXTBROWSER_WORKSPACE_ID: workspaceId/);
   assert.match(main, /automationTraceFile \? \["NEXTBROWSER_AUTOMATION_TRACE_FILE"\] : \[\]/);
   assert.match(main, /automationTraceFile \? \["--automation-trace-file", automationTraceFile\] : \[\]/);
   assert.doesNotMatch(main, /mcpEnvKeys\.push\("MULTILOGIN_TOKEN"\)/);
@@ -111,7 +112,7 @@ test("Codex chat uses the managed Clawbrowser MCP configuration", () => {
   assert.match(main, /case "agent_run":[\s\S]*args\.agentId === "codex"/);
   assert.match(main, /case "agent_run":[\s\S]*resolveOrInstallNextctl\(\)/);
   assert.match(main, /case "agent_run":[\s\S]*nextctlHasAutomationTrace\(nextctlBin\)/);
-  assert.match(main, /case "agent_run":[\s\S]*codexClawbrowserMCPArgs\(nextctlBin, supportedTraceFile, String\(args\.workspaceId \|\| ""\)\)/);
+  assert.match(main, /case "agent_run":[\s\S]*codexClawbrowserMCPArgs\(nextctlBin, supportedTraceFile, String\(args\.workspaceId \|\| (?:""|'')\)\)/);
 });
 
 test("Terminal Chat restarts onto the active Recorder trace", () => {
