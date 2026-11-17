@@ -310,16 +310,23 @@ test("batches never exceed 20 events", async (t) => {
 test("the quit flush is bounded and never rejects", async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "client-errors-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  let quitDeadline;
   const reporter = createClientErrorReporter({
     dir,
     client: { version: "1" },
     resolveEndpoint: async () => ({ baseURL: "https://api.test" }),
     fetchImpl: () => new Promise(() => {}),
+    setTimer: (run, delay, { keepAlive } = {}) => {
+      if (keepAlive) quitDeadline = { run, delay };
+      return run;
+    },
+    clearTimer: () => {},
   });
   reporter.capture(exception());
-  const started = Date.now();
-  await reporter.flushBeforeQuit(100);
-  assert.ok(Date.now() - started < 1_000);
+  const flushing = reporter.flushBeforeQuit(100);
+  assert.equal(quitDeadline?.delay, 100);
+  quitDeadline.run();
+  await assert.doesNotReject(flushing);
   assert.ok(fs.existsSync(path.join(dir, "queue.json")), "the queue survives for the next launch");
 });
 
