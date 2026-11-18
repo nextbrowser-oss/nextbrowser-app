@@ -1,3 +1,4 @@
+import { reportJourney } from "./lib/productJourney";
 import { create } from "zustand";
 import { forEachConcurrent } from "./shared/lib/async";
 import { applyProjectDrop, projectRoot, type ProjectTreeDrop } from "./lib/projectTree";
@@ -2139,6 +2140,7 @@ async function refreshCompletedAccountPairing(
     dashboardKeyPromptOpen: false,
     loginError: undefined,
   });
+  reportJourney("login_succeeded");
   useStore.getState().startTimers();
   // A clean logout clears the local workspace/project cache. Restore it on
   // browser sign-in too, not only on app bootstrap, before presenting an
@@ -2405,6 +2407,7 @@ export const useStore = create<State>((set, get) => {
     const finished = get().conversations.find((conversation) => conversation.id === owningConversationId);
     const replyIndex = finished?.messages.findIndex((message) => message.id === replyId) ?? -1;
     if (finished && finished.messages[replyIndex]?.status === "done") {
+      if (!stopped && result.code === 0) reportJourney("agent_action_succeeded");
       const request = finished.messages.slice(0, replyIndex).reverse().find((message) => message.role === "user");
       const state = get();
       trackFirstTaskSucceeded(
@@ -3645,6 +3648,7 @@ export const useStore = create<State>((set, get) => {
       await guardAgainstForeignAccountCache();
       await get().loadProxy();
       set({ authed: true, nextctlAvailable: true, accountPairing: undefined });
+      reportJourney("login_succeeded");
       get().startTimers();
       await get().syncProjects();
       await get().refreshAll();

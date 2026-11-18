@@ -410,6 +410,9 @@ const desktopActivityReporter = require("./desktop-activity.cjs").createDesktopA
   resolveEndpoint: runtimeBackendEndpoint,
   fetchImpl: backendFetch,
 });
+const journeyReporter = require("./journey.cjs").createJourneyReporter({
+  allowed: !isDevBuild, resolveEndpoint: runtimeBackendEndpoint, fetchImpl: backendFetch,
+});
 let appQuitting = false;
 let quittingForUpdate = false;
 let quitFlushStarted = false;
@@ -2774,6 +2777,11 @@ async function invokeCommand(command, args = {}, sender) {
     case "app_platform": return { platform: process.platform, arch: process.arch };
     case "error_reporting_status": return errorReporter.status();
     case "error_reporting_set": return errorReporter.setUserEnabled(args.enabled !== false);
+    case "product_journey": {
+      const window = sender && BrowserWindow.fromWebContents(sender);
+      if (!window || !chromeWindows.has(window)) return;
+      return journeyReporter.report(args.event);
+    }
     case "desktop_activity": {
       const window = sender && BrowserWindow.fromWebContents(sender);
       if (isDevBuild || !window || !chromeWindows.has(window) || !window.isFocused()) return;
@@ -3963,6 +3971,10 @@ if (!gotLock) {
       app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
     }
     ipcMain.handle("nextbrowser:invoke", (event, command, args) => {
+      if (command === "product_journey") {
+        if (event.senderFrame !== event.sender.mainFrame || event.sender.getType() !== "window") return;
+        return invokeCommand(command, { event: args?.event }, event.sender);
+      }
       if (command === "desktop_activity") {
         if (event.senderFrame !== event.sender.mainFrame) return;
         return invokeCommand(command, {}, event.sender);

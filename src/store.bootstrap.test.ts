@@ -737,3 +737,22 @@ describe("foreground startup deadline", () => {
     });
   });
 });
+
+it("records verified sign-in before unrelated agent setup finishes, without exposing the key", async () => {
+  mockDesktop(true);
+  const {useStore}=await import("./store");
+  let finishAgent!: () => void;
+  const pendingAgent=new Promise<void>(resolve=>{finishAgent=resolve;});
+  useStore.setState({loadProxy:vi.fn().mockResolvedValue(undefined),syncProjects:vi.fn().mockResolvedValue(undefined),refreshAll:vi.fn().mockResolvedValue(undefined),startTimers:vi.fn(),authorizeAgent:vi.fn(()=>pendingAgent)});
+  const signingIn=useStore.getState().login("qa-key");
+  await vi.waitFor(()=>expect(bridge.invoke).toHaveBeenCalledWith("product_journey",{event:"login_succeeded"}));
+  expect(useStore.getState().authed).toBe(true);
+  finishAgent();await signingIn;
+  expect(bridge.invoke.mock.calls.filter(([command])=>command==="product_journey")).toEqual([["product_journey",{event:"login_succeeded"}]]);
+});
+it("does not record rejected account credentials as a successful sign-in", async () => {
+  mockDesktop(false);
+  const {useStore}=await import("./store");
+  await useStore.getState().login("invalid-qa-key");
+  expect(bridge.invoke.mock.calls.filter(([command])=>command==="product_journey")).toEqual([]);
+});
