@@ -34,6 +34,7 @@ import { humanBytes, type AppTab, type Conversation } from "./types";
 import { resolveTheme, type Theme } from "./theme";
 import { confirmedBrowserRuntimeUpdates } from "./lib/browserRuntimeUpdate";
 import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
+import { observeDesktopActivity } from "./lib/desktopActivity";
 import {
   OPEN_AGENT_SETTINGS_EVENT,
   isUtilityDialogTab,
@@ -1340,6 +1341,11 @@ export function App() {
     ) return;
     setRuntimeUpdatePrompt(available);
   }, [browserRuntimeUpdates, runtimeUpdateInstall.status, runtimeUpdatePrompt, runtimeUpdatePromptDismissed, bulkUpdating]);
+
+  useEffect(() => {
+    if (!authed || preview) return;
+    return observeDesktopActivity(() => invoke("desktop_activity"));
+  }, [authed, preview]);
 
   useEffect(() => {
     const heartbeat = window.setInterval(() => {
