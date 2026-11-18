@@ -60,6 +60,7 @@ import { AgentInstallLink } from "./components/AgentInstallLink";
 import { DeviceDataSettings } from "./components/DeviceDataSettings";
 import { SettingsPanel, SettingsRail } from "./components/SettingsSections";
 import { SettingsUpdates } from "./components/SettingsUpdates";
+import { SettingsDiagnostics } from "./components/SettingsDiagnostics";
 import { availableRuntimeUpdates, latestRuntimeOperation, type AppUpdateStatus, type BrowserRuntimeUpdateStatus, type BrowserRuntimeUpdateInstallStatus } from "./lib/settingsUpdates";
 import { settingsAttention, settingsSectionForUpdates, type SettingsSection } from "./lib/settingsSections";
 import { AutomationStudio } from "./components/AutomationStudio";
@@ -557,6 +558,7 @@ function SettingsModal({
             {section === "general" && (
               <div className="settings-group">
                 <div className="settings-row"><span className="muted small">Nextbrowser</span><strong>{__APP_VERSION__}</strong></div>
+                <SettingsDiagnostics />
                 <button className="settings-feature-link" onClick={() => setSection("updates")}>
                   <Icon name="arrow.down.circle" size={17} /><span className="settings-feature-copy"><strong>Versions and updates</strong><span className="muted small">All components and Update all</span></span><Icon name="chevron.right" size={14} />
                 </button>

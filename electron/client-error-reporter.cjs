@@ -270,6 +270,7 @@ function createClientErrorReporter({
   }
   let userEnabled = state.enabled !== false;
   let queue = [];
+  const recentErrors = [];
   let view = "";
   let nbcVersion = "";
   let flushTimer = null;
@@ -473,6 +474,9 @@ function createClientErrorReporter({
     try {
       const event = normalizeEvent(raw);
       if (!event) return false;
+      recentErrors.push({ code: ERROR_CODE.test(event.context?.code || '') ? event.context.code : 'ERROR',
+        ...(ERROR_REF.test(event.context?.ref || '') ? { ref: event.context.ref } : {}) });
+      if (recentErrors.length > 20) recentErrors.shift();
       if (!fold(event)) {
         const seen = perFingerprint.get(event.fingerprint) || 0;
         if (capturedThisRun >= config.maxEventsPerRun || seen >= config.maxEventsPerFingerprint) {
@@ -723,6 +727,7 @@ function createClientErrorReporter({
     if (!userEnabled) {
       // Turning reports off also discards what was waiting to be sent.
       queue = [];
+      recentErrors.length = 0;
       if (flushTimer) clearTimer(flushTimer);
       flushTimer = null;
       persistSync();
@@ -772,6 +777,7 @@ function createClientErrorReporter({
     get sessionId() { return sessionId; },
     get installId() { return state.install_id; },
     get queued() { return queue.map((entry) => entry.event); },
+    get recentErrors() { return recentErrors.map((entry) => ({ ...entry })); },
   };
 }
 

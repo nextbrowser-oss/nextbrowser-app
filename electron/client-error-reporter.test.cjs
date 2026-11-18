@@ -105,6 +105,20 @@ const exception = (message = "boom", extra = {}) => ({
   ...extra,
 });
 
+test("local diagnostics keep only bounded failure identifiers after a flush and clear on opt-out", async (t) => {
+  const h = harness(t);
+  for (let i = 0; i < 25; i++) {
+    h.reporter.capture(exception("private chat and page text", { context: { code: "LAUNCH_FAILED", ref: `NB-${i.toString(16).toUpperCase().padStart(8, '0')}` } }));
+  }
+  assert.equal(h.reporter.recentErrors.length, 20);
+  assert.deepEqual(Object.keys(h.reporter.recentErrors[0]).sort(), ['code', 'ref']);
+  assert.ok(!JSON.stringify(h.reporter.recentErrors).includes('private chat'));
+  await h.reporter.flush();
+  assert.equal(h.reporter.recentErrors.length, 20);
+  h.reporter.setUserEnabled(false);
+  assert.deepEqual(h.reporter.recentErrors, []);
+});
+
 test("reporting is off in development builds unless forced, and can be forced off", () => {
   assert.equal(errorReportingAllowed({ isDevBuild: false, env: {} }), true);
   assert.equal(errorReportingAllowed({ isDevBuild: true, env: {} }), false);

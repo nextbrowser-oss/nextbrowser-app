@@ -55,6 +55,7 @@ const { addChatWorkspaceProfile } = require("./chat-profile-scope.cjs");
 const { requireVerificationCapableCLI, verificationFailureDialogOptions, verificationFailureDialogChoice } = require("./verification-policy.cjs");
 const { agentLoginStatus } = require("./agent-login-status.cjs");
 const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage, screen, session, net } = require("electron");
+const { buildSupportDiagnostics } = require('./support-diagnostics.cjs');
 if (process.platform === "win32") {
   // A native Live window sits beneath the shaped Electron host. The Windows
   // DirectComposition swap chain can cover the holes in that host's region.
@@ -2681,6 +2682,16 @@ async function invokeCommand(command, args = {}, sender) {
       });
     }
     case "nextctl_cancel": return cancelCommand(args.requestId) || cancelBrowserRuntimeInstall(args.requestId);
+    case "support_diagnostics_copy": {
+      const pinned = process.env.NEXTCTL_BIN ? expand(process.env.NEXTCTL_BIN) : null;
+      const binary = (pinned && launchable(pinned) ? pinned : null) || verifiedNextctlBin || (launchable(managedNextctlBin()) ? managedNextctlBin() : null);
+      let cliResult;
+      if (binary) cliResult = await run(binary, ['debug', '--check-auth', '--format', 'json'], { NBC_AUTO_UPDATE: '0' }, { timeoutMs: 7_000 }).catch(() => null);
+      const report = buildSupportDiagnostics({ appVersion: appBuildVersion, platform: process.platform, arch: process.arch, osVersion: systemVersion(), cliPath: binary, cliResult,
+        runtimes: await installedBrowserRuntimes().catch(() => []), errors: errorReporter.recentErrors || [], homeDir: os.homedir() });
+      clipboard.writeText(report.text);
+      return { copied: true, cliStatus: report.cliStatus };
+    }
     case "nextctl_version": {
       const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found");
       const version = await readCLIVersion(bin, run);
@@ -3956,6 +3967,7 @@ if (!gotLock) {
         if (event.senderFrame !== event.sender.mainFrame) return;
         return invokeCommand(command, {}, event.sender);
       }
+      if (command === 'support_diagnostics_copy' && (event.senderFrame !== event.sender.mainFrame || event.sender.getType() !== 'window')) throw userError('Support diagnostics are only available in the application window.');
       if (String(command).startsWith('user_mcp_') && (event.senderFrame !== event.sender.mainFrame || event.sender.getType() !== 'window')) throw userError('MCP setup is only available in the application window.');
       if ((command === "live_window" || command === "live_window_available") &&
           event.senderFrame !== event.sender.mainFrame) return null;
