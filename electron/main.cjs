@@ -404,6 +404,11 @@ const clientEnvironmentOptions = {
   fetchImpl: backendFetch,
 };
 let clientEnvironment = createClientEnvironment(clientEnvironmentOptions);
+const desktopActivityReporter = require("./desktop-activity.cjs").createDesktopActivityReporter({
+  allowed: !isDevBuild,
+  resolveEndpoint: runtimeBackendEndpoint,
+  fetchImpl: backendFetch,
+});
 let appQuitting = false;
 let quittingForUpdate = false;
 let quitFlushStarted = false;
@@ -2758,6 +2763,11 @@ async function invokeCommand(command, args = {}, sender) {
     case "app_platform": return { platform: process.platform, arch: process.arch };
     case "error_reporting_status": return errorReporter.status();
     case "error_reporting_set": return errorReporter.setUserEnabled(args.enabled !== false);
+    case "desktop_activity": {
+      const window = sender && BrowserWindow.fromWebContents(sender);
+      if (isDevBuild || !window || !chromeWindows.has(window) || !window.isFocused()) return;
+      return desktopActivityReporter.report();
+    }
     case "client_environment_status": return clientEnvironment.status();
     case "client_environment_set": return clientEnvironment.setGroup(String(args.group || ""), args.enabled !== false);
     case "client_environment_app_setup": {
@@ -3942,6 +3952,10 @@ if (!gotLock) {
       app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
     }
     ipcMain.handle("nextbrowser:invoke", (event, command, args) => {
+      if (command === "desktop_activity") {
+        if (event.senderFrame !== event.sender.mainFrame) return;
+        return invokeCommand(command, {}, event.sender);
+      }
       if (String(command).startsWith('user_mcp_') && (event.senderFrame !== event.sender.mainFrame || event.sender.getType() !== 'window')) throw userError('MCP setup is only available in the application window.');
       if ((command === "live_window" || command === "live_window_available") &&
           event.senderFrame !== event.sender.mainFrame) return null;

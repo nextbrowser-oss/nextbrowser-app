@@ -115,3 +115,12 @@ Recommended custom metrics:
 - `attachment_count`
 - `prompt_length_bucket`
 - `percent_used_bucket`
+
+## Account activity reporting
+
+In production builds, a signed-in app sends a bodyless, authenticated
+`POST /v1/desktop-activity` at most once per minute when a user interacts with
+the focused desktop window. It sends no input contents, page data, or device
+identifier. The server counts distinct observed minutes per account, retains
+30 UTC calendar days, and exposes the report only to Nextbrowser admins.
+Idle windows, background automations and offline input are not counted.
