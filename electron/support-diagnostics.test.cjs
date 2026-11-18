@@ -19,7 +19,7 @@ test('diagnostics copy only allowlisted metadata and redact paths and secrets', 
 test('old, absent, malformed and failed CLIs produce usable partial reports', () => {
   for (const cliResult of [undefined, { stdout: 'unexpected secret stderr' }, { stdout: '{"ok":false,"error":{"message":"private backend body"}}' }, { stdout: '{"ok":true,"data":{"install_log":{"tail":["private"]}}}' }]) {
     const result = buildSupportDiagnostics({ appVersion: '0.2.74', cliPath: '/bin/nbc', cliResult });
-    assert.equal(result.cliStatus, 'upgrade_required');
+    assert.equal(result.cliStatus, cliResult?.stdout?.includes('"ok":true') ? 'upgrade_required' : 'unavailable');
     assert.ok(!result.text.includes('private'));
     assert.ok(!result.text.includes('unexpected secret'));
   }

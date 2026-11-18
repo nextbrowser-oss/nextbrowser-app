@@ -13,6 +13,8 @@ function buildSupportDiagnostics({ appVersion, platform, arch, osVersion, cliPat
   let envelope;
   try { envelope = JSON.parse(cliResult?.stdout || '{}'); } catch {}
   const source = envelope?.ok === true && envelope?.data?.diagnostics?.schema_version === 1 ? envelope.data.diagnostics : null;
+  const legacy = envelope?.ok === true || /unknown flag.*check-auth/i.test(String(envelope?.error?.message || cliResult?.stderr || ''));
+  const cliStatus = source ? 'available' : !cliPath ? 'not_installed' : legacy ? 'upgrade_required' : 'unavailable';
   const recent = [...(Array.isArray(source?.recent_errors) ? source.recent_errors : []), ...errors].slice(-30).map((item) => ({
     code: code(item?.code), ref: ref(item?.ref),
   })).filter((item) => item.code || item.ref);
@@ -20,9 +22,9 @@ function buildSupportDiagnostics({ appVersion, platform, arch, osVersion, cliPat
     schema_version: 1,
     collected_at: new Date(now()).toISOString(),
     app: { version: version(appVersion), platform: text(platform, 30), arch: text(arch, 20), os_version: text(osVersion, 150) },
-    cli: { path: text(cliPath, 1000), version: version(source?.cli?.version), status: source ? 'available' : cliPath ? 'upgrade_required' : 'not_installed' },
+    cli: { path: text(cliPath, 1000), version: version(source?.cli?.version), status: cliStatus },
     config: { path: text(source?.config?.path, 1000), source: text(source?.config?.source, 60), status: CONFIG.has(source?.config?.status) ? source.config.status : 'unresolved', key_configured: source?.config?.key_configured === true },
-    authorization: { status: AUTH.has(source?.auth?.status) ? source.auth.status : cliPath ? 'upgrade_required' : 'unavailable', ...(Number.isInteger(source?.auth?.http_status) && source.auth.http_status >= 100 && source.auth.http_status <= 599 ? { http_status: source.auth.http_status } : {}) },
+    authorization: { status: AUTH.has(source?.auth?.status) ? source.auth.status : cliStatus === 'upgrade_required' ? 'upgrade_required' : 'unavailable', ...(Number.isInteger(source?.auth?.http_status) && source.auth.http_status >= 100 && source.auth.http_status <= 599 ? { http_status: source.auth.http_status } : {}) },
     runtimes: (Array.isArray(runtimes) ? runtimes : []).filter((item) => ['clawbrowser', 'camoufox', 'dasbrowser', 'multilogin'].includes(item?.name)).map((item) => ({ name: item.name, version: version(item.version) })),
     recent_errors: recent.slice(-10),
   };
