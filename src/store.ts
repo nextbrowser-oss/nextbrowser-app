@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { forEachConcurrent } from "./shared/lib/async";
 import { applyProjectDrop, projectRoot, type ProjectTreeDrop } from "./lib/projectTree";
 import { isUtilityDialogTab, type UtilityDialogTab } from "./lib/appNavigation";
 import { invoke, listen } from "./electronBridge";
@@ -5852,10 +5853,14 @@ export const useStore = create<State>((set, get) => {
       const exclusiveNames = [...new Set(target.profileNames)].filter((name) =>
         !get().workspaces.some((workspace) => workspace.id !== id && workspace.profileNames.includes(name)));
       try {
-        for (const [index, name] of exclusiveNames.entries()) {
-          onProgress?.(`Stopping and removing profiles ${index + 1}/${exclusiveNames.length}…`);
+        let completed = 0;
+        onProgress?.(`Stopping and removing profiles 0/${exclusiveNames.length}…`);
+        // Bound process/filesystem pressure and wait for active removals on
+        // failure. A retry must never race leftovers from the failed attempt.
+        await forEachConcurrent(exclusiveNames, 3, async (name) => {
           await get().deleteProfile(name, { deletingWorkspace: true });
-        }
+          onProgress?.(`Stopping and removing profiles ${++completed}/${exclusiveNames.length}…`);
+        });
       } finally {
         // Also refresh after a partial failure so a retry sees the actual
         // remaining profiles. The next attempt tolerates PROFILE_NOT_FOUND.

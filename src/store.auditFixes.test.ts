@@ -10,6 +10,54 @@ beforeEach(() => {
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+it("limits large workspace cleanup to three removals and leaves shared profiles alone", async () => {
+  const { useStore } = await import("./store");
+  const names = Array.from({ length: 60 }, (_, i) => `batch-${i}`);
+  let active = 0, peak = 0;
+  const deleteProfile = vi.fn(async (_name: string) => {
+    peak = Math.max(peak, ++active);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    active--;
+  });
+  bridge.invoke.mockImplementation(async (command) => {
+    if (command === "workspace_delete" || command === "artifact_workspace_delete") expect(active).toBe(0);
+    return { revision: 1 };
+  });
+  useStore.setState({ workspaces: [{ ...workspace("big"), profileNames: [...names, "shared"] }, { ...workspace("keep"), profileNames: ["shared"] }],
+    activeWorkspaceId: "keep", conversations: [], deleteProfile, loadProfiles: vi.fn().mockResolvedValue(undefined) });
+  const progress: string[] = [];
+  await useStore.getState().deleteWorkspace("big", (message) => progress.push(message));
+  expect(peak).toBe(3);
+  expect(deleteProfile).toHaveBeenCalledTimes(60);
+  expect(deleteProfile.mock.calls.map((args) => args[0]).sort()).toEqual([...names].sort());
+  expect(useStore.getState().workspaces.map((item) => item.id)).toEqual(["keep"]);
+  expect(progress).toContain("Stopping and removing profiles 60/60…");
+});
+
+it("settles in-flight removals before reporting a failed workspace deletion", async () => {
+  const { useStore } = await import("./store");
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  let active = 0;
+  const failure = new Error("cannot stop browser");
+  const remove = vi.fn(async (name: string) => {
+    if (name === "bad") throw failure;
+    active++; await pending; active--;
+  });
+  useStore.setState({ workspaces: [{ ...workspace("big"), profileNames: ["bad", "pending-1", "pending-2", "untouched"] }],
+    activeWorkspaceId: "big", conversations: [], deleteProfile: remove, loadProfiles: vi.fn().mockResolvedValue(undefined) });
+  let settled = false;
+  const deletion = useStore.getState().deleteWorkspace("big").catch((error) => { settled = true; return error; });
+  await vi.waitFor(() => expect(remove).toHaveBeenCalledTimes(3));
+  expect(settled).toBe(false);
+  expect(active).toBe(2);
+  release();
+  expect(await deletion).toBe(failure);
+  expect(active).toBe(0);
+  expect(bridge.invoke).not.toHaveBeenCalledWith("workspace_delete", expect.anything());
+  expect(useStore.getState().workspaces[0].id).toBe("big");
+});
+
 it("clears the previous profile and conversation when creating a workspace", async () => {
   const { useStore } = await import("./store");
   useStore.setState({ agentId: "claude", workspaces: [workspace("a")], activeWorkspaceId: "a", selectedProfile: "a-profile", activeConvId: { claude: "old" }, conversations: [] });

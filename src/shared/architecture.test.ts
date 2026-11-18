@@ -14,9 +14,10 @@ function files(directory: string): string[] {
 }
 const sources = files(root);
 const label = (path: string) => relative(root, path).replace(/\\/g, "/");
+const publicSharedAPI = (path: string) => /^shared\/(?:ui(?:\/[a-z][a-z0-9-]*)?|lib\/[a-z][a-z0-9-]*)(?:\/index)?$/.test(path);
 
 describe("shared UI architecture", () => {
-  it("keeps shared independent and requires consumers to use its public UI API", () => {
+  it("keeps shared independent and requires consumers to use its public APIs", () => {
     const violations: string[] = [];
     for (const path of sources.filter(path => /\.tsx?$/.test(path))) {
       const source = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
@@ -28,10 +29,16 @@ describe("shared UI architecture", () => {
         const fromShared = path.startsWith(shared + "/") || path.startsWith(shared + "\\");
         const toShared = target === shared || target.startsWith(shared + "/") || target.startsWith(shared + "\\");
         if (fromShared && !toShared) violations.push(`${label(path)} imports upwards: ${specifier}`);
-        if (!fromShared && toShared && !/^shared\/ui(?:\/[a-z][a-z0-9-]*)?(?:\/index)?$/.test(label(target))) violations.push(`${label(path)} imports a private shared file: ${specifier}`);
+        if (!fromShared && toShared && !publicSharedAPI(label(target))) violations.push(`${label(path)} imports a private shared file: ${specifier}`);
       }
     }
     expect(violations).toEqual([]);
+  });
+
+  it("allows public library segments while rejecting private implementations and a shared root barrel", () => {
+    expect(publicSharedAPI("shared/lib/async")).toBe(true);
+    expect(publicSharedAPI("shared/lib/async/index")).toBe(true);
+    for (const path of ["shared", "shared/lib", "shared/lib/async/forEachConcurrent", "shared/ui/button/button"]) expect(publicSharedAPI(path)).toBe(false);
   });
 
   it("keeps hover hints on the shared component instead of native title or CSS duplicates", () => {
