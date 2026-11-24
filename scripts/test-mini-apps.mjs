@@ -26,6 +26,22 @@ async function start() {
 async function waitForBoard() {
   await until(() => board(() => document.getElementById('add')?.disabled === false));
 }
+async function checkWindowLayout() {
+  const area = page.locator('.desktop-shell-body');
+  const guest = page.locator('webview.mini-apps-guest');
+  await until(async () => {
+    const content = await area.boundingBox(), view = await guest.boundingBox();
+    return content && view && ['x', 'y', 'width', 'height'].every(key => Math.abs(content[key] - view[key]) <= 1);
+  });
+  assert.equal(await page.locator('#app-sidebar').isVisible(), false);
+  assert.equal(await page.getByRole('navigation', { name: 'Installed mini apps' }).isVisible(), false);
+  assert.equal(await page.getByRole('button', { name: 'Back to Mini Apps' }).isVisible(), true);
+}
+async function backToCatalog() {
+  await page.getByRole('button', { name: 'Back to Mini Apps' }).click();
+  await page.getByRole('button', { name: 'Download package' }).waitFor();
+  assert.equal(await page.locator('#app-sidebar').isVisible(), true);
+}
 async function until(check) {
   const deadline = Date.now() + 15000;
   do {
@@ -49,12 +65,21 @@ try {
   await page.getByRole('button', { name: 'Install', exact: true }).click();
   await page.getByRole('button', { name: 'Install mini app', exact: true }).click();
   await waitForBoard();
+  await checkWindowLayout();
+  const initialWidth = await page.evaluate(() => innerWidth);
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1050, 700));
+  await until(async () => await page.evaluate(() => innerWidth) !== initialWidth);
+  await checkWindowLayout();
   const pin = () => page.getByRole('switch', { name: 'Show in rail' });
   const shortcut = name => page.getByRole('button', { name: 'Open pinned app ' + name, exact: true });
   assert.equal(await pin().isChecked(), false);
   assert.equal(await shortcut('Kanban').count(), 0);
   await pin().check();
+  await backToCatalog();
   await shortcut('Kanban').waitFor();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await waitForBoard();
+  await checkWindowLayout();
   assert.equal(await board(() => typeof window.nextbrowser), 'undefined');
   assert.equal(await board(() => typeof window.require), 'undefined');
   const viewport = await page.locator('webview.mini-apps-guest').boundingBox();
@@ -77,6 +102,7 @@ try {
   await until(async () => await board(() => document.querySelector('article p')?.textContent) === 'Check the author guide');
   await board(() => [...document.querySelectorAll('button')].find(b => b.textContent === 'Move to In progress').click());
   await until(async () => await board(() => document.querySelectorAll('.lane')[1].querySelector('strong')?.textContent) === 'Review mini apps');
+  await backToCatalog();
   await page.getByLabel('Mini app package').setInputFiles(second);
   await page.getByRole('button', { name: 'Install mini app', exact: true }).click();
   await page.getByRole('heading', { name: 'Work board', exact: true }).waitFor();
@@ -84,11 +110,17 @@ try {
   assert.equal(await board(() => document.querySelectorAll('.card').length), 0);
   assert.equal(await pin().isChecked(), false);
   await pin().check();
+  await backToCatalog();
   await shortcut('Work board').waitFor();
+  await shortcut('Work board').click();
+  await waitForBoard();
+  await checkWindowLayout();
   await pin().uncheck();
+  await backToCatalog();
   await shortcut('Work board').waitFor({ state: 'detached' });
   await shortcut('Kanban').click();
   await waitForCard('Review mini apps');
+  await checkWindowLayout();
   await app.close();
   await start();
   await page.getByRole('button', { name: 'Open Extensions', exact: true }).click();

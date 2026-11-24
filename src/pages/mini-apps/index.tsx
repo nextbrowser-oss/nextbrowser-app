@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Dialog } from '../../shared/ui';
+import { Button, Dialog, IconButton } from '../../shared/ui';
+import { ChevronLeft } from 'lucide-react';
+import { TitlebarActions } from '../../components/DesktopShell';
 import { invoke } from '../../electronBridge';
 import { useStore } from '../../store';
 import { MiniAppIcon } from '../../components/MiniAppIcon';
@@ -52,24 +54,28 @@ function LibraryView({ owner }: { owner: string }) {
     if (action === 'install') open(app.id);
   }
   const current = selected?.owner === owner ? library?.installed.find(app => app.id === selected.id) : undefined;
-  return <section className="mini-apps">
-    <header className="mini-apps-header"><h1>Mini Apps</h1>
+  return <section className={current ? 'mini-apps mini-apps-open' : 'mini-apps'}>
+    {!current && <header className="mini-apps-header"><h1>Mini Apps</h1>
       <div className="mini-apps-header-actions"><Button onClick={() => setGuide(true)}>Build a mini app</Button>
         <Button disabled={busy} onClick={() => file.current?.click()}>Install from file</Button></div>
       <input ref={file} type="file" hidden accept=".json" aria-label="Mini app package" onChange={e => {
         const selected = e.target.files?.[0]; e.target.value = '';
         if (selected) void run(() => importFile(selected));
-      }} /></header>
+      }} /></header>}
     {(error || loadError) && !review && <p role="alert">{error || loadError} <Button onClick={() => void run(refresh)}>Refresh</Button></p>}
     {!library && !error && !loadError && <p role="status">Loading mini apps…</p>}
     {library && <>
-      <nav className="mini-apps-tabs" aria-label="Installed mini apps">
-        <Button aria-pressed={!current} onClick={() => open()}>Catalog</Button>
-        {library.installed.map(app => <Button key={app.id} disabled={busy} aria-pressed={app.id === current?.id}
+      {!current && <nav className="mini-apps-tabs" aria-label="Installed mini apps">
+        <Button aria-pressed onClick={() => open()}>Catalog</Button>
+        {library.installed.map(app => <Button key={app.id} disabled={busy}
           onClick={() => open(app.id)}>{app.name}</Button>)}
-      </nav>
+      </nav>}
       {current ? <>
-        <div className="mini-apps-app-heading"><MiniAppIcon app={current} /><h2>{current.name}</h2><small>v{current.version}</small>
+        <TitlebarActions><div className="mini-app-titlebar">
+          <IconButton label="Back to Mini Apps" text="Mini Apps" appearance="plain" size="small" onClick={() => open()}>
+            <ChevronLeft size={16} aria-hidden="true" />
+          </IconButton>
+          <MiniAppIcon app={current} /><h2>{current.name}</h2>
           <label className="mini-apps-pin">Show in rail <span className="toggle">
             <input type="checkbox" role="switch" checked={current.pinned} disabled={busy}
               onChange={event => { const pinned = event.target.checked; void run(async () => {
@@ -78,7 +84,8 @@ function LibraryView({ owner }: { owner: string }) {
               }); }} />
             <span className="toggle-track"><span className="toggle-knob" /></span></span>
           </label>
-          <Button onClick={() => setReview({ action: 'remove', app: current })}>Uninstall</Button></div>
+          <Button onClick={() => setReview({ action: 'remove', app: current })}>Uninstall</Button>
+        </div></TitlebarActions>
         <OpenGuest key={current.id} id={current.id} owner={owner} name={current.name} />
       </> : <div className="mini-apps-catalog">{library.catalog.map(app => {
         const installed = library.installed.some(item => item.id === app.id);
