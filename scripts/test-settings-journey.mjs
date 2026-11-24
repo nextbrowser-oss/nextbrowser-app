@@ -150,7 +150,8 @@ try {
     ["::-webkit-scrollbar", "::-webkit-scrollbar-track", "::-webkit-scrollbar-corner", "::-webkit-scrollbar-thumb"]
       .map(part => getComputedStyle(el, part).backgroundColor));
   assert.deepEqual(scrollbarColors.slice(0, 3), Array(3).fill("rgba(0, 0, 0, 0)"));
-  assert.notEqual(scrollbarColors[3], "rgba(0, 0, 0, 0)");
+  assert.equal(scrollbarColors[3], "rgb(66, 188, 137)");
+  const thumbColor = () => messages.evaluate(el => getComputedStyle(el, "::-webkit-scrollbar-thumb").backgroundColor);
   await modal.getByRole("button", { name: "Gradient", exact: true }).click();
   await modal.getByLabel("Gradient end").fill("#567abc");
   assert.ok(await shell.evaluate(el => getComputedStyle(el).backgroundImage.includes("rgb(86, 122, 188)")));
@@ -165,6 +166,8 @@ try {
   await radio("Light").check();
   await waitForTheme("light");
   assert.equal(await modal.getByRole("button", { name: "Reset light appearance" }).isDisabled(), true);
+  await modal.getByLabel("App accent", { exact: true }).fill("#ce674a");
+  assert.equal(await thumbColor(), "rgb(206, 103, 74)");
   assert.ok(await shell.evaluate(el => !getComputedStyle(el).backgroundImage.includes("data:image")));
   await page.emulateMedia({ colorScheme: "dark" });
   await radio("System").check();
@@ -184,6 +187,7 @@ try {
   assert.equal(await radio("Dark").isChecked(), true);
   await modal.getByRole("button", { name: "My photo", pressed: true }).waitFor();
   assert.equal(await modal.getByLabel("App accent", { exact: true }).inputValue(), "#42bc89");
+  assert.equal(await thumbColor(), "rgb(66, 188, 137)");
   await modal.getByRole("button", { name: "Reset dark appearance" }).click();
   assert.equal(await corners.inputValue(), "20");
   assert.equal(await modal.getByRole("button", { name: "Glow", pressed: true }).count(), 1);

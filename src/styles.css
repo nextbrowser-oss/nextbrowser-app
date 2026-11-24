@@ -1,13 +1,12 @@
 @import "./palette.css";
 * { box-sizing: border-box; }
 @supports not selector(::-webkit-scrollbar) {
-  * { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
+  * { scrollbar-width: thin; scrollbar-color: var(--accent) transparent; }
 }
 *::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
 *::-webkit-scrollbar-track, *::-webkit-scrollbar-corner { background: transparent; }
 *::-webkit-scrollbar-button { display: none; }
-*::-webkit-scrollbar-thumb { background: var(--scroll-thumb); background-clip: padding-box; border: 1px solid transparent; border-radius: 999px; }
-*::-webkit-scrollbar-thumb:hover { background-color: var(--scroll-thumb-hover); }
+*::-webkit-scrollbar-thumb { background: var(--accent); background-clip: padding-box; border: 1px solid transparent; border-radius: 999px; }
 html, body, #root { height: 100%; margin: 0; }
 body {
   font: 13px/1.4 var(--font-ui);
@@ -2617,7 +2616,6 @@ body.is-resizing-sidebar {
   min-height: 0;
 }
 .agent-terminal-host .xterm { height: 100%; }
-.agent-terminal-host .xterm-viewport { --scroll-thumb: var(--surface-8); }
 /* Beats xterm.css (loaded later) so the remainder below the last row is the theme color. */
 .agent-terminal-host .xterm .xterm-viewport { background-color: var(--terminal-background); }
 .terminal-attachments {
@@ -8635,7 +8633,6 @@ pre,
   width: 8px;
 }
 .workspace-profile-list::-webkit-scrollbar-thumb {
-  background-color: var(--muted);
   border-radius: 8px;
 }
 .ui-scale-control {
