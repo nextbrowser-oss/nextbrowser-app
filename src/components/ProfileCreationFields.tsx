@@ -24,7 +24,7 @@ function countryOption({ code, name }: RotationCountry) {
 export function ProfileCountrySelect({ countries, value, disabled, onChange }: {
   countries: RotationCountry[]; value: string; disabled: boolean; onChange: (value: string) => void;
 }) {
-  return <Select label="Proxy country" value={value.toUpperCase()} disabled={disabled} onChange={onChange}
+  return <Select overlay label="Proxy country" value={value.toUpperCase()} disabled={disabled} onChange={onChange}
     options={countries.map(countryOption)} searchPlaceholder="Search countries…"
     filterOptions={query => filterCountryList(countries, query).map(countryOption)} />;
 }
@@ -33,7 +33,7 @@ export function ProfileProxySelect({ proxies, value, disabled, label, onChange, 
   proxies: PersonalProxyOption[]; value: string; disabled: boolean; label: string; onChange: (value: string) => void; onAdd: () => void;
 }) {
   return <>
-    <Select label={label} value={value} disabled={disabled} onChange={onChange}
+    <Select overlay label={label} value={value} disabled={disabled} onChange={onChange}
       options={proxies.map(proxy => ({ value: proxy.id, label: proxy.name, description: `${proxy.scheme.toUpperCase()} · ${proxy.host}:${proxy.port}` }))} />
     <button className="link profile-add-proxy" type="button" disabled={disabled} onClick={onAdd}><Icon name="plus" size={13} /> Add proxy</button>
   </>;

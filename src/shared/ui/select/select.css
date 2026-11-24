@@ -1,4 +1,17 @@
 .shared-select { min-width: 0; }
+.shared-select-overlay { anchor-scope: --select-trigger; }
+.shared-select-overlay > .shared-select-trigger { anchor-name: --select-trigger; }
+.shared-select-flyout {
+  --field-surface: var(--glass-inverse-control); --field-text: var(--glass-inverse-text);
+  position: fixed; inset: auto; position-anchor: --select-trigger;
+  position-area: bottom; position-try-fallbacks: flip-block; position-try-order: most-block-size;
+  box-sizing: border-box; width: anchor-size(width); max-height: calc(100% - 8px);
+  margin: 4px 0; padding: 4px; border: 0; border-radius: 10px;
+  color: var(--glass-inverse-text); background: var(--glass-inverse-solid); box-shadow: var(--glass-inverse-shadow);
+}
+.shared-select-flyout:popover-open { display: flex; flex-direction: column; }
+.shared-select .shared-select-flyout .shared-command-list { min-height: 0; margin: 0; padding: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
+.shared-select .shared-select-flyout .shared-select-search { flex: none; margin: 0 0 4px; }
 .shared-select .shared-select-trigger { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
 .shared-select-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shared-select-trigger > svg { flex: none; opacity: .75; transition: transform .15s; }

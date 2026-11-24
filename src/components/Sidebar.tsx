@@ -1381,7 +1381,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, liveDestination, pr
             </label>}
             <div className="modal-field">
               <span>Browser toolset</span>
-              <Select label="Browser toolset" value={profileToolset} options={toolsetOptions} disabled={profileSaving}
+              <Select overlay label="Browser toolset" value={profileToolset} options={toolsetOptions} disabled={profileSaving}
                 onChange={value => {
                   setProfileToolset(value as ProfileToolsetOption);
                   setProfileError(null);
@@ -1393,7 +1393,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, liveDestination, pr
             </div>
             {profileToolset !== "multilogin" && <div className="modal-field">
               <span>Connection</span>
-              <Select label="Connection" value={profileConnection} options={connectionOptions} disabled={profileSaving}
+              <Select overlay label="Connection" value={profileConnection} options={connectionOptions} disabled={profileSaving}
                 onChange={value => {
                   setProfileConnection(value as typeof profileConnection);
                   if (value === "personal") {
@@ -1559,7 +1559,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, liveDestination, pr
                         {multiloginKind === "browser" ? (
                           <div className="modal-field profile-multilogin-os">
                             <span>Fingerprint OS</span>
-                            <Select label="Multilogin fingerprint OS" value={multiloginOS} disabled={profileSaving}
+                            <Select overlay label="Multilogin fingerprint OS" value={multiloginOS} disabled={profileSaving}
                               options={MULTILOGIN_OS_TYPES.map(value => ({ value, label: value === "macos" ? "macOS" : value === "windows" ? "Windows" : "Linux" }))}
                               onChange={value => setMultiloginOS(value as MultiloginOSType)} />
                           </div>

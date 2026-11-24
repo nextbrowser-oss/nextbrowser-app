@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { CommandList } from "../command-list";
 import { Glyph } from "../glyph";
 import "./select.css";
@@ -9,14 +9,16 @@ function optionLabel(option: SelectOption) {
   return option.decoration ? <><span aria-hidden="true">{option.decoration}</span>{option.label}</> : option.label;
 }
 
-/** Inline listbox that stays inside its owning glass popover or dialog. */
-export function Select({ label, value, options, onChange, disabled = false, autoFocus = false, searchPlaceholder, triggerContent, filterOptions }: {
+/** The list stays in the same focus scope in both inline and overlay layouts. */
+export function Select({ label, value, options, onChange, disabled = false, autoFocus = false, searchPlaceholder, triggerContent, filterOptions, overlay = false }: {
   label: string; value: string; options: readonly SelectOption[]; onChange: (value: string) => void; disabled?: boolean; autoFocus?: boolean; searchPlaceholder?: string; triggerContent?: ReactNode;
   filterOptions?: (query: string) => readonly SelectOption[];
+  overlay?: boolean;
 }) {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const flyout = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(value);
@@ -29,6 +31,12 @@ export function Select({ label, value, options, onChange, disabled = false, auto
     option.label.toLowerCase().includes(term) || option.value.toLowerCase().includes(term)) : options;
   const current = visible.find(option => option.value === active)?.value ?? visible[0]?.value;
   const choose = (next: string) => { onChange(next); setOpen(false); trigger.current?.focus(); };
+  useLayoutEffect(() => {
+    if (expanded && overlay && flyout.current) {
+      flyout.current.popover = "manual";
+      flyout.current.showPopover();
+    }
+  }, [expanded, overlay]);
   useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
   useEffect(() => { if (expanded && searchPlaceholder) search.current?.focus(); }, [expanded, searchPlaceholder]);
   useEffect(() => {
@@ -38,7 +46,14 @@ export function Select({ label, value, options, onChange, disabled = false, auto
     return () => document.removeEventListener("pointerdown", outside, true);
   }, [expanded]);
   const activeDescendant = expanded && current ? `${id}-${current}` : undefined;
-  return <div ref={root} className="shared-select" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false); }}
+  const menu = expanded && <>
+    {searchPlaceholder && <input ref={search} className="shared-select-search" role="combobox" aria-label={searchPlaceholder}
+      aria-expanded="true" aria-controls={id} aria-autocomplete="list" aria-activedescendant={activeDescendant}
+      placeholder={searchPlaceholder} value={query} onChange={event => { setQuery(event.target.value); setActive(""); }} />}
+    <CommandList id={id} label={label} activeId={current} options={visible.map(option => ({ id: option.value, title: optionLabel(option), description: option.description ?? "" }))} onChoose={choose} />
+    {!visible.length && <div className="shared-select-empty" role="status">No matching options.</div>}
+  </>;
+  return <div ref={root} className={overlay ? "shared-select shared-select-overlay" : "shared-select"} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false); }}
       onKeyDown={event => {
         if (disabled || !options.length || event.nativeEvent.isComposing) return;
         const editing = event.target === search.current;
@@ -74,12 +89,6 @@ export function Select({ label, value, options, onChange, disabled = false, auto
       onClick={() => { setActive(value); setQuery(""); setOpen(!expanded); }}>
       {triggerContent ?? <><span>{selected ? optionLabel(selected) : "Choose…"}</span><Glyph name="chevron-down" size={14} /></>}
     </button>
-    {expanded && <>
-      {searchPlaceholder && <input ref={search} className="shared-select-search" role="combobox" aria-label={searchPlaceholder}
-        aria-expanded="true" aria-controls={id} aria-autocomplete="list" aria-activedescendant={activeDescendant}
-        placeholder={searchPlaceholder} value={query} onChange={event => { setQuery(event.target.value); setActive(""); }} />}
-      <CommandList id={id} label={label} activeId={current} options={visible.map(option => ({ id: option.value, title: optionLabel(option), description: option.description ?? "" }))} onChoose={choose} />
-      {!visible.length && <div className="shared-select-empty" role="status">No matching options.</div>}
-    </>}
+    {expanded && (overlay ? <div ref={flyout} className="shared-select-flyout">{menu}</div> : menu)}
   </div>;
 }

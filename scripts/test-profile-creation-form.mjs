@@ -37,12 +37,32 @@ try {
   await page.getByRole("dialog", { name: "Profiles", exact: true }).getByRole("button", { name: "Create browser profile" }).click();
   const form = page.getByRole("dialog", { name: "Create profile", exact: true });
   const field = name => form.getByRole("combobox", { name, exact: true });
+  const initialSize = await form.boundingBox();
+  assert.ok(initialSize, "Create profile has a visible frame");
+  const openField = async (name, expectedFrame = initialSize) => {
+    const trigger = field(name);
+    await trigger.scrollIntoViewIfNeeded();
+    const triggerBox = await trigger.boundingBox();
+    const footer = form.locator('button[type="submit"]');
+    const footerY = (await footer.boundingBox()).y;
+    await trigger.click();
+    const list = form.getByRole("listbox");
+    await list.waitFor();
+    const frame = await form.boundingBox();
+    assert.ok(Math.abs(frame.height - expectedFrame.height) <= 1 && Math.abs(frame.y - expectedFrame.y) <= 1,
+      `${name} changed the dialog from y=${expectedFrame.y}, h=${expectedFrame.height} to y=${frame.y}, h=${frame.height}`);
+    assert.ok(Math.abs((await footer.boundingBox()).y - footerY) <= 1, name + " moved the form actions");
+    const menu = await form.locator(":popover-open").boundingBox();
+    assert.ok(Math.abs(menu.x - triggerBox.x) <= 1 && Math.abs(menu.width - triggerBox.width) <= 1, name + " menu is not aligned with its trigger");
+    assert.ok(menu.y + menu.height <= await page.evaluate(() => innerHeight) && menu.y >= 0, name + " menu is outside the window");
+    assert.ok(menu.y >= triggerBox.y + triggerBox.height - 1 || menu.y + menu.height <= triggerBox.y + 1, name + " menu overlaps its trigger");
+  };
   const choose = async (name, option) => {
-    await field(name).click();
+    await openField(name);
     await form.getByRole("option", { name: option }).click();
   };
   await form.getByPlaceholder("My profile").fill("Design check");
-  await field("Browser toolset").click();
+  await openField("Browser toolset");
   assert.equal(await form.getByRole("option").count(), 4);
   assert.equal(await form.locator('[role="option"] strong :is(svg,img)').count(), 4);
   if (process.env.PROFILE_FORM_SCREENSHOT) await form.screenshot({ path: process.env.PROFILE_FORM_SCREENSHOT });
@@ -55,13 +75,13 @@ try {
   const addProxy = page.getByRole("dialog", { name: "Create proxy", exact: true });
   await addProxy.getByRole("button", { name: "Close", exact: true }).click();
   await choose("Connection", /^Managed proxy/);
-  await field("Proxy country").click();
+  await openField("Proxy country");
   const search = form.getByRole("combobox", { name: /^Search countries/ });
   await search.fill("ge");
   assert.match(await form.getByRole("option").first().innerText(), /Georgia · GE/);
   await search.press("Escape");
   assert.equal(await form.isVisible(), true);
-  await field("Proxy country").click();
+  await openField("Proxy country");
   await search.fill("Thailand");
   await search.press("Enter");
   assert.match(await field("Proxy country").innerText(), /Thailand · TH/);
@@ -73,11 +93,23 @@ try {
   assert.notEqual(await page.locator("html").getAttribute("data-theme"), firstTheme);
   await rail.hover();
   await page.getByRole("dialog", { name: "Profiles", exact: true }).getByRole("button", { name: "Create browser profile" }).click();
-  await field("Proxy country").click();
+  await openField("Proxy country");
   await search.fill("Turk");
   assert.ok(await form.getByRole("option").count() > 0);
   if (process.env.PROFILE_COUNTRY_SCREENSHOT) await form.screenshot({ path: process.env.PROFILE_COUNTRY_SCREENSHOT });
   await search.press("Escape");
+  await app.evaluate(({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows()[0];
+    win.setMinimumSize(500, 380);
+    win.setContentSize(790, 460);
+  });
+  await page.waitForFunction(() => innerHeight < 500);
+  const shortFrame = await form.boundingBox();
+  assert.ok(shortFrame.height < initialSize.height && shortFrame.y >= 0);
+  await openField("Proxy country", shortFrame);
+  await search.fill("Canada");
+  await form.getByRole("option", { name: /Canada · CA/ }).click();
+  assert.match(await field("Proxy country").innerText(), /Canada · CA/);
   await form.getByRole("button", { name: "Close profile creation" }).click();
   console.log("Passed both themes, provider-style fields, original icons, nested proxy dialog, country search, keyboard and submission.");
 } catch (error) {

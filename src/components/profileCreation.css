@@ -1,5 +1,6 @@
 .shared-dialog.profile-create-dialog {
   width: min(420px, calc(100vw - 32px));
+  height: min(507px, calc(100dvh - 48px));
   --field-surface: var(--surface-2);
   --field-text: var(--dialog-text);
 }
@@ -23,7 +24,6 @@
 }
 .profile-create-form .shared-select [aria-hidden="true"]:has(> svg, > img) { display: inline-flex; flex: none; }
 .profile-create-form .shared-command-list__option:has(strong [aria-hidden]) > span { padding-inline-start: 24px; }
-.profile-create-form .shared-select-search::placeholder, .profile-create-form .shared-select-empty { color: var(--dialog-muted); }
 .profile-create-form .profile-add-proxy { display: inline-flex; align-items: center; gap: 4px; justify-self: start; }
 .profile-create-form .profile-remote-section { margin: 0; padding: 0; border: 0; background: none; }
 .profile-create-form .profile-multilogin-panel, .profile-create-form .modal-actions { margin: 0; }
