@@ -9,6 +9,15 @@
   --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   --brand-ink: var(--bg);
   --brand-paper: var(--text);
+  /* Built-in chat palettes. Both modes are available to the theme previews. */
+  --blueprint-light-bg: #e6edf8; --blueprint-light-incoming: #f9fbff; --blueprint-light-outgoing: #284ab5; --blueprint-light-accent: #2d54cf;
+  --blueprint-dark-bg: #141e32; --blueprint-dark-incoming: #293954; --blueprint-dark-outgoing: #afc8ff; --blueprint-dark-accent: #8caeff;
+  --matcha-light-bg: #f3f2e5; --matcha-light-end: #dce5cb; --matcha-light-incoming: #fffdf2; --matcha-light-outgoing: #43583b; --matcha-light-accent: #526a34;
+  --matcha-dark-bg: #18211c; --matcha-dark-end: #29332b; --matcha-dark-incoming: #35453a; --matcha-dark-outgoing: #c1d397; --matcha-dark-accent: #c4d799;
+  --terracotta-light-bg: #f3e7db; --terracotta-light-incoming: #fff9f1; --terracotta-light-outgoing: #963e30; --terracotta-light-accent: #a64532;
+  --terracotta-dark-bg: #291e20; --terracotta-dark-incoming: #4b3335; --terracotta-dark-outgoing: #efa98b; --terracotta-dark-accent: #f5a280;
+  --afterglow-light-bg: #eee7fa; --afterglow-light-end: #f6dce6; --afterglow-light-incoming: #fff8ff; --afterglow-light-outgoing: #69437e; --afterglow-light-accent: #814892;
+  --afterglow-dark-bg: #211c36; --afterglow-dark-end: #382637; --afterglow-dark-incoming: #46374f; --afterglow-dark-outgoing: #d6a9ea; --afterglow-dark-accent: #dbadff;
   --brand-line: rgba(230, 225, 225, 0.10);
   --brand-blue: #5865f2;
   --bg: #20242b;

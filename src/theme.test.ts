@@ -2,6 +2,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { resolveTheme, terminalColorKeys, terminalThemeFromPalette } from "./theme";
+import { builtinAppearance, builtinThemes } from "./lib/builtinThemes";
+import { appearanceTokens } from "./lib/appearance";
 
 const palette = readFileSync(new URL("./palette.css", import.meta.url), "utf8")
   .replace(/\/\*[\s\S]*?\*\//g, "");
@@ -57,6 +59,22 @@ function compositeRgba(value: string, backdrop: number): string {
 }
 
 describe("theme selection", () => {
+  it.each(builtinThemes)("keeps $name chat text readable in both modes", preset => {
+    for (const mode of ["light", "dark"] as const) {
+      const base = themeTokens(mode);
+      const palette = builtinAppearance(preset, mode, { getPropertyValue: key => base[key] ?? "" });
+      const tokens = { ...base, ...appearanceTokens(palette) };
+      const pairs = [
+        ["--on-accent", palette.accent], ["--chat-toolbar-text", palette.background],
+        ["--chat-toolbar-text", palette.gradientEnd ?? palette.background],
+        ["--chat-incoming-ink", palette.incoming], ["--chat-outgoing-ink", palette.outgoing],
+      ];
+      for (const [ink, surface] of pairs) {
+        expect(contrast(resolveToken(tokens, ink), surface), `${mode}: ${ink} on ${surface}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
   it("prefers an explicit saved theme", () => {
     expect(resolveTheme("dark", true)).toBe("dark");
     expect(resolveTheme("light", false)).toBe("light");

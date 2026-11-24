@@ -1,15 +1,25 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Theme } from "../theme";
 import { appearanceTokens, type UpdateAppearance } from "./appearance";
 import { settingsStorage } from "./settingsStorage";
 import { defaultPreset, readPalettes, readThemeLibrary, savePalette, saveThemeLibrary, type ThemeLibrary } from "./themePresets";
+import { builtinAppearance, builtinTheme } from "./builtinThemes";
 
 export function useAppearance(theme: Theme) {
   const [library, setLibrary] = useState(() => readThemeLibrary(settingsStorage));
   const [palettes, setPalettes] = useState(() => readPalettes(settingsStorage, library.activeId));
   const [saveError, setSaveError] = useState("");
   const latest = useRef(palettes);
-  const appearance = palettes[theme];
+  const preset = builtinTheme(library.activeId);
+  const base = useMemo(() => preset && {
+    light: builtinAppearance(preset, "light"), dark: builtinAppearance(preset, "dark"),
+  }, [preset]);
+  const overrides = palettes[theme];
+  const resolvedPalettes = useMemo(() => ({
+    light: { ...base?.light, ...palettes.light },
+    dark: { ...base?.dark, ...palettes.dark },
+  }), [base, palettes]);
+  const appearance = resolvedPalettes[theme];
   useLayoutEffect(() => {
     const root = document.documentElement.style;
     const tokens = appearanceTokens(appearance);
@@ -41,7 +51,7 @@ export function useAppearance(theme: Theme) {
     setPalettes(latest.current);
   });
   function selectPreset(id: string) {
-    if (id === defaultPreset.id || library.presets.some(preset => preset.id === id)) {
+    if (id === defaultPreset.id || builtinTheme(id) || library.presets.some(preset => preset.id === id)) {
       persist(() => applyLibrary({ ...library, activeId: id }));
     }
   }
@@ -49,8 +59,8 @@ export function useAppearance(theme: Theme) {
     return persist(() => {
       const id = crypto.randomUUID();
       try {
-        savePalette(settingsStorage, id, "light", latest.current.light);
-        savePalette(settingsStorage, id, "dark", latest.current.dark);
+        savePalette(settingsStorage, id, "light", { ...base?.light, ...latest.current.light });
+        savePalette(settingsStorage, id, "dark", { ...base?.dark, ...latest.current.dark });
         applyLibrary({ activeId: id, presets: [...library.presets, { id, name }] });
       } catch (error) {
         savePalette(settingsStorage, id, "light", null);
@@ -65,12 +75,12 @@ export function useAppearance(theme: Theme) {
   }
   function deletePreset() {
     const id = library.activeId;
-    if (id === defaultPreset.id) return false;
+    if (id === defaultPreset.id || builtinTheme(id)) return false;
     return persist(() => {
       applyLibrary({ activeId: defaultPreset.id, presets: library.presets.filter(preset => preset.id !== id) });
       savePalette(settingsStorage, id, "light", null);
       savePalette(settingsStorage, id, "dark", null);
     });
   }
-  return { appearance, updateAppearance, library, selectPreset, createPreset, renamePreset, deletePreset, saveError };
+  return { appearance, resolvedPalettes, canReset: Object.keys(overrides).length > 0, updateAppearance, library, selectPreset, createPreset, renamePreset, deletePreset, saveError };
 }

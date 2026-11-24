@@ -1,16 +1,30 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { Button, IconButton, Select } from "../shared/ui";
-import { defaultPreset } from "../lib/themePresets";
+import { defaultPreset, readPalette } from "../lib/themePresets";
+import { builtinAppearance, builtinThemes } from "../lib/builtinThemes";
+import { settingsStorage } from "../lib/settingsStorage";
+import type { Appearance } from "../lib/appearance";
+import type { Theme } from "../theme";
 import type { useAppearance } from "../lib/useAppearance";
 
-type Props = Omit<ReturnType<typeof useAppearance>, "appearance" | "updateAppearance">;
+type Props = Omit<ReturnType<typeof useAppearance>, "resolvedPalettes" | "canReset" | "updateAppearance"> & { mode: Theme };
 const createOption = { value: ":create", label: "+ Create theme…" };
 
-export function ThemePresets({ library, selectPreset, createPreset, renamePreset, deletePreset, saveError }: Props) {
+function PaletteSwatch({ preset, mode, active }: {
+  preset: typeof builtinThemes[number]; mode: Theme; active?: Appearance;
+}) {
+  const palette = useMemo(() => active ?? { ...builtinAppearance(preset, mode), ...readPalette(settingsStorage, preset.id, mode) },
+    [active, preset, mode]);
+  return <i className="theme-preset-swatch" style={{
+    backgroundImage: `linear-gradient(110deg, ${palette.background} 36%, ${palette.incoming} 36% 67%, ${palette.outgoing} 67%)`,
+  }} />;
+}
+
+export function ThemePresets({ mode, appearance, library, selectPreset, createPreset, renamePreset, deletePreset, saveError }: Props) {
   const [action, setAction] = useState<"create" | "rename" | "delete" | null>(null);
   const [name, setName] = useState("");
-  const presets = [defaultPreset, ...library.presets];
+  const presets = [defaultPreset, ...builtinThemes, ...library.presets];
   const current = presets.find(preset => preset.id === library.activeId) ?? defaultPreset;
   const cleanName = name.trim();
   const duplicate = presets.some(preset => !(action === "rename" && preset.id === current.id)
@@ -20,7 +34,14 @@ export function ThemePresets({ library, selectPreset, createPreset, renamePreset
     <legend>Saved themes</legend>
     <div className="theme-preset-controls">
       <Select label="Saved theme" value={current.id} disabled={!!action}
-        options={[...presets.map(preset => ({ value: preset.id, label: preset.name })), createOption]}
+        options={[
+          { value: defaultPreset.id, label: defaultPreset.name },
+          ...builtinThemes.map(preset => ({ value: preset.id, label: preset.name,
+            decoration: <PaletteSwatch preset={preset} mode={mode} active={current.id === preset.id ? appearance : undefined} /> })),
+          ...library.presets.map(preset => ({ value: preset.id, label: builtinThemes.some(b => b.name.toLowerCase() === preset.name.toLowerCase())
+            ? preset.name + " · Personal" : preset.name })),
+          createOption,
+        ]}
         onChange={id => {
           if (id === createOption.value) {
             setName("");
@@ -29,7 +50,7 @@ export function ThemePresets({ library, selectPreset, createPreset, renamePreset
             selectPreset(id);
           }
         }} />
-      {current.id !== defaultPreset.id && <>
+      {library.presets.some(preset => preset.id === current.id) && <>
         <IconButton size="small" appearance="plain" label="Rename theme" disabled={!!action}
           onClick={() => { setName(current.name); setAction("rename"); }}><Pencil size={15} /></IconButton>
         <IconButton size="small" appearance="plain" label="Delete theme" disabled={!!action}

@@ -11,8 +11,8 @@ const patterns = [
 ] as const;
 const fields = Object.keys(colorFields) as ColorField[];
 
-export function ThemeEditor({ mode, appearance, updateAppearance }: {
-  mode: Theme; appearance: Appearance; updateAppearance: UpdateAppearance;
+export function ThemeEditor({ mode, appearance, canReset, updateAppearance }: {
+  mode: Theme; appearance: Appearance; canReset: boolean; updateAppearance: UpdateAppearance;
 }) {
   const sample = useRef<HTMLSpanElement>(null);
   const upload = useRef<HTMLInputElement>(null);
@@ -85,7 +85,7 @@ export function ThemeEditor({ mode, appearance, updateAppearance }: {
         onChange={event => updateAppearance({ radius: event.target.valueAsNumber })} />
       <output>{radius} px</output>
     </label>
-    <Button className="theme-reset" disabled={!Object.keys(appearance).length || loading}
+    <Button className="theme-reset" disabled={!canReset || loading}
       onClick={() => { setError(""); updateAppearance(null); }}>Reset {mode} appearance</Button>
   </>;
 }

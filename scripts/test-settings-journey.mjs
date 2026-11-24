@@ -6,8 +6,9 @@ import { chromium } from "playwright-core";
 
 // Real renderer and real clicks, with an isolated IPC host. Never download or
 // install software, contact the backend, or read the person's app profile.
-const url = "http://127.0.0.1:1423";
-const vite = spawn(process.execPath, ["node_modules/vite/bin/vite.js", "--host", "127.0.0.1", "--port", "1423"], { windowsHide: true, stdio: "ignore" });
+const port = process.env.SETTINGS_QA_PORT || "1423";
+const url = "http://127.0.0.1:" + port;
+const vite = spawn(process.execPath, ["node_modules/vite/bin/vite.js", "--host", "127.0.0.1", "--port", port], { windowsHide: true, stdio: "ignore" });
 let browser;
 let page;
 try {
@@ -245,7 +246,39 @@ try {
   await page.getByRole("button", { name: /^Settings(?:,|$)/ }).click();
   await themes.click();
   await picker.click();
-  assert.deepEqual(await modal.getByRole("option").allTextContents().then(names => names.map(name => name.trim())), ["Default", "Night sky", "+ Create theme…"]);
+  const builtins = ["Blueprint", "Matcha", "Terracotta", "Afterglow"];
+  assert.deepEqual(await modal.getByRole("option").allTextContents().then(names => names.map(name => name.trim())), ["Default", ...builtins, "Night sky", "+ Create theme…"]);
+  for (const name of builtins) {
+    await modal.getByRole("option", { name, exact: true }).click();
+    assert.equal(await picker.textContent(), name);
+    assert.equal(await modal.getByRole("button", { name: "Reset dark appearance" }).isDisabled(), true);
+    for (const mode of ["Light", "Dark"]) {
+      await radio(mode).check();
+      const bubble = modal.getByRole("region", { name: mode + " chat preview" }).locator(".msg-user-bubble");
+      const miniature = radio(mode).locator("xpath=ancestor::label").locator(".settings-theme-sample");
+      assert.equal(await miniature.evaluate(el => getComputedStyle(el, "::after").backgroundColor),
+        await bubble.evaluate(el => getComputedStyle(el).backgroundColor));
+    }
+    await picker.click();
+  }
+  await modal.getByRole("option", { name: "Matcha", exact: true }).click();
+  const matchaAccent = await accent.inputValue();
+  await accent.fill("#8040dd");
+  await page.reload();
+  await page.getByRole("button", { name: /^Settings(?:,|$)/ }).click();
+  await themes.click();
+  assert.equal(await picker.textContent(), "Matcha");
+  assert.equal(await accent.inputValue(), "#8040dd");
+  await saveAs("Personal matcha");
+  await choosePreset("Matcha");
+  await modal.getByRole("button", { name: "Reset dark appearance" }).click();
+  assert.equal(await accent.inputValue(), matchaAccent);
+  await choosePreset("Personal matcha");
+  assert.equal(await accent.inputValue(), "#8040dd");
+  assert.equal(await modal.getByRole("button", { name: "Gradient", pressed: true }).count(), 1);
+  await choosePreset("Afterglow");
+  await picker.click();
+  await modal.screenshot({ path: "e2e-out/settings-builtin-presets.png" });
   await modal.getByRole("option", { name: "Default", exact: true }).click();
   await modal.getByRole("button", { name: "Reset dark appearance" }).click();
   assert.equal(await corners.inputValue(), "20");

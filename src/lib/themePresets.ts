@@ -1,5 +1,6 @@
 import type { Theme } from "../theme";
 import { parseAppearance, type Appearance } from "./appearance";
+import { builtinTheme } from "./builtinThemes";
 
 export const defaultPreset = { id: "default", name: "Default" };
 type Preset = typeof defaultPreset;
@@ -19,7 +20,7 @@ export function readThemeLibrary(storage: Storage): ThemeLibrary {
       ids.add(item.id);
       presets.push({ id: item.id, name: item.name.trim() });
     }
-    return { presets, activeId: ids.has(data.activeId) ? data.activeId : defaultPreset.id };
+    return { presets, activeId: ids.has(data.activeId) || builtinTheme(data.activeId) ? data.activeId : defaultPreset.id };
   } catch { return empty; }
 }
 
@@ -33,10 +34,14 @@ function paletteKey(id: string, mode: Theme) {
   return id === defaultPreset.id ? "nextbrowser.appearance." + mode : `nextbrowser.appearance.preset.${id}.${mode}`;
 }
 
+export function readPalette(storage: Storage, id: string, mode: Theme) {
+  return parseAppearance(storage.getItem(paletteKey(id, mode)));
+}
+
 export function readPalettes(storage: Storage, id: string) {
   return {
-    light: parseAppearance(storage.getItem(paletteKey(id, "light"))),
-    dark: parseAppearance(storage.getItem(paletteKey(id, "dark"))),
+    light: readPalette(storage, id, "light"),
+    dark: readPalette(storage, id, "dark"),
   };
 }
 

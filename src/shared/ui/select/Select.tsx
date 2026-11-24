@@ -1,9 +1,13 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { CommandList } from "../command-list";
 import { Glyph } from "../glyph";
 import "./select.css";
 
-export interface SelectOption { value: string; label: string }
+export interface SelectOption { value: string; label: string; decoration?: ReactNode }
+
+function optionLabel(option: SelectOption) {
+  return option.decoration ? <><span aria-hidden="true">{option.decoration}</span>{option.label}</> : option.label;
+}
 
 /** Inline listbox that stays inside its owning glass popover or dialog. */
 export function Select({ label, value, options, onChange, disabled = false, autoFocus = false, searchPlaceholder }: {
@@ -18,6 +22,7 @@ export function Select({ label, value, options, onChange, disabled = false, auto
   const [query, setQuery] = useState("");
   const typed = useRef({ text: "", time: 0 });
   const expanded = open && !disabled && options.length > 0;
+  const selected = options.find(option => option.value === value);
   const term = query.trim().toLowerCase();
   const visible = searchPlaceholder && term ? options.filter(option =>
     option.label.toLowerCase().includes(term) || option.value.toLowerCase().includes(term)) : options;
@@ -66,13 +71,13 @@ export function Select({ label, value, options, onChange, disabled = false, auto
       aria-activedescendant={searchPlaceholder ? undefined : activeDescendant}
       data-autofocus={autoFocus || undefined} disabled={disabled || !options.length}
       onClick={() => { setActive(value); setQuery(""); setOpen(!expanded); }}>
-      <span>{options.find(option => option.value === value)?.label ?? "Choose…"}</span><Glyph name="chevron-down" size={14} />
+      <span>{selected ? optionLabel(selected) : "Choose…"}</span><Glyph name="chevron-down" size={14} />
     </button>
     {expanded && <>
       {searchPlaceholder && <input ref={search} className="shared-select-search" role="combobox" aria-label={searchPlaceholder}
         aria-expanded="true" aria-controls={id} aria-autocomplete="list" aria-activedescendant={activeDescendant}
         placeholder={searchPlaceholder} value={query} onChange={event => { setQuery(event.target.value); setActive(""); }} />}
-      <CommandList id={id} label={label} activeId={current} options={visible.map(option => ({ id: option.value, title: option.label, description: "" }))} onChoose={choose} />
+      <CommandList id={id} label={label} activeId={current} options={visible.map(option => ({ id: option.value, title: optionLabel(option), description: "" }))} onChoose={choose} />
       {!visible.length && <div className="shared-select-empty" role="status">No matching options.</div>}
     </>}
   </div>;
