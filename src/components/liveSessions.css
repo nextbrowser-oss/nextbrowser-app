@@ -1,4 +1,9 @@
 .live-sessions-popover { width: 260px; }
+.profile-list-tools { display: grid; gap: 3px; min-width: 0; max-width: 100%; }
+.profile-list-tools .profile-name-sort { justify-self: start; }
+.profile-name-sort[data-direction="desc"] svg { transform: rotate(180deg); }
+.live-sessions-popover .profile-name-sort { color: var(--glass-inverse-muted); }
+.live-sessions-popover .profile-name-sort:hover { color: var(--glass-inverse-text); background: var(--glass-inverse-control-hover); }
 .live-session-tools, .live-session-search { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .live-session-search { flex: 1; padding: 6px 8px; border-radius: 9px; background: var(--glass-inverse-control); }
 .live-session-search svg { flex: none; }
@@ -16,8 +21,10 @@
 .live-create-profile { margin-top: 4px; }
 .live-session-empty { margin: 12px 8px 6px; color: var(--muted); }
 .live-sessions-overview { min-height: 0; overflow: auto; flex: 1; padding: 22px clamp(12px, 3vw, 36px); }
-.live-sessions-header { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; }
+.live-sessions-header { display: grid; gap: 10px; margin-bottom: 14px; }
 .live-sessions-header h1 { margin: 0; font-size: 22px; }
+.live-sessions-header .live-session-search { max-width: 320px; }
+.live-sessions-header .live-session-tools > .shared-icon-button { margin-inline-start: auto; }
 .live-sessions-header .live-session-search, .live-session-picker .live-session-search { background: var(--panel); }
 .live-session-picker .live-session-row:hover { background: var(--accent-soft); }
 .live-session-picker .live-session-row small { color: var(--muted); }

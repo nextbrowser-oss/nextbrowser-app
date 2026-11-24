@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cancelNextctlRun, nextctlRun, type Envelope } from "../nextctl";
 import { liveRuntimeLabel, type LiveSessionOption } from "../lib/liveSessions";
 import { multiloginSessionName } from "../lib/liveStreamTarget";
@@ -24,12 +24,45 @@ function SessionSearch({ query, onChange }: { query: string; onChange: (query: s
   </label>;
 }
 
-function matchingSessions(sessions: LiveSessionOption[], query: string) {
-  const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
-  return sessions.filter(session => {
-    const text = `${session.label} ${liveRuntimeLabel(session.target)}`.toLocaleLowerCase();
-    return words.every(word => text.includes(word));
-  });
+const profileNames = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+function useVisibleProfiles(sessions: LiveSessionOption[], query: string) {
+  const direction = useStore(s => s.profileNameSort);
+  return useMemo(() => {
+    const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+    const visible = sessions.filter(session => {
+      const text = `${session.label} ${liveRuntimeLabel(session.target)}`.toLocaleLowerCase();
+      return words.every(word => text.includes(word));
+    });
+    if (direction) {
+      const sign = direction === "asc" ? 1 : -1;
+      visible.sort((a, b) => sign * profileNames.compare(a.label, b.label));
+    }
+    return visible;
+  }, [sessions, query, direction]);
+}
+
+function ProfileListTools({ query, onChange, onCreate, compact = false }: {
+  query: string; onChange: (query: string) => void; onCreate: () => void; compact?: boolean;
+}) {
+  const direction = useStore(s => s.profileNameSort);
+  const toggleSort = useStore(s => s.toggleProfileNameSort);
+  const nextOrder = direction === "asc" ? "от Я до А" : "от А до Я";
+  const sortLabel = direction ? `Сортировать · ${direction === "asc" ? "А → Я" : "Я → А"}` : "Сортировать";
+  return <div className="profile-list-tools">
+    <div className="live-session-tools">
+      <SessionSearch query={query} onChange={onChange} />
+      <IconButton label="Create browser profile" text={compact ? undefined : "Create profile"}
+        appearance={compact ? "plain" : "glass"} size="small" onClick={onCreate}>
+        <Icon name="plus" size={compact ? 15 : 14} />
+      </IconButton>
+    </div>
+    <IconButton className="profile-name-sort" data-direction={direction} label={sortLabel}
+      text={sortLabel} hint={`Сортировать по имени ${nextOrder}`}
+      size="small" appearance="plain" onClick={toggleSort}>
+      <Glyph name="arrow-down" size={14} />
+    </IconButton>
+  </div>;
 }
 
 function SessionRows({ sessions, onOpen }: { sessions: LiveSessionOption[]; onOpen: (key: string) => void }) {
@@ -47,7 +80,7 @@ export function LiveSessionsPopover({ sessions, selected, onOverview, onOpen }: 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const active = sessions.filter(session => session.running);
-  const filtered = matchingSessions(sessions, query);
+  const filtered = useVisibleProfiles(sessions, query);
   const changeOpen = (next: boolean) => {
     setOpen(next);
     if (!next) setQuery("");
@@ -61,13 +94,7 @@ export function LiveSessionsPopover({ sessions, selected, onOverview, onOpen }: 
       <Glyph name="monitor" /><span className="sidebar-destination-label">Profiles</span>
       {sessions.length > 0 && <span className="sidebar-destination-count" aria-hidden="true">{active.length}/{sessions.length}</span>}
     </button>}>
-    <div className="live-session-tools">
-      <SessionSearch query={query} onChange={setQuery} />
-      <IconButton label="Create browser profile" appearance="plain" size="small"
-        onClick={() => { changeOpen(false); createLiveProfile(); }}>
-        <Icon name="plus" size={15} />
-      </IconButton>
-    </div>
+    <ProfileListTools query={query} onChange={setQuery} compact onCreate={() => { changeOpen(false); createLiveProfile(); }} />
     {filtered.length > 0
         ? <SessionRows sessions={filtered} onOpen={choose} />
         : <p className="live-session-empty">{query.trim() ? "No matching profiles" : "No profiles yet"}</p>}
@@ -137,14 +164,11 @@ function SessionPreview({ session }: { session: LiveSessionOption }) {
 
 export function LiveSessionsGrid({ sessions, onOpen }: { sessions: LiveSessionOption[]; onOpen: (key: string) => void }) {
   const [query, setQuery] = useState("");
-  const filtered = matchingSessions(sessions, query);
+  const filtered = useVisibleProfiles(sessions, query);
   return <section className="live-sessions-overview" aria-label="Profiles">
     <header className="live-sessions-header">
       <h1>Profiles</h1>
-      <div className="live-session-tools">
-        <SessionSearch query={query} onChange={setQuery} />
-        <IconButton label="Create browser profile" text="Create profile" size="small" onClick={createLiveProfile}><Icon name="plus" size={14} /></IconButton>
-      </div>
+      <ProfileListTools query={query} onChange={setQuery} onCreate={createLiveProfile} />
     </header>
     {filtered.length > 0 ? <div className="live-sessions-grid">
       {filtered.map(session => <ProfileCard key={session.key} session={session} onOpen={onOpen} />)}

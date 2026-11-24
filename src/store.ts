@@ -647,6 +647,7 @@ interface State {
   selectedProfile?: string;
   defaultSession?: SessionStatus;
   profileSearch: string;
+  profileNameSort: "asc" | "desc" | undefined;
   isRefreshing: boolean;
   agentId: string;
   runtime: Record<string, AgentRuntime>;
@@ -824,6 +825,7 @@ interface State {
   closeUtilityDialog: () => void;
   setAppActive: (v: boolean) => void;
   setProfileSearch: (q: string) => void;
+  toggleProfileNameSort: () => void;
   setSidebarWidth: (w: number) => void;
   setSidebarCollapsed: (v: boolean) => void;
   setChatListCollapsed: (v: boolean) => void;
@@ -2228,6 +2230,7 @@ function settleTransientStatus(name: string, transient: string): void {
 }
 
 export const useStore = create<State>((set, get) => {
+  const savedProfileNameSort = settingsStorage.getItem("nextbrowser.profileNameSort");
   const enqueueWithTarget = (
     text: string,
     chip?: UserCommandChip,
@@ -2458,6 +2461,7 @@ export const useStore = create<State>((set, get) => {
   profileIdentities: {},
   profileChatOwners: {},
   profileSearch: "",
+  profileNameSort: savedProfileNameSort === "asc" || savedProfileNameSort === "desc" ? savedProfileNameSort : undefined,
   isRefreshing: false,
   agentId: settingsStorage.getItem("lastAgent") ?? "claude",
   runtime: initRuntimes(),
@@ -5209,6 +5213,11 @@ export const useStore = create<State>((set, get) => {
     }
   },
   setProfileSearch: (q) => set({ profileSearch: q }),
+  toggleProfileNameSort: () => {
+    const direction = get().profileNameSort === "asc" ? "desc" : "asc";
+    settingsStorage.setItem("nextbrowser.profileNameSort", direction);
+    set({ profileNameSort: direction });
+  },
   setSidebarWidth: (w) => {
     settingsStorage.setItem("sidebarWidth", String(w));
     set({ sidebarWidth: w });
