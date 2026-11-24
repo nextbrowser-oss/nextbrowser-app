@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "../shared/ui";
 import { colorFields, readWallpaper, type Appearance, type ColorField, type UpdateAppearance } from "../lib/appearance";
 import type { Theme } from "../theme";
@@ -10,6 +10,12 @@ const patterns = [
   { value: "dots", label: "Dots" },
 ] as const;
 const fields = Object.keys(colorFields) as ColorField[];
+export function ThemeColorFields({ control, readOnly = false }: { control: (key: ColorField) => ReactNode; readOnly?: boolean }) {
+  const Field = readOnly ? "div" : "label";
+  return <div className="theme-color-fields">{fields.map(key => <Field className="theme-color-field" key={key}>
+    <span>{colorFields[key].label}</span>{control(key)}
+  </Field>)}</div>;
+}
 
 export function ThemeEditor({ mode, appearance, canReset, updateAppearance }: {
   mode: Theme; appearance: Appearance; canReset: boolean; updateAppearance: UpdateAppearance;
@@ -47,19 +53,11 @@ export function ThemeEditor({ mode, appearance, canReset, updateAppearance }: {
 
   return <>
     <span hidden ref={sample} data-palette={mode} className="settings-theme-sample" />
-    <section className="theme-chat-preview" aria-label={name + " chat preview"}>
-      <div className="msg-user-bubble">Summarize this page for me.</div>
-      <div className="assistant-bubble">Here are the highlights.</div>
-    </section>
     <fieldset className="theme-editor-section">
       <legend>{name} colors</legend>
-      <div className="theme-color-fields">
-        {fields.map(key => <label className="theme-color-field" key={key}>
-          <span>{colorFields[key].label}</span>
-          {defaults[key] && <input type="color" value={appearance[key] ?? (key === "outgoing" ? appearance.accent : undefined) ?? defaults[key]}
-            onChange={event => updateAppearance({ [key]: event.target.value })} />}
-        </label>)}
-      </div>
+      <ThemeColorFields control={key => defaults[key] && <input type="color"
+        value={appearance[key] ?? (key === "outgoing" ? appearance.accent : undefined) ?? defaults[key]}
+        onChange={event => updateAppearance({ [key]: event.target.value })} />} />
     </fieldset>
     <fieldset className="theme-editor-section">
       <legend>Wallpaper</legend>

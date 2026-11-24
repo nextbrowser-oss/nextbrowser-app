@@ -1,43 +1,38 @@
 .settings-theme-picker { min-width: 0; margin: 0; padding: 0; border: 0; }
 .settings-theme-picker legend { margin-bottom: 8px; padding: 0; font-size: 13px; font-weight: 600; }
-.settings-theme-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; max-width: 420px; }
-.settings-theme-choice { min-width: 0; cursor: pointer; }
-.settings-theme-preview {
-  position: relative;
-  display: block;
-  height: 56px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-.settings-theme-choice:has(input:checked) .settings-theme-preview { outline: 2px solid var(--accent); outline-offset: -2px; }
+.settings-theme-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.settings-theme-choice { min-width: 0; position: relative; }
+.settings-theme-preview, .theme-screen-preview { position: relative; aspect-ratio: 620 / 320; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--line); }
+.settings-theme-choice:has(input:checked) .settings-theme-preview { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .settings-theme-choice:has(:focus-visible) .settings-theme-preview { outline: 2px solid var(--accent-text); outline-offset: 2px; }
-.settings-theme-sample { position: absolute; inset: 0; background: var(--chat-bg) var(--chat-wallpaper) center / var(--chat-wallpaper-size); border-inline-start: 8px solid var(--line); }
-.settings-theme-sample + .settings-theme-sample { clip-path: inset(0 0 0 50%); }
-.settings-theme-sample::before, .settings-theme-sample::after {
-  content: "";
-  position: absolute;
-  height: 11px;
-  width: 46%;
-}
-.settings-theme-sample::before { top: 8px; left: 8%; border-radius: 7px 7px 7px 2px; background: var(--chat-incoming); box-shadow: inset 0 0 0 1px var(--line); }
-.settings-theme-sample::after { bottom: 8px; right: 8%; border-radius: 7px 7px 2px 7px; background: var(--chat-outgoing); }
-.settings-theme-caption { display: flex; align-items: center; gap: 5px; margin-top: 5px; font-size: 12px; color: var(--text); }
-.settings-theme-caption input[type="radio"] { flex: none; width: 14px; height: 14px; margin: 0; accent-color: var(--primary-action); }
-
-.theme-settings { display: grid; gap: 16px; min-width: 0; }
-.theme-settings .settings-theme-choices { max-width: none; }
-.theme-settings .settings-theme-preview { height: 44px; }
-.theme-chat-preview {
-  display: grid; gap: 8px; padding: 16px; align-content: center;
-  border: 1px solid var(--line); border-radius: var(--radius-lg); min-height: 100px;
-}
-.theme-chat-preview :is(.msg-user-bubble, .assistant-bubble) {
-  box-sizing: border-box; max-width: 85%; padding: 7px 12px; border: 0;
-  border-radius: var(--chat-radius); box-shadow: none; font-size: 13px;
-}
-.theme-chat-preview .msg-user-bubble { justify-self: end; }
-.theme-chat-preview .assistant-bubble { justify-self: start; }
+.settings-theme-caption { display: flex; align-items: center; gap: 5px; margin-top: 6px; font-size: 12px; color: var(--text); cursor: pointer; }
+.settings-theme-caption::after { content: ""; position: absolute; inset: 0; }
+.settings-theme-caption input[type="radio"] { position: relative; z-index: 1; width: 14px; height: 14px; margin: 0; accent-color: var(--primary-action); }
+.theme-settings { display: grid; gap: 14px; min-width: 0; }
+.preview-clips, .preview-layer { position: absolute; inset: 0; overflow: hidden; }
+.preview-layer + .preview-layer { clip-path: inset(0 0 0 50%); }
+.preview-desktop { position: relative; width: 620px; height: 320px; transform-origin: top left; text-align: start; color: var(--chat-toolbar-text); font: 13px/1.4 var(--font-ui); }
+.preview-desktop header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
+.preview-desktop header span { margin-inline-start: 12px; color: var(--chat-toolbar-muted); }
+.preview-rail, .preview-view-switch { background: var(--glass-inverse-bg); color: var(--glass-inverse-text); border-radius: 12px; }
+.preview-rail { position: absolute; inset: 38px auto 10px 8px; width: 38px; display: flex; flex-direction: column; gap: 20px; padding: 12px 0; align-items: center; }
+.preview-rail svg:last-child { margin-top: auto; }
+.preview-conversation { position: absolute; inset: 38px 20px 10px 62px; display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
+.preview-view-switch { padding: 5px 12px; font-weight: 650; }
+.preview-view-switch span { padding-left: 8px; color: var(--glass-inverse-muted); }
+.preview-conversation :is(.msg-user-bubble,.assistant-bubble) { max-width: 83%; padding: 9px 14px; font-size: 15px; border-radius: var(--chat-radius); }
+.preview-conversation .msg-user-bubble { align-self: flex-end; }
+.preview-conversation .composer-sample { margin-top: auto; }
+.preview-settings-window { position: absolute; inset: 42px 18px 12px 64px; display: grid; grid-template-columns: 122px 1fr; gap: 16px; border-radius: 16px; padding: 12px; background: var(--dialog-bg); color: var(--dialog-text); box-shadow: var(--glass-inverse-shadow); }
+.preview-settings-sections .settings-rail-item { padding: 5px 8px; min-height: 0; }
+.preview-settings-body { display: grid; align-content: center; gap: 8px; }
+.preview-preset, .preview-settings-body .theme-color-field { padding: 7px 9px; background: var(--surface-2); border-radius: 7px; }
+.preview-settings-body .theme-color-fields { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.preview-settings-body i { width: 22px; height: 16px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--line); }
+.theme-preview-controls, .theme-preview-controls [role="group"] { display: flex; align-items: center; gap: 5px; }
+.theme-preview-controls > div:first-child { margin-inline-end: auto; }
+.theme-preview-controls [aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); }
+.theme-preview-controls .shared-button { display: inline-flex; align-items: center; gap: 5px; min-height: 27px; padding: 4px 8px; }
 .theme-editor-section { min-width: 0; margin: 0; padding: 0; border: 0; }
 .theme-editor-section legend { padding: 0; margin-bottom: 7px; font-weight: 600; font-size: 13px; }
 .theme-color-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }

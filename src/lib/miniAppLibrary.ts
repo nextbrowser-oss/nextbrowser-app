@@ -4,7 +4,11 @@ import { getPreviewMode } from '../preview';
 import { useStore } from '../store';
 
 export interface AppInfo { id: string; name: string; version: string; description: string; apiVersion: number; tools?: string[]; permissions: string[]; icon?: 'board' | 'calendar' | 'list' | 'notebook' | 'chart' | 'grid' }
-interface Library { installed: (AppInfo & { pinned: boolean; generation: string })[]; catalog: AppInfo[] }
+export type WidgetSurface = 'chat.panel' | 'settings.design';
+export type GridSize = [number, number];
+export interface WidgetBlock { id: string; name: string; surfaces: WidgetSurface[]; grid: {min: GridSize; preferred: GridSize; max: GridSize} }
+export interface AppInfo { skill?: string; widgets?: WidgetBlock[] }
+interface Library { installed: (AppInfo & { pinned: boolean; generation: string; placements?: Record<string, GridSize> })[]; catalog: AppInfo[] }
 
 export function useMiniAppsOwner() {
   const owner = useStore(s => s.accountOwnerId);

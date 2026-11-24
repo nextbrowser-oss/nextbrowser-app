@@ -26,26 +26,17 @@
 .composer-skin-dialog .shared-dialog-header { padding: 17px 20px 10px; }
 .composer-skin-dialog .shared-dialog-body { padding: 4px 20px 18px; }
 .skin-preview { margin: 0; overflow: hidden; border-radius: 13px; background: var(--skin-stage); color: var(--skin-stage-ink); }
-.skin-preview-stage { container-type: inline-size; display: grid; place-items: center; padding: clamp(18px, 4vw, 32px) clamp(10px, 3vw, 27px) 11px; }
-.skin-keyboard {
-  position: relative; isolation: isolate; box-sizing: border-box; width: 100%; padding: 2.6% 2% 2%; border-radius: 2.2cqw;
-  transform: perspective(1100px) rotateX(13deg) rotateZ(-2deg);
-  background: var(--skin-base); color: var(--skin-ink);
-  box-shadow: inset 0 1px 1px color-mix(in srgb, var(--white) 42%, transparent), 0 1.0cqw 0 color-mix(in srgb, var(--skin-base) 80%, var(--black)),
-    0 2.6cqw 3.2cqw -1.3cqw var(--skin-case-shadow);
+.skin-preview-stage { perspective: 850px; padding: clamp(24px, 5vw, 42px) 7% 24px; }
+.chat-composer-dock.composer-sample { width: 100%; margin: 0; padding: 0; pointer-events: none; }
+.skin-preview-stage .composer-sample { animation: composer-turn 7s ease-in-out infinite alternate; }
+.skin-preview-stage .composer { box-shadow: 0 4px 0 var(--skin-mod), 0 14px 20px -7px var(--skin-case-shadow); }
+@keyframes composer-turn {
+  from { transform: rotateX(10deg) rotateY(-8deg) rotateZ(-2deg); }
+  to { transform: rotateX(4deg) rotateY(8deg) rotateZ(1deg); }
 }
-.skin-key-row { display: flex; gap: .55cqw; margin-top: .55cqw; }
-.skin-key-row:first-of-type { margin-top: 0; }
-.skin-key {
-  display: flex; align-items: flex-start; justify-content: flex-start; flex: 1 1 0; min-width: 0; box-sizing: border-box;
-  height: 5.4cqw; padding: .68cqw .75cqw; border-radius: .8cqw;
-  background: var(--skin-cap); color: var(--skin-ink); font: 600 1.8cqw/1.15 var(--font-mono, monospace);
-  box-shadow: inset 0 1px color-mix(in srgb, var(--white) 31%, transparent), inset 0 -.45cqw color-mix(in srgb, var(--black) 20%, transparent), 0 .18cqw .2cqw color-mix(in srgb, var(--black) 67%, transparent);
+@media (prefers-reduced-motion: reduce) {
+  .skin-preview-stage .composer-sample { animation: none; transform: rotateX(6deg); }
 }
-.skin-key:is([data-key="ctrl"],[data-key="shift"],[data-key="cmd"],[data-key="alt"],[data-key="caps"],[data-key="tab"],[data-key="⌫"]) { background: var(--skin-mod); }
-.skin-key:is([data-key="esc"],[data-key="enter"]) { background: var(--skin-accent); color: var(--skin-accent-ink); }
-.skin-keyboard > .skin-artwork { z-index: 1; opacity: .76; }
-[data-skin="risograph"] .skin-keyboard > .skin-artwork { opacity: .38; mix-blend-mode: multiply; }
 .skin-preview figcaption { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 11px 17px 12px; }
 .skin-preview figcaption strong { font-size: 17px; letter-spacing: -.025em; }
 .skin-preview figcaption span { font-size: 11px; }

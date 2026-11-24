@@ -82,5 +82,6 @@ export function useAppearance(theme: Theme) {
       savePalette(settingsStorage, id, "dark", null);
     });
   }
-  return { appearance, resolvedPalettes, canReset: Object.keys(overrides).length > 0, updateAppearance, library, selectPreset, createPreset, renamePreset, deletePreset, saveError };
+  const presetName = preset?.name ?? library.presets.find(p => p.id === library.activeId)?.name ?? defaultPreset.name;
+  return { appearance, resolvedPalettes, presetName, canReset: Object.keys(overrides).length > 0, updateAppearance, library, selectPreset, createPreset, renamePreset, deletePreset, saveError };
 }

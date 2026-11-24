@@ -5,11 +5,30 @@ const { createHash, randomUUID } = require('node:crypto');
 const PACKAGE_BYTES = 256 * 1024;
 const STATE_BYTES = 128 * 1024;
 const validId = id => typeof id === 'string' && /^[a-z][a-z0-9-]{1,47}$/.test(id);
+const surfaces = ['chat.panel', 'settings.design'];
+function validateWidgets(pkg) {
+  if (pkg.skill !== undefined && (typeof pkg.skill !== 'string' || !pkg.skill.trim() || pkg.skill.length > 2400)) throw Error('Invalid mini app skill.');
+  if (pkg.widgets === undefined) return;
+  if (!Array.isArray(pkg.widgets) || !pkg.widgets.length || pkg.widgets.length > 12 || !pkg.skill) throw Error('Widget packages must include blocks and an agent skill.');
+  const ids = new Set();
+  for (const block of pkg.widgets) {
+    if (!block || Object.keys(block).some(k => !['id','name','surfaces','grid'].includes(k)) ||
+        !validId(block.id) || ids.has(block.id) || typeof block.name !== 'string' || !block.name.trim() || block.name.length > 60 ||
+        !Array.isArray(block.surfaces) || !block.surfaces.length || block.surfaces.length > surfaces.length ||
+        new Set(block.surfaces).size !== block.surfaces.length || block.surfaces.some(s => !surfaces.includes(s))) throw Error('Invalid widget block or surface.');
+    ids.add(block.id);
+    const grid = block.grid;
+    if (!grid || Object.keys(grid).some(k => !['min','preferred','max'].includes(k)) ||
+        !['min','preferred','max'].every(k => Array.isArray(grid[k]) && grid[k].length === 2 &&
+          grid[k].every((n, i) => Number.isSafeInteger(n) && n >= 1 && n <= (i === 0 ? 12 : 8))) ||
+        ![0,1].every(i => grid.min[i] <= grid.preferred[i] && grid.preferred[i] <= grid.max[i])) throw Error('Invalid widget grid bounds.');
+  }
+}
 function parsePackage(raw) {
   if (typeof raw !== 'string' || Buffer.byteLength(raw) > PACKAGE_BYTES) throw Error('Package exceeds 256 KiB.');
   let p;
   try { p = JSON.parse(raw); } catch { throw Error('Invalid package JSON.'); }
-  const fields = ['apiVersion', 'id', 'name', 'version', 'description', 'permissions', 'html', 'icon', 'tools'];
+  const fields = ['apiVersion', 'id', 'name', 'version', 'description', 'permissions', 'html', 'icon', 'tools', 'widgets', 'skill'];
   if (!p || Object.keys(p).some(k => !fields.includes(k)) || p.apiVersion !== 2 || !validId(p.id) ||
       !Array.isArray(p.tools) || !p.tools.length || p.tools.length > 64 || new Set(p.tools).size !== p.tools.length ||
       p.tools.some(name => typeof name !== 'string' || !/^[a-z][a-z0-9_]{0,63}$/.test(name)) ||
@@ -21,6 +40,7 @@ function parsePackage(raw) {
       !Array.isArray(p.permissions) || p.permissions.length > 1 || p.permissions.some(v => v !== 'storage')) {
     throw Error('Mini Apps v2 requires a valid manifest and a nonempty list of unique WebMCP tool names.');
   }
+  validateWidgets(p);
   return p;
 }
 function metadata({ html, ...info }) { return info; }
@@ -59,7 +79,7 @@ function createStore(root, catalog) {
     return fs.readdirSync(dir).filter(name => /^app-.*\.json$/.test(name))
       .map(name => {
         const record = read(owner, name.slice(4, -5));
-        return { ...metadata(record.pkg), generation: record.generation, pinned: record.pinned === true };
+        return { ...metadata(record.pkg), generation: record.generation, pinned: record.pinned === true, placements: record.placements ?? {} };
       });
   }
   function install(owner, raw, previousGeneration) {
@@ -90,6 +110,19 @@ function createStore(root, catalog) {
     const record = read(owner, id);
     write(location(owner, id), { ...record, pinned });
   }
-  return { list, read, install, save, setPinned, remove(owner, id) { fs.unlinkSync(location(owner, id)); } };
+  function setWidget(owner, id, blockId, surface, size) {
+    const record = read(owner, id);
+    const block = record.pkg.widgets?.find(b => b.id === blockId && b.surfaces.includes(surface));
+    if (!block) throw Error('Widget is unavailable on this surface.');
+    const placements = { ...record.placements };
+    const key = surface + '/' + blockId;
+    if (size === null) delete placements[key];
+    else {
+      if (!Array.isArray(size) || size.length !== 2 || !size.every((n,i) => Number.isInteger(n) && n >= block.grid.min[i] && n <= block.grid.max[i])) throw Error('Widget size is outside its grid bounds.');
+      placements[key] = size;
+    }
+    write(location(owner, id), { ...record, placements });
+  }
+  return { list, read, install, save, setPinned, setWidget, remove(owner, id) { fs.unlinkSync(location(owner, id)); } };
 }
 module.exports = { parsePackage, metadata, createStore, PACKAGE_BYTES, STATE_BYTES };

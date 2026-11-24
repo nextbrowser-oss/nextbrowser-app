@@ -121,6 +121,12 @@ try {
   assert.equal(await radio("Dark").isChecked(), true);
   await mkdir("e2e-out", { recursive: true });
   await theme.screenshot({ path: "e2e-out/settings-theme-picker.png" });
+  await modal.getByRole("button", { name: "Settings", exact: true }).click();
+  await modal.getByRole("region", { name: "Dark settings preview" }).screenshot({ path: "e2e-out/theme-settings-preview.png" });
+  await modal.getByRole("button", { name: "Chat", exact: true }).click();
+  const cover = (name, mode) => radio(name).locator("xpath=ancestor::div[contains(@class,'settings-theme-choice')][1]").locator('[data-palette="' + mode + '"]');
+  const paint = node => node.evaluate(el => [getComputedStyle(el).backgroundColor, getComputedStyle(el).backgroundImage]);
+  const initialLight = await paint(cover("Light", "light"));
   await page.screenshot({ path: "e2e-out/settings-themes.png" });
   await modal.getByLabel("App accent", { exact: true }).fill("#42bc89");
   await modal.getByLabel("Chat background", { exact: true }).fill("#182d24");
@@ -131,13 +137,16 @@ try {
   await corners.focus();
   await corners.press("Home");
   const preview = modal.getByRole("region", { name: "Dark chat preview" });
+  assert.deepEqual(await paint(cover("Light", "light")), initialLight);
+  assert.deepEqual(await paint(cover("System", "light")), initialLight);
+  assert.deepEqual(await paint(cover("System", "dark")), await paint(cover("Dark", "dark")));
   assert.equal(await preview.locator(".msg-user-bubble").evaluate(el => getComputedStyle(el).color), "rgb(0, 0, 0)");
   assert.equal(await preview.locator(".assistant-bubble").evaluate(el => getComputedStyle(el).borderRadius), "4px");
   const shell = page.locator(".desktop-shell");
   const messages = page.locator(".chat .messages");
   assert.equal(await shell.evaluate(el => getComputedStyle(el).backgroundColor), "rgb(24, 45, 36)");
   assert.equal(await shell.evaluate(el => getComputedStyle(el).backgroundSize), "14px 14px");
-  assert.equal(await shell.evaluate(el => getComputedStyle(el).backgroundImage), await preview.evaluate(el => getComputedStyle(el).backgroundImage));
+  assert.equal(await shell.evaluate(el => getComputedStyle(el).backgroundImage), await preview.locator(".preview-layer").evaluate(el => getComputedStyle(el).backgroundImage));
   assert.equal(await page.locator(".app-titlebar-name").evaluate(el => getComputedStyle(el).color), "rgb(255, 255, 255)");
   // All surfaces between the chat and the wallpaper must let the same image show through.
   const paintedLayers = await messages.evaluate(el => {
@@ -267,8 +276,8 @@ try {
     for (const mode of ["Light", "Dark"]) {
       await radio(mode).check();
       const bubble = modal.getByRole("region", { name: mode + " chat preview" }).locator(".msg-user-bubble");
-      const miniature = radio(mode).locator("xpath=ancestor::label").locator(".settings-theme-sample");
-      assert.equal(await miniature.evaluate(el => getComputedStyle(el, "::after").backgroundColor),
+      const miniature = cover(mode, mode.toLowerCase()).locator(".msg-user-bubble");
+      assert.equal(await miniature.evaluate(el => getComputedStyle(el).backgroundColor),
         await bubble.evaluate(el => getComputedStyle(el).backgroundColor));
     }
     await picker.click();
@@ -282,7 +291,7 @@ try {
       await Promise.allSettled(document.getAnimations()
         .filter(animation => animation instanceof CSSTransition)
         .map(animation => animation.finished));
-      const styles = [el, el.querySelector(".msg-user-bubble"), el.querySelector(".assistant-bubble")];
+      const styles = [el.querySelector(".preview-layer"), el.querySelector(".msg-user-bubble"), el.querySelector(".assistant-bubble")];
       return styles.map(node => {
         const { backgroundColor, backgroundImage, borderRadius, color } = getComputedStyle(node);
         return [backgroundColor, backgroundImage, borderRadius, color];

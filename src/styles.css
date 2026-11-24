@@ -7884,7 +7884,7 @@ pre,
   gap: 18px;
 }
 
-.desktop-shell:has(.app > .content-chat), .messages, .theme-chat-preview {
+.desktop-shell:has(.app > .content-chat), .messages, .preview-layer {
   background-color: var(--chat-bg);
   background-image: var(--chat-wallpaper);
   background-size: var(--chat-wallpaper-size);

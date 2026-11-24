@@ -590,7 +590,8 @@ function SettingsModal({
             {section === "themes" && (
               <div className="theme-settings">
                 <ThemePresets mode={activeTheme} {...appearanceSettings} />
-                <ThemePicker value={themePreference} onChange={onThemeChange} palettes={appearanceSettings.resolvedPalettes} />
+                <ThemePicker value={themePreference} activeTheme={activeTheme} onChange={onThemeChange} palettes={appearanceSettings.resolvedPalettes}
+                  preset={appearanceSettings.presetName} />
                 <ThemeEditor key={appearanceSettings.library.activeId + activeTheme} mode={activeTheme} {...appearanceSettings} />
               </div>
             )}

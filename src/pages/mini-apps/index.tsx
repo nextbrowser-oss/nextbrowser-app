@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
+import { OpenGuest } from '../../components/MiniAppGuest';
 import { Button, Dialog, IconButton } from '../../shared/ui';
 import { ChevronLeft, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { TitlebarActions } from '../../components/DesktopShell';
@@ -9,7 +10,6 @@ import { useMiniAppLibrary, useMiniAppsOwner, type AppInfo } from '../../lib/min
 import { settingsStorage } from '../../lib/settingsStorage';
 import './mini-apps.css';
 
-type Guest = { id: string; src: string; partition: string };
 type Review = { action: 'install' | 'remove'; app: AppInfo; raw?: string; previousGeneration?: string };
 
 export function MiniAppsPage() {
@@ -51,7 +51,7 @@ function LibraryView({ owner }: { owner: string }) {
     if (action === 'remove') {
       await invoke('mini_apps_remove', { owner, id: app.id });
       if (selected?.id === app.id) open();
-    } else await invoke('mini_apps_install', { owner, raw, catalog: raw === undefined, previousGeneration: review.previousGeneration });
+    } else await invoke('mini_apps_install', { owner, id: app.id, raw, catalog: raw === undefined, previousGeneration: review.previousGeneration });
     setReview(undefined);
     await refresh();
     if (action === 'install') open(app.id);
@@ -109,12 +109,14 @@ function LibraryView({ owner }: { owner: string }) {
       <ol><li>Download the Kanban package from the catalog.</li>
         <li>Give it a unique ID and name. Put your interface, scripts and styles in the HTML field.</li>
         <li>Declare every app action in <code>tools</code> and register each with <code>document.modelContext.registerTool()</code>.</li>
+        <li>To embed a widget, declare its surfaces, grid limits and a skill explaining how to use its WebMCP tools. Download Music Player for a working example.</li>
         <li>Choose Install from file to validate the WebMCP tools and install. Request storage to persist data using <code>/state</code>.</li></ol>
       <Button onClick={() => void run(() => invoke('mini_apps_download', { owner, id: 'kanban' }))}>Download Kanban package</Button>
     </Dialog>}
     {review && <Dialog title={(review.action === 'install' ? 'Install ' : 'Uninstall ') + review.app.name + '?'} onClose={() => { if (!busy) { setReview(undefined); setError(''); } }}>
       <p>{review.app.id} · v{review.app.version}</p>
       {review.action === 'install' && <p>Agent actions: {review.app.tools?.join(', ')}</p>}
+      {review.action === 'install' && review.app.skill && <p>{review.app.skill}</p>}
       {review.previousGeneration && <p>This replaces the installed v1 app. The replacement can access its existing saved data.</p>}
       <p>{review.action === 'remove' ? 'This removes the app and its saved data from this account on this device.'
         : review.app.permissions.includes('storage') ? 'Permission requested: save and read its own data on this device.' : 'No host permissions requested.'}</p>
@@ -122,37 +124,4 @@ function LibraryView({ owner }: { owner: string }) {
       <Button disabled={busy} onClick={() => void run(applyReview)}>{review.action === 'remove' ? 'Uninstall and delete data' : review.previousGeneration ? 'Upgrade and keep data' : 'Install mini app'}</Button>
     </Dialog>}
   </section>;
-}
-
-function OpenGuest({ id, owner, name }: { id: string; owner: string; name: string }) {
-  const [guest, setGuest] = useState<Guest>();
-  const [failed, setFailed] = useState(false);
-  const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    let active = true;
-    invoke<Omit<Guest, 'id'>>('mini_apps_open', { owner, id }).then(target => {
-      if (active) setGuest({ id, ...target });
-    }).catch(() => { if (active) setFailed(true); });
-    return () => { active = false; };
-  }, [id, owner, attempt]);
-  if (failed) return <p role="alert">Could not open {name}. <Button onClick={() => { setFailed(false); setAttempt(n => n + 1); }}>Retry</Button></p>;
-  return guest ? <GuestView guest={guest} name={name} /> : <p role="status">Opening {name}…</p>;
-}
-
-function GuestView({ guest, name }: { guest: Guest; name: string }) {
-  const ref = useRef<HTMLElement>(null);
-  const [failed, setFailed] = useState(false);
-  const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    const view = ref.current;
-    const fail = () => setFailed(true);
-    view?.addEventListener('render-process-gone', fail);
-    view?.addEventListener('did-fail-load', fail);
-    return () => {
-      view?.removeEventListener('render-process-gone', fail);
-      view?.removeEventListener('did-fail-load', fail);
-    };
-  }, [attempt]);
-  return failed ? <p role="alert">Could not load {name}. <Button onClick={() => { setFailed(false); setAttempt(a => a + 1); }}>Retry</Button></p>
-    : <webview key={attempt} ref={ref} className="mini-apps-guest" aria-label={name} partition={guest.partition} src={guest.src} />;
 }

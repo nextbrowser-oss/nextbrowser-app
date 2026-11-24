@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { _electron } from 'playwright-core';
 import { createRequire } from 'node:module';
 import { checkMiniAppAgent } from './test-mini-app-agent.mjs';
+import { checkMusicWidget } from './test-music-widget.mjs';
 
 const root = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
 const profile = await mkdtemp(path.join(tmpdir(), 'nb-mini-qa-'));
@@ -45,9 +46,10 @@ async function checkWindowLayout(railVisible = true) {
 }
 async function backToCatalog() {
   await page.getByRole('button', { name: 'Back to Mini Apps' }).click();
-  await page.getByRole('button', { name: 'Download package' }).waitFor();
+  await catalogCard('Kanban').getByRole('button', { name: 'Download package' }).waitFor();
   assert.equal(await page.locator('#app-sidebar').isVisible(), true);
 }
+const catalogCard = name => page.locator('.mini-apps-catalog article').filter({has:page.getByRole('heading',{name,exact:true})});
 async function until(check) {
   const deadline = Date.now() + 15000;
   do {
@@ -77,9 +79,9 @@ try {
   console.log('Passed rejection of missing and extra handlers and installation of the documented counter.');
   const downloaded = path.join(profile, 'download.nbmini.json');
   await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }); }, downloaded);
-  await page.getByRole('button', { name: 'Download package' }).click();
+  await catalogCard('Kanban').getByRole('button', { name: 'Download package' }).click();
   await until(async () => JSON.parse(await readFile(downloaded, 'utf8')).html === pkg.html);
-  await page.getByRole('button', { name: 'Install', exact: true }).click();
+  await catalogCard('Kanban').getByRole('button', { name: 'Install', exact: true }).click();
   await page.getByRole('button', { name: 'Install mini app', exact: true }).click();
   await waitForBoard();
   await checkWindowLayout();
@@ -172,9 +174,10 @@ try {
   await until(async () => await board(() => document.querySelector('#counts').textContent === '0 tasks'));
   await page.getByRole('button', { name: 'Uninstall', exact: true }).click();
   await page.getByRole('button', { name: 'Uninstall and delete data' }).click();
-  await page.getByRole('button', { name: 'Install', exact: true }).waitFor();
+  await catalogCard('Kanban').getByRole('button', { name: 'Install', exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'Kanban', exact: true }).count(), 0);
   await shortcut('Kanban').waitFor({ state: 'detached' });
+  await checkMusicWidget(app, page);
   console.log('Passed catalog and file installs, card creation and move, isolated guest state, switching, restart and uninstall.');
 } catch (error) {
   if (page && !page.isClosed()) {

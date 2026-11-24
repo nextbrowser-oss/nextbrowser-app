@@ -1,7 +1,7 @@
 /* Shared application palette. Raw UI colors belong here; layouts consume semantic roles.
    The default is dark, with a graphite base and distinct panels/cards.
    Fixed logo/video colors preserve source branding and media rendering. */
-.settings-theme-sample[data-palette="dark"],
+.settings-theme-sample,
 :root {
   color-scheme: dark;
   --font-ui: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -44,6 +44,8 @@
   --nav-active-indicator: #c6b7ff;
   --primary-action: #7156cf;
   --chat-bg: var(--bg);
+  --chat-caption-bg: transparent;
+  --chat-empty-surface: var(--surface-1);
   --chat-toolbar-text: var(--text);
   --chat-toolbar-muted: var(--muted);
   --chat-wallpaper: radial-gradient(circle at 72% 8%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 35%);
@@ -280,14 +282,14 @@
 }
 
 @media (prefers-contrast: more) {
-  :root, :root[data-theme="light"] {
+  .settings-theme-sample[data-palette], :root, :root[data-theme="light"] {
     --line: color-mix(in srgb, var(--text) 24%, transparent);
     --line-strong: color-mix(in srgb, var(--text) 42%, transparent);
     --muted: color-mix(in srgb, var(--text) 78%, transparent);
   }
 }
 
-/* Art palettes belong to the composer and its keyboard samples. */
+/* Art palettes belong to the composer and its previews. */
 :root {
   --composer-custom-default: #63558b;
   --skin-stage-ink: #19191e;

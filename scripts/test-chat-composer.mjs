@@ -140,9 +140,12 @@ try {
     await customize.click();
     for (const name of ['Blueprint', 'Risograph', 'smeta']) {
       await skinDialog.getByRole('button', { name, exact: true }).click();
-      await skinDialog.getByRole('figure', { name: name + ' keyboard preview' }).waitFor();
+      const model = skinDialog.getByRole('figure', { name: name + ' composer preview' });
+      await model.waitFor();
+      assert.equal(await model.locator('.composer').getAttribute('data-skin'), name.toLowerCase());
+      assert.ok(await model.locator('textarea').getAttribute('placeholder'));
     }
-    await skinDialog.screenshot({ path: resolve(output, `${theme}-keyboard-skins.png`) });
+    await skinDialog.screenshot({ path: resolve(output, `${theme}-composer-skins.png`) });
     await page.setViewportSize({ width: 320, height: 540 });
     const sample = await skinDialog.boundingBox();
     assert.ok(sample.x >= 0 && sample.x + sample.width <= 320);

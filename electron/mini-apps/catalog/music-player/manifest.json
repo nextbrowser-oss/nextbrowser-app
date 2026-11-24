@@ -1,0 +1,46 @@
+{
+  "apiVersion": 2,
+  "id": "music-player",
+  "name": "Music Player",
+  "version": "1.0.0",
+  "description": "Control music from your chat panel. Add a named account, then sign in and start a track in its service window.",
+  "icon": "grid",
+  "permissions": [
+    "storage"
+  ],
+  "tools": [
+    "list_accounts",
+    "add_account",
+    "select_account",
+    "open_player",
+    "get_playback",
+    "play",
+    "pause",
+    "forget_account"
+  ],
+  "skill": "Use list_accounts to discover supported services, account IDs and the selected account. For a new account, add_account with a service ID and a label, then open_player. The user signs in and starts the first track in the service window. Select an account with select_account. Read get_playback before play or pause. Only forget_account after the user confirms removing that local login. Never ask for passwords or sign-in codes.",
+  "widgets": [
+    {
+      "id": "now-playing",
+      "name": "Now playing",
+      "surfaces": [
+        "chat.panel",
+        "settings.design"
+      ],
+      "grid": {
+        "min": [
+          5,
+          2
+        ],
+        "preferred": [
+          10,
+          2
+        ],
+        "max": [
+          12,
+          4
+        ]
+      }
+    }
+  ]
+}

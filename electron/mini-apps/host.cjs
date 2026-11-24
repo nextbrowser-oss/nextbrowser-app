@@ -9,7 +9,9 @@ const { createStore, parsePackage, metadata, STATE_BYTES } = require('./store.cj
 // This origin is served entirely by the guest's in-memory Electron session.
 const origin = 'https://mini-app.invalid';
 const stateURL = origin + '/state';
-const catalogPath = path.join(__dirname, 'catalog', 'kanban.nbmini.json');
+const contextURL = origin + '/context';
+const musicURL = origin + '/music';
+const { createMusicPlayer } = require('./music-player.cjs');
 const csp = "sandbox allow-scripts allow-same-origin allow-forms; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'";
 const json = (data, status = 200) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
 function pageOf(items, requestedOffset) {
@@ -41,21 +43,33 @@ async function readStateRequest(request) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
-function createHost({ root, session, dialog, WebContentsView, libraryChanged }) {
-  const catalog = () => fs.readFileSync(catalogPath, 'utf8');
+function createHost({ root, session, dialog, WebContentsView, BrowserWindow, libraryChanged }) {
+  const catalogIds = ['kanban', 'music-player'];
+  const catalog = (id = 'kanban') => {
+    if (!catalogIds.includes(id)) throw Error('Unknown catalog app.');
+    if (id === 'music-player') {
+      const folder = path.join(__dirname, 'catalog', id);
+      return JSON.stringify({ ...JSON.parse(fs.readFileSync(path.join(folder, 'manifest.json'), 'utf8')), html: fs.readFileSync(path.join(folder, 'index.html'), 'utf8') });
+    }
+    return fs.readFileSync(path.join(__dirname, 'catalog', id + '.nbmini.json'), 'utf8');
+  };
   const store = createStore(root, () => parsePackage(catalog()));
   const bindings = new Map();
   const scopes = new Map();
   const sessionBindings = new WeakMap();
   const guestSessions = new WeakSet();
-  function prepare(window, owner, id) {
-    const { generation } = store.read(owner, id);
+  const music = createMusicPlayer({ session, BrowserWindow, dialog, guestSessions, store });
+  const officialPlayer = parsePackage(catalog('music-player'));
+  function prepare(window, owner, id, blockId, surface) {
+    const { generation, pkg, placements } = store.read(owner, id);
+    if ((blockId !== undefined || surface !== undefined) && (!pkg.widgets?.some(b => b.id === blockId && b.surfaces.includes(surface)) ||
+        !placements?.[surface + '/' + blockId])) throw Error('Enable this widget on the selected surface first.');
     const shellId = window.webContents.id;
     for (const [partition, b] of bindings) {
-      if (b.shellId === shellId && b.owner === owner && b.id === id && b.generation === generation) return { partition, src: entry };
+      if (b.shellId === shellId && b.owner === owner && b.id === id && b.generation === generation && b.blockId === blockId && b.surface === surface) return { partition, src: entry };
     }
     const partition = 'mini-app-' + randomUUID();
-    createPartition(partition, { shellId, owner, id, generation }, () => store.read(owner, id),
+    createPartition(partition, { shellId, owner, id, generation, blockId, surface, music: id === 'music-player' && isDeepStrictEqual(pkg, officialPlayer) }, () => store.read(owner, id),
       (revision, value) => store.save(owner, id, generation, revision, value));
     return { partition, src: entry };
   }
@@ -69,13 +83,22 @@ function createHost({ root, session, dialog, WebContentsView, libraryChanged }) 
     isolated.setDevicePermissionHandler(() => false);
     isolated.on('will-download', event => event.preventDefault());
     isolated.webRequest.onBeforeRequest((details, done) => {
-      done({ cancel: !bindings.has(partition) || (details.url !== entry && details.url !== stateURL) });
+      done({ cancel: !bindings.has(partition) || ![entry,stateURL,contextURL,musicURL].includes(details.url) });
     });
     isolated.protocol.handle('https', async request => {
       if (!bindings.has(partition)) return json(null, 410);
       try {
         const record = read();
         if (record.generation !== binding.generation) return json(null, 410);
+        if (request.url === contextURL && request.method === 'GET') return json({ blockId: binding.blockId ?? null, surface: binding.surface ?? null });
+        if (request.url === musicURL && request.method === 'POST') {
+          if (!binding.music || scopes.get(binding.shellId)?.owner !== binding.owner) return json(null, 403);
+          const payload = await readStateRequest(request);
+          if (!bindings.has(partition) || scopes.get(binding.shellId)?.owner !== binding.owner) return json(null, 410);
+          const active = () => bindings.has(partition) && scopes.get(binding.shellId)?.owner === binding.owner;
+          try { return json(await music.action(binding, payload, active)); }
+          catch (e) { return json({ error: e.message }, 400); }
+        }
         if (request.url === entry && request.method === 'GET') {
           return new Response(record.pkg.html, { headers: { 'Content-Type': 'text/html; charset=utf-8',
             'Content-Security-Policy': csp, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store',
@@ -123,6 +146,7 @@ function createHost({ root, session, dialog, WebContentsView, libraryChanged }) 
     const contents = window.webContents;
     const shellId = contents.id;
     const revoke = () => {
+      music.closeForShell(shellId);
       scopes.delete(shellId);
       for (const [key, item] of bindings) if (item.shellId === shellId) bindings.delete(key);
     };
@@ -151,6 +175,7 @@ function createHost({ root, session, dialog, WebContentsView, libraryChanged }) 
     if (previous?.owner === owner && previous?.workspaceId === workspaceId) return;
     scopes.delete(shellId);
     if (previous?.owner !== owner) {
+      music.closeForShell(shellId);
       for (const [key, item] of bindings) if (item.shellId === shellId && item.owner !== owner) bindings.delete(key);
     }
     if (typeof owner === 'string' && owner && typeof workspaceId === 'string' && workspaceId) {
@@ -166,14 +191,15 @@ function createHost({ root, session, dialog, WebContentsView, libraryChanged }) 
     if (!alive()) throw Error('The account or workspace changed. Start a new agent turn.');
     const installed = store.list(scope.owner).filter(app => app.apiVersion === 2);
     if (name === 'list_apps') {
-      const entries = installed.map(({ id, name, description, version }) => ({ id, name, description, version }));
+      const entries = installed.map(({ id, name, description, version, skill }) => ({ id, name, description, version, skill }));
       const { page: apps, next_offset } = pageOf(entries, args.offset);
       return { apps, next_offset };
     }
     const app = installed.find(a => a.id === args.app_id);
     if (!app) throw Error('This mini app is not installed for the current account.');
     const live = () => [...bindings.values()].find(b => b.shellId === scope.shellId && b.owner === scope.owner
-      && b.id === app.id && b.generation === app.generation && b.guest && !b.guest.isDestroyed());
+      && b.id === app.id && b.generation === app.generation && b.guest && !b.guest.isDestroyed()
+      && (name !== 'call_app_tool' || b.instance === args.instance));
     if (name === 'list_app_tools') {
       let binding = live();
       if (!binding) {
@@ -204,7 +230,11 @@ function createHost({ root, session, dialog, WebContentsView, libraryChanged }) 
     const { owner, id } = args;
     switch (name) {
       case 'mini_apps_context': return setScope(window, owner, args.workspaceId);
-      case 'mini_apps_list': return { installed: store.list(owner), catalog: [metadata(parsePackage(catalog()))] };
+      case 'mini_apps_list': return { installed: store.list(owner), catalog: catalogIds.map(key => metadata(parsePackage(catalog(key)))) };
+      case 'mini_apps_set_widget':
+        store.setWidget(owner, id, args.blockId, args.surface, args.size);
+        libraryChanged();
+        return;
       case 'mini_apps_inspect': return metadata(parsePackage(args.raw));
       case 'mini_apps_set_pinned':
         store.setPinned(owner, id, args.pinned);
@@ -213,11 +243,9 @@ function createHost({ root, session, dialog, WebContentsView, libraryChanged }) 
       case 'mini_apps_install': {
         const shellId = window.webContents.id;
         const scope = scopes.get(shellId);
-        const official = catalog();
-        const raw = args.catalog === true ? official : args.raw;
+        const raw = args.catalog === true ? catalog(id) : args.raw;
         const candidate = parsePackage(raw);
-        const bundled = parsePackage(official);
-        if (candidate.id === bundled.id && !isDeepStrictEqual(candidate, bundled)) {
+        if (catalogIds.includes(candidate.id) && !isDeepStrictEqual(candidate, parsePackage(catalog(candidate.id)))) {
           throw Error('This ID belongs to the catalog app. Choose a different ID in your manifest.');
         }
         await validateInstallation(candidate);
@@ -226,16 +254,21 @@ function createHost({ root, session, dialog, WebContentsView, libraryChanged }) 
         libraryChanged();
         return installed;
       }
-      case 'mini_apps_open': return prepare(window, owner, id);
+      case 'mini_apps_open': return prepare(window, owner, id, args.blockId, args.surface);
       case 'mini_apps_remove': {
+        if (id === 'music-player') {
+          for (const [key,item] of bindings) if (item.owner === owner && item.id === id) bindings.delete(key);
+          await music.clear(owner);
+        }
         store.remove(owner, id);
         libraryChanged();
         for (const [key, item] of bindings) if (item.owner === owner && item.id === id) bindings.delete(key);
         return;
       }
       case 'mini_apps_download': {
-        const { canceled, filePath } = await dialog.showSaveDialog(window, { defaultPath: 'kanban.nbmini.json', filters: [{ name: 'Mini app package', extensions: ['json'] }] });
-        if (!canceled && filePath) await fs.promises.writeFile(filePath, catalog(), 'utf8');
+        const raw = catalog(id);
+        const { canceled, filePath } = await dialog.showSaveDialog(window, { defaultPath: (id ?? 'kanban') + '.nbmini.json', filters: [{ name: 'Mini app package', extensions: ['json'] }] });
+        if (!canceled && filePath) await fs.promises.writeFile(filePath, raw, 'utf8');
         return;
       }
       default: throw Error('Unknown mini app action.');

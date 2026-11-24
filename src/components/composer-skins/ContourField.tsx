@@ -32,7 +32,7 @@ const CASES: number[][] = [
   [2, 3], [2, 0], [0, 1, 2, 3], [2, 1], [1, 3], [1, 0], [0, 3], [],
 ]
 
-export function ContourField() {
+export function ContourField({ still = false }: { still?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -154,8 +154,9 @@ export function ContourField() {
     }
     // свёрнутое приложение не должно крутить анимацию
     const syncMotion = () => {
-      if (document.hidden || motion.matches) stop()
-      if (!document.hidden) motion.matches ? draw(0) : start()
+      if (document.hidden) { stop(); return }
+      if (motion.matches || still) { stop(); draw(0); return }
+      start()
     }
     const onResize = () => {
       resize()
@@ -174,7 +175,7 @@ export function ContourField() {
       motion.removeEventListener('change', syncMotion)
       observer.disconnect()
     }
-  }, [])
+  }, [still])
 
   return <canvas ref={ref} className="sm-contours" aria-hidden />
 }

@@ -40,6 +40,28 @@ The UTF-8 package is limited to 256 KiB. Bundle all HTML, CSS and JavaScript in 
 
 ## Storage and lifecycle
 
+### Panel widgets
+
+A v2 app can supply one or more named interface blocks. Add `widgets` and an agent `skill` to the manifest. The skill is a short, user-readable description of the app, its WebMCP tools, their inputs and a typical workflow. Include setup, confirmation and recovery steps where relevant. The host returns this description in `list_apps`. Applications without widgets can also provide a skill.
+
+```json
+{
+  "skill": "Read list_accounts, select an account by ID, open its player, then check get_playback before using play or pause.",
+  "widgets": [{
+    "id": "now-playing",
+    "name": "Now playing",
+    "surfaces": ["chat.panel", "settings.design"],
+    "grid": { "min": [5, 2], "preferred": [10, 2], "max": [12, 4] }
+  }]
+}
+```
+
+Each pair specifies columns and rows, from 1–12 columns and 1–8 rows. A row is 40 CSS pixels. Columns share the available panel width with a minimum of 40 CSS pixels each. The initial size is `preferred`. The user can enable and resize each block separately on each declared surface in **Settings → Themes → Configure panel widgets**, or from the button beside the composer palette. Preferences belong to the signed-in local account. A narrow panel reduces the width down to the declared minimum, then hides the block until it fits again.
+
+Design the most adaptive widget you can. Test every supported width and height, including the smallest pair, enlarged text and both color schemes. Use container or viewport queries, wrapping and compact controls. Keep the primary action accessible. The same package entry runs in each placement. Read `GET /context` for `{blockId, surface}`. Both fields are null in the full app. Register the complete WebMCP tool set in every view. Concurrent views share revisioned state, so reload on conflicts and refresh visible data after another view changes it. Use explicit account or document IDs for mutations.
+
+The bundled Music Player uses this contract. **Add account** creates a named local service profile. Choose a listed provider or **Other music service** and confirm its public HTTPS address. **Open service** opens its player for the user to sign in, select music and start playback. Each login has a separate browser session. The widget can show media metadata and pause or resume a track exposed by the service in its main document. Providers control sign-in, subscriptions, embedded-browser access and protected playback. The full player remains available for service-specific controls. Removing an account clears its local sign-in. Only the bundled player can use this media bridge.
+
 With the storage permission, `GET /state` returns `{revision, value}`, initially `{revision:0, value:null}`. To save, send JSON `{revision, value}` with `PUT /state`. The host atomically replaces the previous value, increments the revision and returns the new revision. HTTP 409 means another writer saved first. Reload and reconcile before retrying. Validate state on load and handle failures visibly. The JSON value can occupy up to 128 KiB in UTF-8.
 
 Each app runs at a synthetic HTTPS origin in an isolated Electron guest. The session can reach its entry document and its own state endpoint. Inline scripts, styles and data images are supported. External network access, Node, desktop IPC, nested frames and popups are unavailable. The host selects storage by account and installation on this device. Up to 32 apps can be installed per account. Opening another app closes the current document. The rail shortcut is optional. Uninstalling removes the saved state after confirmation.

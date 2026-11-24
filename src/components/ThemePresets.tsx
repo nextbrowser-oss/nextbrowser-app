@@ -8,7 +8,7 @@ import type { Appearance } from "../lib/appearance";
 import type { Theme } from "../theme";
 import type { useAppearance } from "../lib/useAppearance";
 
-type Props = Omit<ReturnType<typeof useAppearance>, "resolvedPalettes" | "canReset" | "updateAppearance"> & { mode: Theme };
+type Props = Omit<ReturnType<typeof useAppearance>, "presetName" | "resolvedPalettes" | "canReset" | "updateAppearance"> & { mode: Theme };
 const createOption = { value: ":create", label: "+ Create theme…" };
 
 function PaletteSwatch({ preset, mode, active }: {

@@ -12,7 +12,7 @@ function stockTools() {
 let miniAppsHost;
 function miniApps() {
   return miniAppsHost ??= require('./mini-apps/host.cjs').createHost({
-    root: path.join(dataDir(), 'mini-apps-v1'), session, dialog, WebContentsView, libraryChanged: () => emit('mini-apps:changed'),
+    root: path.join(dataDir(), 'mini-apps-v1'), session, dialog, WebContentsView, BrowserWindow, libraryChanged: () => emit('mini-apps:changed'),
   });
 }
 const { createStartPageServer } = require('./start-page-server.cjs');
@@ -1813,9 +1813,16 @@ function safeName(name) {
   if (!/^[A-Za-z0-9._-]+$/.test(name) || name.includes("..")) throw new Error("Invalid app-data filename.");
   return name;
 }
-function emit(channel, payload) { for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channel, payload); }
+function desktopWindows() {
+  return BrowserWindow.getAllWindows().filter(window => !miniAppsHost?.isGuest(window.webContents));
+}
+function desktopDialogOwner() {
+  const focused = BrowserWindow.getFocusedWindow();
+  return focused && !miniAppsHost?.isGuest(focused.webContents) ? focused : desktopWindows()[0];
+}
+function emit(channel, payload) { for (const window of desktopWindows()) window.webContents.send(channel, payload); }
 function focusMainWindow() {
-  const window = BrowserWindow.getAllWindows()[0];
+  const window = desktopWindows()[0];
   if (!window) return null;
   if (process.platform === "darwin") app.focus({ steal: true });
   if (window.isMinimized()) window.restore();
@@ -2853,7 +2860,7 @@ async function invokeCommand(command, args = {}, sender) {
     case "app_set_theme": {
       const theme = args.theme === "light" ? "light" : "dark";
       nativeTheme.themeSource = args.preference === "system" ? "system" : theme;
-      for (const window of BrowserWindow.getAllWindows()) {
+      for (const window of desktopWindows()) {
         if (!applyWindowChrome(window, { background: args.background, foreground: args.foreground, factor: window.webContents.getZoomFactor() }, process.platform, chromeWindows.has(window))) {
           window.setBackgroundColor(theme === "light" ? "#f5f5f7" : "#15141c");
         }
@@ -2943,7 +2950,7 @@ async function invokeCommand(command, args = {}, sender) {
     }
     case "read_file": return fs.readFile(args.path, "utf8");
     case "browser_verification_failure_choice": {
-      const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+      const owner = desktopDialogOwner();
       const options = verificationFailureDialogOptions(args);
       const result = owner
         ? await dialog.showMessageBox(owner, options)
@@ -2965,7 +2972,7 @@ async function invokeCommand(command, args = {}, sender) {
       });
     }
     case "select_ssh_config": {
-      const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+      const owner = desktopDialogOwner();
       const options = {
         title: "Choose SSH config",
         defaultPath: defaultSSHConfigPath(home()),
@@ -2987,7 +2994,7 @@ async function invokeCommand(command, args = {}, sender) {
       return path.resolve(selectedPath);
     }
     case "select_chat_files": {
-      const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+      const owner = desktopDialogOwner();
       const result = await dialog.showOpenDialog(owner, {
         title: "Attach files to chat",
         properties: ["openFile", "multiSelections"],
@@ -3006,7 +3013,7 @@ async function invokeCommand(command, args = {}, sender) {
     }
     case "artifact_import": {
       const workspaceId = String(args.workspaceId || "");
-      const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+      const owner = desktopDialogOwner();
       const result = await dialog.showOpenDialog(owner, {
         title: "Add artifacts",
         properties: ["openFile", "multiSelections"],
@@ -3147,7 +3154,7 @@ async function invokeCommand(command, args = {}, sender) {
     }
     case "automation_element_pick_cancel": return cancelAutomationElementPick(String(args.pickId || ""));
     case "select_terminal_files": {
-      const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+      const owner = desktopDialogOwner();
       const result = await dialog.showOpenDialog(owner, {
         title: "Attach files to terminal",
         properties: ["openFile", "multiSelections"],

@@ -10,7 +10,8 @@ import type { ChatAttachment, ChatMessage } from "../types";
 import { filePathForFile, invoke } from "../electronBridge";
 import { AGENTS, BUILTIN_AGENT_ID, agentById, agentInvocation, isBuiltinAgent, type AgentSpec } from "../agents";
 import { AgentModelPicker } from "./AgentModelPicker";
-import { ComposerSkinPicker, SkinArtwork, skinStyle, useComposerSkin } from "./composer-skins/ComposerSkins";
+import { ComposerSkinPicker, ComposerSurface, useComposerSkin } from "./composer-skins/ComposerSkins";
+import { PanelWidgets, WidgetSettingsButton } from "./PanelWidgets";
 import { OPEN_AGENT_SETTINGS_EVENT } from "../lib/appNavigation";
 import { trackEvent } from "../lib/analytics";
 import { BROWSER_VERIFICATION_ATTENTION, BROWSER_VERIFICATION_INSTRUCTIONS, needsBrowserVerification } from "../lib/activityParser";
@@ -575,8 +576,8 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
                 <div className="chat-action-error error small" role="alert">{actionError}</div>
               )}
               {commandNotice && <div className="chat-command-notice" role="status">{commandNotice}</div>}
-              <div className={`${glassSurfaceClassName} composer`} data-skin={skin.id} style={skinStyle(skin)}>
-                <SkinArtwork id={skin.id} />
+              <PanelWidgets surface="chat.panel" />
+              <ComposerSurface skin={skin}>
                 {activeCommand && <CommandList id={commandMenuId} label="Agent commands" activeId={activeCommand.name} anchor={composerRef.current?.closest<HTMLElement>(".composer")}
                   options={commandMatches.map(command => ({ id: command.name, title: "/" + command.name, description: command.description }))}
                   onChoose={acceptCommand} />}
@@ -687,6 +688,7 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
                   <AgentModelPicker key={conversationKey} agentId={agentId} version={builtinAgent ? s.agentVersion() : undefined}
                     disabled={running || remoteOnly || !!s.runtime[BUILTIN_AGENT_ID]?.runningReplyId}
                     onActivate={activateApiAgent} onRefresh={s.refreshBuiltinAgent} />
+                  <WidgetSettingsButton />
                   <ComposerSkinPicker skin={skin} onApply={applySkin} />
                   {running ? (
                     <IconButton label="Stop the running agent response" appearance="embedded" onClick={() => s.stopRunning()}>
@@ -703,7 +705,7 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
                     </IconButton>
                   )}
                 </div>
-              </div>
+              </ComposerSurface>
             </>
           }>
           {conv?.terminalPreview && <details className="chat-legacy-activity">

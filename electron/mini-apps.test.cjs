@@ -8,6 +8,21 @@ const { parsePackage, createStore } = require('./mini-apps/store.cjs');
 const catalogPath = path.join(__dirname, 'mini-apps/catalog/kanban.nbmini.json');
 const raw = fs.readFileSync(catalogPath, 'utf8');
 const pkg = parsePackage(raw);
+test('widget block manifests and saved placements respect their declared bounds and owner', t => {
+  const store = createStore(fixture(t));
+  const block = {id:'summary', name:'Summary', surfaces:['chat.panel'], grid:{min:[2,1], preferred:[4,2], max:[8,3]}};
+  const sample = { ...pkg, id:'widget-test', widgets:[block], skill:'Read list_tasks to see the current board.' };
+  for (const invalid of [{skill:''}, {widgets:[block, block]}, {widgets:[{...block,surfaces:['unregistered']}]},
+    {widgets:[{...block,grid:{...block.grid,min:[5,1]}}]}]) assert.throws(() => parsePackage(JSON.stringify({...sample,...invalid})));
+  store.install('one',JSON.stringify(sample));
+  store.setWidget('one',sample.id,block.id,'chat.panel',[6,2]);
+  assert.deepEqual(store.list('one')[0].placements,{'chat.panel/summary':[6,2]});
+  assert.deepEqual(store.list('two'),[]);
+  assert.throws(() => store.setWidget('one',sample.id,block.id,'settings.design',[6,2]));
+  assert.throws(() => store.setWidget('one',sample.id,block.id,'chat.panel',[9,2]));
+  store.setWidget('one',sample.id,block.id,'chat.panel',null);
+  assert.deepEqual(store.list('one')[0].placements,{});
+});
 function fixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mini-app-unit-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

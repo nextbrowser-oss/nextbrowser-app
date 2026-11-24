@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Music Player</title>
+<style>
+:root{color-scheme:light dark;font:14px/1.35 system-ui;color:light-dark(#262531,#f5f5fa);background:light-dark(#eeedf4,#25252e)}
+*{box-sizing:border-box}body{margin:0;padding:clamp(7px,2vw,16px)}main{max-width:620px;margin:auto;display:grid;gap:8px}
+header,.controls,form{display:flex;align-items:center;gap:6px;flex-wrap:wrap}header{flex-wrap:nowrap}
+.art{display:grid;place-items:center;flex:none;width:32px;height:32px;border-radius:9px;background:linear-gradient(140deg,#6543b6,#c65e96);color:white;font-size:20px}
+.track{min-width:0;flex:1}.track strong,.track small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body[data-view="app"] main{margin:clamp(16px,6vh,70px) auto;padding:20px;border-radius:18px;background:light-dark(#f8f8fc,#30303b)}
+body[data-view="app"] header{padding-bottom:14px}body[data-view="app"] .art{width:48px;height:48px;font-size:28px}
+small{opacity:.75}button,select,input{max-width:100%;padding:4px 8px;font:inherit;border-radius:8px;border:1px solid color-mix(in srgb,currentColor 20%,transparent);background:light-dark(#fafafe,#30313c);color:inherit}
+button{cursor:pointer}button:disabled{opacity:.45;cursor:default}select{min-width:0;max-width:min(180px,60vw)}form{padding-block:5px}
+[hidden]{display:none!important}[role=alert]{color:light-dark(#9a322a,#ffb3a6);margin:0}
+@media(max-height:110px){body{padding:4px 8px}main{gap:3px}.art{width:26px;height:26px}small{font-size:10px}button,select,input{font-size:12px}}
+</style></head><body><main>
+<header><span class="art" aria-hidden="true">♫</span><div class="track"><strong id="track">Music Player</strong><small id="artist"></small></div>
+<button id="toggle" type="button" disabled>Play</button><button id="launch" type="button" disabled>Open service</button></header>
+<div class="controls"><select id="accounts" aria-label="Music account"></select><button id="manage" aria-expanded="false">Accounts</button></div>
+<form id="form" hidden><select id="services" aria-label="Music service"></select><input id="label" aria-label="Account name" placeholder="Account name" required maxlength="60">
+<input id="url" type="url" hidden aria-label="Service website" placeholder="https://music.example.com">
+<button>Add account</button><button id="remove" type="button">Remove selected</button></form>
+<div id="confirmation" hidden>Remove this local login? <button id="confirm">Remove</button> <button id="cancel">Cancel</button></div>
+<p id="error" role="alert"></p>
+</main><script>
+const el = id => document.getElementById(id);
+const actions = {
+  list_accounts: ['list','List supported services, saved local accounts and the selected account.'],
+  add_account: ['add','Create a named local music account. Use a service ID from list_accounts.'],
+  select_account: ['select','Select the account shown on the panel.'],
+  open_player: ['open','Open the official service window for manual sign-in, track selection and full playback controls.'],
+  get_playback: ['status','Read the active track, artist and playback state for this account.'],
+  play: ['play','Resume the selected media in an open service window.'],
+  pause: ['pause','Pause the selected media in an open service window.'],
+  forget_account: ['forget','Remove a local login and its cookies after explicit user confirmation.']
+};
+const string = {type:'string'};
+const properties = {add_account:{service:string,label:string,url:{type:'string',description:'Public HTTPS player address, required for the custom service.'}},list_accounts:{},forget_account:{id:string,confirm:{type:'boolean'}},select_account:{id:string}};
+const requires = {add_account:['service','label'],select_account:['id'],forget_account:['id','confirm']};
+let current, playing = false, updateId = 0;
+async function request(action,input={}) {
+  const response = await fetch('/music',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...input,action})});
+  const value = await response.json();
+  if (!response.ok) throw Error(value?.error || 'Music service unavailable.');
+  return value;
+}
+function options(node, items, value) {
+  if (node.matches(':focus') && [...node.options].map(o => o.value).join() === items.map(i => i.id).join()) {
+    node.value = value; return;
+  }
+  node.replaceChildren(...items.map(item => new Option(item.name ?? item.label, item.id)));
+  if (value) node.value = value;
+}
+async function refresh() {
+  const tick = ++updateId;
+  const data = await request('list');
+  const status = data.selected ? await request('status',{id:data.selected}) : {};
+  if (tick !== updateId) return;
+  current = data.selected;
+  options(el('accounts'),data.accounts,current);
+  const previous = el('services').value;
+  options(el('services'),data.services,previous);
+  const account = data.accounts.find(a => a.id === current);
+  const service = data.services.find(s => s.id === account?.service);
+  el('launch').disabled = !account;
+  el('toggle').disabled = !status.available;
+  el('remove').disabled = !account;
+  playing = !!status.playing;
+  el('toggle').textContent = playing ? 'Pause' : 'Play';
+  el('track').textContent = status.title || service?.name || 'Music Player';
+  el('artist').textContent = status.artist || (account ? account.label : 'Add an account to start');
+}
+async function run(name,input) {
+  const value = await request(actions[name][0],input);
+  if (name !== 'list_accounts' && name !== 'get_playback') await refresh();
+  return value;
+}
+for (const [name,[,description]] of Object.entries(actions)) {
+  const fields = properties[name] ?? {id:string};
+  (document.modelContext ?? navigator.modelContext).registerTool({name,description,inputSchema:{type:'object',properties:fields,required:requires[name] ?? [],additionalProperties:false},
+    execute:async input => {
+      try {
+        if (Object.keys(input).some(k => !Object.hasOwn(fields,k)) || (requires[name] ?? []).some(k => input[k] === undefined) ||
+          Object.entries(input).some(([k,v]) => typeof v !== fields[k].type)) throw Error('Invalid tool arguments.');
+        return {ok:true,value:await run(name,input)};
+      } catch(e) {return {ok:false,error:e.message};}
+    }});
+}
+const report = e => { el('error').textContent = e.message; };
+function act(name,input) { el('error').textContent=''; return run(name,input).catch(report); }
+el('accounts').onchange = e => act('select_account',{id:e.target.value});
+el('toggle').onclick = () => act(playing ? 'pause' : 'play',{id:current});
+el('launch').onclick = () => act('open_player',{id:current});
+el('manage').onclick = () => {el('form').hidden = !el('form').hidden;el('manage').setAttribute('aria-expanded',String(!el('form').hidden));};
+el('services').onchange = () => {const custom=el('services').value==='custom';el('url').hidden=!custom;el('url').required=custom;};
+el('form').onsubmit = async e => {e.preventDefault();if(await act('add_account',{service:el('services').value,label:el('label').value,url:el('url').value})){el('label').value='';el('manage').click();}};
+let removal;
+el('remove').onclick = () => {removal=current; el('confirmation').hidden=false;};
+el('confirm').onclick = () => {el('confirmation').hidden=true;void act('forget_account',{id:removal,confirm:true});};
+el('cancel').onclick = () => {el('confirmation').hidden=true;};
+fetch('/context').then(r=>r.json()).then(context=>{
+  document.body.dataset.view=context.blockId ? 'widget' : 'app';
+  if(!context.blockId){el('form').hidden=false;el('manage').setAttribute('aria-expanded','true');}
+  return refresh();
+}).catch(report);
+setInterval(() => {if(!document.hidden) refresh().catch(report);},2500);
+</script></body></html>
