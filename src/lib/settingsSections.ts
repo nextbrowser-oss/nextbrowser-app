@@ -12,7 +12,7 @@ export interface SettingsSectionInfo {
 }
 
 export const SETTINGS_SECTIONS: readonly SettingsSectionInfo[] = [
-  { id: "general", label: "General", icon: "gearshape", summary: "App version and interface size." },
+  { id: "general", label: "General", icon: "gearshape", summary: "Theme, interface size, and app version." },
   { id: "updates", label: "Updates", icon: "arrow.down.circle", summary: "Installed versions, available updates, and download progress." },
   { id: "privacy", label: "Privacy", icon: "checkmark.shield", summary: "Error reports and the device data sent with your account." },
   { id: "agent", label: "Agent", icon: "cpu.fill", summary: "The local agent used for chats, skills, and scheduled runs." },

@@ -37,7 +37,7 @@ try {
     const emit = (name, payload) => { for (const listener of listeners.get(name) || []) listener(structuredClone(payload)); };
     const runtimeStatus = () => ({ status: "ready", checkedAt: Date.now(), runtimes: structuredClone(runtimes) });
     localStorage.setItem("nextbrowser.runtimeUpdatePromptDismissed", "camoufox:0.5.9|dasbrowser:150.4");
-    localStorage.setItem("nextbrowser.theme", "dark");
+    if (!localStorage.getItem("nextbrowser.theme")) localStorage.setItem("nextbrowser.theme", "dark");
     window.__settingsQA = {
       calls,
       complete() {
@@ -90,8 +90,42 @@ try {
     };
   });
   await page.goto(`${url}/?preview=main`);
+  await page.locator(".sidebar-mini button > svg").first().waitFor();
+  const railIcons = await page.locator(".sidebar-mini button > svg").evaluateAll((icons) => icons.map((icon) => {
+    const glyph = icon.getBoundingClientRect();
+    const button = icon.parentElement.getBoundingClientRect();
+    return [glyph.width, glyph.height, button.width, button.height];
+  }));
+  assert.ok(railIcons.length >= 8);
+  for (const sizes of railIcons) assert.deepEqual(sizes, [18, 18, 40, 40]);
   await page.getByRole("button", { name: /^Settings(?:,|$)/ }).click();
   const modal = page.getByRole("dialog", { name: "Settings", exact: true });
+  const general = modal.getByRole("tab", { name: "General", exact: true });
+  await general.click();
+  const theme = modal.getByRole("group", { name: "Theme" });
+  const radio = (name) => theme.getByRole("radio", { name, exact: true });
+  const waitForTheme = (name) => page.waitForFunction((next) => document.documentElement.dataset.theme === next, name);
+  assert.equal(await radio("Dark").isChecked(), true);
+  await mkdir("e2e-out", { recursive: true });
+  await theme.screenshot({ path: "e2e-out/settings-theme-picker.png" });
+  await radio("Light").check();
+  await waitForTheme("light");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await radio("System").check();
+  await waitForTheme("dark");
+  await page.emulateMedia({ colorScheme: "light" });
+  await waitForTheme("light");
+  await page.reload();
+  await page.getByRole("button", { name: /^Settings(?:,|$)/ }).click();
+  await general.click();
+  assert.equal(await radio("System").isChecked(), true);
+  assert.equal(await page.evaluate(() => window.__settingsQA.calls.some(({ command, args }) => command === "app_set_theme" && args.preference === "system" && args.theme === "light")), true);
+  await modal.getByRole("button", { name: "Close settings" }).click();
+  await page.getByRole("button", { name: "Switch to dark theme" }).click();
+  await waitForTheme("dark");
+  await page.getByRole("button", { name: /^Settings(?:,|$)/ }).click();
+  await general.click();
+  assert.equal(await radio("Dark").isChecked(), true);
   await modal.getByRole("tab", { name: /^Updates/ }).click();
   await modal.getByText("Release 1.0.11 does not include this platform.", { exact: false }).waitFor();
   await modal.getByRole("button", { name: "Update", exact: true }).click();
@@ -133,7 +167,7 @@ try {
   assert.equal(await page.evaluate(() => window.__settingsQA.calls.some((call) => call.command === "app_install_update")), false, "bulk must not restart the app");
   await page.screenshot({ path: "e2e-out/settings-updates-light.png" });
   assert.deepEqual(errors, []);
-  console.log("Settings journey passed: hide, cancel, retry, refresh, proxy navigation, preserved range, narrow layout, Update all and explicit restart.");
+  console.log("Settings journey passed: rail icon sizing, theme selection, system changes, persistence, titlebar toggle, updates and proxy navigation.");
 } catch (error) {
   if (page) {
     await mkdir("e2e-out", { recursive: true });

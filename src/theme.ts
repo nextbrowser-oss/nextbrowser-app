@@ -1,4 +1,21 @@
 export type Theme = "dark" | "light";
+export type ThemePreference = Theme | "system";
+
+export function readThemePreference(saved: string | null): ThemePreference {
+  return saved === "dark" || saved === "light" ? saved : "system";
+}
+
+const lightScheme = "(prefers-color-scheme: light)";
+
+export function systemPrefersLight(): boolean {
+  return window.matchMedia(lightScheme).matches;
+}
+
+export function subscribeToSystemTheme(onChange: () => void): () => void {
+  const query = window.matchMedia(lightScheme);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
 
 export const terminalColorKeys = [
   "background", "foreground", "cursor", "cursorAccent", "selectionBackground",

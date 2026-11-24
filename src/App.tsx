@@ -4,7 +4,7 @@ import { addPendingRuntimeInstall, downloadableBrowsers, runtimeInstalling } fro
 import { RuntimeInstallationProgress } from "./components/RuntimeInstallationProgress";
 import { BrowserRuntimeUpdatePrompt, ClawbrowserCloseProfilesPrompt, type BrowserRuntimeUpdateEntry } from "./components/BrowserRuntimeUpdatePrompt";
 import { InstallationProgress, InstallationSpinner } from "./components/InstallationProgress";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useStore } from "./store";
 import { TitlebarActions } from "./components/DesktopShell";
 import { CommunityControls } from "./components/CommunityControls";
@@ -31,7 +31,8 @@ import { brandName, latestReleaseUrl } from "./constants";
 import { trafficAllowanceBytes, trafficAllowanceFraction, trafficGateState, trafficGateStateLabel, trafficGateStateTone } from "./lib/trafficGate";
 import { getPreviewMode, getPreviewNodeMavenState, getPreviewTab } from "./preview";
 import { humanBytes, type AppTab, type Conversation } from "./types";
-import { resolveTheme, type Theme } from "./theme";
+import { readThemePreference, resolveTheme, subscribeToSystemTheme, systemPrefersLight, type Theme, type ThemePreference } from "./theme";
+import { ThemePicker } from "./components/ThemePicker";
 import { confirmedBrowserRuntimeUpdates } from "./lib/browserRuntimeUpdate";
 import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
 import { observeDesktopActivity } from "./lib/desktopActivity";
@@ -405,6 +406,8 @@ function SettingsModal({
   onInstallUpdate,
   onOpenRelease,
   onRequestBrowserRuntimeUpdate,
+  themePreference,
+  onThemeChange,
   uiScale,
   onUiScaleChange,
   uiScaleFloatingHidden,
@@ -428,6 +431,8 @@ function SettingsModal({
   onInstallUpdate: () => void;
   onOpenRelease: () => Promise<void>;
   onRequestBrowserRuntimeUpdate: (runtime: BrowserRuntimeUpdateEntry) => void;
+  themePreference: ThemePreference;
+  onThemeChange: (next: ThemePreference) => void;
   uiScale: number;
   onUiScaleChange: (next: number) => void;
   uiScaleFloatingHidden: boolean;
@@ -557,6 +562,7 @@ function SettingsModal({
           <SettingsPanel section={section}>
             {section === "general" && (
               <div className="settings-group">
+                <ThemePicker value={themePreference} onChange={onThemeChange} />
                 <div className="settings-row"><span className="muted small">Nextbrowser</span><strong>{__APP_VERSION__}</strong></div>
                 <SettingsDiagnostics />
                 <button className="settings-feature-link" onClick={() => setSection("updates")}>
@@ -802,10 +808,9 @@ function AppUpdatePrompt({
 }
 
 export function App() {
-  const [theme, setTheme] = useState<Theme>(() => resolveTheme(
-    settingsStorage.getItem("nextbrowser.theme"),
-    window.matchMedia("(prefers-color-scheme: light)").matches,
-  ));
+  const [themePreference, setThemePreference] = useState(() => readThemePreference(settingsStorage.getItem("nextbrowser.theme")));
+  const prefersLight = useSyncExternalStore(subscribeToSystemTheme, systemPrefersLight);
+  const theme = resolveTheme(themePreference, prefersLight);
   const [uiScale, setUiScale] = useState<number>(() => {
     const saved = Number(settingsStorage.getItem("nextbrowser.uiScale"));
     return Number.isFinite(saved) && saved >= UI_SCALE_MIN && saved <= UI_SCALE_MAX ? saved : 1;
@@ -1390,9 +1395,12 @@ export function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
-    settingsStorage.setItem("nextbrowser.theme", theme);
+    settingsStorage.setItem("nextbrowser.theme", themePreference);
     const palette = getComputedStyle(document.documentElement);
-    void invoke("app_set_theme", { theme, background: palette.getPropertyValue("--bg").trim(), foreground: palette.getPropertyValue("--text").trim() }).catch(() => undefined);
+    void invoke("app_set_theme", { theme, preference: themePreference, background: palette.getPropertyValue("--bg").trim(), foreground: palette.getPropertyValue("--text").trim() }).catch(() => undefined);
+  }, [theme, themePreference]);
+
+  useEffect(() => {
     if (!didTrackThemeChange.current) {
       didTrackThemeChange.current = true;
       return;
@@ -1546,7 +1554,7 @@ export function App() {
 
   const titlebarActions = <TitlebarActions>
     <CommunityControls />
-    <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
+    <ThemeToggle theme={theme} onToggle={() => setThemePreference(theme === "dark" ? "light" : "dark")} />
   </TitlebarActions>;
 
   if ((checking || startupError) && preview !== "login" && preview !== "main" && preview !== "onboarding") {
@@ -1577,6 +1585,8 @@ export function App() {
             onInstallUpdate={installAppUpdate}
             onOpenRelease={openLatestRelease}
             onRequestBrowserRuntimeUpdate={requestBrowserRuntimeUpdate}
+            themePreference={themePreference}
+            onThemeChange={setThemePreference}
             uiScale={uiScale}
             onUiScaleChange={setUiScale}
             uiScaleFloatingHidden={uiScaleFloatingHidden}
@@ -1699,6 +1709,8 @@ export function App() {
           onInstallUpdate={installAppUpdate}
           onOpenRelease={openLatestRelease}
           onRequestBrowserRuntimeUpdate={requestBrowserRuntimeUpdate}
+          themePreference={themePreference}
+          onThemeChange={setThemePreference}
           uiScale={uiScale}
           onUiScaleChange={setUiScale}
           uiScaleFloatingHidden={uiScaleFloatingHidden}

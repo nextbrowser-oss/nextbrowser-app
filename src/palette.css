@@ -1,6 +1,7 @@
 /* Shared application palette. Raw UI colors belong here; layouts consume semantic roles.
    The default is dark, with a graphite base and distinct panels/cards.
    Fixed logo/video colors preserve source branding and media rendering. */
+.settings-theme-sample[data-palette="dark"],
 :root {
   color-scheme: dark;
   --font-ui: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -145,6 +146,7 @@
   --material-modal: color-mix(in srgb, var(--bg-elevated) 96%, transparent);
 }
 
+.settings-theme-sample[data-palette="light"],
 :root[data-theme="light"] {
   color-scheme: light;
   --font-ui: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;

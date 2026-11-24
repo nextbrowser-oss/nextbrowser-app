@@ -2807,7 +2807,7 @@ async function invokeCommand(command, args = {}, sender) {
     }
     case "app_set_theme": {
       const theme = args.theme === "light" ? "light" : "dark";
-      nativeTheme.themeSource = theme;
+      nativeTheme.themeSource = args.preference === "system" ? "system" : theme;
       for (const window of BrowserWindow.getAllWindows()) {
         if (!applyWindowChrome(window, { background: args.background, foreground: args.foreground, factor: window.webContents.getZoomFactor() }, process.platform, chromeWindows.has(window))) {
           window.setBackgroundColor(theme === "light" ? "#f5f5f7" : "#15141c");

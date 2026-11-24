@@ -134,6 +134,7 @@
 .sidebar .sidebar-settings-button svg { color: var(--glass-inverse-text); }
 .app > .resize-handle { margin-block: 8px; }
 .sidebar .sidebar-mini { --rail-button-size: 40px; cursor: default; padding-block: 6px; gap: 4px; }
+.sidebar-mini :is(.sidebar-destination, .sidebar-settings-button, .mini-nav-btn) > svg { width: 18px; height: 18px; }
 .sidebar .sidebar-destinations { gap: 4px; padding-top: 8px; }
 .sidebar-destinations .sidebar-destination { height: 42px; border-radius: 10px; }
 .sidebar .sidebar-destinations.is-compact { padding: 0; gap: 4px; justify-items: center; }
