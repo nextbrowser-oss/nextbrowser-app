@@ -72,7 +72,10 @@
 .account-profile-summary p { margin: 4px 0 0; }
 .account-profile-summary h2 { margin: 0; font-size: 20px; line-height: 1.25; }
 .account-profile-page > * { width: 100%; max-width: 1024px; margin-inline: auto; box-sizing: border-box; }
+.account-profile-page > header { display: flex; align-items: center; justify-content: space-between; }
+.account-profile-page > header h1 { font-size: 26px; }
 .account-profile-page > .proxy-usage-page { height: auto; padding: 0; overflow: visible; }
+.account-profile-page .proxy-usage-header h2 { font-size: 20px; }
 @media (max-width: 480px) {
   .account-profile-summary { flex-wrap: wrap; gap: 12px; }
   .account-profile-summary > div { min-width: 120px; }
