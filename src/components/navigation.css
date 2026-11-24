@@ -123,11 +123,11 @@
   --surface-3: var(--glass-inverse-control-hover);
   --nav-active-bg: var(--glass-inverse-control-hover);
   margin: 8px 6px;
-  height: calc(100% - 16px);
   min-height: 0;
   border-radius: 18px;
   overflow: hidden;
 }
+.app > .sidebar:has(+ .content-chat) { margin-block-end: var(--chat-bottom-inset); }
 .app { --sidebar-rail-width: 46px; }
 .app > .sidebar.sidebar-collapsed { min-width: var(--sidebar-rail-width); max-width: var(--sidebar-rail-width); }
 .sidebar .sidebar-destination svg,

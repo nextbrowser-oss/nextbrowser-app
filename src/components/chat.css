@@ -41,13 +41,14 @@
 .chat :is(.msg-user-meta, .msg-assistant-meta, .msg-system) { background-color: var(--chat-caption-bg, transparent); border-radius: var(--radius-sm); }
 .chat .chat-empty-state { background-color: var(--chat-empty-surface, var(--surface-1)); }
 
+:root { --chat-bottom-inset: 18px; }
 .chat-composer-dock {
   display: flex;
   flex-direction: column;
   gap: 8px;
   width: min(960px, calc(100% - 40px));
   margin-inline: auto;
-  padding-bottom: 18px;
+  padding-bottom: var(--chat-bottom-inset);
 }
 .chat-composer-dock .composer {
   position: relative;
@@ -109,10 +110,12 @@
 .chat-composer-dock .script-menu button { min-height: 30px; padding: 6px 8px; font-size: 12px; overflow-wrap: anywhere; }
 .chat-composer-dock .script-menu .section { padding: 5px 8px; font-size: 10px; }
 @media (max-width: 640px) {
-  .chat-composer-dock { width: calc(100% - 24px); padding-bottom: 12px; }
+  :root { --chat-bottom-inset: 12px; }
+  .chat-composer-dock { width: calc(100% - 24px); }
 }
 @media (max-height: 500px) {
-  .chat-composer-dock { gap: 6px; padding-bottom: 10px; }
+  :root { --chat-bottom-inset: 10px; }
+  .chat-composer-dock { gap: 6px; }
   .chat-composer-dock .composer textarea { max-height: 72px; }
   .chat-composer-dock .chat-action-error,
   .chat-composer-dock .chat-agent-error,

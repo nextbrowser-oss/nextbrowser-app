@@ -98,6 +98,14 @@ try {
   }));
   assert.ok(railIcons.length >= 8);
   for (const sizes of railIcons) assert.deepEqual(sizes, [18, 18, 40, 40]);
+  for (const [width, height] of [[1280, 900], [600, 760], [900, 480], [600, 480]]) {
+    await page.setViewportSize({ width, height });
+    const rail = await page.locator("#app-sidebar").boundingBox();
+    const input = await page.locator(".chat-composer-dock .composer").boundingBox();
+    const gap = rail.y + rail.height - input.y - input.height;
+    assert.ok(Math.abs(gap) <= 1, `Rail and composer bottom edges differ by ${gap}px at ${width}×${height}`);
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole("button", { name: /^Settings(?:,|$)/ }).click();
   const modal = page.getByRole("dialog", { name: "Settings", exact: true });
   await modal.getByRole("tab", { name: "General", exact: true }).click();
