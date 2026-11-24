@@ -296,8 +296,9 @@ async function sourceStatus(root,source,profiles,digests = new Map()) {
           sourceTabs = await readTabs(source.dir);
           if (!sourceTabs.length) continue;
         } else if (!await hasPortableData(source.dir,kind)) continue;
-      } catch {
-        items[kind] = {unreadable:true,imported:false};
+      } catch (error) {
+        const busy = error.code === 'EBUSY' || error.message === changed || [5,6].includes(error.errcode);
+        items[kind] = {busy,unreadable:!busy,imported:false};
         continue;
       }
     }

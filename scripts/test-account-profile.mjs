@@ -59,7 +59,7 @@ try {
   assert.equal(await visits.locator('b').innerText(),'2');
   await app.evaluate((_electron,env) => { Object.assign(process.env,env); },scanEnv);
   await page.getByRole('button',{name:'Import browser data'}).click();
-  await page.getByText('Chrome · Default',{exact:true}).waitFor();
+  await page.getByText('Chrome · Default · 2 available',{exact:true}).waitFor();
   const bookmarks = page.getByRole('checkbox',{name:'Bookmarks',exact:true});
   assert.equal(await bookmarks.isChecked(),false);
   assert.equal(await page.getByRole('checkbox',{name:'Browsing and download history'}).isEnabled(),true);

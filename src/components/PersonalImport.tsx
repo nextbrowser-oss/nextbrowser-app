@@ -20,6 +20,7 @@ interface Props {
 }
 const kinds = Object.keys(categories) as Category[];
 const label = (s: Source) => s.browser + " · " + s.name;
+const readyCount = (s: Source) => Object.values(s.items).filter(item => item && !item.busy && !item.unreadable && !item.imported).length;
 
 export function PersonalImport({workspaceId,owner,initialSource,disabled,onSaved,onRestore,onBusy}: Props) {
   const [sources,setSources] = useState<Source[]>([]);
@@ -44,8 +45,9 @@ export function PersonalImport({workspaceId,owner,initialSource,disabled,onSaved
     try {
       const result = await invoke<{sources:Source[];unavailable:string[];unsupported:string[]}>("personal_profiles_scan",scope);
       if (ticket !== generation.current) return;
-      setSources(result.sources); setUnavailable(result.unavailable); setUnsupported(result.unsupported);
-      choose(result.sources.find(s => s.id === preferred) ?? result.sources.find(s => Object.keys(s.items).length) ?? result.sources[0]);
+      const ranked = [...result.sources].sort((a,b) => readyCount(b) - readyCount(a));
+      setSources(ranked); setUnavailable(result.unavailable); setUnsupported(result.unsupported);
+      choose(ranked.find(s => s.id === preferred) ?? ranked[0]);
     } catch (e) { if (ticket === generation.current) setError((e as Error).message); }
     finally { if (ticket === generation.current) setPending(false); }
   }
@@ -84,7 +86,7 @@ export function PersonalImport({workspaceId,owner,initialSource,disabled,onSaved
     </div>
     {sources.length > 0 ? <><p>{sources.length === 1 ? "1 browser profile found" : sources.length + " browser profiles found"}</p>
       <Select label="Browser profile on this device" value={active}
-      options={sources.map(s => ({value:s.id,label:label(s)}))} disabled={locked}
+      options={sources.map(s => ({value:s.id,label:label(s) + " · " + readyCount(s) + " available"}))} disabled={locked}
       onChange={id => { choose(sources.find(s => s.id === id)); setError(""); }} /></>
       : <p>{pending ? "Scanning local browser profiles…" : "No supported browser profiles found. Choose a Chromium profile folder to scan it."}</p>}
     {unavailable.length > 0 && <p>Could not scan: {unavailable.join(", ")}.</p>}
@@ -100,6 +102,7 @@ export function PersonalImport({workspaceId,owner,initialSource,disabled,onSaved
           </label>;
         })}
       </fieldset>
+      {Object.values(source.items).some(item => item?.busy || item?.unreadable) && <p>Close the source browser and select Scan again to retry unavailable files.</p>}
       <label>New personal profile name<input maxLength={80} required value={name} disabled={locked} onChange={e => setName(e.target.value)} /></label>
       <p>Selected data is copied to a new local profile with an encrypted backup. Sign in to websites separately in that profile.</p>
       <Button type="submit" disabled={locked || !name.trim() || !selected.length}>Import selected data</Button>
