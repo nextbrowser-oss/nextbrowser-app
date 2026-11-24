@@ -6,6 +6,10 @@ const PACKAGE_BYTES = 256 * 1024;
 const STATE_BYTES = 128 * 1024;
 const validId = id => typeof id === 'string' && /^[a-z][a-z0-9-]{1,47}$/.test(id);
 const surfaces = ['chat.panel', 'settings.design'];
+const shippedMusicHashes = new Map([
+  ['1.0.0', '17330b5da0632edd84375c731819dc384bc43825fdcc5d8c7b72b5e3c6fa6209'],
+  ['1.1.0', '5ba0c7eee033cfa264523868bea710ef2aa0fc0e87d4578c5720543c1ca6f256'],
+]);
 function validateWidgets(pkg) {
   if (pkg.skill !== undefined && (typeof pkg.skill !== 'string' || !pkg.skill.trim() || pkg.skill.length > 2400)) throw Error('Invalid mini app skill.');
   if (pkg.widgets === undefined) return;
@@ -72,14 +76,15 @@ function createStore(root, catalog) {
       }
     }
     // Keep the generation: it also identifies the user's isolated music logins.
-    if (id === 'music-player' && catalog && record.pkg.version === '1.0.0' &&
+    if (id === 'music-player' && catalog && shippedMusicHashes.has(record.pkg.version) &&
         createHash('sha256').update(record.pkg.html.replace(/\r\n/g, '\n')).digest('hex') ===
-          '17330b5da0632edd84375c731819dc384bc43825fdcc5d8c7b72b5e3c6fa6209') {
+          shippedMusicHashes.get(record.pkg.version)) {
       const updated = catalog(id);
       if (updated.id === id && updated.version !== record.pkg.version) {
+        const legacySize = record.pkg.version === '1.0.0';
         record.pkg = updated;
         for (const [key, size] of Object.entries(record.placements ?? {})) {
-          if (size[0] === 10 && size[1] === 2) record.placements[key] = [...updated.widgets[0].grid.preferred];
+          if (legacySize && size[0] === 10 && size[1] === 2) record.placements[key] = [...updated.widgets[0].grid.preferred];
         }
         write(file, record);
       }

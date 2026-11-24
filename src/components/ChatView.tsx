@@ -620,7 +620,7 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
                 />
                 <div className="composer-actions">
                   <PanelWidgets surface="chat.panel" editing={editingGrid} controls={[
-                    { key: 'attach', name: 'Attach', size: [3,1], content: (
+                    { key: 'attach', name: 'Attach', content: (
                         <IconButton
                           label="Attach local files to the next message"
                           appearance="embedded"
@@ -632,7 +632,7 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
                           <Icon name="paperclip" size={14} />
                         </IconButton>
                     ) },
-                    { key: 'scripts', name: 'Scripts', size: [3,1], content: (
+                    { key: 'scripts', name: 'Scripts', content: (
                         <div className="script-wrap" ref={scriptWrapRef}>
                           <IconButton
                             label="Open scripts menu"
@@ -691,7 +691,7 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
                           )}
                         </div>
                     ) },
-                    { key: 'agent', name: 'Agent', size: [3,1], content: (
+                    { key: 'agent', name: 'Agent', content: (
                         <AgentModelPicker key={conversationKey} agentId={agentId} version={builtinAgent ? s.agentVersion() : undefined}
                           disabled={running || remoteOnly || !!s.runtime[BUILTIN_AGENT_ID]?.runningReplyId}
                           onActivate={activateApiAgent} onRefresh={s.refreshBuiltinAgent} />

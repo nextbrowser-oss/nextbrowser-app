@@ -17,11 +17,13 @@ export function arrangeTiles(tiles: Tile[], columns: number, anchors: Anchors): 
     const anchor = anchors[tile.key];
     let x = anchor ? clampCell(anchor.x, 0, columns - w) : 0;
     let y = anchor ? clampCell(anchor.y, 0, 64) : 0;
-    const fits = () => occupied.every(r => x >= r.x + r.w || r.x >= x + w || y >= r.y + r.h || r.y >= y + h);
-    if (!fits()) {
+    const collision = () => occupied.find(r => x < r.x + r.w && r.x < x + w && y < r.y + r.h && r.y < y + h);
+    if (collision()) {
       x = 0; y = 0;
-      while (!fits()) {
-        if (++x > columns - w) { x = 0; y++; }
+      let obstacle;
+      while ((obstacle = collision())) {
+        x = obstacle.x + obstacle.w;
+        if (x > columns - w) { x = 0; y++; }
       }
     }
     const rect = { x, y, w, h };

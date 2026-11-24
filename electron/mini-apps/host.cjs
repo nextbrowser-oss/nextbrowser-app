@@ -49,7 +49,12 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
     if (!catalogIds.includes(id)) throw Error('Unknown catalog app.');
     if (id === 'music-player') {
       const folder = path.join(__dirname, 'catalog', id);
-      return JSON.stringify({ ...JSON.parse(fs.readFileSync(path.join(folder, 'manifest.json'), 'utf8')), html: fs.readFileSync(path.join(folder, 'index.html'), 'utf8') });
+      const root = path.resolve(__dirname, '../..');
+      const cssPath = 'mini-app-ui/select-fields.css';
+      const source = path.join(root, 'public', cssPath);
+      const css = fs.readFileSync(fs.existsSync(source) ? source : path.join(root, 'dist', cssPath), 'utf8');
+      const html = fs.readFileSync(path.join(folder, 'index.html'), 'utf8').replace('/* shared-select-fields */', () => css);
+      return JSON.stringify({ ...JSON.parse(fs.readFileSync(path.join(folder, 'manifest.json'), 'utf8')), html });
     }
     return fs.readFileSync(path.join(__dirname, 'catalog', id + '.nbmini.json'), 'utf8');
   };

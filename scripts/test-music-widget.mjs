@@ -35,6 +35,30 @@ export async function checkMusicWidget(app,page,downloadPath) {
   assert.ok(artwork.w >= 12 && artwork.h >= 12 && artwork.x >= -1 && artwork.y >= -1 &&
     artwork.x + artwork.w <= artwork.width + 1 && artwork.y + artwork.h <= artwork.height + 1,JSON.stringify(artwork));
   const edit = composer.getByRole('button',{name:'Edit widget grid'});
+  async function geometry() {
+    return composer.evaluate(el => [el, el.querySelector('textarea'), ...el.querySelectorAll('[data-tile], .composer-grid-trigger, .composer-skin-trigger')].map(node => {
+      const {x,y,width,height} = node.getBoundingClientRect(); return [x,y,width,height];
+    }));
+  }
+  const buttonTiles = composer.locator('.is-control');
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  const compact = await buttonTiles.evaluateAll(nodes => nodes.map(node => {
+    const tile = node.getBoundingClientRect(), button = node.querySelector('.shared-icon-button').getBoundingClientRect();
+    const control = node.querySelector('.shared-icon-button'), style = getComputedStyle(control);
+    return {name:node.dataset.tile,left:tile.left,right:tile.right,w:tile.width,h:tile.height,bw:button.width,bh:button.height,buttonLeft:button.left,cssWidth:style.width,transform:style.transform,zoom:style.zoom,first:node.querySelector('button')?.getAttribute('aria-label')};
+  }));
+  compact.forEach((box,i) => {
+    assert.ok(Math.abs(box.w-box.bw) <= 1 && Math.abs(box.h-box.bh) <= 1, JSON.stringify(box));
+    if (i) assert.ok(Math.abs(box.left-compact[i-1].right-4) <= 1,JSON.stringify(compact));
+  });
+  const resting = await geometry();
+  await edit.click();
+  assert.deepEqual(await geometry(),resting,'Entering layout editing moved the composer or its contents');
+  await composer.getByRole('button',{name:'Finish editing grid'}).click();
+  assert.deepEqual(await geometry(),resting,'Leaving layout editing moved the composer or its contents');
   await edit.click();
   async function dragCell(handle, dx, dy) {
     const box = await handle.boundingBox(); assert.ok(box);
@@ -44,24 +68,31 @@ export async function checkMusicWidget(app,page,downloadPath) {
     await page.mouse.move(x,y);
     await page.mouse.down(); await page.mouse.move(x+dx,y+dy,{steps:8}); await page.mouse.up();
   }
-  const track = composer.locator('.panel-widget-grid');
-  const pitch = await track.evaluate(e => (e.clientWidth+4)/Number(e.style.getPropertyValue('--widget-cols')));
+  const pitch = 38;
   const before = await tile.boundingBox();
   await dragCell(tile.getByRole('button',{name:'Resize Now playing'}),pitch,38);
   await waitFor(async () => (await tile.boundingBox()).width >= before.width + pitch - 2);
   await waitFor(() => thumb.evaluate((v,initial) => v.executeJavaScript("document.querySelector('.art svg').getBoundingClientRect().height > " + (initial + 8)),artwork.h));
   await dragCell(tile.getByRole('button',{name:'Move Now playing'}),-pitch,38);
-  await waitFor(() => tile.evaluate(el => el.style.gridRow === '2 / span 2'));
-  const position = await tile.evaluate(el=>[el.style.gridColumn,el.style.gridRow]);
-  assert.equal(position[1],'2 / span 2');
+  await waitFor(() => tile.evaluate(el => el.style.top === '38px'));
+  const position = await tile.evaluate(el=>[el.style.left,el.style.top]);
   const scripts = composer.locator('[data-tile="Scripts"]');
-  const previousScripts = await scripts.evaluate(el=>el.style.gridRow);
+  const attach = composer.locator('[data-tile="Attach"]');
+  const attachBefore = await attach.boundingBox();
+  for (const name of ['Attach','Scripts','Agent']) await composer.getByRole('button',{name:'Resize '+name,exact:true}).waitFor();
+  await dragCell(attach.getByRole('button',{name:'Resize Attach'}),24,38);
+  await waitFor(async () => (await attach.boundingBox()).width >= attachBefore.width+23);
+  const resized = await attach.boundingBox(), inner = await attach.locator('.shared-icon-button').boundingBox();
+  assert.equal(inner.width,resized.width); assert.equal(inner.height,resized.height);
+  assert.ok(inner.height >= attachBefore.height+37);
+  const previousScripts = await scripts.evaluate(el=>el.style.top);
   await scripts.getByRole('button',{name:'Move Scripts'}).press('ArrowDown');
-  assert.notEqual(await scripts.evaluate(el=>el.style.gridRow),previousScripts);
+  assert.notEqual(await scripts.evaluate(el=>el.style.top),previousScripts);
   await composer.getByRole('button',{name:'Finish editing grid'}).click();
   await page.reload();
   await tile.waitFor();
-  assert.deepEqual(await tile.evaluate(el=>[el.style.gridColumn,el.style.gridRow]),position);
+  assert.deepEqual(await tile.evaluate(el=>[el.style.left,el.style.top]),position);
+  assert.equal((await attach.boundingBox()).width,resized.width);
   await tile.getByRole('button',{name:'Open Now playing'}).click();
   const popup = page.getByRole('dialog',{name:'Now playing',exact:true});
   const widget = popup.locator('webview');
@@ -83,6 +114,22 @@ export async function checkMusicWidget(app,page,downloadPath) {
   await waitFor(() => widget.evaluate(v => v.clientHeight < 170));
   await evaluate("document.querySelector('#choose').click()");
   await waitFor(() => evaluate("!document.querySelector('#form').hidden && document.querySelector('#form .primary').getBoundingClientRect().bottom <= innerHeight"));
+  assert.equal(await evaluate("getComputedStyle(document.querySelector('#services')).appearance"),'base-select');
+  assert.equal(await evaluate("document.querySelectorAll('#services option svg use').length"),8);
+  async function clickGuest(selector) {
+    const frame = await widget.boundingBox();
+    const [x,y] = await evaluate(`(() => {const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return [r.x+r.width/2,r.y+r.height/2]})()`);
+    await page.mouse.click(frame.x+x,frame.y+y);
+  }
+  await clickGuest('#services');
+  await waitFor(() => evaluate("document.querySelector('#services').matches(':open')"));
+  const pickerGeometry = () => evaluate(`(() => {const s=document.querySelector('#services'),last=s.options[s.options.length-1],style=getComputedStyle(s,'::picker(select)');
+    return {height:innerHeight, box:last.getBoundingClientRect().toJSON(), top:s.getBoundingClientRect().bottom, main:document.querySelector('main').offsetHeight, display:style.display, columns:style.gridTemplateColumns};})()`);
+  try { await waitFor(async () => {const g=await pickerGeometry(); return g.box.height > 0 && g.box.bottom <= g.height + 1;}); }
+  catch { throw Error('Music service list is clipped: '+JSON.stringify(await pickerGeometry())); }
+  await clickGuest('#services option[value="apple"]');
+  await waitFor(() => evaluate("!document.querySelector('#services').matches(':open')"));
+  assert.equal(await evaluate("document.querySelector('#services selectedcontent use').getAttribute('href')"),'#icon-apple');
   await evaluate("document.querySelector('#label').value='Studio';document.querySelector('#services').value='spotify';document.querySelector('#form').requestSubmit()");
   assert.equal(await evaluate('('+noOverflow.toString()+')()'),true);
   const stringInput = await app.evaluate(() => Number(process.versions.chrome.split('.')[0]) < 155);
