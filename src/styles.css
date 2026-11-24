@@ -8532,78 +8532,16 @@ pre,
 .workspace-profile-list::-webkit-scrollbar-thumb {
   border-radius: 8px;
 }
-.ui-scale-control {
-  position: fixed;
-  left: 10px;
-  bottom: 10px;
-  z-index: 40;
+.ui-scale-control-settings {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 9px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
   color: var(--muted);
-  backdrop-filter: blur(6px);
-  transform-origin: bottom left;
-}
-/* The floating copy only — smaller than the Settings row so it stays unobtrusive. */
-.ui-scale-control:not(.ui-scale-control-settings) {
-  transform: scale(0.82);
-}
-/* In the sidebar footer, right of the agent status: a compact pill that fits next to it at the minimum sidebar width. */
-/* A long agent name or status ("… · Sign-in required") moves the pill under it instead of past the sidebar edge. */
-.agent-footer-group {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 2px 4px;
-  flex: none;
-  max-width: 100%;
-}
-.ui-scale-control.ui-scale-control-inline {
-  position: static;
-  transform: none;
-  gap: 0;
-  height: 22px;
-  padding: 0 2px 0 6px;
-  background: transparent;
-  backdrop-filter: none;
-}
-.ui-scale-control-inline .plain-icon-btn-compact {
-  min-width: 18px !important;
-  min-height: 18px !important;
-  padding: 2px !important;
-  border-radius: 6px;
-}
-.ui-scale-control-inline .ui-scale-value {
-  min-width: 30px;
-  font-size: 10px;
-}
-.ui-scale-control-inline .ui-scale-dismiss {
-  margin-left: 0;
-}
-/* Same control, inline as a settings row instead of a floating pill. */
-.ui-scale-control-settings {
-  position: static;
-  border: none;
-  padding: 0;
-  background: none;
-  backdrop-filter: none;
 }
 .ui-scale-value {
   min-width: 32px;
   text-align: center;
   font-variant-numeric: tabular-nums;
-}
-/* Set apart from the +/- controls so it reads as "close this", not "adjust this". */
-.ui-scale-dismiss {
-  margin-left: 4px;
-}
-.ui-scale-dismiss:hover {
-  color: var(--red);
-  background: color-mix(in srgb, var(--red) 14%, transparent);
 }
 
 /* Keep update actions aligned when the download instructions appear. */

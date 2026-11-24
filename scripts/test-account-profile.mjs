@@ -31,9 +31,14 @@ try {
   await page.locator('.app > .sidebar').waitFor();
   await page.evaluate(async () => {
     const {useStore} = await import('/src/store.ts');
-    useStore.setState({accountOwnerId:'account-ui-fixture',tab:'account'});
+    useStore.setState({accountOwnerId:'account-ui-fixture'});
   });
+  const firstRailButton = page.locator('#app-sidebar').getByRole('button').first();
+  assert.equal(await firstRailButton.getAttribute('aria-label'),'Open Profile');
+  await firstRailButton.click();
   await page.getByRole('heading',{name:'My account'}).waitFor();
+  assert.equal(await firstRailButton.getAttribute('aria-current'),'page');
+  assert.equal(await page.getByRole('button',{name:/interface size/i}).count(),0);
   await page.getByRole('heading',{name:'Time in Nextbrowser'}).waitFor();
   await page.getByRole('heading',{name:'Visits',exact:true}).waitFor();
   assert.equal(await page.locator('.account-trend svg:visible').count(),2);
@@ -96,6 +101,13 @@ try {
   assert.deepEqual(backdrop.slice(2),['rgba(0, 0, 0, 0)','rgba(0, 0, 0, 0)']);
   await page.getByRole('button',{name:/^Settings(, update available)?$/}).click();
   await page.locator('.settings-modal').waitFor();
+  await page.getByRole('tab',{name:'General'}).click();
+  const size = page.locator('.settings-modal .ui-scale-value');
+  const originalSize = await size.innerText();
+  await page.getByRole('button',{name:'Increase interface size'}).click();
+  assert.notEqual(await size.innerText(),originalSize);
+  await page.getByRole('button',{name:'Decrease interface size'}).click();
+  assert.equal(await size.innerText(),originalSize);
   assert.equal(await page.locator('.tabbar:visible,.main-view-navigation:visible').count(),0);
   assert.match(await page.locator('.settings-modal').evaluate(el => getComputedStyle(el).backgroundImage),/radial-gradient/);
   console.log('Passed account charts, automatic discovery, selected encrypted import, persistent checkbox state, archive recovery, wallpaper and settings navigation.');

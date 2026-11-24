@@ -126,22 +126,6 @@ function UIScaleSlider({ value, onChange }: { value: number; onChange: (next: nu
   );
 }
 
-function UIScaleControl({ value, onChange, onDismiss, inline = false }: { value: number; onChange: (next: number) => void; onDismiss: () => void; inline?: boolean }) {
-  return (
-    <Tooltip content="Interface size"><div className={"ui-scale-control" + (inline ? " ui-scale-control-inline" : "")}>
-      <Icon name="magnifyingglass" size={inline ? 11 : 13} />
-      <UIScaleSlider value={value} onChange={onChange} />
-      <Tooltip content="Hide this control (it stays in Settings)"><button
-        className="plain-icon-btn plain-icon-btn-compact ui-scale-dismiss"
-        onClick={onDismiss}
-        aria-label="Hide the interface size control"
-      >
-        <Icon name="xmark" size={11} />
-      </button></Tooltip>
-    </div></Tooltip>
-  );
-}
-
 function browserRuntimeInstallName(status: BrowserRuntimeInstallStatus): string {
   return status.runtime === "dasbrowser" ? "DasBrowser" : status.runtime === "camoufox" ? "Camoufox" : "Clawbrowser";
 }
@@ -420,8 +404,6 @@ function SettingsModal({
   appearanceSettings,
   uiScale,
   onUiScaleChange,
-  uiScaleFloatingHidden,
-  onRestoreFloatingScale,
 }: {
   onClose: () => void;
   section?: SettingsSection | null;
@@ -447,8 +429,6 @@ function SettingsModal({
   appearanceSettings: ReturnType<typeof useAppearance>;
   uiScale: number;
   onUiScaleChange: (next: number) => void;
-  uiScaleFloatingHidden: boolean;
-  onRestoreFloatingScale: () => void;
 }) {
   const [agentLogoutPending, setAgentLogoutPending] = useState(false);
   const [errorReporting, setErrorReporting] = useState<ErrorReportingStatus>();
@@ -582,9 +562,8 @@ function SettingsModal({
                 </button>
                 <div className="settings-row">
                   <span className="muted small">Interface size</span>
-                  <div className="ui-scale-control ui-scale-control-settings">
+                  <div className="ui-scale-control-settings">
                     <UIScaleSlider value={uiScale} onChange={onUiScaleChange} />
-                    {uiScaleFloatingHidden && <Tooltip content="Return the quick-access control to the main screen"><button className="plain-icon-btn plain-icon-btn-compact" onClick={onRestoreFloatingScale} aria-label="Return the interface-size quick-access control to the main screen"><Icon name="arrow.uturn.left" size={12} /></button></Tooltip>}
                   </div>
                 </div>
               </div>
@@ -855,20 +834,6 @@ export function App() {
     const saved = Number(settingsStorage.getItem("nextbrowser.uiScale"));
     return Number.isFinite(saved) && saved >= UI_SCALE_MIN && saved <= UI_SCALE_MAX ? saved : 1;
   });
-  // The floating quick-access control is a convenience on top of the real
-  // setting in Settings; once dismissed there's no reason to keep offering
-  // it back, so the choice is remembered per device like the scale itself.
-  const [uiScaleFloatingHidden, setUiScaleFloatingHidden] = useState(
-    () => settingsStorage.getItem("nextbrowser.uiScaleFloatingHidden") === "1",
-  );
-  const dismissUiScaleFloating = () => {
-    setUiScaleFloatingHidden(true);
-    settingsStorage.setItem("nextbrowser.uiScaleFloatingHidden", "1");
-  };
-  const restoreUiScaleFloating = () => {
-    setUiScaleFloatingHidden(false);
-    settingsStorage.removeItem("nextbrowser.uiScaleFloatingHidden");
-  };
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [liveControlsOpen, setLiveControlsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
@@ -1651,8 +1616,6 @@ export function App() {
             onThemeChange={setThemePreference}
             uiScale={uiScale}
             onUiScaleChange={setUiScale}
-            uiScaleFloatingHidden={uiScaleFloatingHidden}
-            onRestoreFloatingScale={restoreUiScaleFloating}
           />
         )}
         <div className="splash">
@@ -1745,7 +1708,7 @@ export function App() {
               controlsOpen={liveControlsOpen} onControlsChange={setLiveControlsOpen} onOverview={showLiveOverview}
               controlsAccessory={backgroundTaskPills} />
           </div>
-          {tab === "account" && <AccountProfileView accessory={!uiScaleFloatingHidden ? <UIScaleControl inline value={uiScale} onChange={setUiScale} onDismiss={dismissUiScaleFloating} /> : undefined} />}
+          {tab === "account" && <AccountProfileView />}
           {tab === "usage" && <UsageView />}
           {tab === "guide" && <GuideView onOpenAgentSettings={() => openSettings("agent")} />}
         </div>
@@ -1777,8 +1740,6 @@ export function App() {
           onThemeChange={setThemePreference}
           uiScale={uiScale}
           onUiScaleChange={setUiScale}
-          uiScaleFloatingHidden={uiScaleFloatingHidden}
-          onRestoreFloatingScale={restoreUiScaleFloating}
         />
       )}
       {updateAvailable(appUpdate) && appUpdate.version !== updatePromptDismissedVersion && !settingsOpen && (
@@ -1824,7 +1785,6 @@ export function App() {
       )}
       {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
       {feedbackModal}
-      {/* Interface size stays in the expanded footer and Settings; it never floats over navigation. */}
     </div>
   );
 }

@@ -1315,6 +1315,12 @@ export function Sidebar({ onOpenSettings, settingsAttention, liveDestination }: 
 
   return <>
     <div className="sidebar-mini">
+      <Tooltip content="My account" side="right">
+        <button className={"sidebar-settings-button is-compact" + (s.tab === "account" ? " active" : "")}
+          aria-label="Open Profile" aria-current={s.tab === "account" ? "page" : undefined} onClick={() => s.setTab("account")}>
+          {s.authed ? <AccountAvatar ownerId={s.accountOwnerId} name={s.accountName} email={s.accountEmail} /> : <AccountAvatar />}
+        </button>
+      </Tooltip>
       <div className="sidebar-destinations is-compact"><RecentProjects open={projectsMenuOpen} onOpenChange={setProjectsMenuOpen} /></div>
       <div className="sidebar-destinations is-compact"><PersonalProxyNavigation count={s.personalProxies.length}
         onLoad={() => { if (s.authed) void s.loadPersonalProxies().catch(() => setManualError("Could not load proxies. Try opening the list again.")); }}
@@ -1327,12 +1333,6 @@ export function Sidebar({ onOpenSettings, settingsAttention, liveDestination }: 
       {activeRecording && <Tooltip content={recordingMiniLabel} side="right"><button className="mini-nav-btn mini-recording-control recording" aria-label="Open active recording" onClick={() => setAutomationStatusOpen(true)}><Icon name="circle.fill" size={18} /></button></Tooltip>}
       {automationExecution && !activeRecording && <Tooltip content="Automation status" side="right"><button className="mini-nav-btn" aria-label="Automation status" onClick={() => setAutomationStatusOpen(true)}><Icon name="play.fill" size={18} /></button></Tooltip>}
       <span className="spacer" />
-      <Tooltip content="My account" side="right">
-        <button className={"sidebar-settings-button is-compact" + (s.tab === "account" ? " active" : "")}
-          aria-label="Open Profile" aria-current={s.tab === "account" ? "page" : undefined} onClick={() => s.setTab("account")}>
-          {s.authed ? <AccountAvatar ownerId={s.accountOwnerId} name={s.accountName} email={s.accountEmail} /> : <AccountAvatar />}
-        </button>
-      </Tooltip>
       <SidebarSettingsButton collapsed attention={settingsAttention} onClick={onOpenSettings} />
     </div>
     {profileActionError && <Dialog title="Browser action failed" onClose={() => setProfileActionError(null)}><UserFacingError message={profileActionError} surface="profile_action" /></Dialog>}

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { useStore } from "../store";
 import { Spinner } from "./Icon";
 import { AccountAvatar } from "./AccountAvatar";
@@ -10,7 +10,7 @@ import { UsageView } from "./UsageView";
 import { AccountActivity } from "./AccountActivity";
 import { PersonalProfiles } from "./PersonalProfiles";
 
-export function AccountProfileView({ accessory }: { accessory?: ReactNode }) {
+export function AccountProfileView() {
   const authed = useStore(s => s.authed);
   const email = useStore(s => s.accountEmail);
   const name = useStore(s => s.accountName);
@@ -37,7 +37,6 @@ export function AccountProfileView({ accessory }: { accessory?: ReactNode }) {
       <Button disabled={pending} onClick={() => authed ? void logout() : useStore.getState().setDashboardKeyPromptOpen(true)}>
         {pending && <Spinner size={13} />}{authed ? "Sign out" : "Sign in"}
       </Button>
-      {accessory}
     </header>
     {compatibilityError && <p role="status">{compatibilityError}</p>}
     {error && <div role="alert"><UserFacingError message={error} surface="account_sign_out" /></div>}
