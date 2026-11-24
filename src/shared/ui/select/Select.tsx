@@ -3,15 +3,16 @@ import { CommandList } from "../command-list";
 import { Glyph } from "../glyph";
 import "./select.css";
 
-export interface SelectOption { value: string; label: string; decoration?: ReactNode }
+export interface SelectOption { value: string; label: string; decoration?: ReactNode; description?: string }
 
 function optionLabel(option: SelectOption) {
   return option.decoration ? <><span aria-hidden="true">{option.decoration}</span>{option.label}</> : option.label;
 }
 
 /** Inline listbox that stays inside its owning glass popover or dialog. */
-export function Select({ label, value, options, onChange, disabled = false, autoFocus = false, searchPlaceholder, triggerContent }: {
+export function Select({ label, value, options, onChange, disabled = false, autoFocus = false, searchPlaceholder, triggerContent, filterOptions }: {
   label: string; value: string; options: readonly SelectOption[]; onChange: (value: string) => void; disabled?: boolean; autoFocus?: boolean; searchPlaceholder?: string; triggerContent?: ReactNode;
+  filterOptions?: (query: string) => readonly SelectOption[];
 }) {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
@@ -24,7 +25,7 @@ export function Select({ label, value, options, onChange, disabled = false, auto
   const expanded = open && !disabled && options.length > 0;
   const selected = options.find(option => option.value === value);
   const term = query.trim().toLowerCase();
-  const visible = searchPlaceholder && term ? options.filter(option =>
+  const visible = searchPlaceholder && term ? filterOptions?.(term) ?? options.filter(option =>
     option.label.toLowerCase().includes(term) || option.value.toLowerCase().includes(term)) : options;
   const current = visible.find(option => option.value === active)?.value ?? visible[0]?.value;
   const choose = (next: string) => { onChange(next); setOpen(false); trigger.current?.focus(); };
@@ -77,7 +78,7 @@ export function Select({ label, value, options, onChange, disabled = false, auto
       {searchPlaceholder && <input ref={search} className="shared-select-search" role="combobox" aria-label={searchPlaceholder}
         aria-expanded="true" aria-controls={id} aria-autocomplete="list" aria-activedescendant={activeDescendant}
         placeholder={searchPlaceholder} value={query} onChange={event => { setQuery(event.target.value); setActive(""); }} />}
-      <CommandList id={id} label={label} activeId={current} options={visible.map(option => ({ id: option.value, title: optionLabel(option), description: "" }))} onChoose={choose} />
+      <CommandList id={id} label={label} activeId={current} options={visible.map(option => ({ id: option.value, title: optionLabel(option), description: option.description ?? "" }))} onChoose={choose} />
       {!visible.length && <div className="shared-select-empty" role="status">No matching options.</div>}
     </>}
   </div>;

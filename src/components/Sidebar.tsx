@@ -1,4 +1,4 @@
-import { Dialog, Popover, Select, Tooltip } from "../shared/ui";
+import { Button, Dialog, Popover, Select, Tooltip } from "../shared/ui";
 import { AccountAvatar } from "./AccountAvatar";
 import { PersonalProxyNavigation } from "./PersonalProxyNavigation";
 import { PROFILE_ACTIONS_EVENT } from "../lib/profileNavigation";
@@ -27,6 +27,7 @@ import { openMultiloginApp } from "../lib/multiloginApp";
 import { entityNameLimits, validateEntityName } from "../lib/entityValidation";
 import { cancelNextctlRun } from "../nextctl";
 import { type AppTab, type BrowserWorkflowAction, type BrowserWorkflowSkill } from "../types";
+import { connectionOptions, toolsetOptions, ProfileCountrySelect, ProfileProxySelect } from "./ProfileCreationFields";
 import { CountrySelect } from "./CountrySelect";
 import { PersonalProxySelect } from "./PersonalProxySelect";
 import { PersonalProxyTestStatus, type PersonalProxyTestState } from "./PersonalProxyTestStatus";
@@ -67,7 +68,7 @@ import { activeAutomationExecution, automationAgentAnswer, automationAgentBrowse
 import { automationRepairTask, parseAutomationRepairRecipe } from "../lib/automationRepair";
 
 type ManualProxyInputMode = "url" | "fields" | "bulk";
-type ProfileToolsetOption = "clawbrowser" | "dasbrowser" | "camoufox" | "multilogin";
+type ProfileToolsetOption = typeof toolsetOptions[number]["value"];
 const PROFILE_CREATE_TIMEOUT_MS = 120_000;
 // How long a passed proxy test stays on screen; a failure stays until the next test.
 const PROXY_TEST_RESULT_MS = 30_000;
@@ -1355,36 +1356,9 @@ export function Sidebar({ onOpenSettings, settingsAttention, liveDestination, pr
 
     </div></Dialog>}
 
-      {createProfileOpen && createPortal((
-        <div
-          className="modal-overlay"
-          onMouseDown={closeProfileCreator}
-          onKeyDown={(event) => {
-            if (event.key !== "Escape") return;
-            event.preventDefault();
-            closeProfileCreator();
-          }}
-        >
-          <form
-            className="modal-card create-profile-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="create-profile-title"
-            onSubmit={submitManagedProfile}
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="profile-menu-head">
-              <span id="create-profile-title" className="profile-menu-name">Create profile</span>
-              <span className="spacer" />
-              <Tooltip content={profileSaving ? "Cancel profile creation" : "Close"}><button
-                type="button"
-                className="plain-icon-btn"
-                aria-label={profileSaving ? "Cancel profile creation" : "Close profile creation"}
-                onClick={closeProfileCreator}
-              >
-                <Icon name="xmark.circle.fill" size={18} />
-              </button></Tooltip>
-            </div>
+      {createProfileOpen && <Dialog title="Create profile" className="profile-create-dialog" onClose={closeProfileCreator}
+        closeLabel={profileSaving ? "Cancel profile creation" : "Close profile creation"}>
+          <form className="profile-create-form" onSubmit={submitManagedProfile}>
             <div className="profile-workspace-context">
               <Icon name="square.grid.2x2.fill" size={13} />
               <span>Workspace</span>
@@ -1393,6 +1367,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, liveDestination, pr
             {!multiloginExisting && <label className="modal-field profile-name-primary">
               <span className="modal-field-heading"><span>Profile name</span><small>Max {entityNameLimits.profile}</small></span>
               <input
+                className="shared-text-field"
                 value={profileName}
                 maxLength={entityNameLimits.profile}
                 disabled={profileSaving}
@@ -1401,46 +1376,38 @@ export function Sidebar({ onOpenSettings, settingsAttention, liveDestination, pr
                   setProfileError(null);
                 }}
                 placeholder="My profile"
-                autoFocus
+                data-autofocus
               />
             </label>}
-            {profileToolset !== "multilogin" && <fieldset className="project-mode-field profile-connection-field">
-              <legend>Connection</legend>
-              <label className={"project-mode-option" + (profileConnection === "direct" ? " is-selected" : "")}>
-                <input type="radio" name="profile-connection" checked={profileConnection === "direct"} onChange={() => setProfileConnection("direct")} />
-                <Icon name="network" size={16} />
-                <span><strong>No proxy</strong><small>Use your direct internet connection</small></span>
-              </label>
-              <label className={"project-mode-option" + (profileConnection === "managed" ? " is-selected" : "")}>
-                <input type="radio" name="profile-connection" checked={profileConnection === "managed"} onChange={() => setProfileConnection("managed")} />
-                <Icon name="globe" size={16} />
-                <span>
-                  <strong>Managed proxy</strong>
-                  <small>Choose the proxy country</small>
-                </span>
-              </label>
-              <label className={"project-mode-option" + (profileConnection === "personal" ? " is-selected" : "")}>
-                <input
-                  type="radio"
-                  name="profile-connection"
-                  checked={profileConnection === "personal"}
-                  onChange={() => {
-                    setProfileConnection("personal");
-                    setProfilePersonalProxyId((current) => current || s.personalProxies[0]?.id || "");
+            <div className="modal-field">
+              <span>Browser toolset</span>
+              <Select label="Browser toolset" value={profileToolset} options={toolsetOptions} disabled={profileSaving}
+                onChange={value => {
+                  setProfileToolset(value as ProfileToolsetOption);
+                  setProfileError(null);
+                  if (value === "multilogin") {
+                    setProfileConnection("managed");
+                    if (!multiloginStatus && !multiloginChecking) void refreshMultiloginStatus();
+                  }
+                }} />
+            </div>
+            {profileToolset !== "multilogin" && <div className="modal-field">
+              <span>Connection</span>
+              <Select label="Connection" value={profileConnection} options={connectionOptions} disabled={profileSaving}
+                onChange={value => {
+                  setProfileConnection(value as typeof profileConnection);
+                  if (value === "personal") {
+                    setProfilePersonalProxyId(current => current || s.personalProxies[0]?.id || "");
                     void s.loadPersonalProxies().catch(() => undefined);
-                  }}
-                />
-                <Icon name="network" size={16} />
-                <span><strong>Personal proxy</strong><small>Use one of your saved proxies</small></span>
-              </label>
-            </fieldset>}
+                  }
+                }} />
+            </div>}
             {profileConnection === "managed" && profileToolset !== "multilogin" && <div className="modal-field profile-proxy-country-field">
               <span>Proxy country</span>
-              <CountrySelect
+              <ProfileCountrySelect
                 countries={proxyCountries}
                 value={profileCountry}
                 disabled={profileSaving}
-                ariaLabel="Proxy country"
                 onChange={setProfileCountry}
               />
             </div>}
@@ -1462,11 +1429,11 @@ export function Sidebar({ onOpenSettings, settingsAttention, liveDestination, pr
                   </button>
                 </span>
                 {s.personalProxies.length ? (
-                  <PersonalProxySelect
+                  <ProfileProxySelect
                     value={profilePersonalProxyId}
                     proxies={s.personalProxies}
                     disabled={profileSaving}
-                    ariaLabel="Personal proxy"
+                    label="Personal proxy"
                     onChange={setProfilePersonalProxyId}
                     onAdd={() => { resetManualProxyForm(); setManualProxyDeleting(null); setManualProxyEditing(true); setManualProxyOpen(true); }}
                   />
@@ -1486,40 +1453,6 @@ export function Sidebar({ onOpenSettings, settingsAttention, liveDestination, pr
                 )}
               </div>
             )}
-            <fieldset className="project-mode-field profile-toolset-field">
-              <legend>Browser toolset</legend>
-              <label className={"project-mode-option" + (profileToolset === "clawbrowser" ? " is-selected" : "")}>
-                <input type="radio" name="profile-toolset" checked={profileToolset === "clawbrowser"} onChange={() => setProfileToolset("clawbrowser")} />
-                <Icon name="globe" size={16} />
-                <span><strong>Clawbrowser</strong><small>Managed identity and proxy</small></span>
-              </label>
-              <label className={"project-mode-option" + (profileToolset === "dasbrowser" ? " is-selected" : "")}>
-                <input type="radio" name="profile-toolset" checked={profileToolset === "dasbrowser"} onChange={() => setProfileToolset("dasbrowser")} />
-                <Icon name="safari" size={16} />
-                <span><strong>DasBrowser</strong><small>Private multi-account browser</small></span>
-              </label>
-              <label className={"project-mode-option" + (profileToolset === "camoufox" ? " is-selected" : "")}>
-                <input type="radio" name="profile-toolset" checked={profileToolset === "camoufox"} onChange={() => setProfileToolset("camoufox")} />
-                <Icon name="shield" size={16} />
-                <span><strong>Camoufox</strong><small>Firefox anti-detect browser</small></span>
-              </label>
-              <label className={"project-mode-option profile-toolset-multilogin" + (profileToolset === "multilogin" ? " is-selected" : "")}>
-                <input
-                  type="radio"
-                  name="profile-toolset"
-                  checked={profileToolset === "multilogin"}
-                  onChange={() => {
-                    setProfileToolset("multilogin");
-                    setProfileError(null);
-                    // Multilogin attaches its own proxy, so the connection choice never applies.
-                    setProfileConnection("managed");
-                    if (!multiloginStatus && !multiloginChecking) void refreshMultiloginStatus();
-                  }}
-                />
-                <span className="profile-toolset-mark"><img src="./multilogin-icon.svg" alt="" /></span>
-                <span><strong>Multilogin</strong><small>Mimic profiles from your Multilogin account</small></span>
-              </label>
-            </fieldset>
             {profileToolset === "multilogin" && (
               <section className="profile-multilogin-panel" aria-label="Multilogin profile">
                 {!multiloginReady ? (
@@ -1602,11 +1535,11 @@ export function Sidebar({ onOpenSettings, settingsAttention, liveDestination, pr
                               </button>
                             </span>
                             {s.personalProxies.length ? (
-                              <PersonalProxySelect
+                              <ProfileProxySelect
                                 value={profilePersonalProxyId}
                                 proxies={s.personalProxies}
                                 disabled={profileSaving}
-                                ariaLabel="Personal proxy for the Multilogin profile"
+                                label="Personal proxy for the Multilogin profile"
                                 onChange={setProfilePersonalProxyId}
                                 onAdd={() => { resetManualProxyForm(); setManualProxyDeleting(null); setManualProxyEditing(true); setManualProxyOpen(true); }}
                               />
@@ -1615,31 +1548,21 @@ export function Sidebar({ onOpenSettings, settingsAttention, liveDestination, pr
                         ) : (
                           <div className="modal-field profile-multilogin-country">
                             <span>Proxy country</span>
-                            <CountrySelect
+                            <ProfileCountrySelect
                               countries={proxyCountries}
                               value={profileCountry}
                               disabled={profileSaving}
-                              ariaLabel="Proxy country"
                               onChange={setProfileCountry}
                             />
                           </div>
                         )}
                         {multiloginKind === "browser" ? (
-                          <label className="modal-field profile-multilogin-os">
+                          <div className="modal-field profile-multilogin-os">
                             <span>Fingerprint OS</span>
-                            <select
-                              value={multiloginOS}
-                              disabled={profileSaving}
-                              aria-label="Multilogin fingerprint OS"
-                              onChange={(event) => setMultiloginOS(event.target.value as MultiloginOSType)}
-                            >
-                              {MULTILOGIN_OS_TYPES.map((osType) => (
-                                <option key={osType} value={osType}>
-                                  {osType === "macos" ? "macOS" : osType === "windows" ? "Windows" : "Linux"}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
+                            <Select label="Multilogin fingerprint OS" value={multiloginOS} disabled={profileSaving}
+                              options={MULTILOGIN_OS_TYPES.map(value => ({ value, label: value === "macos" ? "macOS" : value === "windows" ? "Windows" : "Linux" }))}
+                              onChange={value => setMultiloginOS(value as MultiloginOSType)} />
+                          </div>
                         ) : <p className="profile-multilogin-phone-note">Creates one Android 14 cloud phone with a Multilogin-managed proxy in the selected country.</p>}
                       </>
                     ) : (
@@ -1778,10 +1701,10 @@ export function Sidebar({ onOpenSettings, settingsAttention, liveDestination, pr
               </div>
             )}
             <div className="modal-actions">
-              <button type="button" className="secondary" onClick={closeProfileCreator}>
+              <Button onClick={closeProfileCreator}>
                 {profileSaving ? "Cancel creation" : "Cancel"}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="submit"
                 className="primary"
                 disabled={profileSaving || (profileToolset === "multilogin"
@@ -1792,11 +1715,10 @@ export function Sidebar({ onOpenSettings, settingsAttention, liveDestination, pr
                 {profileSaving
                   ? profileCreationStage ?? "Creating…"
                   : profileToolset === "multilogin" ? multiloginSubmitLabel(multiloginMode) : "Create profile"}
-              </button>
+              </Button>
             </div>
           </form>
-        </div>
-      ), document.body)}
+      </Dialog>}
 
       {workspaceCreatorOpen && createPortal((
         <div className="modal-overlay" onMouseDown={() => { if (!workspaceSaving) { setWorkspaceCreatorOpen(false); setWorkspaceError(null); } }}>
