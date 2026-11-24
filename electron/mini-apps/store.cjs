@@ -9,12 +9,13 @@ function parsePackage(raw) {
   if (typeof raw !== 'string' || Buffer.byteLength(raw) > PACKAGE_BYTES) throw Error('Package exceeds 256 KiB.');
   let p;
   try { p = JSON.parse(raw); } catch { throw Error('Invalid package JSON.'); }
-  const fields = ['apiVersion', 'id', 'name', 'version', 'description', 'permissions', 'html'];
+  const fields = ['apiVersion', 'id', 'name', 'version', 'description', 'permissions', 'html', 'icon'];
   if (!p || Object.keys(p).some(k => !fields.includes(k)) || p.apiVersion !== 1 || !validId(p.id) ||
       typeof p.name !== 'string' || !p.name.trim() || p.name.length > 60 ||
       typeof p.description !== 'string' || p.description.length > 240 ||
       typeof p.version !== 'string' || !/^\d{1,5}\.\d{1,5}\.\d{1,5}$/.test(p.version) ||
       typeof p.html !== 'string' || !p.html.trim() ||
+      (p.icon !== undefined && !['board', 'calendar', 'list', 'notebook', 'chart', 'grid'].includes(p.icon)) ||
       !Array.isArray(p.permissions) || p.permissions.length > 1 || p.permissions.some(v => v !== 'storage')) {
     throw Error('Invalid Mini Apps v1 package or unsupported permission.');
   }
@@ -42,7 +43,10 @@ function createStore(root) {
     const dir = directory(owner);
     if (!fs.existsSync(dir)) return [];
     return fs.readdirSync(dir).filter(name => /^app-.*\.json$/.test(name))
-      .map(name => metadata(read(owner, name.slice(4, -5)).pkg));
+      .map(name => {
+        const record = read(owner, name.slice(4, -5));
+        return { ...metadata(record.pkg), pinned: record.pinned === true };
+      });
   }
   function install(owner, raw) {
     const pkg = parsePackage(raw);
@@ -61,6 +65,11 @@ function createStore(root) {
     write(location(owner, id), { ...record, revision: expected + 1, value });
     return true;
   }
-  return { list, read, install, save, remove(owner, id) { fs.unlinkSync(location(owner, id)); } };
+  function setPinned(owner, id, pinned) {
+    if (typeof pinned !== 'boolean') throw Error('Invalid rail preference.');
+    const record = read(owner, id);
+    write(location(owner, id), { ...record, pinned });
+  }
+  return { list, read, install, save, setPinned, remove(owner, id) { fs.unlinkSync(location(owner, id)); } };
 }
 module.exports = { parsePackage, metadata, createStore, PACKAGE_BYTES, STATE_BYTES };

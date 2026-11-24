@@ -4,7 +4,7 @@ const chromeWindows = new WeakSet();
 let miniAppsHost;
 function miniApps() {
   return miniAppsHost ??= require('./mini-apps/host.cjs').createHost({
-    root: path.join(dataDir(), 'mini-apps-v1'), session, dialog,
+    root: path.join(dataDir(), 'mini-apps-v1'), session, dialog, libraryChanged: () => emit('mini-apps:changed'),
   });
 }
 const { createStartPageServer } = require('./start-page-server.cjs');

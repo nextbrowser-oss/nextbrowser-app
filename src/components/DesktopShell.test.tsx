@@ -73,11 +73,9 @@ it("groups extensions while keeping the remaining destinations and a single acti
   const select = vi.fn();
   render(<SidebarNavigation collapsed tab="live" badgeFor={() => undefined} onSelect={select} />);
   const buttons = screen.getAllByRole("button");
-  expect(buttons).toHaveLength(6);
-  expect(buttons[1].getAttribute("aria-label")).toBe("Open Skills");
-  expect(buttons[0].getAttribute("aria-label")).toBe("Open Mini Apps");
-  fireEvent.click(buttons[0]);
-  expect(select).toHaveBeenLastCalledWith("mini-apps");
+  expect(buttons).toHaveLength(4);
+  expect(screen.queryByRole("button", { name: "Open Skills" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Open Mini Apps" })).toBeNull();
   for (const button of buttons) expect(button.querySelector("svg")?.style.strokeWidth).toBe("1.5");
   const live = screen.getByRole("button", { name: "Open Profiles" });
   expect(live.getAttribute("aria-current")).toBe("page");
@@ -86,6 +84,9 @@ it("groups extensions while keeping the remaining destinations and a single acti
   fireEvent.click(screen.getByRole("button", { name: "Open Extensions" }));
   expect(screen.getByRole("dialog", { name: "Extensions" })).not.toBeNull();
   expect(screen.getByRole("button", { name: "Open Skills" })).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Open Mini Apps" }));
+  expect(select).toHaveBeenLastCalledWith("mini-apps");
+  fireEvent.click(screen.getByRole("button", { name: "Open Extensions" }));
   expect(screen.getByRole("button", { name: "Open Connectors" })).not.toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Open MCP" }));
   expect(select).toHaveBeenLastCalledWith("mcp");

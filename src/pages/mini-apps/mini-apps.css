@@ -6,6 +6,8 @@
 .mini-apps-header, .mini-apps-app-heading { justify-content: space-between; }
 .mini-apps-header-actions { display: flex; gap: 8px; }
 .mini-apps-app-heading small { margin-right: auto; color: var(--muted); }
+.mini-apps-pin { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.mini-apps-pin .toggle input { inset: 0; z-index: 1; width: 100%; height: 100%; margin: 0; pointer-events: auto; cursor: pointer; }
 .mini-apps-tabs { border-bottom: 1px solid var(--line); padding-bottom: 10px; }
 .mini-apps-tabs [aria-pressed=true] { background: var(--nav-active-bg); border-color: var(--nav-active-border); }
 .mini-apps-catalog article { max-width: 400px; background: var(--panel); padding: 18px; border: 1px solid var(--line); border-radius: var(--radius-lg); }

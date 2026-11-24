@@ -26,7 +26,7 @@ async function readStateRequest(request) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
-function createHost({ root, session, dialog }) {
+function createHost({ root, session, dialog, libraryChanged }) {
   const store = createStore(root);
   const bindings = new Map();
   const guestSessions = new WeakSet();
@@ -94,6 +94,10 @@ function createHost({ root, session, dialog }) {
     switch (name) {
       case 'mini_apps_list': return { installed: store.list(owner), catalog: [metadata(parsePackage(catalog()))] };
       case 'mini_apps_inspect': return metadata(parsePackage(args.raw));
+      case 'mini_apps_set_pinned':
+        store.setPinned(owner, id, args.pinned);
+        libraryChanged();
+        return;
       case 'mini_apps_install': {
         const official = catalog();
         const raw = args.catalog === true ? official : args.raw;
@@ -102,11 +106,14 @@ function createHost({ root, session, dialog }) {
         if (candidate.id === bundled.id && !isDeepStrictEqual(candidate, bundled)) {
           throw Error('This ID belongs to the catalog app. Choose a different ID in your manifest.');
         }
-        return store.install(owner, raw);
+        const installed = store.install(owner, raw);
+        libraryChanged();
+        return installed;
       }
       case 'mini_apps_open': return prepare(window, owner, id);
       case 'mini_apps_remove': {
         store.remove(owner, id);
+        libraryChanged();
         for (const [key, item] of bindings) if (item.owner === owner && item.id === id) bindings.delete(key);
         return;
       }

@@ -1,6 +1,6 @@
 # Nextbrowser Mini Apps v1
 
-Mini apps are single-page web applications that users can install in the desktop client. Open **Mini Apps** in the rail, choose **Install** in the catalog, review the permissions, and confirm. Each installed app gets a button beside **Catalog**. The host closes the current guest when you switch apps or leave Mini Apps. Save edits before reporting success to the user.
+Mini apps are single-page web applications that users can install in the desktop client. Open **Extensions → Mini Apps** in the rail, choose **Install** in the catalog, review the permissions, and confirm. Each installed app gets a button beside **Catalog**. Open the app and turn on **Show in rail** to pin its icon for this account on this device. Click the icon to open the app directly. Turn the switch off to remove the shortcut. The host closes the current guest when you switch apps or leave Mini Apps. Save edits before reporting success to the user.
 
 **Download package** saves the catalog entry as a portable file. **Install from file** accepts packages written by other authors. Inspect the name, app ID and permissions before installation. A display name or ID is author-supplied and does not authenticate a publisher. The v1 catalog ships with the desktop release and works offline. Account-specific installs and their data live on this device. Uninstall deletes both after confirmation.
 
@@ -24,7 +24,7 @@ Here is a complete package that needs no build step. Save it as `hello-board.nbm
 
 ## Package contract
 
-The UTF-8 JSON file is limited to 256 KiB. All seven fields above are required. Unknown fields, permissions and API versions are rejected. The ID matches `^[a-z][a-z0-9-]{1,47}$`. The display name is 1–60 characters, the description at most 240, and the version has three numeric components with up to five digits each. Provide a nonempty HTML string. Allowed permission sets are `[]` and `["storage"]`. A user can install up to 32 apps per account. An occupied ID cannot be overwritten. Use a distinct development ID for testing new builds. Replacing a v1 installation requires uninstalling it and deletes its state.
+The UTF-8 JSON file is limited to 256 KiB. All seven fields above are required. Desktop builds with rail pinning also accept an optional `icon` field with one of `board`, `calendar`, `list`, `notebook`, `chart` or `grid`. Omit the field to support earlier v1 builds. The built-in Kanban uses a board icon by default. Other apps without an icon use their initial. Unknown fields, permissions and API versions are rejected. The ID matches `^[a-z][a-z0-9-]{1,47}$`. The display name is 1–60 characters, the description at most 240, and the version has three numeric components with up to five digits each. Provide a nonempty HTML string. Allowed permission sets are `[]` and `["storage"]`. A user can install up to 32 apps per account. An occupied ID cannot be overwritten. Use a distinct development ID for testing new builds. Replacing a v1 installation requires uninstalling it and deletes its state.
 
 ## State API
 

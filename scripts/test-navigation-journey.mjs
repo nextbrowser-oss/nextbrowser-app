@@ -390,7 +390,6 @@ try {
   const nav = page.getByRole("navigation", { name: "Sidebar pages" });
   const extensionsButton = () => nav.getByRole('button', { name: 'Open Extensions', exact: true });
   const openExtension = async name => {
-    if (name === 'Skills') { await nav.getByRole('button', { name: /^Open Skills/ }).click(); return; }
     await extensionsButton().click();
     await page.getByRole('dialog', { name: 'Extensions', exact: true }).getByRole('button', { name: new RegExp(`^Open ${name}`) }).click();
   };

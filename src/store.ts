@@ -664,6 +664,7 @@ interface State {
   workspaceSetupAuto: "pending" | "running" | "done" | "failed";
   activeConvId: Record<string, string>;
   tab: AppTab;
+  selectedMiniApp?: { owner: string; id: string };
   utilityDialog?: UtilityDialogTab;
   skillState: Record<string, SkillApplyState | string>;
   scheduledRuns: ScheduledRun[];
@@ -818,7 +819,7 @@ interface State {
   loginAgent: () => Promise<void>;
   logoutAgent: () => Promise<void>;
   recheckLogin: (agentId?: string) => Promise<void>;
-  setTab: (t: AppTab) => void;
+  setTab: (t: AppTab, miniApp?: { owner: string; id: string }) => void;
   liveSession?: { workspaceId?: string; key: string };
   openLiveSession: (key: string) => void;
   showLiveOverview: () => void;
@@ -5182,13 +5183,14 @@ export const useStore = create<State>((set, get) => {
     } catch { /* A failed status command is not evidence of a login. */ }
   },
 
-  setTab: (t) => {
+  setTab: (t, miniApp) => {
     if (isUtilityDialogTab(t)) {
       set({ utilityDialog: t, ...(t !== "connectors" ? { connectorPrompt: undefined } : {}) });
       trackEvent("utility_dialog_opened", { dialog: t });
       return;
     }
     const previousTab = get().tab;
+    if (t === "mini-apps" || previousTab === "mini-apps") set({ selectedMiniApp: t === "mini-apps" ? miniApp : undefined });
     if (previousTab === t) { if (get().utilityDialog) get().closeUtilityDialog(); return; }
     trackEvent("tab_opened", { tab: t, previous_tab: previousTab });
     trackScreenView(t, { source: "tab_opened", previous_tab: previousTab });

@@ -10,7 +10,7 @@ const root = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
 const profile = await mkdtemp(path.join(tmpdir(), 'nb-mini-qa-'));
 const pkg = JSON.parse(await readFile(path.join(root, 'electron/mini-apps/catalog/kanban.nbmini.json'), 'utf8'));
 const second = path.join(profile, 'second.nbmini.json');
-await writeFile(second, JSON.stringify({ ...pkg, name: 'Work board', id: 'work-board' }));
+await writeFile(second, JSON.stringify({ ...pkg, name: 'Work board', id: 'work-board', icon: 'notebook' }));
 let app, page;
 async function start() {
   const env = { ...process.env, NEXTBROWSER_DEV_DATA_ROOT: profile, NBC_AUTO_UPDATE: '0', NEXTBROWSER_ERROR_REPORTING: '0', NEXTBROWSER_DEVICE_REPORTING: '0' };
@@ -20,7 +20,8 @@ async function start() {
   const url = new URL('dist/index.html', new URL('../', import.meta.url));
   url.searchParams.set('preview', 'main');
   await page.goto(url.href);
-  await page.getByRole('button', { name: 'Open Mini Apps', exact: true }).click();
+  await page.getByRole('button', { name: 'Open Extensions', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Extensions' }).getByRole('button', { name: 'Open Mini Apps', exact: true }).click();
 }
 async function waitForBoard() {
   await until(() => board(() => document.getElementById('add')?.disabled === false));
@@ -48,6 +49,12 @@ try {
   await page.getByRole('button', { name: 'Install', exact: true }).click();
   await page.getByRole('button', { name: 'Install mini app', exact: true }).click();
   await waitForBoard();
+  const pin = () => page.getByRole('switch', { name: 'Show in rail' });
+  const shortcut = name => page.getByRole('button', { name: 'Open pinned app ' + name, exact: true });
+  assert.equal(await pin().isChecked(), false);
+  assert.equal(await shortcut('Kanban').count(), 0);
+  await pin().check();
+  await shortcut('Kanban').waitFor();
   assert.equal(await board(() => typeof window.nextbrowser), 'undefined');
   assert.equal(await board(() => typeof window.require), 'undefined');
   const viewport = await page.locator('webview.mini-apps-guest').boundingBox();
@@ -75,12 +82,20 @@ try {
   await page.getByRole('heading', { name: 'Work board', exact: true }).waitFor();
   await waitForBoard();
   assert.equal(await board(() => document.querySelectorAll('.card').length), 0);
-  await page.getByRole('button', { name: 'Kanban', exact: true }).click();
+  assert.equal(await pin().isChecked(), false);
+  await pin().check();
+  await shortcut('Work board').waitFor();
+  await pin().uncheck();
+  await shortcut('Work board').waitFor({ state: 'detached' });
+  await shortcut('Kanban').click();
   await waitForCard('Review mini apps');
   await app.close();
   await start();
-  await page.getByRole('button', { name: 'Kanban', exact: true }).click();
+  await page.getByRole('button', { name: 'Open Extensions', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Extensions' }).getByRole('button', { name: /^Open Skills/ }).click();
+  await shortcut('Kanban').click();
   await waitForCard('Review mini apps');
+  assert.equal(await pin().isChecked(), true);
   if (process.env.MINI_APP_SCREENSHOT) {
     const png = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString('base64'));
     await writeFile(process.env.MINI_APP_SCREENSHOT, Buffer.from(png, 'base64'));
@@ -94,6 +109,7 @@ try {
   await page.getByRole('button', { name: 'Uninstall and delete data' }).click();
   await page.getByRole('button', { name: 'Install', exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'Kanban', exact: true }).count(), 0);
+  await shortcut('Kanban').waitFor({ state: 'detached' });
   console.log('Passed catalog and file installs, card creation and move, isolated guest state, switching, restart and uninstall.');
 } catch (error) {
   if (page && !page.isClosed()) {
