@@ -5,7 +5,6 @@ import type { AppTab } from "../types";
 import "./navigation.css";
 
 const extensions: Array<{ id: AppTab; label: string; compact: string; icon: GlyphName }> = [
-  { id: "skills", label: "Skills", compact: "Skills", icon: "sparkles" },
   { id: "connectors", label: "Connectors", compact: "Connect", icon: "plug" },
   { id: "mcp", label: "MCP", compact: "MCP", icon: "unplug" },
 ];
@@ -42,9 +41,11 @@ export function SidebarNavigation({ collapsed = false, tab, modal, badgeFor, onS
   };
   return (
     <nav className={"sidebar-destinations" + (collapsed ? " is-compact" : "")} aria-label="Sidebar pages">
+      {renderDestination({ id: "mini-apps", label: "Mini Apps", compact: "Mini Apps", icon: "square" })}
+      {renderDestination({ id: "skills", label: "Skills", compact: "Skills", icon: "sparkles" })}
       <Popover label="Extensions" open={extensionsOpen} onOpenChange={setExtensionsOpen} openOnHover side="right" align="start"
         className="sidebar-extensions shared-scrollbarless" trigger={props => <button {...props}
-          className={"sidebar-destination" + (extensionsOpen || (modal ? extensions.some(item => item.id === modal) : tab === "skills") ? " active" : "")}
+          className={"sidebar-destination" + (extensionsOpen || extensions.some(item => item.id === modal) ? " active" : "")}
           aria-label="Open Extensions">
           <Glyph name="blocks" />{!collapsed && <span className="sidebar-destination-label">Extensions</span>}
         </button>}>
