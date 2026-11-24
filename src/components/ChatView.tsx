@@ -491,12 +491,6 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
               <span>VPS{conv?.vpsConnectionLabel ? ` · ${conv.vpsConnectionLabel}` : ""}</span>
             </span></Tooltip>
           )}
-          {!remoteOnly && s.selectedProfile && (
-            <span className="profile-pill">
-              <Icon name="person.crop.circle" size={12} />
-              {s.selectedProfile}
-            </span>
-          )}
           {!remoteOnly && (
             <MultiloginChatProfilePicker
               workspaceId={conv?.workspaceId}
