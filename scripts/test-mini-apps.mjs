@@ -54,8 +54,13 @@ try {
   const addButton = await board(() => document.querySelector('#add').getBoundingClientRect().toJSON());
   await page.mouse.click(viewport.x + addButton.x + addButton.width / 2, viewport.y + addButton.y + addButton.height / 2);
   await until(() => board(() => document.activeElement.id === 'task-title'));
-  await page.keyboard.type('Review mini apps');
-  await page.keyboard.press('Enter');
+  // A webview owns a separate Chromium input target from the Playwright host page.
+  await app.evaluate(async ({ webContents }) => {
+    const guest = webContents.getAllWebContents().find(contents => contents.getType() === 'webview' && contents.getURL() === 'https://mini-app.invalid/index.html');
+    await guest.insertText('Review mini apps');
+  });
+  const saveButton = await board(() => document.querySelector('button[type=submit]').getBoundingClientRect().toJSON());
+  await page.mouse.click(viewport.x + saveButton.x + saveButton.width / 2, viewport.y + saveButton.y + saveButton.height / 2);
   await waitForCard('Review mini apps');
   await board(() => {
     [...document.querySelectorAll('button')].find(b => b.textContent === 'Edit').click();
