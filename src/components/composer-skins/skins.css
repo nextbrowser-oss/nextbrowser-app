@@ -1,0 +1,77 @@
+.chat-composer-dock .composer[data-skin]:not([data-skin="classic"]) {
+  isolation: isolate;
+  background: var(--skin-base);
+  color: var(--skin-ink);
+  --composer-control-bg: color-mix(in srgb, var(--skin-ink) 10%, var(--skin-base));
+  --composer-control-hover: color-mix(in srgb, var(--skin-ink) 19%, var(--skin-base));
+}
+.chat-composer-dock .composer:not([data-skin="classic"]) :is(textarea, textarea:focus, .shared-icon-button--embedded),
+.chat-composer-dock .composer:not([data-skin="classic"]) textarea::placeholder { color: var(--skin-ink); caret-color: var(--skin-ink); }
+.skin-artwork { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; pointer-events: none; }
+.composer > .skin-artwork { z-index: -1; mask-image: linear-gradient(105deg, color-mix(in srgb, var(--black) 27%, transparent), var(--black) 75%); }
+.skin-artwork canvas { display: block; width: 100%; height: 100%; }
+[data-skin="blueprint"] > .skin-artwork {
+  background-image: linear-gradient(90deg, var(--skin-grid-minor) 1px, transparent 1px), linear-gradient(var(--skin-grid-minor) 1px, transparent 1px),
+    linear-gradient(90deg, var(--skin-grid-major) 1px, transparent 1px), linear-gradient(var(--skin-grid-major) 1px, transparent 1px);
+  background-size: 14px 14px, 14px 14px, 70px 70px, 70px 70px;
+}
+[data-skin="risograph"] > .skin-artwork {
+  background: radial-gradient(ellipse 15% 116% at 86% 30%, var(--skin-print-red) 0 96%, transparent 97%),
+    radial-gradient(ellipse 20% 116% at 78% 95%, var(--skin-print-blue) 0 96%, transparent 97%),
+    radial-gradient(var(--skin-print-dot) .8px, transparent 1.2px) 0 0 / 4px 4px;
+}
+.chat-composer-dock .composer-actions > .composer-skin-trigger { margin-inline-start: auto; }
+.chat-composer-dock .composer-actions > .composer-skin-trigger ~ .shared-icon-button:last-child { margin-inline-start: 0; }
+.shared-dialog.composer-skin-dialog { width: min(600px, calc(100vw - 24px)); }
+.composer-skin-dialog .shared-dialog-header { padding: 17px 20px 10px; }
+.composer-skin-dialog .shared-dialog-body { padding: 4px 20px 18px; }
+.skin-preview { margin: 0; overflow: hidden; border-radius: 13px; background: var(--skin-stage); color: var(--skin-stage-ink); }
+.skin-preview-stage { container-type: inline-size; display: grid; place-items: center; padding: clamp(18px, 4vw, 32px) clamp(10px, 3vw, 27px) 11px; }
+.skin-keyboard {
+  position: relative; isolation: isolate; box-sizing: border-box; width: 100%; padding: 2.6% 2% 2%; border-radius: 2.2cqw;
+  transform: perspective(1100px) rotateX(13deg) rotateZ(-2deg);
+  background: var(--skin-base); color: var(--skin-ink);
+  box-shadow: inset 0 1px 1px color-mix(in srgb, var(--white) 42%, transparent), 0 1.0cqw 0 color-mix(in srgb, var(--skin-base) 80%, var(--black)),
+    0 2.6cqw 3.2cqw -1.3cqw var(--skin-case-shadow);
+}
+.skin-key-row { display: flex; gap: .55cqw; margin-top: .55cqw; }
+.skin-key-row:first-of-type { margin-top: 0; }
+.skin-key {
+  display: flex; align-items: flex-start; justify-content: flex-start; flex: 1 1 0; min-width: 0; box-sizing: border-box;
+  height: 5.4cqw; padding: .68cqw .75cqw; border-radius: .8cqw;
+  background: var(--skin-cap); color: var(--skin-ink); font: 600 1.8cqw/1.15 var(--font-mono, monospace);
+  box-shadow: inset 0 1px color-mix(in srgb, var(--white) 31%, transparent), inset 0 -.45cqw color-mix(in srgb, var(--black) 20%, transparent), 0 .18cqw .2cqw color-mix(in srgb, var(--black) 67%, transparent);
+}
+.skin-key:is([data-key="ctrl"],[data-key="shift"],[data-key="cmd"],[data-key="alt"],[data-key="caps"],[data-key="tab"],[data-key="⌫"]) { background: var(--skin-mod); }
+.skin-key:is([data-key="esc"],[data-key="enter"]) { background: var(--skin-accent); color: var(--skin-accent-ink); }
+.skin-keyboard > .skin-artwork { z-index: 1; opacity: .76; }
+[data-skin="risograph"] .skin-keyboard > .skin-artwork { opacity: .38; mix-blend-mode: multiply; }
+.skin-preview figcaption { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 11px 17px 12px; }
+.skin-preview figcaption strong { font-size: 17px; letter-spacing: -.025em; }
+.skin-preview figcaption span { font-size: 11px; }
+.skin-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 14px 0; }
+.skin-options button {
+  position: relative; min-width: 0; padding: 9px; text-align: left; border: 1px solid var(--line); border-radius: 10px;
+  color: var(--dialog-text); background: var(--dialog-bg); cursor: pointer; font: 600 12px/1.3 var(--font-ui);
+}
+.skin-options button:hover { background: var(--surface-2); }
+.skin-options button[aria-pressed="true"] { border-color: var(--dialog-text); box-shadow: inset 0 0 0 1px var(--dialog-text); }
+.skin-options button svg { position: absolute; bottom: 10px; right: 8px; }
+.skin-sample { display: flex; align-items: center; gap: 3px; margin-bottom: 7px; }
+.skin-sample i { width: 15px; height: 11px; border-radius: 3px; background: var(--skin-cap); box-shadow: inset 0 -2px color-mix(in srgb, var(--black) 20%, transparent); }
+.skin-sample i:nth-child(2) { background: var(--skin-mod); }
+.skin-sample i:last-child { width: 22px; background: var(--skin-accent); }
+.skin-settings-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; border-top: 1px solid var(--line); padding-top: 12px; }
+.skin-color { display: flex; align-items: center; gap: 9px; font-size: 12px; font-weight: 600; }
+.skin-color input { width: 28px; height: 26px; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: transparent; cursor: pointer; }
+.skin-color input::-webkit-color-swatch-wrapper { padding: 0; }
+.skin-color input::-webkit-color-swatch { border: 0; border-radius: 3px; }
+.skin-color-value { border: 0; background: transparent; padding: 4px; border-radius: 4px; color: var(--dialog-muted); cursor: pointer; font: 11px var(--font-mono, monospace); }
+.skin-color-value[aria-pressed="true"] { color: var(--dialog-text); background: var(--surface-3); }
+.skin-settings-footer .skin-apply { margin-inline-start: auto; background: var(--primary-action); color: var(--on-primary-action); }
+.skin-settings-footer .skin-apply:hover { background: var(--primary-action-hover); }
+.skin-options button:focus-visible, .skin-color-value:focus-visible, .skin-color input:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+@media (max-width: 460px) {
+  .skin-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .composer-skin-dialog .shared-dialog-body { padding-inline: 12px; }
+}

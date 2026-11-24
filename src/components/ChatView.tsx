@@ -10,6 +10,7 @@ import type { ChatAttachment, ChatMessage } from "../types";
 import { filePathForFile, invoke } from "../electronBridge";
 import { AGENTS, BUILTIN_AGENT_ID, agentById, agentInvocation, isBuiltinAgent, type AgentSpec } from "../agents";
 import { AgentModelPicker } from "./AgentModelPicker";
+import { ComposerSkinPicker, SkinArtwork, skinStyle, useComposerSkin } from "./composer-skins/ComposerSkins";
 import { OPEN_AGENT_SETTINGS_EVENT } from "../lib/appNavigation";
 import { trackEvent } from "../lib/analytics";
 import { BROWSER_VERIFICATION_ATTENTION, BROWSER_VERIFICATION_INSTRUCTIONS, needsBrowserVerification } from "../lib/activityParser";
@@ -121,6 +122,7 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
   )?.id;
 
   const [draft, setDraft] = useState("");
+  const { skin, apply: applySkin } = useComposerSkin();
   const [guideDraftLoaded, setGuideDraftLoaded] = useState(false);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [scriptOpen, setScriptOpen] = useState(false);
@@ -573,7 +575,8 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
                 <div className="chat-action-error error small" role="alert">{actionError}</div>
               )}
               {commandNotice && <div className="chat-command-notice" role="status">{commandNotice}</div>}
-              <div className={`${glassSurfaceClassName} composer`}>
+              <div className={`${glassSurfaceClassName} composer`} data-skin={skin.id} style={skinStyle(skin)}>
+                <SkinArtwork id={skin.id} />
                 {activeCommand && <CommandList id={commandMenuId} label="Agent commands" activeId={activeCommand.name} anchor={composerRef.current?.closest<HTMLElement>(".composer")}
                   options={commandMatches.map(command => ({ id: command.name, title: "/" + command.name, description: command.description }))}
                   onChoose={acceptCommand} />}
@@ -684,6 +687,7 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
                   <AgentModelPicker key={conversationKey} agentId={agentId} version={builtinAgent ? s.agentVersion() : undefined}
                     disabled={running || remoteOnly || !!s.runtime[BUILTIN_AGENT_ID]?.runningReplyId}
                     onActivate={activateApiAgent} onRefresh={s.refreshBuiltinAgent} />
+                  <ComposerSkinPicker skin={skin} onApply={applySkin} />
                   {running ? (
                     <IconButton label="Stop the running agent response" appearance="embedded" onClick={() => s.stopRunning()}>
                       <Icon name="stop.fill" size={16} />

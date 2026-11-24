@@ -285,3 +285,59 @@
     --muted: color-mix(in srgb, var(--text) 78%, transparent);
   }
 }
+
+/* Art palettes belong to the composer and its keyboard samples. */
+:root {
+  --composer-custom-default: #63558b;
+  --skin-stage-ink: #19191e;
+  --skin-case-shadow: #18182380;
+}
+:where(.composer, .skin-preview, .skin-options button)[data-skin] {
+  --skin-base: #292a31;
+  --skin-ink: #f1f0f3;
+  --skin-cap: #454750;
+  --skin-mod: #34363d;
+  --skin-accent: #b5b0ca;
+  --skin-accent-ink: #24222b;
+  --skin-stage: #d9d8de;
+}
+[data-skin="smeta"] {
+  --skin-base: #151617;
+  --skin-ink: #fafafa;
+  --skin-cap: #383a3c;
+  --skin-mod: #252627;
+  --skin-accent: #eeefeb;
+  --skin-accent-ink: #191a19;
+  --skin-stage: #bcbfba;
+  --sm-contour: rgba(246, 247, 244, .46);
+}
+[data-skin="blueprint"] {
+  --skin-grid-minor: #c9e5ff25;
+  --skin-grid-major: #c9e5ff2e;
+  --skin-base: #173e89;
+  --skin-ink: #f3f7ff;
+  --skin-cap: #446db9;
+  --skin-mod: #2c54a2;
+  --skin-accent: #abe3fc;
+  --skin-accent-ink: #102e67;
+  --skin-stage: #b7c9eb;
+}
+[data-skin="risograph"] {
+  --skin-print-red: #ed705a70;
+  --skin-print-blue: #52569c77;
+  --skin-print-dot: #35396042;
+  --skin-base: #f4e6c9;
+  --skin-ink: #282945;
+  --skin-cap: #f9e9c6;
+  --skin-mod: #d6bca1;
+  --skin-accent: #ec6956;
+  --skin-accent-ink: #321c23;
+  --skin-stage: #e9bb9d;
+}
+[data-skin="custom"] {
+  --skin-cap: color-mix(in srgb, var(--skin-ink) 15%, var(--skin-base));
+  --skin-mod: var(--skin-base);
+  --skin-accent: var(--skin-ink);
+  --skin-accent-ink: var(--skin-base);
+  --skin-stage: color-mix(in srgb, var(--skin-base) 30%, #e5e2de);
+}
