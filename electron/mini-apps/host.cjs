@@ -63,7 +63,7 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
   const scopes = new Map();
   const sessionBindings = new WeakMap();
   const guestSessions = new WeakSet();
-  const music = createMusicPlayer({ session, BrowserWindow, dialog, guestSessions, store });
+  const music = createMusicPlayer({ session, BrowserWindow, dialog, guestSessions, store, browserRoot: path.join(root,'music-browsers') });
   const officialPlayer = parsePackage(catalog('music-player'));
   function prepare(window, owner, id, blockId, surface, popover = false) {
     if (typeof popover !== 'boolean' || (popover && !blockId)) throw Error('Invalid widget view.');

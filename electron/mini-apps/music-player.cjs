@@ -1,5 +1,13 @@
 const { createHash, randomUUID } = require('node:crypto');
 const { isIP } = require('node:net');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const { openBrowser } = require('../personal-browser.cjs');
+
+const googleSignIn = {
+  spotify: 'https://accounts.spotify.com/en/login?continue=https%3A%2F%2Fopen.spotify.com%2F',
+  youtube: 'https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fmusic.youtube.com%2F',
+};
 
 const services = {
   spotify: ['Spotify', 'https://open.spotify.com', 'spotify.com'],
@@ -41,8 +49,9 @@ async function mediaState(action) {
     artist: (navigator.mediaSession?.metadata?.artist ?? '').slice(0,180) };
 }
 
-function createMusicPlayer({ session, BrowserWindow, dialog, guestSessions, store }) {
+function createMusicPlayer({ session, BrowserWindow, dialog, guestSessions, store, browserRoot, launchBrowser = openBrowser }) {
   const windows = new Map();
+  const nativeWindows = new Map();
   const pending = new Map();
   function serialize(owner, run) {
     const next = (pending.get(owner) ?? Promise.resolve()).catch(() => {}).then(run);
@@ -51,7 +60,27 @@ function createMusicPlayer({ session, BrowserWindow, dialog, guestSessions, stor
   }
   const appId = 'music-player';
   const partition = (owner, generation, id) => 'persist:nextbrowser-music-' + createHash('sha256').update(JSON.stringify([owner,generation,id])).digest('hex');
-  async function forget(key) {
+  const browserDirectory = key => path.join(browserRoot, key.slice(key.lastIndexOf('-') + 1));
+  async function forget(key, account) {
+    if (account.login === 'google') {
+      const dir = browserDirectory(key);
+      if (nativeWindows.has(key)) throw Error('Close the music browser before removing this login.');
+      // A surviving Unix browser owns the profile even after Nextbrowser restarts.
+      const lock = await fs.readlink(path.join(dir,'SingletonLock')).catch(() => '');
+      const pid = Number(lock.match(/-(\d+)$/)?.[1]);
+      if (pid) {
+        let running = true;
+        try { process.kill(pid,0); } catch (error) { running = error.code !== 'ESRCH'; }
+        if (running) throw Error('Close the music browser before removing this login.');
+      }
+      const retired = dir + '-remove-' + randomUUID();
+      try {
+        await fs.rename(dir,retired);
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw Error('Close the music browser before removing this login.');
+      }
+      await fs.rm(retired,{recursive:true,force:true});
+    }
     const win = windows.get(key)?.win;
     if (win && !win.isDestroyed()) win.destroy();
     const profile = session.fromPartition(key);
@@ -70,8 +99,17 @@ function createMusicPlayer({ session, BrowserWindow, dialog, guestSessions, stor
       if (e.isMainFrame !== false && !validLocation(e.url ?? url, service, true)) e.preventDefault();
     });
   }
-  function open(binding, account) {
+  async function open(binding, account, signIn) {
     const key = partition(binding.owner, binding.generation, account.id);
+    if (account.login === 'google') {
+      const url = signIn ? googleSignIn[account.service] : serviceFor(account)[1];
+      const child = await launchBrowser(browserDirectory(key),url);
+      const children = nativeWindows.get(key) ?? new Set();
+      nativeWindows.set(key,children);
+      children.add(child);
+      child.once('exit', () => { children.delete(child); if (!children.size) nativeWindows.delete(key); });
+      return;
+    }
     const existing = windows.get(key)?.win;
     if (existing && !existing.isDestroyed()) { existing.show(); existing.focus(); return; }
     const service = serviceFor(account);
@@ -84,7 +122,7 @@ function createMusicPlayer({ session, BrowserWindow, dialog, guestSessions, stor
     protect(win, service);
     windows.set(key, { shellId: binding.shellId, win });
     win.once('closed', () => windows.delete(key));
-    return win.loadURL(service[1]);
+    return win.loadURL(signIn && account.service === 'spotify' ? googleSignIn.spotify : service[1]);
   }
   async function action(binding, input, active) {
     if (!active()) throw Error('The active account changed.');
@@ -100,6 +138,10 @@ function createMusicPlayer({ session, BrowserWindow, dialog, guestSessions, stor
     if (input.action === 'add') {
       if (!Object.hasOwn(services,input.service) || typeof input.label !== 'string' || !input.label.trim() || input.label.length > 60 || accounts.length >= 16) throw Error('Choose a service and an account name (up to 16 accounts).');
       const account = { id: randomUUID(), service: input.service, label: input.label.trim() };
+      if (input.login === 'google') {
+        if (!Object.hasOwn(googleSignIn,input.service)) throw Error('This service does not offer Google sign-in here.');
+        account.login = 'google';
+      }
       if (input.service === 'custom') {
         const [,address] = customService(input.url);
         const parent = BrowserWindow.getAllWindows().find(w => w.webContents.id === binding.shellId);
@@ -116,10 +158,20 @@ function createMusicPlayer({ session, BrowserWindow, dialog, guestSessions, stor
     if (!account) throw Error('Choose a music account.');
     const key = partition(binding.owner, binding.generation, account.id);
     if (input.action === 'select') { write(accounts, account.id); return account; }
-    if (input.action === 'open') { await open(binding,account); return { opened: true }; }
+    if (input.action === 'open') {
+      if (input.login === 'google' && account.login !== 'google') {
+        if (!Object.hasOwn(googleSignIn,account.service)) throw Error('Google sign-in is unavailable for this service.');
+        const updated = {...account,login:'google'};
+        await open(binding,updated,true);
+        write(accounts.map(item => item.id === account.id ? updated : item),selected);
+        const embedded = windows.get(key)?.win;
+        if (embedded && !embedded.isDestroyed()) embedded.close();
+      } else await open(binding,account,input.signIn === true);
+      return { opened: true };
+    }
     if (input.action === 'forget') {
       if (input.confirm !== true) throw Error('Confirm removal of the account on this device.');
-      await forget(key);
+      await forget(key,account);
       const rest = accounts.filter(a => a.id !== account.id);
       write(rest, selected === account.id ? rest[0]?.id ?? null : selected);
       return { removed: account.id };
@@ -137,7 +189,7 @@ function createMusicPlayer({ session, BrowserWindow, dialog, guestSessions, stor
   }
   async function clear(owner) {
     const record = store.read(owner,appId);
-    for (const account of record.value?.accounts ?? []) await forget(partition(owner, record.generation, account.id));
+    for (const account of record.value?.accounts ?? []) await forget(partition(owner, record.generation, account.id),account);
   }
   return {
     action(binding, input, active) {

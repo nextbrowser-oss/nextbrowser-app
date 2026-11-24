@@ -7,6 +7,8 @@ import { Button } from "../shared/ui";
 import { UserFacingError } from "./UserFacingError";
 import { internalError } from "../lib/userFacingError";
 import { UsageView } from "./UsageView";
+import { AccountActivity } from "./AccountActivity";
+import { PersonalProfiles } from "./PersonalProfiles";
 
 export function AccountProfileView({ accessory }: { accessory?: ReactNode }) {
   const authed = useStore(s => s.authed);
@@ -36,6 +38,8 @@ export function AccountProfileView({ accessory }: { accessory?: ReactNode }) {
     </div>
     {compatibilityError && <p role="status">{compatibilityError}</p>}
     {error && <div role="alert"><UserFacingError message={error} surface="account_sign_out" /></div>}
+    {authed && ownerId && <AccountActivity key={"activity:" + ownerId} owner={ownerId} />}
+    {authed && ownerId && <PersonalProfiles key={"profiles:" + ownerId} owner={ownerId} />}
     {authed && <UsageView key={ownerId} />}
   </section>;
 }

@@ -40,6 +40,7 @@ import { useAppearance } from "./lib/useAppearance";
 import { confirmedBrowserRuntimeUpdates } from "./lib/browserRuntimeUpdate";
 import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
 import { observeDesktopActivity } from "./lib/desktopActivity";
+import { observeAccountActivity } from "./lib/accountActivity";
 import {
   OPEN_AGENT_SETTINGS_EVENT,
   isUtilityDialogTab,
@@ -906,6 +907,7 @@ export function App() {
   const preview = getPreviewMode();
   const checking = useStore((s) => s.checking);
   const authed = useStore((s) => s.authed);
+  const activityOwner = useStore(s => s.accountOwnerId);
   const startupPhase = useStore((s) => s.startupPhase);
   const startupLabel = startupPhase === "local"
     ? "Loading saved projects"
@@ -1401,6 +1403,10 @@ export function App() {
   }, [browserRuntimeUpdates, runtimeUpdateInstall.status, runtimeUpdatePrompt, runtimeUpdatePromptDismissed, bulkUpdating]);
 
   useEffect(() => {
+    if (authed && activityOwner && !preview) return observeAccountActivity(activityOwner);
+  }, [authed, activityOwner, preview]);
+
+  useEffect(() => {
     if (!authed || preview) return;
     return observeDesktopActivity(() => invoke("desktop_activity"));
   }, [authed, preview]);
@@ -1690,7 +1696,7 @@ export function App() {
   }
 
   return (
-    <div className={"app" + (focusedLive ? " app-live" + (liveControlsOpen ? " app-live-controls-open" : "") : "")}>
+    <div data-settings-open={settingsOpen || undefined} className={"app" + (focusedLive ? " app-live" + (liveControlsOpen ? " app-live-controls-open" : "") : "")}>
       {titlebarActions}
       <aside
         id="app-sidebar"
@@ -1705,7 +1711,7 @@ export function App() {
         />
       </aside>
       <main className={"content" + (tab === "chat" ? " content-chat" : "")}>
-        {tab !== "chat" && tab !== "live" && <nav className="tabbar">
+        {!settingsOpen && tab !== "chat" && tab !== "live" && <nav className="tabbar">
           {!isPrimaryAppTab(tab) && backTarget && (
             <Tooltip content={`Back to ${appTabLabel(backTarget)} · Esc`}><button
               className="tabbar-back"
@@ -1722,7 +1728,7 @@ export function App() {
             {backgroundTaskPills}
           </div>
         </nav>}
-        {tab !== "live" && <hr className="divider" />}
+        {!settingsOpen && tab !== "live" && <hr className="divider" />}
         {tab !== "live" && workspaceSyncing && <div className="workspace-sync-status muted small" role="status">
           <Spinner size={12} /> Syncing workspace…
         </div>}

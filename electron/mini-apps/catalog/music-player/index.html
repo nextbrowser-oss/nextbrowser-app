@@ -37,6 +37,10 @@ body[data-view=app]{background:#181920}body[data-view=app] main{border:1px solid
 body[data-view=popover] main:has(#services:open){min-height:var(--services-height)}
 body[data-view=popover] main:has(#accounts:open){min-height:var(--accounts-height)}
 .icon-label .music-icon{width:14px;height:14px}
+#form{gap:9px}#form .actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr))}
+#form .actions button{min-height:34px;font-weight:600}#form input{min-height:32px}
+#google-login{background:var(--ink);color:var(--surface)}#google-login b{font-size:14px;margin-right:5px}
+#form [hidden]{display:none}#form small{white-space:normal}
 </style></head><body><main>
 <svg class="symbols" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
   <symbol id="icon-spotify" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#1ed760"/><path d="M5 9q7-3 14 1M6 12q6-2 12 1M7 15q5-1.5 9 1" fill="none" stroke="#103919" stroke-width="1.8" stroke-linecap="round"/></symbol>
@@ -62,10 +66,14 @@ body[data-view=popover] main:has(#accounts:open){min-height:var(--accounts-heigh
 <section id="library" class="screen" hidden><div class="subhead"><strong>Music accounts</strong><button class="round" data-back="player" aria-label="Back"><svg class="music-icon"><use href="#icon-back"/></svg></button></div>
   <div class="music-field" id="account-field"><label class="field-label" for="accounts">Account</label><select id="accounts" aria-label="Music account"><button type="button"><selectedcontent></selectedcontent></button></select></div><small id="no-accounts">No accounts yet</small>
   <div class="actions"><button class="primary icon-label" id="manage"><svg class="music-icon" aria-hidden="true"><use href="#icon-plus"/></svg>Add account</button><button class="icon-label" id="remove"><svg class="music-icon" aria-hidden="true"><use href="#icon-remove"/></svg>Remove selected</button></div>
+  <button id="google-existing" hidden>Sign in with Google in browser</button>
 </section>
-<form id="form" hidden><div class="subhead"><strong>Add an account</strong><button type="button" class="round" data-back="library" aria-label="Back"><svg class="music-icon"><use href="#icon-back"/></svg></button></div>
-  <div class="music-field"><label class="field-label" for="services">Music service</label><select id="services" aria-label="Music service"><button type="button"><selectedcontent></selectedcontent></button></select></div><input id="label" aria-label="Account name" placeholder="Account name" required maxlength="60">
-  <input id="url" type="url" hidden aria-label="Service website" placeholder="https://music.example.com"><button class="primary">Add account</button>
+<form id="form" hidden><div class="subhead"><strong>Connect a music service</strong><button type="button" class="round" data-back="library" aria-label="Back"><svg class="music-icon"><use href="#icon-back"/></svg></button></div>
+  <div class="music-field"><label class="field-label" for="services">Music service</label><select id="services" aria-label="Music service"><button type="button"><selectedcontent></selectedcontent></button></select></div>
+  <input id="label" aria-label="Account nickname (optional)" placeholder="Account nickname (optional)" maxlength="60">
+  <input id="url" type="url" hidden aria-label="Service website" placeholder="https://music.example.com">
+  <div class="actions"><button id="service-login" class="primary">Continue to service</button><button id="google-login" type="submit" hidden><b aria-hidden="true">G</b>Google sign-in</button></div>
+  <small id="login-hint"></small>
 </form>
 <section id="confirmation" class="screen" hidden><strong>Remove this local login?</strong><div class="actions"><button id="confirm">Remove</button><button data-back="library">Cancel</button></div></section>
 <p id="error" role="alert"></p>
@@ -82,7 +90,7 @@ const actions = {
   forget_account: ['forget','Remove a local login and its cookies after explicit user confirmation.']
 };
 const string = {type:'string'};
-const properties = {add_account:{service:string,label:string,url:{type:'string',description:'Public HTTPS player address, required for the custom service.'}},list_accounts:{},forget_account:{id:string,confirm:{type:'boolean'}},select_account:{id:string}};
+const properties = {add_account:{service:string,label:string,login:string,url:{type:'string',description:'Public HTTPS player address, required for the custom service.'}},open_player:{id:string,signIn:{type:'boolean'},login:string},list_accounts:{},forget_account:{id:string,confirm:{type:'boolean'}},select_account:{id:string}};
 const requires = {add_account:['service','label'],select_account:['id'],forget_account:['id','confirm']};
 let current, playing = false, updateId = 0;
 async function request(action,input={}) {
@@ -119,16 +127,19 @@ async function refresh() {
   options(el('accounts'),data.accounts,current);
   const previous = el('services').value;
   options(el('services'),data.services,previous);
+  updateLoginOptions();
   const account = data.accounts.find(a => a.id === current);
   const service = data.services.find(s => s.id === account?.service);
   el('launch').disabled = !account;
+  el('google-existing').hidden = !['youtube','spotify'].includes(account?.service);
   el('toggle').disabled = !status.available;
   el('remove').disabled = !account;
   playing = !!status.playing;
   el('toggle').setAttribute('aria-label', playing ? 'Pause' : 'Play');
   document.body.dataset.playing = String(playing);
   el('track').textContent = status.title || service?.name || 'Music Player';
-  el('artist').textContent = status.artist || (account ? account.label : '');
+  el('artist').textContent = status.artist || (account?.login === 'google' ? 'Playback controls are in your music browser' : account?.label || '');
+  el('toggle').hidden = account?.login === 'google';
   el('choose').querySelector('span').textContent = account ? account.label : 'Add account';
   el('choose').querySelector('use').setAttribute('href','#icon-' + (account?.service ?? 'plus'));
   el('no-accounts').hidden = !!account;
@@ -181,8 +192,33 @@ el('manage').onclick = () => show('form');
 el('accounts').onchange = async e => {if(await act('select_account',{id:e.target.value})) show('player');};
 el('toggle').onclick = () => act(playing ? 'pause' : 'play',{id:current});
 el('launch').onclick = () => act('open_player',{id:current});
-el('services').onchange = () => {const custom=el('services').value==='custom';el('url').hidden=!custom;el('url').required=custom;};
-el('form').onsubmit = async e => {e.preventDefault();if(await act('add_account',{service:el('services').value,label:el('label').value,url:el('url').value})){el('label').value='';show('player');}};
+el('google-existing').onclick = async () => {
+  el('google-existing').disabled = true;
+  try { if (await act('open_player',{id:current,login:'google',signIn:true})) show('player'); }
+  finally { el('google-existing').disabled = false; }
+};
+function updateLoginOptions() {
+  const select = el('services'), service = select.value, custom = service === 'custom';
+  const google = ['youtube','spotify'].includes(service);
+  el('url').hidden = !custom; el('url').required = custom;
+  el('google-login').hidden = !google;
+  el('service-login').hidden = service === 'youtube';
+  el('service-login').textContent = 'Continue to ' + (custom ? 'website' : select.selectedOptions[0]?.label || 'service');
+  el('login-hint').textContent = google ? 'Google sign-in and playback open in a private music profile in your browser.' : 'Sign in on the service’s own website.';
+}
+el('services').onchange = updateLoginOptions;
+el('form').onsubmit = async e => {
+  e.preventDefault();
+  if (el('service-login').disabled) return;
+  const select = el('services'), google = e.submitter === el('google-login') || select.value === 'youtube';
+  el('service-login').disabled = el('google-login').disabled = true;
+  try {
+    const account = await act('add_account',{service:select.value,label:el('label').value.trim() || select.selectedOptions[0].label,url:el('url').value,...(google ? {login:'google'} : {})});
+    if (!account) return;
+    el('label').value=''; show('player');
+    await act('open_player',{id:account.id,signIn:true});
+  } finally { el('service-login').disabled = el('google-login').disabled = false; }
+};
 let removal;
 el('remove').onclick = () => {removal=current;show('confirmation');};
 el('confirm').onclick = async () => {if(await act('forget_account',{id:removal,confirm:true})) show('player');};

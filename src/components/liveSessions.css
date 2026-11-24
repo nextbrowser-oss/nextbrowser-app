@@ -76,6 +76,26 @@
 .account-profile-page > header h1 { font-size: 26px; }
 .account-profile-page > .proxy-usage-page { height: auto; padding: 0; overflow: visible; }
 .account-profile-page .proxy-usage-header h2 { font-size: 20px; }
+.account-activity-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr)); gap:12px; margin-bottom:16px; }
+.account-activity-card { padding:14px 16px; min-width:0; }
+.account-activity-card header,.account-metric,.personal-profiles header,.personal-profile-row { display:flex; align-items:center; gap:8px; }
+.account-activity-card header,.account-activity-card small,.account-chart-dates { color:var(--muted); }
+.account-activity-card h3,.personal-profiles h3 { margin:0; font-size:14px; }
+.account-metric { justify-content:space-between; margin:8px 0; }
+.account-metric b { font-size:21px; font-variant-numeric:tabular-nums; }
+.account-activity-card svg[role=group] { width:100%; height:58px; display:block; overflow:visible; }
+.account-chart-dates { display:flex; justify-content:space-between; font-size:10px; margin:2px 0 5px; }
+.account-profile-page .proxy-traffic-chart { height:185px; }
+.personal-profiles { padding:14px 16px; margin-bottom:16px; }
+.personal-profiles header,.personal-profile-row { justify-content:space-between; }
+.personal-profile-row { margin-top:8px; padding-top:8px; border-top:1px solid var(--line); }
+.personal-profile-row small { color:var(--muted); margin-left:8px; }
+.personal-import { display:grid; gap:10px; margin-top:12px; }
+.personal-import > label { display:grid; gap:4px; max-width:28rem; }
+.personal-import fieldset { display:flex; flex-wrap:wrap; gap:10px 16px; padding:0; border:0; }
+.personal-import > button { justify-self:start; }
+.personal-import p { margin:0; color:var(--muted); }
+.personal-profile-actions { display:flex; gap:8px; flex-wrap:wrap; }
 @media (max-width: 480px) {
   .account-profile-summary { flex-wrap: wrap; gap: 12px; }
   .account-profile-summary > div { min-width: 120px; }

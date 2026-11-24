@@ -150,6 +150,7 @@ export async function checkMusicWidget(app,page,downloadPath) {
   catch { throw Error('Music service list is clipped: '+JSON.stringify(await pickerGeometry())); }
   await clickGuest('#services option[value="apple"]');
   await waitFor(() => evaluate("!document.querySelector('#services').matches(':open')"));
+  assert.equal(await evaluate("document.querySelector('#google-login').hidden"),true);
   assert.equal(await evaluate("document.querySelector('#services selectedcontent use').getAttribute('href')"),'#icon-apple');
   await clickGuest('#services',true);
   await waitFor(() => evaluate("document.querySelector('#services').matches(':open')"));
@@ -161,6 +162,15 @@ export async function checkMusicWidget(app,page,downloadPath) {
   }, guestId);
   await waitFor(() => evaluate("!document.querySelector('#services').matches(':open')"));
   assert.equal(await evaluate("document.querySelector('#services').value"),'apple');
+  await app.evaluate(({app}) => {
+    app.once('session-created', isolated => {
+      const audio = Buffer.alloc(44 + 16000,128);
+      audio.write('RIFF',0);audio.writeUInt32LE(audio.length-8,4);audio.write('WAVEfmt ',8);audio.writeUInt32LE(16,16);
+      audio.writeUInt16LE(1,20);audio.writeUInt16LE(1,22);audio.writeUInt32LE(8000,24);audio.writeUInt32LE(8000,28);
+      audio.writeUInt16LE(1,32);audio.writeUInt16LE(8,34);audio.write('data',36);audio.writeUInt32LE(audio.length-44,40);
+      isolated.protocol.handle('https',() => new Response('<audio muted loop preload="auto" controls src="data:audio/wav;base64,'+audio.toString('base64')+'"></audio><script>navigator.mediaSession.metadata=new MediaMetadata({title:"Widget test track",artist:"Fixture artist"})</script>',{headers:{'Content-Type':'text/html'}}));
+    });
+  });
   await evaluate("document.querySelector('#label').value='Studio';document.querySelector('#services').value='spotify';document.querySelector('#form').requestSubmit()");
   assert.equal(await evaluate('('+noOverflow.toString()+')()'),true);
   const stringInput = await app.evaluate(() => Number(process.versions.chrome.split('.')[0]) < 155);
@@ -179,14 +189,6 @@ export async function checkMusicWidget(app,page,downloadPath) {
   const [record] = await page.evaluate(async () => (await window.nextbrowser.invoke('mini_apps_list',{owner:'preview'})).installed.filter(a => a.id === 'music-player'));
   const profileKey = accountId => 'persist:nextbrowser-music-' + createHash('sha256').update(JSON.stringify(['preview',record.generation,accountId])).digest('hex');
   const key = profileKey(id);
-  await app.evaluate(({session},key) => {
-    const isolated = session.fromPartition(key);
-    const audio = Buffer.alloc(44 + 16000,128);
-    audio.write('RIFF',0);audio.writeUInt32LE(audio.length-8,4);audio.write('WAVEfmt ',8);audio.writeUInt32LE(16,16);
-    audio.writeUInt16LE(1,20);audio.writeUInt16LE(1,22);audio.writeUInt32LE(8000,24);audio.writeUInt32LE(8000,28);
-    audio.writeUInt16LE(1,32);audio.writeUInt16LE(8,34);audio.write('data',36);audio.writeUInt32LE(audio.length-44,40);
-    isolated.protocol.handle('https',() => new Response('<audio muted loop preload="auto" controls src="data:audio/wav;base64,'+audio.toString('base64')+'"></audio><script>navigator.mediaSession.metadata=new MediaMetadata({title:"Widget test track",artist:"Fixture artist"})</script>',{headers:{'Content-Type':'text/html'}}));
-  },key);
   const opened = await tool('open_player',{id});
   assert.deepEqual(opened,{ok:true,value:{opened:true}});
   await waitFor(async () => (await tool('get_playback',{id})).value?.available);

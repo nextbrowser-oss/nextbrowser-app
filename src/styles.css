@@ -7866,20 +7866,23 @@ pre,
   gap: 18px;
 }
 
-.desktop-shell:has(.app > .content-chat), .messages, .preview-layer {
+.desktop-shell, .messages, .preview-layer {
   background-color: var(--chat-bg);
   background-image: var(--chat-wallpaper);
   background-size: var(--chat-wallpaper-size);
   background-position: center;
 }
 
-.desktop-shell:has(.app > .content-chat) > .app-titlebar,
-.desktop-shell .content-chat,
+.desktop-shell:has(.app) > .app-titlebar,
+.desktop-shell .content > .tabbar,
+.desktop-shell .login,
+.desktop-shell .app > .content,
 .desktop-shell .content-chat .messages {
   background: transparent;
 }
 
-.desktop-shell:has(.app > .content-chat) > .app-titlebar {
+.app[data-settings-open] .main-view-navigation { display: none; }
+.desktop-shell:has(.app) > .app-titlebar {
   --text: var(--chat-toolbar-text);
   --muted: var(--chat-toolbar-muted);
   --surface-3: color-mix(in srgb, var(--text) 12%, transparent);
@@ -8016,7 +8019,10 @@ pre,
 }
 
 :root .modal-card.settings-modal {
-  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+  background-color: var(--chat-bg);
+  background-image: linear-gradient(color-mix(in srgb, var(--bg-elevated) 70%, transparent), color-mix(in srgb, var(--bg-elevated) 70%, transparent)), var(--chat-wallpaper);
+  background-size: auto, var(--chat-wallpaper-size);
+  background-position: center;
   backdrop-filter: blur(72px) saturate(120%);
 }
 
@@ -8089,7 +8095,7 @@ pre,
   .multilogin-chat-menu,
   .modal-card { background: var(--bg-elevated); }
 
-  :root .modal-card.settings-modal { background: var(--bg-elevated); }
+  :root .modal-card.settings-modal { backdrop-filter: none; }
 }
 
 @media (prefers-contrast: more) {

@@ -1,6 +1,6 @@
 export const colorFields = {
   accent: { label: "App accent", token: "--accent" },
-  background: { label: "Chat background", token: "--bg" },
+  background: { label: "App background", token: "--bg" },
   outgoing: { label: "Your messages", token: "--primary-action" },
   incoming: { label: "Agent messages", token: "--bg-elevated" },
 } as const;
