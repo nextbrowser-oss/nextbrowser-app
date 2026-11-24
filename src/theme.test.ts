@@ -62,13 +62,15 @@ describe("theme selection", () => {
   it.each(builtinThemes)("keeps $name chat text readable in both modes", preset => {
     for (const mode of ["light", "dark"] as const) {
       const base = themeTokens(mode);
-      const palette = builtinAppearance(preset, mode, { getPropertyValue: key => base[key] ?? "" });
+      const palette = builtinAppearance(preset, mode, { getPropertyValue: key => base[key] ? resolveToken(base, key) : "" });
       const tokens = { ...base, ...appearanceTokens(palette) };
+      const background = palette.background ?? resolveToken(tokens, "--bg");
       const pairs = [
-        ["--on-accent", palette.accent], ["--chat-toolbar-text", palette.background],
-        ["--chat-toolbar-text", palette.gradientEnd ?? palette.background],
-        ["--chat-incoming-ink", palette.incoming], ["--chat-outgoing-ink", palette.outgoing],
+        ["--on-accent", resolveToken(tokens, "--accent")], ["--chat-toolbar-text", background],
+        ["--chat-toolbar-text", palette.gradientEnd ?? background],
+        ["--chat-outgoing-ink", resolveToken(tokens, "--chat-outgoing")],
       ];
+      if (palette.incoming) pairs.push(["--chat-incoming-ink", palette.incoming]);
       for (const [ink, surface] of pairs) {
         expect(contrast(resolveToken(tokens, ink), surface), `${mode}: ${ink} on ${surface}`).toBeGreaterThanOrEqual(4.5);
       }

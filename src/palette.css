@@ -18,6 +18,8 @@
   --terracotta-dark-bg: #291e20; --terracotta-dark-incoming: #4b3335; --terracotta-dark-outgoing: #efa98b; --terracotta-dark-accent: #f5a280;
   --afterglow-light-bg: #eee7fa; --afterglow-light-end: #f6dce6; --afterglow-light-incoming: #fff8ff; --afterglow-light-outgoing: #69437e; --afterglow-light-accent: #814892;
   --afterglow-dark-bg: #211c36; --afterglow-dark-end: #382637; --afterglow-dark-incoming: #46374f; --afterglow-dark-outgoing: #d6a9ea; --afterglow-dark-accent: #dbadff;
+  --hyellow-light-accent: var(--black);
+  --hyellow-dark-accent: #bb9f54; --hyellow-dark-end: #5d5128;
   --brand-line: rgba(230, 225, 225, 0.10);
   --brand-blue: #5865f2;
   --bg: #20242b;

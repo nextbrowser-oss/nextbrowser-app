@@ -16,8 +16,11 @@ function PaletteSwatch({ preset, mode, active }: {
 }) {
   const palette = useMemo(() => active ?? { ...builtinAppearance(preset, mode), ...readPalette(settingsStorage, preset.id, mode) },
     [active, preset, mode]);
+  const background = palette.background ?? "var(--bg)";
+  const incoming = palette.incoming ?? "var(--bg-elevated)";
+  const outgoing = palette.outgoing ?? palette.accent ?? "var(--primary-action)";
   return <i className="theme-preset-swatch" style={{
-    backgroundImage: `linear-gradient(110deg, ${palette.background} 36%, ${palette.incoming} 36% 67%, ${palette.outgoing} 67%)`,
+    backgroundImage: `linear-gradient(110deg, ${background} 36%, ${incoming} 36% 67%, ${outgoing} 67%)`,
   }} />;
 }
 

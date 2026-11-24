@@ -1,11 +1,11 @@
 import type { Theme } from "../theme";
-import type { Wallpaper } from "./appearance";
+import type { Appearance, Wallpaper } from "./appearance";
 
 interface BuiltinTheme {
   id: string;
   name: string;
-  wallpaper: Wallpaper;
-  radius: number;
+  wallpaper: Wallpaper | Partial<Record<Theme, Wallpaper>>;
+  radius?: number;
 }
 
 export const builtinThemes: readonly BuiltinTheme[] = [
@@ -13,6 +13,7 @@ export const builtinThemes: readonly BuiltinTheme[] = [
   { id: "builtin:matcha", name: "Matcha", wallpaper: "gradient", radius: 23 },
   { id: "builtin:terracotta", name: "Terracotta", wallpaper: "solid", radius: 15 },
   { id: "builtin:afterglow", name: "Afterglow", wallpaper: "gradient", radius: 26 },
+  { id: "builtin:hyellow", name: "hyellow", wallpaper: { dark: "gradient" } },
 ];
 
 export function builtinTheme(id: string) {
@@ -20,12 +21,16 @@ export function builtinTheme(id: string) {
 }
 
 export function builtinAppearance(preset: BuiltinTheme, mode: Theme,
-  style: Pick<CSSStyleDeclaration, "getPropertyValue"> = getComputedStyle(document.documentElement)) {
+  style: Pick<CSSStyleDeclaration, "getPropertyValue"> = getComputedStyle(document.documentElement)): Appearance {
   const prefix = `--${preset.id.slice("builtin:".length)}-${mode}-`;
-  const color = (field: string) => style.getPropertyValue(prefix + field).trim();
-  return {
-    accent: color("accent"), background: color("bg"), incoming: color("incoming"), outgoing: color("outgoing"),
-    wallpaper: preset.wallpaper, radius: preset.radius,
-    ...(preset.wallpaper === "gradient" && { gradientEnd: color("end") }),
-  };
+  const appearance: Appearance = {};
+  const wallpaper = typeof preset.wallpaper === "string" ? preset.wallpaper : preset.wallpaper[mode];
+  if (wallpaper) appearance.wallpaper = wallpaper;
+  if (preset.radius !== undefined) appearance.radius = preset.radius;
+  const colors = { accent: "accent", background: "bg", incoming: "incoming", outgoing: "outgoing", gradientEnd: "end" } as const;
+  for (const key of Object.keys(colors) as (keyof typeof colors)[]) {
+    const value = style.getPropertyValue(prefix + colors[key]).trim();
+    if (value) appearance[key] = value;
+  }
+  return appearance;
 }

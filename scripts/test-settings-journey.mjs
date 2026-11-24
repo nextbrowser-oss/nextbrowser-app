@@ -242,12 +242,22 @@ try {
   assert.equal(await picker.textContent(), "Default");
   assert.equal(await accent.inputValue(), "#42bc89");
   await modal.getByRole("button", { name: "My photo", pressed: true }).waitFor();
+  // An existing personal theme with the same name must keep its appearance and identity.
+  await page.evaluate(() => {
+    const key = "nextbrowser.appearance.presets";
+    const library = JSON.parse(localStorage.getItem(key));
+    library.presets.push({ id: "qa-personal-hyellow", name: "hyellow" });
+    localStorage.setItem(key, JSON.stringify(library));
+    const prefix = "nextbrowser.appearance.preset.qa-personal-hyellow.";
+    localStorage.setItem(prefix + "light", JSON.stringify({ accent: "#000000" }));
+    localStorage.setItem(prefix + "dark", JSON.stringify({ accent: "#bb9f54", wallpaper: "gradient", gradientEnd: "#5d5128" }));
+  });
   await page.reload();
   await page.getByRole("button", { name: /^Settings(?:,|$)/ }).click();
   await themes.click();
   await picker.click();
-  const builtins = ["Blueprint", "Matcha", "Terracotta", "Afterglow"];
-  assert.deepEqual(await modal.getByRole("option").allTextContents().then(names => names.map(name => name.trim())), ["Default", ...builtins, "Night sky", "+ Create theme…"]);
+  const builtins = ["Blueprint", "Matcha", "Terracotta", "Afterglow", "hyellow"];
+  assert.deepEqual(await modal.getByRole("option").allTextContents().then(names => names.map(name => name.trim())), ["Default", ...builtins, "Night sky", "hyellow · Personal", "+ Create theme…"]);
   for (const name of builtins) {
     await modal.getByRole("option", { name, exact: true }).click();
     assert.equal(await picker.textContent(), name);
@@ -261,6 +271,28 @@ try {
     }
     await picker.click();
   }
+  await modal.getByRole("option", { name: "hyellow", exact: true }).click();
+  for (const mode of ["Light", "Dark"]) {
+    await radio(mode).check();
+    assert.equal(await accent.inputValue(), mode === "Light" ? "#000000" : "#bb9f54");
+    const region = modal.getByRole("region", { name: mode + " chat preview" });
+    const sample = () => region.evaluate(async el => {
+      await Promise.allSettled(document.getAnimations()
+        .filter(animation => animation instanceof CSSTransition)
+        .map(animation => animation.finished));
+      const styles = [el, el.querySelector(".msg-user-bubble"), el.querySelector(".assistant-bubble")];
+      return styles.map(node => {
+        const { backgroundColor, backgroundImage, borderRadius, color } = getComputedStyle(node);
+        return [backgroundColor, backgroundImage, borderRadius, color];
+      });
+    });
+    const bundled = await sample();
+    assert.notEqual(await picker.locator(".theme-preset-swatch").evaluate(el => getComputedStyle(el).backgroundImage), "none");
+    await choosePreset("hyellow · Personal");
+    assert.deepEqual(await sample(), bundled);
+    await choosePreset("hyellow");
+  }
+  await picker.click();
   await modal.getByRole("option", { name: "Matcha", exact: true }).click();
   const matchaAccent = await accent.inputValue();
   await accent.fill("#8040dd");
