@@ -4,6 +4,7 @@
 // describe how it ended in the shape of an agent CLI's result.
 
 const { createMCPClient } = require("./automation-runner.cjs");
+const { TAB_INSTRUCTIONS } = require("./tab-mcp.cjs");
 const { ProviderError, createProviderClient, modelSupportsVision, resolveProviderSettings } = require("./builtin-agent-providers.cjs");
 const { createMCPToolset } = require("./builtin-agent-tools.cjs");
 const { connectUserMcpTools, mergeToolsets } = require('./user-mcp.cjs');
@@ -160,7 +161,7 @@ async function runBuiltinAgentTurn({
       client,
       model: provider.model,
       providerName: provider.providerName,
-      systemPrompt: plain ? PLAIN_SYSTEM_PROMPT : BUILTIN_AGENT_SYSTEM_PROMPT,
+      systemPrompt: plain ? PLAIN_SYSTEM_PROMPT : [BUILTIN_AGENT_SYSTEM_PROMPT, toolset?.has("tab_tools_list") ? TAB_INSTRUCTIONS : ""].filter(Boolean).join("\n"),
       prompt,
       tools: toolset,
       signal,

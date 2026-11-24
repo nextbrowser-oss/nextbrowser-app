@@ -5,7 +5,7 @@
 
 // In the order the model reads them. screenshot is offered to vision models only.
 const BUILTIN_AGENT_TOOLS = Object.freeze([
-  "profiles_list", "start", "open", "state", "click", "input", "press", "select",
+  "profiles_list", "start", "open", "tab_tools_list", "tab_tool_call", "state", "click", "input", "press", "select",
   "scroll", "wait", "extract", "tabs_list", "tabs_activate", "save_artifact",
 ]);
 const VISION_TOOLS = Object.freeze(["screenshot"]);

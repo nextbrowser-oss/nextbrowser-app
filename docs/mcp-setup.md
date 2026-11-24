@@ -2,6 +2,8 @@
 
 Open **Extensions → MCP**. The browser MCP remains managed by the app.
 
+Under **Settings → Agent**, turn on **Prefer in-tab MCP tools** to discover website actions in the active document. This takes effect on the next Nextbrowser agent or Codex chat turn, or when opening a new Codex terminal. Standard controls are the default. See [in-tab tools and runtime support](in-tab-mcp.md).
+
 - **Discover** reads current entries from the official MCP Registry, with search and pagination. Select Configure to review a package version, command, environment variables or remote endpoint before running it. Registry entries are third-party metadata, not an endorsement or a promise of free service.
 - **Add custom** accepts one launch command, a `command` / `args` / `env` object, one `mcpServers` entry, or a Streamable HTTP `url` with optional `headers`. Node.js/npx or uvx must already be installed for packages that require them. Shell pipelines and implicit shell evaluation are not supported.
 - **Import from GitHub** reads public `server.json`, `.mcp.json`, `mcp.json`, or explicit JSON configuration blocks in README.md. It does not execute repository instructions. Unsupported manifests, multiple entries, missing runtime arguments and authorization requirements must be resolved in the editable configuration before connecting.

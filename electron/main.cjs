@@ -573,10 +573,10 @@ async function runBuiltinAgent({ replyId, prompt, plain, run, mcpEnv, defaultPro
       const requestedTraceFile = activeAutomationTraceFile();
       const traceFile = requestedTraceFile && await nextctlHasAutomationTrace(binary) ? requestedTraceFile : "";
       await refreshSystemProxyEnv();
+      const launch = browserAgentMcp(binary, traceFile);
       mcp = {
-        binary,
-        args: ["--verify-on-start-only", "mcp", ...(traceFile ? ["--automation-trace-file", traceFile] : [])],
-        env: childEnv({ ...mcpEnv, ...(traceFile ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: traceFile } : {}) }),
+        ...launch,
+        env: childEnv({ ...mcpEnv, ...launch.env, ...(traceFile ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: traceFile } : {}) }),
         onRunnerExit: reportRunnerExit,
       };
     }
@@ -657,12 +657,22 @@ enabled = false
 default_tools_approval_mode = "approve"
 `;
 
+function browserAgentMcp(binary, automationTraceFile = "") {
+  const args = ["--verify-on-start-only", "mcp", ...(automationTraceFile ? ["--automation-trace-file", automationTraceFile] : [])];
+  if (appSettings().snapshot().values["nextbrowser.preferTabTools"] !== "1") return { binary, args, env: {} };
+  const directory = app.isPackaged ? path.join(process.resourcesPath, "app.asar.unpacked", "electron") : __dirname;
+  return { binary: process.execPath, args: [path.join(directory, "tab-mcp-launcher.cjs"), binary, ...args], env: { ELECTRON_RUN_AS_NODE: "1" } };
+}
+
 function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "", workspaceId = "") {
+  const launch = browserAgentMcp(nextctlBin, automationTraceFile);
   const runtimeEnv = childEnv({
+    ...launch.env,
     ...(automationTraceFile ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: automationTraceFile } : {}),
     NEXTBROWSER_WORKSPACE_ID: workspaceId,
   });
   const mcpEnvKeys = [
+    ...Object.keys(launch.env),
     "NEXTBROWSER_REQUIRE_VERIFY",
     "NEXTBROWSER_VERIFY_ON_START_ONLY",
     "NEXTBROWSER_PROXY_SAFETY_FILE",
@@ -699,8 +709,8 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "", workspace
     "-c", 'plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser.enabled=false',
     "-c", 'plugins."clawbrowser@nbc-local".enabled=false',
     "-c", 'plugins."clawbrowser@nbc-local".mcp_servers.clawbrowser.enabled=false',
-    "-c", `mcp_servers.nextbrowser.command=${JSON.stringify(nextctlBin)}`,
-    "-c", `mcp_servers.nextbrowser.args=${JSON.stringify(["--verify-on-start-only", "mcp", ...(automationTraceFile ? ["--automation-trace-file", automationTraceFile] : [])])}`,
+    "-c", `mcp_servers.nextbrowser.command=${JSON.stringify(launch.binary)}`,
+    "-c", `mcp_servers.nextbrowser.args=${JSON.stringify(launch.args)}`,
     "-c", `mcp_servers.nextbrowser.env=${mcpEnv}`,
     // Codex starts the MCP server itself. Forward the Recorder's ephemeral
     // trace path from the agent process; putting it only in the parent env is

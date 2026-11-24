@@ -507,6 +507,7 @@ function SettingsModal({
   };
 
   const [section, setSection] = useState<SettingsSection>(requestedSection ?? "general");
+  const [preferTabTools, setPreferTabTools] = useState(() => settingsStorage.getItem("nextbrowser.preferTabTools") === "1");
   const [usageOpen, setUsageOpen] = useState(false);
   const [usageVisited, setUsageVisited] = useState(false);
   useEffect(() => {
@@ -679,6 +680,24 @@ function SettingsModal({
                   </div>}
                 </div>
                 {builtinAgent && <BuiltinAgentSetup />}
+                <div className="settings-group">
+                  <div className="settings-row">
+                    <label htmlFor="prefer-tab-tools" className="small">Prefer in-tab MCP tools</label>
+                    <label className="toggle">
+                      <input id="prefer-tab-tools" type="checkbox" role="switch" checked={preferTabTools}
+                        aria-describedby="tab-tools-help" onChange={event => {
+                          const enabled = event.currentTarget.checked;
+                          settingsStorage.setItem("nextbrowser.preferTabTools", enabled ? "1" : "0");
+                          setPreferTabTools(enabled);
+                        }} />
+                      <span className="toggle-track"><span className="toggle-knob" /></span>
+                    </label>
+                  </div>
+                  <p id="tab-tools-help" className="muted small settings-group-note">
+                    {preferTabTools ? "Use tools from the active tab first, then standard browser controls when needed." : "Use standard browser controls."}
+                    {" Applies to new Nextbrowser agent and Codex chat turns and new Codex terminals."}
+                  </p>
+                </div>
                 {agentError && !builtinAgent && (
                   <div className="error small settings-agent-error">
                     <UserFacingError message={agentError} surface="agent_settings" />
