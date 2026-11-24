@@ -6,18 +6,20 @@ import { Button, Dialog, Glyph, IconButton, Select } from '../shared/ui';
 import { useStore } from '../store';
 import { BuiltinAgentSetup } from './BuiltinAgentSetup';
 import './mcp-view.css';
+import { StockMcpPermissions } from './StockMcpPermissions';
 
 type Server = { id: string; name: string; executable: string; enabled: boolean; checkedAt: string; tools: { name: string; description: string }[] };
 type CatalogItem = { name: string; title: string; version: string; description: string; repository: string; config: Record<string, unknown> | null; remote: boolean };
 type Catalog = { items: CatalogItem[]; cursor: string };
-type Tab = 'installed' | 'catalog' | 'custom';
+type Tab = 'installed' | 'catalog' | 'custom' | 'permissions';
+export type McpProposal = { workspaceId: string; owner: string; name: string; config: Record<string, unknown> };
 const errorMessage = (error: unknown) => String(error instanceof Error ? error.message : error).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
 
-export function McpView() {
+export function McpView({ proposal }: { proposal?: McpProposal } = {}) {
   const workspaceId = useStore(s => s.activeWorkspaceId);
-  return <McpWorkspace key={workspaceId} workspaceId={workspaceId} />;
+  return <McpWorkspace key={workspaceId} workspaceId={workspaceId} proposal={proposal} />;
 }
-function McpWorkspace({ workspaceId }: { workspaceId?: string }) {
+function McpWorkspace({ workspaceId, proposal }: { workspaceId?: string; proposal?: McpProposal }) {
   const available = useStore(s => s.nextctlAvailable), version = useStore(s => s.nextctlVersion);
   const agentId = useStore(s => s.agentId), close = useStore(s => s.closeUtilityDialog);
   const [tab, setTab] = useState<Tab>('installed');
@@ -29,6 +31,8 @@ function McpWorkspace({ workspaceId }: { workspaceId?: string }) {
   const [commandLine, setCommandLine] = useState(''), [json, setJSON] = useState(''), [github, setGithub] = useState('');
   const [busy, setBusy] = useState(''), [error, setError] = useState(''), [notice, setNotice] = useState('');
   const [remove, setRemove] = useState<Server>(), [freeSetup, setFreeSetup] = useState(false);
+  const [pendingProposal, setPendingProposal] = useState<McpProposal>();
+  const lastProposal = useRef<McpProposal>();
   const alive = useRef(true), catalogSequence = useRef(0);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const reload = async () => {
@@ -56,6 +60,12 @@ function McpWorkspace({ workspaceId }: { workspaceId?: string }) {
     finally { if (alive.current) setBusy(''); }
   };
   const prepare = (title: string, config: unknown) => { setName(title); setJSON(JSON.stringify(config, null, 2)); setMode('json'); setTab('custom'); setError(''); setNotice('Review the configuration and fill in required values before connecting.'); };
+  useEffect(() => {
+    if (!proposal || proposal === lastProposal.current || proposal.workspaceId !== workspaceId) return;
+    lastProposal.current = proposal;
+    if (busy || name || json || commandLine) setPendingProposal(proposal);
+    else prepare(proposal.name, proposal.config);
+  }, [proposal, workspaceId, busy, name, json, commandLine]);
   const add = () => run('add', async () => {
     const added = await invoke<Server>('user_mcp_add', { workspaceId, mode, name, commandLine, json });
     if (!alive.current) return;
@@ -70,12 +80,17 @@ function McpWorkspace({ workspaceId }: { workspaceId?: string }) {
       <IconButton label="Agent settings" appearance="plain" size="small" onClick={() => { close(); window.dispatchEvent(new CustomEvent(OPEN_AGENT_SETTINGS_EVENT)); }}><Glyph name="sliders" size={16} /></IconButton>
     </div>
     {!isBuiltinAgent(agentId) && agentId !== 'codex' && <p className="mcp-info">Custom servers currently work with the Nextbrowser agent and Codex. Choose a free model or switch agents to use them in chat.</p>}
-    <div className="mcp-tabs" role="group" aria-label="MCP sections">{(['installed', 'catalog', 'custom'] as Tab[]).map(value => <Button key={value} type="button" aria-pressed={tab === value} onClick={() => { setTab(value); setError(''); }} disabled={!!busy}>
-      {value === 'installed' ? `Installed · ${servers.length + 1}` : value === 'catalog' ? 'Discover' : 'Add custom'}
+    <div className="mcp-tabs" role="group" aria-label="MCP sections">{(['installed', 'catalog', 'custom', 'permissions'] as Tab[]).map(value => <Button key={value} type="button" aria-pressed={tab === value} onClick={() => { setTab(value); setError(''); }} disabled={!!busy}>
+      {value === 'installed' ? `Installed · ${servers.length + 2}` : value === 'catalog' ? 'Discover' : value === 'permissions' ? 'Permissions' : 'Add custom'}
     </Button>)}</div>
     {error && <p className="error mcp-message" role="alert">{error}</p>}
     {notice && <p className="mcp-message" role="status">{notice}</p>}
-    {!workspaceId ? <p>Select a workspace to add MCP servers.</p> : tab === 'installed' ? <div className="mcp-server-list">
+    {pendingProposal && <div className="mcp-card-foot"><span>Agent proposal: {pendingProposal.name}</span>
+      <Button disabled={!!busy} onClick={() => { prepare(pendingProposal.name, pendingProposal.config); setPendingProposal(undefined); }}>Review proposal</Button>
+      <Button onClick={() => setPendingProposal(undefined)}>Dismiss</Button></div>}
+    {!workspaceId ? <p>Select a workspace to add MCP servers.</p> : tab === 'permissions' ? <StockMcpPermissions workspaceId={workspaceId} /> : tab === 'installed' ? <div className="mcp-server-list">
+      <article className="mcp-card"><div className="mcp-card-head"><Glyph name="folder" /><div><strong>Workspace tools</strong><span className="muted small">Terminal, files and MCP setup · built in</span></div>
+        <Button onClick={() => setTab('permissions')}>Manage permissions</Button></div></article>
       <article className="mcp-card"><div className="mcp-card-head"><Glyph name="unplug" /><div><strong>Nextbrowser</strong><span className="muted small">Browser tools · built in</span></div><span className="mcp-badge">Managed</span></div><p className="muted small">{available ? `CLI ${version || 'available'}` : 'CLI unavailable'} · Connected when a browser task starts.</p></article>
       {loading && <p role="status">Loading servers…</p>}
       {servers.map(server => <article className="mcp-card" key={server.id}>

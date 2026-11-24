@@ -2,6 +2,13 @@ const { readCLIVersion } = require("./cli-version.cjs");
 const { windowChromeOptions, applyWindowChrome, applyWindowZoom, windowState, controlWindow, watchWindowState } = require("./window-chrome.cjs");
 const chromeWindows = new WeakSet();
 const miniAppMcp = require('./mini-apps/mcp.cjs');
+const stockMcp = require('./stock-mcp.cjs');
+let stockHost;
+function stockTools() {
+  return stockHost ??= stockMcp.createStockMcp({ dataRoot: dataDir(), dialog,
+    isCurrent: scope => !scope.window.isDestroyed() && miniApps().agentScope(scope.window.webContents, scope.workspaceId) === scope,
+    searchCatalog: search => searchCatalog({ search }, (...request) => systemProxy.fetch(...request)) });
+}
 let miniAppsHost;
 function miniApps() {
   return miniAppsHost ??= require('./mini-apps/host.cjs').createHost({
@@ -556,6 +563,7 @@ async function runBuiltinAgent({ replyId, prompt, plain, run, mcpEnv, defaultPro
   builtinAgentRuns.set(replyId, controller);
   const startedAt = Date.now();
   const settings = builtinAgentSettings();
+  let stockSession;
   try {
     let mcp;
     if (!plain) {
@@ -581,6 +589,8 @@ async function runBuiltinAgent({ replyId, prompt, plain, run, mcpEnv, defaultPro
       };
     }
     const managed = settings.provider === "openrouter" ? await managedOpenRouterEndpoint() : undefined;
+    const desktopScope = !plain && agentControlArtifactScopes.get(mcpEnv?.NEXTBROWSER_CONTROL_TOKEN)?.miniApps;
+    if (desktopScope) stockSession = stockTools().open(desktopScope, mcpEnv.NEXTBROWSER_CONTROL_URL, controller.signal);
     const result = await runBuiltinAgentTurn({
       settings,
       managedOpenRouterURL: managed?.baseURL,
@@ -592,6 +602,7 @@ async function runBuiltinAgent({ replyId, prompt, plain, run, mcpEnv, defaultPro
         ...(agentControlArtifactScopes.get(mcpEnv.NEXTBROWSER_CONTROL_TOKEN)?.miniApps
           ? [miniAppMcp.builtinServer(mcpEnv.NEXTBROWSER_CONTROL_URL, mcpEnv.NEXTBROWSER_CONTROL_TOKEN)] : []),
         ...await userMcp().enabled(mcpEnv.NEXTBROWSER_WORKSPACE_ID),
+        ...(stockSession ? [stockSession.server] : []),
       ] : [],
       userMcpDeps: userMcpDependencies(),
       defaultProfile,
@@ -610,6 +621,8 @@ async function runBuiltinAgent({ replyId, prompt, plain, run, mcpEnv, defaultPro
     }));
     return result;
   } finally {
+    controller.abort();
+    stockSession?.close();
     builtinAgentRuns.delete(replyId);
     stoppedAgentRuns.delete(replyId);
     timedOutAgentRuns.delete(replyId);
@@ -1209,6 +1222,7 @@ async function ensureAgentControlServer() {
     let hostProfile;
     void (async () => {
       const action = request.url === "/profile/start" ? "start" : request.url === "/profile/stop" ? "stop" : "";
+      if (request.url === stockMcp.endpoint) return stockTools().serve(request, response);
       if (request.url === miniAppMcp.endpoint) {
         const token = /^Bearer (.+)$/i.exec(request.headers.authorization || '')?.[1];
         const scope = agentControlArtifactScopes.get(token)?.miniApps;
@@ -4010,6 +4024,12 @@ if (!gotLock) {
     }
     ipcMain.handle("nextbrowser:invoke", (event, command, args) => {
       if (miniApps().isGuest(event.sender)) throw Error("Desktop commands are unavailable.");
+      if (typeof command === 'string' && command.startsWith('stock_mcp_')) {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (!chromeWindows.has(window) || event.sender !== window.webContents || event.senderFrame !== event.sender.mainFrame) throw Error('Permissions require the main desktop window.');
+        const scope = miniApps().agentScope(event.sender, args?.workspaceId);
+        return stockTools().settings(scope, command, args);
+      }
       if ((command === 'agent_run' || command === 'terminal_start') && event.senderFrame !== event.sender.mainFrame) throw Error('Agent sessions require the desktop window.');
       if (typeof command === "string" && command.startsWith("mini_apps_")) {
         const window = BrowserWindow.fromWebContents(event.sender);

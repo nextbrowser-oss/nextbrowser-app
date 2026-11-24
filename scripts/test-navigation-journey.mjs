@@ -506,7 +506,7 @@ try {
   await extensionsPopup.getByRole('button', { name: /^Open MCP/ }).click();
   const mcpDialog = page.getByRole('dialog', { name: 'MCP', exact: true });
   await mcpDialog.waitFor();
-  await mcpDialog.getByRole('button', { name: 'Installed · 1', exact: true }).waitFor();
+  await mcpDialog.getByRole('button', { name: 'Installed · 2', exact: true }).waitFor();
   assert.equal(await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().tab), 'skills');
   await mcpDialog.getByRole('button', { name: 'Agent settings', exact: true }).click();
   const agentSettings = page.getByRole('dialog', { name: 'Settings', exact: true });

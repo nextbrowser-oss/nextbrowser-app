@@ -44,5 +44,10 @@
 .mcp-github label { flex: 1; }
 .mcp-code { font: 12px/1.6 var(--font-mono); resize: vertical; }
 .mcp-form-actions { justify-content: space-between; }
+.stock-mcp-folder { overflow-wrap: anywhere; font-size: 12px; }
+.stock-mcp-permission { display: grid; grid-template-columns: minmax(0, 1fr) minmax(170px, 34%); align-items: start; gap: 14px; }
+.stock-mcp-permission p { margin: 4px 0; }
+.mcp-tabs { flex-wrap: wrap; }
+@media (max-width: 560px) { .stock-mcp-permission { grid-template-columns: 1fr; } }
 .mcp-info, .mcp-message { margin: 0; font-size: 12px; line-height: 1.6; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); }
 @media (max-width: 560px) { .mcp-catalog-grid, .mcp-form-row { grid-template-columns: 1fr; } .mcp-github { align-items: stretch; flex-direction: column; } }

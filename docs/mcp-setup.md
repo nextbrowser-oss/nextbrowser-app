@@ -21,3 +21,15 @@ Secrets are kept in `mcp-servers.enc`, not renderer storage or agent configurati
 Protocol references: [MCP transports](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports), [tools and pagination](https://modelcontextprotocol.io/specification/2025-06-18/server/tools), [Registry API](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/api/generic-registry-api.md).
 
 Validation: Node tests cover real stdio and HTTP connections, SSE, pagination, tool invocation, external-agent bridging, encrypted persistence, workspace isolation and credential filtering. UI tests cover explicit installation, catalog review, failure recovery, and free-model setup without silently changing the default agent.
+
+## Built-in workspace tools
+
+In **Extensions → MCP → Permissions**, select the folder and permissions for the built-in Nextbrowser agent. Each account and workspace starts with its own working folder. Changes also apply to active requests. Start a new chat turn to discover newly enabled tools.
+
+- **Terminal** supports Bash on macOS/Linux, and Git Bash and Windows PowerShell when installed in their standard locations on Windows. Each invocation shows the executable, folder and exact command in a native desktop prompt. **Allow once** runs it as the current OS user. The folder is its starting directory. The agent receives bounded output and the exit status. Foreground commands have a 25-second timeout.
+- **Workspace files** can list directories and read UTF-8 text files up to 512 KiB. Choose **Ask every time**, **Allow in selected folder** or **Off**. Both listing and reading support continuation offsets. Links outside the selected directory are rejected.
+- **MCP setup** lets the agent search the public registry and prepare an editable configuration. The user supplies credentials and selects **Connect & save**. The server's tools are available on the next turn. Switch setup to **Off** to disable both agent actions.
+
+These permissions govern the stock tools of the built-in agent. Independently connected third-party servers and external agent CLIs have their own permissions.
+
+To exercise the desktop flow, build the renderer, set `NEXTCTL_BIN` to the local CLI executable and run `node scripts/test-stock-mcp.mjs`. The scenario uses a temporary profile, a local model fixture, a real shell, and a local MCP server.
