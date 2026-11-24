@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { readPalettes, readThemeLibrary, savePalette, saveThemeLibrary } from "./themePresets";
 import {
   LOCAL_STORAGE_PROBE_CONFIRM_MS,
   LOCAL_STORAGE_PROBE_KEY,
@@ -51,6 +52,29 @@ const PERSISTENT = ["theme", "activeWorkspaceId", "activeConversationId:*"];
 const flush = () => new Promise<void>((resolve) => queueMicrotask(resolve));
 
 describe("settings storage", () => {
+  it("restores the selected preset with two photo wallpapers after the renderer cache is lost", async () => {
+    const cache = memoryStorage({ "nextbrowser.appearance.light": '{"accent":"#407080"}' });
+    const file = settingsFile();
+    const open = () => createSettingsStorage({ cache: () => cache, file: file.open() });
+    const storage = open();
+    const library = { activeId: "forest", presets: [{ id: "forest", name: "Forest" }] };
+    const photo = "data:image/jpeg;base64," + "A".repeat(600_000);
+    const palettes = {
+      light: { wallpaper: "photo", photo, accent: "#308060" },
+      dark: { wallpaper: "photo", photo, accent: "#408080" },
+    } as const;
+    savePalette(storage, "forest", "light", palettes.light);
+    savePalette(storage, "forest", "dark", palettes.dark);
+    saveThemeLibrary(storage, library);
+    await flush();
+    expect(Object.values(file.state.values).every(value => value.length <= 1024 * 1024)).toBe(true);
+    cache.clear();
+    const restarted = open();
+    expect(readThemeLibrary(restarted)).toEqual(library);
+    expect(readPalettes(restarted, "forest")).toEqual(palettes);
+    expect(readPalettes(restarted, "default").light).toEqual({ accent: "#407080" });
+  });
+
   it("migrates the current localStorage values into the file on first run", () => {
     const cache = memoryStorage({
       theme: "light",

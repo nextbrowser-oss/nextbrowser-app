@@ -54,3 +54,13 @@
 .theme-radius input { flex: 1; min-width: 65px; max-width: 200px; accent-color: var(--primary-action); }
 .theme-radius output { min-width: 40px; font-variant-numeric: tabular-nums; font-weight: 400; color: var(--muted); }
 .theme-settings .theme-reset { justify-self: start; font-size: 12px; }
+.theme-preset-controls { display: flex; align-items: start; gap: 6px; }
+.theme-preset-controls .shared-select { flex: 1; }
+.theme-preset-controls .shared-select-trigger { background: var(--surface-2); color: var(--text); }
+.theme-preset-controls .shared-select-trigger:hover:not(:disabled) { background: var(--surface-3); }
+.theme-preset-controls .shared-select-trigger:focus-visible { outline-color: var(--accent); }
+.theme-presets small { display: block; margin-top: 6px; }
+.theme-preset-form { display: flex; align-items: end; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.theme-preset-form label { flex: 1 1 140px; display: grid; gap: 4px; font-size: 12px; }
+.theme-preset-form input { min-width: 0; width: 100%; box-sizing: border-box; }
+.theme-preset-form span { flex-basis: 100%; overflow-wrap: anywhere; }

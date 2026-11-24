@@ -34,6 +34,7 @@ import { humanBytes, type AppTab, type Conversation } from "./types";
 import { readThemePreference, resolveTheme, subscribeToSystemTheme, systemPrefersLight, type Theme, type ThemePreference } from "./theme";
 import { ThemePicker } from "./components/ThemePicker";
 import { ThemeEditor } from "./components/ThemeEditor";
+import { ThemePresets } from "./components/ThemePresets";
 import { useAppearance } from "./lib/useAppearance";
 import { confirmedBrowserRuntimeUpdates } from "./lib/browserRuntimeUpdate";
 import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
@@ -585,8 +586,9 @@ function SettingsModal({
 
             {section === "themes" && (
               <div className="theme-settings">
+                <ThemePresets {...appearanceSettings} />
                 <ThemePicker value={themePreference} onChange={onThemeChange} />
-                <ThemeEditor key={activeTheme} mode={activeTheme} {...appearanceSettings} />
+                <ThemeEditor key={appearanceSettings.library.activeId + activeTheme} mode={activeTheme} {...appearanceSettings} />
               </div>
             )}
 

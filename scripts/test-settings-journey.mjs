@@ -112,7 +112,7 @@ try {
   assert.equal(await modal.getByRole("group", { name: "Theme", exact: true }).count(), 0);
   const themes = modal.getByRole("tab", { name: "Themes", exact: true });
   await themes.click();
-  const theme = modal.getByRole("group", { name: "Theme" });
+  const theme = modal.getByRole("group", { name: "Theme", exact: true });
   const radio = (name) => theme.getByRole("radio", { name, exact: true });
   const waitForTheme = (name) => page.waitForFunction((next) => document.documentElement.dataset.theme === next, name);
   assert.equal(await radio("Dark").isChecked(), true);
@@ -188,6 +188,59 @@ try {
   await modal.getByRole("button", { name: "My photo", pressed: true }).waitFor();
   assert.equal(await modal.getByLabel("App accent", { exact: true }).inputValue(), "#42bc89");
   assert.equal(await thumbColor(), "rgb(66, 188, 137)");
+  const picker = modal.getByRole("combobox", { name: "Saved theme", exact: true });
+  const accent = modal.getByLabel("App accent", { exact: true });
+  const saveName = modal.getByRole("button", { name: "Save", exact: true });
+  const themeName = modal.getByRole("textbox", { name: "Theme name" });
+  const choosePreset = async (name) => {
+    await picker.click();
+    await modal.getByRole("option", { name, exact: true }).click();
+  };
+  const saveAs = async (name) => {
+    await modal.getByRole("button", { name: "Save as…" }).click();
+    await themeName.fill(name);
+    await saveName.click();
+  };
+  await saveAs("Forest");
+  assert.equal(await picker.textContent(), "Forest");
+  await modal.getByRole("button", { name: "My photo", pressed: true }).waitFor();
+  await accent.fill("#299877");
+  await saveAs("Night");
+  await accent.fill("#ab5080");
+  await modal.getByRole("button", { name: "Rename theme" }).click();
+  await themeName.fill(" forest ");
+  assert.equal(await saveName.isDisabled(), true);
+  await themeName.fill(" Night sky ");
+  await themeName.press("Enter");
+  assert.equal(await picker.textContent(), "Night sky");
+  await radio("System").check();
+  await waitForTheme("light");
+  assert.equal(await accent.inputValue(), "#ce674a");
+  await accent.fill("#dc8866");
+  await page.reload();
+  await page.getByRole("button", { name: /^Settings(?:,|$)/ }).click();
+  await themes.click();
+  assert.equal(await picker.textContent(), "Night sky");
+  assert.equal(await accent.inputValue(), "#dc8866");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await waitForTheme("dark");
+  assert.equal(await accent.inputValue(), "#ab5080");
+  await choosePreset("Forest");
+  assert.equal(await accent.inputValue(), "#299877");
+  await modal.getByRole("button", { name: "Delete theme" }).click();
+  await modal.getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.equal(await picker.textContent(), "Forest");
+  await modal.getByRole("button", { name: "Delete theme" }).click();
+  await modal.getByRole("button", { name: "Confirm delete" }).click();
+  assert.equal(await picker.textContent(), "Default");
+  assert.equal(await accent.inputValue(), "#42bc89");
+  await modal.getByRole("button", { name: "My photo", pressed: true }).waitFor();
+  await page.reload();
+  await page.getByRole("button", { name: /^Settings(?:,|$)/ }).click();
+  await themes.click();
+  await picker.click();
+  assert.deepEqual(await modal.getByRole("option").allTextContents().then(names => names.map(name => name.trim())), ["Default", "Night sky"]);
+  await modal.getByRole("option", { name: "Default", exact: true }).click();
   await modal.getByRole("button", { name: "Reset dark appearance" }).click();
   assert.equal(await corners.inputValue(), "20");
   assert.equal(await modal.getByRole("button", { name: "Glow", pressed: true }).count(), 1);
@@ -233,7 +286,7 @@ try {
   assert.equal(await page.evaluate(() => window.__settingsQA.calls.some((call) => call.command === "app_install_update")), false, "bulk must not restart the app");
   await page.screenshot({ path: "e2e-out/settings-updates-light.png" });
   assert.deepEqual(errors, []);
-  console.log("Settings journey passed: rail icon sizing, theme selection, system changes, persistence, titlebar toggle, updates and proxy navigation.");
+  console.log("Settings journey passed: rail sizing, named theme creation, editing, switching, deletion, reload, system appearance, updates and proxy navigation.");
 } catch (error) {
   if (page) {
     await mkdir("e2e-out", { recursive: true });
