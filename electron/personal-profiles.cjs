@@ -1,11 +1,11 @@
 const fs = require('node:fs/promises');
+const { createReadStream } = require('node:fs');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const { openBrowser, findBrowser, importPage } = require('./personal-browser.cjs');
 const { writeArchive, readArchive } = require('./personal-archive.cjs');
+const { findSources, inspectSource, hasPortableData, otherBrowsers, categories, files } = require('./personal-sources.cjs');
 
-const categories = ['bookmarks','history','tabs','favicons','topSites'];
-const databases = { history: 'History', favicons: 'Favicons', topSites: 'Top Sites' };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const changed = 'The source profile is being updated. Close that browser and try the import again.';
 
@@ -149,7 +149,7 @@ async function snapshot(source, dest, selected) {
       const urls = await readTabs(source);
       if (!urls.length) continue;
       await writeTabSession(dest,urls);
-    } else if (!await copyDatabase(source,dest,databases[kind])) continue;
+    } else if (!await copyDatabase(source,dest,files[kind])) continue;
     imported.push(kind);
   }
   if (!imported.length) throw Error('No supported data found. Select a browser profile with the chosen data.');
@@ -173,7 +173,7 @@ function describe(root, profile) {
   }
   return {...profile, backup: {archivePath:path.join(root,profile.id,backup.archive), keyPath:path.join(keyDirectory(root),backup.key)}};
 }
-async function importProfile(root, source, name, selected, active = () => true) {
+async function importProfile(root, source, name, selected, active = () => true, origin) {
   if (typeof name !== 'string' || !name.trim() || name.trim().length > 80) throw Error('Choose a profile name (up to 80 characters).');
   await fs.mkdir(root, { recursive: true, mode: 0o700 });
   const stage = await fs.mkdtemp(path.join(root,'.import-'));
@@ -181,6 +181,16 @@ async function importProfile(root, source, name, selected, active = () => true) 
     const id = randomUUID(), dest = path.join(stage,'browser','Default');
     const imported = await snapshot(source,dest,selected);
     const profile = {id,name:name.trim(),kind:'personal',imported};
+    if (origin) {
+      const after = await inspectSource(source,origin.browser);
+      const versions = {};
+      for (const kind of imported) {
+        const version = origin.items[kind]?.version;
+        if (!version || after.items[kind]?.version !== version || after.items[kind].busy) throw Error(changed);
+        versions[kind] = version;
+      }
+      profile.source = {id:origin.id,versions};
+    }
     if (!active()) throw Error('The active account changed.');
     profile.backup = await makeBackup(root,stage,profile,dest);
     await fs.writeFile(path.join(stage,'profile.json'),JSON.stringify(profile));
@@ -250,21 +260,133 @@ async function restoreProfile(root,archive,key,current) {
   } finally { await fs.rm(stage,{recursive:true,force:true}); }
 }
 
+async function localProfiles(root) {
+  let entries;
+  try { entries = await fs.readdir(root, {withFileTypes:true}); }
+  catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+  return Promise.all(entries.filter(entry => entry.isDirectory() && uuid.test(entry.name)).map(async entry => {
+    const profile = JSON.parse(await fs.readFile(path.join(root,entry.name,'profile.json'),'utf8'));
+    if (profile.id !== entry.name) throw Error('Invalid local profile reference.');
+    return describe(root,profile);
+  }));
+}
+
+const sourceCatalogues = new WeakMap();
+const importingSources = new Set();
+
+// Receipts contain an opaque source ID and file revisions. For profiles predating
+// receipts, report a match only when the actual portable content is identical.
+async function sourceStatus(root,source,profiles,digests = new Map()) {
+  async function digest(file) {
+    if (!digests.has(file)) digests.set(file,(async () => {
+      const hash = createHash('sha256');
+      for await (const chunk of createReadStream(file)) hash.update(chunk);
+      return hash.digest('hex');
+    })());
+    return digests.get(file);
+  }
+  const items = {};
+  for (const [kind,item] of Object.entries(source.items)) {
+    const prior = profiles.filter(p => p.source?.id === source.id && p.source.versions?.[kind]);
+    let imported = !item.busy && !!item.version && prior.some(p => p.source.versions[kind] === item.version);
+    let sourceTabs;
+    if (!item.busy && !imported) {
+      try {
+        if (kind === 'tabs') {
+          sourceTabs = await readTabs(source.dir);
+          if (!sourceTabs.length) continue;
+        } else if (!await hasPortableData(source.dir,kind)) continue;
+      } catch {
+        items[kind] = {unreadable:true,imported:false};
+        continue;
+      }
+    }
+    for (const legacy of profiles) {
+      if (imported || item.busy) break;
+      if (legacy.source || !legacy.imported?.includes(kind)) continue;
+      const local = path.join(root,legacy.id,'browser','Default');
+      try {
+        if (kind === 'tabs') {
+          const b = await readTabs(local);
+          imported = sourceTabs.length === b.length && sourceTabs.every((url,i) => url === b[i]);
+        } else {
+          const a = path.join(source.dir,files[kind]), b = path.join(local,files[kind]);
+          const [sa,sb] = await Promise.all([statFile(a),statFile(b)]);
+          if (sa && sa.size === sb?.size) imported = await digest(a) === await digest(b);
+        }
+      } catch { /* An unavailable legacy copy cannot establish a match. */ }
+    }
+    items[kind] = {imported,busy:item.busy,updated:!imported && prior.length > 0};
+  }
+  return {id:source.id,browser:source.browser,name:source.name,items};
+}
+
 async function personalCommand({base, scope, current, dialog, shell, command, args}) {
   if (!scope?.owner.startsWith('account/') || !current()) throw Error('Sign in to import personal profiles.');
   const root = ownerRoot(base,scope.owner);
   if (command === 'personal_profiles_list') {
-    let entries;
-    try { entries = await fs.readdir(root, {withFileTypes:true}); } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
-    const profiles = await Promise.all(entries.filter(entry => entry.isDirectory() && uuid.test(entry.name)).map(async entry =>
-      describe(root,JSON.parse(await fs.readFile(path.join(root,entry.name,'profile.json'),'utf8')))));
+    const profiles = await localProfiles(root);
     return current() ? profiles : [];
+  }
+  if (command === 'personal_profiles_scan' || command === 'personal_profiles_choose_source') {
+    let catalogue = sourceCatalogues.get(scope);
+    if (!catalogue) { catalogue = new Map(); sourceCatalogues.set(scope,catalogue); }
+    const profiles = await localProfiles(root);
+    if (command === 'personal_profiles_choose_source') {
+      const picked = await dialog.showOpenDialog(scope.window,{title:'Choose a Chromium profile folder',properties:['openDirectory']});
+      if (picked.canceled || !picked.filePaths.length) return null;
+      if (!current()) throw Error('The active account changed.');
+      const source = await inspectSource(picked.filePaths[0],'Selected folder');
+      const known = catalogue.get(source.id);
+      if (known) source.browser = known.browser;
+      catalogue.set(source.id,source);
+      const result = await sourceStatus(root,source,profiles);
+      if (!current()) throw Error('The active account changed.');
+      return result;
+    }
+    const {sources,unavailable} = await findSources();
+    for (const source of catalogue.values()) {
+      if (source.browser !== 'Selected folder' || sources.some(s => s.id === source.id)) continue;
+      try { sources.push(await inspectSource(source.dir,source.browser)); }
+      catch { unavailable.push(source.name); }
+    }
+    catalogue.clear();
+    const digests = new Map();
+    const results = [];
+    for (const source of sources) {
+      catalogue.set(source.id,source);
+      results.push(await sourceStatus(root,source,profiles,digests));
+    }
+    const unsupported = await otherBrowsers();
+    if (!current()) throw Error('The active account changed.');
+    return {sources:results,unavailable,unsupported};
+  }
+  if (command === 'personal_profiles_import_source') {
+    const source = sourceCatalogues.get(scope)?.get(args.sourceId);
+    if (!source) throw Error('Scan again to select a browser profile.');
+    if (!Array.isArray(args.selected) || !args.selected.length || args.selected.some(k => !categories.includes(k))) throw Error('Select the data to import.');
+    const lock = path.join(root,source.id);
+    if (importingSources.has(lock)) throw Error('This source is already being imported.');
+    importingSources.add(lock);
+    try {
+      const fresh = await inspectSource(source.dir,source.browser);
+      if (fresh.id !== source.id) throw Error('The selected profile folder changed. Scan again.');
+      const status = await sourceStatus(root,fresh,await localProfiles(root));
+      const selected = [...new Set(args.selected)].filter(k => !status.items[k]?.imported);
+      if (!selected.length) throw Error('The selected data has already been imported.');
+      if (selected.some(k => status.items[k]?.busy)) throw Error(changed);
+      if (selected.some(k => status.items[k]?.unreadable)) throw Error('The selected browser file cannot be read.');
+      if (selected.some(k => !status.items[k] || fresh.items[k].version !== source.items[k]?.version)) throw Error('The source data changed. Scan again.');
+      if (!current()) throw Error('The active account changed.');
+      return await importProfile(root,fresh.dir,args.name,selected,current,fresh);
+    } finally { importingSources.delete(lock); }
   }
   if (command === 'personal_profiles_import') {
     const {canceled,filePaths} = await dialog.showOpenDialog(scope.window, { title:'Choose your browser profile (Default or Profile 1)', properties:['openDirectory'] });
     if (canceled || !filePaths.length) return null;
     if (!current()) throw Error('The active account changed.');
-    return importProfile(root,filePaths[0],args.name,args.selected,current);
+    const source = await inspectSource(filePaths[0],'Selected folder');
+    return importProfile(root,source.dir,args.name,args.selected,current,source);
   }
   if (command === 'personal_profiles_restore') {
     const choose = async (title,extension) => {

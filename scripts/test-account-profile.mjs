@@ -6,12 +6,17 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { _electron } from 'playwright-core';
 import { createServer } from 'vite';
+import sources from '../electron/personal-sources.cjs';
 
 const root = path.resolve(fileURLToPath(new URL('../',import.meta.url)));
 const fixture = await mkdtemp(path.join(tmpdir(),'nb-account-ui-'));
-const source = path.join(fixture,'source','Default');
+const scanEnv = {LOCALAPPDATA:fixture,APPDATA:fixture,XDG_CONFIG_HOME:fixture,HOME:fixture,USERPROFILE:fixture};
+const source = path.join(sources.browserRoots(process.platform,fixture,scanEnv)[0].dir,'Default');
 await mkdir(source,{recursive:true});
-await writeFile(path.join(source,'Bookmarks'),JSON.stringify({version:1,roots:{bookmark_bar:{type:'folder',id:'1',children:[]}}}));
+const { DatabaseSync } = await import('node:sqlite');
+const fixtureHistory = new DatabaseSync(path.join(source,'History'));
+fixtureHistory.exec('CREATE TABLE urls (id INTEGER); INSERT INTO urls VALUES (1)'); fixtureHistory.close();
+await writeFile(path.join(source,'Bookmarks'),JSON.stringify({version:1,roots:{bookmark_bar:{type:'folder',id:'1',children:[{type:'url',name:'Test',url:'https://example.test/'}]}}}));
 const modules = await realpath(path.join(root,'node_modules'));
 const server = await createServer({root,server:{host:'127.0.0.1',port:0,fs:{allow:[root,modules]}},logLevel:'error'});
 let app;
@@ -52,19 +57,31 @@ try {
   const visits = page.getByRole('region',{name:'Visits',exact:true});
   await visits.getByRole('group',{name:'Visits by day'}).locator('g[tabindex]').first().focus();
   assert.equal(await visits.locator('b').innerText(),'2');
-  await app.evaluate(({dialog},file) => {dialog.showOpenDialog = async () => ({canceled:false,filePaths:[file]});},source);
+  await app.evaluate((_electron,env) => { Object.assign(process.env,env); },scanEnv);
   await page.getByRole('button',{name:'Import browser data'}).click();
-  await page.getByLabel('Profile name').fill('Local fixture');
-  await page.getByRole('button',{name:'Import selected from folder…'}).click();
+  await page.getByText('Chrome · Default',{exact:true}).waitFor();
+  const bookmarks = page.getByRole('checkbox',{name:'Bookmarks',exact:true});
+  assert.equal(await bookmarks.isChecked(),false);
+  assert.equal(await page.getByRole('checkbox',{name:'Browsing and download history'}).isEnabled(),true);
+  assert.equal(await page.getByRole('checkbox',{name:'Open tabs'}).isDisabled(),true);
+  await page.getByLabel('New personal profile name').fill('Local fixture');
+  await bookmarks.check();
+  await page.getByRole('button',{name:'Import selected data'}).click();
   await page.getByText('Personal · This device',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Open profile',exact:true}).count(),1);
   assert.match(await page.locator('.personal-profiles [role=status]').innerText(),/Imported: Bookmarks/);
+  await page.getByText('Imported',{exact:true}).waitFor();
+  assert.ok(await bookmarks.isChecked() && await bookmarks.isDisabled());
+  await page.getByRole('button',{name:'Close import'}).click();
   const recovery = page.getByRole('region',{name:'Recovery files'});
   await recovery.waitFor();
   const paths = await recovery.locator('code').allTextContents();
   assert.match(paths[0],/\.nbarchive$/); assert.match(paths[1],/\.nbkey$/);
   await app.evaluate(({dialog},files) => { dialog.showOpenDialog = async (_window,opts) => ({canceled:false,filePaths:[files[opts.filters[0].extensions[0] === 'nbkey' ? 1 : 0]]}); },paths);
   await page.getByRole('button',{name:'Import browser data'}).click();
+  await page.getByText('Imported',{exact:true}).waitFor();
+  assert.ok(await bookmarks.isChecked() && await bookmarks.isDisabled());
+  assert.ok(await page.getByRole('button',{name:'Import selected data'}).isDisabled());
   await page.getByRole('button',{name:'Restore from archive…'}).click();
   await page.getByText('Restored into a separate personal profile.').waitFor();
   assert.equal(await page.getByRole('button',{name:'Open profile',exact:true}).count(),2);
@@ -81,7 +98,7 @@ try {
   await page.locator('.settings-modal').waitFor();
   assert.equal(await page.locator('.tabbar:visible,.main-view-navigation:visible').count(),0);
   assert.match(await page.locator('.settings-modal').evaluate(el => getComputedStyle(el).backgroundImage),/radial-gradient/);
-  console.log('Passed account graphs, folder import through renderer and main process, personal badge, app wallpaper, and settings navigation.');
+  console.log('Passed account charts, automatic discovery, selected encrypted import, persistent checkbox state, archive recovery, wallpaper and settings navigation.');
 } finally {
   try { await app?.close(); } finally { await server.close(); await rm(fixture,{force:true,recursive:true,maxRetries:5,retryDelay:150}); }
 }

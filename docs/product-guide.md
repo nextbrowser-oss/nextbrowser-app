@@ -25,7 +25,9 @@ Choose **Sign in to Nextbrowser** in the desktop app, continue in your browser, 
 
 Keep credentials out of prompts, chat messages, skills, custom scripts, screenshots, logs, and repository files.
 
-In **My account → Import browser data**, choose a closed Chromium profile to import bookmarks, history, open tabs, site icons and frequently visited sites. Nextbrowser creates a separate working profile and encrypts an archive on this computer. If you use the browser’s import wizard, finish the import and close its window. Use **Finish backup** if the backup is still pending.
+Open **My account → Import browser data** to scan local Chrome, Edge, Brave and Chromium profiles. Choose a detected source or browse to another profile folder. Select the data you want to copy and click **Import selected data**. Each import creates a separate working profile and an encrypted archive on this computer. Website sign-ins stay with the original browser. **Open profile** launches the imported copy.
+
+The scanner checks categories already imported into this Nextbrowser account. Changed source files can be imported again. For older imports without a recorded source, the scanner checks for matching local data. If a database is in use, close the source browser and select **Scan again**.
 
 **Recovery files** shows the full paths to the encrypted archive (`.nbarchive`) and its key (`.nbkey`). Keep copies of both and store the key separately. Anyone with both files can decrypt the archive. They stay on your computer, and Nextbrowser support cannot recover a lost key. The browser reads the working profile locally in its usual format. To recover on another installation, select **My account → Import browser data → Restore from archive** and choose the archive and key.
 
