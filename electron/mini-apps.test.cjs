@@ -20,7 +20,7 @@ test('the catalog ships the reproducible standalone Kanban project', t => {
 });
 test('unsupported packages cannot be installed and duplicate IDs preserve state', t => {
   const store = createStore(fixture(t));
-  for (const bad of [{apiVersion: 2}, {id: '../board'}, {permissions: ['desktop']}, {extra: true}, {html: 'x'.repeat(262144)}]) {
+  for (const bad of [{apiVersion: 1}, {tools: []}, {tools: ['duplicate','duplicate']}, {id: '../board'}, {permissions: ['desktop']}, {extra: true}, {html: 'x'.repeat(262144)}]) {
     assert.throws(() => store.install('a', JSON.stringify({ ...pkg, ...bad })));
   }
   store.install('a', raw);
@@ -42,4 +42,26 @@ test('state writes are bounded, scoped and reject a stale revision or installati
   assert.throws(() => store.save('a', pkg.id, generation, 0, 'old'));
   store.install('a', JSON.stringify({ ...pkg, id: 'viewer', permissions: [] }));
   assert.throws(() => store.save('a', 'viewer', store.read('a', 'viewer').generation, 0, 'x'));
+});
+test('a v1 upgrade preserves state and pinning and invalidates the old installation handle', t => {
+  const root = fixture(t);
+  const store = createStore(root);
+  const owner = 'example';
+  const id = 'team-board';
+  const dir = path.join(root, require('node:crypto').createHash('sha256').update(owner).digest('hex'));
+  fs.mkdirSync(dir);
+  const legacy = { pkg: { ...pkg, apiVersion: 1, id }, generation: 'legacy', revision: 9, value: { cards: [42] }, pinned: true };
+  delete legacy.pkg.tools;
+  fs.writeFileSync(path.join(dir, 'app-' + id + '.json'), JSON.stringify(legacy));
+  assert.equal(store.list(owner)[0].apiVersion, 1);
+  const replacement = JSON.stringify({ ...pkg, id });
+  assert.throws(() => store.install(owner, replacement, 'stale'), /already installed/);
+  store.install(owner, replacement, 'legacy');
+  const current = store.read(owner, id);
+  assert.equal(current.pkg.apiVersion, 2);
+  assert.equal(current.revision, 9);
+  assert.equal(current.pinned, true);
+  assert.deepEqual(current.value, legacy.value);
+  assert.notEqual(current.generation, 'legacy');
+  assert.throws(() => store.save(owner, id, 'legacy', 9, null), /unavailable/);
 });

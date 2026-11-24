@@ -18,6 +18,8 @@ Registration is discovered on demand. Switching tabs, navigating or reloading ca
 
 ### Verification and trade-offs
 
+Installed mini apps publish WebMCP tools through their own desktop host. The agent can open, discover and use an installed v2 app regardless of the browser-tab preference. [Mini Apps v2](mini-apps.md)
+
 The Windows fixture exercised Clawbrowser 151.0.7922.109 and the managed CLI 1.2.40. On an ordinary launch the test origin exposed no native WebMCP API. Reading the page and submitting its annotated search form worked. With WebMCP testing enabled in an isolated profile, the agent discovered and executed a JavaScript tool and the test checked the resulting page text. Changing the page invalidated the earlier handle. The workspace rejected a different profile.
 
 Discovery costs one MCP round trip per page of schemas. A matching call supplies structured input and returns a bounded result, which can replace multiple state reads and gestures. On a site with no suitable tool the probe adds overhead. Latency, token savings and success rates across production sites have not been benchmarked.

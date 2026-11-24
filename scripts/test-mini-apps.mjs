@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { _electron } from 'playwright-core';
 import { createRequire } from 'node:module';
+import { checkMiniAppAgent } from './test-mini-app-agent.mjs';
 
 const root = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
 const profile = await mkdtemp(path.join(tmpdir(), 'nb-mini-qa-'));
@@ -63,6 +64,17 @@ async function waitForCard(text) {
 }
 try {
   await start();
+  const install = raw => page.evaluate(raw => window.nextbrowser.invoke('mini_apps_install', { owner: 'preview', raw }), JSON.stringify(raw));
+  for (const tools of [pkg.tools.slice(1), [...pkg.tools, 'unimplemented_action']]) {
+    await assert.rejects(install({ ...pkg, id: 'invalid-board', tools }), /register every declared WebMCP tool/);
+  }
+  const guide = await readFile(path.join(root, 'docs/mini-apps.md'), 'utf8');
+  const counter = JSON.parse(guide.match(/`{3}json\s*([\s\S]*?)`{3}/)[1]);
+  await install(counter);
+  const library = await page.evaluate(() => window.nextbrowser.invoke('mini_apps_list', { owner: 'preview' }));
+  assert.deepEqual(library.installed.map(app => app.id), ['counter']);
+  await page.evaluate(() => window.nextbrowser.invoke('mini_apps_remove', { owner: 'preview', id: 'counter' }));
+  console.log('Passed rejection of missing and extra handlers and installation of the documented counter.');
   const downloaded = path.join(profile, 'download.nbmini.json');
   await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }); }, downloaded);
   await page.getByRole('button', { name: 'Download package' }).click();
@@ -71,6 +83,10 @@ try {
   await page.getByRole('button', { name: 'Install mini app', exact: true }).click();
   await waitForBoard();
   await checkWindowLayout();
+  if (process.env.NEXTCTL_BIN) {
+    await backToCatalog();
+    await checkMiniAppAgent(page);
+  } else console.log('Set NEXTCTL_BIN to include the full agent-to-WebMCP turn test.');
   const guestId = () => page.locator('webview.mini-apps-guest').evaluate(view => view.getWebContentsId());
   const originalGuest = await guestId();
   await page.getByRole('button', { name: 'Hide navigation rail' }).click();

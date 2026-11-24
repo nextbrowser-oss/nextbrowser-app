@@ -9,20 +9,22 @@ function parsePackage(raw) {
   if (typeof raw !== 'string' || Buffer.byteLength(raw) > PACKAGE_BYTES) throw Error('Package exceeds 256 KiB.');
   let p;
   try { p = JSON.parse(raw); } catch { throw Error('Invalid package JSON.'); }
-  const fields = ['apiVersion', 'id', 'name', 'version', 'description', 'permissions', 'html', 'icon'];
-  if (!p || Object.keys(p).some(k => !fields.includes(k)) || p.apiVersion !== 1 || !validId(p.id) ||
+  const fields = ['apiVersion', 'id', 'name', 'version', 'description', 'permissions', 'html', 'icon', 'tools'];
+  if (!p || Object.keys(p).some(k => !fields.includes(k)) || p.apiVersion !== 2 || !validId(p.id) ||
+      !Array.isArray(p.tools) || !p.tools.length || p.tools.length > 64 || new Set(p.tools).size !== p.tools.length ||
+      p.tools.some(name => typeof name !== 'string' || !/^[a-z][a-z0-9_]{0,63}$/.test(name)) ||
       typeof p.name !== 'string' || !p.name.trim() || p.name.length > 60 ||
       typeof p.description !== 'string' || p.description.length > 240 ||
       typeof p.version !== 'string' || !/^\d{1,5}\.\d{1,5}\.\d{1,5}$/.test(p.version) ||
       typeof p.html !== 'string' || !p.html.trim() ||
       (p.icon !== undefined && !['board', 'calendar', 'list', 'notebook', 'chart', 'grid'].includes(p.icon)) ||
       !Array.isArray(p.permissions) || p.permissions.length > 1 || p.permissions.some(v => v !== 'storage')) {
-    throw Error('Invalid Mini Apps v1 package or unsupported permission.');
+    throw Error('Mini Apps v2 requires a valid manifest and a nonempty list of unique WebMCP tool names.');
   }
   return p;
 }
 function metadata({ html, ...info }) { return info; }
-function createStore(root) {
+function createStore(root, catalog) {
   function directory(owner) {
     if (typeof owner !== 'string' || !owner || owner.length > 512) throw Error('Account unavailable.');
     return path.join(root, createHash('sha256').update(owner).digest('hex'));
@@ -38,20 +40,38 @@ function createStore(root) {
       fs.renameSync(temporary, file);
     } finally { fs.rmSync(temporary, { force: true }); }
   }
-  function read(owner, id) { return JSON.parse(fs.readFileSync(location(owner, id), 'utf8')); }
+  function read(owner, id) {
+    const file = location(owner, id);
+    const record = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (id === 'kanban' && record.pkg.apiVersion === 1 && catalog && record.pkg.version === '1.0.0') {
+      const hash = createHash('sha256').update(record.pkg.html).digest('hex');
+      if (hash === 'afcea1a4c6bdece7974faa48e8ad4c3baf9d76c5f43383916c2308d3202a4445') {
+        record.pkg = catalog();
+        record.generation = randomUUID();
+        write(file, record);
+      }
+    }
+    return record;
+  }
   function list(owner) {
     const dir = directory(owner);
     if (!fs.existsSync(dir)) return [];
     return fs.readdirSync(dir).filter(name => /^app-.*\.json$/.test(name))
       .map(name => {
         const record = read(owner, name.slice(4, -5));
-        return { ...metadata(record.pkg), pinned: record.pinned === true };
+        return { ...metadata(record.pkg), generation: record.generation, pinned: record.pinned === true };
       });
   }
-  function install(owner, raw) {
+  function install(owner, raw, previousGeneration) {
     const pkg = parsePackage(raw);
     const file = location(owner, pkg.id);
-    if (fs.existsSync(file)) throw Error('This app ID is already installed.');
+    if (fs.existsSync(file)) {
+      const old = read(owner, pkg.id);
+      if (previousGeneration !== old.generation || old.pkg.apiVersion !== 1) throw Error('This app ID is already installed.');
+      write(file, { ...old, pkg, generation: randomUUID() });
+      return metadata(pkg);
+    }
+    if (previousGeneration) throw Error('The previous installation changed.');
     fs.mkdirSync(directory(owner), { recursive: true, mode: 0o700 });
     if (list(owner).length >= 32) throw Error('The limit is 32 installed mini apps.');
     write(file, { pkg, generation: randomUUID(), revision: 0, value: null });

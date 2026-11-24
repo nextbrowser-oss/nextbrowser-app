@@ -10,7 +10,7 @@ import { settingsStorage } from '../../lib/settingsStorage';
 import './mini-apps.css';
 
 type Guest = { id: string; src: string; partition: string };
-type Review = { action: 'install' | 'remove'; app: AppInfo; raw?: string };
+type Review = { action: 'install' | 'remove'; app: AppInfo; raw?: string; previousGeneration?: string };
 
 export function MiniAppsPage() {
   const scope = useMiniAppsOwner();
@@ -42,7 +42,8 @@ function LibraryView({ owner }: { owner: string }) {
     if (selected.size > 256 * 1024) throw Error('Package exceeds 256 KiB.');
     const raw = await selected.text();
     const app = await invoke<AppInfo>('mini_apps_inspect', { raw });
-    setReview({ action: 'install', app, raw });
+    const previous = library?.installed.find(item => item.id === app.id && item.apiVersion === 1);
+    setReview({ action: 'install', app, raw, previousGeneration: previous?.generation });
   }
   async function applyReview() {
     if (!review) return;
@@ -50,7 +51,7 @@ function LibraryView({ owner }: { owner: string }) {
     if (action === 'remove') {
       await invoke('mini_apps_remove', { owner, id: app.id });
       if (selected?.id === app.id) open();
-    } else await invoke('mini_apps_install', { owner, raw, catalog: raw === undefined });
+    } else await invoke('mini_apps_install', { owner, raw, catalog: raw === undefined, previousGeneration: review.previousGeneration });
     setReview(undefined);
     await refresh();
     if (action === 'install') open(app.id);
@@ -107,15 +108,18 @@ function LibraryView({ owner }: { owner: string }) {
     {guide && <Dialog title="Build a mini app" onClose={() => setGuide(false)}>
       <ol><li>Download the Kanban package from the catalog.</li>
         <li>Give it a unique ID and name. Put your interface, scripts and styles in the HTML field.</li>
-        <li>Choose Install from file to run your package. Request the storage permission to save JSON using <code>/state</code>.</li></ol>
+        <li>Declare every app action in <code>tools</code> and register each with <code>document.modelContext.registerTool()</code>.</li>
+        <li>Choose Install from file to validate the WebMCP tools and install. Request storage to persist data using <code>/state</code>.</li></ol>
       <Button onClick={() => void run(() => invoke('mini_apps_download', { owner, id: 'kanban' }))}>Download Kanban package</Button>
     </Dialog>}
     {review && <Dialog title={(review.action === 'install' ? 'Install ' : 'Uninstall ') + review.app.name + '?'} onClose={() => { if (!busy) { setReview(undefined); setError(''); } }}>
       <p>{review.app.id} · v{review.app.version}</p>
+      {review.action === 'install' && <p>Agent actions: {review.app.tools?.join(', ')}</p>}
+      {review.previousGeneration && <p>This replaces the installed v1 app. The replacement can access its existing saved data.</p>}
       <p>{review.action === 'remove' ? 'This removes the app and its saved data from this account on this device.'
         : review.app.permissions.includes('storage') ? 'Permission requested: save and read its own data on this device.' : 'No host permissions requested.'}</p>
       {error && <p role="alert">{error}</p>}
-      <Button disabled={busy} onClick={() => void run(applyReview)}>{review.action === 'install' ? 'Install mini app' : 'Uninstall and delete data'}</Button>
+      <Button disabled={busy} onClick={() => void run(applyReview)}>{review.action === 'remove' ? 'Uninstall and delete data' : review.previousGeneration ? 'Upgrade and keep data' : 'Install mini app'}</Button>
     </Dialog>}
   </section>;
 }

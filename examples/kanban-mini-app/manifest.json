@@ -1,8 +1,9 @@
 {
-  "apiVersion": 1,
+  "apiVersion": 2,
   "id": "kanban",
   "name": "Kanban",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Organize your tasks across To do, In progress and Done.",
-  "permissions": ["storage"]
+  "permissions": ["storage"],
+  "tools": ["list_tasks", "get_task", "create_task", "edit_task", "move_task", "delete_task"]
 }

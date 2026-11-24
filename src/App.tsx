@@ -73,6 +73,7 @@ import { FeedbackModal } from "./components/FeedbackModal";
 import { feedbackPromptBlocked, feedbackPromptConfig, markFeedbackSubmitted, shouldPromptForFeedback } from "./lib/feedbackPrompt";
 import { multiloginSelectionForWorkspace } from "./lib/multiloginSelection";
 import { settingsStorage } from "./lib/settingsStorage";
+import { useMiniAppsOwner } from "./lib/miniAppLibrary";
 import { countWorkspaceProfiles } from "./lib/workspaceProfiles";
 
 const PREVIEW_TABS = new Set<string>(["chat", "automation", "mini-apps", "skills", "connectors", "live", "usage", "guide", "scheduled"]);
@@ -917,6 +918,18 @@ export function App() {
   const tab = useStore((s) => s.tab);
   const setTab = useStore((s) => s.setTab);
   const activeWorkspaceId = useStore(s => s.activeWorkspaceId);
+  const currentMiniAppOwner = useMiniAppsOwner();
+  const miniAppOwner = authed || preview === 'main' ? currentMiniAppOwner : undefined;
+  useEffect(() => {
+    if (!window.nextbrowser) return;
+    void invoke('mini_apps_context', { owner: miniAppOwner, workspaceId: activeWorkspaceId }).catch(console.warn);
+    return window.nextbrowser.on('mini-apps:agent-open', payload => {
+      const target = payload as { owner: string; workspaceId: string; id: string };
+      if (miniAppOwner && target.owner === miniAppOwner && target.workspaceId === activeWorkspaceId) {
+        setTab('mini-apps', { owner: miniAppOwner, id: target.id });
+      }
+    });
+  }, [miniAppOwner, activeWorkspaceId, setTab]);
   const liveSession = useStore(s => s.liveSession);
   const openLiveSession = useStore(s => s.openLiveSession);
   const showLiveOverview = useStore(s => s.showLiveOverview);

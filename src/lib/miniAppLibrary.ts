@@ -3,8 +3,8 @@ import { invoke } from '../electronBridge';
 import { getPreviewMode } from '../preview';
 import { useStore } from '../store';
 
-export interface AppInfo { id: string; name: string; version: string; description: string; permissions: string[]; icon?: 'board' | 'calendar' | 'list' | 'notebook' | 'chart' | 'grid' }
-interface Library { installed: (AppInfo & { pinned: boolean })[]; catalog: AppInfo[] }
+export interface AppInfo { id: string; name: string; version: string; description: string; apiVersion: number; tools?: string[]; permissions: string[]; icon?: 'board' | 'calendar' | 'list' | 'notebook' | 'chart' | 'grid' }
+interface Library { installed: (AppInfo & { pinned: boolean; generation: string })[]; catalog: AppInfo[] }
 
 export function useMiniAppsOwner() {
   const owner = useStore(s => s.accountOwnerId);
