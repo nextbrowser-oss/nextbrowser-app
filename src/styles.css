@@ -721,44 +721,45 @@ body.is-resizing-sidebar {
 .proxy-usage-page {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 8px;
   padding-bottom: 32px;
 }
 .proxy-usage-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
 }
-.proxy-usage-header h2 {
-  margin: 0 0 4px;
-  font-size: 22px;
+.proxy-usage-page .proxy-usage-header h2 {
+  margin: 0;
+  font-size: 17px;
   letter-spacing: -0.02em;
 }
-.proxy-usage-header p { margin: 0; }
-.proxy-usage-card {
+.proxy-usage-header .btn-bordered { min-height: 28px; padding: 4px 9px; }
+.proxy-usage-page .proxy-usage-card {
   width: 100%;
   max-width: none;
-  padding: 18px;
+  padding: 9px 12px;
+  gap: 6px;
 }
 .proxy-usage-current-title {
-  margin-top: 5px;
-  font-size: 22px;
+  margin-top: 2px;
+  font-size: 18px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
 }
 .proxy-usage-current-title .muted { font-weight: 500; }
-.proxy-usage-progress {
-  height: 9px;
-  margin-top: 15px;
+.bar.proxy-usage-progress {
+  height: 5px;
+  margin-top: 6px;
 }
-.proxy-usage-allocation-meta { margin-top: 8px; }
+.proxy-usage-allocation-meta { margin-top: 4px; }
 .nodemaven-handoff {
   display: grid;
-  gap: 12px;
-  margin-top: 14px;
-  padding: 14px;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px 10px;
   border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--accent) 7%, var(--surface-2));
@@ -774,6 +775,7 @@ body.is-resizing-sidebar {
 .nodemaven-handoff-copy p { margin: 4px 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .nodemaven-handoff-copy span, .nodemaven-handoff-notice { color: var(--muted); font-size: 11px; }
 .nodemaven-handoff-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.nodemaven-handoff-actions:empty { display: none; }
 .nodemaven-handoff-notice { margin: 0; }
 .nodemaven-account-email {
   padding: 14px;
@@ -923,25 +925,27 @@ body.is-resizing-sidebar {
 .proxy-usage-analytics {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 8px;
+  container: usage / inline-size;
 }
 .proxy-usage-toolbar {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 5px 10px;
 }
 .proxy-usage-presets {
   display: inline-flex;
-  gap: 3px;
-  padding: 3px;
+  flex-wrap: wrap;
+  gap: 1px;
+  padding: 2px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface-2);
 }
 .proxy-usage-presets button {
-  min-height: 31px;
-  padding: 5px 11px;
+  min-height: 26px;
+  padding: 3px 7px;
   border: 0;
   border-radius: 7px;
   background: transparent;
@@ -957,11 +961,12 @@ body.is-resizing-sidebar {
 }
 .proxy-usage-date-range {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .proxy-usage-date-range label {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 4px;
   color: var(--muted);
   font-size: 10px;
@@ -969,14 +974,14 @@ body.is-resizing-sidebar {
   text-transform: uppercase;
 }
 .proxy-usage-date-range input {
-  min-height: 36px;
-  padding: 6px 9px;
+  min-height: 28px;
+  padding: 3px 6px;
   border: 1px solid var(--input-border);
   border-radius: 8px;
   background: var(--surface-2);
   color: var(--text);
   color-scheme: dark;
-  font: inherit;
+  font: 500 12px/1.3 var(--font-ui);
   font-variant-numeric: tabular-nums;
 }
 :root[data-theme="light"] .proxy-usage-date-range input { color-scheme: light; }
@@ -1014,22 +1019,35 @@ body.is-resizing-sidebar {
   color: var(--muted);
   text-align: center;
 }
-.proxy-usage-kpis {
+.claw-card.proxy-usage-kpis {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  margin: 0;
+  padding: 0;
 }
 .proxy-usage-kpi {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  min-height: 86px;
-  padding: 14px;
+  min-width: 0;
+  padding: 7px 12px;
+  overflow-wrap: anywhere;
 }
-.proxy-usage-kpi strong {
-  font-size: 20px;
+.proxy-usage-kpi + .proxy-usage-kpi { border-inline-start: 1px solid var(--line); }
+.proxy-usage-kpi dt, .proxy-usage-kpi small { color: var(--muted); font-size: 12px; font-weight: 400; }
+.proxy-usage-kpi dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 6px;
+  margin: 2px 0 0;
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.25;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
+}
+@container usage (max-width: 500px) {
+  .claw-card.proxy-usage-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .proxy-usage-kpi:nth-child(odd) { border-inline-start: 0; }
+  .proxy-usage-kpi:nth-child(n+3) { border-top: 1px solid var(--line); }
 }
 .proxy-usage-source-totals {
   display: flex;
@@ -1044,7 +1062,7 @@ body.is-resizing-sidebar {
   font-size: 10px;
 }
 .proxy-usage-source-totals > span:not(.spacer) { white-space: nowrap; }
-.proxy-usage-chart-card { padding: 16px; }
+.proxy-usage-chart-card { padding: 10px 12px; }
 .proxy-usage-card-heading {
   display: flex;
   align-items: flex-start;
@@ -4252,13 +4270,11 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .settings-proxy-usage .proxy-usage-toolbar,
 .settings-proxy-usage .proxy-usage-date-range { flex-wrap: wrap; }
 .settings-proxy-usage .proxy-usage-presets { flex-wrap: wrap; }
-.settings-proxy-usage .proxy-usage-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (max-width: 600px) {
   .settings-rail { width: 120px; padding: 8px 4px; }
   .settings-rail-item { padding: 8px 6px; gap: 6px; }
   .settings-panel { padding: 14px 12px; }
   .settings-runtime-row { flex-wrap: wrap; }
-  .settings-proxy-usage .proxy-usage-kpis { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) {
   .settings-rail-item { transition: none; }
@@ -5385,7 +5401,6 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .vps-error { margin-top: -4px; }
 @media (max-width: 1100px) {
   .chat-mode-toggle button { padding-inline: 6px; }
-  .proxy-usage-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 700px) {
   .vps-modal { width: calc(100vw - 24px); max-height: calc(100vh - 24px); }
@@ -5396,13 +5411,7 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   .vps-identity-field { grid-column: 1 / -1; }
   .vps-host-title { align-items: flex-start; flex-direction: column; gap: 2px; }
   .proxy-usage-page { padding: 16px; }
-  .proxy-usage-header { align-items: stretch; flex-direction: column; }
-  .proxy-usage-header .btn-bordered { align-self: flex-start; }
-  .proxy-usage-date-range { width: 100%; }
-  .proxy-usage-date-range label { flex: 1; }
-  .proxy-usage-date-range input { width: 100%; }
   .proxy-usage-source-badge { margin-left: 0; }
-  .proxy-usage-kpis { grid-template-columns: 1fr; }
   .proxy-traffic-chart { height: 250px; }
 }
 .profile-menu { min-width: 300px; padding: 16px; }

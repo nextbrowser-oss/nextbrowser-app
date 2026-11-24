@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { TooltipContent, type TooltipAnchor } from "../shared/ui";
 import {
   formatHistoryDateLabel,
@@ -8,12 +8,8 @@ import {
 } from "../lib/trafficChart";
 import { humanBytes, type ProxyTrafficHistoryPoint } from "../types";
 
-const chartWidth = 1000;
-const chartHeight = 300;
-const plotLeft = 78;
-const plotRight = 980;
-const plotTop = 18;
-const plotBottom = 238;
+const plotLeft = 60;
+const plotTop = 8;
 const gridFractions = [0, 0.25, 0.5, 0.75, 1];
 const numberFormatter = new Intl.NumberFormat();
 
@@ -28,7 +24,7 @@ function chartPath(points: PositionedTrafficPoint[]): string {
     .join(" ");
 }
 
-function areaPath(points: PositionedTrafficPoint[]): string {
+function areaPath(points: PositionedTrafficPoint[], plotBottom: number): string {
   if (!points.length) return "";
   return `M ${points[0].x.toFixed(2)} ${plotBottom} ${chartPath(points).replace(/^M/, "L")} L ${points.at(-1)?.x.toFixed(2)} ${plotBottom} Z`;
 }
@@ -37,6 +33,19 @@ export function TrafficChart({ points }: { points: ProxyTrafficHistoryPoint[] })
   const gradientId = useId().replace(/:/g, "");
   const tooltipId = useId();
   const activeDot = useRef<SVGCircleElement>(null);
+  const container = useRef<HTMLDivElement>(null);
+  const [{width: chartWidth, height: chartHeight}, setSize] = useState({width: 640, height: 170});
+  useEffect(() => {
+    if (!container.current || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      const {width, height} = entry.contentRect;
+      if (width > 0 && height > 0) setSize({width, height});
+    });
+    observer.observe(container.current);
+    return () => observer.disconnect();
+  }, []);
+  const plotRight = Math.max(plotLeft + 1, chartWidth - 10);
+  const plotBottom = Math.max(plotTop + 1, chartHeight - 24);
   const tooltipAnchor = useMemo<TooltipAnchor>(() => ({
     getBoundingClientRect: () => activeDot.current?.getBoundingClientRect() ?? new DOMRect(),
   }), []);
@@ -56,11 +65,12 @@ export function TrafficChart({ points }: { points: ProxyTrafficHistoryPoint[] })
         : plotLeft + index / (chartPoints.length - 1) * plotWidth,
       y: plotBottom - point.used_bytes / maximumBytes * plotHeight,
     }));
-  }, [chartPoints, maximumBytes]);
-  const axisIndices = trafficChartTickIndices(chartPoints.length);
+  }, [chartPoints, maximumBytes, plotRight, plotBottom]);
+  const tickCount = Math.min(7, Math.max(2, Math.floor((plotRight - plotLeft) / 64)));
+  const axisIndices = trafficChartTickIndices(chartPoints.length, tickCount);
   const activePoint = hoveredIndex == null ? undefined : positionedPoints[hoveredIndex];
   const line = chartPath(positionedPoints);
-  const area = areaPath(positionedPoints);
+  const area = areaPath(positionedPoints, plotBottom);
 
   const updateHoveredPoint = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!positionedPoints.length) return;
@@ -72,6 +82,7 @@ export function TrafficChart({ points }: { points: ProxyTrafficHistoryPoint[] })
 
   return (
     <div
+      ref={container}
       className="proxy-traffic-chart"
       role="img"
       aria-label="Proxy traffic trend by date"
@@ -107,8 +118,8 @@ export function TrafficChart({ points }: { points: ProxyTrafficHistoryPoint[] })
               className="proxy-traffic-chart-axis proxy-traffic-chart-date"
               key={`${point.label}-${index}`}
               x={point.x}
-              y={plotBottom + 30}
-              textAnchor="middle"
+              y={plotBottom + 17}
+              textAnchor={positionedPoints.length > 1 && index === positionedPoints.length - 1 ? "end" : "middle"}
             >
               {formatHistoryDateLabel(point.label)}
             </text>

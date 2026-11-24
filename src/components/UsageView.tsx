@@ -274,10 +274,7 @@ export function UsageView() {
   return (
     <div className="page proxy-usage-page">
       <div className="proxy-usage-header">
-        <div>
-          <h2>Proxy usage</h2>
-          <p className="muted">Traffic allowance and requests for your account.</p>
-        </div>
+        <h2>Proxy usage</h2>
         <Tooltip content={s.authed ? "Refresh proxy usage" : "Sign in to refresh proxy usage"}><button
           className="btn-bordered"
           disabled={s.isRefreshing || !s.authed}
@@ -289,60 +286,66 @@ export function UsageView() {
       </div>
 
       <div className="claw-card control-card proxy-card proxy-usage-card">
-        <div className="row section-row">
-          <div>
-            <div className="section">CURRENT ALLOCATION</div>
-            <div className="proxy-usage-current-title">
-              {s.proxy ? humanBytes(s.proxy.used_bytes) : "Usage unavailable"}
-              {s.proxy && (
-                <span className="muted">
-                  {" / "}
-                  {s.proxy.limited
-                    ? allowanceBytes != null
-                      ? humanBytes(allowanceBytes)
-                      : "limit unavailable"
-                    : "no fixed limit"}
-                </span>
-              )}
+        <div className="proxy-allocation-meter">
+          <div className="row section-row">
+            <div>
+              <div className="section">CURRENT ALLOCATION</div>
+              <div className="proxy-usage-current-title">
+                {s.proxy ? humanBytes(s.proxy.used_bytes) : "Usage unavailable"}
+                {s.proxy && (
+                  <span className="muted">
+                    {" / "}
+                    {s.proxy.limited
+                      ? allowanceBytes != null
+                        ? humanBytes(allowanceBytes)
+                        : "limit unavailable"
+                      : "no fixed limit"}
+                  </span>
+                )}
+              </div>
             </div>
+            {s.proxy && (
+              <span className={`status-pill proxy-state${gateState === "blocked" ? " paused" : ""}`}>
+                {trafficGateStateLabel(s.proxy)}
+              </span>
+            )}
           </div>
           {s.proxy && (
-            <span className={`status-pill proxy-state${gateState === "blocked" ? " paused" : ""}`}>
-              {trafficGateStateLabel(s.proxy)}
-            </span>
+            <>
+              <div className="bar proxy-usage-progress">
+                <div
+                  className="bar-fill"
+                  style={{
+                    width: `${fraction * 100}%`,
+                    background:
+                      fraction >= 1
+                        ? "var(--red)"
+                        : fraction >= 0.9
+                          ? "var(--warn)"
+                          : fraction >= 0.7
+                            ? "var(--rating-star)"
+                            : undefined,
+                  }}
+                />
+              </div>
+              <div className="row small proxy-usage-allocation-meta">
+                <span>
+                  {s.proxy.limited
+                    ? allowanceBytes == null
+                      ? "Usage percentage unavailable"
+                      : `${Math.round(fraction * 100)}% used`
+                    : "No fixed traffic limit"}
+                </span>
+                <span className="spacer" />
+                {allowanceRemainingBytes != null && (
+                  <span>{humanBytes(allowanceRemainingBytes)} remaining</span>
+                )}
+              </div>
+            </>
           )}
         </div>
         {s.proxy ? (
           <>
-            <div className="bar proxy-usage-progress">
-              <div
-                className="bar-fill"
-                style={{
-                  width: `${fraction * 100}%`,
-                  background:
-                    fraction >= 1
-                      ? "var(--red)"
-                      : fraction >= 0.9
-                        ? "var(--warn)"
-                        : fraction >= 0.7
-                          ? "var(--rating-star)"
-                          : undefined,
-                }}
-              />
-            </div>
-            <div className="row small proxy-usage-allocation-meta">
-              <span>
-                {s.proxy.limited
-                  ? allowanceBytes == null
-                    ? "Usage percentage unavailable"
-                    : `${Math.round(fraction * 100)}% used`
-                  : "No fixed traffic limit"}
-              </span>
-              <span className="spacer" />
-              {allowanceRemainingBytes != null && (
-                <span>{humanBytes(allowanceRemainingBytes)} remaining</span>
-              )}
-            </div>
             {s.proxyWarning && (
               <div className="warning-banner">
                 <Icon name="exclamationmark.triangle.fill" size={14} />
@@ -499,7 +502,6 @@ export function UsageView() {
               />
             </label>
           </div>
-          <span className="proxy-usage-source-badge backend">NodeMaven data</span>
         </div>
 
         {refreshError && <div role="alert" className="muted small">{refreshError}</div>}
@@ -514,25 +516,26 @@ export function UsageView() {
           <div className="proxy-usage-loading"><Spinner size={18} /> Loading usage history…</div>
         ) : history ? (
           <>
-            <div className="proxy-usage-kpis">
-              <div className="claw-card proxy-usage-kpi">
-                <span className="muted small">Traffic in range</span>
-                <strong>{humanBytes(history.total_bytes)}</strong>
+            <dl className="claw-card proxy-usage-kpis">
+              <div className="proxy-usage-kpi">
+                <dt>Traffic in range</dt>
+                <dd>{humanBytes(history.total_bytes)}</dd>
               </div>
-              <div className="claw-card proxy-usage-kpi">
-                <span className="muted small">Requests</span>
-                <strong>{numberFormatter.format(history.total_requests)}</strong>
+              <div className="proxy-usage-kpi">
+                <dt>Requests</dt>
+                <dd>{numberFormatter.format(history.total_requests)}</dd>
               </div>
-              <div className="claw-card proxy-usage-kpi">
-                <span className="muted small">Daily average</span>
-                <strong>{humanBytes(averageBytes)}</strong>
+              <div className="proxy-usage-kpi">
+                <dt>Daily average</dt>
+                <dd>{humanBytes(averageBytes)}</dd>
               </div>
-              <div className="claw-card proxy-usage-kpi">
-                <span className="muted small">Peak day</span>
-                <strong>{peak ? humanBytes(peak.used_bytes) : "—"}</strong>
-                {peak && <span className="muted small">{formatHistoryDateLabel(peak.label)}</span>}
+              <div className="proxy-usage-kpi">
+                <dt>Peak day</dt>
+                <dd>{peak ? humanBytes(peak.used_bytes) : "—"}
+                  {peak && <small>{formatHistoryDateLabel(peak.label)}</small>}
+                </dd>
               </div>
-            </div>
+            </dl>
 
             <div className="claw-card proxy-usage-chart-card">
               <div className="proxy-usage-card-heading">
@@ -540,7 +543,7 @@ export function UsageView() {
                   <strong>Traffic over time</strong>
                   <span className="muted small">Daily transferred bytes · {history.timezone}</span>
                 </div>
-                <Icon name="chart.bar.fill" size={18} className="accent-icon" />
+                <span className="proxy-usage-source-badge">NodeMaven data</span>
               </div>
               {history.sources.length > 0 && (
                 <div className="proxy-usage-source-totals" aria-label="Traffic source totals">

@@ -31,6 +31,25 @@ try {
   await page.getByRole('heading',{name:'My account'}).waitFor();
   await page.getByRole('heading',{name:'Time in Nextbrowser'}).waitFor();
   await page.getByRole('heading',{name:'Visits',exact:true}).waitFor();
+  assert.equal(await page.locator('.account-trend').count(),0, 'a single recorded day uses the dated value');
+  const activityHeight = await page.locator('.account-activity-grid').evaluate(el => el.getBoundingClientRect().height);
+  assert.ok(activityHeight < 80, `activity summary occupies ${activityHeight}px`);
+  await page.evaluate(async () => {
+    const { localDay } = await import('/src/lib/accountActivity.ts');
+    const { settingsStorage } = await import('/src/lib/settingsStorage.ts');
+    const { useStore } = await import('/src/store.ts');
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const first = localDay(yesterday.getTime());
+    const today = localDay(Date.now());
+    settingsStorage.setItem('nextbrowser.accountActivity.account-history-fixture',JSON.stringify({
+      first, lastVisit:Date.now(), days:{[first]:{ms:120000,sessions:2},[today]:{ms:60000,sessions:1}},
+    }));
+    useStore.setState({accountOwnerId:'account-history-fixture'});
+  });
+  const visits = page.getByRole('region',{name:'Visits',exact:true});
+  await visits.getByRole('group',{name:'Visits by day'}).locator('g[tabindex]').first().focus();
+  assert.equal(await visits.locator('b').innerText(),'2');
   await app.evaluate(({dialog},file) => {dialog.showOpenDialog = async () => ({canceled:false,filePaths:[file]});},source);
   await page.getByRole('button',{name:'Import browser data'}).click();
   await page.getByLabel('Profile name').fill('Local fixture');

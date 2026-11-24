@@ -25,21 +25,26 @@ export function AccountProfileView({ accessory }: { accessory?: ReactNode }) {
     finally { setPending(false); }
   };
   return <section className="account-profile-page" aria-label="Profile">
-    <header className="live-sessions-header"><h1>My account</h1>{accessory}</header>
-    <div className="account-profile-summary">
-      {authed ? <AccountAvatar large ownerId={ownerId} name={name} email={email} /> : <AccountAvatar large />}
-      <div>
-        <h2>{(authed && accountDisplayName(name, email)) || "Nextbrowser account"}</h2>
-        <p className="muted">{authed ? email || "Signed in" : "Sign in to sync your workspaces and proxies."}</p>
+    <header className="account-profile-summary">
+      <h1>My account</h1>
+      <div className="account-identity">
+        {authed ? <AccountAvatar ownerId={ownerId} name={name} email={email} /> : <AccountAvatar />}
+        <div>
+          <h2>{(authed && accountDisplayName(name, email)) || "Nextbrowser account"}</h2>
+          <p className="muted">{authed ? email || "Signed in" : "Sign in to sync your workspaces and proxies."}</p>
+        </div>
       </div>
       <Button disabled={pending} onClick={() => authed ? void logout() : useStore.getState().setDashboardKeyPromptOpen(true)}>
         {pending && <Spinner size={13} />}{authed ? "Sign out" : "Sign in"}
       </Button>
-    </div>
+      {accessory}
+    </header>
     {compatibilityError && <p role="status">{compatibilityError}</p>}
     {error && <div role="alert"><UserFacingError message={error} surface="account_sign_out" /></div>}
-    {authed && ownerId && <AccountActivity key={"activity:" + ownerId} owner={ownerId} />}
-    {authed && ownerId && <PersonalProfiles key={"profiles:" + ownerId} owner={ownerId} />}
+    {authed && ownerId && <div className="account-overview" key={"overview:" + ownerId}>
+      <AccountActivity owner={ownerId} />
+      <PersonalProfiles owner={ownerId} />
+    </div>}
     {authed && <UsageView key={ownerId} />}
   </section>;
 }
