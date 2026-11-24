@@ -25,6 +25,10 @@ Choose **Sign in to Nextbrowser** in the desktop app, continue in your browser, 
 
 Keep credentials out of prompts, chat messages, skills, custom scripts, screenshots, logs, and repository files.
 
+In **My account → Import browser data**, choose a closed Chromium profile to import bookmarks, history, open tabs, site icons and frequently visited sites. Nextbrowser creates a separate working profile and encrypts an archive on this computer. If you use the browser’s import wizard, finish the import and close its window. Use **Finish backup** if the backup is still pending.
+
+**Recovery files** shows the full paths to the encrypted archive (`.nbarchive`) and its key (`.nbkey`). Keep copies of both and store the key separately. Anyone with both files can decrypt the archive. They stay on your computer, and Nextbrowser support cannot recover a lost key. The browser reads the working profile locally in its usual format. To recover on another installation, select **My account → Import browser data → Restore from archive** and choose the archive and key.
+
 ### Profile
 
 A profile represents a browser identity and its associated state. Profiles let an operator separate browser contexts for different tasks, accounts, customers, regions, or test runs.

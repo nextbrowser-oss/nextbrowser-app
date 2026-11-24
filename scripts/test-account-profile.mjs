@@ -31,7 +31,9 @@ try {
   await page.getByRole('heading',{name:'My account'}).waitFor();
   await page.getByRole('heading',{name:'Time in Nextbrowser'}).waitFor();
   await page.getByRole('heading',{name:'Visits',exact:true}).waitFor();
-  assert.equal(await page.locator('.account-trend').count(),0, 'a single recorded day uses the dated value');
+  assert.equal(await page.locator('.account-trend svg:visible').count(),2);
+  assert.equal(await page.locator('.account-trend g[tabindex]').count(),2, 'each chart shows its one recorded day');
+  assert.equal(await page.locator('.tabbar:visible,.main-view-navigation:visible,.content > .divider:visible').count(),0);
   const activityHeight = await page.locator('.account-activity-grid').evaluate(el => el.getBoundingClientRect().height);
   assert.ok(activityHeight < 80, `activity summary occupies ${activityHeight}px`);
   await page.evaluate(async () => {
@@ -57,6 +59,15 @@ try {
   await page.getByText('Personal · This device',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Open profile',exact:true}).count(),1);
   assert.match(await page.locator('.personal-profiles [role=status]').innerText(),/Imported: Bookmarks/);
+  const recovery = page.getByRole('region',{name:'Recovery files'});
+  await recovery.waitFor();
+  const paths = await recovery.locator('code').allTextContents();
+  assert.match(paths[0],/\.nbarchive$/); assert.match(paths[1],/\.nbkey$/);
+  await app.evaluate(({dialog},files) => { dialog.showOpenDialog = async (_window,opts) => ({canceled:false,filePaths:[files[opts.filters[0].extensions[0] === 'nbkey' ? 1 : 0]]}); },paths);
+  await page.getByRole('button',{name:'Import browser data'}).click();
+  await page.getByRole('button',{name:'Restore from archive…'}).click();
+  await page.getByText('Restored into a separate personal profile.').waitFor();
+  assert.equal(await page.getByRole('button',{name:'Open profile',exact:true}).count(),2);
   const backdrop = await page.evaluate(() => {
     document.documentElement.style.setProperty('--chat-bg','#314b58');
     document.documentElement.style.setProperty('--chat-wallpaper','radial-gradient(circle, red 1px, transparent 1px)');

@@ -2,6 +2,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const { openBrowser, findBrowser, importPage } = require('./personal-browser.cjs');
+const { writeArchive, readArchive } = require('./personal-archive.cjs');
 
 const categories = ['bookmarks','history','tabs','favicons','topSites'];
 const databases = { history: 'History', favicons: 'Favicons', topSites: 'Top Sites' };
@@ -132,63 +133,171 @@ async function copyDatabase(source, dest, name) {
   return true;
 }
 
-async function importProfile(root, source, name, selected, active = () => true) {
-  if (!name?.trim() || name.trim().length > 80 || !Array.isArray(selected) || !selected.length || selected.some(s => !categories.includes(s))) throw Error('Choose a name and at least one data type.');
+async function snapshot(source, dest, selected) {
+  if (!Array.isArray(selected) || !selected.length || selected.some(s => !categories.includes(s))) throw Error('Choose at least one supported data type.');
   if (!(await fs.lstat(source)).isDirectory()) throw Error('Select the original browser profile folder.');
+  await fs.mkdir(dest, { recursive: true, mode: 0o700 });
+  const imported = [];
+  for (const kind of new Set(selected)) {
+    if (kind === 'bookmarks') {
+      const file = path.join(source,'Bookmarks');
+      if (!await statFile(file)) continue;
+      const raw = await fs.readFile(file,'utf8');
+      if (!JSON.parse(raw).roots) throw Error('Invalid Chromium bookmarks.');
+      await fs.writeFile(path.join(dest,'Bookmarks'), raw);
+    } else if (kind === 'tabs') {
+      const urls = await readTabs(source);
+      if (!urls.length) continue;
+      await writeTabSession(dest,urls);
+    } else if (!await copyDatabase(source,dest,databases[kind])) continue;
+    imported.push(kind);
+  }
+  if (!imported.length) throw Error('No supported data found. Select a browser profile with the chosen data.');
+  return imported;
+}
+
+function keyDirectory(root) {
+  return path.join(path.dirname(root),'.recovery-keys',path.basename(root));
+}
+async function makeBackup(root, destination, profile, snapshotDir) {
+  const archive = randomUUID() + '.nbarchive';
+  const key = await writeArchive(path.join(destination,archive),keyDirectory(root),profile,snapshotDir);
+  return {archive,key};
+}
+function describe(root, profile) {
+  const backup = profile.backup;
+  if (!backup) return profile;
+  const validFile = (name,ext) => typeof name === 'string' && name.endsWith(ext) && uuid.test(name.slice(0,-ext.length));
+  if (!validFile(backup.archive,'.nbarchive') || !validFile(backup.key,'.nbkey') || !uuid.test(profile.id)) {
+    throw Error('Invalid local recovery file reference.');
+  }
+  return {...profile, backup: {archivePath:path.join(root,profile.id,backup.archive), keyPath:path.join(keyDirectory(root),backup.key)}};
+}
+async function importProfile(root, source, name, selected, active = () => true) {
+  if (typeof name !== 'string' || !name.trim() || name.trim().length > 80) throw Error('Choose a profile name (up to 80 characters).');
   await fs.mkdir(root, { recursive: true, mode: 0o700 });
   const stage = await fs.mkdtemp(path.join(root,'.import-'));
   try {
     const id = randomUUID(), dest = path.join(stage,'browser','Default');
-    await fs.mkdir(dest, { recursive: true, mode: 0o700 });
-    const imported = [];
-    for (const kind of new Set(selected)) {
-      if (kind === 'bookmarks') {
-        const file = path.join(source,'Bookmarks');
-        if (!await statFile(file)) continue;
-        const raw = await fs.readFile(file,'utf8');
-        if (!JSON.parse(raw).roots) throw Error('Invalid Chromium bookmarks.');
-        await fs.writeFile(path.join(dest,'Bookmarks'), raw);
-      } else if (kind === 'tabs') {
-        const urls = await readTabs(source);
-        if (!urls.length) continue;
-        await writeTabSession(dest,urls);
-      } else if (!await copyDatabase(source,dest,databases[kind])) continue;
-      imported.push(kind);
-    }
-    if (!imported.length) throw Error('No selected data found. Choose the browser profile folder (Default or Profile 1, for example).');
-    const profile = { id, name: name.trim(), kind: 'personal', imported };
+    const imported = await snapshot(source,dest,selected);
+    const profile = {id,name:name.trim(),kind:'personal',imported};
+    if (!active()) throw Error('The active account changed.');
+    profile.backup = await makeBackup(root,stage,profile,dest);
     await fs.writeFile(path.join(stage,'profile.json'),JSON.stringify(profile));
     if (!active()) throw Error('The active account changed.');
     await fs.rename(stage,path.join(root,id));
-    return profile;
+    return describe(root,profile);
   } catch (error) { await fs.rm(stage,{recursive:true,force:true}); throw error; }
 }
 
 function ownerRoot(base, owner) { return path.join(base,createHash('sha256').update(owner).digest('hex')); }
-async function personalCommand({base, scope, current, dialog, command, args}) {
+async function saveMetadata(dir, profile) {
+  const temp = path.join(dir,'.meta-' + randomUUID());
+  try {
+    await fs.writeFile(temp,JSON.stringify(profile),{flag:'wx',mode:0o600});
+    await fs.rename(temp,path.join(dir,'profile.json'));
+  } finally { await fs.rm(temp,{force:true}); }
+}
+
+const ongoingBackups = new Map();
+const wizardWindows = new Map();
+function watchWizard(child,root,id,current,scope,autoBackup) {
+  const dir = path.join(root,id);
+  wizardWindows.set(dir,child);
+  child.once('exit', async code => {
+    if (wizardWindows.get(dir) !== child) return;
+    wizardWindows.delete(dir);
+    if (!autoBackup || code !== 0 || !current()) return;
+    try {
+      await backupExisting(root,id,current);
+      if (current()) scope.window.webContents.send('personal-profiles:changed',id);
+    } catch { /* Keep the pending marker so the user can retry. */ }
+  });
+}
+async function backupExisting(root,id,current) {
+  const dir = path.join(root,id);
+  if (wizardWindows.has(dir)) throw Error('Close the profile browser, then finish the backup.');
+  if (ongoingBackups.has(dir)) return ongoingBackups.get(dir);
+  const job = (async () => {
+    const profile = JSON.parse(await fs.readFile(path.join(dir,'profile.json'),'utf8'));
+    if (profile.backup && !profile.pendingBackup) return describe(root,profile);
+    const stage = await fs.mkdtemp(path.join(root,'.backup-'));
+    try {
+      const imported = await snapshot(path.join(dir,'browser','Default'),path.join(stage,'snapshot'),categories);
+      if (!current()) throw Error('The active account changed.');
+      const updated = {...profile,imported,pendingBackup:false};
+      updated.backup = await makeBackup(root,stage,updated,path.join(stage,'snapshot'));
+      if (!current()) throw Error('The active account changed.');
+      const archive = path.join(dir,updated.backup.archive);
+      await fs.rename(path.join(stage,updated.backup.archive),archive);
+      try { await saveMetadata(dir,updated); }
+      catch (error) { await fs.rm(archive,{force:true}); throw error; }
+      return describe(root,updated);
+    } finally { await fs.rm(stage,{recursive:true,force:true}); }
+  })();
+  ongoingBackups.set(dir,job);
+  try { return await job; }
+  finally { ongoingBackups.delete(dir); }
+}
+
+async function restoreProfile(root,archive,key,current) {
+  await fs.mkdir(root,{recursive:true,mode:0o700});
+  const stage = await fs.mkdtemp(path.join(root,'.restore-'));
+  try {
+    const {name,selected} = await readArchive(archive,key,stage);
+    if (!current()) throw Error('The active account changed.');
+    return await importProfile(root,stage,name,selected,current);
+  } finally { await fs.rm(stage,{recursive:true,force:true}); }
+}
+
+async function personalCommand({base, scope, current, dialog, shell, command, args}) {
   if (!scope?.owner.startsWith('account/') || !current()) throw Error('Sign in to import personal profiles.');
   const root = ownerRoot(base,scope.owner);
   if (command === 'personal_profiles_list') {
     let entries;
     try { entries = await fs.readdir(root, {withFileTypes:true}); } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
-    return Promise.all(entries.filter(entry => entry.isDirectory() && uuid.test(entry.name)).map(async entry => JSON.parse(await fs.readFile(path.join(root,entry.name,'profile.json'),'utf8'))));
+    const profiles = await Promise.all(entries.filter(entry => entry.isDirectory() && uuid.test(entry.name)).map(async entry =>
+      describe(root,JSON.parse(await fs.readFile(path.join(root,entry.name,'profile.json'),'utf8')))));
+    return current() ? profiles : [];
   }
   if (command === 'personal_profiles_import') {
     const {canceled,filePaths} = await dialog.showOpenDialog(scope.window, { title:'Choose your browser profile (Default or Profile 1)', properties:['openDirectory'] });
     if (canceled || !filePaths.length) return null;
+    if (!current()) throw Error('The active account changed.');
     return importProfile(root,filePaths[0],args.name,args.selected,current);
+  }
+  if (command === 'personal_profiles_restore') {
+    const choose = async (title,extension) => {
+      const result = await dialog.showOpenDialog(scope.window,{title,properties:['openFile'],filters:[{name:title,extensions:[extension]}]});
+      if (!current()) throw Error('The active account changed.');
+      return result.canceled ? undefined : result.filePaths[0];
+    };
+    const archive = await choose('Choose your encrypted profile archive','nbarchive');
+    if (!archive) return null;
+    const key = await choose('Choose the recovery key for this archive','nbkey');
+    return key ? restoreProfile(root,archive,key,current) : null;
+  }
+  if (command === 'personal_profiles_backup' && uuid.test(args.id)) return backupExisting(root,args.id,current);
+  if (command === 'personal_profiles_reveal' && uuid.test(args.id)) {
+    const profile = describe(root,JSON.parse(await fs.readFile(path.join(root,args.id,'profile.json'),'utf8')));
+    const file = args.file === 'key' ? profile.backup?.keyPath : args.file === 'archive' ? profile.backup?.archivePath : undefined;
+    if (!file || !await statFile(file)) throw Error('Recovery file not found. Use your saved copy.');
+    if (!current()) throw Error('The active account changed.');
+    shell.showItemInFolder(file);
+    return;
   }
   if (command === 'personal_profiles_native_import' && !args.id) {
     const name = args.name?.trim();
     if (!name || name.length > 80) throw Error('Choose a profile name.');
     const executable = await findBrowser();
-    const profile = { id:randomUUID(), name, kind:'personal', imported:[] };
+    const profile = { id:randomUUID(), name, kind:'personal', imported:[], pendingBackup:true };
     const dir = path.join(root,profile.id);
     if (!current()) throw Error('The active account changed.');
     await fs.mkdir(dir,{recursive:true,mode:0o700});
     try {
       await fs.writeFile(path.join(dir,'profile.json'),JSON.stringify(profile));
-      await openBrowser(path.join(dir,'browser'),importPage(executable),executable);
+      const child = await openBrowser(path.join(dir,'browser'),importPage(executable),executable);
+      watchWizard(child,root,profile.id,current,scope,true);
     } catch (error) { await fs.rm(dir,{recursive:true,force:true}); throw error; }
     return profile;
   }
@@ -198,9 +307,23 @@ async function personalCommand({base, scope, current, dialog, command, args}) {
     if (!current()) throw Error('The active account changed.');
     const executable = await findBrowser();
     const wizard = command === 'personal_profiles_native_import';
-    await openBrowser(path.join(dir,'browser'), wizard ? importPage(executable) : undefined, executable, !wizard);
-    return true;
+    const profile = JSON.parse(await fs.readFile(path.join(dir,'profile.json'),'utf8'));
+    if (wizard && (wizardWindows.has(dir) || ongoingBackups.has(dir))) throw Error('A profile import or backup is already in progress.');
+    if (!current()) throw Error('The active account changed.');
+    if (!wizard) {
+      await openBrowser(path.join(dir,'browser'),undefined,executable,true);
+      return true;
+    }
+    const pending = {...profile,pendingBackup:true};
+    await saveMetadata(dir,pending);
+    try {
+      const child = await openBrowser(path.join(dir,'browser'),importPage(executable),executable);
+      // An existing browser can receive this launch and let the second process exit
+      // immediately. Only the user can confirm that its import wizard has finished.
+      watchWizard(child,root,profile.id,current,scope,false);
+    } catch (error) { await saveMetadata(dir,profile); throw error; }
+    return describe(root,pending);
   }
   throw Error('Unknown personal profile action.');
 }
-module.exports = { personalCommand, tabUrls, importProfile, ownerRoot };
+module.exports = { personalCommand, tabUrls, importProfile, ownerRoot, restoreProfile };

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import os from 'node:os';
@@ -32,7 +33,47 @@ try {
   await writeFile(path.join(input,'Bookmarks'), JSON.stringify({version:1,roots:{bookmark_bar:folder('1',[node]),other:folder('2',[]),synced:folder('3',[])}}));
   const imported = await profiles.importProfile(dest,input,'Fixture',['history','tabs','bookmarks']);
   assert.deepEqual(imported.imported,['history','tabs','bookmarks']);
-  const userDir = path.join(dest,imported.id,'browser');
+  const { archivePath, keyPath } = imported.backup;
+  const archive = await readFile(archivePath);
+  assert.ok(!archive.includes(Buffer.from('Fixture')) && !archive.includes(Buffer.from(origin)));
+  assert.equal((await readFile(keyPath)).length,32);
+  assert.ok(!path.relative(dest,keyPath).startsWith(imported.id));
+  const recoveredRoot = path.join(temp,'restored-account');
+  const wrongKey = path.join(temp,'other.nbkey');
+  await writeFile(wrongKey,randomBytes(32));
+  await assert.rejects(profiles.restoreProfile(recoveredRoot,archivePath,wrongKey,() => true),/Check the recovery key/);
+  const invalidArchive = path.join(temp,'bad.nbarchive');
+  const damaged = Buffer.from(archive);
+  damaged[damaged.length - 1] ^= 1;
+  for (const payload of [damaged,archive.subarray(0,archive.length - 19)]) {
+    await writeFile(invalidArchive,payload);
+    await assert.rejects(profiles.restoreProfile(recoveredRoot,invalidArchive,keyPath,() => true),/archive is intact/);
+    assert.deepEqual(await readdir(recoveredRoot),[]);
+  }
+  const recovered = await profiles.restoreProfile(recoveredRoot,archivePath,keyPath,() => true);
+  assert.deepEqual(recovered.imported,imported.imported);
+  assert.equal(recovered.name,'Fixture');
+  assert.notEqual(recovered.backup.keyPath,keyPath);
+  // Profiles created by an earlier version or left pending by the browser wizard.
+  const base = path.join(temp,'personal-profiles');
+  const owner = 'account/archive-test';
+  const legacyRoot = profiles.ownerRoot(base,owner);
+  const legacyDir = path.join(legacyRoot,imported.id);
+  const legacyBrowser = path.join(legacyDir,'browser','Default');
+  await mkdir(legacyBrowser,{recursive:true});
+  await writeFile(path.join(legacyBrowser,'Bookmarks'),await readFile(path.join(input,'Bookmarks')));
+  await writeFile(path.join(legacyDir,'profile.json'),JSON.stringify({id:imported.id,name:'Wizard',kind:'personal',imported:[],pendingBackup:true}));
+  const cmd = (action,scopeOwner=owner) => profiles.personalCommand({
+    base,scope:{owner:scopeOwner},current:()=>true,command:'personal_profiles_'+ action,args:{id:imported.id}
+  });
+  assert.deepEqual(await cmd('list','account/other'),[]);
+  const [backupA,backupB] = await Promise.all([cmd('backup'),cmd('backup')]);
+  assert.equal(backupA.backup.archivePath,backupB.backup.archivePath);
+  assert.equal(backupA.pendingBackup,false);
+  assert.deepEqual(backupA.imported,['bookmarks']);
+  assert.deepEqual(await cmd('list'),[backupA]);
+  assert.deepEqual((await cmd('backup')).backup,backupA.backup);
+  const userDir = path.join(recoveredRoot,recovered.id,'browser');
   const output = path.join(userDir,'Default');
   assert.deepEqual((await readdir(output)).sort(),['Bookmarks','History','Preferences','Sessions']);
   assert.equal(JSON.parse(await readFile(path.join(output,'Bookmarks'),'utf8')).roots.bookmark_bar.children[0].url,origin+'/bookmarked');
@@ -48,7 +89,7 @@ try {
   await mkdir(bad); await writeFile(path.join(bad,'History'),Buffer.from('SQLite format 3\0')); await writeFile(path.join(bad,'History-wal'),'pending');
   await assert.rejects(() => profiles.importProfile(dest,bad,'Retry',['history']),/Close that browser/);
   assert.deepEqual(await readdir(dest),[imported.id]);
-  console.log('Passed native profile import, bookmarks, SQLite history, two restored tabs and unfinished database rollback.');
+  console.log('Passed encrypted local import and cross-account recovery of bookmarks, SQLite history and two Chromium tabs. Wrong keys, tampering and truncation left no restored profile.');
 } finally {
   if (context) await context.close();
   server.close();

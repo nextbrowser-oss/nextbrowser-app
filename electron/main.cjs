@@ -4036,7 +4036,7 @@ if (!gotLock) {
         if (!chromeWindows.has(window) || event.sender !== window.webContents || event.senderFrame !== event.sender.mainFrame) throw Error('Personal profiles require the desktop window.');
         const scope = miniApps().agentScope(event.sender, args?.workspaceId);
         const current = () => !!scope && !window.isDestroyed() && miniApps().agentScope(event.sender, args.workspaceId) === scope && scope.owner === args.owner;
-        return require('./personal-profiles.cjs').personalCommand({ base: path.join(dataDir(),'personal-browser-profiles'), scope, current, dialog, command, args });
+        return require('./personal-profiles.cjs').personalCommand({ base: path.join(dataDir(),'personal-browser-profiles'), scope, current, dialog, shell, command, args });
       }
       if (typeof command === 'string' && command.startsWith('stock_mcp_')) {
         const window = BrowserWindow.fromWebContents(event.sender);

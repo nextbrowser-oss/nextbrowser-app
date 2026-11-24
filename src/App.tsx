@@ -1711,7 +1711,7 @@ export function App() {
         />
       </aside>
       <main className={"content" + (tab === "chat" ? " content-chat" : "")}>
-        {!settingsOpen && tab !== "chat" && tab !== "live" && <nav className="tabbar">
+        {!settingsOpen && tab !== "chat" && tab !== "live" && tab !== "account" && <nav className="tabbar">
           {!isPrimaryAppTab(tab) && backTarget && (
             <Tooltip content={`Back to ${appTabLabel(backTarget)} · Esc`}><button
               className="tabbar-back"
@@ -1728,7 +1728,7 @@ export function App() {
             {backgroundTaskPills}
           </div>
         </nav>}
-        {!settingsOpen && tab !== "live" && <hr className="divider" />}
+        {!settingsOpen && tab !== "live" && tab !== "account" && <hr className="divider" />}
         {tab !== "live" && workspaceSyncing && <div className="workspace-sync-status muted small" role="status">
           <Spinner size={12} /> Syncing workspace…
         </div>}

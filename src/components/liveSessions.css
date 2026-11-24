@@ -74,8 +74,6 @@
   container: account / inline-size;
 }
 .account-profile-page > * { width: 100%; max-width: 1200px; margin-inline: auto; box-sizing: border-box; }
-.content:has(.account-profile-page) > .tabbar { padding-block: 3px; }
-.content:has(.account-profile-page) > .tabbar .tabbar-back { width: 30px; min-height: 30px; }
 .account-profile-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; }
 .account-profile-summary h1 { margin: 0; font-size: 19px; line-height: 1.2; }
 .account-identity { flex: 1; min-width: 130px; display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
@@ -100,7 +98,8 @@
 .account-metric-value { margin-top: 2px; flex-wrap: wrap; column-gap: 8px; }
 .account-metric b { font-size: 18px; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .account-trend { flex: 1 1 88px; min-width: 0; }
-.account-trend svg { width: 100%; height: 28px; display: block; }
+.account-trend svg { width: 100%; height: 32px; display: block; }
+.account-trend .single-day { justify-content: center; }
 .account-chart-dates { display: flex; justify-content: space-between; font-size: 10px; }
 .account-profile-page > .proxy-usage-page { height: auto; padding: 0; overflow: visible; margin-top: 10px; }
 .account-profile-page .proxy-traffic-chart { height: 170px; }
@@ -124,6 +123,10 @@
 .personal-import > button { justify-self:start; }
 .personal-import p { margin:0; color:var(--muted); }
 .personal-profile-actions { display:flex; gap:8px; flex-wrap:wrap; }
+.personal-recovery { margin-top: 8px; display: grid; gap: 6px; font-size: 12px; }
+.personal-recovery p { margin: 0; }
+.personal-recovery > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.personal-recovery code { display: block; overflow-wrap: anywhere; color: var(--muted); font-size: 11px; }
 @container account (max-width: 720px) {
   .account-overview { grid-template-columns: minmax(0, 1fr); }
   .personal-profiles header { min-height: 28px; }

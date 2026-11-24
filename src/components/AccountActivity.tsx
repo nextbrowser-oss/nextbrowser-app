@@ -19,7 +19,7 @@ function ActivityCard({ days, metric }: { days: ReturnType<typeof recentActivity
   const format = (n: number) => time ? duration(n) : String(n);
   const max = Math.max(1, ...days.map(day => day[metric]));
   const step = 290 / Math.max(1, days.length - 1);
-  const x = (i: number) => 5 + i * step;
+  const x = (i: number) => days.length === 1 ? 150 : 5 + i * step;
   const y = (i: number) => 62 - 54 * days[i][metric] / max;
   const line = days.map((_, i) => (i ? "L" : "M") + x(i) + " " + y(i)).join(" ");
   const title = time ? "Time in Nextbrowser" : "Visits";
@@ -31,22 +31,22 @@ function ActivityCard({ days, metric }: { days: ReturnType<typeof recentActivity
       <Tooltip content={detail}><header tabIndex={0}>{time ? <Clock3 size={14} /> : <Activity size={14} />}<h3>{title}</h3></header></Tooltip>
       <div className="account-metric-value"><b>{format(value)}</b><small>{date ? formatHistoryDateLabel(date) : "Last 14 days"}</small></div>
     </div>
-    {days.length > 1 && <div className="account-trend">
+    <div className="account-trend">
       <svg viewBox="0 0 300 68" preserveAspectRatio="none" aria-label={title + " by day"} role="group"
         onPointerLeave={() => setPoint(undefined)} onBlur={() => setPoint(undefined)}>
         <defs><linearGradient id={id} x2="0" y2="1"><stop stopColor="var(--accent)" stopOpacity=".32"/><stop offset="1" stopColor="var(--accent)" stopOpacity=".02"/></linearGradient></defs>
         <path d="M4 33H296 M4 62H296" className="proxy-traffic-chart-grid" />
-        <path d={line + " L" + x(days.length - 1) + " 64 L" + x(0) + " 64 Z"} fill={`url(#${id})`} />
+        {days.length > 1 && <path d={line + " L" + x(days.length - 1) + " 64 L" + x(0) + " 64 Z"} fill={`url(#${id})`} />}
         <path d={line} className="proxy-traffic-chart-line" />
         {days.map((day, i) => (
           <g key={day.label} tabIndex={0} role="img" aria-label={day.label + ", " + format(day[metric])} onFocus={() => setPoint(i)} onPointerEnter={() => setPoint(i)}>
-            <circle cx={x(i)} cy={y(i)} r={point === i ? 4 : 2.5} fill="var(--accent)"/>
+            <circle cx={x(i)} cy={y(i)} r={point === i || days.length === 1 ? 5 : 3} fill="var(--accent)"/>
             <rect x={x(i) - step / 2} width={step} height="68" fill="transparent"/>
           </g>
         ))}
       </svg>
-      <div className="account-chart-dates"><span>{formatHistoryDateLabel(days[0].label)}</span><span>{formatHistoryDateLabel(days[days.length - 1].label)}</span></div>
-    </div>}
+      {days.length > 0 && <div className={`account-chart-dates${days.length === 1 ? " single-day" : ""}`}><span>{formatHistoryDateLabel(days[0].label)}</span>{days.length > 1 && <span>{formatHistoryDateLabel(days[days.length - 1].label)}</span>}</div>}
+    </div>
   </section>;
 }
 
