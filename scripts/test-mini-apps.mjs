@@ -26,14 +26,19 @@ async function start() {
 async function waitForBoard() {
   await until(() => board(() => document.getElementById('add')?.disabled === false));
 }
-async function checkWindowLayout() {
+async function checkWindowLayout(railVisible = true) {
   const area = page.locator('.desktop-shell-body');
   const guest = page.locator('webview.mini-apps-guest');
+  const rail = page.locator('#app-sidebar');
   await until(async () => {
-    const content = await area.boundingBox(), view = await guest.boundingBox();
-    return content && view && ['x', 'y', 'width', 'height'].every(key => Math.abs(content[key] - view[key]) <= 1);
+    const [content, view, sidebar] = await Promise.all([area.boundingBox(), guest.boundingBox(), rail.boundingBox()]);
+    if (!content || !view || Boolean(sidebar) !== railVisible) return false;
+    return (sidebar ? view.x >= sidebar.x + sidebar.width - 1 : Math.abs(content.x - view.x) <= 1)
+      && Math.abs(content.x + content.width - view.x - view.width) <= 1
+      && Math.abs(content.y - view.y) <= 1 && Math.abs(content.height - view.height) <= 1;
   });
-  assert.equal(await page.locator('#app-sidebar').isVisible(), false);
+  const toggle = page.getByRole('button', { name: railVisible ? 'Hide navigation rail' : 'Show navigation rail' });
+  assert.equal(await toggle.getAttribute('aria-expanded'), String(railVisible));
   assert.equal(await page.getByRole('navigation', { name: 'Installed mini apps' }).isVisible(), false);
   assert.equal(await page.getByRole('button', { name: 'Back to Mini Apps' }).isVisible(), true);
 }
@@ -66,6 +71,13 @@ try {
   await page.getByRole('button', { name: 'Install mini app', exact: true }).click();
   await waitForBoard();
   await checkWindowLayout();
+  const guestId = () => page.locator('webview.mini-apps-guest').evaluate(view => view.getWebContentsId());
+  const originalGuest = await guestId();
+  await page.getByRole('button', { name: 'Hide navigation rail' }).click();
+  await checkWindowLayout(false);
+  await page.getByRole('button', { name: 'Show navigation rail' }).click();
+  await checkWindowLayout();
+  assert.equal(await guestId(), originalGuest);
   const initialWidth = await page.evaluate(() => innerWidth);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1050, 700));
   await until(async () => await page.evaluate(() => innerWidth) !== initialWidth);
@@ -121,6 +133,8 @@ try {
   await shortcut('Kanban').click();
   await waitForCard('Review mini apps');
   await checkWindowLayout();
+  await page.getByRole('button', { name: 'Hide navigation rail' }).click();
+  await checkWindowLayout(false);
   await app.close();
   await start();
   await page.getByRole('button', { name: 'Open Extensions', exact: true }).click();
@@ -128,6 +142,9 @@ try {
   await shortcut('Kanban').click();
   await waitForCard('Review mini apps');
   assert.equal(await pin().isChecked(), true);
+  await checkWindowLayout(false);
+  await page.getByRole('button', { name: 'Show navigation rail' }).click();
+  await checkWindowLayout();
   if (process.env.MINI_APP_SCREENSHOT) {
     const png = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString('base64'));
     await writeFile(process.env.MINI_APP_SCREENSHOT, Buffer.from(png, 'base64'));

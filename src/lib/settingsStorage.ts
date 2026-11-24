@@ -18,6 +18,7 @@ export const PERSISTENT_SETTINGS: readonly string[] = [
   "terminalChat",
   "sidebarWidth",
   "sidebarCollapsed",
+  "miniAppRailHidden",
   "chatListCollapsed",
   "nextbrowser.selectedProfile.*",
   "nextbrowser.multilogin.selection.*",

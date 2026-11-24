@@ -12,8 +12,7 @@
 .mini-apps-catalog article { max-width: 400px; background: var(--panel); padding: 18px; border: 1px solid var(--line); border-radius: var(--radius-lg); }
 .mini-apps-catalog p { color: var(--muted); margin: 7px 0 14px; }
 .mini-apps-catalog button + button { margin-left: 8px; }
-/* Keep the existing window caption and give the guest the entire client area below it. */
-.app:has(.mini-apps-open) > .sidebar,
+.app:has(.mini-apps-open[data-rail-hidden]) > .sidebar,
 .content:has(.mini-apps-open) > :is(.tabbar, .divider, .workspace-sync-status) { display: none; }
 .mini-apps-open { padding: 0; gap: 0; overflow: hidden; }
 .mini-apps-guest { display: flex; flex: 1; min-height: 0; min-width: 0; border: 0; }

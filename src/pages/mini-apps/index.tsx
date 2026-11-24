@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Dialog, IconButton } from '../../shared/ui';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { TitlebarActions } from '../../components/DesktopShell';
 import { invoke } from '../../electronBridge';
 import { useStore } from '../../store';
 import { MiniAppIcon } from '../../components/MiniAppIcon';
 import { useMiniAppLibrary, useMiniAppsOwner, type AppInfo } from '../../lib/miniAppLibrary';
+import { settingsStorage } from '../../lib/settingsStorage';
 import './mini-apps.css';
 
 type Guest = { id: string; src: string; partition: string };
@@ -23,6 +24,7 @@ function LibraryView({ owner }: { owner: string }) {
   const setTab = useStore(s => s.setTab);
   const [review, setReview] = useState<Review>();
   const [guide, setGuide] = useState(false);
+  const [railHidden, setRailHidden] = useState(() => settingsStorage.getItem('miniAppRailHidden') === 'true');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const file = useRef<HTMLInputElement>(null);
@@ -54,7 +56,7 @@ function LibraryView({ owner }: { owner: string }) {
     if (action === 'install') open(app.id);
   }
   const current = selected?.owner === owner ? library?.installed.find(app => app.id === selected.id) : undefined;
-  return <section className={current ? 'mini-apps mini-apps-open' : 'mini-apps'}>
+  return <section className={current ? 'mini-apps mini-apps-open' : 'mini-apps'} data-rail-hidden={current && railHidden || undefined}>
     {!current && <header className="mini-apps-header"><h1>Mini Apps</h1>
       <div className="mini-apps-header-actions"><Button onClick={() => setGuide(true)}>Build a mini app</Button>
         <Button disabled={busy} onClick={() => file.current?.click()}>Install from file</Button></div>
@@ -72,6 +74,13 @@ function LibraryView({ owner }: { owner: string }) {
       </nav>}
       {current ? <>
         <TitlebarActions><div className="mini-app-titlebar">
+          <IconButton label={railHidden ? 'Show navigation rail' : 'Hide navigation rail'} appearance="plain" size="small"
+            aria-controls="app-sidebar" aria-expanded={!railHidden} onClick={() => {
+              setRailHidden(!railHidden);
+              settingsStorage.setItem('miniAppRailHidden', String(!railHidden));
+            }}>
+            {railHidden ? <PanelLeftOpen size={16} aria-hidden="true" /> : <PanelLeftClose size={16} aria-hidden="true" />}
+          </IconButton>
           <IconButton label="Back to Mini Apps" text="Mini Apps" appearance="plain" size="small" onClick={() => open()}>
             <ChevronLeft size={16} aria-hidden="true" />
           </IconButton>
