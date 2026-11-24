@@ -122,13 +122,13 @@
   --surface-2: var(--glass-inverse-control);
   --surface-3: var(--glass-inverse-control-hover);
   --nav-active-bg: var(--glass-inverse-control-hover);
-  margin: 8px;
+  margin: 8px 6px;
   height: calc(100% - 16px);
   min-height: 0;
   border-radius: 18px;
   overflow: hidden;
 }
-.app { --sidebar-rail-width: 56px; }
+.app { --sidebar-rail-width: 46px; }
 .app > .sidebar.sidebar-collapsed { min-width: var(--sidebar-rail-width); max-width: var(--sidebar-rail-width); }
 .sidebar .sidebar-destination svg,
 .sidebar .sidebar-settings-button svg { color: var(--glass-inverse-text); }
