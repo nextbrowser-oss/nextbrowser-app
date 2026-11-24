@@ -1,4 +1,11 @@
 /* Product layout consumes the shared overlay, icon actions and inverse glass palette. */
+@font-face {
+  font-family: "Bitcount Prop Single";
+  src: url("../shared/assets/fonts/bitcount-prop-single/bitcount-prop-single-latin-500-normal.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
 .content-chat > .tabbar { border: 0; background: transparent; box-shadow: none; }
 .content-chat > .divider { display: none; }
 .chat { position: relative; }
@@ -38,7 +45,23 @@
 .chat .msg-user-bubble,
 .chat .assistant-bubble { border: 0; border-radius: var(--chat-radius); box-shadow: none; padding: 14px 16px; }
 .chat .user-command-chip { border: 0; border-radius: 20px; }
-.chat :is(.msg-user-meta, .msg-assistant-meta, .msg-system) { background-color: var(--chat-caption-bg, transparent); border-radius: var(--radius-sm); }
+.chat .msg-system { background-color: var(--chat-caption-bg, transparent); border-radius: var(--radius-sm); }
+.chat :is(.msg-user-meta, .msg-assistant-meta) {
+  background: transparent;
+  color: var(--chat-toolbar-muted);
+  font: 500 16px/1.25 var(--font-pixel);
+}
+.chat :is(.msg-user-meta, .msg-assistant-meta) button {
+  background: transparent;
+  color: inherit;
+}
+.chat :is(.msg-user-meta, .msg-assistant-meta) button:is(:hover, :focus-visible) {
+  color: var(--chat-toolbar-text);
+}
+.chat :is(.msg-user-meta, .msg-assistant-meta) .save-workflow-btn:is(:hover, :focus-visible) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .chat .chat-empty-state { background-color: var(--chat-empty-surface, var(--surface-1)); }
 
 :root { --chat-bottom-inset: 18px; }

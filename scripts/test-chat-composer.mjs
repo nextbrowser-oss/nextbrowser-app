@@ -86,6 +86,27 @@ try {
     assert.ok(floatingHeader.y >= historyBounds.y && floatingHeader.y + floatingHeader.height > historyBounds.y, 'project title floats above the same scroll area');
     await scrollToEnd();
     await lastIsVisible();
+    // A custom wallpaper normally gives system notices a solid caption surface.
+    // Message actions and timestamps should sit directly on the same wallpaper.
+    const footers = page.locator(".chat .msg-user-meta, .chat .msg-assistant-meta");
+    const footerStyles = await footers.evaluateAll(async rows => {
+      document.documentElement.style.setProperty("--chat-caption-bg", "var(--panel)");
+      try {
+        const faces = await document.fonts.load('500 16px "Bitcount Prop Single"', 'Save as skill 20:34');
+        return {
+          fontLoaded: faces.some(face => face.status === "loaded"),
+          user: rows.some(row => row.classList.contains("msg-user-meta")),
+          agent: rows.some(row => row.classList.contains("msg-assistant-meta")),
+          clear: rows.every(row => getComputedStyle(row).backgroundColor === "rgba(0, 0, 0, 0)"),
+          pixelText: rows.every(row => [...row.querySelectorAll("span, .save-workflow-btn")].every(
+            el => getComputedStyle(el).fontFamily.startsWith('"Bitcount Prop Single"'))),
+        };
+      } finally {
+        document.documentElement.style.removeProperty("--chat-caption-bg");
+      }
+    });
+    assert.deepEqual(footerStyles, { fontLoaded: true, user: true, agent: true, clear: true, pixelText: true });
+    await latest.screenshot({ path: resolve(output, `${theme}-message-footer.png`) });
     assert.equal(await jump.count(), 0, "no jump action while already at the bottom");
     await page.locator(".messages").evaluate(element => { element.scrollTop -= 200; });
     await jump.waitFor();
