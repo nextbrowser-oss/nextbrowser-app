@@ -5,6 +5,7 @@ import { defaultPreset } from "../lib/themePresets";
 import type { useAppearance } from "../lib/useAppearance";
 
 type Props = Omit<ReturnType<typeof useAppearance>, "appearance" | "updateAppearance">;
+const createOption = { value: ":create", label: "+ Create theme…" };
 
 export function ThemePresets({ library, selectPreset, createPreset, renamePreset, deletePreset, saveError }: Props) {
   const [action, setAction] = useState<"create" | "rename" | "delete" | null>(null);
@@ -19,8 +20,15 @@ export function ThemePresets({ library, selectPreset, createPreset, renamePreset
     <legend>Saved themes</legend>
     <div className="theme-preset-controls">
       <Select label="Saved theme" value={current.id} disabled={!!action}
-        options={presets.map(preset => ({ value: preset.id, label: preset.name }))} onChange={selectPreset} />
-      <Button disabled={!!action} onClick={() => { setName(""); setAction("create"); }}>Save as…</Button>
+        options={[...presets.map(preset => ({ value: preset.id, label: preset.name })), createOption]}
+        onChange={id => {
+          if (id === createOption.value) {
+            setName("");
+            setAction("create");
+          } else {
+            selectPreset(id);
+          }
+        }} />
       {current.id !== defaultPreset.id && <>
         <IconButton size="small" appearance="plain" label="Rename theme" disabled={!!action}
           onClick={() => { setName(current.name); setAction("rename"); }}><Pencil size={15} /></IconButton>

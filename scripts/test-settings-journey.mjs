@@ -197,10 +197,16 @@ try {
     await modal.getByRole("option", { name, exact: true }).click();
   };
   const saveAs = async (name) => {
-    await modal.getByRole("button", { name: "Save as…" }).click();
+    await choosePreset("+ Create theme…");
     await themeName.fill(name);
     await saveName.click();
   };
+  await picker.press("End");
+  await picker.press("Enter");
+  assert.equal(await themeName.evaluate(el => el === document.activeElement), true);
+  assert.equal(await picker.textContent(), "Default");
+  await themeName.press("Escape");
+  assert.equal(await picker.isEnabled(), true);
   await saveAs("Forest");
   assert.equal(await picker.textContent(), "Forest");
   await modal.getByRole("button", { name: "My photo", pressed: true }).waitFor();
@@ -239,7 +245,7 @@ try {
   await page.getByRole("button", { name: /^Settings(?:,|$)/ }).click();
   await themes.click();
   await picker.click();
-  assert.deepEqual(await modal.getByRole("option").allTextContents().then(names => names.map(name => name.trim())), ["Default", "Night sky"]);
+  assert.deepEqual(await modal.getByRole("option").allTextContents().then(names => names.map(name => name.trim())), ["Default", "Night sky", "+ Create theme…"]);
   await modal.getByRole("option", { name: "Default", exact: true }).click();
   await modal.getByRole("button", { name: "Reset dark appearance" }).click();
   assert.equal(await corners.inputValue(), "20");
