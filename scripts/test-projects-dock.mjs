@@ -6,13 +6,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { _electron } from "playwright-core";
 
-const root = fileURLToPath(new URL("../", import.meta.url));
+const root = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
 const profile = await mkdtemp(path.join(tmpdir(), "nb-projects-dock-"));
 const env = { ...process.env, NEXTBROWSER_DEV_DATA_ROOT: profile, NBC_AUTO_UPDATE: "0", NEXTBROWSER_ERROR_REPORTING: "0", NEXTBROWSER_DEVICE_REPORTING: "0" };
 delete env.ELECTRON_RUN_AS_NODE;
 let app;
 async function start() {
-  app = await _electron.launch({ args: [root, "--user-data-dir=" + path.join(profile, "app")], executablePath: createRequire(import.meta.url)("electron"), env });
+  app = await _electron.launch({ args: [root, "--user-data-dir=" + path.join(profile, "app")], executablePath: createRequire(import.meta.url)("electron"), env, timeout: 20000 });
   const page = await app.firstWindow();
   page.setDefaultTimeout(12000);
   await page.goto(new URL("../dist/index.html?preview=main", import.meta.url).href);
