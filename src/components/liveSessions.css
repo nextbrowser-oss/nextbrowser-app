@@ -1,6 +1,13 @@
 .live-sessions-popover { width: 260px; }
 .profile-list-tools { display: grid; gap: 3px; min-width: 0; max-width: 100%; }
-.profile-list-tools .profile-name-sort { justify-self: start; }
+.profile-list-tools .profile-name-sort {
+  justify-self: start;
+  height: 20px;
+  gap: 3px;
+  padding-inline: 4px;
+  font-size: 11px;
+  line-height: 1;
+}
 .profile-name-sort[data-direction="desc"] svg { transform: rotate(180deg); }
 .live-sessions-popover .profile-name-sort { color: var(--glass-inverse-muted); }
 .live-sessions-popover .profile-name-sort:hover { color: var(--glass-inverse-text); background: var(--glass-inverse-control-hover); }

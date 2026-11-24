@@ -58,9 +58,9 @@ function ProfileListTools({ query, onChange, onCreate, compact = false }: {
       </IconButton>
     </div>
     <IconButton className="profile-name-sort" data-direction={direction} label={sortLabel}
-      text={sortLabel} hint={`Сортировать по имени ${nextOrder}`}
+      text="Сортировать" hint={`Сортировать по имени ${nextOrder}`}
       size="small" appearance="plain" onClick={toggleSort}>
-      <Glyph name="arrow-down" size={14} />
+      <Glyph name="arrow-down" size={12} />
     </IconButton>
   </div>;
 }
