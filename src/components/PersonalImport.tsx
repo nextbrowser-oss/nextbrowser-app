@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { ArchiveRestore, Bookmark, ChevronRight, Clock3, Download, Flame, FolderOpen, Globe, Image, PanelsTopLeft, RefreshCw, TrendingUp } from "lucide-react";
 import { invoke } from "../electronBridge";
-import { Button, Select } from "../shared/ui";
+import { Button } from "../shared/ui";
 
 export const categories = { bookmarks: "Bookmarks", history: "Browsing and download history", tabs: "Open tabs", favicons: "Site icons", topSites: "Frequently visited sites" };
 export type Category = keyof typeof categories;
 export interface PersonalProfile {
   id: string; name: string; imported: Category[];
-  source?: {id: string};
+  source?: {id: string; browser?: string};
   backup?: {archivePath: string; keyPath: string};
   pendingBackup?: boolean;
 }
@@ -19,6 +20,8 @@ interface Props {
   onSaved: (profile: PersonalProfile) => void; onRestore: () => void; onBusy: (pending: boolean) => void;
 }
 const kinds = Object.keys(categories) as Category[];
+const categoryIcons = { bookmarks:Bookmark, history:Clock3, tabs:PanelsTopLeft, favicons:Image, topSites:TrendingUp };
+export const categoryLabel = (kind:Category,browser?:string) => browser === "Firefox" && kind === "history" ? "Browsing history" : categories[kind];
 const label = (s: Source) => s.browser + " · " + s.name;
 const readyCount = (s: Source) => Object.values(s.items).filter(item => item && !item.busy && !item.unreadable && !item.imported).length;
 
@@ -32,6 +35,7 @@ export function PersonalImport({workspaceId,owner,initialSource,disabled,onSaved
   const [unavailable,setUnavailable] = useState<string[]>([]);
   const [unsupported,setUnsupported] = useState<string[]>([]);
   const generation = useRef(0);
+  const statusId = useId();
   const scope = {workspaceId,owner:"account/"+owner};
   const source = sources.find(s => s.id === active);
   const locked = pending || disabled;
@@ -80,33 +84,54 @@ export function PersonalImport({workspaceId,owner,initialSource,disabled,onSaved
 
   return <form className="personal-import" aria-label="Import browser data" aria-busy={pending} onSubmit={e => { e.preventDefault(); void save(); }}>
     <div className="personal-profile-actions">
-      <Button type="button" disabled={locked} onClick={() => void scan(active)}>Scan again</Button>
-      <Button type="button" disabled={locked} onClick={() => void pickFolder()}>Choose another folder…</Button>
-      <Button type="button" disabled={locked} onClick={onRestore}>Restore from archive…</Button>
+      <Button disabled={locked} onClick={() => void scan(active)}><RefreshCw/>Scan again</Button>
+      <Button disabled={locked} onClick={() => void pickFolder()}><FolderOpen/>Choose another folder…</Button>
+      <Button disabled={locked} onClick={onRestore}><ArchiveRestore/>Restore from archive…</Button>
     </div>
-    {sources.length > 0 ? <><p>{sources.length === 1 ? "1 browser profile found" : sources.length + " browser profiles found"}</p>
-      <Select label="Browser profile on this device" value={active}
-      options={sources.map(s => ({value:s.id,label:label(s) + " · " + readyCount(s) + " available"}))} disabled={locked}
-      onChange={id => { choose(sources.find(s => s.id === id)); setError(""); }} /></>
-      : <p>{pending ? "Scanning local browser profiles…" : "No supported browser profiles found. Choose a Chromium profile folder to scan it."}</p>}
-    {unavailable.length > 0 && <p>Could not scan: {unavailable.join(", ")}.</p>}
-    {unsupported.length > 0 && <p>Detected without automatic import support: {unsupported.join(", ")}.</p>}
-    {source && <>
-      <fieldset className="personal-source-items" aria-label="Data to import">
-        {kinds.map(kind => {
-          const item = source.items[kind];
-          return <label key={kind}><input type="checkbox" aria-label={categories[kind]}
-            disabled={locked || !item || item.busy || item.unreadable || item.imported} checked={!!item?.imported || selected.includes(kind)}
-            onChange={e => setSelected(list => e.target.checked ? [...list,kind] : list.filter(k => k !== kind))}/>
-            <span>{categories[kind]}</span><small>{!item ? "No data found" : item.imported ? "Imported" : item.unreadable ? "Unreadable" : item.busy ? "Close browser and rescan" : item.updated ? "Changed since import" : "Available"}</small>
-          </label>;
-        })}
-      </fieldset>
-      {Object.values(source.items).some(item => item?.busy || item?.unreadable) && <p>Close the source browser and select Scan again to retry unavailable files.</p>}
-      <label>New personal profile name<input maxLength={80} required value={name} disabled={locked} onChange={e => setName(e.target.value)} /></label>
-      <p>Selected data is copied to a new local profile with an encrypted backup. Sign in to websites separately in that profile.</p>
-      <Button type="submit" disabled={locked || !name.trim() || !selected.length}>Import selected data</Button>
-    </>}
+    {unavailable.length > 0 && <p>Could not scan {unavailable.join(", ")}.</p>}
+    {unsupported.length > 0 && <p>Automatic import is unavailable for {unsupported.join(", ")}.</p>}
+    {source ? <div className="personal-source-layout">
+      <div className="personal-source-column">
+        <h4>Browser profiles <span>{sources.length}</span></h4>
+        <ul aria-label="Browser profiles on this device" className="personal-source-list">
+          {sources.map(s => {
+            const Icon = s.browser === "Firefox" ? Flame : Globe;
+            return <li key={s.id}><button type="button" aria-pressed={s.id === active} disabled={locked}
+              onClick={() => { if (s.id !== active) choose(s); setError(""); }}>
+              <Icon size={17} aria-hidden="true"/>
+              <span><strong>{s.name}</strong><small>{s.browser} · {readyCount(s)} available</small></span>
+              {s.id === active && <ChevronRight size={15} aria-hidden="true"/>}
+            </button></li>;
+          })}
+        </ul>
+      </div>
+      <div className="personal-source-detail">
+        <fieldset className="personal-source-items">
+          <legend>Data to import</legend>
+          {kinds.filter(kind => source.browser !== "Firefox" || ["bookmarks","history","tabs"].includes(kind)).map(kind => {
+            const item = source.items[kind];
+            const title = categoryLabel(kind,source.browser);
+            const status = !item ? "No data found" : item.imported ? "Imported" : item.unreadable ? "Unreadable" : item.busy ? "Close browser and rescan" : item.updated ? "Changed since import" : "Available";
+            const Icon = categoryIcons[kind];
+            return <label key={kind} className="personal-data-row">
+              <Icon size={15} aria-hidden="true"/><span>{title}</span><small id={statusId + kind}>{status}</small>
+              <span className="toggle"><input type="checkbox" role="switch" aria-label={title} aria-describedby={statusId + kind}
+                disabled={locked || !item || item.busy || item.unreadable || item.imported} checked={!!item?.imported || selected.includes(kind)}
+                onChange={e => { const checked = e.target.checked; setSelected(list => checked ? [...list,kind] : list.filter(k => k !== kind)); }}/>
+                <span className="toggle-track"><span className="toggle-knob"/></span>
+              </span>
+            </label>;
+          })}
+        </fieldset>
+        <label className="personal-profile-name">New personal profile name
+          <input className="shared-text-field" maxLength={80} required value={name} disabled={locked} onChange={e => setName(e.target.value)}/>
+        </label>
+        <div className="personal-import-footer">
+          <p>Saved on this device with an encrypted backup. Websites will ask you to sign in again.</p>
+          <Button type="submit" className="primary" disabled={locked || !name.trim() || !selected.length}><Download/>Import selected data</Button>
+        </div>
+      </div>
+    </div> : <p>{pending ? "Scanning local browser profiles…" : "No browser profiles found. Choose a Firefox or Chromium profile folder to scan."}</p>}
     {error && <p role="alert">{error}</p>}
   </form>;
 }

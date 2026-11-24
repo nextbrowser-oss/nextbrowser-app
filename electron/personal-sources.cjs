@@ -2,6 +2,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
+const firefox = require('./personal-firefox.cjs');
 
 const files = {bookmarks:'Bookmarks',history:'History',favicons:'Favicons',topSites:'Top Sites'};
 const categories = ['bookmarks','history','tabs','favicons','topSites'];
@@ -17,7 +18,7 @@ function browserRoots(platform = process.platform, home = os.homedir(), env = pr
     if (platform === 'win32') return {browser,dir:path.join(env.LOCALAPPDATA || path.join(home,'AppData','Local'),brand,'User Data')};
     if (platform === 'darwin') return {browser,dir:path.join(home,'Library','Application Support',brand)};
     return {browser,dir:path.join(env.XDG_CONFIG_HOME || path.join(home,'.config'),unix)};
-  });
+  }).concat(firefox.firefoxRoots(platform,home,env).map(dir => ({browser:'Firefox',dir})));
 }
 
 async function regularFile(file) {
@@ -44,11 +45,14 @@ async function latestSession(dir) {
 }
 
 // The renderer receives availability and import status, never the profile contents.
-async function inspectSource(directory,browser) {
+async function inspectSource(directory,browser,displayName) {
   const dir = await fs.realpath(directory);
   if (!(await fs.lstat(dir)).isDirectory()) throw Error('Choose a browser profile folder.');
   const key = process.platform === 'win32' ? dir.toLowerCase() : dir;
   const id = createHash('sha256').update(key).digest('hex');
+  if (browser === 'Firefox' || (browser === 'Selected folder' && (await regularFile(path.join(dir,'places.sqlite')) || await regularFile(path.join(dir,'prefs.js'))))) {
+    return {id,dir,browser:'Firefox',name:displayName || path.basename(dir),items:await firefox.inspect(dir)};
+  }
   const items = {};
   for (const kind of categories) {
     try {
@@ -104,6 +108,17 @@ async function findSources(roots = browserRoots()) {
   const sources = [];
   const unavailable = new Set();
   for (const {dir,browser} of roots) {
+    if (browser === 'Firefox') {
+      try {
+        for (const entry of await firefox.registered(dir)) {
+          try {
+            const profile = await inspectSource(entry.dir,browser,entry.name);
+            if (!sources.some(s => s.id === profile.id)) sources.push(profile);
+          } catch (e) { if (e.code !== 'ENOENT') unavailable.add(browser); }
+        }
+      } catch (e) { if (e.code !== 'ENOENT') unavailable.add(browser); }
+      continue;
+    }
     let entries;
     try { entries = await fs.readdir(dir,{withFileTypes:true}); }
     catch (e) { if (e.code !== 'ENOENT') unavailable.add(browser); continue; }
@@ -116,11 +131,8 @@ async function findSources(roots = browserRoots()) {
   return {sources,unavailable:[...unavailable]};
 }
 
-async function otherBrowsers(platform = process.platform, home = os.homedir(), env = process.env) {
-  const firefox = platform === 'win32' ? path.join(env.APPDATA || path.join(home,'AppData','Roaming'),'Mozilla','Firefox','profiles.ini')
-    : platform === 'darwin' ? path.join(home,'Library','Application Support','Firefox','profiles.ini') : path.join(home,'.mozilla','firefox','profiles.ini');
+async function otherBrowsers(platform = process.platform, home = os.homedir()) {
   const detected = [];
-  try { if (await regularFile(firefox)) detected.push('Firefox'); } catch { /* Optional source. */ }
   if (platform === 'darwin') {
     try { if ((await fs.lstat(path.join(home,'Library','Safari'))).isDirectory()) detected.push('Safari'); } catch { /* Optional source. */ }
   }

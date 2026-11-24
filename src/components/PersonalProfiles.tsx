@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "../electronBridge";
 import { useStore } from "../store";
 import { Button } from "../shared/ui";
-import { categories, PersonalImport, type PersonalProfile as Profile } from "./PersonalImport";
+import { categoryLabel, PersonalImport, type PersonalProfile as Profile } from "./PersonalImport";
 
 export function PersonalProfiles({ owner }: { owner: string }) {
   const workspaceId = useStore(s => s.activeWorkspaceId);
@@ -56,7 +56,7 @@ export function PersonalProfiles({ owner }: { owner: string }) {
       onBusy={setScanning} onRestore={() => void run("restore")} onSaved={profile => {
         setProfiles(list => [...list.filter(p => p.id !== profile.id),profile]);
         setExpanded(profile.id); setError("");
-        setNotice("Imported: " + profile.imported.map(kind => categories[kind]).join(", ") + ".");
+        setNotice("Imported: " + profile.imported.map(kind => categoryLabel(kind,profile.source?.browser)).join(", ") + ".");
       }}/>}
     {profiles.map(p => <div key={p.id}>
       <div className="personal-profile-row">

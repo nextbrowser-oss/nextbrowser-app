@@ -4,6 +4,7 @@ const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const { openBrowser, findBrowser, importPage } = require('./personal-browser.cjs');
 const { writeArchive, readArchive } = require('./personal-archive.cjs');
+const firefox = require('./personal-firefox.cjs');
 const { findSources, inspectSource, hasPortableData, otherBrowsers, categories, files } = require('./personal-sources.cjs');
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -179,7 +180,7 @@ async function importProfile(root, source, name, selected, active = () => true, 
   const stage = await fs.mkdtemp(path.join(root,'.import-'));
   try {
     const id = randomUUID(), dest = path.join(stage,'browser','Default');
-    const imported = await snapshot(source,dest,selected);
+    const imported = origin?.browser === 'Firefox' ? await firefox.snapshot(source,dest,selected,writeTabSession) : await snapshot(source,dest,selected);
     const profile = {id,name:name.trim(),kind:'personal',imported};
     if (origin) {
       const after = await inspectSource(source,origin.browser);
@@ -189,7 +190,7 @@ async function importProfile(root, source, name, selected, active = () => true, 
         if (!version || after.items[kind]?.version !== version || after.items[kind].busy) throw Error(changed);
         versions[kind] = version;
       }
-      profile.source = {id:origin.id,versions};
+      profile.source = {id:origin.id,browser:origin.browser,versions};
     }
     if (!active()) throw Error('The active account changed.');
     profile.backup = await makeBackup(root,stage,profile,dest);
@@ -289,6 +290,10 @@ async function sourceStatus(root,source,profiles,digests = new Map()) {
   for (const [kind,item] of Object.entries(source.items)) {
     const prior = profiles.filter(p => p.source?.id === source.id && p.source.versions?.[kind]);
     let imported = !item.busy && !!item.version && prior.some(p => p.source.versions[kind] === item.version);
+    if (source.browser === 'Firefox') {
+      items[kind] = {imported,busy:item.busy,unreadable:item.unreadable,updated:!imported && prior.length > 0};
+      continue;
+    }
     let sourceTabs;
     if (!item.busy && !imported) {
       try {
@@ -334,12 +339,13 @@ async function personalCommand({base, scope, current, dialog, shell, command, ar
     if (!catalogue) { catalogue = new Map(); sourceCatalogues.set(scope,catalogue); }
     const profiles = await localProfiles(root);
     if (command === 'personal_profiles_choose_source') {
-      const picked = await dialog.showOpenDialog(scope.window,{title:'Choose a Chromium profile folder',properties:['openDirectory']});
+      const picked = await dialog.showOpenDialog(scope.window,{title:'Choose a browser profile folder',properties:['openDirectory']});
       if (picked.canceled || !picked.filePaths.length) return null;
       if (!current()) throw Error('The active account changed.');
       const source = await inspectSource(picked.filePaths[0],'Selected folder');
       const known = catalogue.get(source.id);
-      if (known) source.browser = known.browser;
+      if (known) { source.browser = known.browser; source.name = known.name; }
+      source.manual = true;
       catalogue.set(source.id,source);
       const result = await sourceStatus(root,source,profiles);
       if (!current()) throw Error('The active account changed.');
@@ -347,8 +353,8 @@ async function personalCommand({base, scope, current, dialog, shell, command, ar
     }
     const {sources,unavailable} = await findSources();
     for (const source of catalogue.values()) {
-      if (source.browser !== 'Selected folder' || sources.some(s => s.id === source.id)) continue;
-      try { sources.push(await inspectSource(source.dir,source.browser)); }
+      if (!source.manual || sources.some(s => s.id === source.id)) continue;
+      try { sources.push({...await inspectSource(source.dir,source.browser,source.name),manual:true}); }
       catch { unavailable.push(source.name); }
     }
     catalogue.clear();
@@ -383,7 +389,7 @@ async function personalCommand({base, scope, current, dialog, shell, command, ar
     } finally { importingSources.delete(lock); }
   }
   if (command === 'personal_profiles_import') {
-    const {canceled,filePaths} = await dialog.showOpenDialog(scope.window, { title:'Choose your browser profile (Default or Profile 1)', properties:['openDirectory'] });
+    const {canceled,filePaths} = await dialog.showOpenDialog(scope.window, { title:'Choose a browser profile folder', properties:['openDirectory'] });
     if (canceled || !filePaths.length) return null;
     if (!current()) throw Error('The active account changed.');
     const source = await inspectSource(filePaths[0],'Selected folder');
