@@ -28,6 +28,36 @@ function fixture(t) {
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
+test('rail moves persist per owner, preserve catalog order and reject stale drop targets', t => {
+  const root = fixture(t);
+  const store = createStore(root);
+  const ids = ['alpha', 'beta', 'gamma'];
+  for (const owner of ['one', 'two']) {
+    for (const id of ids) {
+      store.install(owner, JSON.stringify({ ...pkg, id }));
+      store.setPinned(owner, id, true);
+    }
+  }
+  const rail = (owner, db = store) => db.list(owner).filter(app => app.pinned)
+    .sort((a, b) => a.railIndex - b.railIndex).map(app => app.id);
+  const [alpha, beta, gamma] = ids.map(id => store.read('one', id).generation);
+  const originalList = store.list('one').map(app => app.id);
+  store.movePinned('one', gamma, alpha, 'before');
+  store.movePinned('one', alpha, beta, 'after');
+  store.movePinned('one', alpha, beta, 'after');
+  assert.deepEqual(rail('one', createStore(root)), ['gamma', 'beta', 'alpha']);
+  assert.deepEqual(rail('two'), ids);
+  assert.deepEqual(store.list('one').map(app => app.id), originalList);
+  store.setPinned('one', 'beta', false);
+  assert.throws(() => store.movePinned('one', alpha, beta, 'before'));
+  store.setPinned('one', 'beta', true);
+  assert.deepEqual(rail('one'), ['gamma', 'beta', 'alpha']);
+  store.remove('one', 'gamma');
+  store.install('one', JSON.stringify({ ...pkg, id: 'gamma' }));
+  store.setPinned('one', 'gamma', true);
+  assert.throws(() => store.movePinned('one', gamma, beta, 'before'));
+  assert.deepEqual(rail('one'), ['beta', 'alpha', 'gamma']);
+});
 test('the catalog ships the reproducible standalone Kanban project', t => {
   const output = path.join(fixture(t), 'kanban.json');
   execFileSync(process.execPath, [path.join(__dirname, '../examples/kanban-mini-app/build.mjs'), output]);

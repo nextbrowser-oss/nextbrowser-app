@@ -259,6 +259,10 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
         store.setPinned(owner, id, args.pinned);
         libraryChanged();
         return;
+      case 'mini_apps_move_pinned':
+        store.movePinned(owner, args.source, args.target, args.position);
+        libraryChanged();
+        return;
       case 'mini_apps_install': {
         const shellId = window.webContents.id;
         const scope = scopes.get(shellId);

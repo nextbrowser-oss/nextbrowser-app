@@ -147,6 +147,11 @@
 .sidebar-destinations .sidebar-destination-label { font-weight: 500; }
 .sidebar-destinations .sidebar-destination.active { box-shadow: none; }
 .mini-app-rail-divider { width: 22px; height: 1px; margin: 3px auto; border: 0; background: var(--glass-inverse-muted); opacity: .5; }
+.sidebar-destinations button[draggable="true"] { cursor: grab; }
+.sidebar-destinations button[draggable="true"]:active { cursor: grabbing; }
+.sidebar-destinations [data-rail-drop]::after { content: ""; position: absolute; inset-inline: 6px; height: 2px; border-radius: 1px; background: var(--glass-inverse-text); pointer-events: none; }
+.sidebar-destinations [data-rail-drop="before"]::after { top: -2px; }
+.sidebar-destinations [data-rail-drop="after"]::after { bottom: -2px; }
 .mini-app-monogram { display: grid; place-items: center; width: 18px; height: 18px; border: 1.5px solid currentColor; border-radius: 4px; font-size: 11px; font-weight: 600; }
 .sidebar-destinations .sidebar-destination-count,
 .sidebar-destinations.is-compact .sidebar-destination-count { background: transparent; font-size: 9px; }

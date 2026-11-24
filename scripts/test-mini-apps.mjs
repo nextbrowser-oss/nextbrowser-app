@@ -152,9 +152,12 @@ try {
   await shortcut('Work board').click();
   await waitForBoard();
   await checkWindowLayout();
-  await pin().uncheck();
-  await backToCatalog();
-  await shortcut('Work board').waitFor({ state: 'detached' });
+  const firstShortcut = () => page.getByRole('button', { name: /^Open pinned app / }).first().getAttribute('aria-label');
+  assert.equal(await firstShortcut(), 'Open pinned app Kanban');
+  const openBoard = await guestId();
+  await shortcut('Kanban').dragTo(shortcut('Work board'));
+  await until(async () => await firstShortcut() === 'Open pinned app Work board');
+  assert.equal(await guestId(), openBoard);
   await shortcut('Kanban').click();
   await waitForCard('Review mini apps');
   await checkWindowLayout();
@@ -162,6 +165,8 @@ try {
   await checkWindowLayout(false);
   await app.close();
   await start();
+  await shortcut('Work board').waitFor();
+  assert.equal(await firstShortcut(), 'Open pinned app Work board');
   await page.getByRole('button', { name: 'Open Extensions', exact: true }).click();
   await page.getByRole('dialog', { name: 'Extensions' }).getByRole('button', { name: /^Open Skills/ }).click();
   await shortcut('Kanban').click();
@@ -170,6 +175,13 @@ try {
   await checkWindowLayout(false);
   await page.getByRole('button', { name: 'Show navigation rail' }).click();
   await checkWindowLayout();
+  await shortcut('Work board').click();
+  await waitForBoard();
+  await pin().uncheck();
+  await backToCatalog();
+  await shortcut('Work board').waitFor({ state: 'detached' });
+  await shortcut('Kanban').click();
+  await waitForCard('Review mini apps');
   if (process.env.MINI_APP_SCREENSHOT) {
     const png = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString('base64'));
     await writeFile(process.env.MINI_APP_SCREENSHOT, Buffer.from(png, 'base64'));

@@ -96,10 +96,20 @@ function createStore(root, catalog) {
   function list(owner) {
     const dir = directory(owner);
     if (!fs.existsSync(dir)) return [];
+    const orderFile = path.join(dir, 'rail-order.json');
+    let order = [];
+    if (fs.existsSync(orderFile)) {
+      try {
+        const saved = JSON.parse(fs.readFileSync(orderFile, 'utf8'));
+        if (Array.isArray(saved)) order = saved;
+      } catch (error) { if (!(error instanceof SyntaxError)) throw error; }
+    }
     return fs.readdirSync(dir).filter(name => /^app-.*\.json$/.test(name))
-      .map(name => {
+      .map((name, index) => {
         const record = read(owner, name.slice(4, -5));
-        return { ...metadata(record.pkg), generation: record.generation, pinned: record.pinned === true, placements: record.placements ?? {} };
+        const position = order.indexOf(record.generation);
+        return { ...metadata(record.pkg), generation: record.generation, pinned: record.pinned === true,
+          railIndex: position < 0 ? order.length + index : position, placements: record.placements ?? {} };
       });
   }
   function install(owner, raw, previousGeneration) {
@@ -130,6 +140,18 @@ function createStore(root, catalog) {
     const record = read(owner, id);
     write(location(owner, id), { ...record, pinned });
   }
+  function movePinned(owner, source, target, position) {
+    if (position !== 'before' && position !== 'after') throw Error('Invalid rail position.');
+    const apps = list(owner).sort((a, b) => a.railIndex - b.railIndex);
+    const from = apps.findIndex(app => app.pinned && app.generation === source);
+    const to = apps.findIndex(app => app.pinned && app.generation === target);
+    if (from < 0 || to < 0) throw Error('The pinned apps have changed. Try moving the icon again.');
+    if (from === to) return;
+    const [moved] = apps.splice(from, 1);
+    const insertAt = apps.findIndex(app => app.generation === target) + (position === 'after' ? 1 : 0);
+    apps.splice(insertAt, 0, moved);
+    write(path.join(directory(owner), 'rail-order.json'), apps.map(app => app.generation));
+  }
   function setWidget(owner, id, blockId, surface, size) {
     const record = read(owner, id);
     const block = record.pkg.widgets?.find(b => b.id === blockId && b.surfaces.includes(surface));
@@ -143,6 +165,6 @@ function createStore(root, catalog) {
     }
     write(location(owner, id), { ...record, placements });
   }
-  return { list, read, install, save, setPinned, setWidget, remove(owner, id) { fs.unlinkSync(location(owner, id)); } };
+  return { list, read, install, save, setPinned, movePinned, setWidget, remove(owner, id) { fs.unlinkSync(location(owner, id)); } };
 }
 module.exports = { parsePackage, metadata, createStore, PACKAGE_BYTES, STATE_BYTES };
