@@ -7982,9 +7982,13 @@ pre,
 .messages {
   padding: 24px clamp(18px, 3vw, 42px);
   gap: 18px;
-  background:
-    radial-gradient(circle at 72% 8%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 35%),
-    var(--bg);
+}
+
+.messages, .theme-chat-preview {
+  background-color: var(--chat-bg);
+  background-image: var(--chat-wallpaper);
+  background-size: var(--chat-wallpaper-size);
+  background-position: center;
 }
 
 .msg-user-bubble,
@@ -7995,14 +7999,15 @@ pre,
 
 .msg-user-bubble {
   border: 1px solid color-mix(in srgb, var(--accent) 72%, var(--line));
-  background: var(--primary-action);
-  color: var(--on-primary-action);
+  background: var(--chat-outgoing);
+  color: var(--chat-outgoing-ink);
   box-shadow: 0 12px 34px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .assistant-bubble {
   border-color: var(--line);
-  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+  background: var(--chat-incoming);
+  color: var(--chat-incoming-ink);
   box-shadow: 0 8px 28px color-mix(in srgb, var(--shadow) 45%, transparent);
 }
 

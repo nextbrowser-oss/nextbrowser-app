@@ -18,15 +18,16 @@ const calm: SettingsAttentionInput = {
 };
 
 describe("Settings sections", () => {
-  it("lists General, Privacy, Agent, Browser and Proxy in rail order", () => {
-    expect(SETTINGS_SECTIONS.map((section) => section.label)).toEqual(["General", "Updates", "Privacy", "Agent", "Browser", "Proxy"]);
+  it("lists the settings sections in rail order", () => {
+    expect(SETTINGS_SECTIONS.map((section) => section.label)).toEqual(["General", "Themes", "Updates", "Privacy", "Agent", "Browser", "Proxy"]);
     expect(new Set(SETTINGS_SECTIONS.map((section) => section.id)).size).toBe(SETTINGS_SECTIONS.length);
     expect(SETTINGS_SECTIONS.every((section) => section.summary.endsWith("."))).toBe(true);
     expect(settingsSectionInfo("agent").label).toBe("Agent");
   });
 
   it("moves through the rail with the arrow keys and wraps at both ends", () => {
-    expect(settingsSectionAfterKey("general", "ArrowDown")).toBe("updates");
+    expect(settingsSectionAfterKey("general", "ArrowDown")).toBe("themes");
+    expect(settingsSectionAfterKey("themes", "ArrowDown")).toBe("updates");
     expect(settingsSectionAfterKey("browser", "ArrowDown")).toBe("proxy");
     expect(settingsSectionAfterKey("proxy", "ArrowDown")).toBe("general");
     expect(settingsSectionAfterKey("privacy", "ArrowUp")).toBe("updates");

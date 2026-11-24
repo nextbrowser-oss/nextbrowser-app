@@ -33,6 +33,8 @@ import { getPreviewMode, getPreviewNodeMavenState, getPreviewTab } from "./previ
 import { humanBytes, type AppTab, type Conversation } from "./types";
 import { readThemePreference, resolveTheme, subscribeToSystemTheme, systemPrefersLight, type Theme, type ThemePreference } from "./theme";
 import { ThemePicker } from "./components/ThemePicker";
+import { ThemeEditor } from "./components/ThemeEditor";
+import { useAppearance } from "./lib/useAppearance";
 import { confirmedBrowserRuntimeUpdates } from "./lib/browserRuntimeUpdate";
 import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
 import { observeDesktopActivity } from "./lib/desktopActivity";
@@ -408,6 +410,8 @@ function SettingsModal({
   onRequestBrowserRuntimeUpdate,
   themePreference,
   onThemeChange,
+  activeTheme,
+  appearanceSettings,
   uiScale,
   onUiScaleChange,
   uiScaleFloatingHidden,
@@ -433,6 +437,8 @@ function SettingsModal({
   onRequestBrowserRuntimeUpdate: (runtime: BrowserRuntimeUpdateEntry) => void;
   themePreference: ThemePreference;
   onThemeChange: (next: ThemePreference) => void;
+  activeTheme: Theme;
+  appearanceSettings: ReturnType<typeof useAppearance>;
   uiScale: number;
   onUiScaleChange: (next: number) => void;
   uiScaleFloatingHidden: boolean;
@@ -562,7 +568,6 @@ function SettingsModal({
           <SettingsPanel section={section}>
             {section === "general" && (
               <div className="settings-group">
-                <ThemePicker value={themePreference} onChange={onThemeChange} />
                 <div className="settings-row"><span className="muted small">Nextbrowser</span><strong>{__APP_VERSION__}</strong></div>
                 <SettingsDiagnostics />
                 <button className="settings-feature-link" onClick={() => setSection("updates")}>
@@ -575,6 +580,13 @@ function SettingsModal({
                     {uiScaleFloatingHidden && <Tooltip content="Return the quick-access control to the main screen"><button className="plain-icon-btn plain-icon-btn-compact" onClick={onRestoreFloatingScale} aria-label="Return the interface-size quick-access control to the main screen"><Icon name="arrow.uturn.left" size={12} /></button></Tooltip>}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {section === "themes" && (
+              <div className="theme-settings">
+                <ThemePicker value={themePreference} onChange={onThemeChange} />
+                <ThemeEditor key={activeTheme} mode={activeTheme} {...appearanceSettings} />
               </div>
             )}
 
@@ -811,6 +823,7 @@ export function App() {
   const [themePreference, setThemePreference] = useState(() => readThemePreference(settingsStorage.getItem("nextbrowser.theme")));
   const prefersLight = useSyncExternalStore(subscribeToSystemTheme, systemPrefersLight);
   const theme = resolveTheme(themePreference, prefersLight);
+  const appearanceSettings = useAppearance(theme);
   const [uiScale, setUiScale] = useState<number>(() => {
     const saved = Number(settingsStorage.getItem("nextbrowser.uiScale"));
     return Number.isFinite(saved) && saved >= UI_SCALE_MIN && saved <= UI_SCALE_MAX ? saved : 1;
@@ -1586,6 +1599,8 @@ export function App() {
             onOpenRelease={openLatestRelease}
             onRequestBrowserRuntimeUpdate={requestBrowserRuntimeUpdate}
             themePreference={themePreference}
+            activeTheme={theme}
+            appearanceSettings={appearanceSettings}
             onThemeChange={setThemePreference}
             uiScale={uiScale}
             onUiScaleChange={setUiScale}
@@ -1710,6 +1725,8 @@ export function App() {
           onOpenRelease={openLatestRelease}
           onRequestBrowserRuntimeUpdate={requestBrowserRuntimeUpdate}
           themePreference={themePreference}
+          activeTheme={theme}
+          appearanceSettings={appearanceSettings}
           onThemeChange={setThemePreference}
           uiScale={uiScale}
           onUiScaleChange={setUiScale}

@@ -31,6 +31,15 @@
   --nav-active-border: #a897f0;
   --nav-active-indicator: #c6b7ff;
   --primary-action: #7156cf;
+  --chat-bg: var(--bg);
+  --chat-wallpaper: radial-gradient(circle at 72% 8%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 35%);
+  --chat-wallpaper-size: cover;
+  --chat-photo-tint: color-mix(in srgb, var(--chat-bg) 42%, transparent);
+  --chat-incoming: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+  --chat-incoming-ink: var(--text);
+  --chat-outgoing: var(--primary-action);
+  --chat-outgoing-ink: var(--on-primary-action);
+  --chat-radius: 20px;
   --primary-action-hover: #6247be;
   --on-primary-action: #ffffff;
   --info: #8cbff5;

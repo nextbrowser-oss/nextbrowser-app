@@ -2,7 +2,7 @@ import type { TrafficGateTone } from "./trafficGate";
 
 // The Settings dialog shows one section at a time, picked from a rail on the
 // left. Every setting lives in exactly one section.
-export type SettingsSection = "general" | "updates" | "privacy" | "agent" | "browser" | "proxy";
+export type SettingsSection = "general" | "themes" | "updates" | "privacy" | "agent" | "browser" | "proxy";
 
 export interface SettingsSectionInfo {
   id: SettingsSection;
@@ -12,7 +12,8 @@ export interface SettingsSectionInfo {
 }
 
 export const SETTINGS_SECTIONS: readonly SettingsSectionInfo[] = [
-  { id: "general", label: "General", icon: "gearshape", summary: "Theme, interface size, and app version." },
+  { id: "general", label: "General", icon: "gearshape", summary: "Interface size and app version." },
+  { id: "themes", label: "Themes", icon: "palette", summary: "Customize light and dark appearance separately." },
   { id: "updates", label: "Updates", icon: "arrow.down.circle", summary: "Installed versions, available updates, and download progress." },
   { id: "privacy", label: "Privacy", icon: "checkmark.shield", summary: "Error reports and the device data sent with your account." },
   { id: "agent", label: "Agent", icon: "cpu.fill", summary: "The local agent used for chats, skills, and scheduled runs." },

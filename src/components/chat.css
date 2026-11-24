@@ -36,8 +36,10 @@
 .chat-legacy-activity pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .chat .plain-icon-btn { border-radius: 50%; }
 .chat .msg-user-bubble,
-.chat .assistant-bubble { border: 0; border-radius: 20px; box-shadow: none; padding: 14px 16px; }
+.chat .assistant-bubble { border: 0; border-radius: var(--chat-radius); box-shadow: none; padding: 14px 16px; }
 .chat .user-command-chip { border: 0; border-radius: 20px; }
+.chat :is(.msg-user-meta, .msg-assistant-meta, .msg-system) { background-color: var(--chat-caption-bg, transparent); border-radius: var(--radius-sm); }
+.chat .chat-empty-state { background-color: var(--chat-empty-surface, var(--surface-1)); }
 
 .chat-composer-dock {
   display: flex;

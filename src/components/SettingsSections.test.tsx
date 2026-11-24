@@ -12,12 +12,12 @@ describe("Settings section rail", () => {
   const rail = (section: Parameters<typeof SettingsRail>[0]["section"], attention = {}) =>
     renderToStaticMarkup(<SettingsRail section={section} attention={attention} onSelect={() => undefined} />);
 
-  it("is a vertical tablist of the six sections", () => {
+  it("is a vertical tablist of the settings sections", () => {
     const html = rail("general");
     expect(html).toMatch(/^<div[^>]*role="tablist"[^>]*>/);
     expect(html).toContain('aria-orientation="vertical"');
     expect(html).toContain('aria-label="Settings sections"');
-    expect(Object.keys(tabs(html))).toEqual(["general", "updates", "privacy", "agent", "browser", "proxy"]);
+    expect(Object.keys(tabs(html))).toEqual(["general", "themes", "updates", "privacy", "agent", "browser", "proxy"]);
   });
 
   it("selects one tab and keeps only it in the Tab order", () => {
@@ -69,6 +69,7 @@ describe("Settings sections hold every setting", () => {
 
   it.each([
     ["general", ["Nextbrowser</span>", "Versions and updates", "Interface size", "<UIScaleSlider"]],
+    ["themes", ["<ThemePicker", "<ThemeEditor"]],
     ["updates", ["<SettingsUpdates", "Restart and update", "<ManualReleaseDownload"]],
     ["privacy", ["Send error reports", "<DeviceDataSettings />"]],
     ["agent", ["<AgentPicker", "Connect", "Login", "Log out", "<AgentInstallLink", "<BuiltinAgentSetup />"]],
