@@ -22,3 +22,5 @@
 .mini-app-titlebar { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; -webkit-app-region: drag; app-region: drag; }
 .mini-app-titlebar h2 { margin: 0 auto 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--text); }
 .mini-app-titlebar .mini-apps-pin { -webkit-app-region: no-drag; app-region: no-drag; }
+.mini-apps-catalog { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr)); gap:12px; align-items:start; }
+.catalog-app-title { display:flex; align-items:center; gap:8px; }

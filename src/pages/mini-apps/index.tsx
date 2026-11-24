@@ -22,6 +22,7 @@ function LibraryView({ owner }: { owner: string }) {
   const { library, refresh, loadError } = useMiniAppLibrary(owner);
   const selected = useStore(s => s.selectedMiniApp);
   const setTab = useStore(s => s.setTab);
+  const [widgetsOnly, setWidgetsOnly] = useState(false);
   const [review, setReview] = useState<Review>();
   const [guide, setGuide] = useState(false);
   const [railHidden, setRailHidden] = useState(() => settingsStorage.getItem('miniAppRailHidden') === 'true');
@@ -69,7 +70,8 @@ function LibraryView({ owner }: { owner: string }) {
     {!library && !error && !loadError && <p role="status">Loading mini apps…</p>}
     {library && <>
       {!current && <nav className="mini-apps-tabs" aria-label="Installed mini apps">
-        <Button aria-pressed onClick={() => open()}>Catalog</Button>
+        <Button aria-pressed={!widgetsOnly} onClick={() => setWidgetsOnly(false)}>Catalog</Button>
+        <Button aria-pressed={widgetsOnly} onClick={() => setWidgetsOnly(true)}>Widgets</Button>
         {library.installed.map(app => <Button key={app.id} disabled={busy}
           onClick={() => open(app.id)}>{app.name}</Button>)}
       </nav>}
@@ -97,9 +99,9 @@ function LibraryView({ owner }: { owner: string }) {
           <Button onClick={() => setReview({ action: 'remove', app: current })}>Uninstall</Button>
         </div></TitlebarActions>
         <OpenGuest key={current.id} id={current.id} owner={owner} name={current.name} />
-      </> : <div className="mini-apps-catalog">{library.catalog.map(app => {
+      </> : <div className="mini-apps-catalog">{library.catalog.filter(app => !widgetsOnly || app.widgets?.length).map(app => {
         const installed = library.installed.some(item => item.id === app.id);
-        return <article key={app.id}><h2>{app.name}</h2><p>{app.description}</p>
+        return <article key={app.id}><div className="catalog-app-title"><MiniAppIcon app={app} /><h2>{app.name}</h2></div><p>{app.description}</p>
           <Button disabled={busy} onClick={() => installed ? open(app.id) : setReview({ action: 'install', app })}>{installed ? 'Open' : 'Install'}</Button>
           <Button disabled={busy} onClick={() => void run(() => invoke('mini_apps_download', { owner, id: app.id }))}>Download package</Button>
         </article>;

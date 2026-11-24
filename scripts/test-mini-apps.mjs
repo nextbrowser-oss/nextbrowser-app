@@ -177,7 +177,7 @@ try {
   await catalogCard('Kanban').getByRole('button', { name: 'Install', exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'Kanban', exact: true }).count(), 0);
   await shortcut('Kanban').waitFor({ state: 'detached' });
-  await checkMusicWidget(app, page);
+  await checkMusicWidget(app, page, path.join(profile,'music.nbmini.json'));
   console.log('Passed catalog and file installs, card creation and move, isolated guest state, switching, restart and uninstall.');
 } catch (error) {
   if (page && !page.isClosed()) {

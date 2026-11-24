@@ -3,7 +3,7 @@ import { invoke } from '../electronBridge';
 import { getPreviewMode } from '../preview';
 import { useStore } from '../store';
 
-export interface AppInfo { id: string; name: string; version: string; description: string; apiVersion: number; tools?: string[]; permissions: string[]; icon?: 'board' | 'calendar' | 'list' | 'notebook' | 'chart' | 'grid' }
+export interface AppInfo { id: string; name: string; version: string; description: string; apiVersion: number; tools?: string[]; permissions: string[]; icon?: 'board' | 'calendar' | 'list' | 'notebook' | 'chart' | 'grid' | 'music' }
 export type WidgetSurface = 'chat.panel' | 'settings.design';
 export type GridSize = [number, number];
 export interface WidgetBlock { id: string; name: string; surfaces: WidgetSurface[]; grid: {min: GridSize; preferred: GridSize; max: GridSize} }
@@ -15,12 +15,13 @@ export function useMiniAppsOwner() {
   return owner ? 'account/' + owner : getPreviewMode() ? 'preview' : undefined;
 }
 
-export function useMiniAppLibrary(owner: string) {
+export function useMiniAppLibrary(owner?: string) {
   const [library, setLibrary] = useState<Library>();
   const [loadError, setLoadError] = useState('');
   const request = useRef(0);
   const refresh = useCallback(async () => {
     const seq = ++request.current;
+    if (!owner) { setLibrary(undefined); setLoadError(''); return; }
     try {
       const next = await invoke<Library>('mini_apps_list', { owner });
       if (seq === request.current) { setLibrary(next); setLoadError(''); }

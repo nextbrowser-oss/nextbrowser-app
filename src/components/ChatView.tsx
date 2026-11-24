@@ -11,7 +11,8 @@ import { filePathForFile, invoke } from "../electronBridge";
 import { AGENTS, BUILTIN_AGENT_ID, agentById, agentInvocation, isBuiltinAgent, type AgentSpec } from "../agents";
 import { AgentModelPicker } from "./AgentModelPicker";
 import { ComposerSkinPicker, ComposerSurface, useComposerSkin } from "./composer-skins/ComposerSkins";
-import { PanelWidgets, WidgetSettingsButton } from "./PanelWidgets";
+import { PanelWidgets } from "./PanelWidgets";
+import { Grid2X2, Check as GridCheck } from "lucide-react";
 import { OPEN_AGENT_SETTINGS_EVENT } from "../lib/appNavigation";
 import { trackEvent } from "../lib/analytics";
 import { BROWSER_VERIFICATION_ATTENTION, BROWSER_VERIFICATION_INSTRUCTIONS, needsBrowserVerification } from "../lib/activityParser";
@@ -124,6 +125,7 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
 
   const [draft, setDraft] = useState("");
   const { skin, apply: applySkin } = useComposerSkin();
+  const [editingGrid, setEditingGrid] = useState(false);
   const [guideDraftLoaded, setGuideDraftLoaded] = useState(false);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [scriptOpen, setScriptOpen] = useState(false);
@@ -576,7 +578,6 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
                 <div className="chat-action-error error small" role="alert">{actionError}</div>
               )}
               {commandNotice && <div className="chat-command-notice" role="status">{commandNotice}</div>}
-              <PanelWidgets surface="chat.panel" />
               <ComposerSurface skin={skin}>
                 {activeCommand && <CommandList id={commandMenuId} label="Agent commands" activeId={activeCommand.name} anchor={composerRef.current?.closest<HTMLElement>(".composer")}
                   options={commandMatches.map(command => ({ id: command.name, title: "/" + command.name, description: command.description }))}
@@ -618,77 +619,88 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
                   }}
                 />
                 <div className="composer-actions">
-                  <IconButton
-                    label="Attach local files to the next message"
-                    appearance="embedded"
-                    size="small"
-                    text="Attach"
-                    disabled={!ready}
-                    onClick={() => void attachFiles()}
-                  >
-                    <Icon name="paperclip" size={14} />
-                  </IconButton>
-                  <div className="script-wrap" ref={scriptWrapRef}>
-                    <IconButton
-                      label="Open scripts menu"
-                      appearance="embedded"
-                      size="small"
-                      text="Scripts"
-                      aria-haspopup="true"
-                      aria-expanded={scriptOpen}
-                      onClick={() => setScriptOpen((o) => !o)}
-                    >
-                      <Icon name="scroll" size={14} />
-                    </IconButton>
-                    {scriptOpen && (
-                      <div className={`${glassSurfaceClassName} script-menu`} ref={scriptMenuRef}>
-                        {officialScripts.length > 0 && <div className="section">OFFICIAL SCRIPTS</div>}
-                        {officialScripts.map((sc) => (
-                          <Tooltip key={sc.id} content={`Run ${sc.title}`}><button
-                            onClick={() => {
-                              setScriptOpen(false);
-                              const domain = looksLikeDomain(draft.trim()) ? draft.trim() : "";
-                              if (domain) setDraft("");
-                              s.runScript(sc, domain);
-                            }}
+                  <PanelWidgets surface="chat.panel" editing={editingGrid} controls={[
+                    { key: 'attach', name: 'Attach', size: [3,1], content: (
+                        <IconButton
+                          label="Attach local files to the next message"
+                          appearance="embedded"
+                          size="small"
+                          text="Attach"
+                          disabled={!ready}
+                          onClick={() => void attachFiles()}
+                        >
+                          <Icon name="paperclip" size={14} />
+                        </IconButton>
+                    ) },
+                    { key: 'scripts', name: 'Scripts', size: [3,1], content: (
+                        <div className="script-wrap" ref={scriptWrapRef}>
+                          <IconButton
+                            label="Open scripts menu"
+                            appearance="embedded"
+                            size="small"
+                            text="Scripts"
+                            aria-haspopup="true"
+                            aria-expanded={scriptOpen}
+                            onClick={() => setScriptOpen((o) => !o)}
                           >
-                            {sc.title}
-                          </button></Tooltip>
-                        ))}
-                        {customScripts.length > 0 && (
-                          <>
-                            <div className="section">MY SCRIPTS</div>
-                            {customScripts.map((cs) => (
-                              <Tooltip key={cs.id} content={`Run ${cs.title}`}><button
-                                onClick={() => {
-                                  setScriptOpen(false);
-                                  const domain = looksLikeDomain(draft.trim()) ? draft.trim() : "";
-                                  if (domain) setDraft("");
-                                  s.runCustomScript({ ...cs, domain: domain || cs.domain });
-                                }}
-                              >
-                                {cs.title}
-                              </button></Tooltip>
-                            ))}
-                          </>
-                        )}
-                        {officialScripts.length === 0 && customScripts.length === 0 && (
-                          <Tooltip content="Create a custom script"><button onClick={openScriptCreator}>
-                            <Icon name="plus" size={13} /> Create script
-                          </button></Tooltip>
-                        )}
-                        {(officialScripts.length > 0 || customScripts.length > 0) && (
-                          <Tooltip content="Create a new custom script"><button onClick={openScriptCreator}>
-                            <Icon name="plus" size={13} /> Create script
-                          </button></Tooltip>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  <AgentModelPicker key={conversationKey} agentId={agentId} version={builtinAgent ? s.agentVersion() : undefined}
-                    disabled={running || remoteOnly || !!s.runtime[BUILTIN_AGENT_ID]?.runningReplyId}
-                    onActivate={activateApiAgent} onRefresh={s.refreshBuiltinAgent} />
-                  <WidgetSettingsButton />
+                            <Icon name="scroll" size={14} />
+                          </IconButton>
+                          {scriptOpen && (
+                            <div className={`${glassSurfaceClassName} script-menu`} ref={scriptMenuRef}>
+                              {officialScripts.length > 0 && <div className="section">OFFICIAL SCRIPTS</div>}
+                              {officialScripts.map((sc) => (
+                                <Tooltip key={sc.id} content={`Run ${sc.title}`}><button
+                                  onClick={() => {
+                                    setScriptOpen(false);
+                                    const domain = looksLikeDomain(draft.trim()) ? draft.trim() : "";
+                                    if (domain) setDraft("");
+                                    s.runScript(sc, domain);
+                                  }}
+                                >
+                                  {sc.title}
+                                </button></Tooltip>
+                              ))}
+                              {customScripts.length > 0 && (
+                                <>
+                                  <div className="section">MY SCRIPTS</div>
+                                  {customScripts.map((cs) => (
+                                    <Tooltip key={cs.id} content={`Run ${cs.title}`}><button
+                                      onClick={() => {
+                                        setScriptOpen(false);
+                                        const domain = looksLikeDomain(draft.trim()) ? draft.trim() : "";
+                                        if (domain) setDraft("");
+                                        s.runCustomScript({ ...cs, domain: domain || cs.domain });
+                                      }}
+                                    >
+                                      {cs.title}
+                                    </button></Tooltip>
+                                  ))}
+                                </>
+                              )}
+                              {officialScripts.length === 0 && customScripts.length === 0 && (
+                                <Tooltip content="Create a custom script"><button onClick={openScriptCreator}>
+                                  <Icon name="plus" size={13} /> Create script
+                                </button></Tooltip>
+                              )}
+                              {(officialScripts.length > 0 || customScripts.length > 0) && (
+                                <Tooltip content="Create a new custom script"><button onClick={openScriptCreator}>
+                                  <Icon name="plus" size={13} /> Create script
+                                </button></Tooltip>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                    ) },
+                    { key: 'agent', name: 'Agent', size: [3,1], content: (
+                        <AgentModelPicker key={conversationKey} agentId={agentId} version={builtinAgent ? s.agentVersion() : undefined}
+                          disabled={running || remoteOnly || !!s.runtime[BUILTIN_AGENT_ID]?.runningReplyId}
+                          onActivate={activateApiAgent} onRefresh={s.refreshBuiltinAgent} />
+                    ) },
+                  ]} />
+                  <IconButton label={editingGrid ? 'Finish editing grid' : 'Edit widget grid'} aria-pressed={editingGrid}
+                    className="composer-grid-trigger" appearance="embedded" size="small" onClick={() => setEditingGrid(value => !value)}>
+                    {editingGrid ? <GridCheck size={15} /> : <Grid2X2 size={15} />}
+                  </IconButton>
                   <ComposerSkinPicker skin={skin} onApply={applySkin} />
                   {running ? (
                     <IconButton label="Stop the running agent response" appearance="embedded" onClick={() => s.stopRunning()}>

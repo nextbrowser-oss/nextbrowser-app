@@ -8,7 +8,7 @@ import { Button } from "../shared/ui";
 import { useStore } from "../store";
 import { ComposerSample, ComposerSkinPicker, useComposerSkin, type Skin } from "./composer-skins/ComposerSkins";
 import { BrandLogo } from "./BrandLogo";
-import { PanelWidgets, WidgetSettingsButton } from "./PanelWidgets";
+import { PanelWidgets } from "./PanelWidgets";
 import { Icon } from "./Icon";
 import "./themePicker.css";
 
@@ -84,7 +84,7 @@ export function ThemePicker({ value, activeTheme, preset, onChange, palettes }: 
         <Button aria-pressed={scene === "chat"} onClick={() => setScene("chat")}><MessageSquare size={14} />Chat</Button>
         <Button aria-pressed={scene === "settings"} onClick={() => setScene("settings")}><SlidersHorizontal size={14} />Settings</Button>
       </div>
-      <WidgetSettingsButton /><ComposerSkinPicker skin={skin} onApply={apply} />
+      <ComposerSkinPicker skin={skin} onApply={apply} chooseSurface />
     </div>
     <Viewport {...props} modes={[activeTheme]} />
     <PanelWidgets surface="settings.design" />

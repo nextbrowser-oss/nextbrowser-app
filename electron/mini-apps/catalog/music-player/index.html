@@ -1,25 +1,47 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Music Player</title>
 <style>
-:root{color-scheme:light dark;font:14px/1.35 system-ui;color:light-dark(#262531,#f5f5fa);background:light-dark(#eeedf4,#25252e)}
-*{box-sizing:border-box}body{margin:0;padding:clamp(7px,2vw,16px)}main{max-width:620px;margin:auto;display:grid;gap:8px}
-header,.controls,form{display:flex;align-items:center;gap:6px;flex-wrap:wrap}header{flex-wrap:nowrap}
-.art{display:grid;place-items:center;flex:none;width:32px;height:32px;border-radius:9px;background:linear-gradient(140deg,#6543b6,#c65e96);color:white;font-size:20px}
-.track{min-width:0;flex:1}.track strong,.track small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-body[data-view="app"] main{margin:clamp(16px,6vh,70px) auto;padding:20px;border-radius:18px;background:light-dark(#f8f8fc,#30303b)}
-body[data-view="app"] header{padding-bottom:14px}body[data-view="app"] .art{width:48px;height:48px;font-size:28px}
-small{opacity:.75}button,select,input{max-width:100%;padding:4px 8px;font:inherit;border-radius:8px;border:1px solid color-mix(in srgb,currentColor 20%,transparent);background:light-dark(#fafafe,#30313c);color:inherit}
-button{cursor:pointer}button:disabled{opacity:.45;cursor:default}select{min-width:0;max-width:min(180px,60vw)}form{padding-block:5px}
-[hidden]{display:none!important}[role=alert]{color:light-dark(#9a322a,#ffb3a6);margin:0}
-@media(max-height:110px){body{padding:4px 8px}main{gap:3px}.art{width:26px;height:26px}small{font-size:10px}button,select,input{font-size:12px}}
+:root{color-scheme:dark;font:13px/1.35 system-ui,sans-serif;--ink:#f5f5fc;--muted:#b9b9cb;--surface:#22232d;--line:#454551;--pulse:#bcf3a3;background:var(--surface);color:var(--ink)}
+*{box-sizing:border-box}html,body{width:100%;height:100%;margin:0}body{display:grid;align-content:center;overflow:hidden}
+main{width:min(100%,440px);padding:14px;margin:auto}button,select,input{font:inherit;color:inherit}button{cursor:pointer}
+button:disabled{opacity:.4;cursor:default}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--pulse);outline-offset:-2px}
+[hidden]{display:none!important}.screen{display:grid;gap:10px}.trackline,.transport,.account-line,.actions,.subhead{display:flex;align-items:center;gap:10px;min-width:0}
+.art{flex:none;display:grid;place-items:center;color:var(--pulse);border-radius:12px;background:linear-gradient(135deg,#333a36,#212825);width:44px;height:44px}
+.art svg{width:69%;height:69%;fill:currentColor}.art rect{transform-box:fill-box;transform-origin:center}
+body[data-playing=true] .art rect{animation:beat .77s ease-in-out infinite alternate}.art rect:nth-child(2n){animation-delay:-.43s!important}
+@keyframes beat{to{transform:scaleY(.45)}}@media(prefers-reduced-motion:reduce){.art rect{animation:none!important}}
+.track{min-width:0;flex:1}.track strong,.track small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.track strong{font-size:16px}
+small,#no-accounts{color:var(--muted)}.transport{justify-content:space-between}.actions{gap:5px}
+button,select,input{border:0;border-radius:8px;padding:6px 9px;background:#343540;min-width:0}select,input{width:100%}
+button:hover:enabled{background:#444652}.round{width:34px;height:34px;border-radius:50%;padding:0;display:grid;place-items:center}.round svg{width:16px;height:16px}
+#toggle{background:var(--pulse);color:#172515}body:not([data-playing=true]) .pause,body[data-playing=true] .play{display:none}
+#choose{max-width:65%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.subhead{justify-content:space-between}.subhead strong{font-size:15px}.primary{background:var(--pulse);color:#172515}.primary:hover:enabled{background:#d1fac0}
+form{display:grid;gap:6px}#error{margin:4px 0 0;font-size:11px;color:#ffb7aa;overflow-wrap:anywhere}#error:empty{display:none}
+body[data-view=tile]{padding:0}
+body[data-view=tile] main,body[data-view=tile] #player,body[data-view=tile] .trackline{width:100%;height:100%;max-width:none;padding:0;margin:0}
+body[data-view=tile] .trackline{gap:0}body[data-view=tile] .art{width:min(100vw,100vh);height:min(100vw,100vh);border-radius:0;background:transparent}
+body[data-view=tile] :is(.transport,#error,.track){display:none}
+@media (min-width:80px){body[data-view=tile] .track{display:block;padding-right:5px}body[data-view=tile] .track strong{font-size:12px}body[data-view=tile] .track small{font-size:10px}}
+body[data-view=app]{background:#181920}body[data-view=app] main{border:1px solid var(--line);border-radius:18px;background:var(--surface);padding:20px}
 </style></head><body><main>
-<header><span class="art" aria-hidden="true">♫</span><div class="track"><strong id="track">Music Player</strong><small id="artist"></small></div>
-<button id="toggle" type="button" disabled>Play</button><button id="launch" type="button" disabled>Open service</button></header>
-<div class="controls"><select id="accounts" aria-label="Music account"></select><button id="manage" aria-expanded="false">Accounts</button></div>
-<form id="form" hidden><select id="services" aria-label="Music service"></select><input id="label" aria-label="Account name" placeholder="Account name" required maxlength="60">
-<input id="url" type="url" hidden aria-label="Service website" placeholder="https://music.example.com">
-<button>Add account</button><button id="remove" type="button">Remove selected</button></form>
-<div id="confirmation" hidden>Remove this local login? <button id="confirm">Remove</button> <button id="cancel">Cancel</button></div>
+<section class="screen" id="player">
+  <div class="trackline"><div class="art" aria-hidden="true"><svg viewBox="0 0 28 28"><rect x="2" y="10" width="4" height="8" rx="2"/><rect x="8.5" y="4" width="4" height="20" rx="2"/><rect x="15" y="7" width="4" height="14" rx="2"/><rect x="21.5" y="9" width="4" height="10" rx="2"/></svg></div>
+  <div class="track"><strong id="track">Music Player</strong><small id="artist"></small></div></div>
+  <div class="transport"><button id="choose">Add account</button><div class="actions">
+    <button class="round" id="launch" aria-label="Open service" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 4h7v7m0-7-10 10M9 5H5v14h14v-4"/></svg></button>
+    <button class="round" id="toggle" aria-label="Play" disabled><svg viewBox="0 0 24 24" fill="currentColor"><path class="play" d="M7 4v16l13-8z"/><path class="pause" d="M6 4h4v16H6zm8 0h4v16h-4z"/></svg></button>
+  </div></div>
+</section>
+<section id="library" class="screen" hidden><div class="subhead"><strong>Music accounts</strong><button data-back="player">Back</button></div>
+  <select id="accounts" aria-label="Music account"></select><small id="no-accounts">No accounts yet</small>
+  <div class="actions"><button class="primary" id="manage">Add account</button><button id="remove">Remove selected</button></div>
+</section>
+<form id="form" hidden><div class="subhead"><strong>Add an account</strong><button type="button" data-back="library">Back</button></div>
+  <select id="services" aria-label="Music service"></select><input id="label" aria-label="Account name" placeholder="Account name" required maxlength="60">
+  <input id="url" type="url" hidden aria-label="Service website" placeholder="https://music.example.com"><button class="primary">Add account</button>
+</form>
+<section id="confirmation" class="screen" hidden><strong>Remove this local login?</strong><div class="actions"><button id="confirm">Remove</button><button data-back="library">Cancel</button></div></section>
 <p id="error" role="alert"></p>
 </main><script>
 const el = id => document.getElementById(id);
@@ -44,8 +66,8 @@ async function request(action,input={}) {
   return value;
 }
 function options(node, items, value) {
-  if (node.matches(':focus') && [...node.options].map(o => o.value).join() === items.map(i => i.id).join()) {
-    node.value = value; return;
+  if ( [...node.options].map(o => o.value).join() === items.map(i => i.id).join()) {
+    if (value && node.value !== value) node.value = value; return;
   }
   node.replaceChildren(...items.map(item => new Option(item.name ?? item.label, item.id)));
   if (value) node.value = value;
@@ -65,9 +87,14 @@ async function refresh() {
   el('toggle').disabled = !status.available;
   el('remove').disabled = !account;
   playing = !!status.playing;
-  el('toggle').textContent = playing ? 'Pause' : 'Play';
+  el('toggle').setAttribute('aria-label', playing ? 'Pause' : 'Play');
+  document.body.dataset.playing = String(playing);
   el('track').textContent = status.title || service?.name || 'Music Player';
-  el('artist').textContent = status.artist || (account ? account.label : 'Add an account to start');
+  el('artist').textContent = status.artist || (account ? account.label : '');
+  el('choose').textContent = account ? account.label : 'Add account';
+  el('no-accounts').hidden = !!account;
+  el('accounts').hidden = !account;
+  el('remove').hidden = !account;
 }
 async function run(name,input) {
   const value = await request(actions[name][0],input);
@@ -87,19 +114,31 @@ for (const [name,[,description]] of Object.entries(actions)) {
 }
 const report = e => { el('error').textContent = e.message; };
 function act(name,input) { el('error').textContent=''; return run(name,input).catch(report); }
-el('accounts').onchange = e => act('select_account',{id:e.target.value});
+
+function show(id) {
+  for(const screen of ['player','library','form','confirmation']) el(screen).hidden = screen !== id;
+  el('error').textContent='';
+}
+for(const button of document.querySelectorAll('[data-back]')) button.onclick = () => show(button.dataset.back);
+el('choose').onclick = () => show(current ? 'library' : 'form');
+el('manage').onclick = () => show('form');
+el('accounts').onchange = async e => {if(await act('select_account',{id:e.target.value})) show('player');};
 el('toggle').onclick = () => act(playing ? 'pause' : 'play',{id:current});
 el('launch').onclick = () => act('open_player',{id:current});
-el('manage').onclick = () => {el('form').hidden = !el('form').hidden;el('manage').setAttribute('aria-expanded',String(!el('form').hidden));};
 el('services').onchange = () => {const custom=el('services').value==='custom';el('url').hidden=!custom;el('url').required=custom;};
-el('form').onsubmit = async e => {e.preventDefault();if(await act('add_account',{service:el('services').value,label:el('label').value,url:el('url').value})){el('label').value='';el('manage').click();}};
+el('form').onsubmit = async e => {e.preventDefault();if(await act('add_account',{service:el('services').value,label:el('label').value,url:el('url').value})){el('label').value='';show('player');}};
 let removal;
-el('remove').onclick = () => {removal=current; el('confirmation').hidden=false;};
-el('confirm').onclick = () => {el('confirmation').hidden=true;void act('forget_account',{id:removal,confirm:true});};
-el('cancel').onclick = () => {el('confirmation').hidden=true;};
+el('remove').onclick = () => {removal=current;show('confirmation');};
+el('confirm').onclick = async () => {if(await act('forget_account',{id:removal,confirm:true})) show('player');};
 fetch('/context').then(r=>r.json()).then(context=>{
-  document.body.dataset.view=context.blockId ? 'widget' : 'app';
-  if(!context.blockId){el('form').hidden=false;el('manage').setAttribute('aria-expanded','true');}
+  document.body.dataset.view = context.view || (context.blockId ? 'tile' : 'app');
+  if (context.view === 'popover') {
+    const panel = document.querySelector('main');
+    new ResizeObserver(() => {
+      const height = Math.ceil(panel.getBoundingClientRect().height);
+      if (height) void fetch('/context',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({height})}).catch(() => {});
+    }).observe(panel);
+  }
   return refresh();
 }).catch(report);
 setInterval(() => {if(!document.hidden) refresh().catch(report);},2500);

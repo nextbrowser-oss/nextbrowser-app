@@ -1,7 +1,7 @@
-import { CalendarDays, ChartColumn, Kanban, LayoutGrid, List, Notebook } from 'lucide-react';
+import { CalendarDays, ChartColumn, Kanban, LayoutGrid, List, Music2, Notebook } from 'lucide-react';
 import type { AppInfo } from '../lib/miniAppLibrary';
 
-const icons = { board: Kanban, calendar: CalendarDays, chart: ChartColumn, grid: LayoutGrid, list: List, notebook: Notebook };
+const icons = { board: Kanban, calendar: CalendarDays, chart: ChartColumn, grid: LayoutGrid, list: List, notebook: Notebook, music: Music2 };
 
 export function MiniAppIcon({ app }: { app: AppInfo }) {
   const name = app.icon ?? (app.id === 'kanban' ? 'board' : undefined);

@@ -1,8 +1,10 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { ArrowUp, Check, Palette, PanelsTopLeft, Paperclip, ScrollText, Sparkles } from 'lucide-react';
+import { ArrowUp, Check, Palette, Grid2X2, Paperclip, ScrollText, Sparkles } from 'lucide-react';
 import { Button, Dialog, glassSurfaceClassName, IconButton } from '../../shared/ui';
 import { contrastingInk } from '../../lib/appearance';
 import { settingsStorage } from '../../lib/settingsStorage';
+import { WidgetPicker } from '../PanelWidgets';
+import type { WidgetSurface } from '../../lib/miniAppLibrary';
 import { ContourField } from './ContourField';
 import './skins.css';
 
@@ -56,7 +58,7 @@ export function ComposerSample({ skin, still }: { skin: Skin; still?: boolean })
         <IconButton label="Attach" text="Attach" appearance="embedded" size="small"><Paperclip size={14} /></IconButton>
         <IconButton label="Scripts" text="Scripts" appearance="embedded" size="small"><ScrollText size={14} /></IconButton>
         <IconButton label="Agent" text="Agent" appearance="embedded" size="small"><Sparkles size={14} /></IconButton>
-        <IconButton className="panel-widgets-trigger" label="Widgets" appearance="embedded" size="small"><PanelsTopLeft size={15} /></IconButton>
+        <IconButton className="composer-grid-trigger" label="Edit grid" appearance="embedded" size="small"><Grid2X2 size={15} /></IconButton>
         <IconButton className="composer-skin-trigger" label="Appearance" appearance="embedded" size="small"><Palette size={15} /></IconButton>
         <IconButton label="Send" appearance="embedded"><ArrowUp size={20} /></IconButton>
       </div>
@@ -74,7 +76,8 @@ function ComposerModel({ skin }: { skin: Skin }) {
   </figure>;
 }
 
-export function ComposerSkinPicker({ skin, onApply }: { skin: Skin; onApply: (skin: Skin) => void }) {
+export function ComposerSkinPicker({ skin, onApply, chooseSurface = false }: { skin: Skin; onApply: (skin: Skin) => void; chooseSurface?: boolean }) {
+  const [surface, setSurface] = useState<WidgetSurface>('chat.panel');
   const [draft, setDraft] = useState<Skin | null>(null);
   return <>
     <IconButton label="Customize composer appearance" appearance="embedded" size="small" className="composer-skin-trigger"
@@ -88,6 +91,11 @@ export function ComposerSkinPicker({ skin, onApply }: { skin: Skin; onApply: (sk
           <span>{presets[id]}</span>{draft.id === id && <Check size={13} aria-hidden="true" />}
         </button>)}
       </div>
+      {chooseSurface && <div className="widget-surface-options" role="group" aria-label="Widget placement">
+        <Button aria-pressed={surface === 'chat.panel'} onClick={() => setSurface('chat.panel')}>Composer</Button>
+        <Button aria-pressed={surface === 'settings.design'} onClick={() => setSurface('settings.design')}>Theme settings</Button>
+      </div>}
+      <WidgetPicker surface={surface} />
       <div className="skin-settings-footer">
         <label className="skin-color"><span>Custom color</span><input type="color" aria-label="Custom composer color"
           value={draft.color} onClick={() => setDraft({ ...draft, id: 'custom' })}

@@ -1,11 +1,42 @@
-.panel-widget-grid { display: grid; width: 100%; min-width: 0; grid-auto-rows: 40px; }
-.panel-widget-grid:empty { position: absolute; height: 0; visibility: hidden; pointer-events: none; }
-.panel-widget { display: flex; min-width: 0; min-height: 0; overflow: hidden; border-radius: var(--radius-md); }
-.panel-widget webview { height: 100%; width: 100%; }
-.widget-settings { display: grid; gap: 12px; }
-.widget-settings section { background: var(--surface-2); color: var(--text); border-radius: var(--radius-md); padding: 12px; }
-.widget-settings section p { margin: 5px 0 10px; color: var(--muted); }
-.widget-placement { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 8px; }
-.widget-placement label { display: inline-flex; align-items: center; gap: 5px; }
-.chat-composer-dock .composer-actions > .panel-widgets-trigger { margin-inline-start: auto; }
-.chat-composer-dock .composer-actions > .panel-widgets-trigger ~ .composer-skin-trigger { margin-inline-start: 0; }
+
+.composer-widget-region { min-width: 0; }
+.chat-composer-dock .composer-actions:has(> .composer-widget-region) { display: grid; grid-template-columns: minmax(0,1fr) auto auto auto; gap: 6px; align-items: end; }
+.composer-widget-region[data-surface="settings.design"]:has(.panel-widget-grid:empty) { height:0; }
+.panel-widget-grid { display:grid; grid-template-columns: repeat(var(--widget-cols, 1), minmax(0,1fr)); grid-auto-rows:34px; gap:4px; align-content:start; }
+.panel-widget-grid[data-editing] {
+  background-image: radial-gradient(circle, currentColor 1px, transparent 1.2px);
+  background-size: calc((100% + 4px) / var(--widget-cols, 1)) 38px;
+  background-position: -2px -2px;
+  background-color: color-mix(in srgb,currentColor 5%, transparent);
+  border-radius:10px;
+}
+.panel-widget { position:relative; min-width:0; min-height:0; align-self:stretch; }
+.widget-face, .widget-tile, .widget-thumbnail, .widget-thumbnail webview { width:100%; height:100%; min-width:0; min-height:0; }
+.panel-widget.is-control .widget-face { display:flex; align-items:center; }
+.panel-widget.is-control :is(.shared-icon-button,.script-wrap,.shared-icon-button span) { max-width:100%; min-width:0; }
+.panel-widget.is-control .shared-icon-button span { text-overflow:ellipsis; overflow:hidden; white-space:nowrap; }
+.panel-widget.is-control:focus-within, .panel-widget.is-control:has(.script-menu) { z-index:2; }
+.widget-tile { position:relative; border-radius:11px; overflow:hidden; background:var(--composer-control-bg); }
+.widget-thumbnail { pointer-events:none; }
+.widget-launch, .widget-move { position:absolute; inset:0; width:100%; height:100%; border:0; border-radius:inherit; background:transparent; cursor:pointer; }
+.widget-launch:hover, .widget-launch:focus-visible { box-shadow:inset 0 0 0 2px currentColor; color:var(--glass-inverse-text); }
+.panel-widget-grid[data-editing] .panel-widget { outline:1px dashed color-mix(in srgb,currentColor 55%,transparent); outline-offset:-1px; border-radius:9px; }
+.widget-move, .widget-resize { touch-action:none; user-select:none; color:inherit; }
+.widget-move { display:flex; align-items:flex-start; justify-content:flex-start; padding:2px; cursor:grab; }
+.widget-move:active { cursor:grabbing; }
+.widget-move svg { border-radius:3px; background:var(--composer-control-bg); }
+.widget-resize { position:absolute; inset:auto 0 0 auto; display:grid; place-items:center; width:18px; height:18px; border:0;
+  border-radius:6px 0 6px 0; padding:0; background:var(--accent); color:var(--on-primary-action); cursor:nwse-resize; }
+.widget-move:focus-visible, .widget-resize:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+.composer-grid-trigger[aria-pressed=true] { box-shadow:inset 0 0 0 1px currentColor; }
+.widget-controls-popover.shared-popover { width:min(340px,calc(100vw - 16px)); max-height:calc(100dvh - 16px); padding:5px; overflow:hidden; }
+.widget-controls-popover header { display:flex; align-items:center; justify-content:space-between; padding-inline:10px 2px; }
+.widget-controls-popover webview { width:100%; height:min(228px,calc(100dvh - 70px)); border-radius:10px; overflow:hidden; }
+.composer-widget-picker { margin:12px 0; }
+.composer-widget-picker h3 { font-size:13px; margin:0 0 6px; }
+.composer-widget-picker > div { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:6px 0; }
+.composer-widget-picker small { display:block; color:var(--dialog-muted); }
+.composer-widget-picker button { display:inline-flex; align-items:center; gap:4px; }
+@media (max-width:560px) { .chat-composer-dock .panel-widget.is-control .shared-icon-button { padding-inline:6px; } }
+.widget-surface-options { display:flex; gap:5px; margin-top:12px; }
+.widget-surface-options [aria-pressed=true] { background: var(--nav-active-bg); }

@@ -1,20 +1,70 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 
 // An isolated service fixture exercises real Electron media without contacting a user's account.
-export async function checkMusicWidget(app,page) {
-  await page.getByRole('button',{name:/^Settings(?:,|$)/}).click();
-  const settings = page.getByRole('dialog',{name:'Settings',exact:true});
-  await settings.getByRole('tab',{name:'Themes'}).click();
-  await settings.getByRole('button',{name:'Configure panel widgets'}).click();
-  const config = page.getByRole('dialog',{name:'Panel widgets'});
-  await config.getByRole('button',{name:'Install Music Player'}).click();
-  await config.getByLabel('Theme settings',{exact:true}).check();
-  await config.getByLabel('Chat panel',{exact:true}).check();
-  await config.getByLabel('Now playing Theme settings columns').selectOption('7');
-  await config.getByRole('button',{name:'Close Panel widgets'}).click();
-  const widget = settings.locator('webview[aria-label="Now playing"]');
+export async function checkMusicWidget(app,page,downloadPath) {
+  await page.getByRole('button',{name:'Widgets',exact:true}).click();
+  assert.equal(await page.getByRole('heading',{name:'Kanban',exact:true}).count(),0);
+  const musicCard = page.locator('article').filter({has:page.getByRole('heading',{name:'Music Player',exact:true})});
+  await app.evaluate(({dialog},filePath) => { dialog.showSaveDialog = async () => ({canceled:false,filePath}); },downloadPath);
+  await musicCard.getByRole('button',{name:'Download package'}).click();
+  await waitFor(async () => JSON.parse(await readFile(downloadPath,'utf8')).widgets[0].id === 'now-playing');
+  await musicCard.getByRole('button',{name:'Install',exact:true}).click();
+  await page.getByRole('button',{name:'Install mini app',exact:true}).click();
+  await page.getByRole('heading',{name:'Music Player',exact:true}).waitFor();
+  const chatURL = new URL(page.url());
+  chatURL.searchParams.set('tab','chat');
+  await page.goto(chatURL.href);
+  const composer = page.locator('.chat-composer-dock .composer').last();
+  await composer.getByRole('button',{name:'Customize composer appearance'}).click();
+  const config = page.getByRole('dialog',{name:'Composer appearance'});
+  await config.getByRole('button',{name:'Add Now playing'}).click();
+  await config.getByRole('button',{name:'Remove Now playing'}).waitFor();
+  await config.getByRole('button',{name:'Close Composer appearance'}).click();
+  const tile = composer.locator('[data-tile="Now playing"]');
+  const thumb = tile.locator('webview');
+  await thumb.waitFor();
+  await waitFor(() => thumb.evaluate(v => v.executeJavaScript("document.body.dataset.view === 'tile'")));
+  const noOverflow = () => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight;
+  assert.equal(await thumb.evaluate((v,f) => v.executeJavaScript('('+f+')()'),noOverflow.toString()),true);
+  const artwork = await thumb.evaluate(v => v.executeJavaScript(`(() => {
+    const box = document.querySelector('.art svg').getBoundingClientRect();
+    return { width:innerWidth, height:innerHeight, x:box.x, y:box.y, w:box.width, h:box.height };
+  })()`));
+  assert.ok(artwork.w >= 12 && artwork.h >= 12 && artwork.x >= -1 && artwork.y >= -1 &&
+    artwork.x + artwork.w <= artwork.width + 1 && artwork.y + artwork.h <= artwork.height + 1,JSON.stringify(artwork));
+  const edit = composer.getByRole('button',{name:'Edit widget grid'});
+  await edit.click();
+  async function dragCell(handle, dx, dy) {
+    const box = await handle.boundingBox(); assert.ok(box);
+    const moving = (await handle.getAttribute('aria-label')).startsWith('Move ');
+    const x = box.x + (moving ? 7 : box.width/2), y = box.y + (moving ? 7 : box.height/2);
+    assert.ok(await handle.evaluate((el,[x,y]) => el.contains(document.elementFromPoint(x,y)),[x,y]), 'Drag handle must receive pointer input');
+    await page.mouse.move(x,y);
+    await page.mouse.down(); await page.mouse.move(x+dx,y+dy,{steps:8}); await page.mouse.up();
+  }
+  const track = composer.locator('.panel-widget-grid');
+  const pitch = await track.evaluate(e => (e.clientWidth+4)/Number(e.style.getPropertyValue('--widget-cols')));
+  const before = await tile.boundingBox();
+  await dragCell(tile.getByRole('button',{name:'Resize Now playing'}),pitch,38);
+  await waitFor(async () => (await tile.boundingBox()).width >= before.width + pitch - 2);
+  await waitFor(() => thumb.evaluate((v,initial) => v.executeJavaScript("document.querySelector('.art svg').getBoundingClientRect().height > " + (initial + 8)),artwork.h));
+  await dragCell(tile.getByRole('button',{name:'Move Now playing'}),-pitch,38);
+  await waitFor(() => tile.evaluate(el => el.style.gridRow === '2 / span 2'));
+  const position = await tile.evaluate(el=>[el.style.gridColumn,el.style.gridRow]);
+  assert.equal(position[1],'2 / span 2');
+  const scripts = composer.locator('[data-tile="Scripts"]');
+  const previousScripts = await scripts.evaluate(el=>el.style.gridRow);
+  await scripts.getByRole('button',{name:'Move Scripts'}).press('ArrowDown');
+  assert.notEqual(await scripts.evaluate(el=>el.style.gridRow),previousScripts);
+  await composer.getByRole('button',{name:'Finish editing grid'}).click();
+  await page.reload();
+  await tile.waitFor();
+  assert.deepEqual(await tile.evaluate(el=>[el.style.gridColumn,el.style.gridRow]),position);
+  await tile.getByRole('button',{name:'Open Now playing'}).click();
+  const popup = page.getByRole('dialog',{name:'Now playing',exact:true});
+  const widget = popup.locator('webview');
   await widget.waitFor();
   async function evaluate(code) {
     return widget.evaluate((view,code) => view.executeJavaScript(code),code);
@@ -28,9 +78,13 @@ export async function checkMusicWidget(app,page) {
     throw Error('Music widget did not become ready.');
   }
   await waitFor(() => evaluate("document.querySelector('#services')?.options.length > 0"));
-  assert.deepEqual(await evaluate("fetch('/context').then(r=>r.json())"), {blockId:'now-playing',surface:'settings.design'});
-  assert.equal(await widget.locator('..').evaluate(el => el.style.gridColumn), 'span 7');
-  await evaluate("document.querySelector('#manage').click();document.querySelector('#label').value='Studio';document.querySelector('#services').value='spotify';document.querySelector('#form').requestSubmit()");
+  assert.deepEqual(await evaluate("fetch('/context').then(r=>r.json())"), {blockId:'now-playing',surface:'chat.panel',view:'popover'});
+  assert.equal(await evaluate('('+noOverflow.toString()+')()'),true);
+  await waitFor(() => widget.evaluate(v => v.clientHeight < 170));
+  await evaluate("document.querySelector('#choose').click()");
+  await waitFor(() => evaluate("!document.querySelector('#form').hidden && document.querySelector('#form .primary').getBoundingClientRect().bottom <= innerHeight"));
+  await evaluate("document.querySelector('#label').value='Studio';document.querySelector('#services').value='spotify';document.querySelector('#form').requestSubmit()");
+  assert.equal(await evaluate('('+noOverflow.toString()+')()'),true);
   const stringInput = await app.evaluate(() => Number(process.versions.chrome.split('.')[0]) < 155);
   async function tool(name,input={}) {
     const result = await evaluate('(async () => { const api = document.modelContext ?? navigator.modelContext; const registered = await api.getTools(); return api.executeTool(registered.find(t => t.name === ' + JSON.stringify(name) + '),' +
@@ -75,15 +129,23 @@ export async function checkMusicWidget(app,page) {
   const remaining = await tool('list_accounts');
   assert.equal(remaining.value.selected,second.value.id);
   assert.equal(remaining.value.accounts.length,1);
-  await settings.getByRole('button',{name:'Close settings'}).click();
-  const chatURL = new URL(page.url());
-  chatURL.searchParams.set('tab','chat');
-  await page.goto(chatURL.href);
-  const dock = page.locator('.chat-composer-dock .panel-widget webview');
-  await dock.waitFor();
-  await waitFor(() => dock.evaluate(view => view.executeJavaScript("document.querySelector('#accounts')?.selectedOptions[0]?.textContent === 'Personal'")));
-  assert.equal((await dock.evaluate(view => view.executeJavaScript("fetch('/context').then(r=>r.json())"))).surface,'chat.panel');
+  await popup.getByRole('button',{name:'Close Now playing'}).click();
+  await popup.waitFor({state:'detached'});
+  await waitFor(() => thumb.evaluate(view => view.executeJavaScript("document.querySelector('#accounts')?.selectedOptions[0]?.textContent === 'Personal'")));
+  assert.equal((await thumb.evaluate(view => view.executeJavaScript("fetch('/context').then(r=>r.json())"))).surface,'chat.panel');
   await mkdir('e2e-out',{recursive:true});
-  await dock.locator('..').screenshot({path:'e2e-out/music-panel-widget.png'});
-  console.log('Passed installing and placing Music Player, widget grid size, service profile isolation, native WebMCP and actual HTML audio play/pause.');
+  const frame = await app.browserWindow(page);
+  async function capture(locator, file) {
+    const bounds = await locator.boundingBox();
+    const clip = Object.fromEntries(Object.entries(bounds).map(([k,v]) => [k,Math.round(v)]));
+    const png = await frame.evaluate(async (win, clip) => (await win.capturePage(clip)).toPNG().toString('base64'),clip);
+    await writeFile('e2e-out/' + file,Buffer.from(png,'base64'));
+  }
+  await edit.click();
+  await capture(composer,'music-widget-grid.png');
+  await composer.getByRole('button',{name:'Finish editing grid'}).click();
+  await tile.getByRole('button',{name:'Open Now playing'}).click();
+  await waitFor(() => evaluate("document.querySelector('#choose')?.textContent === 'Personal'"));
+  await capture(popup, 'music-widget-popover.png');
+  console.log('Passed downloading, moving and resizing widgets. Passed installing and placing Music Player, widget grid size, service profile isolation, native WebMCP and actual HTML audio play/pause.');
 }

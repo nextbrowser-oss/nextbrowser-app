@@ -53,23 +53,24 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
     }
     return fs.readFileSync(path.join(__dirname, 'catalog', id + '.nbmini.json'), 'utf8');
   };
-  const store = createStore(root, () => parsePackage(catalog()));
+  const store = createStore(root, id => parsePackage(catalog(id)));
   const bindings = new Map();
   const scopes = new Map();
   const sessionBindings = new WeakMap();
   const guestSessions = new WeakSet();
   const music = createMusicPlayer({ session, BrowserWindow, dialog, guestSessions, store });
   const officialPlayer = parsePackage(catalog('music-player'));
-  function prepare(window, owner, id, blockId, surface) {
+  function prepare(window, owner, id, blockId, surface, popover = false) {
+    if (typeof popover !== 'boolean' || (popover && !blockId)) throw Error('Invalid widget view.');
     const { generation, pkg, placements } = store.read(owner, id);
     if ((blockId !== undefined || surface !== undefined) && (!pkg.widgets?.some(b => b.id === blockId && b.surfaces.includes(surface)) ||
         !placements?.[surface + '/' + blockId])) throw Error('Enable this widget on the selected surface first.');
     const shellId = window.webContents.id;
     for (const [partition, b] of bindings) {
-      if (b.shellId === shellId && b.owner === owner && b.id === id && b.generation === generation && b.blockId === blockId && b.surface === surface) return { partition, src: entry };
+      if (b.shellId === shellId && b.owner === owner && b.id === id && b.generation === generation && b.blockId === blockId && b.surface === surface && b.popover === popover) return { partition, src: entry };
     }
     const partition = 'mini-app-' + randomUUID();
-    createPartition(partition, { shellId, owner, id, generation, blockId, surface, music: id === 'music-player' && isDeepStrictEqual(pkg, officialPlayer) }, () => store.read(owner, id),
+    createPartition(partition, { shellId, owner, id, generation, blockId, surface, popover, music: id === 'music-player' && isDeepStrictEqual(pkg, officialPlayer) }, () => store.read(owner, id),
       (revision, value) => store.save(owner, id, generation, revision, value));
     return { partition, src: entry };
   }
@@ -90,7 +91,19 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
       try {
         const record = read();
         if (record.generation !== binding.generation) return json(null, 410);
-        if (request.url === contextURL && request.method === 'GET') return json({ blockId: binding.blockId ?? null, surface: binding.surface ?? null });
+        if (request.url === contextURL && request.method === 'GET') return json({ blockId: binding.blockId ?? null, surface: binding.surface ?? null, ...(binding.popover ? {view:'popover'} : {}) });
+        if (request.url === contextURL && request.method === 'POST' && binding.popover) {
+          const { height } = await readStateRequest(request);
+          const scope = scopes.get(binding.shellId);
+          if (!bindings.has(partition) || scope?.owner !== binding.owner || scope.window.isDestroyed()) return json(null, 410);
+          if (!Number.isSafeInteger(height) || height < 1 || height > 4096) return json(null, 400);
+          const boundedHeight = Math.max(64, Math.min(360, height));
+          if (boundedHeight !== binding.height) {
+            binding.height = boundedHeight;
+            scope.window.webContents.send('mini-apps:popover-size', { partition, height: boundedHeight });
+          }
+          return json(null);
+        }
         if (request.url === musicURL && request.method === 'POST') {
           if (!binding.music || scopes.get(binding.shellId)?.owner !== binding.owner) return json(null, 403);
           const payload = await readStateRequest(request);
@@ -164,6 +177,7 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
       guardGuest(guest);
       const binding = sessionBindings.get(guest.session);
       binding.guest = guest;
+      binding.height = undefined;
       binding.instance = randomUUID();
       guest.on('did-navigate', () => { binding.instance = randomUUID(); });
       guest.once('destroyed', () => { if (binding.guest === guest) binding.guest = undefined; });
@@ -254,7 +268,7 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
         libraryChanged();
         return installed;
       }
-      case 'mini_apps_open': return prepare(window, owner, id, args.blockId, args.surface);
+      case 'mini_apps_open': return prepare(window, owner, id, args.blockId, args.surface, args.popover);
       case 'mini_apps_remove': {
         if (id === 'music-player') {
           for (const [key,item] of bindings) if (item.owner === owner && item.id === id) bindings.delete(key);

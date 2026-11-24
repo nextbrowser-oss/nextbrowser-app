@@ -36,7 +36,7 @@ function parsePackage(raw) {
       typeof p.description !== 'string' || p.description.length > 240 ||
       typeof p.version !== 'string' || !/^\d{1,5}\.\d{1,5}\.\d{1,5}$/.test(p.version) ||
       typeof p.html !== 'string' || !p.html.trim() ||
-      (p.icon !== undefined && !['board', 'calendar', 'list', 'notebook', 'chart', 'grid'].includes(p.icon)) ||
+      (p.icon !== undefined && !['board', 'calendar', 'list', 'notebook', 'chart', 'grid', 'music'].includes(p.icon)) ||
       !Array.isArray(p.permissions) || p.permissions.length > 1 || p.permissions.some(v => v !== 'storage')) {
     throw Error('Mini Apps v2 requires a valid manifest and a nonempty list of unique WebMCP tool names.');
   }
@@ -68,6 +68,19 @@ function createStore(root, catalog) {
       if (hash === 'afcea1a4c6bdece7974faa48e8ad4c3baf9d76c5f43383916c2308d3202a4445') {
         record.pkg = catalog();
         record.generation = randomUUID();
+        write(file, record);
+      }
+    }
+    // Keep the generation: it also identifies the user's isolated music logins.
+    if (id === 'music-player' && catalog && record.pkg.version === '1.0.0' &&
+        createHash('sha256').update(record.pkg.html.replace(/\r\n/g, '\n')).digest('hex') ===
+          '17330b5da0632edd84375c731819dc384bc43825fdcc5d8c7b72b5e3c6fa6209') {
+      const updated = catalog(id);
+      if (updated.id === id && updated.version !== record.pkg.version) {
+        record.pkg = updated;
+        for (const [key, size] of Object.entries(record.placements ?? {})) {
+          if (size[0] === 10 && size[1] === 2) record.placements[key] = [...updated.widgets[0].grid.preferred];
+        }
         write(file, record);
       }
     }
