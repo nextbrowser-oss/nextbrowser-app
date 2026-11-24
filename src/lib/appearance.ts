@@ -55,7 +55,10 @@ export function appearanceTokens(style: Appearance): Record<string, string> {
     tokens["--nav-active-indicator"] = tokens["--nav-active-border"] = "var(--accent-text)";
     tokens["--primary-action-hover"] = "color-mix(in srgb, var(--accent) 90%, var(--bg))";
   }
-  if (style.background) tokens["--chat-bg"] = style.background;
+  if (style.background) {
+    tokens["--chat-bg"] = style.background;
+    tokens["--chat-toolbar-text"] = tokens["--chat-toolbar-muted"] = contrastingInk(style.background);
+  }
   if (style.background || style.wallpaper === "gradient" || style.wallpaper === "photo") {
     tokens["--chat-caption-bg"] = "var(--panel)";
     tokens["--chat-empty-surface"] = "var(--panel)";

@@ -130,12 +130,30 @@ try {
   const preview = modal.getByRole("region", { name: "Dark chat preview" });
   assert.equal(await preview.locator(".msg-user-bubble").evaluate(el => getComputedStyle(el).color), "rgb(0, 0, 0)");
   assert.equal(await preview.locator(".assistant-bubble").evaluate(el => getComputedStyle(el).borderRadius), "4px");
-  const actualChat = page.locator(".chat .messages");
-  assert.equal(await actualChat.evaluate(el => getComputedStyle(el).backgroundColor), "rgb(24, 45, 36)");
-  assert.equal(await actualChat.evaluate(el => getComputedStyle(el).backgroundSize), "14px 14px");
+  const shell = page.locator(".desktop-shell");
+  const messages = page.locator(".chat .messages");
+  assert.equal(await shell.evaluate(el => getComputedStyle(el).backgroundColor), "rgb(24, 45, 36)");
+  assert.equal(await shell.evaluate(el => getComputedStyle(el).backgroundSize), "14px 14px");
+  assert.equal(await shell.evaluate(el => getComputedStyle(el).backgroundImage), await preview.evaluate(el => getComputedStyle(el).backgroundImage));
+  assert.equal(await page.locator(".app-titlebar-name").evaluate(el => getComputedStyle(el).color), "rgb(255, 255, 255)");
+  // All surfaces between the chat and the wallpaper must let the same image show through.
+  const paintedLayers = await messages.evaluate(el => {
+    const layers = [document.querySelector(".app-titlebar")];
+    for (let layer = el; layer && !layer.matches(".desktop-shell"); layer = layer.parentElement) layers.push(layer);
+    return layers.filter(layer => {
+      const style = getComputedStyle(layer);
+      return style.backgroundColor !== "rgba(0, 0, 0, 0)" || style.backgroundImage !== "none";
+    }).map(layer => layer.className);
+  });
+  assert.deepEqual(paintedLayers, []);
+  const scrollbarColors = await messages.evaluate(el =>
+    ["::-webkit-scrollbar", "::-webkit-scrollbar-track", "::-webkit-scrollbar-corner", "::-webkit-scrollbar-thumb"]
+      .map(part => getComputedStyle(el, part).backgroundColor));
+  assert.deepEqual(scrollbarColors.slice(0, 3), Array(3).fill("rgba(0, 0, 0, 0)"));
+  assert.notEqual(scrollbarColors[3], "rgba(0, 0, 0, 0)");
   await modal.getByRole("button", { name: "Gradient", exact: true }).click();
   await modal.getByLabel("Gradient end").fill("#567abc");
-  assert.ok(await actualChat.evaluate(el => getComputedStyle(el).backgroundImage.includes("rgb(86, 122, 188)")));
+  assert.ok(await shell.evaluate(el => getComputedStyle(el).backgroundImage.includes("rgb(86, 122, 188)")));
   const image = await page.evaluate(() => {
     const canvas = document.createElement("canvas");
     canvas.getContext("2d").fillRect(0, 0, 100, 75);
@@ -143,11 +161,11 @@ try {
   });
   await modal.getByLabel("Wallpaper image").setInputFiles({ name: "wallpaper.png", mimeType: "image/png", buffer: Buffer.from(image, "base64") });
   await modal.getByRole("button", { name: "My photo", pressed: true }).waitFor();
-  assert.ok(await actualChat.evaluate(el => getComputedStyle(el).backgroundImage.includes("data:image/jpeg;base64,")));
+  assert.ok(await shell.evaluate(el => getComputedStyle(el).backgroundImage.includes("data:image/jpeg;base64,")));
   await radio("Light").check();
   await waitForTheme("light");
   assert.equal(await modal.getByRole("button", { name: "Reset light appearance" }).isDisabled(), true);
-  assert.ok(await actualChat.evaluate(el => !getComputedStyle(el).backgroundImage.includes("data:image")));
+  assert.ok(await shell.evaluate(el => !getComputedStyle(el).backgroundImage.includes("data:image")));
   await page.emulateMedia({ colorScheme: "dark" });
   await radio("System").check();
   await waitForTheme("dark");
@@ -169,7 +187,7 @@ try {
   await modal.getByRole("button", { name: "Reset dark appearance" }).click();
   assert.equal(await corners.inputValue(), "20");
   assert.equal(await modal.getByRole("button", { name: "Glow", pressed: true }).count(), 1);
-  assert.ok(await actualChat.evaluate(el => !getComputedStyle(el).backgroundImage.includes("data:image")));
+  assert.ok(await shell.evaluate(el => !getComputedStyle(el).backgroundImage.includes("data:image")));
   await modal.getByRole("tab", { name: /^Updates/ }).click();
   await modal.getByText("Release 1.0.11 does not include this platform.", { exact: false }).waitFor();
   await modal.getByRole("button", { name: "Update", exact: true }).click();

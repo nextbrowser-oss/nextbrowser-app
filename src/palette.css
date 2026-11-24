@@ -32,6 +32,8 @@
   --nav-active-indicator: #c6b7ff;
   --primary-action: #7156cf;
   --chat-bg: var(--bg);
+  --chat-toolbar-text: var(--text);
+  --chat-toolbar-muted: var(--muted);
   --chat-wallpaper: radial-gradient(circle at 72% 8%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 35%);
   --chat-wallpaper-size: cover;
   --chat-photo-tint: color-mix(in srgb, var(--chat-bg) 42%, transparent);
@@ -75,7 +77,6 @@
   --shadow: rgba(0, 0, 0, 0.42);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
   --on-accent: #fff;
-  --scroll-track: var(--panel);
   --scroll-thumb: #68778e;
   --scroll-thumb-hover: #8e9db2;
   --onboarding-bg: linear-gradient(145deg, var(--panel), var(--bg));
@@ -209,7 +210,6 @@
   --shadow: rgba(76, 59, 160, 0.13);
   --shadow-sm: 0 1px 2px rgba(76, 59, 160, 0.10);
   --on-accent: #fff;
-  --scroll-track: var(--panel);
   --scroll-thumb: #b1aac8;
   --scroll-thumb-hover: #8b81a9;
   --onboarding-bg: linear-gradient(145deg, var(--panel), var(--card));
