@@ -1,6 +1,12 @@
 const { readCLIVersion } = require("./cli-version.cjs");
 const { windowChromeOptions, applyWindowChrome, applyWindowZoom, windowState, controlWindow, watchWindowState } = require("./window-chrome.cjs");
 const chromeWindows = new WeakSet();
+let miniAppsHost;
+function miniApps() {
+  return miniAppsHost ??= require('./mini-apps/host.cjs').createHost({
+    root: path.join(dataDir(), 'mini-apps-v1'), session, dialog,
+  });
+}
 const { createStartPageServer } = require('./start-page-server.cjs');
 const startPageTransports = require('./start-page-transport.cjs').createStartPageTransports();
 let startPageServer;
@@ -3731,6 +3737,7 @@ function createWindow() {
       additionalArguments: process.platform === "darwin" ? [] : ["--nextbrowser-custom-caption"] },
   });
   chromeWindows.add(window);
+  miniApps().guardWindow(window);
   if (process.platform === "win32") {
     const syncLiveWindow = () => liveWindows.syncBounds(window);
     window.on("move", syncLiveWindow);
@@ -3971,6 +3978,12 @@ if (!gotLock) {
       app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
     }
     ipcMain.handle("nextbrowser:invoke", (event, command, args) => {
+      if (miniApps().isGuest(event.sender)) throw Error("Desktop commands are unavailable.");
+      if (typeof command === "string" && command.startsWith("mini_apps_")) {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (!chromeWindows.has(window) || event.senderFrame !== event.sender.mainFrame || window.webContents !== event.sender) throw Error("Mini apps require the desktop window.");
+        return miniApps().command(command, args ?? {}, window);
+      }
       if (command === "product_journey") {
         if (event.senderFrame !== event.sender.mainFrame || event.sender.getType() !== "window") return;
         return invokeCommand(command, { event: args?.event }, event.sender);

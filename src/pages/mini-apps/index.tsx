@@ -1,0 +1,121 @@
+import { useEffect, useRef, useState } from 'react';
+import { Button, Dialog } from '../../shared/ui';
+import { invoke } from '../../electronBridge';
+import { useStore } from '../../store';
+import { getPreviewMode } from '../../preview';
+import './mini-apps.css';
+
+interface AppInfo { id: string; name: string; version: string; description: string; permissions: string[] }
+interface Library { installed: AppInfo[]; catalog: AppInfo[] }
+type Guest = { id: string; src: string; partition: string };
+type Review = { action: 'install' | 'remove'; app: AppInfo; raw?: string };
+
+export function MiniAppsPage() {
+  const owner = useStore(s => s.accountOwnerId);
+  const scope = owner ? 'account/' + owner : getPreviewMode() ? 'preview' : undefined;
+  if (!scope) return <section className="mini-apps"><h1>Mini Apps</h1><p>Sign in to manage your mini apps.</p></section>;
+  return <LibraryView key={scope} owner={scope} />;
+}
+
+function LibraryView({ owner }: { owner: string }) {
+  const [library, setLibrary] = useState<Library>();
+  const [guest, setGuest] = useState<Guest>();
+  const [review, setReview] = useState<Review>();
+  const [guide, setGuide] = useState(false);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const file = useRef<HTMLInputElement>(null);
+  const locked = useRef(false);
+  async function refresh() { setLibrary(await invoke<Library>('mini_apps_list', { owner })); }
+  async function run(action: () => Promise<void>) {
+    if (locked.current) return;
+    locked.current = true;
+    setBusy(true); setError('');
+    try { await action(); }
+    catch (e) { setError(e instanceof Error ? e.message.replace(/^Error invoking remote method .*?: Error: /, '') : 'Mini app action failed.'); }
+    finally { locked.current = false; setBusy(false); }
+  }
+  useEffect(() => { void run(refresh); }, [owner]);
+  async function open(id: string) {
+    const target = await invoke<Omit<Guest, 'id'>>('mini_apps_open', { owner, id });
+    setGuest({ id, ...target });
+  }
+  async function importFile(selected: File) {
+    if (selected.size > 256 * 1024) throw Error('Package exceeds 256 KiB.');
+    const raw = await selected.text();
+    const app = await invoke<AppInfo>('mini_apps_inspect', { raw });
+    setReview({ action: 'install', app, raw });
+  }
+  async function applyReview() {
+    if (!review) return;
+    const { action, app, raw } = review;
+    if (action === 'remove') {
+      await invoke('mini_apps_remove', { owner, id: app.id });
+      if (guest?.id === app.id) setGuest(undefined);
+    } else await invoke('mini_apps_install', { owner, raw, catalog: raw === undefined });
+    setReview(undefined);
+    await refresh();
+    if (action === 'install') await open(app.id);
+  }
+  const current = library?.installed.find(app => app.id === guest?.id);
+  return <section className="mini-apps">
+    <header className="mini-apps-header"><h1>Mini Apps</h1>
+      <div className="mini-apps-header-actions"><Button onClick={() => setGuide(true)}>Build a mini app</Button>
+        <Button disabled={busy} onClick={() => file.current?.click()}>Install from file</Button></div>
+      <input ref={file} type="file" hidden accept=".json" aria-label="Mini app package" onChange={e => {
+        const selected = e.target.files?.[0]; e.target.value = '';
+        if (selected) void run(() => importFile(selected));
+      }} /></header>
+    {error && !review && <p role="alert">{error} <Button onClick={() => void run(refresh)}>Refresh</Button></p>}
+    {!library && !error && <p role="status">Loading mini apps…</p>}
+    {library && <>
+      <nav className="mini-apps-tabs" aria-label="Installed mini apps">
+        <Button aria-pressed={!guest} onClick={() => setGuest(undefined)}>Catalog</Button>
+        {library.installed.map(app => <Button key={app.id} disabled={busy} aria-pressed={app.id === guest?.id}
+          onClick={() => void run(() => open(app.id))}>{app.name}</Button>)}
+      </nav>
+      {current && guest ? <>
+        <div className="mini-apps-app-heading"><h2>{current.name}</h2><small>v{current.version}</small>
+          <Button onClick={() => setReview({ action: 'remove', app: current })}>Uninstall</Button></div>
+        <GuestView key={guest.partition} guest={guest} name={current.name} />
+      </> : <div className="mini-apps-catalog">{library.catalog.map(app => {
+        const installed = library.installed.some(item => item.id === app.id);
+        return <article key={app.id}><h2>{app.name}</h2><p>{app.description}</p>
+          <Button disabled={busy} onClick={() => installed ? void run(() => open(app.id)) : setReview({ action: 'install', app })}>{installed ? 'Open' : 'Install'}</Button>
+          <Button disabled={busy} onClick={() => void run(() => invoke('mini_apps_download', { owner, id: app.id }))}>Download package</Button>
+        </article>;
+      })}</div>}
+    </>}
+    {guide && <Dialog title="Build a mini app" onClose={() => setGuide(false)}>
+      <ol><li>Download the Kanban package from the catalog.</li>
+        <li>Give it a unique ID and name. Put your interface, scripts and styles in the HTML field.</li>
+        <li>Choose Install from file to run your package. Request the storage permission to save JSON using <code>/state</code>.</li></ol>
+      <Button onClick={() => void run(() => invoke('mini_apps_download', { owner, id: 'kanban' }))}>Download Kanban package</Button>
+    </Dialog>}
+    {review && <Dialog title={(review.action === 'install' ? 'Install ' : 'Uninstall ') + review.app.name + '?'} onClose={() => { if (!busy) { setReview(undefined); setError(''); } }}>
+      <p>{review.app.id} · v{review.app.version}</p>
+      <p>{review.action === 'remove' ? 'This removes the app and its saved data from this account on this device.'
+        : review.app.permissions.includes('storage') ? 'Permission requested: save and read its own data on this device.' : 'No host permissions requested.'}</p>
+      {error && <p role="alert">{error}</p>}
+      <Button disabled={busy} onClick={() => void run(applyReview)}>{review.action === 'install' ? 'Install mini app' : 'Uninstall and delete data'}</Button>
+    </Dialog>}
+  </section>;
+}
+
+function GuestView({ guest, name }: { guest: Guest; name: string }) {
+  const ref = useRef<HTMLElement>(null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    const view = ref.current;
+    const fail = () => setFailed(true);
+    view?.addEventListener('render-process-gone', fail);
+    view?.addEventListener('did-fail-load', fail);
+    return () => {
+      view?.removeEventListener('render-process-gone', fail);
+      view?.removeEventListener('did-fail-load', fail);
+    };
+  }, [attempt]);
+  return failed ? <p role="alert">Could not load {name}. <Button onClick={() => { setFailed(false); setAttempt(a => a + 1); }}>Retry</Button></p>
+    : <webview key={attempt} ref={ref} className="mini-apps-guest" aria-label={name} partition={guest.partition} src={guest.src} />;
+}

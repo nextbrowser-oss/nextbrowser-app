@@ -12,6 +12,7 @@ import { MainViewNavigation } from "./components/MainViewNavigation";
 import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
 import { SkillsView } from "./components/SkillsView";
+import { MiniAppsPage } from "./pages/mini-apps";
 import { LiveView } from "./components/LiveView";
 import { LiveSessionsGrid, LiveSessionsPopover } from "./components/LiveSessions";
 import { useLiveSessions } from "./lib/useLiveSessions";
@@ -74,7 +75,7 @@ import { multiloginSelectionForWorkspace } from "./lib/multiloginSelection";
 import { settingsStorage } from "./lib/settingsStorage";
 import { countWorkspaceProfiles } from "./lib/workspaceProfiles";
 
-const PREVIEW_TABS = new Set<string>(["chat", "automation", "skills", "connectors", "live", "usage", "guide", "scheduled"]);
+const PREVIEW_TABS = new Set<string>(["chat", "automation", "mini-apps", "skills", "connectors", "live", "usage", "guide", "scheduled"]);
 
 interface BrowserRuntimeInstallStatus {
   runtime?: "clawbrowser" | "dasbrowser" | "camoufox";
@@ -1693,6 +1694,7 @@ export function App() {
             <ChatView headerAccessory={<>{backgroundTaskPills}{feedbackAvailable && <FeedbackButton onClick={() => setFeedbackOpen(true)} />}</>} />
           </div>
           {tab === "skills" && <SkillsView onOpenAgentSettings={() => openSettings("agent")} />}
+          {tab === "mini-apps" && <MiniAppsPage />}
           {tab === "automation" && <AutomationStudio />}
           {tab === "live" && !focusedLive && <LiveSessionsGrid key={activeWorkspaceId} sessions={liveSessions} onOpen={openLiveSession} />}
           <div className={"persistent-tab-panel" + (focusedLive ? "" : " is-hidden")}>

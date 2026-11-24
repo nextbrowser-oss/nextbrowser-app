@@ -70,6 +70,8 @@ jobs:
       - name: Multilogin sign-in window regression
         run: node node_modules/electron/cli.js scripts/test-multilogin-window.cjs
       - run: npm run build
+      - name: Install and use Mini Apps in Electron
+        run: node scripts/test-mini-apps.mjs
       - name: Verify production Settings blur in Electron
         run: node node_modules/electron/cli.js scripts/test-settings-blur.cjs
       - name: Preserve failed Settings blur screenshots
