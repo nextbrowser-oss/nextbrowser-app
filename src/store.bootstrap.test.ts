@@ -75,6 +75,7 @@ function mockDesktop(identityValid: boolean, options?: { ownerId?: string; appDa
               key_id: identityValid ? "key-1" : undefined,
               owner_id: identityValid ? ownerId : undefined,
               email: identityValid ? "person@example.com" : undefined,
+              name: identityValid ? "QA Person" : undefined,
             },
           });
         }
@@ -126,6 +127,7 @@ describe("desktop account bootstrap", () => {
     expect(useStore.getState()).toMatchObject({
       authed: true,
       accountEmail: "person@example.com",
+      accountName: "QA Person",
       nextctlAvailable: true,
     });
   });
@@ -153,6 +155,8 @@ describe("desktop account bootstrap", () => {
     useStore.setState({
       authed: true,
       accountEmail: "person@example.com",
+      accountName: "Previous user",
+      accountOwnerId: "previous-owner",
       profiles: [{ name: "work" }],
       selectedProfile: "work",
     });
@@ -163,6 +167,8 @@ describe("desktop account bootstrap", () => {
     expect(useStore.getState()).toMatchObject({
       authed: false,
       accountEmail: undefined,
+      accountName: undefined,
+      accountOwnerId: undefined,
       profiles: [],
       selectedProfile: undefined,
     });

@@ -618,6 +618,7 @@ async function pullCatalogInstructions(entry: SkillEntry, preferredAgentId: stri
 interface State {
   authed: boolean;
   accountEmail?: string;
+  accountName?: string;
   accountOwnerId?: string;
   checking: boolean;
   /** "setup": the first run is still downloading and checking the Nextbrowser CLI. */
@@ -1085,6 +1086,7 @@ interface APIKeyIdentity {
   key_id?: string;
   owner_id?: string;
   email?: string;
+  name?: string;
 }
 
 const replyExecutionTargets = new Map<string, ExecutionTarget>();
@@ -2030,12 +2032,15 @@ async function verifyProxyIdentity(profile?: string): Promise<ProxyIdentity | un
 }
 
 async function refreshAnalyticsIdentity(): Promise<boolean> {
+  const epoch = accountEpoch;
   const wrap = await nextctlJson<{ identity: APIKeyIdentity }>(["identity"]);
+  if (epoch !== accountEpoch) return false;
   const valid = wrap.identity?.valid === true;
   const ownerId = valid ? wrap.identity.owner_id?.trim() : undefined;
   const accountEmail = valid ? wrap.identity.email?.trim() : undefined;
   setAnalyticsUserId(ownerId || undefined);
-  useStore.setState({ accountEmail: accountEmail || undefined, accountOwnerId: ownerId || undefined });
+  const accountName = valid ? wrap.identity.name?.trim() : undefined;
+  useStore.setState({ accountEmail: accountEmail || undefined, accountName: accountName || undefined, accountOwnerId: ownerId || undefined });
   trackEvent("analytics_identity_loaded", {
     valid,
     has_owner_id: !!ownerId,
@@ -2087,7 +2092,7 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
       return valid;
     } catch {
       setAnalyticsUserId(undefined);
-      useStore.setState({ accountEmail: undefined, accountOwnerId: undefined });
+      useStore.setState({ accountEmail: undefined, accountName: undefined, accountOwnerId: undefined });
       trackEvent("analytics_identity_unavailable", { phase: "bootstrap" });
       return false;
     }
@@ -2096,6 +2101,7 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
     const incompatible = String(error).includes("VERIFY_REQUIRED");
     useStore.setState({
       accountEmail: undefined,
+      accountName: undefined,
       accountOwnerId: undefined,
       nextctlVersion: incompatible ? "update required" : "not found",
       nextctlSupportsSkill: false,
@@ -2445,6 +2451,7 @@ export const useStore = create<State>((set, get) => {
   return {
   authed: false,
   accountEmail: undefined,
+  accountName: undefined,
   accountOwnerId: undefined,
   checking: true,
   startupPhase: "local",
@@ -3814,6 +3821,8 @@ export const useStore = create<State>((set, get) => {
       set({
         authed: false,
         accountEmail: undefined,
+        accountName: undefined,
+        accountOwnerId: undefined,
         runtime,
         connectAnnounced: new Set(),
         proxy: undefined,

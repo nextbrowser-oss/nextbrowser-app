@@ -1044,8 +1044,7 @@ body.is-resizing-sidebar {
   font-size: 10px;
 }
 .proxy-usage-source-totals > span:not(.spacer) { white-space: nowrap; }
-.proxy-usage-chart-card,
-.proxy-usage-detail-card { padding: 16px; }
+.proxy-usage-chart-card { padding: 16px; }
 .proxy-usage-card-heading {
   display: flex;
   align-items: flex-start;
@@ -1107,98 +1106,6 @@ body.is-resizing-sidebar {
   stroke: var(--bg-elevated);
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
-}
-.proxy-usage-details-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-}
-.proxy-usage-detail-card { min-height: 250px; }
-.proxy-usage-domain-table-wrap {
-  margin-top: 12px;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-}
-.proxy-usage-domain-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  font-variant-numeric: tabular-nums;
-}
-.proxy-usage-domain-rank-column { width: 42px; }
-.proxy-usage-domain-traffic-column { width: 112px; }
-.proxy-usage-domain-requests-column { width: 104px; }
-.proxy-usage-domain-table th,
-.proxy-usage-domain-table td {
-  height: 42px;
-  padding: 0 14px;
-  border-bottom: 1px solid var(--line);
-  text-align: left;
-  white-space: nowrap;
-}
-.proxy-usage-domain-table th {
-  height: 34px;
-  background: color-mix(in srgb, var(--surface-3) 64%, transparent);
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-.proxy-usage-domain-table th:nth-child(n + 3),
-.proxy-usage-domain-table td:nth-child(n + 3) { text-align: right; }
-.proxy-usage-domain-table tbody tr:last-child td { border-bottom: 0; }
-.proxy-usage-domain-table tbody tr:hover {
-  background: color-mix(in srgb, var(--accent-soft) 36%, transparent);
-}
-.proxy-usage-domain-rank {
-  color: var(--muted);
-  font-size: 11px;
-}
-.proxy-usage-domain-name {
-  overflow: hidden;
-  font-weight: 500;
-  text-overflow: ellipsis;
-}
-.proxy-usage-domain-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  margin-top: 12px;
-}
-.proxy-usage-domain-pagination button {
-  display: grid;
-  min-width: 30px;
-  height: 30px;
-  place-items: center;
-  padding: 0 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface-2);
-  color: var(--muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.proxy-usage-domain-pagination button:hover:not(:disabled) {
-  border-color: var(--line-strong);
-  background: var(--surface-4);
-  color: var(--text);
-}
-.proxy-usage-domain-pagination button.active {
-  border-color: color-mix(in srgb, var(--accent) 62%, var(--line));
-  background: var(--accent-soft);
-  color: var(--accent-text);
-  font-weight: 600;
-}
-.proxy-usage-domain-pagination button:disabled {
-  cursor: default;
-  opacity: 0.38;
-}
-.proxy-usage-domain-pagination-gap {
-  min-width: 18px;
-  color: var(--muted);
-  text-align: center;
 }
 .proxy-locked {
   width: 100%;
@@ -4364,8 +4271,6 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
 .settings-proxy-usage .proxy-usage-date-range { flex-wrap: wrap; }
 .settings-proxy-usage .proxy-usage-presets { flex-wrap: wrap; }
 .settings-proxy-usage .proxy-usage-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.settings-proxy-usage .proxy-usage-details-grid { grid-template-columns: minmax(0, 1fr); }
-.settings-proxy-usage .proxy-usage-domain-table-wrap { max-width: 100%; overflow-x: auto; }
 @media (max-width: 600px) {
   .settings-rail { width: 120px; padding: 8px 4px; }
   .settings-rail-item { padding: 8px 6px; gap: 6px; }
@@ -5517,11 +5422,6 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   .proxy-usage-source-badge { margin-left: 0; }
   .proxy-usage-kpis { grid-template-columns: 1fr; }
   .proxy-traffic-chart { height: 250px; }
-  .proxy-usage-domain-rank-column { width: 34px; }
-  .proxy-usage-domain-traffic-column { width: 84px; }
-  .proxy-usage-domain-requests-column { width: 78px; }
-  .proxy-usage-domain-table th,
-  .proxy-usage-domain-table td { padding: 0 8px; }
 }
 .profile-menu { min-width: 300px; padding: 16px; }
 .profile-menu-head {

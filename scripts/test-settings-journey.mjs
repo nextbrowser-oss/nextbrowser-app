@@ -97,7 +97,9 @@ try {
     const button = icon.parentElement.getBoundingClientRect();
     return [glyph.width, glyph.height, button.width, button.height];
   }));
-  assert.ok(railIcons.length >= 8);
+  assert.ok(railIcons.length >= 7);
+  const avatar = await page.getByRole("button", { name: "Open Profile", exact: true }).locator(".account-avatar").boundingBox();
+  assert.ok(avatar && avatar.width === 28 && avatar.height === 28);
   for (const sizes of railIcons) assert.deepEqual(sizes, [18, 18, 40, 40]);
   for (const [width, height] of [[1280, 900], [600, 760], [900, 480], [600, 480]]) {
     await page.setViewportSize({ width, height });
@@ -339,7 +341,9 @@ try {
   await modal.getByRole("button").filter({ hasText: "Proxy usage" }).click();
   await modal.getByRole("heading", { name: "Proxy usage", exact: true }).waitFor();
   await modal.getByRole("button", { name: "30 days", exact: true }).click();
-  await modal.getByRole("cell", { name: "site0.example.com", exact: true }).waitFor({ state: "attached" });
+  await modal.getByText("Traffic over time", { exact: true }).waitFor();
+  assert.equal(await modal.getByText("site0.example.com", { exact: true }).count(), 0);
+  assert.equal(await modal.getByRole("columnheader", { name: "Domain" }).count(), 0);
   await page.screenshot({ path: "e2e-out/settings-proxy-usage.png" });
   await modal.getByRole("tab", { name: "General", exact: true }).click();
   await modal.getByRole("tab", { name: "Proxy", exact: true }).click();

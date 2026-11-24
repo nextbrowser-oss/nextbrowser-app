@@ -70,3 +70,10 @@
 .account-profile-summary { display: flex; align-items: center; gap: 16px; padding: 18px; background: var(--panel); border-radius: 16px; margin-bottom: 20px; }
 .account-profile-summary > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .account-profile-summary p { margin: 4px 0 0; }
+.account-profile-summary h2 { margin: 0; font-size: 20px; line-height: 1.25; }
+.account-profile-page > * { width: 100%; max-width: 1024px; margin-inline: auto; box-sizing: border-box; }
+.account-profile-page > .proxy-usage-page { height: auto; padding: 0; overflow: visible; }
+@media (max-width: 480px) {
+  .account-profile-summary { flex-wrap: wrap; gap: 12px; }
+  .account-profile-summary > div { min-width: 120px; }
+}

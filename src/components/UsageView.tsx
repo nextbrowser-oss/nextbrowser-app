@@ -6,8 +6,6 @@ import { invoke } from "../electronBridge";
 import { discordUrl, repoUrl } from "../constants";
 import { trackEvent } from "../lib/analytics";
 import {
-  domainPaginationItems,
-  domainsPageByTraffic,
   isProxyTrafficExhausted,
   isProxyTrafficHistoryRangeValid,
   isTrustedNodeMavenURL,
@@ -16,7 +14,6 @@ import {
   proxyTrafficHistoryMaxDays,
   proxyTrafficHistoryPresetDays,
   proxyTrafficHistoryWindows,
-  proxyTrafficDomainsPageSize,
   type ProxyTrafficHistoryCoverage,
   type ProxyTrafficHistoryPreset,
 } from "../lib/proxyTraffic";
@@ -123,7 +120,6 @@ export function UsageView() {
   const [refreshError, setRefreshError] = useState<string>();
   const [historyNotice, setHistoryNotice] = useState<string>();
   const [historyReload, setHistoryReload] = useState(0);
-  const [domainsPage, setDomainsPage] = useState(1);
   const [handoffLoading, setHandoffLoading] = useState(false);
   const [handoffNotice, setHandoffNotice] = useState<string>();
   const [handoffInviteSent, setHandoffInviteSent] = useState(false);
@@ -146,10 +142,6 @@ export function UsageView() {
   const allowanceBytes = trafficAllowanceBytes(s.proxy);
   const allowanceRemainingBytes = trafficAllowanceRemainingBytes(s.proxy);
   const fraction = trafficAllowanceFraction(s.proxy);
-
-  useEffect(() => {
-    setDomainsPage(1);
-  }, [history]);
 
   useEffect(() => {
     if (!s.authed) {
@@ -192,7 +184,7 @@ export function UsageView() {
     return () => {
       cancelled = true;
     };
-  }, [from, historyReload, s.authed, timezone, to]);
+  }, [from, historyReload, s.authed, s.accountOwnerId, timezone, to]);
 
   const applyPreset = (days: ProxyTrafficHistoryPreset) => {
     setPreset(days);
@@ -273,8 +265,6 @@ export function UsageView() {
     }
   };
   const points = history?.data_points ?? [];
-  const topDomains = history?.top_domains ?? [];
-  const domainPage = domainsPageByTraffic(topDomains, domainsPage);
   const proxyExhausted = isProxyTrafficExhausted(s.proxy);
   const dashboardReady = handoffInviteSent || s.proxy?.provider_access_method === "email_sent";
   const canBuyNodeMavenTraffic = gateState === "open" && proxyExhausted;
@@ -286,7 +276,7 @@ export function UsageView() {
       <div className="proxy-usage-header">
         <div>
           <h2>Proxy usage</h2>
-          <p className="muted">Traffic, requests, and domains from NodeMaven.</p>
+          <p className="muted">Traffic allowance and requests for your account.</p>
         </div>
         <Tooltip content={s.authed ? "Refresh proxy usage" : "Sign in to refresh proxy usage"}><button
           className="btn-bordered"
@@ -572,86 +562,6 @@ export function UsageView() {
               ) : (
                 <div className="proxy-usage-empty">No traffic recorded in this range.</div>
               )}
-            </div>
-
-            <div className="proxy-usage-details-grid">
-              <div className="claw-card proxy-usage-detail-card">
-                <div className="proxy-usage-card-heading">
-                  <div>
-                    <strong>Domains</strong>
-                    <span className="muted small">Top destinations returned for this range · {topDomains.length} shown</span>
-                  </div>
-                  <Icon name="globe" size={18} />
-                </div>
-                {topDomains.length ? (
-                  <div className="proxy-usage-domain-table-wrap">
-                    <table className="proxy-usage-domain-table">
-                      <colgroup>
-                        <col className="proxy-usage-domain-rank-column" />
-                        <col />
-                        <col className="proxy-usage-domain-traffic-column" />
-                        <col className="proxy-usage-domain-requests-column" />
-                      </colgroup>
-                      <thead>
-                        <tr>
-                          <th scope="col">#</th>
-                          <th scope="col">Domain</th>
-                          <th scope="col">Traffic</th>
-                          <th scope="col">Requests</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {domainPage.domains.map((domain, index) => (
-                          <tr key={`${domain.domain}-${index}`}>
-                            <td className="proxy-usage-domain-rank">
-                              {(domainPage.page - 1) * proxyTrafficDomainsPageSize + index + 1}
-                            </td>
-                            <Tooltip content={domain.domain}><td className="proxy-usage-domain-name">{domain.domain}</td></Tooltip>
-                            <td>{humanBytes(domain.used_bytes)}</td>
-                            <td>{numberFormatter.format(domain.requests)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : <div className="proxy-usage-empty">No domains recorded in this range.</div>}
-                {domainPage.pageCount > 1 && (
-                  <nav className="proxy-usage-domain-pagination" aria-label="Domain pages">
-                    <button
-                      type="button"
-                      aria-label="Previous domain page"
-                      disabled={domainPage.page === 1}
-                      onClick={() => setDomainsPage(domainPage.page - 1)}
-                    >
-                      ‹
-                    </button>
-                    {domainPaginationItems(domainPage.page, domainPage.pageCount).map((item, index) => (
-                      item === "ellipsis" ? (
-                        <span key={`ellipsis-${index}`} className="proxy-usage-domain-pagination-gap" aria-hidden="true">…</span>
-                      ) : (
-                        <button
-                          key={item}
-                          className={item === domainPage.page ? "active" : ""}
-                          type="button"
-                          aria-label={`Domain page ${item}`}
-                          aria-current={item === domainPage.page ? "page" : undefined}
-                          onClick={() => setDomainsPage(item)}
-                        >
-                          {item}
-                        </button>
-                      )
-                    ))}
-                    <button
-                      type="button"
-                      aria-label="Next domain page"
-                      disabled={domainPage.page === domainPage.pageCount}
-                      onClick={() => setDomainsPage(domainPage.page + 1)}
-                    >
-                      ›
-                    </button>
-                  </nav>
-                )}
-              </div>
             </div>
           </>
         ) : null}
