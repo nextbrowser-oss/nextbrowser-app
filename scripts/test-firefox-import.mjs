@@ -33,17 +33,21 @@ try {
   db.prepare('INSERT INTO moz_places VALUES(3,?,?)').run(host+'/download','Download');
   db.exec("INSERT INTO moz_bookmarks VALUES(1,0,2,0,'toolbar','toolbar_____',0,0,NULL),(2,1,2,0,'Research','test-folder',0,0,NULL),(3,2,1,0,'Saved example','test-bookmark',4,5,1); INSERT INTO moz_historyvisits VALUES(1,2,2,1700000000000000),(2,2,1,1700000001000000),(3,3,7,1700000002000000)");
   db.close();
-  const session = JSON.stringify({windows:[{tabs:[{index:2,entries:[{url:host+'/old'},{url:host+'/open',formdata:'private-text'}]},
+  const session = JSON.stringify({padding:'aaaaaaaaa',windows:[{tabs:[{index:2,entries:[{url:host+'/old'},{url:host+'/open',formdata:'private-text'}]},
     {entries:[{url:'about:preferences'}]},{entries:[{url:'https://user:password@example.test/'}]}]},
     {isPrivate:true,tabs:[{entries:[{url:host+'/private'}]}]}]});
   const bytes = Buffer.from(session), header = Buffer.alloc(12);
   header.write('mozLz40\0'); header.writeUInt32LE(bytes.length,8);
+  // Nine repeated bytes are one literal plus an eight-byte overlapping match.
+  const prefix = bytes.indexOf('aaaaaaaaa')+1;
+  const first = Buffer.concat([Buffer.from([(prefix << 4) | 4]),bytes.subarray(0,prefix),Buffer.from([1,0])]);
+  const remaining = bytes.subarray(prefix+8);
   const lengths = [0xf0];
-  let tail = bytes.length-15;
+  let tail = remaining.length-15;
   while (tail>=255) {lengths.push(255); tail-=255;}
   lengths.push(tail);
   await mkdir(path.join(dir,'sessionstore-backups'));
-  await writeFile(path.join(dir,'sessionstore-backups','recovery.jsonlz4'),Buffer.concat([header,Buffer.from(lengths),bytes]));
+  await writeFile(path.join(dir,'sessionstore-backups','recovery.jsonlz4'),Buffer.concat([header,first,Buffer.from(lengths),remaining]));
   await writeFile(path.join(dir,'cookies.sqlite'),'unrelated cookie');
   const found = await sources.findSources([{dir:registry,browser:'Firefox'}]);
   assert.deepEqual(found.sources.map(p=>p.name),['Work','Portable']);
