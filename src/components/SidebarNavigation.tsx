@@ -35,10 +35,10 @@ export function SidebarNavigation({ collapsed = false, tab, modal, badgeFor, onS
       aria-expanded={opensDialog ? modal === item.id : undefined}
       onClick={() => { setExtensionsOpen(false); onSelect(item.id); }}>
       <Glyph name={item.icon} />
-      <span className="sidebar-destination-label">{collapsed && !grouped ? item.compact : item.label}</span>
+      {(grouped || !collapsed) && <span className="sidebar-destination-label">{item.label}</span>}
       {badge != null && badge !== "" && <span className="sidebar-destination-count" aria-hidden="true">{badge}</span>}
     </button>;
-    return grouped ? <div key={item.id}>{button}</div> : <Tooltip key={item.id} content={item.label} side="right">{button}</Tooltip>;
+    return grouped ? <div key={item.id}>{button}</div> : <Tooltip key={item.id} content={collapsed ? item.compact : item.label} side="right">{button}</Tooltip>;
   };
   return (
     <nav className={"sidebar-destinations" + (collapsed ? " is-compact" : "")} aria-label="Sidebar pages">
@@ -46,9 +46,9 @@ export function SidebarNavigation({ collapsed = false, tab, modal, badgeFor, onS
         className="sidebar-extensions shared-scrollbarless" trigger={props => <button {...props}
           className={"sidebar-destination" + (extensionsOpen || (modal ? extensions.some(item => item.id === modal) : tab === "skills") ? " active" : "")}
           aria-label="Open Extensions">
-          <Glyph name="blocks" /><span className="sidebar-destination-label">Extensions</span>
+          <Glyph name="blocks" />{!collapsed && <span className="sidebar-destination-label">Extensions</span>}
         </button>}>
-        <div className="sidebar-extensions-heading">Extensions</div>
+        <div className="rail-popover-heading">Extensions</div>
         {extensions.map(item => renderDestination(item, true))}
       </Popover>
       {destinations.map(item => item.id === "live" && liveDestination ? null : renderDestination(item))}
@@ -60,7 +60,7 @@ export function SidebarNavigation({ collapsed = false, tab, modal, badgeFor, onS
 export function SidebarSettingsButton({ collapsed = false, attention = false, onClick }: { collapsed?: boolean; attention?: boolean; onClick: () => void }) {
   return <Tooltip content={attention ? "Settings — update available" : "Settings"} side="right">
     <button type="button" className={"sidebar-settings-button" + (collapsed ? " is-compact" : "")} onClick={onClick} aria-label={attention ? "Settings, update available" : "Settings"}>
-      <Glyph name="sliders" /><span>Settings</span>{attention && <span className="sidebar-settings-dot" aria-hidden="true" />}
+      <Glyph name="sliders" />{!collapsed && <span>Settings</span>}{attention && <span className="sidebar-settings-dot" aria-hidden="true" />}
     </button>
   </Tooltip>;
 }

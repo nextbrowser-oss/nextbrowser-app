@@ -91,9 +91,10 @@ export function LiveSessionsPopover({ sessions, selected, onOverview, onOpen }: 
       className={`sidebar-destination${selected ? " active" : ""}`}
       aria-current={selected ? "page" : undefined} aria-label="Open Profiles"
       onClick={() => { changeOpen(false); onOverview(); }}>
-      <Glyph name="monitor" /><span className="sidebar-destination-label">Profiles</span>
+      <Glyph name="monitor" />
       {sessions.length > 0 && <span className="sidebar-destination-count" aria-hidden="true">{active.length}/{sessions.length}</span>}
     </button>}>
+    <div className="rail-popover-heading">Profiles</div>
     <ProfileListTools query={query} onChange={setQuery} compact onCreate={() => { changeOpen(false); createLiveProfile(); }} />
     {filtered.length > 0
         ? <SessionRows sessions={filtered} onOpen={choose} />

@@ -1325,7 +1325,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, liveDestination }: 
       {activeRecording && <Tooltip content={recordingMiniLabel} side="right"><button className="mini-nav-btn mini-recording-control recording" aria-label="Open active recording" onClick={() => setAutomationStatusOpen(true)}><Icon name="circle.fill" size={18} /></button></Tooltip>}
       {automationExecution && !activeRecording && <Tooltip content="Automation status" side="right"><button className="mini-nav-btn" aria-label="Automation status" onClick={() => setAutomationStatusOpen(true)}><Icon name="play.fill" size={18} /></button></Tooltip>}
       <span className="spacer" />
-      <Tooltip content="Profile" side="right"><button className={"sidebar-settings-button is-compact" + (s.tab === "account" ? " active" : "")} aria-label="Open Profile" onClick={() => s.setTab("account")}><Glyph name="users" /><span>Profile</span></button></Tooltip>
+      <Tooltip content="Profile" side="right"><button className={"sidebar-settings-button is-compact" + (s.tab === "account" ? " active" : "")} aria-label="Open Profile" onClick={() => s.setTab("account")}><Glyph name="users" /></button></Tooltip>
       <SidebarSettingsButton collapsed attention={settingsAttention} onClick={onOpenSettings} />
     </div>
     {profileActionError && <Dialog title="Browser action failed" onClose={() => setProfileActionError(null)}><UserFacingError message={profileActionError} surface="profile_action" /></Dialog>}

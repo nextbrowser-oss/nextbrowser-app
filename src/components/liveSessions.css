@@ -5,7 +5,7 @@
   height: 20px;
   gap: 3px;
   padding-inline: 4px;
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1;
 }
 .profile-name-sort[data-direction="desc"] svg { transform: rotate(180deg); }

@@ -18,9 +18,10 @@ export function RecentProjects({ activeId, open: controlledOpen, onOpenChange, b
   const root = current && projectRoot(current, conversations);
   return <Popover label="Projects" open={open} onOpenChange={setOpen} openOnHover align="start" side="right" boundaryRef={boundaryRef}
     className="recent-projects shared-scrollbarless" trigger={props => <button {...props} className="sidebar-destination" aria-label="Open Projects">
-      <Glyph name="folder" /><span className="sidebar-destination-label">Projects</span>
+      <Glyph name="folder" />
     </button>}>
     <div className="project-popover-toolbar">
+      <div className="rail-popover-heading">Projects</div>
       <IconButton label="Create project" appearance="plain" size="small" className="project-new-session" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent("nextbrowser:create-project")); }}><Glyph name="folder" size={14} /></IconButton>
       <IconButton label="New session" disabled={!root} appearance="plain" size="small" className="project-new-session" onClick={() => { if (current && createSession(current.id)) { setOpen(false); setTab("chat"); } }}><Icon name="plus" size={14} /></IconButton>
     </div>
