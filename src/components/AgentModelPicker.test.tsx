@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { AgentModelPicker } from "./AgentModelPicker";
 import { invoke } from "../electronBridge";
 import { TooltipProvider } from "../shared/ui";
@@ -15,6 +15,11 @@ const activate = vi.fn(), refresh = vi.fn(async () => {});
 const mount = (disabled = false) => render(<TooltipProvider><AgentModelPicker agentId="codex" disabled={disabled} onActivate={activate} onRefresh={refresh} /></TooltipProvider>);
 const open = async () => { fireEvent.click(screen.getByRole("button", { name: "Choose agent provider and model" })); await waitFor(() => expect(screen.getByLabelText("Agent provider").hasAttribute("disabled")).toBe(false)); };
 const choose = (name: string) => { fireEvent.click(screen.getByRole("combobox", { name: "Agent provider" })); fireEvent.click(screen.getByRole("option", { name })); };
+beforeAll(() => {
+  if ("showPopover" in HTMLElement.prototype) return;
+  Object.defineProperty(HTMLElement.prototype, "showPopover", { configurable: true, value: vi.fn() });
+  return () => { Reflect.deleteProperty(HTMLElement.prototype, "showPopover"); };
+});
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(invoke).mockImplementation(async (command, args) => {
@@ -31,7 +36,10 @@ afterEach(cleanup);
 it("keeps manual model selection for providers with a personal key", async () => {
   mount(); await open();
   choose("DeepSeek");
-  await screen.findByRole("button", { name: "nemotron" });
+  const catalog = screen.getByRole("combobox", { name: "Provider model" });
+  await waitFor(() => expect(catalog.hasAttribute("disabled")).toBe(false));
+  fireEvent.click(catalog);
+  fireEvent.click(screen.getByRole("option", { name: "nemotron" }));
   fireEvent.change(screen.getByLabelText("Agent model ID"), { target: { value: "deepseek-flash" } });
   fireEvent.click(screen.getByRole("button", { name: "Use model" }));
   await waitFor(() => expect(activate).toHaveBeenCalledOnce());
@@ -109,7 +117,7 @@ it("ignores a slow model list from a previously selected provider", async () => 
   mount(); await open();
   choose("OpenRouter");
   choose("DeepSeek");
-  await screen.findByRole("button", { name: "nemotron" });
+  await waitFor(() => expect(screen.getByRole("combobox", { name: "Provider model" }).textContent).toContain("nemotron"));
   finish({ models: [{ id: "stale-openrouter-model" }], defaultModel: "stale-openrouter-model" });
   await waitFor(() => expect(screen.getByLabelText("Agent model ID").getAttribute("value")).toBe("nemotron"));
   expect(screen.queryByText("stale-openrouter-model")).toBeNull();

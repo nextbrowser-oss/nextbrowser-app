@@ -53,9 +53,9 @@ export function SidebarNavigation({ collapsed = false, tab, modal, badgeFor, onS
         <div className="rail-popover-heading">Extensions</div>
         {extensions.map(item => renderDestination(item, true))}
       </Popover>
-      {pinnedApps}
       {destinations.map(item => item.id === "live" && liveDestination ? null : renderDestination(item))}
       {liveDestination}
+      {pinnedApps}
     </nav>
   );
 }

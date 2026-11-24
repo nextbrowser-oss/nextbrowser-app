@@ -19,7 +19,6 @@ export function AgentModelPicker({ agentId, version, disabled, onActivate, onRef
   const [provider, setProvider] = useState<BuiltinProviderId>("nvidia");
   const [model, setModel] = useState("");
   const [models, setModels] = useState<BuiltinModelOption[]>([]);
-  const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const changeOpen = useCallback((value: boolean) => { if (!saving) setOpen(value); }, [saving]);
@@ -36,7 +35,7 @@ export function AgentModelPicker({ agentId, version, disabled, onActivate, onRef
   useEffect(() => {
     if (!open) return;
     let active = true;
-    setStatus(undefined); setError(undefined); setQuery(""); setModels([]); setModel("");
+    setStatus(undefined); setError(undefined); setModels([]); setModel("");
     void invoke<BuiltinAgentStatus>("builtin_agent_status").then(next => {
       if (!active) return;
       if (!next?.settings || !next.keys) throw new Error("Provider settings are unavailable. Try again.");
@@ -83,16 +82,12 @@ export function AgentModelPicker({ agentId, version, disabled, onActivate, onRef
   const label = isBuiltinAgent(agentId) ? (version || "Choose model") : agentById(agentId).name;
   const freeModels = freeOpenRouterOptions(models);
   const modelFields = <>
-    <label className="agent-model-picker-field">Find a model
-      <input aria-label="Search provider models" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search models…" disabled={!status || saving} />
-    </label>
-    <div className="agent-model-picker-models shared-scrollbarless" aria-label="Provider models" aria-busy={loading}>
+    <div className="agent-model-picker-field"><span>Model</span>
+      <Select overlay label="Provider model" searchPlaceholder="Search provider models" value={model}
+        options={models.map(item => ({ value: item.id, label: item.id, description: item.free ? "Free" : undefined }))}
+        disabled={!canChoose || loading || saving} onChange={setModel} />
       {loading && <div role="status">Loading models…</div>}
-      {!loading && models.filter(item => item.id.toLowerCase().includes(query.toLowerCase())).map(item => <button type="button" key={item.id}
-        aria-pressed={model === item.id} disabled={saving} onClick={() => setModel(item.id)}>
-        <span>{item.id}</span>{item.free && <small>Free</small>}
-      </button>)}
-      {!loading && !models.some(item => item.id.toLowerCase().includes(query.toLowerCase())) && <div>No matching models. Enter a model ID below.</div>}
+      {!loading && canChoose && !models.length && <div>No models available. Enter a model ID below.</div>}
     </div>
     <label className="agent-model-picker-field">Model ID
       <input aria-label="Agent model ID" value={model} spellCheck={false} disabled={!status || saving} onChange={event => setModel(event.target.value)} placeholder="Model ID" />
@@ -107,15 +102,15 @@ export function AgentModelPicker({ agentId, version, disabled, onActivate, onRef
       </IconButton>}>
       <div className="agent-model-picker-heading"><strong>Provider & model</strong><span>Nextbrowser agent</span></div>
       <div className="agent-model-picker-field"><span>Provider</span>
-        <Select label="Agent provider" autoFocus value={provider} disabled={!status || saving} onChange={value => {
+        <Select overlay label="Agent provider" autoFocus value={provider} disabled={!status || saving} onChange={value => {
           const next = value as BuiltinProviderId;
-          setProvider(next); setModel(next === status?.settings.provider ? status.settings.model ?? "" : ""); setQuery(""); setError(undefined);
+          setProvider(next); setModel(next === status?.settings.provider ? status.settings.model ?? "" : ""); setError(undefined);
         }} options={BUILTIN_PROVIDERS.map(item => ({ value: item.id, label: item.name }))} />
       </div>
       {status && !canChoose ? <div className="agent-model-picker-note">{keyReady ? "Add a base URL in provider settings." : `Add your ${preset.name} API key to choose a model.`}</div> : provider === "openrouter" ? <>
         <div className="agent-model-picker-field">
           <span>Free model</span>
-          <Select label="Free OpenRouter model" searchPlaceholder="Search free models…" value={model}
+          <Select overlay label="Free OpenRouter model" searchPlaceholder="Search free models…" value={model}
             options={freeModels} onChange={setModel} disabled={!canChoose || loading || saving || !freeModels.length} />
           {loading && <div role="status">Loading free models…</div>}
         </div>

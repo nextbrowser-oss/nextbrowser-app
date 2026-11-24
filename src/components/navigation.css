@@ -146,6 +146,7 @@
 .sidebar .sidebar-destinations.is-compact { padding: 0; gap: 4px; justify-items: center; }
 .sidebar-destinations .sidebar-destination-label { font-weight: 500; }
 .sidebar-destinations .sidebar-destination.active { box-shadow: none; }
+.mini-app-rail-divider { width: 22px; height: 1px; margin: 3px auto; border: 0; background: var(--glass-inverse-muted); opacity: .5; }
 .mini-app-monogram { display: grid; place-items: center; width: 18px; height: 18px; border: 1.5px solid currentColor; border-radius: 4px; font-size: 11px; font-weight: 600; }
 .sidebar-destinations .sidebar-destination-count,
 .sidebar-destinations.is-compact .sidebar-destination-count { background: transparent; font-size: 9px; }
@@ -171,6 +172,7 @@
 .is-compact .sidebar-settings-dot { position: absolute; top: 6px; right: 8px; }
 .sidebar-extensions { width: 180px; padding: 6px; border-radius: 14px; }
 .rail-popover-heading { padding: 4px 8px 6px; color: var(--glass-inverse-muted); font-size: 10px; font-weight: 600; }
+.personal-proxy-popover > .live-session-tools { margin-bottom: 8px; }
 .sidebar-extensions .sidebar-destination { width: 100%; height: 36px; padding: 6px 8px; color: var(--glass-inverse-text); box-shadow: none; }
 .sidebar-extensions .sidebar-destination:hover,
 .sidebar-extensions .sidebar-destination.active { background: var(--glass-inverse-control-hover); color: var(--glass-inverse-text); }

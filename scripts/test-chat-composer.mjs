@@ -397,7 +397,24 @@ try {
     await providerTrigger.click();
     const providerMenu = page.getByRole('dialog', { name: 'Agent provider and model' });
     const providerSelect = providerMenu.getByRole('combobox', { name: 'Agent provider', exact: true });
-    await providerSelect.click();
+    const openOverlay = async trigger => {
+      const before = await providerMenu.boundingBox();
+      await trigger.click();
+      const flyout = providerMenu.locator('.shared-select-flyout:popover-open');
+      await flyout.waitFor();
+      assert.deepEqual(await providerMenu.boundingBox(), before, 'the dropdown preserves its parent popover bounds');
+      assert.ok(await flyout.evaluate(node => {
+        const box = node.getBoundingClientRect();
+        return box.width > 0 && box.height > 0 && box.top >= 0 && box.bottom <= innerHeight;
+      }), 'the overlay is visible inside the viewport');
+    };
+    const modelSelect = providerMenu.getByRole('combobox', { name: 'Provider model', exact: true });
+    await modelSelect.getByText('nemotron-test', {exact:true}).waitFor();
+    await openOverlay(modelSelect);
+    await providerMenu.getByRole('combobox', { name: 'Search provider models' }).fill('fixture-model-23');
+    await providerMenu.getByRole('option', { name: 'fixture-model-23', exact: true }).click();
+    assert.equal(await providerMenu.getByLabel('Agent model ID').inputValue(), 'fixture-model-23');
+    await openOverlay(providerSelect);
     const providerList = providerMenu.getByRole('listbox', { name: 'Agent provider', exact: true });
     assert.equal(await providerList.getByRole('option').count(), 6);
     assert.equal(await providerMenu.locator('select').count(), 0);
@@ -422,13 +439,13 @@ try {
       assert.ok(b.x >= 0 && b.y >= 0 && b.x+b.width <= width && b.y+b.height <= 620, 'provider menu stays in the viewport');
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth), false);
     }
-    await page.setViewportSize({width:1100,height:800});
-    await freeModel.click();
+    await openOverlay(freeModel);
     const search = providerMenu.getByRole('combobox', { name: /Search free models/ });
     await search.pressSequentially('claude');
     assert.equal(await search.inputValue(), 'claude');
     assert.equal(await search.evaluate(node=>node===document.activeElement), true);
     await providerMenu.getByRole('option', {name:'anthropic/claude-test',exact:true}).click();
+    await page.setViewportSize({width:1100,height:800});
     await providerMenu.getByRole('button', {name:'Use model',exact:true}).click();
     await page.waitForFunction(()=>window.fixtureStore.getState().agentId==='nextbrowser');
     assert.equal(await textarea.inputValue(), 'Keep this draft while switching providers');

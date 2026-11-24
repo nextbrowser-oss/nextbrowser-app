@@ -6,9 +6,6 @@
 .agent-model-picker-field { display: grid; gap: 5px; font-size: 11px; }
 .agent-model-picker input { box-sizing: border-box; width: 100%; min-width: 0; border: 0; border-radius: 8px; padding: 7px 9px; background: var(--glass-inverse-control); color: inherit; font: inherit; }
 .agent-model-picker input::placeholder { color: var(--glass-inverse-muted); }
-.agent-model-picker-models { overflow: auto; max-height: 150px; min-height: 32px; }
-.agent-model-picker-models button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: left; }
-.agent-model-picker-models button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-model-picker button { border: 0; border-radius: 8px; padding: 7px 8px; color: inherit; background: transparent; font: inherit; font-size: 12px; cursor: pointer; }
 .agent-model-picker button:hover:not(:disabled), .agent-model-picker button[aria-pressed="true"] { background: var(--glass-inverse-control-hover); }
 .agent-model-picker button:disabled { opacity: .5; cursor: default; }
