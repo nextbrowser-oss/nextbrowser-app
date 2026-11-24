@@ -10,8 +10,8 @@ function optionLabel(option: SelectOption) {
 }
 
 /** Inline listbox that stays inside its owning glass popover or dialog. */
-export function Select({ label, value, options, onChange, disabled = false, autoFocus = false, searchPlaceholder }: {
-  label: string; value: string; options: readonly SelectOption[]; onChange: (value: string) => void; disabled?: boolean; autoFocus?: boolean; searchPlaceholder?: string;
+export function Select({ label, value, options, onChange, disabled = false, autoFocus = false, searchPlaceholder, triggerContent }: {
+  label: string; value: string; options: readonly SelectOption[]; onChange: (value: string) => void; disabled?: boolean; autoFocus?: boolean; searchPlaceholder?: string; triggerContent?: ReactNode;
 }) {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
@@ -71,7 +71,7 @@ export function Select({ label, value, options, onChange, disabled = false, auto
       aria-activedescendant={searchPlaceholder ? undefined : activeDescendant}
       data-autofocus={autoFocus || undefined} disabled={disabled || !options.length}
       onClick={() => { setActive(value); setQuery(""); setOpen(!expanded); }}>
-      <span>{selected ? optionLabel(selected) : "Choose…"}</span><Glyph name="chevron-down" size={14} />
+      {triggerContent ?? <><span>{selected ? optionLabel(selected) : "Choose…"}</span><Glyph name="chevron-down" size={14} /></>}
     </button>
     {expanded && <>
       {searchPlaceholder && <input ref={search} className="shared-select-search" role="combobox" aria-label={searchPlaceholder}

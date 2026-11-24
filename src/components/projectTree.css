@@ -1,5 +1,21 @@
 .project-tree { color: inherit; position: relative; }
 .project-tree .shared-icon-button { width: 24px; height: 24px; color: inherit; }
 .project-tree .shared-tree-meta small { opacity: .65; font-size: 10px; }
-.recent-projects .project-popover-toolbar .rail-popover-heading { flex: 1; }
+.project-popover-toolbar .rail-popover-heading { padding-inline-end: 0; }
+.project-popover-toolbar .project-pin { width: 22px; height: 22px; margin-inline-end: auto; }
+.project-pin svg { color: var(--red); }
+.project-pin[aria-pressed="true"] svg { color: var(--green); }
+.project-popover-toolbar .project-pin:hover { background: var(--glass-inverse-control-hover); }
+.project-list-tools { margin: 0 2px 4px; }
+.project-list-tools .project-search { margin: 0; }
+.project-list-tools .shared-select .shared-select-trigger {
+  width: max-content; min-height: 0; height: 20px; gap: 3px; padding: 0 4px; font-size: 10px; line-height: 1; border: 0; border-radius: 6px;
+  background: transparent; color: var(--glass-inverse-muted); box-shadow: none;
+}
+.project-list-tools .shared-select-trigger > svg { opacity: 1; }
+.projects-dock-slot { display: flex; flex: 0 0 clamp(176px, 22vw, 280px); min-height: 0; min-width: 0; margin: 8px 4px 8px 0; }
+.projects-dock-slot:empty { display: none; }
+.projects-dock { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; padding: 6px; border-radius: 14px; overflow: hidden; }
+.projects-dock .project-popover-toolbar, .projects-dock .project-list-tools { flex: none; }
+.projects-dock .recent-project-list { flex: 1; min-height: 0; max-height: none; overflow: auto; }
 .recent-projects .shared-tree-list { max-height: min(370px, calc(100dvh - 80px)); }

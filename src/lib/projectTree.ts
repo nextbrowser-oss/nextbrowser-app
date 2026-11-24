@@ -14,7 +14,19 @@ export function projectRoot(conversation: Conversation, conversations: readonly 
   return current;
 }
 
-export function projectFolders(conversations: readonly Conversation[], workspaceId?: string) {
+export const projectSortOptions = [
+  { value: "manual", label: "Вручную" },
+  { value: "recent", label: "По последней активности" },
+  { value: "name-asc", label: "По имени · А → Я" },
+  { value: "name-desc", label: "По имени · Я → А" },
+] as const;
+export type ProjectSort = typeof projectSortOptions[number]["value"];
+export function projectSortMode(value: string | null): ProjectSort {
+  return projectSortOptions.find(option => option.value === value)?.value ?? "manual";
+}
+const projectNames = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+export function projectFolders(conversations: readonly Conversation[], workspaceId?: string, sort: ProjectSort = "manual") {
   const scoped = conversations.filter(item => item.workspaceId === workspaceId);
   const folders = new Map<string, { project: Conversation; sessions: Conversation[] }>();
   for (const session of scoped) {
@@ -24,7 +36,12 @@ export function projectFolders(conversations: readonly Conversation[], workspace
     folders.set(project.id, folder);
   }
   return [...folders.values()].map(folder => ({ ...folder, sessions: folder.sessions.sort((a, b) => Number(b.id === folder.project.id) - Number(a.id === folder.project.id) || order(a.sessionOrder) - order(b.sessionOrder) || b.updatedAt - a.updatedAt) }))
-    .sort((a, b) => order(a.project.projectOrder) - order(b.project.projectOrder) || Math.max(...b.sessions.map(item => item.updatedAt)) - Math.max(...a.sessions.map(item => item.updatedAt)));
+    .sort((a, b) => {
+      if (sort === "name-asc") return projectNames.compare(a.project.title, b.project.title);
+      if (sort === "name-desc") return projectNames.compare(b.project.title, a.project.title);
+      const manual = sort === "manual" ? order(a.project.projectOrder) - order(b.project.projectOrder) : 0;
+      return manual || Math.max(...b.sessions.map(item => item.updatedAt)) - Math.max(...a.sessions.map(item => item.updatedAt));
+    });
 }
 
 function order(value?: number) { return typeof value === "number" && Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER; }

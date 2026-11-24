@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { canDropProject, projectFolders } from "../lib/projectTree";
+import { canDropProject, projectFolders, type ProjectSort } from "../lib/projectTree";
 import { Glyph, IconButton, Tree, type TreeNode } from "../shared/ui";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
 import "./projectTree.css";
 
 /** Product adapter over the FractalUI tree; saved records remain the source of truth. */
-export function ProjectTree({ query, onSelect }: { query?: string; onSelect?: () => void }) {
+export function ProjectTree({ query, sort, onSelect }: { query: string; sort: ProjectSort; onSelect?: () => void }) {
   const conversations = useStore(state => state.conversations);
   const workspaceId = useStore(state => state.activeWorkspaceId);
   const activeId = useStore(state => state.activeConvId[state.agentId]);
@@ -18,7 +18,7 @@ export function ProjectTree({ query, onSelect }: { query?: string; onSelect?: ()
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     try { const value = JSON.parse(localStorage.getItem("nextbrowser.project-folders-collapsed") || "{}"); return value && typeof value === "object" && !Array.isArray(value) ? value : {}; } catch { return {}; }
   });
-  const folders = projectFolders(conversations, workspaceId);
+  const folders = projectFolders(conversations, workspaceId, sort);
   const expanded = folders.filter(folder => !(collapsed[folder.project.id] ?? !folder.sessions.some(session => session.id === activeId))).map(folder => `folder:${folder.project.id}`);
   const nodes: TreeNode[] = folders.map(({ project, sessions }) => ({
     id: `folder:${project.id}`, label: project.title, ariaLabel: `project ${project.title}`, icon: <Glyph name="folder" size={15} />,
@@ -36,14 +36,17 @@ export function ProjectTree({ query, onSelect }: { query?: string; onSelect?: ()
   });
   return <div className="project-tree">
     <Tree label="Project folders" nodes={nodes} selectedId={activeId ? `session:${activeId}` : undefined} expandedIds={expanded} onExpandedChange={expand}
-      searchable={query === undefined} query={query} searchPlaceholder="Search projects" emptyText="No matching projects."
+      query={query} emptyText="No matching projects."
       renderSwitcher={open => <Icon name={open ? "chevron.down" : "chevron.right"} size={10} />}
       onSelect={node => {
         const data = node.data as { kind: string; id: string };
         if (data.kind === "folder") { expand(expanded.includes(node.id) ? expanded.filter(id => id !== node.id) : [...expanded, node.id]); return; }
         select(data.id); setTab("chat"); onSelect?.();
       }}
-      canDrag={node => !(node.data as { main?: boolean }).main}
+      canDrag={node => {
+        const data = node.data as { kind: string; main?: boolean };
+        return data.kind === "folder" ? sort === "manual" : !data.main;
+      }}
       canDrop={event => canDropProject(conversations, workspaceId, event)}
       onDrop={event => {
         try {

@@ -93,13 +93,14 @@ function multiloginCreationError(error: unknown, kind: MultiloginProfileKind): s
 }
 
 interface SidebarProps {
+  projectsDock: HTMLElement | null;
   onOpenSettings: () => void;
   settingsAttention?: boolean;
   /** Profiles rail destination, including the hover preview. */
   liveDestination: ReactNode;
 }
 
-export function Sidebar({ onOpenSettings, settingsAttention, liveDestination }: SidebarProps) {
+export function Sidebar({ onOpenSettings, settingsAttention, liveDestination, projectsDock }: SidebarProps) {
   const s = useStore();
   const [automationStatusOpen, setAutomationStatusOpen] = useState(false);
   const [projectsMenuOpen, setProjectsMenuOpen] = useState(false);
@@ -1321,7 +1322,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, liveDestination }: 
           {s.authed ? <AccountAvatar ownerId={s.accountOwnerId} name={s.accountName} email={s.accountEmail} /> : <AccountAvatar />}
         </button>
       </Tooltip>
-      <div className="sidebar-destinations is-compact"><RecentProjects open={projectsMenuOpen} onOpenChange={setProjectsMenuOpen} /></div>
+      <div className="sidebar-destinations is-compact"><RecentProjects dock={projectsDock} open={projectsMenuOpen} onOpenChange={setProjectsMenuOpen} /></div>
       <div className="sidebar-destinations is-compact"><PersonalProxyNavigation count={s.personalProxies.length}
         onLoad={() => { if (s.authed) void s.loadPersonalProxies().catch(() => setManualError("Could not load proxies. Try opening the list again.")); }}
         onCreate={bulk => {

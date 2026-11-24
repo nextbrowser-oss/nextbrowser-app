@@ -826,6 +826,7 @@ function AppUpdatePrompt({
 }
 
 export function App() {
+  const [projectsDock, setProjectsDock] = useState<HTMLDivElement | null>(null);
   const [themePreference, setThemePreference] = useState(() => readThemePreference(settingsStorage.getItem("nextbrowser.theme")));
   const prefersLight = useSyncExternalStore(subscribeToSystemTheme, systemPrefersLight);
   const theme = resolveTheme(themePreference, prefersLight);
@@ -1667,12 +1668,14 @@ export function App() {
         style={{ width: "var(--sidebar-rail-width)" }}
       >
         <Sidebar
+          projectsDock={projectsDock}
           onOpenSettings={openSettingsFromButton}
           liveDestination={<LiveSessionsPopover key={activeWorkspaceId} sessions={liveSessions} selected={tab === "live"}
             onOverview={showLiveOverview} onOpen={openLiveSession} />}
           settingsAttention={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)}
         />
       </aside>
+      <div ref={setProjectsDock} className="projects-dock-slot" />
       <main className={"content" + (tab === "chat" ? " content-chat" : "")}>
         {!settingsOpen && tab !== "chat" && tab !== "live" && tab !== "account" && <nav className="tabbar">
           {!isPrimaryAppTab(tab) && backTarget && (

@@ -133,7 +133,7 @@
   border-radius: 18px;
   overflow: hidden;
 }
-.app > .sidebar:has(+ .content-chat) { margin-block-end: var(--chat-bottom-inset); }
+.app:has(> .content-chat) > :is(.sidebar, .projects-dock-slot) { margin-block-end: var(--chat-bottom-inset); }
 .app { --sidebar-rail-width: 46px; }
 .app > .sidebar.sidebar-collapsed { min-width: var(--sidebar-rail-width); max-width: var(--sidebar-rail-width); }
 .sidebar .sidebar-destination svg,

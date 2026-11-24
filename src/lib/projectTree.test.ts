@@ -5,6 +5,19 @@ import type { Conversation } from "../types";
 
 const record = (id: string, projectId?: string, workspaceId = "work"): Conversation => ({ id, projectId, workspaceId, agent: "codex", title: id, createdAt: 1, updatedAt: 1, messages: [{ id: `${id}-message`, role: "user", status: "done", createdAt: 1, text: "Keep history" }] });
 const records = () => [record("one"), record("two"), record("a", "one"), record("b", "one"), record("c", "two"), record("other", undefined, "private")];
+it("sorts project folders by natural name or newest session without changing manual order", () => {
+  const input = [
+    { ...record("ten"), title: "Проект 10", projectOrder: 0 },
+    { ...record("two"), title: "Проект 2", projectOrder: 1 },
+    { ...record("child", "two"), updatedAt: 9 },
+  ];
+  for (const [mode, order] of [
+    ["manual", ["ten", "two"]], ["name-asc", ["two", "ten"]],
+    ["name-desc", ["ten", "two"]], ["recent", ["two", "ten"]],
+  ] as const) {
+    expect(projectFolders(input, "work", mode).map(folder => folder.project.id)).toEqual(order);
+  }
+});
 it("moves a session between projects without changing its ID, agent, workspace or history, surviving persistence", () => {
   const input = records(), original = input[2];
   const moved = applyProjectDrop(input, "work", { dragId: "session:a", targetId: "folder:two", position: "inside" }, 100);
