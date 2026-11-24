@@ -28,6 +28,14 @@ async function pinColor(button, token) {
     return matches;
   }, token);
 }
+async function dragProjectsEdge(page, delta) {
+  const edge = await page.getByRole("separator", { name: "Resize Projects" }).boundingBox();
+  const x = edge.x + edge.width / 2, y = edge.y + edge.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + delta, y, { steps: 6 });
+  await page.mouse.up();
+}
 try {
   let page = await start();
   const main = page.locator(".app > main");
@@ -43,6 +51,17 @@ try {
   assert.ok(panel.x >= rail.x + rail.width && content.x >= panel.x + panel.width - 1);
   assert.ok(panel.height >= rail.height - 1 && content.width <= width - panel.width + 1);
   assert.ok(await pinColor(dock.getByRole("button", { name: "Unpin Projects" }), "--green"));
+  await dragProjectsEdge(page, 84);
+  assert.equal((await dock.boundingBox()).width, panel.width + 84);
+  assert.equal((await main.boundingBox()).width, content.width - 84);
+  await dragProjectsEdge(page, -36);
+  const chosenWidth = panel.width + 48;
+  assert.equal((await dock.boundingBox()).width, chosenWidth);
+  await dock.getByRole("button", { name: "Unpin Projects" }).click();
+  assert.equal(await page.getByRole("separator", { name: "Resize Projects" }).count(), 0);
+  assert.equal((await main.boundingBox()).width, width);
+  await popup.getByRole("button", { name: "Pin Projects" }).click();
+  assert.equal((await dock.boundingBox()).width, chosenWidth);
   await dock.getByRole("combobox").click();
   assert.equal(await dock.getByRole("option").count(), 4);
   await dock.getByRole("option", { name: "По имени · Я → А" }).click();
@@ -51,6 +70,12 @@ try {
   await app.close();
   page = await start();
   dock = page.getByRole("complementary", { name: "Projects" });
+  assert.equal((await dock.boundingBox()).width, chosenWidth);
+  const edge = page.getByRole("separator", { name: "Resize Projects" });
+  await edge.press("Home");
+  assert.equal((await dock.boundingBox()).width, Number(await edge.getAttribute("aria-valuemin")));
+  await edge.press("End");
+  assert.equal((await dock.boundingBox()).width, Number(await edge.getAttribute("aria-valuemax")));
   await dock.getByRole("combobox").click();
   assert.equal(await dock.getByRole("option", { selected: true }).innerText(), "По имени · Я → А");
   await page.keyboard.press("Escape");
@@ -62,7 +87,7 @@ try {
   await restored.waitFor({ state: "hidden" });
   await page.getByRole("button", { name: "Open Projects", exact: true }).hover();
   await restored.waitFor();
-  console.log("Passed Projects pin colors, dock layout, sort options, restart, unpin and hover.");
+  console.log("Passed Projects pin colors, mouse resizing, keyboard limits, dock width after re-pin and restart, sort options and hover.");
 } finally {
   try { await app?.close(); } finally { await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 }); }
 }

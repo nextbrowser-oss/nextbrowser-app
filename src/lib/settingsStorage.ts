@@ -13,6 +13,7 @@ export const PERSISTENT_SETTINGS: readonly string[] = [
   "nextbrowser.accountActivity.*",
   "nextbrowser.uiScale",
   "nextbrowser.projectsPinned",
+  "nextbrowser.projectsDockWidth",
   "nextbrowser.projectSort",
   "nextbrowser.liveControlsPosition",
   "activeWorkspaceId",

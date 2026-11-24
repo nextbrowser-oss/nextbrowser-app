@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Pin } from "lucide-react";
-import { glassSurfaceClassName, Glyph, IconButton, Popover, Select, Tooltip } from "../shared/ui";
+import { Glyph, IconButton, Popover, Select, Tooltip } from "../shared/ui";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
 import { ProjectTree } from "./ProjectTree";
+import { ProjectsDock } from "./ProjectsDock";
 import { projectRoot, projectSortMode, projectSortOptions } from "../lib/projectTree";
 import { settingsStorage } from "../lib/settingsStorage";
 
@@ -61,7 +62,7 @@ export function RecentProjects({ activeId, open: controlledOpen, onOpenChange, b
   if (dock && docked) return <>
     <Tooltip content="Projects" side="right"><button type="button" className="sidebar-destination active" aria-label="Open Projects"
       aria-expanded="true" aria-controls="pinned-projects" onClick={() => search.current?.focus()}><Glyph name="folder" /></button></Tooltip>
-    {createPortal(<aside id="pinned-projects" aria-label="Projects" className={glassSurfaceClassName + " projects-dock"}>{contents}</aside>, dock)}
+    {createPortal(<ProjectsDock>{contents}</ProjectsDock>, dock)}
   </>;
   return <Popover label="Projects" open={open} onOpenChange={setOpen} openOnHover align="start" side="right" boundaryRef={boundaryRef}
     className="recent-projects shared-scrollbarless" trigger={props => <button {...props} className="sidebar-destination" aria-label="Open Projects">

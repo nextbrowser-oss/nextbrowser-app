@@ -13,9 +13,12 @@
   background: transparent; color: var(--glass-inverse-muted); box-shadow: none;
 }
 .project-list-tools .shared-select-trigger > svg { opacity: 1; }
-.projects-dock-slot { display: flex; flex: 0 0 clamp(176px, 22vw, 280px); min-height: 0; min-width: 0; margin: 8px 4px 8px 0; }
+.projects-dock-slot { position: relative; display: flex; flex: none; min-height: 0; min-width: 0; margin: 8px 4px 8px 0; }
 .projects-dock-slot:empty { display: none; }
-.projects-dock { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; padding: 6px; border-radius: 14px; overflow: hidden; }
+.projects-dock { box-sizing: border-box; display: flex; min-width: 0; min-height: 0; flex-direction: column; padding: 6px; border-radius: 14px; overflow: hidden; }
+.projects-dock-slot > .projects-dock-resizer { position: absolute; inset-block: 0; right: -4px; width: 8px; z-index: 1; }
+.projects-dock-resizer[data-resizing]::after, .projects-dock-resizer:focus-visible::after { width: 2px; background: var(--accent); }
+.app:has(.projects-dock-resizer[data-resizing]) { user-select: none; cursor: col-resize; }
 .projects-dock .project-popover-toolbar, .projects-dock .project-list-tools { flex: none; }
 .projects-dock .recent-project-list { flex: 1; min-height: 0; max-height: none; overflow: auto; }
 .recent-projects .shared-tree-list { max-height: min(370px, calc(100dvh - 80px)); }
