@@ -8,16 +8,18 @@ import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import "./navigation.css";
 
 const TitlebarHost = createContext<HTMLDivElement | null>(null);
+const WorkspaceActionsHost = createContext<HTMLDivElement | null>(null);
 
 /** Keep page-owned actions in the global chrome without duplicating their state. */
-export function TitlebarActions({ children }: { children: ReactNode }) {
-  const host = useContext(TitlebarHost);
+export function TitlebarActions({ children, placement = "end" }: { children: ReactNode; placement?: "workspace" | "end" }) {
+  const host = useContext(placement === "workspace" ? WorkspaceActionsHost : TitlebarHost);
   return host ? createPortal(children, host) : null;
 }
 
 /** Application chrome stays available while the renderer is starting or showing sign-in. */
 export function DesktopShell({ children }: { children: ReactNode }) {
   const [actionsHost, setActionsHost] = useState<HTMLDivElement | null>(null);
+  const [workspaceHost, setWorkspaceHost] = useState<HTMLDivElement | null>(null);
   const setTab = useStore(state => state.setTab);
   const available = useStore(state => !state.checking && !state.showOnboarding);
   const platform = window.nextbrowser?.platform ?? (/Mac/.test(navigator.platform) ? "darwin" : "win32");
@@ -41,10 +43,13 @@ export function DesktopShell({ children }: { children: ReactNode }) {
           disabled={!available} onClick={() => setTab("chat")}><BrandLogo size={24} /></IconButton>
         <span className="app-titlebar-brand"><span className="app-titlebar-name">Nextbrowser</span><span className="app-titlebar-version">({__APP_VERSION__})</span></span>
         <WorkspaceSwitcher disabled={!available} />
+        <div ref={setWorkspaceHost} className="titlebar-workspace-actions" />
         <div ref={setActionsHost} className="app-titlebar-actions" />
         {customControls && <WindowControls canRestore={windowState.maximized || windowState.fullscreen} onMinimize={() => control("minimize")} onToggleMaximize={() => control("toggle-maximize")} onClose={() => control("close")} />}
       </header>
-      <TitlebarHost.Provider value={actionsHost}><div className="desktop-shell-body">{children}</div></TitlebarHost.Provider>
+      <TitlebarHost.Provider value={actionsHost}>
+        <WorkspaceActionsHost.Provider value={workspaceHost}><div className="desktop-shell-body">{children}</div></WorkspaceActionsHost.Provider>
+      </TitlebarHost.Provider>
     </div>
   );
 }

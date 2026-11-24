@@ -7,11 +7,11 @@ import "./dialog.css";
 const focusableSelector = 'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])';
 
 /** A modal shell; the caller owns its open state, content and actions. */
-export function Dialog({ title, children, onClose, className = "" }: { title: string; children: ReactNode; onClose: () => void; className?: string }) {
+export function Dialog({ title, children, onClose, dismissible = true, className = "" }: { title: string; children: ReactNode; onClose: () => void; dismissible?: boolean; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const closeRef = useRef(onClose);
-  closeRef.current = onClose;
+  closeRef.current = () => { if (dismissible) onClose(); };
   const topModal = () => [...document.querySelectorAll<HTMLElement>('[aria-modal="true"]')].at(-1);
   useEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -38,11 +38,11 @@ export function Dialog({ title, children, onClose, className = "" }: { title: st
     return () => { document.removeEventListener("keydown", key); if (opener?.isConnected) opener.focus(); };
   }, []);
   return createPortal(<div className="modal-overlay shared-dialog-overlay" onMouseDown={event => {
-    if (event.target === event.currentTarget && topModal() === ref.current) onClose();
+    if (event.target === event.currentTarget && topModal() === ref.current) closeRef.current();
   }}>
     <div ref={ref} className={`shared-dialog ${className}`.trim()} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
       <header className="shared-dialog-header"><h2 id={titleId}>{title}</h2>
-        <IconButton size="small" appearance="plain" label={`Close ${title}`} onClick={onClose}><Glyph name="x" size={17} /></IconButton>
+        <IconButton size="small" appearance="plain" label={`Close ${title}`} disabled={!dismissible} onClick={onClose}><Glyph name="x" size={17} /></IconButton>
       </header>
       <div className="shared-dialog-body">{children}</div>
     </div>

@@ -28,7 +28,13 @@ it("disables workspace changes during startup", () => {
 });
 it("keeps page-owned actions in the global titlebar with working event handlers", () => {
   const click = vi.fn();
-  render(<DesktopShell><TitlebarActions><button onClick={click}>Community action</button></TitlebarActions><main>Page</main></DesktopShell>);
+  render(<DesktopShell>
+    <TitlebarActions placement="workspace"><button>Feedback</button></TitlebarActions>
+    <TitlebarActions><button onClick={click}>Community action</button></TitlebarActions>
+    <main>Page</main>
+  </DesktopShell>);
+  const switcher = screen.getByRole("button", { name: "Switch workspace, Work" });
+  expect(switcher.nextElementSibling?.contains(screen.getByRole("button", { name: "Feedback" }))).toBe(true);
   const action = screen.getByRole("button", { name: "Community action" });
   expect(action.closest("header")?.getAttribute("aria-label")).toBe("Application toolbar");
   expect(action.closest("main")).toBeNull();

@@ -28,6 +28,12 @@
 .titlebar-workspace-switcher svg { flex: none; }
 .titlebar-workspace-switcher:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
 .titlebar-workspace-switcher:focus-visible { outline: 2px solid var(--accent-text); }
+.titlebar-workspace-actions { display: flex; flex: none; }
+.titlebar-workspace-actions:empty { display: none; }
+.titlebar-feedback { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 4px 7px; min-height: 28px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; box-shadow: none; cursor: pointer; }
+.titlebar-feedback:hover { background: var(--surface-3); color: var(--text); }
+.titlebar-feedback:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
+@media (max-width: 720px) { .titlebar-feedback span { display: none; } }
 .titlebar-workspaces { width: 280px; }
 .workspace-switcher-toolbar, .workspace-switcher-search, .workspace-switcher-row {
   display: flex;

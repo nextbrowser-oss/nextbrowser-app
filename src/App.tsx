@@ -334,8 +334,10 @@ function SettingsButton({ onClick, hasUpdate }: { onClick: () => void; hasUpdate
 
 function FeedbackButton({ onClick }: { onClick: () => void }) {
   return (
-    <Tooltip content="Send feedback (⌘⇧F on macOS, Ctrl+Shift+F on Windows/Linux)"><button
-      className="social-button feedback-button"
+    <Tooltip side="bottom" content="Send feedback (⌘⇧F on macOS, Ctrl+Shift+F on Windows/Linux)"><button
+      className="titlebar-feedback"
+      type="button"
+      aria-haspopup="dialog"
       onClick={onClick}
       aria-label="Send feedback. Shortcut: Command or Control, Shift, F"
     >
@@ -1601,10 +1603,13 @@ export function App() {
     trackEvent("feedback_submitted", { rating });
   }} /> : null;
 
-  const titlebarActions = <TitlebarActions>
-    <CommunityControls />
-    <ThemeToggle theme={theme} onToggle={() => setThemePreference(theme === "dark" ? "light" : "dark")} />
-  </TitlebarActions>;
+  const titlebarActions = <>
+    {feedbackAvailable && <TitlebarActions placement="workspace"><FeedbackButton onClick={() => setFeedbackOpen(true)} /></TitlebarActions>}
+    <TitlebarActions>
+      <CommunityControls />
+      <ThemeToggle theme={theme} onToggle={() => setThemePreference(theme === "dark" ? "light" : "dark")} />
+    </TitlebarActions>
+  </>;
 
   if ((checking || startupError) && preview !== "login" && preview !== "main" && preview !== "onboarding") {
     return (
@@ -1715,7 +1720,6 @@ export function App() {
           <span className="tabbar-spacer" />
           <div className="tabbar-controls">
             {backgroundTaskPills}
-            {feedbackAvailable && <FeedbackButton onClick={() => setFeedbackOpen(true)} />}
           </div>
         </nav>}
         {tab !== "live" && <hr className="divider" />}
@@ -1724,7 +1728,7 @@ export function App() {
         </div>}
         <div className={"tab-content" + (tab === "skills" ? " tab-content-bleed" : "")}>
           <div className={"persistent-tab-panel" + (tab === "chat" ? "" : " is-hidden")}>
-            <ChatView headerAccessory={<>{backgroundTaskPills}{feedbackAvailable && <FeedbackButton onClick={() => setFeedbackOpen(true)} />}</>} />
+            <ChatView headerAccessory={backgroundTaskPills} />
           </div>
           {tab === "skills" && <SkillsView onOpenAgentSettings={() => openSettings("agent")} />}
           {tab === "mini-apps" && <MiniAppsPage />}
@@ -1733,7 +1737,7 @@ export function App() {
           <div className={"persistent-tab-panel" + (focusedLive ? "" : " is-hidden")}>
             <LiveView active={focusedLive} requestedKey={liveKey ?? ""} profileOptions={liveSessions}
               controlsOpen={liveControlsOpen} onControlsChange={setLiveControlsOpen} onOverview={showLiveOverview}
-              controlsAccessory={<>{backgroundTaskPills}{feedbackAvailable && <FeedbackButton onClick={() => setFeedbackOpen(true)} />}</>} />
+              controlsAccessory={backgroundTaskPills} />
           </div>
           {tab === "account" && <AccountProfileView accessory={!uiScaleFloatingHidden ? <UIScaleControl inline value={uiScale} onChange={setUiScale} onDismiss={dismissUiScaleFloating} /> : undefined} />}
           {tab === "usage" && <UsageView />}
