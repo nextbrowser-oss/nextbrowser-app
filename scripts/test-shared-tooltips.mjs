@@ -67,7 +67,7 @@ try {
     assert.ok(hint.x >= rail.x + rail.width, "portal escapes the rail's clipped container");
     const style = await popup.evaluate(element => ({ bg: getComputedStyle(element).backgroundColor, text: getComputedStyle(element).color, blur: getComputedStyle(element).backdropFilter, radius: getComputedStyle(element).borderRadius }));
     assert.equal(style.text, theme === "light" ? "rgb(255, 255, 255)" : "rgb(244, 246, 251)");
-    assert.ok(style.bg.includes(theme === "light" ? "25, 28, 35" : "29, 32, 40"));
+    assert.equal(style.bg, theme === "light" ? "rgba(25, 28, 35, 0.78)" : "rgba(5, 8, 14, 0.84)");
     assert.ok(style.blur.includes("blur(18px)"));
     assert.equal(style.radius, "12px");
     await page.screenshot({ path: resolve(output, `${theme}-rail.png`) });

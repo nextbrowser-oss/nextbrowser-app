@@ -88,8 +88,8 @@
   --on-danger: var(--white);
   --shadow-color: #000000;
   --section-text: var(--text-secondary);
-  --glass-inverse-bg: rgba(29, 32, 40, 0.84);
-  --glass-inverse-solid: #1d2028;
+  --glass-inverse-bg: rgba(5, 8, 14, 0.84);
+  --glass-inverse-solid: #05080e;
   --glass-inverse-text: #f4f6fb;
   --glass-inverse-muted: #bec8d7;
   --glass-inverse-control: rgba(255, 255, 255, 0.08);
