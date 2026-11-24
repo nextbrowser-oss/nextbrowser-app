@@ -16,9 +16,10 @@ export function PersonalProxyNavigation({ count, onLoad, onCreate, renderList }:
   return <Popover label="Personal proxies" open={open} onOpenChange={changeOpen} openOnHover side="right" align="start"
     className="personal-proxy-popover shared-scrollbarless" trigger={props => <button {...props}
       className="sidebar-destination" aria-label="Personal proxy">
-      <Glyph name="network" /><span className="sidebar-destination-label">Personal proxy</span>
+      <Glyph name="network" />
       {count > 0 && <span className="sidebar-destination-count" aria-hidden="true">{count}</span>}
     </button>}>
+    <div className="rail-popover-heading">Personal proxy</div>
     <div className="live-session-tools">
       <label className="live-session-search"><Icon name="magnifyingglass" size={14} />
         <input type="search" aria-label="Search personal proxies" placeholder="Search proxies" value={query} onChange={event => setQuery(event.target.value)} />

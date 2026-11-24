@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kanban</title><!-- style --></head>
+<body><main>
+  <header><div><h1>Task board</h1><p id="counts" aria-live="polite"></p></div><button id="add" disabled>+ Add task</button></header>
+  <p id="notice" role="status"></p><div id="columns" aria-label="Task board"></div>
+</main>
+<dialog id="editor"><form id="task-form">
+  <h2 id="editor-title">New task</h2>
+  <label>Task<input id="task-title" maxlength="160" required autocomplete="off"></label>
+  <label>Notes<textarea id="notes" rows="3" maxlength="2000"></textarea></label>
+  <label>Column<select id="stage"></select></label>
+  <footer><button id="cancel" type="button">Cancel</button><button type="submit">Save task</button></footer>
+</form></dialog>
+<!-- script --></body></html>

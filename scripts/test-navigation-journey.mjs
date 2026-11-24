@@ -31,6 +31,14 @@ try {
         window.__navigationQA.calls.push({ command, args });
         if (command === "nextctl_version") return "1.2.39";
         if (command === "nextctl_supports_skill") return true;
+        if (command === "nextctl_run" && args.args?.[0] === "proxy-traffic" && args.args.includes("--from")) {
+          const from = args.args[args.args.indexOf("--from") + 1];
+          const to = args.args[args.args.indexOf("--to") + 1];
+          const history = { from, to, timezone: "UTC", total_bytes: 4096, total_requests: 17,
+            data_points: [{ label: from, used_bytes: 4096, requests: 17 }], sources: [],
+            top_domains: [{ domain: "private-site.example", used_bytes: 4096, requests: 17 }] };
+          return { code: 0, stdout: JSON.stringify({ ok: true, data: { proxy_traffic_history: history } }), stderr: "" };
+        }
         if (command === "nextctl_run" && args.args?.slice(0, 2).join(" ") === "remote close") return { code: 0 };
         if (command === "nextctl_run" && args.args?.includes("screenshot")) {
           const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l2UAAAAASUVORK5CYII=";
@@ -45,6 +53,8 @@ try {
         if (command === "github_stars") return 64;
         if (command === "github_star_status") return { eligible: false };
         if (command === "dashboard_auth_status") return { authed: true };
+        if (command === "user_mcp_list") return [];
+        if (command === "user_mcp_catalog") return { items: [], cursor: "" };
         if (command === "manual_proxies_list" || command === "browser_runtime_clawbrowser_active_sessions") return [];
         if (command === "multilogin_login_complete") return { connected: true, valid: true, secureStorageAvailable: true, account: { email: "qa@example.com", workspaceName: "QA workspace" }, browserProfiles: [], mobileProfiles: [] };
         return {};
@@ -402,7 +412,7 @@ try {
         radius: style.borderTopLeftRadius, blur: style.backdropFilter, bg: style.backgroundColor,
         text: style.color, icon: getComputedStyle(icon).color, overflow: node.scrollWidth > node.clientWidth };
     });
-    assert.ok(surface.left >= 8 && surface.top >= 8 && surface.bottom >= 8, JSON.stringify(surface));
+    assert.ok(surface.left === 6 && surface.top >= 8 && surface.bottom >= 8, JSON.stringify(surface));
     assert.equal(surface.radius, '18px');
     assert.ok(surface.blur.includes('blur(18px)'));
     assert.match(surface.bg, /^rgba\(/);
@@ -469,7 +479,7 @@ try {
   assert.equal(await page.getByRole('button', { name: 'Open Projects', exact: true }).isVisible(), true, 'projects stay available on Skills');
   assert.equal(await nav.getByRole('button').count(), 4);
   await checkSidebarSurface();
-  assert.equal(await extensionsButton().innerText(), 'Extensions');
+  assert.equal(await extensionsButton().innerText(), '', 'the rail uses icon-only destinations');
   await extensionsButton().hover();
   const extensionsPopup = page.getByRole('dialog', { name: 'Extensions', exact: true });
   await extensionsPopup.waitFor();
@@ -478,9 +488,9 @@ try {
   assert.ok(Math.abs(flyoutBox.y - triggerBox.y) <= 1, 'flyout aligns with the group top');
   assert.ok(flyoutBox.width <= 180);
   const rows = await extensionsPopup.getByRole('button').all();
-  assert.equal(rows.length, 3);
+  assert.equal(rows.length, 4);
   const rowBoxes = await Promise.all(rows.map(row => row.boundingBox()));
-  assert.ok(rowBoxes[0].y < rowBoxes[1].y && rowBoxes[1].y < rowBoxes[2].y, 'extensions form one vertical column');
+  assert.ok(rowBoxes.every((box, i) => i === 0 || rowBoxes[i - 1].y < box.y), 'extensions form one vertical column');
   await extensionsPopup.getByRole('button', { name: /^Open MCP/ }).hover();
   await page.waitForTimeout(250);
   assert.equal(await extensionsPopup.isVisible(), true, 'crossing the gap preserves the flyout');
@@ -496,7 +506,7 @@ try {
   await extensionsPopup.getByRole('button', { name: /^Open MCP/ }).click();
   const mcpDialog = page.getByRole('dialog', { name: 'MCP', exact: true });
   await mcpDialog.waitFor();
-  await mcpDialog.getByText('stdio', { exact: true }).waitFor();
+  await mcpDialog.getByRole('button', { name: 'Installed · 1', exact: true }).waitFor();
   assert.equal(await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().tab), 'skills');
   await mcpDialog.getByRole('button', { name: 'Agent settings', exact: true }).click();
   const agentSettings = page.getByRole('dialog', { name: 'Settings', exact: true });
@@ -522,10 +532,33 @@ try {
   await page.locator(".sidebar-mini").getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("dialog", { name: "Settings", exact: true }).waitFor();
   await page.getByRole("button", { name: "Close settings", exact: true }).click();
-  await page.getByRole('button', { name: 'Open Profile', exact: true }).click();
-  await page.getByRole('region', { name: 'Profile', exact: true }).getByRole('heading', { name: 'Profile', exact: true }).waitFor();
+  await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts');
+    useStore.setState({ authed: true, accountOwnerId: '18259a1e-9e88-4d3c-8655-6119f75b1599', accountName: 'Анна Волкова', accountEmail: 'anna@example.com' });
+  });
+  const accountButton = page.getByRole('button', { name: 'Open Profile', exact: true });
+  await accountButton.click();
+  const account = page.getByRole('region', { name: 'Profile', exact: true });
+  await account.getByRole('heading', { name: 'My account', exact: true }).waitFor();
+  await account.getByRole('heading', { name: 'Анна Волкова', exact: true }).waitFor();
+  assert.equal(await accountButton.innerText(), 'АВ');
+  const gradient = locator => locator.locator('.account-avatar').evaluate(el => getComputedStyle(el).backgroundImage);
+  const originalGradient = await gradient(account);
+  assert.match(originalGradient, /linear-gradient/);
+  assert.equal(await gradient(accountButton), originalGradient);
+  await account.getByText('Traffic over time', { exact: true }).waitFor();
+  assert.equal(await account.getByText('private-site.example').count(), 0);
   assert.equal(await page.getByRole('dialog', { name: 'Profiles and proxies', exact: true }).count(), 0);
   await page.screenshot({ path: 'e2e-out/account-profile.png' });
+  await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts');
+    useStore.setState({ accountName: undefined, accountEmail: 'lee.park@example.com', accountOwnerId: 'ea0b1f65-010b-4dec-a77c-c24a3070ce3e' });
+  });
+  await account.getByRole('heading', { name: 'lee.park', exact: true }).waitFor();
+  assert.equal(await accountButton.innerText(), 'LP');
+  assert.notEqual(await gradient(account), originalGradient);
+  assert.equal(await gradient(account), await gradient(accountButton));
+  assert.equal(await account.getByText('anna@example.com').count(), 0);
   await page.evaluate(async () => {
     const { useStore } = await import('/src/store.ts');
     useStore.setState({ personalProxies: [

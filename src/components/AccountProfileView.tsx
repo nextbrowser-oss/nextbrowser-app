@@ -1,6 +1,9 @@
 import { useState, type ReactNode } from "react";
 import { useStore } from "../store";
-import { Icon, Spinner } from "./Icon";
+import { Spinner } from "./Icon";
+import { AccountAvatar } from "./AccountAvatar";
+import { accountDisplayName } from "../lib/accountAvatar";
+import { Button } from "../shared/ui";
 import { UserFacingError } from "./UserFacingError";
 import { internalError } from "../lib/userFacingError";
 import { UsageView } from "./UsageView";
@@ -8,6 +11,8 @@ import { UsageView } from "./UsageView";
 export function AccountProfileView({ accessory }: { accessory?: ReactNode }) {
   const authed = useStore(s => s.authed);
   const email = useStore(s => s.accountEmail);
+  const name = useStore(s => s.accountName);
+  const ownerId = useStore(s => s.accountOwnerId);
   const compatibilityError = useStore(s => s.nextctlCompatibilityError);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
@@ -18,15 +23,19 @@ export function AccountProfileView({ accessory }: { accessory?: ReactNode }) {
     finally { setPending(false); }
   };
   return <section className="account-profile-page" aria-label="Profile">
-    <header className="live-sessions-header"><h1>Profile</h1>{accessory}</header>
+    <header className="live-sessions-header"><h1>My account</h1>{accessory}</header>
     <div className="account-profile-summary">
-      <Icon name="person.crop.circle" size={28} />
-      <div><strong>{email || "Nextbrowser account"}</strong><p className="muted">{compatibilityError || (authed ? "Signed in" : "Sign in to sync your workspaces and proxies")}</p></div>
-      <button type="button" className="secondary" disabled={pending} onClick={() => authed ? void logout() : useStore.getState().setDashboardKeyPromptOpen(true)}>
+      {authed ? <AccountAvatar large ownerId={ownerId} name={name} email={email} /> : <AccountAvatar large />}
+      <div>
+        <h2>{(authed && accountDisplayName(name, email)) || "Nextbrowser account"}</h2>
+        <p className="muted">{authed ? email || "Signed in" : "Sign in to sync your workspaces and proxies."}</p>
+      </div>
+      <Button disabled={pending} onClick={() => authed ? void logout() : useStore.getState().setDashboardKeyPromptOpen(true)}>
         {pending && <Spinner size={13} />}{authed ? "Sign out" : "Sign in"}
-      </button>
+      </Button>
     </div>
+    {compatibilityError && <p role="status">{compatibilityError}</p>}
     {error && <div role="alert"><UserFacingError message={error} surface="account_sign_out" /></div>}
-    {authed && <UsageView />}
+    {authed && <UsageView key={ownerId} />}
   </section>;
 }

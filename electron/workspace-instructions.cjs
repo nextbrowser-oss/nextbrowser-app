@@ -1,11 +1,14 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { TAB_INSTRUCTIONS } = require("./tab-mcp.cjs");
 
 const START = "<!-- NEXTBROWSER MANAGED INSTRUCTIONS START -->";
 const END = "<!-- NEXTBROWSER MANAGED INSTRUCTIONS END -->";
 function managedInstructions(browserContext = "") {
   return `${START}
 # Nextbrowser browser workspace
+
+- ${TAB_INSTRUCTIONS}
 
 - For browser tasks, use the connected Nextbrowser MCP tools immediately when they are available. They reuse the selected profile's native control channel (Playwright for Camoufox, CDP where supported). Use the CLI only when MCP is unavailable; then prefer \`nbc\` and fall back to \`nextctl\`.
 - Do not probe for the CLI, run a duplicate CLI \`start\`, or switch between CLI and MCP after a successful MCP call.

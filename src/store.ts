@@ -618,6 +618,7 @@ async function pullCatalogInstructions(entry: SkillEntry, preferredAgentId: stri
 interface State {
   authed: boolean;
   accountEmail?: string;
+  accountName?: string;
   accountOwnerId?: string;
   checking: boolean;
   /** "setup": the first run is still downloading and checking the Nextbrowser CLI. */
@@ -647,6 +648,7 @@ interface State {
   selectedProfile?: string;
   defaultSession?: SessionStatus;
   profileSearch: string;
+  profileNameSort: "asc" | "desc" | undefined;
   isRefreshing: boolean;
   agentId: string;
   runtime: Record<string, AgentRuntime>;
@@ -663,6 +665,7 @@ interface State {
   workspaceSetupAuto: "pending" | "running" | "done" | "failed";
   activeConvId: Record<string, string>;
   tab: AppTab;
+  selectedMiniApp?: { owner: string; id: string };
   utilityDialog?: UtilityDialogTab;
   skillState: Record<string, SkillApplyState | string>;
   scheduledRuns: ScheduledRun[];
@@ -817,13 +820,14 @@ interface State {
   loginAgent: () => Promise<void>;
   logoutAgent: () => Promise<void>;
   recheckLogin: (agentId?: string) => Promise<void>;
-  setTab: (t: AppTab) => void;
+  setTab: (t: AppTab, miniApp?: { owner: string; id: string }) => void;
   liveSession?: { workspaceId?: string; key: string };
   openLiveSession: (key: string) => void;
   showLiveOverview: () => void;
   closeUtilityDialog: () => void;
   setAppActive: (v: boolean) => void;
   setProfileSearch: (q: string) => void;
+  toggleProfileNameSort: () => void;
   setSidebarWidth: (w: number) => void;
   setSidebarCollapsed: (v: boolean) => void;
   setChatListCollapsed: (v: boolean) => void;
@@ -1082,6 +1086,7 @@ interface APIKeyIdentity {
   key_id?: string;
   owner_id?: string;
   email?: string;
+  name?: string;
 }
 
 const replyExecutionTargets = new Map<string, ExecutionTarget>();
@@ -2027,12 +2032,15 @@ async function verifyProxyIdentity(profile?: string): Promise<ProxyIdentity | un
 }
 
 async function refreshAnalyticsIdentity(): Promise<boolean> {
+  const epoch = accountEpoch;
   const wrap = await nextctlJson<{ identity: APIKeyIdentity }>(["identity"]);
+  if (epoch !== accountEpoch) return false;
   const valid = wrap.identity?.valid === true;
   const ownerId = valid ? wrap.identity.owner_id?.trim() : undefined;
   const accountEmail = valid ? wrap.identity.email?.trim() : undefined;
   setAnalyticsUserId(ownerId || undefined);
-  useStore.setState({ accountEmail: accountEmail || undefined, accountOwnerId: ownerId || undefined });
+  const accountName = valid ? wrap.identity.name?.trim() : undefined;
+  useStore.setState({ accountEmail: accountEmail || undefined, accountName: accountName || undefined, accountOwnerId: ownerId || undefined });
   trackEvent("analytics_identity_loaded", {
     valid,
     has_owner_id: !!ownerId,
@@ -2084,7 +2092,7 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
       return valid;
     } catch {
       setAnalyticsUserId(undefined);
-      useStore.setState({ accountEmail: undefined, accountOwnerId: undefined });
+      useStore.setState({ accountEmail: undefined, accountName: undefined, accountOwnerId: undefined });
       trackEvent("analytics_identity_unavailable", { phase: "bootstrap" });
       return false;
     }
@@ -2093,6 +2101,7 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
     const incompatible = String(error).includes("VERIFY_REQUIRED");
     useStore.setState({
       accountEmail: undefined,
+      accountName: undefined,
       accountOwnerId: undefined,
       nextctlVersion: incompatible ? "update required" : "not found",
       nextctlSupportsSkill: false,
@@ -2228,6 +2237,7 @@ function settleTransientStatus(name: string, transient: string): void {
 }
 
 export const useStore = create<State>((set, get) => {
+  const savedProfileNameSort = settingsStorage.getItem("nextbrowser.profileNameSort");
   const enqueueWithTarget = (
     text: string,
     chip?: UserCommandChip,
@@ -2441,6 +2451,7 @@ export const useStore = create<State>((set, get) => {
   return {
   authed: false,
   accountEmail: undefined,
+  accountName: undefined,
   accountOwnerId: undefined,
   checking: true,
   startupPhase: "local",
@@ -2458,6 +2469,7 @@ export const useStore = create<State>((set, get) => {
   profileIdentities: {},
   profileChatOwners: {},
   profileSearch: "",
+  profileNameSort: savedProfileNameSort === "asc" || savedProfileNameSort === "desc" ? savedProfileNameSort : undefined,
   isRefreshing: false,
   agentId: settingsStorage.getItem("lastAgent") ?? "claude",
   runtime: initRuntimes(),
@@ -3809,6 +3821,8 @@ export const useStore = create<State>((set, get) => {
       set({
         authed: false,
         accountEmail: undefined,
+        accountName: undefined,
+        accountOwnerId: undefined,
         runtime,
         connectAnnounced: new Set(),
         proxy: undefined,
@@ -5178,13 +5192,14 @@ export const useStore = create<State>((set, get) => {
     } catch { /* A failed status command is not evidence of a login. */ }
   },
 
-  setTab: (t) => {
+  setTab: (t, miniApp) => {
     if (isUtilityDialogTab(t)) {
       set({ utilityDialog: t, ...(t !== "connectors" ? { connectorPrompt: undefined } : {}) });
       trackEvent("utility_dialog_opened", { dialog: t });
       return;
     }
     const previousTab = get().tab;
+    if (t === "mini-apps" || previousTab === "mini-apps") set({ selectedMiniApp: t === "mini-apps" ? miniApp : undefined });
     if (previousTab === t) { if (get().utilityDialog) get().closeUtilityDialog(); return; }
     trackEvent("tab_opened", { tab: t, previous_tab: previousTab });
     trackScreenView(t, { source: "tab_opened", previous_tab: previousTab });
@@ -5209,6 +5224,11 @@ export const useStore = create<State>((set, get) => {
     }
   },
   setProfileSearch: (q) => set({ profileSearch: q }),
+  toggleProfileNameSort: () => {
+    const direction = get().profileNameSort === "asc" ? "desc" : "asc";
+    settingsStorage.setItem("nextbrowser.profileNameSort", direction);
+    set({ profileNameSort: direction });
+  },
   setSidebarWidth: (w) => {
     settingsStorage.setItem("sidebarWidth", String(w));
     set({ sidebarWidth: w });

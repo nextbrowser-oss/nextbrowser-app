@@ -4,7 +4,7 @@ import { addPendingRuntimeInstall, downloadableBrowsers, runtimeInstalling } fro
 import { RuntimeInstallationProgress } from "./components/RuntimeInstallationProgress";
 import { BrowserRuntimeUpdatePrompt, ClawbrowserCloseProfilesPrompt, type BrowserRuntimeUpdateEntry } from "./components/BrowserRuntimeUpdatePrompt";
 import { InstallationProgress, InstallationSpinner } from "./components/InstallationProgress";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useStore } from "./store";
 import { TitlebarActions } from "./components/DesktopShell";
 import { CommunityControls } from "./components/CommunityControls";
@@ -12,6 +12,7 @@ import { MainViewNavigation } from "./components/MainViewNavigation";
 import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
 import { SkillsView } from "./components/SkillsView";
+import { MiniAppsPage } from "./pages/mini-apps";
 import { LiveView } from "./components/LiveView";
 import { LiveSessionsGrid, LiveSessionsPopover } from "./components/LiveSessions";
 import { useLiveSessions } from "./lib/useLiveSessions";
@@ -31,7 +32,11 @@ import { brandName, latestReleaseUrl } from "./constants";
 import { trafficAllowanceBytes, trafficAllowanceFraction, trafficGateState, trafficGateStateLabel, trafficGateStateTone } from "./lib/trafficGate";
 import { getPreviewMode, getPreviewNodeMavenState, getPreviewTab } from "./preview";
 import { humanBytes, type AppTab, type Conversation } from "./types";
-import { resolveTheme, type Theme } from "./theme";
+import { readThemePreference, resolveTheme, subscribeToSystemTheme, systemPrefersLight, type Theme, type ThemePreference } from "./theme";
+import { ThemePicker } from "./components/ThemePicker";
+import { ThemeEditor } from "./components/ThemeEditor";
+import { ThemePresets } from "./components/ThemePresets";
+import { useAppearance } from "./lib/useAppearance";
 import { confirmedBrowserRuntimeUpdates } from "./lib/browserRuntimeUpdate";
 import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
 import { observeDesktopActivity } from "./lib/desktopActivity";
@@ -68,9 +73,10 @@ import { FeedbackModal } from "./components/FeedbackModal";
 import { feedbackPromptBlocked, feedbackPromptConfig, markFeedbackSubmitted, shouldPromptForFeedback } from "./lib/feedbackPrompt";
 import { multiloginSelectionForWorkspace } from "./lib/multiloginSelection";
 import { settingsStorage } from "./lib/settingsStorage";
+import { useMiniAppsOwner } from "./lib/miniAppLibrary";
 import { countWorkspaceProfiles } from "./lib/workspaceProfiles";
 
-const PREVIEW_TABS = new Set<string>(["chat", "automation", "skills", "connectors", "live", "usage", "guide", "scheduled"]);
+const PREVIEW_TABS = new Set<string>(["chat", "automation", "mini-apps", "skills", "connectors", "live", "usage", "guide", "scheduled"]);
 
 interface BrowserRuntimeInstallStatus {
   runtime?: "clawbrowser" | "dasbrowser" | "camoufox";
@@ -405,6 +411,10 @@ function SettingsModal({
   onInstallUpdate,
   onOpenRelease,
   onRequestBrowserRuntimeUpdate,
+  themePreference,
+  onThemeChange,
+  activeTheme,
+  appearanceSettings,
   uiScale,
   onUiScaleChange,
   uiScaleFloatingHidden,
@@ -428,6 +438,10 @@ function SettingsModal({
   onInstallUpdate: () => void;
   onOpenRelease: () => Promise<void>;
   onRequestBrowserRuntimeUpdate: (runtime: BrowserRuntimeUpdateEntry) => void;
+  themePreference: ThemePreference;
+  onThemeChange: (next: ThemePreference) => void;
+  activeTheme: Theme;
+  appearanceSettings: ReturnType<typeof useAppearance>;
   uiScale: number;
   onUiScaleChange: (next: number) => void;
   uiScaleFloatingHidden: boolean;
@@ -494,6 +508,7 @@ function SettingsModal({
   };
 
   const [section, setSection] = useState<SettingsSection>(requestedSection ?? "general");
+  const [preferTabTools, setPreferTabTools] = useState(() => settingsStorage.getItem("nextbrowser.preferTabTools") === "1");
   const [usageOpen, setUsageOpen] = useState(false);
   const [usageVisited, setUsageVisited] = useState(false);
   useEffect(() => {
@@ -569,6 +584,14 @@ function SettingsModal({
                     {uiScaleFloatingHidden && <Tooltip content="Return the quick-access control to the main screen"><button className="plain-icon-btn plain-icon-btn-compact" onClick={onRestoreFloatingScale} aria-label="Return the interface-size quick-access control to the main screen"><Icon name="arrow.uturn.left" size={12} /></button></Tooltip>}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {section === "themes" && (
+              <div className="theme-settings">
+                <ThemePresets mode={activeTheme} {...appearanceSettings} />
+                <ThemePicker value={themePreference} onChange={onThemeChange} palettes={appearanceSettings.resolvedPalettes} />
+                <ThemeEditor key={appearanceSettings.library.activeId + activeTheme} mode={activeTheme} {...appearanceSettings} />
               </div>
             )}
 
@@ -658,6 +681,24 @@ function SettingsModal({
                   </div>}
                 </div>
                 {builtinAgent && <BuiltinAgentSetup />}
+                <div className="settings-group">
+                  <div className="settings-row">
+                    <label htmlFor="prefer-tab-tools" className="small">Prefer in-tab MCP tools</label>
+                    <label className="toggle">
+                      <input id="prefer-tab-tools" type="checkbox" role="switch" checked={preferTabTools}
+                        aria-describedby="tab-tools-help" onChange={event => {
+                          const enabled = event.currentTarget.checked;
+                          settingsStorage.setItem("nextbrowser.preferTabTools", enabled ? "1" : "0");
+                          setPreferTabTools(enabled);
+                        }} />
+                      <span className="toggle-track"><span className="toggle-knob" /></span>
+                    </label>
+                  </div>
+                  <p id="tab-tools-help" className="muted small settings-group-note">
+                    {preferTabTools ? "Use tools from the active tab first, then standard browser controls when needed." : "Use standard browser controls."}
+                    {" Applies to new Nextbrowser agent and Codex chat turns and new Codex terminals."}
+                  </p>
+                </div>
                 {agentError && !builtinAgent && (
                   <div className="error small settings-agent-error">
                     <UserFacingError message={agentError} surface="agent_settings" />
@@ -802,10 +843,10 @@ function AppUpdatePrompt({
 }
 
 export function App() {
-  const [theme, setTheme] = useState<Theme>(() => resolveTheme(
-    settingsStorage.getItem("nextbrowser.theme"),
-    window.matchMedia("(prefers-color-scheme: light)").matches,
-  ));
+  const [themePreference, setThemePreference] = useState(() => readThemePreference(settingsStorage.getItem("nextbrowser.theme")));
+  const prefersLight = useSyncExternalStore(subscribeToSystemTheme, systemPrefersLight);
+  const theme = resolveTheme(themePreference, prefersLight);
+  const appearanceSettings = useAppearance(theme);
   const [uiScale, setUiScale] = useState<number>(() => {
     const saved = Number(settingsStorage.getItem("nextbrowser.uiScale"));
     return Number.isFinite(saved) && saved >= UI_SCALE_MIN && saved <= UI_SCALE_MAX ? saved : 1;
@@ -877,6 +918,18 @@ export function App() {
   const tab = useStore((s) => s.tab);
   const setTab = useStore((s) => s.setTab);
   const activeWorkspaceId = useStore(s => s.activeWorkspaceId);
+  const currentMiniAppOwner = useMiniAppsOwner();
+  const miniAppOwner = authed || preview === 'main' ? currentMiniAppOwner : undefined;
+  useEffect(() => {
+    if (!window.nextbrowser) return;
+    void invoke('mini_apps_context', { owner: miniAppOwner, workspaceId: activeWorkspaceId }).catch(console.warn);
+    return window.nextbrowser.on('mini-apps:agent-open', payload => {
+      const target = payload as { owner: string; workspaceId: string; id: string };
+      if (miniAppOwner && target.owner === miniAppOwner && target.workspaceId === activeWorkspaceId) {
+        setTab('mini-apps', { owner: miniAppOwner, id: target.id });
+      }
+    });
+  }, [miniAppOwner, activeWorkspaceId, setTab]);
   const liveSession = useStore(s => s.liveSession);
   const openLiveSession = useStore(s => s.openLiveSession);
   const showLiveOverview = useStore(s => s.showLiveOverview);
@@ -1390,9 +1443,12 @@ export function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
-    settingsStorage.setItem("nextbrowser.theme", theme);
+    settingsStorage.setItem("nextbrowser.theme", themePreference);
     const palette = getComputedStyle(document.documentElement);
-    void invoke("app_set_theme", { theme, background: palette.getPropertyValue("--bg").trim(), foreground: palette.getPropertyValue("--text").trim() }).catch(() => undefined);
+    void invoke("app_set_theme", { theme, preference: themePreference, background: palette.getPropertyValue("--bg").trim(), foreground: palette.getPropertyValue("--text").trim() }).catch(() => undefined);
+  }, [theme, themePreference]);
+
+  useEffect(() => {
     if (!didTrackThemeChange.current) {
       didTrackThemeChange.current = true;
       return;
@@ -1546,7 +1602,7 @@ export function App() {
 
   const titlebarActions = <TitlebarActions>
     <CommunityControls />
-    <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
+    <ThemeToggle theme={theme} onToggle={() => setThemePreference(theme === "dark" ? "light" : "dark")} />
   </TitlebarActions>;
 
   if ((checking || startupError) && preview !== "login" && preview !== "main" && preview !== "onboarding") {
@@ -1577,6 +1633,10 @@ export function App() {
             onInstallUpdate={installAppUpdate}
             onOpenRelease={openLatestRelease}
             onRequestBrowserRuntimeUpdate={requestBrowserRuntimeUpdate}
+            themePreference={themePreference}
+            activeTheme={theme}
+            appearanceSettings={appearanceSettings}
+            onThemeChange={setThemePreference}
             uiScale={uiScale}
             onUiScaleChange={setUiScale}
             uiScaleFloatingHidden={uiScaleFloatingHidden}
@@ -1666,6 +1726,7 @@ export function App() {
             <ChatView headerAccessory={<>{backgroundTaskPills}{feedbackAvailable && <FeedbackButton onClick={() => setFeedbackOpen(true)} />}</>} />
           </div>
           {tab === "skills" && <SkillsView onOpenAgentSettings={() => openSettings("agent")} />}
+          {tab === "mini-apps" && <MiniAppsPage />}
           {tab === "automation" && <AutomationStudio />}
           {tab === "live" && !focusedLive && <LiveSessionsGrid key={activeWorkspaceId} sessions={liveSessions} onOpen={openLiveSession} />}
           <div className={"persistent-tab-panel" + (focusedLive ? "" : " is-hidden")}>
@@ -1699,6 +1760,10 @@ export function App() {
           onInstallUpdate={installAppUpdate}
           onOpenRelease={openLatestRelease}
           onRequestBrowserRuntimeUpdate={requestBrowserRuntimeUpdate}
+          themePreference={themePreference}
+          activeTheme={theme}
+          appearanceSettings={appearanceSettings}
+          onThemeChange={setThemePreference}
           uiScale={uiScale}
           onUiScaleChange={setUiScale}
           uiScaleFloatingHidden={uiScaleFloatingHidden}

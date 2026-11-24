@@ -1,6 +1,7 @@
 /* Shared application palette. Raw UI colors belong here; layouts consume semantic roles.
    The default is dark, with a graphite base and distinct panels/cards.
    Fixed logo/video colors preserve source branding and media rendering. */
+.settings-theme-sample[data-palette="dark"],
 :root {
   color-scheme: dark;
   --font-ui: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -8,6 +9,17 @@
   --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   --brand-ink: var(--bg);
   --brand-paper: var(--text);
+  /* Built-in chat palettes. Both modes are available to the theme previews. */
+  --blueprint-light-bg: #e6edf8; --blueprint-light-incoming: #f9fbff; --blueprint-light-outgoing: #284ab5; --blueprint-light-accent: #2d54cf;
+  --blueprint-dark-bg: #141e32; --blueprint-dark-incoming: #293954; --blueprint-dark-outgoing: #afc8ff; --blueprint-dark-accent: #8caeff;
+  --matcha-light-bg: #f3f2e5; --matcha-light-end: #dce5cb; --matcha-light-incoming: #fffdf2; --matcha-light-outgoing: #43583b; --matcha-light-accent: #526a34;
+  --matcha-dark-bg: #18211c; --matcha-dark-end: #29332b; --matcha-dark-incoming: #35453a; --matcha-dark-outgoing: #c1d397; --matcha-dark-accent: #c4d799;
+  --terracotta-light-bg: #f3e7db; --terracotta-light-incoming: #fff9f1; --terracotta-light-outgoing: #963e30; --terracotta-light-accent: #a64532;
+  --terracotta-dark-bg: #291e20; --terracotta-dark-incoming: #4b3335; --terracotta-dark-outgoing: #efa98b; --terracotta-dark-accent: #f5a280;
+  --afterglow-light-bg: #eee7fa; --afterglow-light-end: #f6dce6; --afterglow-light-incoming: #fff8ff; --afterglow-light-outgoing: #69437e; --afterglow-light-accent: #814892;
+  --afterglow-dark-bg: #211c36; --afterglow-dark-end: #382637; --afterglow-dark-incoming: #46374f; --afterglow-dark-outgoing: #d6a9ea; --afterglow-dark-accent: #dbadff;
+  --hyellow-light-accent: var(--black);
+  --hyellow-dark-accent: #bb9f54; --hyellow-dark-end: #5d5128;
   --brand-line: rgba(230, 225, 225, 0.10);
   --brand-blue: #5865f2;
   --bg: #20242b;
@@ -30,6 +42,17 @@
   --nav-active-border: #a897f0;
   --nav-active-indicator: #c6b7ff;
   --primary-action: #7156cf;
+  --chat-bg: var(--bg);
+  --chat-toolbar-text: var(--text);
+  --chat-toolbar-muted: var(--muted);
+  --chat-wallpaper: radial-gradient(circle at 72% 8%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 35%);
+  --chat-wallpaper-size: cover;
+  --chat-photo-tint: color-mix(in srgb, var(--chat-bg) 42%, transparent);
+  --chat-incoming: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+  --chat-incoming-ink: var(--text);
+  --chat-outgoing: var(--primary-action);
+  --chat-outgoing-ink: var(--on-primary-action);
+  --chat-radius: 20px;
   --primary-action-hover: #6247be;
   --on-primary-action: #ffffff;
   --info: #8cbff5;
@@ -65,9 +88,6 @@
   --shadow: rgba(0, 0, 0, 0.42);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
   --on-accent: #fff;
-  --scroll-track: var(--panel);
-  --scroll-thumb: #68778e;
-  --scroll-thumb-hover: #8e9db2;
   --onboarding-bg: linear-gradient(145deg, var(--panel), var(--bg));
   --demo-bg: linear-gradient(145deg, var(--card), var(--panel));
   --button-radius: 8px;
@@ -88,8 +108,8 @@
   --on-danger: var(--white);
   --shadow-color: #000000;
   --section-text: var(--text-secondary);
-  --glass-inverse-bg: rgba(29, 32, 40, 0.84);
-  --glass-inverse-solid: #1d2028;
+  --glass-inverse-bg: rgba(5, 8, 14, 0.84);
+  --glass-inverse-solid: #05080e;
   --glass-inverse-text: #f4f6fb;
   --glass-inverse-muted: #bec8d7;
   --glass-inverse-control: rgba(255, 255, 255, 0.08);
@@ -145,6 +165,7 @@
   --material-modal: color-mix(in srgb, var(--bg-elevated) 96%, transparent);
 }
 
+.settings-theme-sample[data-palette="light"],
 :root[data-theme="light"] {
   color-scheme: light;
   --font-ui: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -198,9 +219,6 @@
   --shadow: rgba(76, 59, 160, 0.13);
   --shadow-sm: 0 1px 2px rgba(76, 59, 160, 0.10);
   --on-accent: #fff;
-  --scroll-track: var(--panel);
-  --scroll-thumb: #b1aac8;
-  --scroll-thumb-hover: #8b81a9;
   --onboarding-bg: linear-gradient(145deg, var(--panel), var(--card));
   --demo-bg: linear-gradient(145deg, var(--panel), var(--card));
   --button-shadow: 0 5px 18px rgba(76, 59, 160, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
@@ -266,4 +284,60 @@
     --line-strong: color-mix(in srgb, var(--text) 42%, transparent);
     --muted: color-mix(in srgb, var(--text) 78%, transparent);
   }
+}
+
+/* Art palettes belong to the composer and its keyboard samples. */
+:root {
+  --composer-custom-default: #63558b;
+  --skin-stage-ink: #19191e;
+  --skin-case-shadow: #18182380;
+}
+:where(.composer, .skin-preview, .skin-options button)[data-skin] {
+  --skin-base: #292a31;
+  --skin-ink: #f1f0f3;
+  --skin-cap: #454750;
+  --skin-mod: #34363d;
+  --skin-accent: #b5b0ca;
+  --skin-accent-ink: #24222b;
+  --skin-stage: #d9d8de;
+}
+[data-skin="smeta"] {
+  --skin-base: #151617;
+  --skin-ink: #fafafa;
+  --skin-cap: #383a3c;
+  --skin-mod: #252627;
+  --skin-accent: #eeefeb;
+  --skin-accent-ink: #191a19;
+  --skin-stage: #bcbfba;
+  --sm-contour: rgba(246, 247, 244, .46);
+}
+[data-skin="blueprint"] {
+  --skin-grid-minor: #c9e5ff25;
+  --skin-grid-major: #c9e5ff2e;
+  --skin-base: #173e89;
+  --skin-ink: #f3f7ff;
+  --skin-cap: #446db9;
+  --skin-mod: #2c54a2;
+  --skin-accent: #abe3fc;
+  --skin-accent-ink: #102e67;
+  --skin-stage: #b7c9eb;
+}
+[data-skin="risograph"] {
+  --skin-print-red: #ed705a70;
+  --skin-print-blue: #52569c77;
+  --skin-print-dot: #35396042;
+  --skin-base: #f4e6c9;
+  --skin-ink: #282945;
+  --skin-cap: #f9e9c6;
+  --skin-mod: #d6bca1;
+  --skin-accent: #ec6956;
+  --skin-accent-ink: #321c23;
+  --skin-stage: #e9bb9d;
+}
+[data-skin="custom"] {
+  --skin-cap: color-mix(in srgb, var(--skin-ink) 15%, var(--skin-base));
+  --skin-mod: var(--skin-base);
+  --skin-accent: var(--skin-ink);
+  --skin-accent-ink: var(--skin-base);
+  --skin-stage: color-mix(in srgb, var(--skin-base) 30%, #e5e2de);
 }

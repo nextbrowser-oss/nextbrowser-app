@@ -71,6 +71,8 @@
     "productName": "NextBrowser",
     "asar": true,
     "asarUnpack": [
+      "electron/tab-mcp.cjs",
+      "electron/tab-mcp-launcher.cjs",
       "electron/user-mcp-launcher.cjs",
       "electron/mcp-environment.cjs",
       "electron/mcp-http-client.cjs"

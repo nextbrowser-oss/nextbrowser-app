@@ -8,6 +8,8 @@ import { reportRendererError } from "./errorReporting";
 // localStorage only caches them. A trailing "*" names a family of keys.
 export const PERSISTENT_SETTINGS: readonly string[] = [
   "nextbrowser.theme",
+  "nextbrowser.preferTabTools",
+  "nextbrowser.appearance.*",
   "nextbrowser.uiScale",
   "nextbrowser.uiScaleFloatingHidden",
   "nextbrowser.liveControlsPosition",
@@ -17,6 +19,7 @@ export const PERSISTENT_SETTINGS: readonly string[] = [
   "terminalChat",
   "sidebarWidth",
   "sidebarCollapsed",
+  "miniAppRailHidden",
   "chatListCollapsed",
   "nextbrowser.selectedProfile.*",
   "nextbrowser.multilogin.selection.*",

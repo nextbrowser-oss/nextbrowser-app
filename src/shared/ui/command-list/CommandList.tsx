@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { tooltipPosition } from "../tooltip";
 import { glassSurfaceClassName } from "../glass-surface";
@@ -7,7 +7,7 @@ import "./commandList.css";
 export function CommandList({ id, label, options, activeId, onChoose, anchor }: {
   id: string;
   label: string;
-  options: { id: string; title: string; description: string }[];
+  options: { id: string; title: ReactNode; description: string }[];
   activeId?: string;
   onChoose: (id: string) => void;
   anchor?: HTMLElement | null;

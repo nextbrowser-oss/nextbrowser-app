@@ -1,0 +1,17 @@
+.account-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--surface-4);
+  color: var(--text);
+  font: 650 11px/1 var(--font-ui);
+}
+.account-avatar--identified {
+  background: linear-gradient(140deg, hsl(var(--account-avatar-from, 0) 65% 32%), hsl(var(--account-avatar-to, 0) 66% 23%));
+  color: var(--white);
+}
+.account-avatar--large { width: 64px; font-size: 23px; }
+.account-avatar--large svg { width: 26px; height: 26px; }

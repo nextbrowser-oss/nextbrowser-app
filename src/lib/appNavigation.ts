@@ -16,6 +16,7 @@ const APP_TAB_LABELS: Record<AppTab, string> = {
   account: "Profile",
   chat: "Chat",
   automation: "Automation",
+  "mini-apps": "Mini Apps",
   skills: "Skills",
   connectors: "Connectors",
   mcp: "MCP",

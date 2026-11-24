@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createServer } from "vite";
@@ -33,7 +33,8 @@ const executablePath = [process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
 if (!executablePath) throw new Error("Set PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH to an installed Chromium browser.");
 const output = resolve("e2e-out/chat-composer");
 await mkdir(output, { recursive: true });
-const server = await createServer({ cacheDir: resolve(output, "vite-cache"), configFile: false, define: { __APP_VERSION__: JSON.stringify("composer-fixture") }, server: { host: "127.0.0.1", port: 0 }, plugins: [{
+const server = await createServer({ cacheDir: resolve(output, "vite-cache"), configFile: false, define: { __APP_VERSION__: JSON.stringify("composer-fixture") },
+  server: { host: "127.0.0.1", port: 0, fs: { allow: [resolve("."), realpathSync("node_modules/@fontsource/hanken-grotesk")] } }, plugins: [{
   name: "chat-composer-fixture",
   resolveId: id => id === "virtual:chat-composer-fixture" ? "\0chat-composer-fixture" : undefined,
   load: id => id === "\0chat-composer-fixture" ? fixture : undefined,
@@ -107,10 +108,53 @@ try {
     const colors = await composer.evaluate(element => ({ bg: getComputedStyle(element).backgroundColor, text: getComputedStyle(element).color, border: getComputedStyle(element).borderWidth, blur: getComputedStyle(element).backdropFilter }));
     assert.equal(colors.border, "0px");
     assert.equal(colors.text, theme === "light" ? "rgb(255, 255, 255)" : "rgb(244, 246, 251)");
-    assert.ok(colors.bg.includes(theme === "light" ? "25, 28, 35" : "29, 32, 40"));
+    assert.equal(colors.bg, await composer.evaluate(node => getComputedStyle(node).getPropertyValue('--glass-inverse-bg').trim()));
     assert.ok(colors.blur.includes("blur(18px)"));
     assert.ok(Number(colors.bg.match(/,\s*([\d.]+)\)$/)?.[1]) < 0.9, "glass tint stays translucent");
     assert.equal(await textarea.evaluate(element => getComputedStyle(element).borderWidth), "0px");
+    const customize = page.getByRole('button', { name: 'Customize composer appearance' });
+    const skinDialog = page.getByRole('dialog', { name: 'Composer appearance' });
+    const applySkin = skinDialog.getByRole('button', { name: 'Apply skin' });
+    await textarea.fill('Keep this draft');
+    await customize.click();
+    for (const name of ['Blueprint', 'Risograph', 'smeta']) {
+      await skinDialog.getByRole('button', { name, exact: true }).click();
+      await skinDialog.getByRole('figure', { name: name + ' keyboard preview' }).waitFor();
+    }
+    await skinDialog.screenshot({ path: resolve(output, `${theme}-keyboard-skins.png`) });
+    await page.setViewportSize({ width: 320, height: 540 });
+    const sample = await skinDialog.boundingBox();
+    assert.ok(sample.x >= 0 && sample.x + sample.width <= 320);
+    await page.setViewportSize({ width: 1100, height: 800 });
+    await applySkin.click();
+    assert.equal(await composer.getAttribute('data-skin'), 'smeta');
+    const canvas = composer.locator('canvas');
+    const frame = () => canvas.evaluate(node => node.toDataURL());
+    const still = await frame();
+    await page.waitForTimeout(170);
+    assert.equal(await frame(), still, 'reduced motion keeps the map still');
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.waitForFunction(initial => document.querySelector('.composer canvas')?.toDataURL() !== initial, still);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await composer.screenshot({ path: resolve(output, `${theme}-smeta-composer.png`) });
+    assert.equal(await textarea.inputValue(), 'Keep this draft');
+    await customize.click();
+    await skinDialog.getByRole('button', { name: 'Blueprint', exact: true }).click();
+    await page.keyboard.press('Escape');
+    assert.equal(await composer.getAttribute('data-skin'), 'smeta', 'cancel retains the applied skin');
+    await customize.click();
+    if (theme === 'light') await skinDialog.getByLabel('Custom composer color').fill('#f0e1bc');
+    else await skinDialog.getByRole('button', { name: 'Use custom color #f0e1bc' }).click();
+    await applySkin.click();
+    assert.equal(await composer.evaluate(node => getComputedStyle(node).backgroundColor), 'rgb(240, 225, 188)');
+    assert.equal(await textarea.evaluate(node => getComputedStyle(node).color), 'rgb(0, 0, 0)');
+    await page.reload();
+    await composer.waitFor();
+    assert.equal(await composer.getAttribute('data-skin'), 'custom');
+    await customize.click();
+    await skinDialog.getByRole('button', { name: 'Classic', exact: true }).click();
+    await applySkin.click();
+    await scrollToEnd();
     assert.equal(await send.isDisabled(), true);
     const button = await send.boundingBox();
     assert.equal(button.width, button.height);
@@ -314,7 +358,7 @@ try {
       const original = window.nextbrowser.invoke;
       window.nextbrowser.invoke = async (command, args) => {
         if (command === 'builtin_agent_status') return status();
-        if (command === 'builtin_agent_models') return { models: [{id: args.provider === 'openrouter' ? 'anthropic/claude-test' : 'nemotron-test'}, ...Array.from({length:24}, (_,i)=>({id:'fixture-model-'+i}))], defaultModel: 'nemotron-test' };
+        if (command === 'builtin_agent_models') return { models: [{id: args.provider === 'openrouter' ? 'anthropic/claude-test' : 'nemotron-test', free: true}, ...Array.from({length:24}, (_,i)=>({id:'fixture-model-'+i}))], defaultModel: 'nemotron-test' };
         if (command === 'builtin_agent_settings_save') { window.providerSettings = args; return status(); }
         return original(command, args);
       };
@@ -341,7 +385,8 @@ try {
     assert.equal(await providerList.count(), 0);
     await providerSelect.click();
     await providerList.getByRole('option', { name:'OpenRouter', exact:true }).click();
-    await providerMenu.getByRole('button', { name: 'anthropic/claude-test', exact: true }).waitFor();
+    const freeModel = providerMenu.getByRole('combobox', { name: 'Free OpenRouter model' });
+    await freeModel.waitFor();
     assert.ok(await providerMenu.evaluate(node=>getComputedStyle(node).backdropFilter.includes('blur(18px)')));
     assert.equal(await providerMenu.evaluate(node=>getComputedStyle(node).borderWidth), '0px');
     assert.equal(await providerMenu.evaluate(node=>getComputedStyle(node).scrollbarWidth), 'none');
@@ -354,10 +399,12 @@ try {
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth), false);
     }
     await page.setViewportSize({width:1100,height:800});
-    await providerMenu.getByLabel('Search provider models').pressSequentially('claude');
-    assert.equal(await providerMenu.getByLabel('Search provider models').inputValue(), 'claude');
-    assert.equal(await providerMenu.getByLabel('Search provider models').evaluate(node=>node===document.activeElement), true);
-    await providerMenu.getByRole('button', {name:'anthropic/claude-test',exact:true}).click();
+    await freeModel.click();
+    const search = providerMenu.getByRole('combobox', { name: /Search free models/ });
+    await search.pressSequentially('claude');
+    assert.equal(await search.inputValue(), 'claude');
+    assert.equal(await search.evaluate(node=>node===document.activeElement), true);
+    await providerMenu.getByRole('option', {name:'anthropic/claude-test',exact:true}).click();
     await providerMenu.getByRole('button', {name:'Use model',exact:true}).click();
     await page.waitForFunction(()=>window.fixtureStore.getState().agentId==='nextbrowser');
     assert.equal(await textarea.inputValue(), 'Keep this draft while switching providers');

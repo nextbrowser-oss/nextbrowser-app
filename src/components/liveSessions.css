@@ -1,4 +1,16 @@
 .live-sessions-popover { width: 260px; }
+.profile-list-tools { display: grid; gap: 3px; min-width: 0; max-width: 100%; }
+.profile-list-tools .profile-name-sort {
+  justify-self: start;
+  height: 20px;
+  gap: 3px;
+  padding-inline: 4px;
+  font-size: 10px;
+  line-height: 1;
+}
+.profile-name-sort[data-direction="desc"] svg { transform: rotate(180deg); }
+.live-sessions-popover .profile-name-sort { color: var(--glass-inverse-muted); }
+.live-sessions-popover .profile-name-sort:hover { color: var(--glass-inverse-text); background: var(--glass-inverse-control-hover); }
 .live-session-tools, .live-session-search { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .live-session-search { flex: 1; padding: 6px 8px; border-radius: 9px; background: var(--glass-inverse-control); }
 .live-session-search svg { flex: none; }
@@ -16,8 +28,10 @@
 .live-create-profile { margin-top: 4px; }
 .live-session-empty { margin: 12px 8px 6px; color: var(--muted); }
 .live-sessions-overview { min-height: 0; overflow: auto; flex: 1; padding: 22px clamp(12px, 3vw, 36px); }
-.live-sessions-header { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; }
+.live-sessions-header { display: grid; gap: 10px; margin-bottom: 14px; }
 .live-sessions-header h1 { margin: 0; font-size: 22px; }
+.live-sessions-header .live-session-search { max-width: 320px; }
+.live-sessions-header .live-session-tools > .shared-icon-button { margin-inline-start: auto; }
 .live-sessions-header .live-session-search, .live-session-picker .live-session-search { background: var(--panel); }
 .live-session-picker .live-session-row:hover { background: var(--accent-soft); }
 .live-session-picker .live-session-row small { color: var(--muted); }
@@ -56,3 +70,13 @@
 .account-profile-summary { display: flex; align-items: center; gap: 16px; padding: 18px; background: var(--panel); border-radius: 16px; margin-bottom: 20px; }
 .account-profile-summary > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .account-profile-summary p { margin: 4px 0 0; }
+.account-profile-summary h2 { margin: 0; font-size: 20px; line-height: 1.25; }
+.account-profile-page > * { width: 100%; max-width: 1024px; margin-inline: auto; box-sizing: border-box; }
+.account-profile-page > header { display: flex; align-items: center; justify-content: space-between; }
+.account-profile-page > header h1 { font-size: 26px; }
+.account-profile-page > .proxy-usage-page { height: auto; padding: 0; overflow: visible; }
+.account-profile-page .proxy-usage-header h2 { font-size: 20px; }
+@media (max-width: 480px) {
+  .account-profile-summary { flex-wrap: wrap; gap: 12px; }
+  .account-profile-summary > div { min-width: 120px; }
+}

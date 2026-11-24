@@ -1,6 +1,13 @@
 const { readCLIVersion } = require("./cli-version.cjs");
 const { windowChromeOptions, applyWindowChrome, applyWindowZoom, windowState, controlWindow, watchWindowState } = require("./window-chrome.cjs");
 const chromeWindows = new WeakSet();
+const miniAppMcp = require('./mini-apps/mcp.cjs');
+let miniAppsHost;
+function miniApps() {
+  return miniAppsHost ??= require('./mini-apps/host.cjs').createHost({
+    root: path.join(dataDir(), 'mini-apps-v1'), session, dialog, WebContentsView, libraryChanged: () => emit('mini-apps:changed'),
+  });
+}
 const { createStartPageServer } = require('./start-page-server.cjs');
 const startPageTransports = require('./start-page-transport.cjs').createStartPageTransports();
 let startPageServer;
@@ -54,7 +61,7 @@ function codexUserMcp(servers) {
 const { addChatWorkspaceProfile } = require("./chat-profile-scope.cjs");
 const { requireVerificationCapableCLI, verificationFailureDialogOptions, verificationFailureDialogChoice } = require("./verification-policy.cjs");
 const { agentLoginStatus } = require("./agent-login-status.cjs");
-const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage, screen, session, net } = require("electron");
+const { app, BrowserWindow, WebContentsView, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage, screen, session, net } = require("electron");
 const { buildSupportDiagnostics } = require('./support-diagnostics.cjs');
 if (process.platform === "win32") {
   // A native Live window sits beneath the shaped Electron host. The Windows
@@ -291,7 +298,6 @@ let camoufoxInstallPromise = null;
 let dasbrowserInstallPromise = null;
 const browserRuntimeInstallAbortControllers = new Map();
 let agentControlServer = null;
-let agentControlURL = "";
 const agentControlScopes = new Map();
 const agentControlArtifactScopes = new Map();
 const agentControlProfileOwners = new Map();
@@ -567,10 +573,10 @@ async function runBuiltinAgent({ replyId, prompt, plain, run, mcpEnv, defaultPro
       const requestedTraceFile = activeAutomationTraceFile();
       const traceFile = requestedTraceFile && await nextctlHasAutomationTrace(binary) ? requestedTraceFile : "";
       await refreshSystemProxyEnv();
+      const launch = browserAgentMcp(binary, traceFile);
       mcp = {
-        binary,
-        args: ["--verify-on-start-only", "mcp", ...(traceFile ? ["--automation-trace-file", traceFile] : [])],
-        env: childEnv({ ...mcpEnv, ...(traceFile ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: traceFile } : {}) }),
+        ...launch,
+        env: childEnv({ ...mcpEnv, ...launch.env, ...(traceFile ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: traceFile } : {}) }),
         onRunnerExit: reportRunnerExit,
       };
     }
@@ -582,7 +588,11 @@ async function runBuiltinAgent({ replyId, prompt, plain, run, mcpEnv, defaultPro
       prompt,
       plain,
       mcp,
-      userMcpServers: !plain && mcpEnv?.NEXTBROWSER_WORKSPACE_ID ? await userMcp().enabled(mcpEnv.NEXTBROWSER_WORKSPACE_ID) : [],
+      userMcpServers: !plain && mcpEnv?.NEXTBROWSER_WORKSPACE_ID ? [
+        ...(agentControlArtifactScopes.get(mcpEnv.NEXTBROWSER_CONTROL_TOKEN)?.miniApps
+          ? [miniAppMcp.builtinServer(mcpEnv.NEXTBROWSER_CONTROL_URL, mcpEnv.NEXTBROWSER_CONTROL_TOKEN)] : []),
+        ...await userMcp().enabled(mcpEnv.NEXTBROWSER_WORKSPACE_ID),
+      ] : [],
       userMcpDeps: userMcpDependencies(),
       defaultProfile,
       fetchImpl: (...request) => systemProxy.fetch(...request),
@@ -651,12 +661,22 @@ enabled = false
 default_tools_approval_mode = "approve"
 `;
 
+function browserAgentMcp(binary, automationTraceFile = "") {
+  const args = ["--verify-on-start-only", "mcp", ...(automationTraceFile ? ["--automation-trace-file", automationTraceFile] : [])];
+  if (appSettings().snapshot().values["nextbrowser.preferTabTools"] !== "1") return { binary, args, env: {} };
+  const directory = app.isPackaged ? path.join(process.resourcesPath, "app.asar.unpacked", "electron") : __dirname;
+  return { binary: process.execPath, args: [path.join(directory, "tab-mcp-launcher.cjs"), binary, ...args], env: { ELECTRON_RUN_AS_NODE: "1" } };
+}
+
 function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "", workspaceId = "") {
+  const launch = browserAgentMcp(nextctlBin, automationTraceFile);
   const runtimeEnv = childEnv({
+    ...launch.env,
     ...(automationTraceFile ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: automationTraceFile } : {}),
     NEXTBROWSER_WORKSPACE_ID: workspaceId,
   });
   const mcpEnvKeys = [
+    ...Object.keys(launch.env),
     "NEXTBROWSER_REQUIRE_VERIFY",
     "NEXTBROWSER_VERIFY_ON_START_ONLY",
     "NEXTBROWSER_PROXY_SAFETY_FILE",
@@ -693,8 +713,8 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "", workspace
     "-c", 'plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser.enabled=false',
     "-c", 'plugins."clawbrowser@nbc-local".enabled=false',
     "-c", 'plugins."clawbrowser@nbc-local".mcp_servers.clawbrowser.enabled=false',
-    "-c", `mcp_servers.nextbrowser.command=${JSON.stringify(nextctlBin)}`,
-    "-c", `mcp_servers.nextbrowser.args=${JSON.stringify(["--verify-on-start-only", "mcp", ...(automationTraceFile ? ["--automation-trace-file", automationTraceFile] : [])])}`,
+    "-c", `mcp_servers.nextbrowser.command=${JSON.stringify(launch.binary)}`,
+    "-c", `mcp_servers.nextbrowser.args=${JSON.stringify(launch.args)}`,
     "-c", `mcp_servers.nextbrowser.env=${mcpEnv}`,
     // Codex starts the MCP server itself. Forward the Recorder's ephemeral
     // trace path from the agent process; putting it only in the parent env is
@@ -1178,7 +1198,10 @@ async function sendHostProfileFailure(response, { action, profile, runtime, star
 }
 
 async function ensureAgentControlServer() {
-  if (agentControlServer) return agentControlURL;
+  if (agentControlServer) {
+    if (!agentControlServer.listening) await require('node:events').once(agentControlServer, 'listening');
+    return `http://127.0.0.1:${agentControlServer.address().port}`;
+  }
   agentControlServer = http.createServer((request, response) => reportingContext.run({ action: agentControlAction(request) }, () => {
     const controlAction = reportingContext.getStore().action;
     // Set once the request names a profile, so a host error thrown while
@@ -1186,6 +1209,12 @@ async function ensureAgentControlServer() {
     let hostProfile;
     void (async () => {
       const action = request.url === "/profile/start" ? "start" : request.url === "/profile/stop" ? "stop" : "";
+      if (request.url === miniAppMcp.endpoint) {
+        const token = /^Bearer (.+)$/i.exec(request.headers.authorization || '')?.[1];
+        const scope = agentControlArtifactScopes.get(token)?.miniApps;
+        return miniAppMcp.serve(request, response, scope && ((name, args) => miniApps().agentTool(scope, name, args,
+          () => agentControlArtifactScopes.get(token)?.miniApps === scope)));
+      }
       const artifactSave = request.url === "/artifact/save";
       const projectCreate = request.url === "/project/create";
       const projectList = request.url === "/project/list";
@@ -1351,13 +1380,15 @@ async function ensureAgentControlServer() {
       }
     });
   }));
-  await new Promise((resolve, reject) => {
-    agentControlServer.once("error", reject);
-    agentControlServer.listen(0, "127.0.0.1", resolve);
-  });
-  const address = agentControlServer.address();
-  agentControlURL = `http://127.0.0.1:${address.port}`;
-  return agentControlURL;
+  try {
+    const ready = require('node:events').once(agentControlServer, 'listening');
+    agentControlServer.listen(0, "127.0.0.1");
+    await ready;
+    return `http://127.0.0.1:${agentControlServer.address().port}`;
+  } catch (error) {
+    agentControlServer = null;
+    throw error;
+  }
 }
 async function ensureClawbrowserRuntime(nextctlBin, options = {}) {
   const runtimeOptions = {
@@ -2807,7 +2838,7 @@ async function invokeCommand(command, args = {}, sender) {
     }
     case "app_set_theme": {
       const theme = args.theme === "light" ? "light" : "dark";
-      nativeTheme.themeSource = theme;
+      nativeTheme.themeSource = args.preference === "system" ? "system" : theme;
       for (const window of BrowserWindow.getAllWindows()) {
         if (!applyWindowChrome(window, { background: args.background, foreground: args.foreground, factor: window.webContents.getZoomFactor() }, process.platform, chromeWindows.has(window))) {
           window.setBackgroundColor(theme === "light" ? "#f5f5f7" : "#15141c");
@@ -3251,7 +3282,8 @@ async function invokeCommand(command, args = {}, sender) {
       }
       agentControlScopes.set(controlToken, profileScope);
       const artifactScope = args.workspaceId
-        ? { workspaceId: String(args.workspaceId), conversationId, agentId: String(args.agentId || "codex") }
+        ? { workspaceId: String(args.workspaceId), conversationId, agentId: String(args.agentId || "codex"),
+          miniApps: !args.plain && (builtin || args.agentId === 'codex') ? miniApps().agentScope(sender, args.workspaceId) : undefined }
         : null;
       if (artifactScope) agentControlArtifactScopes.set(controlToken, artifactScope);
       const profileScopeDir = path.join(nextbrowserRuntimeRoot(), "chat-scopes");
@@ -3280,6 +3312,7 @@ async function invokeCommand(command, args = {}, sender) {
           ? requestedTraceFile
           : "";
         const browserMcpArgs = codexClawbrowserMCPArgs(nextctlBin, supportedTraceFile, String(args.workspaceId || ''));
+        if (artifactScope?.miniApps) browserMcpArgs.push(...miniAppMcp.codexArgs(controlURL));
         agentArgs = [...browserMcpArgs, ...agentArgs];
         if (args.workspaceId) {
           const custom = codexUserMcp(await userMcp().enabled(args.workspaceId));
@@ -3462,6 +3495,7 @@ async function invokeCommand(command, args = {}, sender) {
         workspaceId: String(args.workspaceId),
         conversationId: String(args.conversationId || ""),
         agentId: resolvedAgentId,
+        miniApps: resolvedAgentId === 'codex' ? miniApps().agentScope(sender, args.workspaceId) : undefined,
       });
       const profileScopeDir = path.join(nextbrowserRuntimeRoot(), "terminal-scopes");
       const profileScopeFile = path.join(profileScopeDir, `${id}.json`);
@@ -3485,6 +3519,7 @@ async function invokeCommand(command, args = {}, sender) {
           ? requestedTraceFile
           : "";
         agentArgs = codexClawbrowserArgs(nextctlBin, supportedTraceFile, String(args.workspaceId || ""));
+        if (agentControlArtifactScopes.get(controlToken)?.miniApps) agentArgs.push(...miniAppMcp.codexArgs(controlURL));
       }
       await Promise.all(writableDirs.map((dir) => fs.mkdir(dir, { recursive: true })));
       const terminalArgs = [
@@ -3592,6 +3627,8 @@ async function invokeCommand(command, args = {}, sender) {
         workspaceId: String(args.workspaceId),
         conversationId,
         agentId: String(args.agentId || record.agentId || "codex"),
+        miniApps: agentControlArtifactScopes.get(record.controlToken)?.miniApps?.workspaceId === args.workspaceId
+          ? agentControlArtifactScopes.get(record.controlToken).miniApps : undefined,
       });
       else agentControlArtifactScopes.delete(record.controlToken);
       await fs.writeFile(record.profileScopeFile, JSON.stringify(mcpProfileScope(nextScope, args.multiloginSelection)), "utf8");
@@ -3731,6 +3768,7 @@ function createWindow() {
       additionalArguments: process.platform === "darwin" ? [] : ["--nextbrowser-custom-caption"] },
   });
   chromeWindows.add(window);
+  miniApps().guardWindow(window);
   if (process.platform === "win32") {
     const syncLiveWindow = () => liveWindows.syncBounds(window);
     window.on("move", syncLiveWindow);
@@ -3971,6 +4009,13 @@ if (!gotLock) {
       app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
     }
     ipcMain.handle("nextbrowser:invoke", (event, command, args) => {
+      if (miniApps().isGuest(event.sender)) throw Error("Desktop commands are unavailable.");
+      if ((command === 'agent_run' || command === 'terminal_start') && event.senderFrame !== event.sender.mainFrame) throw Error('Agent sessions require the desktop window.');
+      if (typeof command === "string" && command.startsWith("mini_apps_")) {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (!chromeWindows.has(window) || event.senderFrame !== event.sender.mainFrame || window.webContents !== event.sender) throw Error("Mini apps require the desktop window.");
+        return miniApps().command(command, args ?? {}, window);
+      }
       if (command === "product_journey") {
         if (event.senderFrame !== event.sender.mainFrame || event.sender.getType() !== "window") return;
         return invokeCommand(command, { event: args?.event }, event.sender);

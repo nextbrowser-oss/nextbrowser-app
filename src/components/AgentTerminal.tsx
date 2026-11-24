@@ -42,7 +42,13 @@ interface AgentTerminalProps {
 function activeTerminalTheme() {
   // Xterm needs resolved colors, so read the same CSS palette as the renderer.
   const palette = getComputedStyle(document.documentElement);
-  return terminalThemeFromPalette((property) => palette.getPropertyValue(property));
+  const accent = palette.getPropertyValue("--accent").trim();
+  return {
+    ...terminalThemeFromPalette((property) => palette.getPropertyValue(property)),
+    scrollbarSliderBackground: accent,
+    scrollbarSliderHoverBackground: accent,
+    scrollbarSliderActiveBackground: accent,
+  };
 }
 
 function handoffFingerprint(value: string): string {
@@ -264,12 +270,13 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
     const observer = new ResizeObserver(resize);
     observer.observe(host);
     const themeObserver = new MutationObserver(() => {
-      terminal.options.theme = activeTerminalTheme();
-      host.style.setProperty("--terminal-background", activeTerminalTheme().background);
+      const theme = activeTerminalTheme();
+      terminal.options.theme = theme;
+      host.style.setProperty("--terminal-background", theme.background);
     });
     themeObserver.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ["data-theme"],
+      attributeFilter: ["data-theme", "style"],
     });
     const writeInput = (id: string, data: string) => {
       inputWriteQueueRef.current = inputWriteQueueRef.current

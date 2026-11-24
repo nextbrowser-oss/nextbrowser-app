@@ -1,0 +1,27 @@
+:root { color-scheme: light dark; font: 14px/1.45 system-ui, sans-serif; --ink: #232b3a; --paper: #fbfaf7; --lane: #f0efeb; --card: #fff; --line: #d5d4ce; --accent: #3b50bb; }
+@media (prefers-color-scheme: dark) { :root { --ink: #eef1f8; --paper: #20242b; --lane: #292f38; --card: #343e4c; --line: #4b586a; --accent: #b9bdff; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); }
+main { padding: clamp(14px, 2.4vw, 32px); }
+header, footer, .lane-heading, .actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+h1, h2, p { margin: 0; }
+h1 { font-size: 24px; letter-spacing: -.04em; }
+h2 { font-size: 15px; }
+#counts, .empty, .lane-heading span { opacity: .74; }
+#notice:not(:empty) { margin: 12px 0; }
+#columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 20px; }
+.lane { padding: 12px; border-radius: 12px; background: var(--lane); min-height: 180px; }
+.lane-heading { justify-content: flex-start; margin-bottom: 12px; border-top: 3px solid #848cae; padding-top: 9px; }
+.lane:nth-child(2) .lane-heading { border-color: #cc9440; } .lane:nth-child(3) .lane-heading { border-color: #579f85; }
+.card { overflow-wrap: anywhere; padding: 10px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+.card p { margin: 6px 0; white-space: pre-wrap; }
+.actions { flex-wrap: wrap; justify-content: flex-start; margin-top: 8px; }
+button, input, select, textarea { font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; }
+button { cursor: pointer; } button:hover { border-color: var(--accent); }
+button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:disabled { opacity: .55; cursor: default; }
+.actions button { font-size: 12px; }
+dialog { width: min(92vw, 380px); background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+dialog::backdrop { background: #0007; }
+form, label { display: grid; gap: 6px; } form { gap: 12px; } footer { justify-content: flex-end; }
+@media (max-width: 600px) { #columns { grid-template-columns: 1fr; } .lane { min-height: 64px; } }

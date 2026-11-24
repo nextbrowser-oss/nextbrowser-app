@@ -23,8 +23,8 @@ describe("shared hints in product components", () => {
     const agent = screen.getByRole("tab", { name: "Agent, not connected" });
     expect(showHint(agent).textContent).toBe("Agent: not connected");
     fireEvent.keyDown(screen.getByRole("tab", { name: "General" }), { key: "ArrowDown" });
-    expect(select).toHaveBeenCalledWith("updates");
-    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Updates" }));
+    expect(select).toHaveBeenCalledWith("themes");
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Themes" }));
   });
 
   it("uses shared hints for Markdown titles, including generated image attributes", () => {
