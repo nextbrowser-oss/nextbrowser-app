@@ -102,15 +102,15 @@ try {
   await checkWindowLayout();
   const pin = () => page.getByRole('switch', { name: 'Show in rail' });
   const shortcut = name => page.getByRole('button', { name: 'Open pinned app ' + name, exact: true });
-  const divider = page.locator('#app-sidebar .mini-app-rail-divider');
+  const divider = () => page.locator('#app-sidebar .mini-app-rail-divider');
   assert.equal(await pin().isChecked(), false);
   assert.equal(await shortcut('Kanban').count(), 0);
-  assert.equal(await divider.count(), 0);
+  assert.equal(await divider().count(), 0);
   await pin().check();
   await backToCatalog();
   await shortcut('Kanban').waitFor();
   const profilesBox = await page.getByRole('button', { name: 'Open Profiles', exact: true }).boundingBox();
-  const dividerBox = await divider.boundingBox();
+  const dividerBox = await divider().boundingBox();
   const kanbanBox = await shortcut('Kanban').boundingBox();
   assert.ok(profilesBox.y + profilesBox.height <= dividerBox.y && dividerBox.y + dividerBox.height <= kanbanBox.y);
   await page.getByRole('button', { name: 'Open', exact: true }).click();
@@ -148,7 +148,7 @@ try {
   await pin().check();
   await backToCatalog();
   await shortcut('Work board').waitFor();
-  assert.equal(await divider.count(), 1);
+  assert.equal(await divider().count(), 1);
   await shortcut('Work board').click();
   await waitForBoard();
   await checkWindowLayout();
@@ -184,7 +184,7 @@ try {
   await catalogCard('Kanban').getByRole('button', { name: 'Install', exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'Kanban', exact: true }).count(), 0);
   await shortcut('Kanban').waitFor({ state: 'detached' });
-  assert.equal(await divider.count(), 0);
+  assert.equal(await divider().count(), 0);
   await checkMusicWidget(app, page, path.join(profile,'music.nbmini.json'));
   console.log('Passed catalog and file installs, card creation and move, isolated guest state, switching, restart and uninstall.');
 } catch (error) {
