@@ -117,9 +117,19 @@ export async function checkMusicWidget(app,page,downloadPath) {
   assert.equal(await evaluate("getComputedStyle(document.querySelector('#services')).appearance"),'base-select');
   assert.equal(await evaluate("document.querySelectorAll('#services option svg use').length"),8);
   async function clickGuest(selector, withDrift = false) {
-    const frame = await widget.boundingBox();
-    const [x,y] = await evaluate(`(() => {const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return [r.x+r.width/2,r.y+r.height/2]})()`);
-    const startX=frame.x+x, startY=frame.y+y;
+    // Opening/closing a picker resizes the guest and the host reanchors it one
+    // frame later. Target the visible field after both layouts have settled.
+    let last, startX, startY;
+    await waitFor(async () => {
+      const frame = await widget.boundingBox();
+      const [x,y,fitted] = await evaluate(`(() => {const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+        const height = Math.ceil(document.querySelector('main').getBoundingClientRect().height);
+        return [r.x+r.width/2,r.y+r.height/2,Math.abs(innerHeight-height)<=1 && r.height>0]})()`);
+      startX=frame.x+x; startY=frame.y+y;
+      const stable = fitted && last?.x === startX && last?.y === startY;
+      last={x:startX,y:startY};
+      return stable;
+    });
     await page.mouse.move(startX,startY);
     await page.mouse.down();
     if (withDrift) {
