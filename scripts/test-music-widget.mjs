@@ -116,13 +116,24 @@ export async function checkMusicWidget(app,page,downloadPath) {
   await waitFor(() => evaluate("!document.querySelector('#form').hidden && document.querySelector('#form .primary').getBoundingClientRect().bottom <= innerHeight"));
   assert.equal(await evaluate("getComputedStyle(document.querySelector('#services')).appearance"),'base-select');
   assert.equal(await evaluate("document.querySelectorAll('#services option svg use').length"),8);
-  async function clickGuest(selector) {
+  async function clickGuest(selector, withDrift = false) {
     const frame = await widget.boundingBox();
     const [x,y] = await evaluate(`(() => {const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return [r.x+r.width/2,r.y+r.height/2]})()`);
-    await page.mouse.click(frame.x+x,frame.y+y);
+    const startX=frame.x+x, startY=frame.y+y;
+    await page.mouse.move(startX,startY);
+    await page.mouse.down();
+    if (withDrift) {
+      await new Promise(resolve => setTimeout(resolve,220));
+      await page.mouse.move(startX+3,startY+3);
+    }
+    await page.mouse.up();
   }
-  await clickGuest('#services');
-  await waitFor(() => evaluate("document.querySelector('#services').matches(':open')"));
+  const initialService = await evaluate("document.querySelector('#services').value");
+  await clickGuest('#services',true);
+  // Leave it open across the player's 2.5-second refresh.
+  await new Promise(resolve => setTimeout(resolve,3000));
+  assert.ok(await evaluate("document.querySelector('#services').matches(':open')"),'Service picker dismissed after a single click');
+  assert.equal(await evaluate("document.querySelector('#services').value"),initialService);
   const pickerGeometry = () => evaluate(`(() => {const s=document.querySelector('#services'),last=s.options[s.options.length-1],style=getComputedStyle(s,'::picker(select)');
     return {height:innerHeight, box:last.getBoundingClientRect().toJSON(), top:s.getBoundingClientRect().bottom, main:document.querySelector('main').offsetHeight, display:style.display, columns:style.gridTemplateColumns};})()`);
   try { await waitFor(async () => {const g=await pickerGeometry(); return g.box.height > 0 && g.box.bottom <= g.height + 1;}); }
@@ -130,6 +141,16 @@ export async function checkMusicWidget(app,page,downloadPath) {
   await clickGuest('#services option[value="apple"]');
   await waitFor(() => evaluate("!document.querySelector('#services').matches(':open')"));
   assert.equal(await evaluate("document.querySelector('#services selectedcontent use').getAttribute('href')"),'#icon-apple');
+  await clickGuest('#services',true);
+  await waitFor(() => evaluate("document.querySelector('#services').matches(':open')"));
+  const guestId = await widget.evaluate(view => view.getWebContentsId());
+  await app.evaluate(({webContents}, id) => {
+    const contents = webContents.fromId(id);
+    contents.sendInputEvent({type:'keyDown',keyCode:'Escape'});
+    contents.sendInputEvent({type:'keyUp',keyCode:'Escape'});
+  }, guestId);
+  await waitFor(() => evaluate("!document.querySelector('#services').matches(':open')"));
+  assert.equal(await evaluate("document.querySelector('#services').value"),'apple');
   await evaluate("document.querySelector('#label').value='Studio';document.querySelector('#services').value='spotify';document.querySelector('#form').requestSubmit()");
   assert.equal(await evaluate('('+noOverflow.toString()+')()'),true);
   const stringInput = await app.evaluate(() => Number(process.versions.chrome.split('.')[0]) < 155);
@@ -168,6 +189,13 @@ export async function checkMusicWidget(app,page,downloadPath) {
   const cookieCount = key => app.evaluate(async ({session},key) => (await session.fromPartition(key).cookies.get({name:'qa_session'})).length,key);
   assert.equal(await cookieCount(key),1);
   assert.equal(await cookieCount(profileKey(second.value.id)),0);
+  await page.bringToFront();
+  await clickGuest('#choose');
+  await waitFor(() => evaluate("!document.querySelector('#library').hidden && document.querySelector('#accounts').options.length === 2 && document.querySelector('#manage').getBoundingClientRect().bottom <= innerHeight"));
+  await clickGuest('#accounts',true);
+  await waitFor(() => evaluate("document.querySelector('#accounts').matches(':open')"));
+  await clickGuest('#accounts option[value="' + id + '"]');
+  await waitFor(() => evaluate("!document.querySelector('#player').hidden && document.querySelector('#choose').textContent.trim() === 'Studio'"));
   await tool('select_account',{id});
   assert.equal((await tool('list_accounts')).value.selected,id);
   assert.equal((await tool('forget_account',{id,confirm:false})).ok,false);

@@ -2,7 +2,7 @@
   "apiVersion": 2,
   "id": "music-player",
   "name": "Music Player",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Control music from your chat panel. Add a named account, then sign in and start a track in its service window.",
   "icon": "music",
   "permissions": [

@@ -154,6 +154,23 @@ for (const [name,[,description]] of Object.entries(actions)) {
 const report = e => { el('error').textContent = e.message; };
 function act(name,input) { el('error').textContent=''; return run(name,input).catch(report); }
 
+// The anchored guest grows upwards when a picker opens. Opening on press would
+// put an option under the pointer before release and commit it in the same click.
+for (const field of [el('services'),el('accounts')]) {
+  let deferred = false;
+  field.addEventListener('pointerdown', event => {
+    deferred = event.isPrimary && event.button === 0 && !field.matches(':open') && !event.target.closest('option');
+    if (deferred) { event.preventDefault(); field.focus({preventScroll:true}); }
+  });
+  field.addEventListener('pointercancel', () => { deferred = false; });
+  field.addEventListener('click', event => {
+    if (!deferred || !event.detail) return;
+    deferred = false;
+    event.preventDefault();
+    if (!field.matches(':open')) field.showPicker();
+  });
+}
+
 function show(id) {
   for(const screen of ['player','library','form','confirmation']) el(screen).hidden = screen !== id;
   el('error').textContent='';

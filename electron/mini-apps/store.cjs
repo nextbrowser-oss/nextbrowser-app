@@ -9,6 +9,7 @@ const surfaces = ['chat.panel', 'settings.design'];
 const shippedMusicHashes = new Map([
   ['1.0.0', '17330b5da0632edd84375c731819dc384bc43825fdcc5d8c7b72b5e3c6fa6209'],
   ['1.1.0', '5ba0c7eee033cfa264523868bea710ef2aa0fc0e87d4578c5720543c1ca6f256'],
+  ['1.2.0', 'b4020af5eb0705aec51f513eb336edb08a81bb55ff8f4c2308f89c71917a3c3d'],
 ]);
 function validateWidgets(pkg) {
   if (pkg.skill !== undefined && (typeof pkg.skill !== 'string' || !pkg.skill.trim() || pkg.skill.length > 2400)) throw Error('Invalid mini app skill.');
