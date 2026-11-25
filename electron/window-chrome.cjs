@@ -1,6 +1,7 @@
 const TITLEBAR_HEIGHT = 40;
 const SIZE_SETTING = "nextbrowser.windowSize";
 const MIN_WINDOW_SIZE = { width: 960, height: 640 };
+const restoredSizes = new WeakMap();
 
 function interfaceZoomShortcut(input, platform) {
   if (input.type !== "keyDown" || input.alt || input.isComposing) return;
@@ -27,7 +28,12 @@ function restoredWindowSize(settings, workArea) {
 
 function saveWindowSize(window, settings) {
   if (!window || window.isDestroyed() || !window.isVisible() || window.isMinimized() || window.isFullScreen()) return;
-  const { width, height } = window.getNormalBounds();
+  const bounds = window.getNormalBounds();
+  const initial = restoredSizes.get(window);
+  // A different display origin can round an unchanged edge by a logical pixel.
+  // Persist the requested dimension until the user actually resizes that edge.
+  const width = bounds.width === initial?.actualWidth ? initial.width : bounds.width;
+  const height = bounds.height === initial?.actualHeight ? initial.height : bounds.height;
   const value = JSON.stringify({ width, height, maximized: window.isMaximized() });
   if (settings.snapshot().values[SIZE_SETTING] !== value) {
     void settings.update({ values: { [SIZE_SETTING]: value } }).catch(error => console.warn("[window size]", error));
@@ -37,17 +43,22 @@ function saveWindowSize(window, settings) {
 // At fractional Windows display scales, the native frame can round outward
 // both when it is created and when its size is read back in logical pixels.
 function fitWindowSize(window, size) {
-  let [width, height] = window.getSize();
-  if (width === size.width && height === size.height) return;
-  window.setSize(size.width, size.height);
-  [width, height] = window.getSize();
-  if (width !== size.width || height !== size.height) {
-    window.setSize(Math.max(MIN_WINDOW_SIZE.width, size.width * 2 - width),
-      Math.max(MIN_WINDOW_SIZE.height, size.height * 2 - height));
+  let requestWidth = size.width;
+  let requestHeight = size.height;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const [width, height] = window.getSize();
+    if (width === size.width && height === size.height) break;
+    if (attempt > 0) {
+      requestWidth = Math.max(MIN_WINDOW_SIZE.width, requestWidth + size.width - width);
+      requestHeight = Math.max(MIN_WINDOW_SIZE.height, requestHeight + size.height - height);
+    }
+    window.setSize(requestWidth, requestHeight);
   }
 }
 
-function rememberWindowSize(window, settings) {
+function rememberWindowSize(window, settings, size) {
+  const [actualWidth, actualHeight] = window.getSize();
+  restoredSizes.set(window, { width: size.width, height: size.height, actualWidth, actualHeight });
   let timer;
   const save = () => saveWindowSize(window, settings);
   const schedule = () => { clearTimeout(timer); timer = setTimeout(save, 200); };

@@ -3905,7 +3905,7 @@ function createWindow() {
   });
   chromeWindows.add(window);
   if (process.platform === "win32") fitWindowSize(window, size);
-  rememberWindowSize(window, appSettings());
+  rememberWindowSize(window, appSettings(), size);
   accountActivity.bind(window);
   miniApps().guardWindow(window);
   if (process.platform === "win32") {

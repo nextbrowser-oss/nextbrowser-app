@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -19,7 +19,7 @@ async function launch() {
   app = await _electron.launch({ executablePath: createRequire(import.meta.url)("electron"),
     args: [root, "--user-data-dir=" + path.join(profile, "app")], env });
   const page = await app.firstWindow();
-  await page.waitForFunction(() => document.documentElement.style.getPropertyValue("--window-zoom"));
+  await page.waitForFunction(() => document.documentElement.style.getPropertyValue("--window-zoom"), undefined, { timeout: 15000 });
   return page;
 }
 
@@ -58,7 +58,8 @@ try {
   app = undefined;
   page = await launch();
   await expectScale(page, 110);
-  assert.deepEqual(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize()), size);
+  const restored = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize());
+  assert.ok(restored.every((value, index) => Math.abs(value - size[index]) <= 1), `Restored ${restored} from ${size}`);
   await press("0");
   await expectScale(page, 100);
   await press("numsub");
@@ -68,7 +69,7 @@ try {
   const url = new URL(page.url());
   url.searchParams.set("preview", "main");
   await page.goto(url.href);
-  await page.locator(".sidebar-mini").getByRole("button", { name: /^Settings(, update available)?$/ }).click();
+  await page.getByRole("button", { name: /^Settings(, update available)?$/ }).click({ timeout: 6000 });
   const settings = page.getByRole("dialog", { name: "Settings", exact: true });
   await settings.getByRole("tab", { name: "General" }).click();
   await settings.getByRole("button", { name: "Increase interface size" }).click();
@@ -76,6 +77,11 @@ try {
   await press("-");
   await expectScale(page, 100);
   assert.equal(await settings.locator(".ui-scale-value").innerText(), "100%");
+  await app.close();
+  app = undefined;
+  const prefs = JSON.parse(await readFile(path.join(profile, "app", "app-settings.json"), "utf8"));
+  const storedSize = JSON.parse(prefs.values["nextbrowser.windowSize"]);
+  assert.deepEqual([storedSize.width, storedSize.height], size, "another shutdown must not accumulate rounding");
   console.log("Interface shortcuts, native zoom and window size survived a full application restart.");
 } finally {
   try { await app?.close(); }
