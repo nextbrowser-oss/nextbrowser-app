@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: 616aa881d990c05acd12e1e2d3e86245a02a3e97c741a14537c60b65f7c2eb30 -->
+<!-- i18n-source-sha256: 69d052de1b51f79509c00bc92d29aabf114a78fd26d1f448af51891195a4f0e4 -->
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Nextbrowser लोगो" width="112" />
 </p>
@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Nextbrowser इंटरफ़ेस डेमो" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Nextbrowser डेस्कटॉप ऐप एक ब्राउज़र कार्य चला रहा है" width="1200" />
 </p>
 
 ## Nextbrowser क्यों
@@ -83,7 +83,11 @@ Concepts, screens, workflows और संचालन संबंधी मा
 
 ## Demo और उपयोग के उदाहरण
 
-प्रकाशित परिदृश्य [Nextbrowser उपयोग-मामला पेज](https://nextbrowser.com/use-cases) पर देखें। ऊपर का पूर्वावलोकन Nextbrowser इंटरफ़ेस को कार्य करते हुए दिखाता है।
+प्रकाशित परिदृश्य [Nextbrowser उपयोग-मामला पेज](https://nextbrowser.com/use-cases) पर देखें। इस पेज के ऊपर की रिकॉर्डिंग Nextbrowser डेस्कटॉप ऐप में एक ब्राउज़र कार्य दिखाती है, और नीचे का टूर Nextbrowser वेबसाइट दिखाता है।
+
+<p align="center">
+  <img src="../../../assets/nextbrowser-website-tour.gif" alt="Nextbrowser वेबसाइट का टूर" width="800" />
+</p>
 
 सामान्य वर्कफ़्लो में शामिल हैं:
 
@@ -115,6 +119,7 @@ Nextbrowser डेस्कटॉप नियंत्रण सतह है�
 - [Browser control reference](../../cli-reference.md) — Nextbrowser के साथ उपयोग होने वाले ब्राउज़र operations और diagnostics।
 - [कॉन्फ़िगरेशन और डेवलपमेंट](../../../docs/configuration.md) — एप्लिकेशन सेटिंग, स्थानीय स्थिति, एनालिटिक्स नोट्स और डेवलपमेंट स्क्रिप्ट।
 - [Troubleshooting](../../troubleshooting.md) — account से page तक diagnostics और सामान्य recovery path।
+- [Codex MCP recovery](../../troubleshooting.md#codex-reports-a-clawbrowser-mcp-startup-or-handshake-error) — पुराने ClawBrowser MCP configuration से होने वाली errors ठीक करें।
 - [Language index](../README.md) — README के सभी 20 भाषा संस्करण।
 
 ## Roadmap

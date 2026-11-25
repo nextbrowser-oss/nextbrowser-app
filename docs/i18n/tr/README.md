@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: 616aa881d990c05acd12e1e2d3e86245a02a3e97c741a14537c60b65f7c2eb30 -->
+<!-- i18n-source-sha256: 69d052de1b51f79509c00bc92d29aabf114a78fd26d1f448af51891195a4f0e4 -->
 
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Nextbrowser logosu" width="112" />
@@ -48,7 +48,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Nextbrowser arayüz demosu" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Bir tarayıcı görevini çalıştıran Nextbrowser masaüstü uygulaması" width="1200" />
 </p>
 
 ## Neden Nextbrowser
@@ -84,7 +84,11 @@ Tarayıcı kontrolleri ve tanılama için [tarayıcı kontrol başvurusuna](../.
 
 ## Demolar ve kullanım senaryoları
 
-Yayımlanmış senaryoları [Nextbrowser kullanım örnekleri sayfasında](https://nextbrowser.com/use-cases) inceleyin. Yukarıdaki önizleme Nextbrowser arayüzünü çalışırken gösterir.
+Yayımlanmış senaryoları [Nextbrowser kullanım örnekleri sayfasında](https://nextbrowser.com/use-cases) inceleyin. Bu sayfanın başındaki kayıt Nextbrowser masaüstü uygulamasında bir tarayıcı görevini, aşağıdaki tur ise Nextbrowser web sitesini gösterir.
+
+<p align="center">
+  <img src="../../../assets/nextbrowser-website-tour.gif" alt="Nextbrowser web sitesi turu" width="800" />
+</p>
 
 Yaygın iş akışları şunlardır:
 
@@ -116,6 +120,7 @@ Nextbrowser masaüstü kontrol yüzeyidir. Profiller tarayıcı kimliklerini tan
 - [Tarayıcı kontrol başvurusu](../../cli-reference.md) — Nextbrowser ile kullanılan tarayıcı işlemleri ve tanılamalar.
 - [Yapılandırma ve geliştirme](../../../docs/configuration.md) — uygulama ayarları, yerel durum, analiz notları ve geliştirme betikleri.
 - [Sorun giderme](../../troubleshooting.md) — hesaptan sayfaya uzanan tanılama ve yaygın kurtarma yolları.
+- [Codex MCP kurtarma](../../troubleshooting.md#codex-reports-a-clawbrowser-mcp-startup-or-handshake-error) — eski ClawBrowser MCP yapılandırmasından kaynaklanan hataları giderin.
 - [Dil dizini](../README.md) — README’nin 20 sürümünün tamamı.
 
 ## Yol haritası

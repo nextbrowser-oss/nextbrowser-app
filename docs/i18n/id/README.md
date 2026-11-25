@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: 616aa881d990c05acd12e1e2d3e86245a02a3e97c741a14537c60b65f7c2eb30 -->
+<!-- i18n-source-sha256: 69d052de1b51f79509c00bc92d29aabf114a78fd26d1f448af51891195a4f0e4 -->
 
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Logo Nextbrowser" width="112" />
@@ -48,7 +48,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Demo antarmuka Nextbrowser" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Aplikasi desktop Nextbrowser menjalankan tugas browser" width="1200" />
 </p>
 
 ## Mengapa Nextbrowser
@@ -84,7 +84,11 @@ Untuk kontrol browser dan diagnostik, gunakan [referensi kontrol browser](../../
 
 ## Demo dan kasus penggunaan
 
-Jelajahi skenario yang dipublikasikan di [halaman kasus penggunaan Nextbrowser](https://nextbrowser.com/use-cases). Pratinjau di atas menampilkan antarmuka Nextbrowser saat digunakan.
+Jelajahi skenario yang dipublikasikan di [halaman kasus penggunaan Nextbrowser](https://nextbrowser.com/use-cases). Rekaman di bagian atas halaman ini menampilkan tugas browser di aplikasi desktop Nextbrowser, dan tur di bawah ini menelusuri situs web Nextbrowser.
+
+<p align="center">
+  <img src="../../../assets/nextbrowser-website-tour.gif" alt="Tur situs web Nextbrowser" width="800" />
+</p>
 
 Alur kerja umum meliputi:
 
@@ -116,6 +120,7 @@ Nextbrowser adalah permukaan kontrol desktop. Profil menentukan identitas browse
 - [Referensi kontrol browser](../../cli-reference.md) — operasi browser dan diagnostik yang digunakan bersama Nextbrowser.
 - [Konfigurasi dan pengembangan](../../../docs/configuration.md) — pengaturan aplikasi, status lokal, catatan analitik, dan skrip pengembangan.
 - [Pemecahan masalah](../../troubleshooting.md) — diagnosis dari akun hingga halaman dan jalur pemulihan umum.
+- [Pemulihan Codex MCP](../../troubleshooting.md#codex-reports-a-clawbrowser-mcp-startup-or-handshake-error) — pulihkan dari galat konfigurasi ClawBrowser MCP lama.
 - [Indeks bahasa](../README.md) — seluruh 20 edisi README.
 
 ## Peta jalan

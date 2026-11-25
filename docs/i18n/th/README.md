@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: 616aa881d990c05acd12e1e2d3e86245a02a3e97c741a14537c60b65f7c2eb30 -->
+<!-- i18n-source-sha256: 69d052de1b51f79509c00bc92d29aabf114a78fd26d1f448af51891195a4f0e4 -->
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="โลโก้ Nextbrowser" width="112" />
 </p>
@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="เดโมอินเทอร์เฟซ Nextbrowser" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="แอปเดสก์ท็อป Nextbrowser กำลังรันงานในเบราว์เซอร์" width="1200" />
 </p>
 
 ## เหตุผลที่เลือก Nextbrowser
@@ -83,7 +83,11 @@
 
 ## Demo และกรณีใช้งาน
 
-สำรวจสถานการณ์ที่เผยแพร่แล้วใน [หน้ากรณีการใช้งาน Nextbrowser](https://nextbrowser.com/use-cases) ตัวอย่างด้านบนแสดงอินเทอร์เฟซ Nextbrowser ขณะทำงาน
+สำรวจสถานการณ์ที่เผยแพร่แล้วใน [หน้ากรณีการใช้งาน Nextbrowser](https://nextbrowser.com/use-cases) วิดีโอที่ด้านบนของหน้านี้แสดงงานในเบราว์เซอร์บนแอปเดสก์ท็อป Nextbrowser และทัวร์ด้านล่างพาชมเว็บไซต์ Nextbrowser
+
+<p align="center">
+  <img src="../../../assets/nextbrowser-website-tour.gif" alt="ทัวร์เว็บไซต์ Nextbrowser" width="800" />
+</p>
 
 เวิร์กโฟลว์ทั่วไปประกอบด้วย:
 
@@ -115,6 +119,7 @@ Nextbrowser คือพื้นผิวควบคุมบนเดสก�
 - [ข้อมูลอ้างอิงการควบคุมเบราว์เซอร์](../../cli-reference.md) — การทำงานและการวินิจฉัยของเบราว์เซอร์ที่ใช้กับ Nextbrowser
 - [การกำหนดค่าและการพัฒนา](../../../docs/configuration.md) — การตั้งค่าแอป สถานะภายในเครื่อง หมายเหตุด้านการวิเคราะห์ และสคริปต์การพัฒนา
 - [การแก้ไขปัญหา](../../troubleshooting.md) — diagnostics ตั้งแต่ account ถึง page และแนวทางกู้คืนทั่วไป
+- [กู้คืน Codex MCP](../../troubleshooting.md#codex-reports-a-clawbrowser-mcp-startup-or-handshake-error) — แก้ข้อผิดพลาดจากการตั้งค่า ClawBrowser MCP แบบเก่า
 - [ดัชนีภาษา](../README.md) — README ครบทั้ง 20 ภาษา
 
 ## Roadmap
