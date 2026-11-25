@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: 616aa881d990c05acd12e1e2d3e86245a02a3e97c741a14537c60b65f7c2eb30 -->
+<!-- i18n-source-sha256: 69d052de1b51f79509c00bc92d29aabf114a78fd26d1f448af51891195a4f0e4 -->
 
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="نشان Nextbrowser" width="112" />
@@ -48,7 +48,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="نمایش رابط Nextbrowser" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="برنامه دسکتاپ Nextbrowser در حال اجرای یک کار مرورگر" width="1200" />
 </p>
 
 ## چرا Nextbrowser
@@ -84,7 +84,11 @@
 
 ## دموها و موارد استفاده
 
-سناریوهای منتشرشده را در [صفحه موارد استفاده Nextbrowser](https://nextbrowser.com/use-cases) ببینید. پیش‌نمایش بالا رابط Nextbrowser را هنگام کار نشان می‌دهد.
+سناریوهای منتشرشده را در [صفحه موارد استفاده Nextbrowser](https://nextbrowser.com/use-cases) ببینید. ضبط بالای این صفحه یک کار مرورگر را در برنامه دسکتاپ Nextbrowser نشان می‌دهد و تور پایین وب‌سایت Nextbrowser را معرفی می‌کند.
+
+<p align="center">
+  <img src="../../../assets/nextbrowser-website-tour.gif" alt="تور وب‌سایت Nextbrowser" width="800" />
+</p>
 
 گردش‌کارهای رایج شامل این موارد است:
 
@@ -116,6 +120,7 @@ Nextbrowser سطح کنترل دسکتاپ است. پروفایل‌ها هوی�
 - [مرجع کنترل مرورگر](../../cli-reference.md) — عملیات مرورگر و اطلاعات تشخیصی مورد استفاده با Nextbrowser.
 - [پیکربندی و توسعه](../../../docs/configuration.md) — تنظیمات برنامه، وضعیت محلی، نکات تحلیل و اسکریپت‌های توسعه.
 - [عیب‌یابی](../../troubleshooting.md) — عیب‌یابی از حساب تا صفحه و مسیرهای رایج بازیابی.
+- [بازیابی Codex MCP](../../troubleshooting.md#codex-reports-a-clawbrowser-mcp-startup-or-handshake-error) — رفع خطاهای ناشی از پیکربندی قدیمی ClawBrowser MCP.
 - [فهرست زبان‌ها](../README.md) — هر ۲۰ نسخه README.
 
 ## نقشه راه

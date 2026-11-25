@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: 616aa881d990c05acd12e1e2d3e86245a02a3e97c741a14537c60b65f7c2eb30 -->
+<!-- i18n-source-sha256: 69d052de1b51f79509c00bc92d29aabf114a78fd26d1f448af51891195a4f0e4 -->
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Nextbrowser ロゴ" width="112" />
 </p>
@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Nextbrowser インターフェースのデモ" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="ブラウザータスクを実行する Nextbrowser デスクトップアプリ" width="1200" />
 </p>
 
 ## Nextbrowser を選ぶ理由
@@ -83,7 +83,11 @@ AI エージェントによるブラウザ作業は、単一のプロンプト�
 
 ## デモとユースケース
 
-公開済みのシナリオは [Nextbrowser のユースケースページ](https://nextbrowser.com/use-cases)で確認できます。上のプレビューは Nextbrowser のインターフェースが動作する様子を示しています。
+公開済みのシナリオは [Nextbrowser のユースケースページ](https://nextbrowser.com/use-cases)で確認できます。このページ上部の録画は Nextbrowser デスクトップアプリでのブラウザータスクを、下のツアーは Nextbrowser の Web サイトを紹介しています。
+
+<p align="center">
+  <img src="../../../assets/nextbrowser-website-tour.gif" alt="Nextbrowser Web サイトのツアー" width="800" />
+</p>
 
 一般的なワークフロー：
 
@@ -115,6 +119,7 @@ Nextbrowser はデスクトップの操作画面です。プロファイルが�
 - [ブラウザ制御リファレンス](../../cli-reference.md) — Nextbrowser で使用するブラウザ操作と診断。
 - [設定と開発](../../../docs/configuration.md) — アプリ設定、ローカル状態、分析に関する注記、開発スクリプト。
 - [トラブルシューティング](../../troubleshooting.md) — account から page までの diagnostics と一般的な復旧手順。
+- [Codex MCP の復旧](../../troubleshooting.md#codex-reports-a-clawbrowser-mcp-startup-or-handshake-error) — 旧 ClawBrowser MCP 設定によるエラーから復旧します。
 - [言語インデックス](../README.md) — 全 20 言語の README。
 
 ## ロードマップ

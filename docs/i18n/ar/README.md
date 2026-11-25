@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: 616aa881d990c05acd12e1e2d3e86245a02a3e97c741a14537c60b65f7c2eb30 -->
+<!-- i18n-source-sha256: 69d052de1b51f79509c00bc92d29aabf114a78fd26d1f448af51891195a4f0e4 -->
 
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="شعار Nextbrowser" width="112" />
@@ -48,7 +48,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="عرض توضيحي لواجهة Nextbrowser" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="تطبيق Nextbrowser لسطح المكتب ينفّذ مهمة في المتصفح" width="1200" />
 </p>
 
 ## لماذا Nextbrowser
@@ -84,7 +84,11 @@
 
 ## العروض التوضيحية وحالات الاستخدام
 
-استكشف السيناريوهات المنشورة في [صفحة حالات استخدام Nextbrowser](https://nextbrowser.com/use-cases). تعرض المعاينة أعلاه واجهة Nextbrowser أثناء العمل.
+استكشف السيناريوهات المنشورة في [صفحة حالات استخدام Nextbrowser](https://nextbrowser.com/use-cases). يعرض التسجيل في أعلى هذه الصفحة مهمة متصفح في تطبيق Nextbrowser لسطح المكتب، وتأخذك الجولة أدناه في موقع Nextbrowser.
+
+<p align="center">
+  <img src="../../../assets/nextbrowser-website-tour.gif" alt="جولة في موقع Nextbrowser" width="800" />
+</p>
 
 تشمل سير العمل الشائعة:
 
@@ -116,6 +120,7 @@ Nextbrowser هو سطح التحكم المكتبي. تحدد الملفات ا�
 - [مرجع التحكم في المتصفح](../../cli-reference.md) — عمليات المتصفح والتشخيصات المستخدمة مع Nextbrowser.
 - [الإعداد والتطوير](../../../docs/configuration.md) — إعدادات التطبيق والحالة المحلية وملاحظات التحليلات ونصوص التطوير.
 - [استكشاف الأخطاء وإصلاحها](../../troubleshooting.md) — التشخيصات من الحساب إلى الصفحة ومسارات الاستعادة الشائعة.
+- [استعادة Codex MCP](../../troubleshooting.md#codex-reports-a-clawbrowser-mcp-startup-or-handshake-error) — معالجة الأخطاء الناتجة عن إعدادات ClawBrowser MCP القديمة.
 - [فهرس اللغات](../README.md) — إصدارات README العشرون كلها.
 
 ## خريطة الطريق

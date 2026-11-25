@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: 616aa881d990c05acd12e1e2d3e86245a02a3e97c741a14537c60b65f7c2eb30 -->
+<!-- i18n-source-sha256: 69d052de1b51f79509c00bc92d29aabf114a78fd26d1f448af51891195a4f0e4 -->
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Nextbrowser 로고" width="112" />
 </p>
@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Nextbrowser 인터페이스 데모" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="브라우저 작업을 실행하는 Nextbrowser 데스크톱 앱" width="1200" />
 </p>
 
 ## Nextbrowser를 사용하는 이유
@@ -83,7 +83,11 @@ AI 에이전트의 브라우저 작업은 하나의 프롬프트로 끝나지 �
 
 ## 데모 및 사용 사례
 
-게시된 시나리오는 [Nextbrowser 사용 사례 페이지](https://nextbrowser.com/use-cases)에서 확인할 수 있습니다. 위 미리보기는 Nextbrowser 인터페이스가 작동하는 모습을 보여 줍니다.
+게시된 시나리오는 [Nextbrowser 사용 사례 페이지](https://nextbrowser.com/use-cases)에서 확인할 수 있습니다. 이 페이지 상단의 녹화 화면은 Nextbrowser 데스크톱 앱의 브라우저 작업을, 아래 투어는 Nextbrowser 웹사이트를 보여 줍니다.
+
+<p align="center">
+  <img src="../../../assets/nextbrowser-website-tour.gif" alt="Nextbrowser 웹사이트 투어" width="800" />
+</p>
 
 일반적인 워크플로:
 
@@ -115,6 +119,7 @@ Nextbrowser는 데스크톱 제어 화면입니다. 프로필은 브라우저 ID
 - [브라우저 제어 참고 문서](../../cli-reference.md) — Nextbrowser에서 사용하는 브라우저 작업과 진단.
 - [구성 및 개발](../../../docs/configuration.md) — 애플리케이션 설정, 로컬 상태, 분석 참고 사항 및 개발 스크립트.
 - [문제 해결](../../troubleshooting.md) — account부터 page까지의 diagnostics 및 일반적인 복구 경로.
+- [Codex MCP 복구](../../troubleshooting.md#codex-reports-a-clawbrowser-mcp-startup-or-handshake-error) — 이전 ClawBrowser MCP 구성 오류를 복구합니다.
 - [언어 색인](../README.md) — README의 20개 언어 버전.
 
 ## 로드맵

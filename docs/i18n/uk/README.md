@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: 616aa881d990c05acd12e1e2d3e86245a02a3e97c741a14537c60b65f7c2eb30 -->
+<!-- i18n-source-sha256: 69d052de1b51f79509c00bc92d29aabf114a78fd26d1f448af51891195a4f0e4 -->
 
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Логотип Nextbrowser" width="112" />
@@ -48,7 +48,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Демонстрація інтерфейсу Nextbrowser" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Десктопний застосунок Nextbrowser виконує завдання в браузері" width="1200" />
 </p>
 
 ## Чому Nextbrowser
@@ -84,7 +84,11 @@
 
 ## Демонстрації та сценарії використання
 
-Опубліковані сценарії зібрано на [сторінці прикладів використання Nextbrowser](https://nextbrowser.com/use-cases). Попередній перегляд вище показує інтерфейс Nextbrowser у роботі.
+Опубліковані сценарії зібрано на [сторінці прикладів використання Nextbrowser](https://nextbrowser.com/use-cases). Запис на початку сторінки показує завдання в браузері в десктопному застосунку Nextbrowser, а тур нижче проводить сайтом Nextbrowser.
+
+<p align="center">
+  <img src="../../../assets/nextbrowser-website-tour.gif" alt="Тур сайтом Nextbrowser" width="800" />
+</p>
 
 Поширені робочі процеси:
 
@@ -116,6 +120,7 @@ Nextbrowser — це десктопна поверхня керування. П�
 - [Довідник із керування браузером](../../cli-reference.md) — основні операції та діагностика Nextbrowser.
 - [Конфігурація та розробка](../../../docs/configuration.md) — налаштування застосунку, локальний стан, аналітика та скрипти розробки.
 - [Усунення несправностей](../../troubleshooting.md) — діагностика від рівня облікового запису до сторінки та типові способи відновлення.
+- [Відновлення Codex MCP](../../troubleshooting.md#codex-reports-a-clawbrowser-mcp-startup-or-handshake-error) — виправлення помилок через застарілу конфігурацію ClawBrowser MCP.
 - [Індекс мов](../README.md) — усі 20 версій README.
 
 ## Дорожня карта

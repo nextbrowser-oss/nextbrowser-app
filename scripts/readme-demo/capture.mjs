@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Records a short tour of https://nextbrowser.com/ for the README: the hero prompt, the agent
 // orbit, one workflow run in the Research tab, then the main sections down to the final call to
-// action. Writes assets/nextbrowser-interface-demo.gif and assets/nextbrowser-interface-demo.mp4.
+// action. Writes assets/nextbrowser-website-tour.gif and assets/nextbrowser-website-tour.mp4.
 //
 // Requirements: ffmpeg on PATH and `npm install --no-save playwright-core`.
 // Usage: node scripts/readme-demo/capture.mjs [--url https://nextbrowser.com/] [--card "Web scraping"]
@@ -274,8 +274,8 @@ ff(
   "-map", "[v]", "-c:v", "ffv1", master,
 );
 fs.mkdirSync(outDir, { recursive: true });
-const gif = path.join(outDir, "nextbrowser-interface-demo.gif");
-const mp4 = path.join(outDir, "nextbrowser-interface-demo.mp4");
+const gif = path.join(outDir, "nextbrowser-website-tour.gif");
+const mp4 = path.join(outDir, "nextbrowser-website-tour.mp4");
 ff(
   "-i", master,
   "-filter_complex",

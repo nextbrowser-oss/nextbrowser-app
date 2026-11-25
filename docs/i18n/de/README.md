@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: 616aa881d990c05acd12e1e2d3e86245a02a3e97c741a14537c60b65f7c2eb30 -->
+<!-- i18n-source-sha256: 69d052de1b51f79509c00bc92d29aabf114a78fd26d1f448af51891195a4f0e4 -->
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Nextbrowser-Logo" width="112" />
 </p>
@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Demo der Nextbrowser-Oberfläche" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Die Nextbrowser-Desktop-App führt eine Browseraufgabe aus" width="1200" />
 </p>
 
 ## Warum Nextbrowser
@@ -83,7 +83,11 @@ Informationen zu Browsersteuerung und Diagnosen findest du in der [Browsersteuer
 
 ## Demos und Anwendungsfälle
 
-Veröffentlichte Szenarien findest du auf der [Nextbrowser-Seite mit Anwendungsfällen](https://nextbrowser.com/use-cases). Die Vorschau oben zeigt die Nextbrowser-Oberfläche in Aktion.
+Veröffentlichte Szenarien findest du auf der [Nextbrowser-Seite mit Anwendungsfällen](https://nextbrowser.com/use-cases). Die Aufnahme oben auf dieser Seite zeigt eine Browseraufgabe in der Nextbrowser-Desktop-App, die Tour unten führt durch die Nextbrowser-Website.
+
+<p align="center">
+  <img src="../../../assets/nextbrowser-website-tour.gif" alt="Tour durch die Nextbrowser-Website" width="800" />
+</p>
 
 Typische Workflows sind:
 
@@ -115,6 +119,7 @@ Nextbrowser ist die Desktop-Steuerungsoberfläche. Profile definieren Browseride
 - [Browsersteuerungs-Referenz](../../cli-reference.md) — Browseroperationen und Diagnosen für Nextbrowser.
 - [Konfiguration und Entwicklung](../../../docs/configuration.md) — Anwendungseinstellungen, lokaler Zustand, Analytics-Hinweise und Entwicklungsskripte.
 - [Fehlerbehebung](../../troubleshooting.md) — Diagnose von der Konto- bis zur Seitenebene und übliche Wiederherstellungswege.
+- [Codex-MCP-Wiederherstellung](../../troubleshooting.md#codex-reports-a-clawbrowser-mcp-startup-or-handshake-error) — Fehler durch veraltete ClawBrowser-MCP-Konfiguration beheben.
 - [Sprachindex](../README.md) — alle 20 README-Ausgaben.
 
 ## Roadmap

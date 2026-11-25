@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: 616aa881d990c05acd12e1e2d3e86245a02a3e97c741a14537c60b65f7c2eb30 -->
+<!-- i18n-source-sha256: 69d052de1b51f79509c00bc92d29aabf114a78fd26d1f448af51891195a4f0e4 -->
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Logotipo de Nextbrowser" width="112" />
 </p>
@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Demostración de la interfaz de Nextbrowser" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="La app de escritorio de Nextbrowser ejecutando una tarea en el navegador" width="1200" />
 </p>
 
 ## Por qué Nextbrowser
@@ -83,7 +83,11 @@ Para consultar los controles del navegador y los diagnósticos, usa la [referenc
 
 ## Demos y casos de uso
 
-Explora escenarios publicados en la [página de casos de uso de Nextbrowser](https://nextbrowser.com/use-cases). La vista previa anterior muestra la interfaz de Nextbrowser en funcionamiento.
+Explora escenarios publicados en la [página de casos de uso de Nextbrowser](https://nextbrowser.com/use-cases). La grabación al inicio de esta página muestra una tarea de navegador en la app de escritorio de Nextbrowser, y el recorrido de abajo presenta el sitio web de Nextbrowser.
+
+<p align="center">
+  <img src="../../../assets/nextbrowser-website-tour.gif" alt="Recorrido por el sitio web de Nextbrowser" width="800" />
+</p>
 
 Los flujos de trabajo habituales incluyen:
 
@@ -115,6 +119,7 @@ Nextbrowser es la superficie de control de escritorio. Los perfiles definen iden
 - [Referencia de control del navegador](../../cli-reference.md) — operaciones y diagnósticos utilizados con Nextbrowser.
 - [Configuración y desarrollo](../../../docs/configuration.md) — ajustes de la aplicación, estado local, notas de analítica y scripts de desarrollo.
 - [Solución de problemas](../../troubleshooting.md) — diagnósticos desde la cuenta hasta la página y rutas habituales de recuperación.
+- [Recuperación de Codex MCP](../../troubleshooting.md#codex-reports-a-clawbrowser-mcp-startup-or-handshake-error) — recupera errores de configuración heredada de ClawBrowser MCP.
 - [Índice de idiomas](../README.md) — las 20 ediciones del README.
 
 ## Hoja de ruta

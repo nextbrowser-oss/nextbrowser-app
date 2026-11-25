@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: 616aa881d990c05acd12e1e2d3e86245a02a3e97c741a14537c60b65f7c2eb30 -->
+<!-- i18n-source-sha256: 69d052de1b51f79509c00bc92d29aabf114a78fd26d1f448af51891195a4f0e4 -->
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Nextbrowser 标志" width="112" />
 </p>
@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Nextbrowser 界面演示" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Nextbrowser 桌面应用正在执行浏览器任务" width="1200" />
 </p>
 
 ## 为什么选择 Nextbrowser
@@ -83,7 +83,11 @@ AI agent 的浏览器工作不只是发送一个 prompt：operator 必须选择�
 
 ## 演示与使用场景
 
-请在 [Nextbrowser 用例页面](https://nextbrowser.com/use-cases)浏览已发布的场景。上方预览展示了 Nextbrowser 界面的实际运行效果。
+请在 [Nextbrowser 用例页面](https://nextbrowser.com/use-cases)浏览已发布的场景。页面顶部的录屏展示了在 Nextbrowser 桌面应用中运行的浏览器任务，下方的导览则带你浏览 Nextbrowser 网站。
+
+<p align="center">
+  <img src="../../../assets/nextbrowser-website-tour.gif" alt="Nextbrowser 网站导览" width="800" />
+</p>
 
 常见工作流包括：
 
@@ -115,6 +119,7 @@ Nextbrowser 是桌面控制界面。Profile 定义浏览器身份，session 提�
 - [浏览器控制参考](../../cli-reference.md) — Nextbrowser 使用的浏览器操作和诊断。
 - [配置与开发](../../../docs/configuration.md) — 应用设置、本地状态、分析说明和开发脚本。
 - [故障排除](../../troubleshooting.md) — 从 account 到 page 的 diagnostics 与常见恢复路径。
+- [Codex MCP 恢复](../../troubleshooting.md#codex-reports-a-clawbrowser-mcp-startup-or-handshake-error) — 修复旧版 ClawBrowser MCP 配置导致的错误。
 - [语言索引](../README.md) — 全部 20 个 README 版本。
 
 ## 路线图

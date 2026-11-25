@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: 616aa881d990c05acd12e1e2d3e86245a02a3e97c741a14537c60b65f7c2eb30 -->
+<!-- i18n-source-sha256: 69d052de1b51f79509c00bc92d29aabf114a78fd26d1f448af51891195a4f0e4 -->
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Logo Nextbrowser" width="112" />
 </p>
@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Démonstration de l’interface Nextbrowser" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="L’application de bureau Nextbrowser exécute une tâche de navigateur" width="1200" />
 </p>
 
 ## Pourquoi Nextbrowser
@@ -83,7 +83,11 @@ Pour le contrôle du navigateur et les diagnostics, consultez la [référence co
 
 ## Démos et cas d’usage
 
-Découvrez les scénarios publiés sur la [page des cas d’usage Nextbrowser](https://nextbrowser.com/use-cases). L’aperçu ci-dessus montre l’interface Nextbrowser en action.
+Découvrez les scénarios publiés sur la [page des cas d’usage Nextbrowser](https://nextbrowser.com/use-cases). L’enregistrement en haut de cette page montre une tâche de navigateur dans l’application de bureau Nextbrowser, et la visite ci-dessous parcourt le site web de Nextbrowser.
+
+<p align="center">
+  <img src="../../../assets/nextbrowser-website-tour.gif" alt="Visite du site web de Nextbrowser" width="800" />
+</p>
 
 Les workflows courants comprennent :
 
@@ -115,6 +119,7 @@ Nextbrowser est la surface de contrôle de bureau. Les profils définissent les 
 - [Référence du contrôle du navigateur](../../cli-reference.md) — opérations et diagnostics utilisés avec Nextbrowser.
 - [Configuration et développement](../../../docs/configuration.md) — paramètres de l’application, état local, notes d’analytique et scripts de développement.
 - [Dépannage](../../troubleshooting.md) — diagnostics du compte à la page et parcours de rétablissement courants.
+- [Rétablissement de Codex MCP](../../troubleshooting.md#codex-reports-a-clawbrowser-mcp-startup-or-handshake-error) — corrigez les erreurs dues à une ancienne configuration ClawBrowser MCP.
 - [Index des langues](../README.md) — les 20 éditions du README.
 
 ## Roadmap

@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: 616aa881d990c05acd12e1e2d3e86245a02a3e97c741a14537c60b65f7c2eb30 -->
+<!-- i18n-source-sha256: 69d052de1b51f79509c00bc92d29aabf114a78fd26d1f448af51891195a4f0e4 -->
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Nextbrowser-logo" width="112" />
 </p>
@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Demo van de Nextbrowser-interface" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="De Nextbrowser-desktopapp voert een browsertaak uit" width="1200" />
 </p>
 
 ## Waarom Nextbrowser
@@ -83,7 +83,11 @@ Raadpleeg de [browserbesturingsreferentie](../../cli-reference.md) voor bedienin
 
 ## Demo’s en gebruiksscenario’s
 
-Bekijk gepubliceerde scenario’s op de [Nextbrowser-pagina met gebruikssituaties](https://nextbrowser.com/use-cases). De preview hierboven toont de Nextbrowser-interface in actie.
+Bekijk gepubliceerde scenario’s op de [Nextbrowser-pagina met gebruikssituaties](https://nextbrowser.com/use-cases). De opname bovenaan deze pagina toont een browsertaak in de Nextbrowser-desktopapp, en de rondleiding hieronder loopt door de Nextbrowser-website.
+
+<p align="center">
+  <img src="../../../assets/nextbrowser-website-tour.gif" alt="Rondleiding door de Nextbrowser-website" width="800" />
+</p>
 
 Veelvoorkomende workflows zijn:
 
@@ -115,6 +119,7 @@ Nextbrowser is het desktopbedieningsvlak. Profielen definiëren browseridentitei
 - [Browserbesturingsreferentie](../../cli-reference.md) — browserhandelingen en diagnostiek voor Nextbrowser.
 - [Configuratie en ontwikkeling](../../../docs/configuration.md) — applicatie-instellingen, lokale status, analytics-notities en ontwikkelscripts.
 - [Probleemoplossing](../../troubleshooting.md) — diagnostiek van account tot pagina en veelgebruikte herstelroutes.
+- [Herstel van Codex MCP](../../troubleshooting.md#codex-reports-a-clawbrowser-mcp-startup-or-handshake-error) — los fouten op door een verouderde ClawBrowser MCP-configuratie.
 - [Talenindex](../README.md) — alle 20 README-edities.
 
 ## Roadmap

@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: 616aa881d990c05acd12e1e2d3e86245a02a3e97c741a14537c60b65f7c2eb30 -->
+<!-- i18n-source-sha256: 69d052de1b51f79509c00bc92d29aabf114a78fd26d1f448af51891195a4f0e4 -->
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Logo Nextbrowser" width="112" />
 </p>
@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Bản demo giao diện Nextbrowser" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Ứng dụng máy tính Nextbrowser đang chạy một tác vụ trình duyệt" width="1200" />
 </p>
 
 ## Vì sao chọn Nextbrowser
@@ -83,7 +83,11 @@ Xem [hướng dẫn sản phẩm](../../product-guide.md) để tìm hiểu khá
 
 ## Demo và trường hợp sử dụng
 
-Khám phá các kịch bản đã xuất bản trên [trang trường hợp sử dụng Nextbrowser](https://nextbrowser.com/use-cases). Bản xem trước phía trên cho thấy giao diện Nextbrowser đang hoạt động.
+Khám phá các kịch bản đã xuất bản trên [trang trường hợp sử dụng Nextbrowser](https://nextbrowser.com/use-cases). Bản ghi ở đầu trang này cho thấy một tác vụ trình duyệt trong ứng dụng máy tính Nextbrowser, còn chuyến tham quan bên dưới giới thiệu website Nextbrowser.
+
+<p align="center">
+  <img src="../../../assets/nextbrowser-website-tour.gif" alt="Tham quan website Nextbrowser" width="800" />
+</p>
 
 Các quy trình phổ biến gồm:
 
@@ -115,6 +119,7 @@ Nextbrowser là bề mặt điều khiển desktop. Profile xác định danh t�
 - [Tham chiếu điều khiển trình duyệt](../../cli-reference.md) — thao tác trình duyệt và chẩn đoán dùng với Nextbrowser.
 - [Cấu hình và phát triển](../../../docs/configuration.md) — cài đặt ứng dụng, trạng thái cục bộ, ghi chú phân tích và script phát triển.
 - [Khắc phục sự cố](../../troubleshooting.md) — diagnostics từ account đến page và các hướng khôi phục phổ biến.
+- [Khôi phục Codex MCP](../../troubleshooting.md#codex-reports-a-clawbrowser-mcp-startup-or-handshake-error) — khắc phục lỗi do cấu hình ClawBrowser MCP cũ.
 - [Chỉ mục ngôn ngữ](../README.md) — toàn bộ 20 phiên bản README.
 
 ## Lộ trình

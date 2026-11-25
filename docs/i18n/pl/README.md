@@ -1,4 +1,4 @@
-<!-- i18n-source-sha256: 616aa881d990c05acd12e1e2d3e86245a02a3e97c741a14537c60b65f7c2eb30 -->
+<!-- i18n-source-sha256: 69d052de1b51f79509c00bc92d29aabf114a78fd26d1f448af51891195a4f0e4 -->
 <p align="center">
   <img src="../../../assets/nextbrowser-logomark.png" alt="Logo Nextbrowser" width="112" />
 </p>
@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Demo interfejsu Nextbrowser" width="1200" />
+  <img src="../../../assets/nextbrowser-interface-demo.gif" alt="Aplikacja desktopowa Nextbrowser wykonuje zadanie w przeglądarce" width="1200" />
 </p>
 
 ## Dlaczego Nextbrowser
@@ -83,7 +83,11 @@ Informacje o sterowaniu przeglądarką i diagnostyce znajdziesz w [odpowiednim p
 
 ## Dema i przypadki użycia
 
-Opublikowane scenariusze znajdziesz na [stronie przypadków użycia Nextbrowser](https://nextbrowser.com/use-cases). Podgląd powyżej pokazuje interfejs Nextbrowser w działaniu.
+Opublikowane scenariusze znajdziesz na [stronie przypadków użycia Nextbrowser](https://nextbrowser.com/use-cases). Nagranie na początku tej strony pokazuje zadanie w przeglądarce w aplikacji desktopowej Nextbrowser, a wycieczka poniżej prowadzi po stronie Nextbrowser.
+
+<p align="center">
+  <img src="../../../assets/nextbrowser-website-tour.gif" alt="Wycieczka po stronie Nextbrowser" width="800" />
+</p>
 
 Typowe przepływy pracy obejmują:
 
@@ -115,6 +119,7 @@ Nextbrowser jest desktopowym panelem sterowania. Profile definiują tożsamości
 - [Przewodnik sterowania przeglądarką](../../cli-reference.md) — operacje i diagnostyka używane z Nextbrowser.
 - [Konfiguracja i rozwój](../../../docs/configuration.md) — ustawienia aplikacji, stan lokalny, informacje o analityce i skrypty deweloperskie.
 - [Rozwiązywanie problemów](../../troubleshooting.md) — diagnostyka od konta do strony oraz typowe ścieżki przywracania działania.
+- [Przywracanie Codex MCP](../../troubleshooting.md#codex-reports-a-clawbrowser-mcp-startup-or-handshake-error) — naprawa błędów wynikających ze starej konfiguracji ClawBrowser MCP.
 - [Indeks języków](../README.md) — wszystkie 20 wersji README.
 
 ## Roadmap
