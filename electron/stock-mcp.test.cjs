@@ -33,6 +33,18 @@ test('each installed shell reports output and the real exit code', async t => {
     assert.equal(result.output.trim(), 'shell-ok');
   }
 });
+test('the default workspace works through an OS alias to the app data directory', async t => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'nb-appdata-alias-'));
+  const alias = path.join(parent, 'alias');
+  const appData = path.join(parent, 'real');
+  await fs.mkdir(appData);
+  await fs.symlink(appData, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  t.after(() => fs.rm(parent, { recursive: true, force: true }));
+  const { host, scope, client } = await fixture(t, undefined, { dataRoot: path.join(alias, 'new-user') });
+  await host.settings(scope, 'stock_mcp_set', { group: 'files', mode: 'allow' });
+  const result = await client.callTool('list_directory', { path: '.' });
+  assert.deepEqual(JSON.parse(result.content[0].text).entries, []);
+});
 test('only the current authenticated agent session can discover stock tools; disabled tools cannot execute', async t => {
   const { host, scope, session, client, changeScope } = await fixture(t);
   for (const headers of [{}, { ...session.server.headers, Origin: 'https://example.org' }]) {
@@ -103,7 +115,8 @@ test('Android uses the selected SDK and explicit device, and honours workspace p
   await client.callTool('android_run_tests', {device, runner:'org.demo.test/.Runner'});
   assert.deepEqual(calls.map(call => call.argv), [['devices','-l'], ['-s',device,'shell','getprop','ro.build.version.sdk'],
     ['-s',device,'install','-r',path.join(folder,'demo.apk')], ['-s',device,'shell','am','instrument','-w','-r','org.demo.test/.Runner']]);
-  assert.ok(calls.every(call => call.file === adb));
+  const canonicalAdb = await fs.realpath(adb);
+  assert.ok(calls.every(call => call.file === canonicalAdb));
   assert.equal((await client.callTool('android_run_tests', {device, runner:'bad;command'})).isError, true);
   assert.equal((await client.callTool('android_install_apk', {device, path:'../demo.apk'})).isError, true);
   approve = false;

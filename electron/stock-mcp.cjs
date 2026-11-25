@@ -1,5 +1,6 @@
 const path = require('node:path');
 const fs = require('node:fs/promises');
+const { mkdirSync, realpathSync } = require('node:fs');
 const { createHash, randomUUID } = require('node:crypto');
 const { createAppSettings } = require('./app-settings.cjs');
 const { serveLocalMcp } = require('./local-mcp-transport.cjs');
@@ -50,6 +51,14 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid
   const store = createAppSettings({ file: path.join(dataRoot, 'stock-mcp-permissions.json') });
   const sessions = new Map(), pending = new Set();
   const scopeKey = scope => createHash('sha256').update(JSON.stringify([scope.owner, scope.workspaceId])).digest('hex');
+  let canonicalDataRoot;
+  function defaultFolder(key) {
+    if (!canonicalDataRoot) {
+      mkdirSync(dataRoot, { recursive: true, mode: 0o700 });
+      canonicalDataRoot = realpathSync(dataRoot);
+    }
+    return path.join(canonicalDataRoot, 'workspace-files', key);
+  }
   function policy(scope) {
     const key = scopeKey(scope);
     const stored = store.snapshot().values[key];
@@ -58,7 +67,7 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid
     for (const [group, options] of Object.entries(modes)) effective[group] = options.includes(saved[group]) ? saved[group] : group in saved ? 'off' : defaults[group];
     const available = Object.keys(shells());
     const preferredShell = saved.preferredShell || 'auto';
-    return { ...effective, folder: saved.folder || path.join(dataRoot, 'workspace-files', key), customFolder: Boolean(saved.folder),
+    return { ...effective, folder: saved.folder || defaultFolder(key), customFolder: Boolean(saved.folder),
       revision: saved.revision || '', shells: available, preferredShell,
       defaultShell: preferredShell === 'auto' ? available[0] : available.find(shell => shell === preferredShell),
       adb: adbExecutable(saved.androidSdkFolder) || null };

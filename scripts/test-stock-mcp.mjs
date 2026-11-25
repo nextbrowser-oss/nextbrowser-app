@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, stat } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, stat } from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,7 +11,7 @@ import transport from '../electron/local-mcp-transport.cjs';
 // Real agent loop and MCP transports, isolated desktop profile and local model.
 // Only the model's choices and the native dialog responses are scripted.
 const root = process.cwd();
-const data = await mkdtemp(path.join(os.tmpdir(), 'nb-stock-smoke-'));
+const data = await realpath(await mkdtemp(path.join(os.tmpdir(), 'nb-stock-smoke-')));
 const folder = path.join(data, 'approved-folder');
 await mkdir(folder);
 let step = 0, error, shell, page, androidChecked = false;
