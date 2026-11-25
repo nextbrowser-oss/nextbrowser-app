@@ -1,4 +1,5 @@
-import { Tooltip } from "../shared/ui";
+import { DateRangePicker, IconButton, Tooltip } from "../shared/ui";
+import { trafficTrends } from "../lib/trafficTrends";
 import { useEffect, useMemo, useState } from "react";
 import { nextctlJson } from "../nextctl";
 import { useStore } from "../store";
@@ -17,13 +18,7 @@ import {
   type ProxyTrafficHistoryCoverage,
   type ProxyTrafficHistoryPreset,
 } from "../lib/proxyTraffic";
-import {
-  trafficAllowanceBytes,
-  trafficAllowanceFraction,
-  trafficAllowanceRemainingBytes,
-  trafficGateState,
-  trafficGateStateLabel,
-} from "../lib/trafficGate";
+import { trafficGateState } from "../lib/trafficGate";
 import { formatHistoryDateLabel } from "../lib/trafficChart";
 import {
   humanBytes,
@@ -35,7 +30,7 @@ import { TrafficChart } from "./TrafficChart";
 import { GitHubStarCard } from "./GitHubStarReward";
 import { shouldAskForGitHubStar } from "../lib/githubStarReward";
 
-type RangePreset = ProxyTrafficHistoryPreset | "custom";
+type RangePreset = ProxyTrafficHistoryPreset | "custom" | "all";
 
 const numberFormatter = new Intl.NumberFormat();
 const historyRequestConcurrency = 3;
@@ -64,11 +59,14 @@ async function loadBackendHistory(
   from: string,
   to: string,
   timezone: string,
+  accountStart: string | undefined,
+  cancelled: () => boolean,
 ): Promise<BackendHistoryResult> {
-  const windows = proxyTrafficHistoryWindows(from, to);
+  const windows = proxyTrafficHistoryWindows(from, to, accountStart);
   const histories: ProxyTrafficHistory[] = [];
 
   for (let offset = 0; offset < windows.length; offset += historyRequestConcurrency) {
+    if (cancelled()) break;
     const batch = windows.slice(offset, offset + historyRequestConcurrency);
     const results = await Promise.allSettled(batch.map(async (window) => {
       const payload = await nextctlJson<{ proxy_traffic_history: ProxyTrafficHistory }>([
@@ -105,9 +103,17 @@ function peakPoint(points: ProxyTrafficHistoryPoint[]): ProxyTrafficHistoryPoint
   );
 }
 
+function trendMark(direction?: number) {
+  if (direction == null) return null;
+  const label = (direction > 0 ? "Increased" : direction < 0 ? "Decreased" : "Unchanged") + " compared with the first half of this period";
+  return <Tooltip content={label}><span className="traffic-trend" aria-label={label}>{direction > 0 ? "↑" : direction < 0 ? "↓" : "→"}</span></Tooltip>;
+}
+
 export function UsageView() {
   const s = useStore();
   const today = dateValue(new Date());
+  const registration = s.accountCreatedAt ? new Date(s.accountCreatedAt) : undefined;
+  const accountStart = registration && Number.isFinite(registration.getTime()) && registration <= new Date() ? dateValue(registration) : undefined;
   const timezone = useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
     [],
@@ -139,9 +145,6 @@ export function UsageView() {
     setHandoffInviteUnavailable(false);
     setHandoffNotice(undefined);
   }, [s.proxy?.provider_account_email, s.authed]);
-  const allowanceBytes = trafficAllowanceBytes(s.proxy);
-  const allowanceRemainingBytes = trafficAllowanceRemainingBytes(s.proxy);
-  const fraction = trafficAllowanceFraction(s.proxy);
 
   useEffect(() => {
     if (!s.authed) {
@@ -150,7 +153,7 @@ export function UsageView() {
       setHistoryLoading(false);
       return;
     }
-    if (!isProxyTrafficHistoryRangeValid(from, to)) {
+    if (!(preset === "all" && accountStart && from === accountStart && to <= today) && !isProxyTrafficHistoryRangeValid(from, to)) {
       setHistory(undefined);
       setHistoryNotice("Choose a valid range of up to 1 year.");
       setHistoryLoading(false);
@@ -161,7 +164,7 @@ export function UsageView() {
     setHistory(undefined);
     setHistoryLoading(true);
     setHistoryNotice(undefined);
-    void loadBackendHistory(from, to, timezone)
+    void loadBackendHistory(from, to, timezone, preset === "all" ? accountStart : undefined, () => cancelled)
       .then((result) => {
         if (cancelled) return;
         setHistory(result.history);
@@ -184,7 +187,7 @@ export function UsageView() {
     return () => {
       cancelled = true;
     };
-  }, [from, historyReload, s.authed, s.accountOwnerId, timezone, to]);
+  }, [from, historyReload, s.authed, s.accountOwnerId, timezone, to, accountStart, preset, today]);
 
   const applyPreset = (days: ProxyTrafficHistoryPreset) => {
     setPreset(days);
@@ -265,6 +268,7 @@ export function UsageView() {
     }
   };
   const points = history?.data_points ?? [];
+  const trends = historyNotice ? undefined : trafficTrends(points);
   const proxyExhausted = isProxyTrafficExhausted(s.proxy);
   const dashboardReady = handoffInviteSent || s.proxy?.provider_access_method === "email_sent";
   const canBuyNodeMavenTraffic = gateState === "open" && proxyExhausted;
@@ -273,77 +277,7 @@ export function UsageView() {
 
   return (
     <div className="page proxy-usage-page">
-      <div className="proxy-usage-header">
-        <h2>Proxy usage</h2>
-        <Tooltip content={s.authed ? "Refresh proxy usage" : "Sign in to refresh proxy usage"}><button
-          className="btn-bordered"
-          disabled={s.isRefreshing || !s.authed}
-          onClick={() => void refreshUsage()}
-        >
-          {s.isRefreshing ? <Spinner size={13} /> : <Icon name="arrow.clockwise" size={13} />}
-          Refresh
-        </button></Tooltip>
-      </div>
-
       <div className="claw-card control-card proxy-card proxy-usage-card">
-        <div className="proxy-allocation-meter">
-          <div className="row section-row">
-            <div>
-              <div className="section">CURRENT ALLOCATION</div>
-              <div className="proxy-usage-current-title">
-                {s.proxy ? humanBytes(s.proxy.used_bytes) : "Usage unavailable"}
-                {s.proxy && (
-                  <span className="muted">
-                    {" / "}
-                    {s.proxy.limited
-                      ? allowanceBytes != null
-                        ? humanBytes(allowanceBytes)
-                        : "limit unavailable"
-                      : "no fixed limit"}
-                  </span>
-                )}
-              </div>
-            </div>
-            {s.proxy && (
-              <span className={`status-pill proxy-state${gateState === "blocked" ? " paused" : ""}`}>
-                {trafficGateStateLabel(s.proxy)}
-              </span>
-            )}
-          </div>
-          {s.proxy && (
-            <>
-              <div className="bar proxy-usage-progress">
-                <div
-                  className="bar-fill"
-                  style={{
-                    width: `${fraction * 100}%`,
-                    background:
-                      fraction >= 1
-                        ? "var(--red)"
-                        : fraction >= 0.9
-                          ? "var(--warn)"
-                          : fraction >= 0.7
-                            ? "var(--rating-star)"
-                            : undefined,
-                  }}
-                />
-              </div>
-              <div className="row small proxy-usage-allocation-meta">
-                <span>
-                  {s.proxy.limited
-                    ? allowanceBytes == null
-                      ? "Usage percentage unavailable"
-                      : `${Math.round(fraction * 100)}% used`
-                    : "No fixed traffic limit"}
-                </span>
-                <span className="spacer" />
-                {allowanceRemainingBytes != null && (
-                  <span>{humanBytes(allowanceRemainingBytes)} remaining</span>
-                )}
-              </div>
-            </>
-          )}
-        </div>
         {s.proxy ? (
           <>
             {s.proxyWarning && (
@@ -359,6 +293,7 @@ export function UsageView() {
                   <Icon name="lock.fill" size={16} />
                   <strong>Get 1 GB of free proxy traffic</strong>
                 </div>
+                {proxyExhausted && <p className="muted small">Free traffic is paused · {humanBytes(s.proxy.remaining_bytes ?? 0)} remaining</p>}
                 <p className="muted small">
                   Connect GitHub and star nextbrowser-oss/nextbrowser-app. Your 1 GB unlocks
                   once the star is checked. If you remove the star later, the bonus pauses again.
@@ -378,7 +313,7 @@ export function UsageView() {
                 </div>
               </div>
             )}
-            {s.proxy.provider === "nodemaven" && (gateState === "open" || dashboardReady) && (
+            {s.proxy.provider === "nodemaven" && (canBuyNodeMavenTraffic || dashboardReady) && (
               <div className={`nodemaven-handoff ${proxyExhausted ? "exhausted" : "ready"}`}>
                 <div className="nodemaven-handoff-copy">
                   <Icon name={proxyExhausted ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"} size={18} />
@@ -459,51 +394,33 @@ export function UsageView() {
         )}
       </div>
 
-      <section className="proxy-usage-analytics">
+      <section className="proxy-usage-analytics" aria-label="Proxy usage">
         <div className="proxy-usage-toolbar">
           <div className="proxy-usage-presets" role="group" aria-label="Usage range">
             {proxyTrafficHistoryPresetDays.map((days) => (
               <button
                 key={days}
                 className={preset === days ? "active" : ""}
+                aria-pressed={preset === days}
                 onClick={() => applyPreset(days)}
               >
                 {days === proxyTrafficHistoryMaxDays ? "1 year" : `${days} days`}
               </button>
             ))}
+            <DateRangePicker from={from} to={to} latest={today} selected={preset === "custom"} validRange={isProxyTrafficHistoryRangeValid}
+              onApply={(start,end) => { setPreset("custom"); setFrom(start); setTo(end); }}/>
+            {accountStart && <button className={preset === "all" ? "active" : ""} aria-pressed={preset === "all"} onClick={() => {
+              setPreset("all"); setFrom(accountStart); setTo(today);
+            }}>All time</button>}
           </div>
-          <div className="proxy-usage-date-range">
-            <label>
-              <span>From</span>
-              <input
-                type="date"
-                value={from}
-                min={shiftDate(to, -(proxyTrafficHistoryMaxDays - 1))}
-                max={to}
-                onChange={(event) => {
-                  setPreset("custom");
-                  setFrom(event.target.value);
-                }}
-              />
-            </label>
-            <label>
-              <span>To</span>
-              <input
-                type="date"
-                value={to}
-                min={from}
-                max={shiftDate(from, proxyTrafficHistoryMaxDays - 1) < today
-                  ? shiftDate(from, proxyTrafficHistoryMaxDays - 1)
-                  : today}
-                onChange={(event) => {
-                  setPreset("custom");
-                  setTo(event.target.value);
-                }}
-              />
-            </label>
-          </div>
+          <IconButton label="Refresh proxy usage" hint={s.authed ? "Refresh proxy usage" : "Sign in to refresh proxy usage"}
+            size="small" appearance="plain" className="proxy-usage-refresh" disabled={s.isRefreshing || !s.authed}
+            onClick={() => void refreshUsage()}>
+            {s.isRefreshing ? <Spinner size={15} /> : <Icon name="arrow.clockwise" size={15} />}
+          </IconButton>
         </div>
 
+        {(historyLoading || !history) && <h2>Proxy usage</h2>}
         {refreshError && <div role="alert" className="muted small">{refreshError}</div>}
         {historyNotice && (
           <div className="proxy-usage-notice">
@@ -516,39 +433,42 @@ export function UsageView() {
           <div className="proxy-usage-loading"><Spinner size={18} /> Loading usage history…</div>
         ) : history ? (
           <>
-            <dl className="claw-card proxy-usage-kpis">
-              <div className="proxy-usage-kpi">
-                <dt>Traffic in range</dt>
-                <dd>{humanBytes(history.total_bytes)}</dd>
-              </div>
-              <div className="proxy-usage-kpi">
-                <dt>Requests</dt>
-                <dd>{numberFormatter.format(history.total_requests)}</dd>
-              </div>
-              <div className="proxy-usage-kpi">
-                <dt>Daily average</dt>
-                <dd>{humanBytes(averageBytes)}</dd>
-              </div>
-              <div className="proxy-usage-kpi">
-                <dt>Peak day</dt>
-                <dd>{peak ? humanBytes(peak.used_bytes) : "—"}
-                  {peak && <small>{formatHistoryDateLabel(peak.label)}</small>}
-                </dd>
-              </div>
-            </dl>
 
             <div className="claw-card proxy-usage-chart-card">
               <div className="proxy-usage-card-heading">
                 <div>
-                  <strong>Traffic over time</strong>
-                  <span className="muted small">Daily transferred bytes · {history.timezone}</span>
+                  <h2>Proxy usage</h2>
+                  <span className="muted small">Traffic over time · {history.timezone}</span>
                 </div>
                 <span className="proxy-usage-source-badge">NodeMaven data</span>
               </div>
+              <dl className="proxy-usage-kpis chart-stats">
+                <div className="proxy-usage-kpi">
+                  <dt>Traffic in range</dt>
+                  <dd>{trendMark(trends?.traffic)}{humanBytes(history.total_bytes)}</dd>
+                </div>
+                <div className="proxy-usage-kpi">
+                  <dt>Requests</dt>
+                  <dd>{trendMark(trends?.requests)}{numberFormatter.format(history.total_requests)}</dd>
+                </div>
+                <div className="proxy-usage-kpi">
+                  <dt>Daily average</dt>
+                  <dd>{trendMark(trends?.traffic)}{humanBytes(averageBytes)}</dd>
+                </div>
+                <div className="proxy-usage-kpi">
+                  <dt>Peak day</dt>
+                  <dd>{trendMark(trends?.peak)}{peak ? humanBytes(peak.used_bytes) : "—"}
+                    {peak && <small>{formatHistoryDateLabel(peak.label)}</small>}
+                  </dd>
+                </div>
+              </dl>
+              {points.length ? (
+                <TrafficChart points={points} />
+              ) : (
+                <div className="proxy-usage-empty">No traffic recorded in this range.</div>
+              )}
               {history.sources.length > 0 && (
-                <div className="proxy-usage-source-totals" aria-label="Traffic source totals">
-                  <span className="muted">Source totals</span>
-                  <span className="spacer" />
+                <details className="proxy-usage-source-totals"><summary>Traffic source totals</summary>
                   {history.sources.map((source) => (
                     <span key={source.source}>
                       <strong>{source.source === "browser" ? "Browser" : "Proxy"}</strong>
@@ -558,12 +478,7 @@ export function UsageView() {
                       {numberFormatter.format(source.requests)} req
                     </span>
                   ))}
-                </div>
-              )}
-              {points.length ? (
-                <TrafficChart points={points} />
-              ) : (
-                <div className="proxy-usage-empty">No traffic recorded in this range.</div>
+                </details>
               )}
             </div>
           </>

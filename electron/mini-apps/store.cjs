@@ -7,6 +7,7 @@ const STATE_BYTES = 128 * 1024;
 const validId = id => typeof id === 'string' && /^[a-z][a-z0-9-]{1,47}$/.test(id);
 const surfaces = ['chat.panel', 'settings.design'];
 const shippedMusicHashes = new Map([
+  ['1.3.0', '0d7f50038eacf1bb211b7b93939a602d9d198f8cc26acd41bdc0b43f2601e530'],
   ['1.2.1', '1cb81dae38648e885353e6b2d677ad39b4aac8376d899657597e621784d4e603'],
   ['1.0.0', '17330b5da0632edd84375c731819dc384bc43825fdcc5d8c7b72b5e3c6fa6209'],
   ['1.1.0', '5ba0c7eee033cfa264523868bea710ef2aa0fc0e87d4578c5720543c1ca6f256'],

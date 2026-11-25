@@ -1,6 +1,8 @@
 import type { CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
+  Activity,
+  Monitor,
   AlertTriangle,
   ArrowDownCircle,
   ArrowRight,
@@ -90,6 +92,8 @@ const SF_MAP: Record<string, LucideIcon> = {
   "square.grid.2x2.fill": LayoutGrid,
   "square.grid.2x2": LayoutGrid,
   "video.fill": Video,
+  waveform: Activity,
+  desktopcomputer: Monitor,
   "circle.fill": Circle,
   safari: Compass,
   shield: ShieldCheck,

@@ -1,0 +1,40 @@
+.chat-live-workspace[data-live] { position: relative; overflow: hidden; }
+.chat-live-workspace[data-live] > .live-side-pane { display: contents; }
+.chat-live-workspace[data-live] :is(.live-browser-pane, .live-side-chat, .live-side-projects, .live-splitter, .live-side-toolbar) {
+  position: absolute;
+  box-sizing: border-box;
+}
+.chat-live-workspace[data-live] .live-side-chat { container: live-thread / inline-size; }
+.chat-live-workspace[data-live] .live-side-toolbar { z-index: 3; container: live-thread / inline-size; }
+.live-workspace-pill :is([role="tab"], [aria-controls="live-browser-pane"]) {
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
+.chat-live-workspace[data-dock-dragging], .chat-live-workspace[data-dock-dragging] .live-workspace-pill button { cursor: grabbing; }
+.chat-live-workspace:is([data-dock-dragging], [data-dock-resizing]) { user-select: none; }
+.chat-live-workspace:is([data-dock-dragging], [data-dock-resizing]) .remote-live-webview { pointer-events: none; }
+.live-splitter[aria-orientation="horizontal"] { cursor: row-resize; }
+.live-splitter[aria-orientation="horizontal"]::after { width: 36px; height: 2px; }
+.live-splitter[aria-orientation="horizontal"]:is(:hover, :focus-visible, [data-resizing])::after { width: 52px; height: 2px; }
+.live-dock-shield { position: absolute; inset: 0; z-index: 20; cursor: grabbing; }
+.live-workspace-tabs button[data-lifted] { position: absolute; opacity: 0; pointer-events: none; }
+.live-workspace-tabs { min-width: 0; max-width: 100%; flex-wrap: wrap; }
+.live-dock-chip { position: absolute; z-index: 1; padding: 5px 10px; border-radius: var(--glass-radius); font-size: 12px; transform: translate(10px, 10px); pointer-events: none; }
+.live-dock-preview {
+  position: absolute;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 2px var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  pointer-events: none;
+}
+.live-dock-preview span {
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+}

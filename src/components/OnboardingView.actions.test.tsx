@@ -242,7 +242,7 @@ describe("onboarding funnel events", () => {
   it("completes the Live step before closing the tour into Live", () => {
     state.statuses = { work: "running" };
 
-    press("Open Live");
+    press("Open Processes");
 
     expect(events()).toEqual([
       ["onboarding_step_completed", expect.objectContaining({ step: "control", via: "open_live", ready: true })],

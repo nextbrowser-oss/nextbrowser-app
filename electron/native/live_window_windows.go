@@ -578,6 +578,7 @@ func main() {
 		}
 	}()
 	out := json.NewEncoder(os.Stdout)
+	var wasFocused bool
 	tick := time.NewTicker(8 * time.Millisecond)
 	defer tick.Stop()
 	for {
@@ -599,6 +600,20 @@ func main() {
 				dispatchMessage.Call(uintptr(unsafe.Pointer(&msg)))
 			}
 			a.syncBrowserWindow()
+			focused := false
+			if a.attached && a.embeddedBounds != (rect{}) {
+				foreground, _, _ := getForeground.Call()
+				focused = foreground == a.window
+			}
+			if focused != wasFocused {
+				if err := out.Encode(struct {
+					Event   string `json:"event"`
+					Focused bool   `json:"focused"`
+				}{"browser-focus", focused}); err != nil {
+					return
+				}
+				wasFocused = focused
+			}
 			continue
 		}
 		var result response

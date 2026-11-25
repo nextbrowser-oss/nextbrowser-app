@@ -9,6 +9,7 @@ import { reportRendererError } from "./errorReporting";
 export const PERSISTENT_SETTINGS: readonly string[] = [
   "nextbrowser.theme",
   "nextbrowser.preferTabTools",
+  "nextbrowser.useHarness2",
   "nextbrowser.appearance.*",
   "nextbrowser.accountActivity.*",
   "nextbrowser.uiScale",

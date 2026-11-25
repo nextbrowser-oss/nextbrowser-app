@@ -89,7 +89,7 @@ function McpWorkspace({ workspaceId, proposal }: { workspaceId?: string; proposa
       <Button disabled={!!busy} onClick={() => { prepare(pendingProposal.name, pendingProposal.config); setPendingProposal(undefined); }}>Review proposal</Button>
       <Button onClick={() => setPendingProposal(undefined)}>Dismiss</Button></div>}
     {!workspaceId ? <p>Select a workspace to add MCP servers.</p> : tab === 'permissions' ? <StockMcpPermissions workspaceId={workspaceId} /> : tab === 'installed' ? <div className="mcp-server-list">
-      <article className="mcp-card"><div className="mcp-card-head"><Glyph name="folder" /><div><strong>Workspace tools</strong><span className="muted small">Terminal, files and MCP setup · built in</span></div>
+      <article className="mcp-card"><div className="mcp-card-head"><Glyph name="folder" /><div><strong>Workspace tools</strong><span className="muted small">Bash, PowerShell, Android and workspace files · built in</span></div>
         <Button onClick={() => setTab('permissions')}>Manage permissions</Button></div></article>
       <article className="mcp-card"><div className="mcp-card-head"><Glyph name="unplug" /><div><strong>Nextbrowser</strong><span className="muted small">Browser tools · built in</span></div><span className="mcp-badge">Managed</span></div><p className="muted small">{available ? `CLI ${version || 'available'}` : 'CLI unavailable'} · Connected when a browser task starts.</p></article>
       {loading && <p role="status">Loading servers…</p>}

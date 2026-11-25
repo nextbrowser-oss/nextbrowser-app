@@ -14,5 +14,6 @@ export { glassSurfaceClassName } from "./glass-surface";
 export { Dialog } from "./dialog";
 export { Button } from './button';
 export { WindowControls } from "./window-controls";
+export { DateRangePicker } from "./date-range";
 export { Tree, TREE_MIME } from "./tree";
 export type { TreeNode, TreeProps, TreeDropEvent, DropPosition } from "./tree";

@@ -2,12 +2,13 @@ const { spawn } = require("node:child_process");
 const { createInterface } = require("node:readline");
 const { randomUUID } = require("node:crypto");
 
-function startHelper(executable) {
+function startHelper(executable, reportFocus) {
   const child = spawn(executable, [], { windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
   const lines = createInterface({ input: child.stdout });
   let pending, failure;
   const fail = error => {
     failure = error;
+    reportFocus(false);
     pending?.settle(error);
   };
   child.on("error", fail);
@@ -16,6 +17,10 @@ function startHelper(executable) {
   lines.on("line", line => {
     try {
       const result = JSON.parse(line);
+      if (result.event === "browser-focus") {
+        if (!failure) reportFocus(result.focused === true);
+        return;
+      }
       pending?.settle(result.error ? new Error(result.error) : null, result);
     } catch (error) {
       fail(error);
@@ -90,7 +95,7 @@ function nativeLayout(raw, zoom) {
   return { bounds, holes, fill: raw.fill === true };
 }
 
-function createLiveWindowManager({ helperPath, sessionPID, browserExecutable }) {
+function createLiveWindowManager({ helperPath, sessionPID, browserExecutable, onBrowserFocus = () => {} }) {
   const windows = new WeakMap();
   const queues = new WeakMap();
   const closing = new WeakSet();
@@ -106,6 +111,7 @@ function createLiveWindowManager({ helperPath, sessionPID, browserExecutable }) 
     const session = windows.get(window);
     if (!session) return;
     windows.delete(window);
+    onBrowserFocus(window, false);
     try { await session.helper.send({ operation: "detach" }); }
     catch (error) {
       // Recover the main window if the helper exited before restoring its shape.
@@ -126,20 +132,25 @@ function createLiveWindowManager({ helperPath, sessionPID, browserExecutable }) 
           const pid = await sessionPID(profile, runtime);
           const executable = pid && await browserExecutable(runtime);
           if (!pid || !executable || closing.has(window) || window.isDestroyed()) return null;
-          const helper = startHelper(helperPath);
+          const helper = startHelper(helperPath, focused => {
+            if (windows.get(window) === session) onBrowserFocus(window, focused);
+          });
           const session = {
             helper, id: randomUUID(), attached: true, layout: getLayout(),
             target: { pid, executable, runtime, host: Number(window.getNativeWindowHandle().readBigUInt64LE()) },
           };
+          // The attach reply and the first focus event can share a stdout chunk.
+          windows.set(window, session);
           try {
             const result = await attach(session, session.layout);
             if (result.attached) {
-              windows.set(window, session);
               return { id: session.id, attached: true };
             }
           } catch (error) {
             console.warn("[live-window]", error.message);
           }
+          windows.delete(window);
+          onBrowserFocus(window, false);
           helper.close();
           return null;
         }
@@ -161,6 +172,7 @@ function createLiveWindowManager({ helperPath, sessionPID, browserExecutable }) 
         } else if (operation === "detach" && session.attached) {
           const result = await session.helper.send({ operation: "detach" });
           session.attached = false;
+          onBrowserFocus(window, false);
           if (!result.available) return null;
         } else if (operation === "layout") {
           session.layout = getLayout();

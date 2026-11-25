@@ -206,9 +206,9 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
               : `Start ${sessionProfileLabel}`
           : "Create a browser profile",
       action: "start_session",
-      actionLabel: sessionRunning ? "Open Live" : session.profile ? "Start profile" : "Create profile",
+      actionLabel: sessionRunning ? "Open Processes" : session.profile ? "Start profile" : "Create profile",
       confirmTitle: sessionRunning
-        ? "Open Live Streaming?"
+        ? "Open Processes?"
         : sessionProfileLabel
           ? `Start ${sessionProfileLabel}?`
           : "Create a profile?",

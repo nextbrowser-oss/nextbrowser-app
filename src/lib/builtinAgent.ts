@@ -29,8 +29,8 @@ export const BUILTIN_PROVIDERS: readonly BuiltinProviderPreset[] = [
     baseURL: "https://integrate.api.nvidia.com/v1",
     keyURL: "https://build.nvidia.com",
     keyRequired: true,
-    limits: "Free key, about 40 requests a minute. Nemotron models call tools well.",
-    dataUse: "NVIDIA offers its hosted models for development and testing.",
+    limits: "Nemotron is included with your Nextbrowser account. Shared capacity applies.",
+    dataUse: "Nextbrowser provides access to the hosted model. You can also use a personal NVIDIA key.",
   },
   {
     id: "openrouter",
@@ -116,6 +116,8 @@ export interface BuiltinAgentStatus {
 /** How a built-in agent run failed (electron/builtin-agent-run.cjs). */
 export interface BuiltinAgentFailure {
   code: string;
+  ref?: string;
+  diagnosticCode?: string;
   /** The user fixes it in Settings: a key, a limit, a model. */
   expected: boolean;
   status?: number;

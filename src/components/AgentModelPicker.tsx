@@ -29,7 +29,7 @@ export function AgentModelPicker({ agentId, version, disabled, onActivate, onRef
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const preset = builtinProvider(provider);
   const baseURL = provider === "custom" ? status?.settings.baseURL ?? "" : "";
-  const keyReady = !!status && (!preset.keyRequired || !!status.keys[provider]);
+  const keyReady = !!status && (provider === "nvidia" || !preset.keyRequired || !!status.keys[provider]);
   const canChoose = keyReady && (provider !== "custom" || !!baseURL);
 
   useEffect(() => {
@@ -81,17 +81,18 @@ export function AgentModelPicker({ agentId, version, disabled, onActivate, onRef
   };
   const label = isBuiltinAgent(agentId) ? (version || "Choose model") : agentById(agentId).name;
   const freeModels = freeOpenRouterOptions(models);
+  const managedNvidia = provider === "nvidia" && !status?.keys.nvidia;
   const modelFields = <>
     <div className="agent-model-picker-field"><span>Model</span>
       <Select overlay label="Provider model" searchPlaceholder="Search provider models" value={model}
         options={models.map(item => ({ value: item.id, label: item.id, description: item.free ? "Free" : undefined }))}
         disabled={!canChoose || loading || saving} onChange={setModel} />
       {loading && <div role="status">Loading models…</div>}
-      {!loading && canChoose && !models.length && <div>No models available. Enter a model ID below.</div>}
+      {!loading && canChoose && !models.length && <div>{managedNvidia ? "NVIDIA model list is unavailable." : "No models available. Enter a model ID below."}</div>}
     </div>
-    <label className="agent-model-picker-field">Model ID
+    {!managedNvidia && <label className="agent-model-picker-field">Model ID
       <input aria-label="Agent model ID" value={model} spellCheck={false} disabled={!status || saving} onChange={event => setModel(event.target.value)} placeholder="Model ID" />
-    </label>
+    </label>}
   </>;
   return <>
     <Popover label="Agent provider and model" open={open && !disabled} onOpenChange={changeOpen} side="top" align="start"
@@ -116,7 +117,7 @@ export function AgentModelPicker({ agentId, version, disabled, onActivate, onRef
         </div>
       </> : modelFields}
       {modelsNote && <div className="agent-model-picker-note" role="status">{modelsNote}</div>}
-      <p className="agent-model-picker-note">{isBuiltinAgent(agentId) ? "Applies to your Nextbrowser agent chats." : "Uses the API agent. Your current chat is kept; a new session opens if it has messages."}{provider !== "openrouter" && " Paid models use your provider balance."}</p>
+      <p className="agent-model-picker-note">{isBuiltinAgent(agentId) ? "Applies to your Nextbrowser agent chats." : "Uses the API agent. Your current chat is kept; a new session opens if it has messages."}{provider === "nvidia" && !status?.keys.nvidia ? " NVIDIA is included with your Nextbrowser account." : provider !== "openrouter" && " Paid models use your provider balance."}</p>
       {error && <div className="agent-model-picker-note" role="alert">{error}</div>}
       <div className="agent-model-picker-actions">
         {provider === "openrouter" && modelsNote && <button type="button" disabled={loading || saving} onClick={() => setCatalogAttempt(attempt => attempt + 1)}>Retry model list</button>}

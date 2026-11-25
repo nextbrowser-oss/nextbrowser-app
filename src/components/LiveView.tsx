@@ -16,7 +16,6 @@ import { Icon, Spinner } from "./Icon";
 import { UserFacingError } from "./UserFacingError";
 import { LiveControls } from "./LiveControls";
 import { LiveBrowserToolbar } from "./LiveBrowserToolbar";
-import { MainViewNavigation } from "./MainViewNavigation";
 import "./liveView.css";
 
 type LiveState = "idle" | "needs-download" | "needs-native-restart" | "connecting" | "live" | "error";
@@ -774,13 +773,13 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
       onSelect={selectRemoteTab} onAction={runBrowserAction} />}
     <div ref={nativeStage} className="live-stage remote-live-stage">
         {liveWindow && !liveWindow.attached && <div className="live-empty-panel">
-          <strong>Live is in a separate window</strong>
+          <strong>The browser is in a separate window</strong>
           <button className="btn-bordered-prominent" onClick={() => void changeLiveWindow("embed")}>Return to Nextbrowser</button>
         </div>}
         {state === "needs-download" && chosenTarget && chosenTarget.runtime !== "multilogin" && (
           <div className="live-empty-panel">
             <Icon name="arrow.down.circle.fill" size={32} className="muted" />
-            <strong>Download {runtimeNames[chosenTarget.runtime]} to use Live</strong>
+            <strong>Download {runtimeNames[chosenTarget.runtime]} to use Processes</strong>
             <p className="muted">The selected profile needs this browser.</p>
             <button className="primary live-stream-btn" onClick={() => void launchAndStream(launchTarget, true)}>
               Download &amp; start
@@ -789,10 +788,10 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
         )}
         {state === "needs-native-restart" && (
           <div className="live-empty-panel">
-            <strong>Live needs a browser window</strong>
+            <strong>Processes needs a browser window</strong>
             <p className="muted">Restart this profile to open its window inside Nextbrowser.</p>
             <button className="primary live-stream-btn" onClick={() => void restartInNativeWindow()}>
-              Restart in Live
+              Restart in Processes
             </button>
           </div>
         )}
@@ -814,23 +813,23 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
             </p>
             <button className="primary live-stream-btn" disabled={!launchTarget} onClick={() => { stop(); void launchAndStream(); }}>
               <Icon name="play.fill" size={12} />
-              Retry Live
+              Retry connection
             </button>
           </div>
         )}
         {state === "idle" && !streamInfo && (
           <div className="live-empty-panel">
             <Icon name="video.fill" size={34} className="muted" />
-            <strong>{launchTarget ? "Live view is off" : "No browser profile selected"}</strong>
+            <strong>{launchTarget ? "Browser view is off" : "No browser profile selected"}</strong>
             <p className="muted">
-              {launchTarget ? "Resume the browser in Live." : "Open Live controls to manage profiles in this workspace."}
+              {launchTarget ? "Resume the browser in Processes." : "Open process controls to manage profiles in this workspace."}
             </p>
             {launchTarget && <button
               className="btn-bordered-prominent live-stream-btn"
               onClick={() => void launchAndStream()}
             >
               <Icon name="play.fill" size={12} />
-              Resume Live
+              Resume browser
             </button>}
           </div>
         )}
@@ -876,7 +875,7 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
       {viewerWindow ? <>
         <div className="live-stage remote-live-stage">
           <div className="live-empty-panel">
-            <strong>Live is in a separate window</strong>
+            <strong>The browser is in a separate window</strong>
             <button className="btn-bordered-prominent" onClick={closeViewerWindow}>Return to Nextbrowser</button>
           </div>
         </div>
@@ -892,8 +891,8 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
         {inputWarning && <div className="live-input-warning" role="status">{inputWarning}</div>}
       </>}
       {active && <LiveControls open={controlsOpen} onOpenChange={onControlsChange}>
-        <div className="live-controls-navigation"><MainViewNavigation />{controlsAccessory}</div>
-        <IconButton appearance="plain" label="All Profiles" text="Profiles" onClick={onOverview}><Glyph name="blocks" size={14} /></IconButton>
+        {controlsAccessory}
+        <IconButton appearance="plain" label="All Processes" text="Processes" onClick={onOverview}><Glyph name="activity" size={14} /></IconButton>
         <div className="live-controls">
           <Select label="Browser profile" value={launchTarget} onChange={switchProfile}
             options={profileOptions.map(profile => ({

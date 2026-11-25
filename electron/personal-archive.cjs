@@ -160,4 +160,4 @@ async function readArchive(file, keyFile, dest) {
   } finally { recovery.fill(0); key?.fill(0); await input?.close(); }
 }
 
-module.exports = {writeArchive, readArchive};
+module.exports = {writeArchive, readArchive, userKey, readKey};

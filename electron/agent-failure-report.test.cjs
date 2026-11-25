@@ -193,8 +193,8 @@ test("a terminal the app closed, the user ended or interrupted is not reported",
 test("the built-in agent is reported by its failure code, never with what the provider said", () => {
   const failed = (failure, extra = {}) => ({ code: 1, stdout: "", stderr: "reason", reason: "reason", failure, ...extra });
   assert.equal(describeBuiltinAgentResult({ result: { code: 0, stdout: "Done." }, provider: "nvidia", model: "m" }).event, null);
-  assert.equal(describeBuiltinAgentResult({ result: failed({ code: "auth", expected: true }), provider: "nvidia", model: "m" }).event, null);
-  assert.equal(describeBuiltinAgentResult({ result: failed({ code: "rate_limit", expected: true }), provider: "openrouter", model: "m" }).event, null);
+  assert.equal(describeBuiltinAgentResult({ result: failed({ code: "auth", expected: true }), provider: "nvidia", model: "m" }).event.name, "BUILTIN_AGENT_AUTH");
+  assert.equal(describeBuiltinAgentResult({ result: failed({ code: "rate_limit", expected: true }), provider: "openrouter", model: "m" }).event.name, "BUILTIN_AGENT_RATE_LIMIT");
   assert.equal(describeBuiltinAgentResult({ result: failed({ code: "server", expected: false }), outcome: { stopped: true }, provider: "nvidia" }).event, null);
   assert.equal(describeBuiltinAgentResult({ result: failed({ code: "server", expected: false }), outcome: { quitting: true }, provider: "nvidia" }).event, null);
 

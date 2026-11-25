@@ -4,15 +4,16 @@ const { createHash, randomUUID } = require('node:crypto');
 const { createAppSettings } = require('./app-settings.cjs');
 const { serveLocalMcp } = require('./local-mcp-transport.cjs');
 const { normalizeServer } = require('./user-mcp.cjs');
-const { shells, safeText, readEntry, resolveEntry, runShell } = require('./stock-mcp-operations.cjs');
+const { shells, adbExecutable, safeText, readEntry, resolveEntry, runShell, runProgram } = require('./stock-mcp-operations.cjs');
 
 const endpoint = '/stock/mcp';
-const instructions = 'Use Workspace tools for user-requested local work. Check permissions and installed shells with get_permissions. A terminal command needs a separate desktop approval. A denial is final for that action. To add an MCP, use propose_mcp_server to open an editable proposal for the user, then wait for Connect & save. The new tools are available next turn.';
-const modes = { files: ['ask', 'allow', 'off'], terminal: ['ask', 'off'], setup: ['review', 'off'] };
-const defaults = { files: 'ask', terminal: 'ask', setup: 'review' };
+const instructions = 'For requested programming work use Workspace tools to inspect files, edit code and run tests in the selected folder. run_command uses the default shell (normally Bash) unless a shell is specified. For Android development use android_devices before targeting a specific device. Check get_permissions for runtime availability. Terminal and Android operations show a desktop approval. A denial is final for that action. To add an MCP, use propose_mcp_server to open an editable proposal for the user, then wait for Connect & save. The new tools are available next turn.';
+const modes = { files: ['ask', 'allow', 'off'], terminal: ['ask', 'off'], android: ['ask', 'off'], setup: ['review', 'off'] };
+const defaults = { files: 'ask', terminal: 'ask', android: 'ask', setup: 'review' };
 const string = description => ({ type: 'string', description });
 const relativePath = string('Path relative to the selected folder. Use "." for its root.');
 const offset = { type: 'integer', minimum: 0, description: 'Continuation offset from a previous result.' };
+const device = string('Exact serial from android_devices for the intended development device or emulator.');
 function tool(name, group, description, properties, required = []) {
   return { group, definition: { name, description, inputSchema: { type: 'object', properties, required, additionalProperties: false } } };
 }
@@ -22,13 +23,30 @@ const catalog = [
   tool('read_text_file', 'files', 'Read a page of a UTF-8 file in the workspace folder.', { path: relativePath, offset }, ['path']),
   tool('run_command', 'terminal', 'Ask the user to execute one foreground command under their OS account. Returns output and exit code.', {
     shell: { type: 'string', enum: ['bash', 'powershell'] }, command: string('The exact command to display and execute.'),
-  }, ['shell', 'command']),
+  }, ['command']),
+  tool('android_devices', 'android', 'List attached Android devices and emulators and their authorization status.', {}),
+  tool('android_device_info', 'android', 'Read the Android SDK level of the selected device.', { device }, ['device']),
+  tool('android_install_apk', 'android', 'Install or update a development APK from the selected workspace on a device.', { device, path: relativePath }, ['device', 'path']),
+  tool('android_run_tests', 'android', 'Run installed instrumentation tests and return the Android test runner output.', { device, runner: string('Instrumentation component, e.g. com.example.test/androidx.test.runner.AndroidJUnitRunner') }, ['device', 'runner']),
   tool('propose_mcp_server', 'setup', 'Open a setup form in Nextbrowser for the user to review and connect an MCP server. Leave credentials for the user to enter.', {
     name: string('A display name for the server.'), config_json: string('JSON object with command and args, or an HTTP(S) url.'),
   }, ['name', 'config_json']),
   tool('search_mcp_catalog', 'setup', 'Search the public MCP registry for a server by name or purpose. Review returned configurations before proposing them.', { search: string('Public search terms only.') }, ['search']),
 ];
-function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog }) {
+async function androidArgs(name, args, folder) {
+  if (name === 'android_devices') return ['devices', '-l'];
+  if (typeof args.device !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,254}$/.test(args.device)) throw Error('Select a device serial from android_devices.');
+  const target = ['-s', args.device];
+  if (name === 'android_device_info') return [...target, 'shell', 'getprop', 'ro.build.version.sdk'];
+  if (name === 'android_install_apk') {
+    const file = await resolveEntry(folder, args.path);
+    if (!file.toLowerCase().endsWith('.apk') || !(await fs.stat(file)).isFile()) throw Error('Select an APK file inside the workspace.');
+    return [...target, 'install', '-r', file];
+  }
+  if (name !== 'android_run_tests' || typeof args.runner !== 'string' || !/^[A-Za-z][\w.]*\/[A-Za-z.][\w.]*$/.test(args.runner)) throw Error('Enter a package/runner instrumentation component.');
+  return [...target, 'shell', 'am', 'instrument', '-w', '-r', args.runner];
+}
+function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid = runProgram }) {
   const store = createAppSettings({ file: path.join(dataRoot, 'stock-mcp-permissions.json') });
   const sessions = new Map(), pending = new Set();
   const scopeKey = scope => createHash('sha256').update(JSON.stringify([scope.owner, scope.workspaceId])).digest('hex');
@@ -38,8 +56,12 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog }) {
     const saved = stored ? JSON.parse(stored) : {};
     const effective = {};
     for (const [group, options] of Object.entries(modes)) effective[group] = options.includes(saved[group]) ? saved[group] : group in saved ? 'off' : defaults[group];
+    const available = Object.keys(shells());
+    const preferredShell = saved.preferredShell || 'auto';
     return { ...effective, folder: saved.folder || path.join(dataRoot, 'workspace-files', key), customFolder: Boolean(saved.folder),
-      revision: saved.revision || '', shells: Object.keys(shells()) };
+      revision: saved.revision || '', shells: available, preferredShell,
+      defaultShell: preferredShell === 'auto' ? available[0] : available.find(shell => shell === preferredShell),
+      adb: adbExecutable(saved.androidSdkFolder) || null };
   }
   function assertCurrent(scope) {
     if (!scope || !isCurrent(scope)) throw Error('The active account or workspace changed.');
@@ -51,6 +73,15 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog }) {
     if (command === 'stock_mcp_set') {
       if (!Object.hasOwn(modes, args.group) || !modes[args.group].includes(args.mode)) throw Error('Invalid permission.');
       patch = { [args.group]: args.mode };
+    } else if (command === 'stock_mcp_shell') {
+      if (!['auto', ...Object.keys(shells())].includes(args.shell)) throw Error('Choose an installed shell.');
+      patch = { preferredShell: args.shell };
+    } else if (command === 'stock_mcp_android_sdk') {
+      const result = await dialog.showOpenDialog(scope.window, { title: 'Choose Android SDK or platform-tools folder', properties: ['openDirectory'] });
+      if (result.canceled || !result.filePaths[0]) return policy(scope);
+      const dir = await fs.realpath(result.filePaths[0]);
+      if (!adbExecutable(dir)) throw Error('This folder does not contain Android SDK Platform-Tools (adb).');
+      patch = { androidSdkFolder: dir };
     } else if (command === 'stock_mcp_folder') {
       const result = await dialog.showOpenDialog(scope.window, { title: 'Choose the agent working folder', properties: ['openDirectory'] });
       if (result.canceled || !result.filePaths[0]) return policy(scope);
@@ -77,8 +108,8 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog }) {
     }
     check();
     if (name === 'get_permissions') {
-      const { files, terminal, setup, folder, shells } = prefs;
-      return { files, terminal, setup, folder, shells };
+      const { files, terminal, android, setup, folder, shells, defaultShell } = prefs;
+      return { files, terminal, android, setup, folder, shells, defaultShell, adbAvailable: Boolean(prefs.adb) };
     }
     if (name === 'search_mcp_catalog') {
       if (!safeText(args.search, 100) || args.search.includes('\n')) throw Error('Enter a short public search term.');
@@ -96,21 +127,26 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog }) {
       scope.window.webContents.send('stock-mcp:proposal', { owner: scope.owner, workspaceId: scope.workspaceId, name: args.name, config });
       return { status: 'awaiting_user_review', next: 'The user can edit the configuration and select Connect & save. Start a new turn after connecting.' };
     }
-    if (!['run_command', 'list_directory', 'read_text_file'].includes(name)) throw Error('Unknown workspace tool.');
+    const android = group === 'android';
+    if (!android && !['run_command', 'list_directory', 'read_text_file'].includes(name)) throw Error('Unknown workspace tool.');
     const terminal = name === 'run_command';
     const command = typeof args.command === 'string' ? args.command.replace(/\r\n/g, '\n') : '';
     const available = shells();
-    if (terminal && (!Object.hasOwn(available, args.shell) || !safeText(command, 1800) || command.split('\n').length > 12)) throw Error('Choose an installed shell and a short, displayable command.');
-    if (!terminal && (!safeText(args.path, 600) || args.path.includes('\n'))) throw Error('Enter a relative file path.');
+    const shell = args.shell ?? prefs.defaultShell;
+    if (terminal && (!Object.hasOwn(available, shell) || !safeText(command, 1800) || command.split('\n').length > 12)) throw Error('Choose an installed shell and a short, displayable command.');
+    if (android && !prefs.adb) throw Error('Install Android SDK Platform-Tools or choose the SDK folder in Extensions → MCP → Permissions.');
+    if (!terminal && !android && (!safeText(args.path, 600) || args.path.includes('\n'))) throw Error('Enter a relative file path.');
     if (pending.has(scope.shellId)) throw Error('A local tool is already awaiting approval or running in this window.');
     pending.add(scope.shellId);
     const controller = new AbortController();
     const operation = AbortSignal.any([signal, controller.signal, AbortSignal.timeout(95_000)]);
     const poll = setInterval(() => { try { check(); } catch { controller.abort(); } }, 150);
     try {
+      const argv = android && await androidArgs(name, args, prefs.folder);
       if (prefs[group] === 'ask') {
-        const action = terminal ? 'Run a terminal command as your OS user?' : name === 'list_directory' ? 'Share a directory listing with the agent?' : 'Share this file’s text with the agent?';
-        const detail = terminal ? `Shell: ${available[args.shell]}\nWorking folder: ${prefs.folder}\n\n${command}` : `Working folder: ${prefs.folder}\nRelative path: ${args.path}`;
+        const action = android ? 'Run this Android development command?' : terminal ? 'Run a terminal command as your OS user?' : name === 'list_directory' ? 'Share a directory listing with the agent?' : 'Share this file’s text with the agent?';
+        const detail = android ? [prefs.adb, ...argv].map(arg => JSON.stringify(arg)).join(' ')
+          : terminal ? `Shell: ${available[shell]}\nWorking folder: ${prefs.folder}\n\n${command}` : `Working folder: ${prefs.folder}\nRelative path: ${args.path}`;
         const answer = await dialog.showMessageBox(scope.window, { type: 'question', title: 'Nextbrowser agent permission', message: action, detail,
           buttons: ['Deny', 'Allow once'], defaultId: 0, cancelId: 0, noLink: true, signal: operation });
         if (answer.response !== 1) throw Error('The user denied this request. Do not retry it.');
@@ -119,10 +155,16 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog }) {
       check();
       if (!prefs.customFolder) await fs.mkdir(prefs.folder, { recursive: true, mode: 0o700 });
       let result;
-      if (terminal) {
+      if (android) {
+        const confirmedArgs = await androidArgs(name, args, prefs.folder);
+        if (JSON.stringify(confirmedArgs) !== JSON.stringify(argv)) throw Error('The Android command changed. Try again.');
         const cwd = await resolveEntry(prefs.folder, '.');
         check();
-        result = await runShell(available[args.shell], args.shell, command, cwd, operation);
+        result = await runAndroid(prefs.adb, confirmedArgs, cwd, operation, 90_000);
+      } else if (terminal) {
+        const cwd = await resolveEntry(prefs.folder, '.');
+        check();
+        result = await runShell(available[shell], shell, command, cwd, operation);
       } else {
         result = await readEntry(prefs.folder, args.path, name === 'list_directory', args.offset ?? 0);
       }

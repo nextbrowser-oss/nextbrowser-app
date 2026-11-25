@@ -1,8 +1,9 @@
 .project-tree { color: inherit; position: relative; }
 .project-tree .shared-icon-button { width: 24px; height: 24px; color: inherit; }
 .project-tree .shared-tree-meta small { opacity: .65; font-size: 10px; }
+.project-popover-toolbar { flex-wrap: wrap; }
 .project-popover-toolbar .rail-popover-heading { padding-inline-end: 0; }
-.project-popover-toolbar .project-pin { width: 22px; height: 22px; margin-inline-end: auto; }
+.project-popover-toolbar .project-pin { width: auto; height: 24px; margin-inline-end: auto; padding-inline: 6px; gap: 3px; font-size: 11px; color: var(--glass-inverse-text); }
 .project-pin svg { color: var(--red); }
 .project-pin[aria-pressed="true"] svg { color: var(--green); }
 .project-popover-toolbar .project-pin:hover { background: var(--glass-inverse-control-hover); }

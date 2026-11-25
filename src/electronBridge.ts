@@ -2,6 +2,7 @@ import type { RendererErrorReport } from "./lib/errorReporting";
 import type { SettingsUpdate } from "./lib/settingsStorage";
 
 export interface NextbrowserBridge {
+  trackAccountActivity?(owner: string | null): void;
   readonly platform?: string;
   readonly customWindowControls?: boolean;
   invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;

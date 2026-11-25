@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 // A local model fixture drives real Electron agent turns and the real MCP
 // endpoint. Read the resulting board from the user-visible sandboxed guest.
 export async function checkMiniAppAgent(page) {
-  let step = 0, instance, id, revision, failure, foreign = false;
+  let step = -1, instance, id, revision, failure, foreign = false;
   const server = http.createServer(async (req, res) => {
     try {
       let body = '';
@@ -19,11 +19,23 @@ export async function checkMiniAppAgent(page) {
       }
       const run = (tool, input) => ask('call_app_tool', { app_id: 'kanban', instance, tool, input_json: JSON.stringify(input) });
       let msg;
-      if (foreign) {
+      if (!tools && messages[0].content.includes('short practical plan')) {
+        msg = reply('Read the workspace tools and verify the board.');
+      } else if (foreign) {
         assert(!tools.some(t => t.function.description.startsWith('[Installed mini apps]')));
         msg = reply('Other workspace isolated');
       } else switch (step++) {
-        case 0: msg = ask('list_apps', {}); break;
+        case -1:
+          assert.match(messages.map(m => m.content).join(' '), /Installed WebMCP app IDs at launch: \["kanban"\]/);
+          msg = ask('get_session_settings', {}); break;
+        case 0: {
+          const config = JSON.parse(last);
+          assert.equal(config.agent, 'nextbrowser');
+          assert.equal(config.effective.harness2Recovery, true);
+          assert.equal(config.effective.preferWebsiteWebMCP, false);
+          assert.equal(config.effective.installedAppWebMCP, true);
+          msg = ask('list_apps', {}); break;
+        }
         case 1:
           assert.deepEqual(JSON.parse(last).apps.map(app => app.id), ['kanban']);
           msg = ask('list_app_tools', { app_id: 'kanban' }); break;
@@ -75,6 +87,7 @@ export async function checkMiniAppAgent(page) {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   try {
     await page.evaluate(url => window.nextbrowser.updateSettings({ values: {
+      'nextbrowser.useHarness2': '1', 'nextbrowser.preferTabTools': '0',
       'nextbrowser.builtinAgent': JSON.stringify({ provider: 'custom', model: 'fixture', baseURL: url }),
     } }), 'http://127.0.0.1:' + server.address().port + '/v1');
     const turn = workspaceId => page.evaluate(workspaceId => window.nextbrowser.invoke('agent_run', {

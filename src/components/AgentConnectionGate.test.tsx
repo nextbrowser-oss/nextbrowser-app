@@ -59,7 +59,7 @@ describe("AgentConnectionGate", () => {
   it("offers a free model next to the agent CLIs", () => {
     const html = renderToStaticMarkup(<AgentConnectionGate onDismiss={() => undefined} />);
     expect(html).toContain("Use a free model");
-    expect(html).toContain("The built-in agent includes free OpenRouter models.");
+    expect(html).toContain("Your Nextbrowser account includes NVIDIA Nemotron and free OpenRouter models.");
     expect(html).not.toContain("No agent CLI on this computer?");
     expect(html).not.toContain("builtin-agent-setup");
   });
@@ -68,13 +68,14 @@ describe("AgentConnectionGate", () => {
     Object.assign(state.runtime.claude, { error: "Claude Code CLI not found. Nextbrowser needs the Claude Code CLI, not the Claude desktop app, to connect. Install the CLI, then try again." });
     try {
       const missing = renderToStaticMarkup(<AgentConnectionGate onDismiss={() => undefined} />);
-      expect(missing).toContain("No agent CLI on this computer? The built-in agent includes free OpenRouter models.");
+      expect(missing).toContain("No agent CLI on this computer? Your Nextbrowser account includes NVIDIA Nemotron and free OpenRouter models.");
       expect(missing).toContain("agent-gate-free is-suggested");
       state.startupAgentSuggestion = "nextbrowser";
       Object.assign(state.runtime, { nextbrowser: { version: undefined, loggedIn: null, error: "Set up the Nextbrowser agent in Settings → Agent.", authorizing: false } });
       const chosen = renderToStaticMarkup(<AgentConnectionGate onDismiss={() => undefined} />);
       expect(chosen).toContain("builtin-agent-setup");
-      expect(chosen).toContain('href="https://build.nvidia.com"');
+      expect(chosen).toContain("Use a personal NVIDIA key");
+      expect(chosen).not.toContain('aria-label="NVIDIA API key"');
       expect(chosen).not.toContain("agent-gate-connect");
       expect(chosen).not.toContain("Set up the Nextbrowser agent in Settings");
     } finally {

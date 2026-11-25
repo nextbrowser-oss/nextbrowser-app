@@ -1019,12 +1019,17 @@ body.is-resizing-sidebar {
   color: var(--muted);
   text-align: center;
 }
-.claw-card.proxy-usage-kpis {
+.proxy-usage-chart-card .chart-stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin: 0;
-  padding: 0;
+  grid-template-columns: repeat(4, minmax(0, auto));
+  max-width:100%; width:fit-content; margin:6px 0; padding:2px;
+  border-radius:8px; background:var(--surface-2);
 }
+.proxy-usage-card:empty { display:none; }
+.traffic-trend { color:var(--muted); font-size:13px; }
+.proxy-usage-chart-card h2 { margin:0; font-size:16px; }
+.proxy-usage-source-totals summary { cursor:pointer; }
+.proxy-usage-source-totals[open] > span { margin-inline-end:1em; }
 .proxy-usage-kpi {
   min-width: 0;
   padding: 7px 12px;
@@ -1045,7 +1050,7 @@ body.is-resizing-sidebar {
   letter-spacing: -0.02em;
 }
 @container usage (max-width: 500px) {
-  .claw-card.proxy-usage-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .proxy-usage-chart-card .chart-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .proxy-usage-kpi:nth-child(odd) { border-inline-start: 0; }
   .proxy-usage-kpi:nth-child(n+3) { border-top: 1px solid var(--line); }
 }
@@ -5446,6 +5451,8 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   margin-top: 6px;
 }
 .error-collapse { display: flex; flex-direction: column; gap: 8px; }
+.chat-reply-support { color: var(--muted); font-size: .9em; line-height: 1.45; white-space: normal; overflow-wrap: anywhere; }
+.markdown + .chat-reply-support { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--line); }
 .error-summary {
   display: flex;
   align-items: flex-start;
@@ -6937,6 +6944,9 @@ code { background: var(--surface-4); padding: 1px 5px; border-radius: 4px; }
   background: color-mix(in srgb, var(--red) 20%, transparent);
   color: var(--red);
 }
+.agent-run-report { display: grid; gap: 5px; padding: 8px 0; font-size: 13px; }
+.agent-run-report ol { margin: 0; padding-inline-start: 22px; }
+.agent-run-report p { margin: 0; color: var(--muted); }
 .agent-steps {
   margin: 2px 0 6px;
   max-width: 100%;
@@ -7890,7 +7900,6 @@ pre,
   background: transparent;
 }
 
-.app[data-settings-open] .main-view-navigation { display: none; }
 .desktop-shell:has(.app) > .app-titlebar {
   --text: var(--chat-toolbar-text);
   --muted: var(--chat-toolbar-muted);

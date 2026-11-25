@@ -315,7 +315,7 @@ export function OnboardingView() {
                     { icon: "person.crop.circle", title: "You", text: "Set the goal" },
                     { icon: "cpu.fill", title: "Agent", text: "Does the work" },
                     { icon: "person.2.fill", title: "Profile", text: "Provides browser context" },
-                    { icon: "video.fill", title: "Live", text: "Shows the real page" },
+                    { icon: "waveform", title: "Processes", text: "Shows the real page" },
                   ].map((item, index) => (
                     <div className="onboarding-flow-stage" key={item.title}>
                       <div className="onboarding-flow-card">
@@ -375,7 +375,7 @@ export function OnboardingView() {
                   <Icon name="bolt.fill" size={17} />
                   <span>
                     <strong>Use a free model</strong>
-                    <span className="muted small">No agent installed? The built-in agent includes free OpenRouter models. You can also connect NVIDIA or Google with your own key.</span>
+                    <span className="muted small">Your Nextbrowser account includes NVIDIA Nemotron and free OpenRouter models. NVIDIA is ready after sign-in.</span>
                   </span>
                   {isBuiltinAgent(agentId) && ready && <Icon name="checkmark.circle.fill" size={17} className="ok" />}
                 </button>
@@ -540,8 +540,8 @@ export function OnboardingView() {
                   />
                   <strong>
                     {selectedSessionRunning
-                      ? "Live Streaming is ready"
-                      : "Start a profile to use Live Streaming"}
+                      ? "Processes is ready"
+                      : "Start a profile to use Processes"}
                   </strong>
                   {selectedSessionRunning ? (
                     <button
@@ -549,7 +549,7 @@ export function OnboardingView() {
                       className="btn-bordered-prominent"
                       onClick={() => { completeCurrentStep("open_live"); closeTutorial("completed", "live"); }}
                     >
-                      Open Live
+                      Open Processes
                       <Icon name="chevron.right" size={13} />
                     </button>
                   ) : (

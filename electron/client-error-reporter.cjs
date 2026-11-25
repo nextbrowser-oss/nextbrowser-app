@@ -418,6 +418,7 @@ function createClientErrorReporter({
     const existing = queue.find((entry) => (
       entry.client.session_id === sessionId
       && entry.event.fingerprint === event.fingerprint
+      && (event.source !== "agent" || !event.context?.ref || entry.event.context?.ref === event.context.ref)
       && !entry.sending
       && (entry.lastAt ?? 0) >= oldest
     ));

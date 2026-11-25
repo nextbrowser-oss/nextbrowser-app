@@ -65,7 +65,7 @@ export function normalizeConversation(raw: Omit<Conversation, "profileToolsets">
     : raw.executionTarget === "local"
       ? "local" as const
       : undefined;
-  const legacyNumberedChat = /^Chat\s+(\d+)$/i.exec(raw.title?.trim() ?? "");
+  const legacyNumberedChat = !raw.projectId && /^Chat\s+(\d+)$/i.exec(raw.title?.trim() ?? "");
   const title = legacyNumberedChat ? `Project ${legacyNumberedChat[1]}` : raw.title;
   const chatMode = raw.chatMode === "terminal" ? "terminal" as const : "chat" as const;
   const terminalPreview = typeof raw.terminalPreview === "string"
@@ -80,6 +80,9 @@ export function normalizeConversation(raw: Omit<Conversation, "profileToolsets">
   return {
     ...raw,
     title,
+    sessionTitle: typeof raw.sessionTitle === "string" ? raw.sessionTitle.trim() || undefined : undefined,
+    sessionTitleEditedAt: typeof raw.sessionTitleEditedAt === "number" && Number.isFinite(raw.sessionTitleEditedAt)
+      ? raw.sessionTitleEditedAt : undefined,
     createdAt: parseMillis(raw.createdAt),
     updatedAt: parseMillis(raw.updatedAt),
     messages,

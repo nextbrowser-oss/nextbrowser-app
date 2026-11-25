@@ -19,7 +19,7 @@ const calm: SettingsAttentionInput = {
 
 describe("Settings sections", () => {
   it("lists the settings sections in rail order", () => {
-    expect(SETTINGS_SECTIONS.map((section) => section.label)).toEqual(["General", "Themes", "Updates", "Privacy", "Agent", "Browser", "Proxy"]);
+    expect(SETTINGS_SECTIONS.map((section) => section.label)).toEqual(["General", "Themes", "Updates", "Privacy", "Device sessions", "Agent", "Browser", "Proxy"]);
     expect(new Set(SETTINGS_SECTIONS.map((section) => section.id)).size).toBe(SETTINGS_SECTIONS.length);
     expect(SETTINGS_SECTIONS.every((section) => section.summary.endsWith("."))).toBe(true);
     expect(settingsSectionInfo("agent").label).toBe("Agent");

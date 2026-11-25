@@ -3,6 +3,7 @@ import { canDropProject, projectFolders, type ProjectSort } from "../lib/project
 import { Glyph, IconButton, Tree, type TreeNode } from "../shared/ui";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
+import { sessionName } from "../lib/sessionTitle";
 import "./projectTree.css";
 
 /** Product adapter over the FractalUI tree; saved records remain the source of truth. */
@@ -11,7 +12,6 @@ export function ProjectTree({ query, sort, onSelect }: { query: string; sort: Pr
   const workspaceId = useStore(state => state.activeWorkspaceId);
   const activeId = useStore(state => state.activeConvId[state.agentId]);
   const select = useStore(state => state.selectConversation);
-  const setTab = useStore(state => state.setTab);
   const createSession = useStore(state => state.createProjectSession);
   const move = useStore(state => state.moveProjectTreeItem);
   const [error, setError] = useState<string>();
@@ -23,8 +23,8 @@ export function ProjectTree({ query, sort, onSelect }: { query: string; sort: Pr
   const nodes: TreeNode[] = folders.map(({ project, sessions }) => ({
     id: `folder:${project.id}`, label: project.title, ariaLabel: `project ${project.title}`, icon: <Glyph name="folder" size={15} />,
     meta: <><small>{sessions.length}</small><IconButton label={`New session in ${project.title}`} appearance="plain" size="small" onClick={event => { event.stopPropagation(); if (createSession(project.id)) onSelect?.(); }}><Icon name="plus" size={12} /></IconButton></>,
-    children: sessions.map(session => ({ id: `session:${session.id}`, label: session.id === project.id ? "Main session" : session.title,
-      ariaLabel: `Open ${session.id === project.id ? "Main session" : session.title} in ${project.title}`, icon: <Icon name="bubble.left.and.bubble.right.fill" size={12} />,
+    children: sessions.map(session => ({ id: `session:${session.id}`, label: sessionName(session),
+      ariaLabel: `Open ${sessionName(session)} in ${project.title}`, icon: <Icon name="bubble.left.and.bubble.right.fill" size={12} />,
       data: { kind: "session", id: session.id, main: session.id === project.id },
     })), data: { kind: "folder", id: project.id },
   }));
@@ -41,7 +41,7 @@ export function ProjectTree({ query, sort, onSelect }: { query: string; sort: Pr
       onSelect={node => {
         const data = node.data as { kind: string; id: string };
         if (data.kind === "folder") { expand(expanded.includes(node.id) ? expanded.filter(id => id !== node.id) : [...expanded, node.id]); return; }
-        select(data.id); setTab("chat"); onSelect?.();
+        select(data.id); onSelect?.();
       }}
       canDrag={node => {
         const data = node.data as { kind: string; main?: boolean };

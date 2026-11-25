@@ -2,7 +2,7 @@ const { createHash, randomUUID } = require('node:crypto');
 const { isIP } = require('node:net');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { openBrowser } = require('../personal-browser.cjs');
+const { findBrowser } = require('../personal-browser.cjs');
 
 const googleSignIn = {
   spotify: 'https://accounts.spotify.com/en/login?continue=https%3A%2F%2Fopen.spotify.com%2F',
@@ -38,7 +38,8 @@ function validLocation(raw, service, allowSignIn) {
 }
 
 // These three fixed operations only read media metadata or control the active HTML player.
-async function mediaState(action) {
+async function mediaState({ action, origin }) {
+  if (location.origin !== origin) throw Error('The music page changed. Read playback status again.');
   const players = Array.from(document.querySelectorAll('audio,video'));
   const media = players.find(item => !item.paused && !item.ended) ?? players.find(item => item.currentSrc);
   if (action !== 'status' && !media) throw Error('Start a track in the service player first.');
@@ -49,7 +50,21 @@ async function mediaState(action) {
     artist: (navigator.mediaSession?.metadata?.artist ?? '').slice(0,180) };
 }
 
-function createMusicPlayer({ session, BrowserWindow, dialog, guestSessions, store, browserRoot, launchBrowser = openBrowser }) {
+async function openMusicBrowser(directory) {
+  const executablePath = await findBrowser();
+  await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+  try {
+    return await require('playwright-core').chromium.launchPersistentContext(directory, {
+      executablePath, headless: false, viewport: null, ignoreDefaultArgs: true,
+      args: ['--user-data-dir=' + directory, '--remote-debugging-pipe', '--no-first-run', '--no-default-browser-check', 'about:blank'],
+      timeout: 12000,
+    });
+  } catch {
+    throw Error('Could not open this music profile. Close its previous browser window and reopen the player.');
+  }
+}
+
+function createMusicPlayer({ session, BrowserWindow, dialog, guestSessions, store, browserRoot, launchBrowser = openMusicBrowser }) {
   const windows = new Map();
   const nativeWindows = new Map();
   const pending = new Map();
@@ -99,15 +114,25 @@ function createMusicPlayer({ session, BrowserWindow, dialog, guestSessions, stor
       if (e.isMainFrame !== false && !validLocation(e.url ?? url, service, true)) e.preventDefault();
     });
   }
-  async function open(binding, account, signIn) {
+  async function open(binding, account, signIn, active) {
     const key = partition(binding.owner, binding.generation, account.id);
     if (account.login === 'google') {
       const url = signIn ? googleSignIn[account.service] : serviceFor(account)[1];
-      const child = await launchBrowser(browserDirectory(key),url);
-      const children = nativeWindows.get(key) ?? new Set();
-      nativeWindows.set(key,children);
-      children.add(child);
-      child.once('exit', () => { children.delete(child); if (!children.size) nativeWindows.delete(key); });
+      let handle = nativeWindows.get(key);
+      if (!handle) {
+        const context = await launchBrowser(browserDirectory(key));
+        if (!active()) { await context.close(); throw Error('The active account changed.'); }
+        handle = { context, shellId: binding.shellId };
+        nativeWindows.set(key, handle);
+        context.once('close', () => { if (nativeWindows.get(key) === handle) nativeWindows.delete(key); });
+      }
+      const pages = handle.context.pages();
+      const existing = pages.find(page => new URL(page.url()).origin === new URL(url).origin &&
+        (!signIn || page.url() === url));
+      const page = existing ?? pages.find(page => page.url() === 'about:blank') ?? await handle.context.newPage();
+      if (!active()) throw Error('The active account changed.');
+      if (!existing) await page.goto(url, { waitUntil: 'commit', timeout: 15000 });
+      await page.bringToFront();
       return;
     }
     const existing = windows.get(key)?.win;
@@ -162,11 +187,11 @@ function createMusicPlayer({ session, BrowserWindow, dialog, guestSessions, stor
       if (input.login === 'google' && account.login !== 'google') {
         if (!Object.hasOwn(googleSignIn,account.service)) throw Error('Google sign-in is unavailable for this service.');
         const updated = {...account,login:'google'};
-        await open(binding,updated,true);
+        await open(binding,updated,true,active);
         write(accounts.map(item => item.id === account.id ? updated : item),selected);
         const embedded = windows.get(key)?.win;
         if (embedded && !embedded.isDestroyed()) embedded.close();
-      } else await open(binding,account,input.signIn === true);
+      } else await open(binding,account,input.signIn === true,active);
       return { opened: true };
     }
     if (input.action === 'forget') {
@@ -177,14 +202,34 @@ function createMusicPlayer({ session, BrowserWindow, dialog, guestSessions, stor
       return { removed: account.id };
     }
     if (!['status','play','pause'].includes(input.action)) throw Error('Unknown playback action.');
+    if (account.login === 'google') {
+      const origin = new URL(serviceFor(account)[1]).origin;
+      const pages = nativeWindows.get(key)?.context.pages().filter(page => new URL(page.url()).origin === origin) ?? [];
+      const candidates = [];
+      for (const page of pages) {
+        const state = await page.evaluate(mediaState, { action: 'status', origin });
+        if (state.available) candidates.push({ page, state });
+      }
+      const playing = candidates.filter(item => item.state.playing);
+      const targets = playing.length ? playing : candidates;
+      if (targets.length > 1) throw Error('Several music tabs have a track. Leave the player you want open and try again.');
+      if (!targets.length && input.action !== 'status') throw Error('Open this music profile in Music Player and start a track first.');
+      if (input.action === 'status') return targets[0]?.state ?? { available: false, playing: false };
+      if (!active()) throw Error('The active account changed.');
+      return targets[0].page.evaluate(mediaState, { action: input.action, origin });
+    }
     const win = windows.get(key)?.win;
     if (!win || win.isDestroyed() || !validLocation(win.webContents.getURL(), serviceFor(account), false)) {
       if (input.action === 'status') return { available: false, playing: false };
       throw Error('Open the service and start a track first.');
     }
-    return win.webContents.executeJavaScriptInIsolatedWorld(177, [{ code: '(' + mediaState.toString() + ')(' + JSON.stringify(input.action) + ')' }]);
+    const origin = new URL(win.webContents.getURL()).origin;
+    return win.webContents.executeJavaScriptInIsolatedWorld(177, [{ code: '(' + mediaState.toString() + ')(' + JSON.stringify({ action: input.action, origin }) + ')' }]);
   }
   function closeForShell(shellId) {
+    for (const handle of nativeWindows.values()) {
+      if (handle.shellId === shellId) void handle.context.close().catch(() => {});
+    }
     for (const {win, shellId: ownerShell} of windows.values()) if (ownerShell === shellId && !win.isDestroyed()) win.destroy();
   }
   async function clear(owner) {
@@ -200,4 +245,4 @@ function createMusicPlayer({ session, BrowserWindow, dialog, guestSessions, stor
     closeForShell, clear: owner => serialize(owner, () => clear(owner)),
   };
 }
-module.exports = { createMusicPlayer };
+module.exports = { createMusicPlayer, openMusicBrowser };

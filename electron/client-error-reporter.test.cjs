@@ -105,6 +105,24 @@ const exception = (message = "boom", extra = {}) => ({
   ...extra,
 });
 
+test("each paused browser run sends its own chat reference without the task or page output", async t => {
+  const {reportBuiltinRun} = require("./agent-failure-report.cjs");
+  const {reporter, requests} = harness(t);
+  const refs = Array.from({length:3}, () => {
+    const result = reportBuiltinRun({
+      result:{code:1, stdout:"private flight result", reason:"private page text", failure:{code:"no_progress",expected:true}, steps:7},
+      provider:"custom", model:"private model", durationMs:1100, run:"chat",
+    }, event => reporter.capture(event));
+    assert.equal(result.failure.diagnosticCode, "BUILTIN_AGENT_NO_PROGRESS");
+    return result.failure.ref;
+  });
+  await reporter.flush();
+  const events = requests.flatMap(request => request.body.events);
+  assert.deepEqual(events.map(event => event.context.ref), refs);
+  assert.ok(events.every(event => event.context.steps === "7" && event.context.code === "BUILTIN_AGENT_NO_PROGRESS"));
+  assert.ok(!JSON.stringify(events).includes("private"));
+});
+
 test("local diagnostics keep only bounded failure identifiers after a flush and clear on opt-out", async (t) => {
   const h = harness(t);
   for (let i = 0; i < 25; i++) {

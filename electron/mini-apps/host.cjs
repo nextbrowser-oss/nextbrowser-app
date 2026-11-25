@@ -100,8 +100,9 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
         if (request.url === contextURL && request.method === 'POST' && binding.popover) {
           const { height } = await readStateRequest(request);
           const scope = scopes.get(binding.shellId);
-          if (!bindings.has(partition) || scope?.owner !== binding.owner || scope.window.isDestroyed()) return json(null, 410);
           if (!Number.isSafeInteger(height) || height < 1 || height > 4096) return json(null, 400);
+          if (binding.validation) return json(null);
+          if (!bindings.has(partition) || !scope || scope.owner !== binding.owner || scope.window.isDestroyed()) return json(null, 410);
           const boundedHeight = Math.max(64, Math.min(360, height));
           if (boundedHeight !== binding.height) {
             binding.height = boundedHeight;
@@ -139,10 +140,10 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
     guest.on('will-frame-navigate', event => { if (!event.isMainFrame || event.url !== entry) event.preventDefault(); });
     guest.on('will-attach-webview', event => event.preventDefault());
   }
-  async function validateInstallation(pkg) {
+  async function validateView(pkg, viewContext) {
     const partition = 'mini-app-check-' + randomUUID();
     const mock = { pkg, revision: 0, value: null };
-    const isolated = createPartition(partition, {}, () => mock, (revision, value) => {
+    const isolated = createPartition(partition, { ...viewContext, validation: true }, () => mock, (revision, value) => {
       if (revision !== mock.revision) return false;
       mock.revision++; mock.value = value;
       return true;
@@ -158,6 +159,17 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
       if (!guest.isDestroyed()) guest.close();
       isolated.protocol.unhandle('https');
       await isolated.clearStorageData();
+    }
+  }
+  async function validateInstallation(pkg) {
+    await validateView(pkg, {});
+    for (const widget of pkg.widgets ?? []) {
+      for (const surface of widget.surfaces) {
+        for (const popover of [false, true]) {
+          try { await validateView(pkg, { blockId: widget.id, surface, popover }); }
+          catch (error) { throw Error(`${widget.name} (${surface} ${popover ? 'popover' : 'tile'}): ${error.message}`); }
+        }
+      }
     }
   }
   function guardWindow(window) {
@@ -205,12 +217,20 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
     const scope = scopes.get(sender?.id);
     return scope && scope.workspaceId === workspaceId ? scope : undefined;
   }
+  function installedApps(scope) {
+    if (scopes.get(scope.shellId) !== scope) throw Error('The account or workspace changed. Start a new agent turn.');
+    return store.list(scope.owner).filter(app => app.apiVersion === 2);
+  }
   async function agentTool(scope, name, args, authorized) {
     const alive = () => authorized() && scopes.get(scope.shellId) === scope;
     if (!alive()) throw Error('The account or workspace changed. Start a new agent turn.');
-    const installed = store.list(scope.owner).filter(app => app.apiVersion === 2);
+    const installed = installedApps(scope);
     if (name === 'list_apps') {
-      const entries = installed.map(({ id, name, description, version, skill }) => ({ id, name, description, version, skill }));
+      const entries = installed.map(({ id, name, description, version, skill, widgets, placements }) => ({
+        id, name, description, version, skill,
+        widgets: (widgets ?? []).map(block => ({ id: block.id, name: block.name,
+          enabled_on: block.surfaces.filter(surface => placements[surface + '/' + block.id]) })),
+      }));
       const { page: apps, next_offset } = pageOf(entries, args.offset);
       return { apps, next_offset };
     }
@@ -297,6 +317,6 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
       default: throw Error('Unknown mini app action.');
     }
   }
-  return { command, guardWindow, agentScope, agentTool, isGuest: contents => guestSessions.has(contents.session) };
+  return { command, guardWindow, agentScope, agentTool, installedApps, isGuest: contents => guestSessions.has(contents.session) };
 }
 module.exports = { createHost };

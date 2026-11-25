@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("nextbrowser", {
+  trackAccountActivity: owner => ipcRenderer.send("account-activity:owner", owner),
   platform: process.platform,
   customWindowControls: process.argv.includes("--nextbrowser-custom-caption"),
   invoke: (command, args = {}) => ipcRenderer.invoke("nextbrowser:invoke", command, args),

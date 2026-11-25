@@ -4,6 +4,7 @@ import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markd
 import remarkGfm from "remark-gfm";
 import { invoke } from "../electronBridge";
 import { Icon } from "./Icon";
+import { ErrorSupportLink } from "./UserFacingError";
 
 export interface LocalFileLink {
   label: string;
@@ -108,5 +109,22 @@ export function MarkdownText({ text }: { text: string }) {
         {text}
       </ReactMarkdown>
     </div>
+  );
+}
+
+/** The runner appends its diagnostic on the last line of a saved partial reply. */
+export function MarkdownReplyWithSupport({ text, diagnosticRef }: { text: string; diagnosticRef?: string }) {
+  const trimmed = text.trimEnd();
+  const lineStart = trimmed.lastIndexOf("\n") + 1;
+  const diagnostic = diagnosticRef && trimmed.endsWith(`Ref: ${diagnosticRef}`) ? trimmed.slice(lineStart) : "";
+  const body = diagnostic ? trimmed.slice(0, lineStart).trimEnd() : text;
+  return (
+    <>
+      {body && <MarkdownText text={body} />}
+      <div className="chat-reply-support user-facing-error">
+        {diagnostic && <>{diagnostic}{" "}</>}
+        <ErrorSupportLink message={text} surface="agent_turn" />
+      </div>
+    </>
   );
 }

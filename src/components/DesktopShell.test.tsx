@@ -83,7 +83,7 @@ it("groups extensions while keeping the remaining destinations and a single acti
   expect(screen.queryByRole("button", { name: "Open Skills" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Open Mini Apps" })).toBeNull();
   for (const button of buttons) expect(button.querySelector("svg")?.style.strokeWidth).toBe("1.5");
-  const live = screen.getByRole("button", { name: "Open Profiles" });
+  const live = screen.getByRole("button", { name: "Open Processes" });
   expect(live.getAttribute("aria-current")).toBe("page");
   fireEvent.click(live);
   expect(select).toHaveBeenCalledWith("live");

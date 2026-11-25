@@ -54,6 +54,7 @@ try {
         if (command === "github_star_status") return { eligible: false };
         if (command === "dashboard_auth_status") return { authed: true };
         if (command === "user_mcp_list") return [];
+        if (["automation_workflows_list", "automation_recordings_list", "automation_runs_list", "automation_shares_list", "artifact_list"].includes(command)) return [];
         if (command === "user_mcp_catalog") return { items: [], cursor: "" };
         if (command === "manual_proxies_list" || command === "browser_runtime_clawbrowser_active_sessions") return [];
         if (command === "multilogin_login_complete") return { connected: true, valid: true, secureStorageAvailable: true, account: { email: "qa@example.com", workspaceName: "QA workspace" }, browserProfiles: [], mobileProfiles: [] };
@@ -119,7 +120,34 @@ try {
   }
   await page.setViewportSize({ width: 1280, height: 900 });
   await chrome.getByRole("button", { name: "Switch to light theme" }).click();
-  let mainViews = page.getByRole('tablist', { name: 'Main views' });
+  const mainViews = page.getByRole('tablist', { name: 'Main views' });
+  const automationTab = page.getByRole('tab', { name: 'Open Automation', exact: true });
+  async function dragMainViewTo(destination) {
+    const tabBox = await automationTab.boundingBox();
+    assert.ok(tabBox && destination);
+    await page.mouse.move(tabBox.x + tabBox.width / 2, tabBox.y + tabBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(destination.x, destination.y, { steps: 12 });
+    await page.mouse.up();
+  }
+  const chatSurface = await page.locator('.chat:visible').boundingBox();
+  await dragMainViewTo({ x: chatSurface.x + chatSurface.width * .65, y: chatSurface.y + chatSurface.height * .35 });
+  const floating = page.getByRole('tablist', { name: 'Detached views' });
+  await floating.getByRole('tab', { name: 'Open Automation' }).waitFor();
+  const detachedBox = await floating.boundingBox();
+  await page.reload();
+  await floating.getByRole('tab', { name: 'Open Automation' }).waitFor();
+  const restoredBox = await floating.boundingBox();
+  assert.ok(Math.abs(restoredBox.x - detachedBox.x) < 3 && Math.abs(restoredBox.y - detachedBox.y) < 3);
+  await floating.getByRole('tab', { name: 'Open Automation' }).click();
+  await page.locator('.automation-studio').waitFor();
+  assert.equal(await floating.getByRole('tab', { name: 'Open Automation' }).getAttribute('aria-selected'), 'true');
+  const dock = await mainViews.boundingBox();
+  await dragMainViewTo({ x: dock.x + dock.width / 2, y: dock.y + dock.height / 2 });
+  await mainViews.getByRole('tab', { name: 'Open Automation' }).waitFor();
+  assert.equal(await floating.count(), 0);
+  await mainViews.getByRole('tab', { name: 'Open Project', exact: true }).click();
+  await page.locator('.chat:visible').waitFor();
   const projectName = page.locator('.chat-project-title');
   const titleBounds = await projectName.boundingBox();
   const viewBounds = await mainViews.boundingBox();
@@ -152,9 +180,9 @@ try {
       if (!options?.forLive) throw new Error('Live must request a background browser start');
     }
   });
-  const railLive = page.getByRole('button', { name: 'Open Profiles', exact: true });
-  const liveMenu = page.getByRole('dialog', { name: 'Profiles', exact: true });
-  const liveGrid = page.getByRole('region', { name: 'Profiles', exact: true });
+  const railLive = page.getByRole('button', { name: 'Open Processes', exact: true });
+  const liveMenu = page.getByRole('dialog', { name: 'Processes', exact: true });
+  const liveGrid = page.getByRole('region', { name: 'Processes', exact: true });
   await railLive.hover();
   await liveMenu.getByRole('button', { name: /live-preview/ }).waitFor();
   assert.ok((await liveMenu.boundingBox()).x > (await railLive.boundingBox()).x + (await railLive.boundingBox()).width);
@@ -200,27 +228,131 @@ try {
   await createBrowser.press('Escape');
   // The session's Live tab must open its browser directly, without passing through the grid.
   await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().setTab('chat'));
-  await mainViews.getByRole('tab', { name: 'Open Live', exact: true }).click();
+  await mainViews.getByRole('tab', { name: 'Open Processes', exact: true }).click();
   const liveViewer = page.locator('.remote-live-webview');
   await liveViewer.waitFor();
   assert.deepEqual(await page.evaluate(() => [window.__liveFixture.launched, window.__liveFixture.streamed]), [['live-preview'], ['live-preview']]);
-  const liveButton = page.getByRole('button', { name: 'Show Live controls', exact: true });
+  const liveButton = page.getByRole('button', { name: 'Show process controls', exact: true });
+  const sideTabs = page.locator('.live-workspace-tabs');
+  const livePill = page.locator('.live-workspace-pill');
+  const rename = livePill.getByRole('button', { name: /^Rename session:/ });
+  const initialName = await rename.innerText();
+  assert.equal(await livePill.count(), 2);
+  const items = [sideTabs.getByRole('tab', { name: 'Chat' }), sideTabs.getByRole('tab', { name: 'Projects' }), rename];
+  const boxes = await Promise.all(items.map(item => item.boundingBox()));
+  for (let i = 1; i < boxes.length; i++) {
+    assert.ok(Math.abs(boxes[i].x - boxes[i - 1].x - boxes[i - 1].width - 4) < 1, 'all four items have the same gap');
+  }
+  await rename.click();
+  await livePill.getByRole('textbox', { name: 'Session name' }).fill('Discard this edit');
+  await livePill.getByRole('textbox').press('Escape');
+  assert.equal(await rename.innerText(), initialName);
+  await rename.click();
+  await livePill.getByRole('textbox').fill('Live session title');
+  await livePill.getByRole('button', { name: 'Save session name' }).click();
+  await sideTabs.getByRole('tab', { name: 'Projects' }).click();
+  await page.locator('#live-side-projects').getByRole('treeitem', { name: /^Open Live session title in / }).waitFor();
+  const liveProjects = page.locator('#live-side-projects');
+  const pinnedProjects = page.getByRole('complementary', { name: 'Projects' });
+  const viewerBeforePin = await liveViewer.elementHandle();
+  await liveProjects.getByRole('searchbox').fill('Live session title');
+  const pinProjects = liveProjects.getByRole('button', { name: 'Pin Projects' });
+  assert.equal(await pinProjects.innerText(), 'Pin');
+  await pinProjects.click();
+  await pinnedProjects.waitFor();
+  assert.equal(await pinnedProjects.getByRole('searchbox').inputValue(), 'Live session title');
+  assert.equal(await sideTabs.getByRole('tab', { name: 'Projects' }).count(), 0);
+  assert.ok(await page.locator('#live-side-chat').isVisible());
+  await page.getByRole('button', { name: 'Open Projects', exact: true }).click();
+  assert.ok(await pinnedProjects.getByRole('searchbox').evaluate(input => input === document.activeElement));
+  const unpinProjects = pinnedProjects.getByRole('button', { name: 'Unpin Projects' });
+  assert.equal(await unpinProjects.innerText(), 'Unpin');
+  await unpinProjects.click();
+  const projectsPopup = page.getByRole('dialog', { name: 'Projects', exact: true });
+  await projectsPopup.waitFor();
+  assert.equal(await pinnedProjects.count(), 0);
+  assert.equal(await projectsPopup.getByRole('searchbox').inputValue(), 'Live session title');
+  assert.ok(await liveViewer.evaluate((node, original) => node === original, viewerBeforePin));
+  await projectsPopup.getByRole('searchbox').fill('');
+  await page.keyboard.press('Escape');
+  await projectsPopup.waitFor({state:'hidden'});
+  await rename.click();
+  await livePill.getByRole('textbox').fill(initialName);
+  await livePill.getByRole('textbox').press('Enter');
+  await sideTabs.getByRole('tab', { name: 'Chat' }).click();
+  const browserPane = page.getByRole('region', { name: 'Live browser' });
+  const splitter = page.getByRole('separator', { name: 'Resize Live browser' });
+  const chatBounds = await page.locator('#live-side-chat').boundingBox();
+  const viewportBefore = await liveViewer.boundingBox();
+  const railBounds = await page.locator('#app-sidebar').boundingBox();
+  assert.ok(railBounds.x + railBounds.width <= viewportBefore.x && viewportBefore.x + viewportBefore.width <= chatBounds.x);
+  await sideTabs.getByRole('tab', {name:'Projects'}).click();
+  assert.deepEqual(await page.locator('#live-side-projects').boundingBox(), chatBounds);
+  await page.locator('#live-side-projects').getByRole('searchbox',{name:'Search projects'}).fill('draft');
+  await page.getByRole('button',{name:'Hide browser',exact:true}).click();
+  assert.equal(await browserPane.count(),0);
+  assert.ok((await page.locator('#live-side-projects').boundingBox()).width > chatBounds.width);
+  await page.getByRole('button',{name:'Show browser',exact:true}).click();
+  assert.equal(await page.locator('#live-side-projects input[type=search]').inputValue(),'draft');
+  await sideTabs.getByRole('tab', {name:'Chat'}).click();
+  const grip = await splitter.boundingBox();
+  await page.mouse.move(grip.x+grip.width/2, grip.y+60);
+  await page.mouse.down();
+  await page.mouse.move(grip.x+grip.width/2+80, grip.y+60, {steps:8});
+  await page.mouse.up();
+  assert.ok((await liveViewer.boundingBox()).width > viewportBefore.width+60);
+  // Dock the projects below the chat, regroup both tabs, then move Live to the right.
+  const chatPane = page.locator('#live-side-chat');
+  const projectsPane = page.locator('#live-side-projects');
+  const liveFrame = await liveViewer.elementHandle();
+  const initialLayout = await page.evaluate(() => localStorage.getItem('nextbrowser.appearance.liveDock.v1'));
+  const dragPanel = async (source, onto, dx, dy, cancel = false) => {
+    const from = await source.boundingBox(), dest = await onto.boundingBox();
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(dest.x + dest.width * dx, dest.y + dest.height * dy, { steps: 12 });
+    await page.locator('.live-dock-preview').waitFor();
+    if (cancel) await page.keyboard.press('Escape');
+    await page.mouse.up();
+  };
+  const projectsTab = sideTabs.getByRole('tab', {name:'Projects'});
+  const liveTab = sideTabs.getByRole('tab', {name:'Processes',exact:true});
+  await dragPanel(projectsTab, chatPane, .5, .95);
+  assert.ok((await projectsPane.boundingBox()).y >= (await chatPane.boundingBox()).y + (await chatPane.boundingBox()).height);
+  assert.equal(await livePill.count(), 3);
+  await dragPanel(projectsTab, sideTabs.getByRole('tab', {name:'Chat',exact:true}), .5, .5);
+  assert.equal(await livePill.count(), 2);
+  assert.ok(await projectsPane.isVisible() && !await chatPane.isVisible());
+  await sideTabs.getByRole('tab', {name:'Chat'}).click();
+  await dragPanel(liveTab, chatPane, .95, .5);
+  assert.ok((await browserPane.boundingBox()).x > (await chatPane.boundingBox()).x);
+  const rightLayout = await page.evaluate(() => localStorage.getItem('nextbrowser.appearance.liveDock.v1'));
+  await dragPanel(liveTab, chatPane, .05, .5, true);
+  assert.equal(await page.evaluate(() => localStorage.getItem('nextbrowser.appearance.liveDock.v1')), rightLayout);
+  await dragPanel(liveTab, chatPane, .5, .5);
+  assert.ok(await liveViewer.isVisible() && !await chatPane.isVisible());
+  await sideTabs.getByRole('tab', {name:'Chat'}).click();
+  assert.ok(await chatPane.isVisible() && !await liveViewer.isVisible());
+  await dragPanel(liveTab, chatPane, .05, .5);
+  assert.ok((await browserPane.boundingBox()).x < (await chatPane.boundingBox()).x);
+  assert.equal(await liveFrame.evaluate(node => node === document.querySelector('.remote-live-webview')), true);
+  assert.notEqual(await page.evaluate(() => localStorage.getItem('nextbrowser.appearance.liveDock.v1')), initialLayout);
   const initial = await liveButton.boundingBox();
-  assert.ok(initial.x <= 20 && initial.y + initial.height >= 880, 'controls button starts in the bottom-left corner');
-  assert.equal(await chrome.isVisible(), false);
-  assert.equal(await page.locator('#app-sidebar').isVisible(), false);
   const fullWindow = await liveViewer.boundingBox();
-  assert.deepEqual(fullWindow, { x: 0, y: 0, width: 1280, height: 900 });
+  assert.ok(initial.x >= fullWindow.x && initial.x <= fullWindow.x+20, 'controls stay inside the browser');
+  assert.equal(await chrome.isVisible(), true);
+  assert.equal(await page.locator('#app-sidebar').isVisible(), true);
   await page.mouse.move(initial.x + initial.width / 2, initial.y + initial.height / 2);
   await page.mouse.down();
   await page.mouse.move(340, 630, { steps: 8 });
   await page.mouse.up();
-  assert.equal(await page.getByRole('dialog', { name: 'Live controls', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('dialog', { name: 'Process controls', exact: true }).count(), 0);
   const moved = await liveButton.boundingBox();
   assert.ok(moved.x > 200 && moved.y < initial.y - 100, 'dragging moves the controls button');
   await liveButton.click();
-  const liveControls = page.getByRole('dialog', { name: 'Live controls', exact: true });
+  const liveControls = page.getByRole('dialog', { name: 'Process controls', exact: true });
   await liveControls.waitFor();
+  assert.equal(await sideTabs.first().isVisible(), true, 'the thread switcher remains available with process controls open');
   assert.equal(await chrome.isVisible(), true);
   assert.equal(await page.locator('#app-sidebar').isVisible(), true);
   assert.deepEqual(await liveViewer.boundingBox(), fullWindow, 'controls overlay leaves the viewer size unchanged');
@@ -236,8 +368,8 @@ try {
     'returning the viewer does not start another remote session');
   await liveControls.getByRole('button', { name: 'Stop', exact: true }).click();
   await liveViewer.waitFor({ state: 'detached' });
-  assert.equal(await page.getByRole('button', { name: 'Resume Live', exact: true }).isVisible(), true);
-  await liveControls.getByRole('button', { name: 'All Profiles' }).click();
+  assert.equal(await page.getByRole('button', { name: 'Resume browser', exact: true }).isVisible(), true);
+  await liveControls.getByRole('button', { name: 'All Processes' }).click();
   const card = liveGrid.getByRole('button', { name: 'Open live-preview' });
   await card.locator('img').waitFor();
   await railLive.hover();
@@ -251,7 +383,7 @@ try {
   assert.deepEqual(await page.evaluate(() => window.__liveFixture.launched), ['live-preview'], 'opening the preview reuses the running profile');
   await liveButton.click();
   await liveControls.getByRole('button', { name: 'Stop', exact: true }).click();
-  await liveControls.getByRole('tab', { name: 'Open Project', exact: true }).click();
+  await chrome.getByRole('button', { name: 'Back to main view' }).click();
   await page.evaluate(async () => {
     const { useStore } = await import('/src/store.ts');
     const s = useStore.getState();
@@ -268,7 +400,7 @@ try {
       },
     });
   });
-  await mainViews.getByRole('tab', { name: 'Open Live', exact: true }).click();
+  await mainViews.getByRole('tab', { name: 'Open Processes', exact: true }).click();
   const downloadLive = page.getByRole('button', { name: 'Download & start', exact: true });
   await downloadLive.waitFor();
   assert.deepEqual(await page.evaluate(() => window.__liveFixture.launched), ['live-preview'],
@@ -279,7 +411,7 @@ try {
   assert.deepEqual(await page.evaluate(() => window.__liveFixture.streamed), ['live-preview', 'live-preview'],
     'cancelling the installer does not attempt to stream');
   await page.evaluate(() => { window.__liveRuntimeAvailable = true; });
-  await page.getByRole('button', { name: 'Retry Live', exact: true }).click();
+  await page.getByRole('button', { name: 'Retry connection', exact: true }).click();
   await liveViewer.waitFor();
   const restored = await liveButton.boundingBox();
   assert.ok(Math.abs(restored.x + restored.width / 2 - 340) <= 1 &&
@@ -288,7 +420,7 @@ try {
     [['live-preview', '__default', '__default'], ['live-preview', 'live-preview', '__default']]);
   await liveButton.click();
   await liveControls.getByRole('button', { name: 'Stop', exact: true }).click();
-  await liveControls.getByRole('tab', { name: 'Open Project', exact: true }).click();
+  await chrome.getByRole('button', { name: 'Back to main view' }).click();
   await page.evaluate(async () => {
     const { useStore } = await import('/src/store.ts');
     const s = useStore.getState();

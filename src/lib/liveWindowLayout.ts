@@ -1,6 +1,6 @@
 const overlaySelector = [
-  ".live-controls-trigger", ".app-titlebar", ".app-live > .sidebar",
-  ".shared-popover", "[data-tooltip-content]", ".live-input-warning",
+  ".live-controls-trigger", ".shared-popover", ".shared-select-flyout:popover-open",
+  "[data-tooltip-content]", ".live-input-warning",
 ].join(",");
 
 function visibleRect(element: Element) {
@@ -24,7 +24,7 @@ function overlayRadius(element: Element, rect: DOMRect) {
 export function liveWindowLayout(stage: HTMLElement | null, active: boolean) {
   const bounds = active && stage ? visibleRect(stage) : null;
   // A modal owns the entire app surface, including its backdrop.
-  if (!bounds || Array.from(document.querySelectorAll(".modal-overlay")).some(visibleRect)) return { hidden: true };
+  if (!bounds || stage?.closest("[data-dock-dragging]") || Array.from(document.querySelectorAll(".modal-overlay")).some(visibleRect)) return { hidden: true };
   const holes = Array.from(document.querySelectorAll(overlaySelector)).flatMap(element => {
     const rect = visibleRect(element);
     if (!rect || rect.right <= bounds.left || rect.left >= bounds.right ||

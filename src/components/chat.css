@@ -18,6 +18,7 @@
 .chat-project-switcher svg { flex: none; opacity: .75; }
 .chat-project-title { display: inline-flex; align-items: center; gap: 4px; min-height: 30px; padding: 6px 10px; border-radius: var(--glass-radius); max-width: min(260px, 32vw); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; }
 .chat-project-title span { overflow: hidden; text-overflow: ellipsis; opacity: .65; }
+.chat-project-title:has(.session-name-trigger, .session-name-form) { gap: 4px; padding: 2px 4px 2px 9px; }
 .chat-project-switcher:hover { background: var(--glass-inverse-solid); }
 .chat-project-switcher:focus-visible { outline: 2px solid var(--accent-text); }
 .chat-popover-heading { display: block; padding: 6px 8px 8px; font-size: 11px; font-weight: 700; opacity: .8; }

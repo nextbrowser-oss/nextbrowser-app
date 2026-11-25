@@ -4,7 +4,7 @@ import { type ClipboardEvent, useEffect, useLayoutEffect, useRef, useState, useI
 import { createPortal } from "react-dom";
 import { useStore } from "../store";
 import { SCRIPTS } from "../skillsCatalog";
-import { MarkdownText } from "./MarkdownText";
+import { MarkdownReplyWithSupport, MarkdownText } from "./MarkdownText";
 import { Icon, Spinner } from "./Icon";
 import type { ChatAttachment, ChatMessage } from "../types";
 import { filePathForFile, invoke } from "../electronBridge";
@@ -25,6 +25,7 @@ import { takeStartPageDraft } from '../lib/startPageDraft';
 import { entityNameLimits } from "../lib/entityValidation";
 import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
 import { MainViewNavigation } from "./MainViewNavigation";
+import { SessionTitle } from "./SessionTitle";
 import { matchingAgentChatCommands, parseAgentChatCommand } from "../lib/agentChatCommands";
 import { uid } from "../lib/ids";
 import { projectRoot } from "../lib/projectTree";
@@ -81,7 +82,9 @@ function statusLabel(m: ChatMessage): string {
     case "done":
       return "agent";
     case "failed":
-      return "Failed";
+      return "Couldn’t finish";
+    case "needsAttention":
+      return "Needs attention";
     case "cancelled":
       return "Stopped";
     case "timedOut":
@@ -103,7 +106,7 @@ function errorSummary(text: string): string {
 }
 
 
-export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = {}) {
+export function ChatView({ headerAccessory, showSessionNavigation }: { headerAccessory?: ReactNode; showSessionNavigation: boolean }) {
   const s = useStore();
   const agentId = s.agentId;
   const builtinAgent = isBuiltinAgent(agentId);
@@ -478,8 +481,11 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
       <FileDropArea className="chat" onFiles={handleDroppedFiles} disabled={!ready}
         unavailableLabel="Connect an agent to attach files">
         <div className="chat-header">
-          <strong className={`${glassSurfaceClassName} chat-project-title`}>{project?.title ?? "New project"}{conv && project?.id !== conv.id && <span> · {conv.title}</span>}</strong>
-          <MainViewNavigation />
+          {s.tab !== "live" && <div className={`${glassSurfaceClassName} chat-project-title`}>
+            <strong>{project?.title ?? "New project"}</strong>
+            {conv && <SessionTitle />}
+          </div>}
+          {showSessionNavigation && project && !s.utilityDialog && <MainViewNavigation />}
           <span className="spacer" />
           {remoteOnly && (
             <Tooltip content={conv?.vpsConnectionLabel
@@ -793,13 +799,13 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
                     <span className="muted small">Verify proxy country and IP</span>
                   </span>
                 </button></Tooltip>
-                <Tooltip content="Open the Live tab to inspect a running browser session"><button
+                <Tooltip content="Open Processes to inspect a running browser session"><button
                   className="empty-suggestion"
                   onClick={s.showLiveOverview}
                 >
-                  <Icon name="video.fill" size={15} />
+                  <Icon name="waveform" size={15} />
                   <span>
-                    <strong>Open live view</strong>
+                    <strong>Open Processes</strong>
                     <span className="muted small">Inspect the running browser</span>
                   </span>
                 </button></Tooltip>
@@ -830,8 +836,8 @@ export function ChatView({ headerAccessory }: { headerAccessory?: ReactNode } = 
                 const index = messages.findIndex((candidate) => candidate.id === m.id);
                 const user = [...messages.slice(0, index)].reverse().find((candidate) => candidate.role === "user");
                 if (!user) return;
-                setDraft(user.text);
-                setAttachments(user.attachments ?? []);
+                setDraft(m.status === "needsAttention" ? "Continue the previous task from the verified results. Check the current state before repeating any action." : user.text);
+                setAttachments(m.status === "needsAttention" ? [] : user.attachments ?? []);
                 window.requestAnimationFrame(() => composerRef.current?.focus());
               }}
               running={running && m.status === "streaming"}
@@ -1144,6 +1150,10 @@ function MessageBubble({
             </button></Tooltip>
           )}
         </div>
+        {m.runReport && <section className="agent-run-report" aria-label="Task progress">
+          {m.runReport.plan.length > 0 && <><strong>Plan</strong><ol>{m.runReport.plan.map((item, i) => <li key={i}>{item}</li>)}</ol></>}
+          <p aria-live={m.status === "streaming" ? "polite" : "off"}>{m.runReport.progress}</p>
+        </section>}
         {m.toolEvents && m.toolEvents.length > 0 && (
           <AgentSteps steps={m.toolEvents} live={m.status === "streaming"} />
         )}
@@ -1152,7 +1162,7 @@ function MessageBubble({
             <p role="status">{BROWSER_VERIFICATION_INSTRUCTIONS}</p>
           )}
           {needsSupportLink(visibleText) ? (
-            <UserFacingError message={visibleText} surface="agent_turn" />
+            <MarkdownReplyWithSupport text={visibleText} diagnosticRef={m.runIssue?.ref} />
           ) : (m.status === "failed" || m.status === "timedOut") && visibleText.length > 180 ? (
             <div className="error-collapse">
               <div className="error-summary">
@@ -1183,9 +1193,12 @@ function MessageBubble({
               {savingWorkflow && <Spinner size={11} />} {savingWorkflow ? "Preparing…" : "Save as skill"}
             </button></Tooltip>
           )}
-          {(m.status === "failed" || m.status === "timedOut") && (
-            <Tooltip content="Review the original request before sending it again"><button className="save-workflow-btn" onClick={onRetry}>Retry</button></Tooltip>
+          {(m.status === "failed" || m.status === "timedOut" || m.status === "needsAttention") && (
+            <Tooltip content="Review the request before sending it"><button className="save-workflow-btn" onClick={onRetry}>{m.status === "needsAttention" ? "Continue" : "Retry"}</button></Tooltip>
           )}
+          {m.runIssue && <button className="save-workflow-btn" onClick={() => void runMessageAction(
+            () => navigator.clipboard.writeText(`Nextbrowser agent · ${m.runIssue!.code}\nRef: ${m.runIssue!.ref}\n${new Date(m.createdAt).toISOString()}`),
+            "Could not copy the report.")}>Copy error report</button>}
           <span>{formatTime(m.createdAt)}</span>
         </div>
       )}

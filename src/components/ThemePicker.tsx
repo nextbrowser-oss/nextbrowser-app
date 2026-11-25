@@ -6,7 +6,7 @@ import { ThemeColorFields } from "./ThemeEditor";
 import { SETTINGS_SECTIONS } from "../lib/settingsSections";
 import { Button } from "../shared/ui";
 import { useStore } from "../store";
-import { ComposerSample, ComposerSkinPicker, useComposerSkin, type Skin } from "./composer-skins/ComposerSkins";
+import { ComposerColorChoice, ComposerSample, ComposerSkinChoices, ComposerSkinPicker, useComposerSkin, type Skin } from "./composer-skins/ComposerSkins";
 import { BrandLogo } from "./BrandLogo";
 import { PanelWidgets } from "./PanelWidgets";
 import { Icon } from "./Icon";
@@ -53,7 +53,6 @@ function Viewport({ modes, palettes, scene, skin, workspace, preset, miniature =
           <header><BrandLogo size={17} /><b>Nextbrowser</b><span>Workspaces ({workspace})</span></header>
           <div className="preview-rail">{[Folder, PanelsTopLeft, Clock, BookOpen, Settings].map((Glyph, i) => <Glyph key={i} size={17} />)}</div>
           {scene === "settings" ? <SettingsScene mode={palette} preset={preset} /> : <div className="preview-conversation">
-            <div className="preview-view-switch">Project <span>Live</span> <span>Automation</span></div>
             <div className="msg-user-bubble">Summarize this page for me.</div>
             <div className="assistant-bubble">Here are the highlights.</div>
             <ComposerSample skin={skin} still={miniature} />
@@ -84,9 +83,16 @@ export function ThemePicker({ value, activeTheme, preset, onChange, palettes }: 
         <Button aria-pressed={scene === "chat"} onClick={() => setScene("chat")}><MessageSquare size={14} />Chat</Button>
         <Button aria-pressed={scene === "settings"} onClick={() => setScene("settings")}><SlidersHorizontal size={14} />Settings</Button>
       </div>
-      <ComposerSkinPicker skin={skin} onApply={apply} chooseSurface />
     </div>
     <Viewport {...props} modes={[activeTheme]} />
+    <section className="settings-group theme-composer-settings" aria-labelledby="composer-theme-heading">
+      <div className="settings-row">
+        <h3 id="composer-theme-heading">Chat input appearance</h3>
+        <ComposerSkinPicker skin={skin} onApply={apply} chooseSurface />
+      </div>
+      <ComposerSkinChoices skin={skin} onChange={apply} />
+      <div className="skin-settings-footer"><ComposerColorChoice skin={skin} onChange={apply} /></div>
+    </section>
     <PanelWidgets surface="settings.design" />
   </>;
 }

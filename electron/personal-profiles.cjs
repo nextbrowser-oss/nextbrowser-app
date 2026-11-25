@@ -324,12 +324,16 @@ async function sourceStatus(root,source,profiles,digests = new Map()) {
     }
     items[kind] = {imported,busy:item.busy,updated:!imported && prior.length > 0};
   }
-  return {id:source.id,browser:source.browser,name:source.name,items};
+  const previouslyImported = profiles.some(p => p.source?.id === source.id) || Object.values(items).some(item => item.imported);
+  return {id:source.id,browser:source.browser,name:source.name,items,previouslyImported};
 }
 
 async function personalCommand({base, scope, current, dialog, shell, command, args}) {
   if (!scope?.owner.startsWith('account/') || !current()) throw Error('Sign in to import personal profiles.');
   const root = ownerRoot(base,scope.owner);
+  if (command.startsWith('personal_profiles_agent_')) {
+    return require('./agent-library.cjs').agentCommand({root,keyDirectory:keyDirectory(root),scope,current,dialog,args,action:command.slice('personal_profiles_agent_'.length)});
+  }
   if (command === 'personal_profiles_list') {
     const profiles = await localProfiles(root);
     return current() ? profiles : [];

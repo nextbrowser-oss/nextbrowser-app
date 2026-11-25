@@ -2,6 +2,7 @@ import { reportJourney } from "./lib/productJourney";
 import { create } from "zustand";
 import { forEachConcurrent } from "./shared/lib/async";
 import { applyProjectDrop, projectRoot, type ProjectTreeDrop } from "./lib/projectTree";
+import { generateSessionTitle, hasTitleRunner, mergeSessionName, namedSession, needsSessionTitle, SessionTitleHeader, sessionTitleInstruction } from "./lib/sessionTitle";
 import { isUtilityDialogTab, type UtilityDialogTab } from "./lib/appNavigation";
 import { invoke, listen } from "./electronBridge";
 import {
@@ -92,7 +93,7 @@ import {
   type SocialMatch,
 } from "./lib/socialmonitor/feed";
 import { BROWSER_VERIFICATION_ATTENTION, BROWSER_VERIFICATION_INSTRUCTIONS, activityFromText, appendAgentStep, extractToolEvents, needsBrowserVerification } from "./lib/activityParser";
-import { composePrompt } from "./lib/composePrompt";
+import { composePrompt, recentChatHistory } from "./lib/composePrompt";
 import { executionTargetForTurn, type ExecutionTarget } from "./lib/executionTarget";
 import { shouldApplyRemoteConversation } from "./lib/conversationSync";
 import { hasVPSPromptMarker, vpsConnectionInstructions } from "./lib/vpsPrompt";
@@ -620,6 +621,7 @@ interface State {
   accountEmail?: string;
   accountName?: string;
   accountOwnerId?: string;
+  accountCreatedAt?: string;
   checking: boolean;
   /** "setup": the first run is still downloading and checking the Nextbrowser CLI. */
   startupPhase: "local" | "account" | "setup";
@@ -821,8 +823,8 @@ interface State {
   logoutAgent: () => Promise<void>;
   recheckLogin: (agentId?: string) => Promise<void>;
   setTab: (t: AppTab, miniApp?: { owner: string; id: string }) => void;
-  liveSession?: { workspaceId?: string; key: string };
-  openLiveSession: (key: string) => void;
+  liveSession?: { workspaceId?: string; key?: string };
+  openLiveSession: (key?: string) => void;
   showLiveOverview: () => void;
   closeUtilityDialog: () => void;
   setAppActive: (v: boolean) => void;
@@ -882,6 +884,7 @@ interface State {
   selectConversation: (id: string) => void;
   rememberConversationProfile: (id: string, name: string, toolset: BrowserToolset) => void;
   renameConversation: (id: string, title: string) => void;
+  renameSession: (id: string, title: string) => void;
   updateTerminalPreview: (id: string, preview?: string) => void;
   deleteConversation: (id: string) => Promise<void>;
   forkConversation: (atMessageId?: string) => void;
@@ -1082,6 +1085,7 @@ let didBootstrap = false;
 type AgentDone = { code: number; stderr: string; stdout: string; reason?: string; failure?: BuiltinAgentFailure };
 interface NextctlUpdateState { lastAutoCheckAt?: number; rateLimitedUntil?: number }
 interface APIKeyIdentity {
+  account_created_at?: string;
   valid: boolean;
   key_id?: string;
   owner_id?: string;
@@ -2040,7 +2044,8 @@ async function refreshAnalyticsIdentity(): Promise<boolean> {
   const accountEmail = valid ? wrap.identity.email?.trim() : undefined;
   setAnalyticsUserId(ownerId || undefined);
   const accountName = valid ? wrap.identity.name?.trim() : undefined;
-  useStore.setState({ accountEmail: accountEmail || undefined, accountName: accountName || undefined, accountOwnerId: ownerId || undefined });
+  useStore.setState({ accountEmail: accountEmail || undefined, accountName: accountName || undefined, accountOwnerId: ownerId || undefined,
+    accountCreatedAt: ownerId ? wrap.identity.account_created_at : undefined });
   trackEvent("analytics_identity_loaded", {
     valid,
     has_owner_id: !!ownerId,
@@ -2092,7 +2097,7 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
       return valid;
     } catch {
       setAnalyticsUserId(undefined);
-      useStore.setState({ accountEmail: undefined, accountName: undefined, accountOwnerId: undefined });
+      useStore.setState({ accountEmail: undefined, accountName: undefined, accountOwnerId: undefined, accountCreatedAt: undefined });
       trackEvent("analytics_identity_unavailable", { phase: "bootstrap" });
       return false;
     }
@@ -2103,6 +2108,7 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
       accountEmail: undefined,
       accountName: undefined,
       accountOwnerId: undefined,
+      accountCreatedAt: undefined,
       nextctlVersion: incompatible ? "update required" : "not found",
       nextctlSupportsSkill: false,
       nextctlAvailable: false,
@@ -2237,6 +2243,29 @@ function settleTransientStatus(name: string, transient: string): void {
 }
 
 export const useStore = create<State>((set, get) => {
+  const namingSessions = new Set<string>();
+  const titleHeaders = new Map<string, SessionTitleHeader>();
+  const reportCheckpoints = new Map<string, number>();
+  async function nameFromFirstMessage(conversation: Conversation, first: ChatMessage) {
+    if (namingSessions.has(conversation.id) || !needsSessionTitle(conversation) || !hasTitleRunner(conversation.agent)) return;
+    if (hasVPSPromptMarker(first.text)) return;
+    const epoch = accountEpoch;
+    namingSessions.add(conversation.id);
+    try {
+      const title = await generateSessionTitle(conversation.agent, first.commandChip?.title || first.text);
+      const current = get().conversations.find(item => item.id === conversation.id);
+      const currentFirst = current?.messages.find(item => item.role === "user");
+      if (!title || accountEpoch !== epoch || !current || !needsSessionTitle(current) ||
+          currentFirst?.id !== first.id || currentFirst.text !== first.text) return;
+      const conversations = get().conversations.map(item => item.id === current.id ? { ...namedSession(item, title), updatedAt: now() } : item);
+      persistConvs(conversations);
+      set({ conversations });
+    } catch {
+      // Keep the current name. The next user turn can retry using the original first message.
+    } finally {
+      namingSessions.delete(conversation.id);
+    }
+  }
   const savedProfileNameSort = settingsStorage.getItem("nextbrowser.profileNameSort");
   const enqueueWithTarget = (
     text: string,
@@ -2333,6 +2362,10 @@ export const useStore = create<State>((set, get) => {
       return { conversations, runtime };
     });
     get().startConsumer(agentId);
+    if (targetConversation) {
+      const first = targetConversation.messages.find(message => message.role === "user") ?? userMsg;
+      void nameFromFirstMessage(targetConversation, first);
+    }
     return replyId;
   };
 
@@ -2343,6 +2376,7 @@ export const useStore = create<State>((set, get) => {
     const activeMessage = owningConversation?.messages.find((message) => message.id === replyId);
     if (!owningConversation || !activeMessage || activeMessage.status !== "streaming") return;
     const owningConversationId = owningConversation.id;
+    reportCheckpoints.delete(replyId);
     const agentId =
       Object.entries(get().runtime).find(([, runtime]) => runtime.runningReplyId === replyId)?.[0] ??
       owningConversation?.agent ??
@@ -2359,8 +2393,13 @@ export const useStore = create<State>((set, get) => {
         ...s.runtime,
         [agentId]: { ...s.runtime[agentId], loggedIn: false },
       } }));
-    } else if (result.code !== 0) void get().recheckLogin(agentId);
+    } else if (result.code !== 0 && !["max_steps", "no_progress"].includes(result.failure?.code ?? "")) void get().recheckLogin(agentId);
     const stopped = get().runtime[agentId]?.pendingStop;
+    const header = titleHeaders.get(replyId);
+    const remaining = header?.read("", true) ?? "";
+    const finalHeader = header && new SessionTitleHeader();
+    const stdout = finalHeader ? finalHeader.read(result.stdout, true) : result.stdout;
+    const generated = header?.title || finalHeader?.title;
     set((s) => {
       const runtime = { ...s.runtime };
       if (runtime[agentId]) {
@@ -2376,7 +2415,7 @@ export const useStore = create<State>((set, get) => {
         messages: conversation.messages.map((message) => {
           if (message.id !== replyId || message.status !== "streaming") return message;
           let status: ChatMessage["status"] = "done";
-          let text = message.text.trim() || capStreamText(result.stdout).trim();
+          let text = (message.text + remaining).trim() || capStreamText(stdout).trim();
           if (stopped) {
             status = "cancelled";
             text = text ? `${text}\n[stopped]` : "[stopped]";
@@ -2386,12 +2425,12 @@ export const useStore = create<State>((set, get) => {
             needsBrowserVerification(result.reason ?? "")
           )) {
             status = "failed";
-            text = [text, BROWSER_VERIFICATION_INSTRUCTIONS].filter(Boolean).join("\n\n");
-          } else if (result.code !== 0 && isBuiltinAgent(agentId) && result.reason) {
+            text = [text, BROWSER_VERIFICATION_INSTRUCTIONS, result.failure?.ref && `Ref: ${result.failure.ref}`].filter(Boolean).join("\n\n");
+          } else if (isBuiltinAgent(agentId) && (result.code !== 0 || !text) && result.reason) {
             // The built-in agent says what went wrong in the user's terms. A
             // failure they fix in Settings needs no reference for support.
-            status = "failed";
-            const error = result.failure?.expected ? result.reason : internalError(result.reason, "BUILTIN_AGENT_FAILED");
+            status = ["max_steps", "no_progress"].includes(result.failure?.code ?? "") ? "needsAttention" : "failed";
+            const error = result.failure?.ref ? `${result.reason} Ref: ${result.failure.ref}` : internalError(result.reason, "BUILTIN_AGENT_FAILED");
             text = text ? `${text}\n${error}` : error;
           } else if (result.code !== 0) {
             status = "failed";
@@ -2402,9 +2441,12 @@ export const useStore = create<State>((set, get) => {
             status = "failed";
             text = agentEmptyReplyMessage(agentId, agentById(agentId).name);
           }
-          return { ...message, status, text, stalled: false };
+          const runIssue = result.failure?.ref ? { code: result.failure.diagnosticCode || result.failure.code, ref: result.failure.ref } : undefined;
+          return { ...message, status, text, stalled: false, ...(runIssue ? {runIssue} : {}) };
         }),
         ...(conversation.id === owningConversationId ? { updatedAt: completedAt } : {}),
+        ...(conversation.id === owningConversationId && !stopped && !result.code && generated && needsSessionTitle(conversation)
+          ? { sessionTitle: generated, ...(conversation.projectId ? { title: generated } : {}) } : {}),
       }));
       persistConvs(conversations);
       return { conversations, runtime };
@@ -2453,6 +2495,7 @@ export const useStore = create<State>((set, get) => {
   accountEmail: undefined,
   accountName: undefined,
   accountOwnerId: undefined,
+  accountCreatedAt: undefined,
   checking: true,
   startupPhase: "local",
   startupError: undefined,
@@ -2471,7 +2514,7 @@ export const useStore = create<State>((set, get) => {
   profileSearch: "",
   profileNameSort: savedProfileNameSort === "asc" || savedProfileNameSort === "desc" ? savedProfileNameSort : undefined,
   isRefreshing: false,
-  agentId: settingsStorage.getItem("lastAgent") ?? "claude",
+  agentId: settingsStorage.getItem("lastAgent") ?? BUILTIN_AGENT_ID,
   runtime: initRuntimes(),
   conversations: [],
   workspaces: [],
@@ -2675,12 +2718,20 @@ export const useStore = create<State>((set, get) => {
       // The restored project decides chat or terminal mode. The global
       // "terminalChat" key is not rewritten on a workspace or agent switch, so
       // it can belong to a different project than the one that reopens.
-      const reopenedProject = convs.find((conversation) => conversation.id === activeConvId[get().agentId]);
+      let agentId = get().agentId;
+      if (!activeConvId[agentId] && !settingsStorage.getItem("lastAgent")) {
+        // Older profiles can have chats from before the built-in agent became the default.
+        const mostRecent = convs.filter(c => activeConvId[c.agent] === c.id)
+          .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+        if (mostRecent) agentId = mostRecent.agent;
+      }
+      const reopenedProject = convs.find((conversation) => conversation.id === activeConvId[agentId]);
       set({
         conversations: convs,
         workspaces,
         activeWorkspaceId,
         activeConvId,
+        agentId,
         selectedProfile: rememberedSelectedProfile(workspaces.find((workspace) => workspace.id === activeWorkspaceId)),
         ...(reopenedProject ? { terminalChat: reopenedProject.chatMode === "terminal" } : {}),
         scheduledRuns: schedules,
@@ -2748,7 +2799,10 @@ export const useStore = create<State>((set, get) => {
       });
 
       await listen<[string, string]>("agent:chunk", (e) => {
-        const [replyId, chunk] = e.payload;
+        const [replyId, rawChunk] = e.payload;
+        const header = titleHeaders.get(replyId);
+        const chunk = header ? header.read(rawChunk) : rawChunk;
+        if (!chunk) return;
         set((s) => {
           const conversations = s.conversations.map((c) => ({
             ...c,
@@ -2814,6 +2868,22 @@ export const useStore = create<State>((set, get) => {
           }));
           // Persisted on completion, not per step — see agent:chunk.
           return { conversations };
+        });
+      });
+
+      await listen<[string, NonNullable<ChatMessage["runReport"]>]>("agent:report", ({payload: [replyId, report]}) => {
+        const at = now();
+        set(s => {
+          const conv = s.conversations.find(c => c.messages.some(m => m.id === replyId && m.status === "streaming"));
+          if (!conv) return s;
+          const conversations = s.conversations.map(c => c !== conv ? c : ({
+            ...c, messages: c.messages.map(m => m.id === replyId ? {...m, runReport: report, lastActivityAt: at, stalled: false} : m),
+          }));
+          if (report.plan.length && at - (reportCheckpoints.get(replyId) ?? 0) >= 15000) {
+            reportCheckpoints.set(replyId, at);
+            void persistConvs(conversations);
+          }
+          return {conversations};
         });
       });
 
@@ -3429,18 +3499,22 @@ export const useStore = create<State>((set, get) => {
       selected: activeProfile === name,
       ownerConversationId: get().profileChatOwners[name],
     }));
+    const turnContext = privateSkillContext(get().localSkills, item.rawText) + browserContext;
     const prompt = composePrompt(
       get().conversations,
       item.conversationId,
       item.replyId,
-      item.rawText
-        + privateSkillContext(get().localSkills, item.rawText)
-        + browserContext,
+      builtinAgent ? turnContext + "\n\nCurrent user request:\n" + item.rawText : item.rawText + turnContext,
       activeProfile,
       { nextctlAvailable: get().nextctlAvailable, executionTarget: item.executionTarget, builtinAgent },
     );
     const a = agentById(agentId);
-    const { args, stdin, stepFormat } = agentInvocation(a, prompt, { steps: true });
+    const firstUser = itemConversation?.messages.find(message => message.role === "user");
+    const askForTitle = !hasTitleRunner(agentId) && itemConversation && needsSessionTitle(itemConversation) &&
+      firstUser && !hasVPSPromptMarker(firstUser.text) && itemConversation.messages[itemConversation.messages.indexOf(firstUser) + 1]?.id === item.replyId;
+    if (askForTitle) titleHeaders.set(item.replyId, new SessionTitleHeader());
+    const agentPrompt = askForTitle ? sessionTitleInstruction + "\n\n" + prompt : prompt;
+    const { args, stdin, stepFormat } = agentInvocation(a, agentPrompt, { steps: true });
 
     const watchdog = setInterval(() => {
       const conv = get().conversations.find((c) => c.id === item.conversationId);
@@ -3473,6 +3547,8 @@ export const useStore = create<State>((set, get) => {
         args,
         stepFormat,
         stdinText: stdin ?? null,
+        ...(builtinAgent ? { chatTurn: { request: item.rawText, history: recentChatHistory(itemConversation, item.replyId) } } : {}),
+        promptArgIndex: stdin === undefined ? args.indexOf(agentPrompt) : undefined,
         workingDir: get().workingDir || null,
         conversationId: item.conversationId,
         workspaceId: conversationWorkspaceId,
@@ -3498,6 +3574,7 @@ export const useStore = create<State>((set, get) => {
       }));
     } finally {
       clearInterval(watchdog);
+      titleHeaders.delete(item.replyId);
     }
   },
 
@@ -3823,6 +3900,7 @@ export const useStore = create<State>((set, get) => {
         accountEmail: undefined,
         accountName: undefined,
         accountOwnerId: undefined,
+        accountCreatedAt: undefined,
         runtime,
         connectAnnounced: new Set(),
         proxy: undefined,
@@ -5627,11 +5705,14 @@ export const useStore = create<State>((set, get) => {
           workspaceId: cloud.workspace_id,
         });
         if (index < 0) conversations.push(normalized);
-        else if (shouldApplyRemoteConversation(
-          conversations[index],
-          normalized,
-          Date.parse(cloud.updated_at),
-        )) conversations[index] = normalized;
+        else {
+          const local = conversations[index];
+          const remoteTime = Date.parse(cloud.updated_at);
+          const takeRemote = shouldApplyRemoteConversation(local, normalized, remoteTime);
+          const merged = takeRemote ? mergeSessionName(normalized, local) : mergeSessionName(local, normalized);
+          conversations[index] = merged.sessionTitle && (merged.sessionTitle !== normalized.sessionTitle || merged.sessionTitleEditedAt !== normalized.sessionTitleEditedAt)
+            ? { ...merged, updatedAt: Math.max(merged.updatedAt, remoteTime + 1) } : merged;
+        }
       }
 
       // Profile creation can change workspace membership while the network
@@ -6071,7 +6152,7 @@ export const useStore = create<State>((set, get) => {
     persistConvs(conversations);
     set({ conversations });
     get().selectConversation(session.id);
-    get().setTab("chat");
+    if (!(state.tab === "live" && state.liveSession && state.liveSession.workspaceId === state.activeWorkspaceId)) get().setTab("chat");
     trackEvent("chat_created", { agent, project_id: project.id });
     return session.id;
   },
@@ -6110,10 +6191,11 @@ export const useStore = create<State>((set, get) => {
   },
 
   createProject: (name, requestedMode, selectedAgentId) => {
-    const agentId = selectedAgentId ?? get().agentId;
+    const state = get();
+    const agentId = selectedAgentId ?? state.agentId;
     if (!AGENTS.some((agent) => agent.id === agentId)) throw new Error("Choose an available agent for the project.");
     const mode = agentSupportsTerminal(agentId) ? requestedMode : "chat";
-    const workspaceId = get().activeWorkspaceId;
+    const workspaceId = state.activeWorkspaceId;
     // Local chats/projects are valid before the user connects a workspace.
     // Keep the same undefined-workspace scope used by newChat and ProjectTree.
     if (workspaceId && deletingWorkspaceIds.has(workspaceId)) throw new Error("This workspace is being deleted. Choose another workspace and try again.");
@@ -6139,7 +6221,7 @@ export const useStore = create<State>((set, get) => {
       conversations,
       activeConvId: { ...get().activeConvId, [agentId]: c.id },
       terminalChat: mode === "terminal",
-      tab: "chat",
+      tab: state.tab === "live" && state.liveSession && state.liveSession.workspaceId === workspaceId ? "live" : "chat",
     });
     get().selectConversation(c.id);
     trackEvent("project_created", { agent: agentId, mode });
@@ -6324,10 +6406,20 @@ export const useStore = create<State>((set, get) => {
     if (!t) return;
     set((s) => {
       const conversations = s.conversations.map((c) =>
-        c.id === id ? { ...c, title: t, updatedAt: now() } : c,
+        c.id === id ? { ...(c.projectId ? { ...namedSession(c, t), sessionTitleEditedAt: now() } : c), title: t, updatedAt: now() } : c,
       );
       persistConvs(conversations);
       trackEvent("chat_renamed", { agent: get().agentId });
+      return { conversations };
+    });
+  },
+
+  renameSession: (id, title) => {
+    const name = validateEntityName("session", title);
+    set(state => {
+      const conversations = state.conversations.map(session => session.id === id
+        ? { ...namedSession(session, name), sessionTitleEditedAt: now(), updatedAt: now() } : session);
+      persistConvs(conversations);
       return { conversations };
     });
   },

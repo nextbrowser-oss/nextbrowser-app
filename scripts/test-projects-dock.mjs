@@ -87,7 +87,19 @@ try {
   await restored.waitFor({ state: "hidden" });
   await page.getByRole("button", { name: "Open Projects", exact: true }).hover();
   await restored.waitFor();
-  console.log("Passed Projects pin colors, mouse resizing, keyboard limits, dock width after re-pin and restart, sort options and hover.");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", {name:"Back to main view"}).click();
+  await page.getByRole("tab", {name:"Open Processes"}).click();
+  await page.locator(".live-workspace-pill").first().waitFor();
+  await page.getByRole("button", {name:"Open Projects",exact:true}).hover();
+  await restored.getByRole("button", {name:"Pin Projects"}).click();
+  await dock.getByRole("button", {name:"Unpin Projects"}).click();
+  await restored.waitFor();
+  assert.equal(await dock.count(), 0);
+  assert.ok(await page.locator("#live-side-chat").isVisible());
+  await page.keyboard.press("Escape");
+  await restored.waitFor({state:"hidden"});
+  console.log("Passed Projects docking, saved width, sorting and immediate Unpin popup in normal and Live views.");
 } finally {
   try { await app?.close(); } finally { await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 }); }
 }

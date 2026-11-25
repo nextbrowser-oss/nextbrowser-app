@@ -1,30 +1,29 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { addForeground, localDay, observeAccountActivity, readActivity, recentActivity } from "./accountActivity";
+import { afterEach, expect, it, vi } from "vitest";
+import { activityChanged, localDay, observeAccountActivity, readActivity, recentActivity } from "./accountActivity";
 
-afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); localStorage.clear(); });
+afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
 
-describe("local account activity", () => {
-  it("splits at midnight and excludes sleep gaps", () => {
-    const midnight = new Date(2026,10,25).getTime();
-    const log = readActivity("midnight");
-    addForeground(log,midnight - 5000,midnight + 12000);
-    addForeground(log,midnight + 12000,midnight + 3600000);
-    expect(log.days[localDay(midnight - 1)].ms).toBe(5000);
-    expect(log.days[localDay(midnight)].ms).toBe(12000);
-  });
+it("reads existing local history before a worker snapshot arrives", () => {
+  const day = localDay(Date.now());
+  localStorage.setItem("nextbrowser.accountActivity.existing", JSON.stringify({ first: day, lastVisit: 1, days: { [day]: { ms: 12000, sessions: 1 } } }));
+  expect(recentActivity("existing")).toEqual([{label: day, ms: 12000, sessions: 1}]);
+});
 
-  it("counts foreground time and return visits per account, including after restarting", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026,10,24,10,0));
-    vi.spyOn(document,"hasFocus").mockReturnValue(true);
-    vi.spyOn(document,"visibilityState","get").mockReturnValue("visible");
-    const stop = observeAccountActivity("first");
-    vi.advanceTimersByTime(19000);
-    stop();
-    vi.advanceTimersByTime(31 * 60000);
-    observeAccountActivity("first")();
-    expect(recentActivity("first")).toEqual([{label:"2026-11-24",ms:19000,sessions:2}]);
-    expect(readActivity("second").days).toEqual({});
-  });
+it("updates the graph only for the tracked account and unsubscribes on logout", () => {
+  const track = vi.fn(), unsubscribe = vi.fn(), changed = vi.fn();
+  let receive!: (data: unknown) => void;
+  vi.stubGlobal("nextbrowser", {trackAccountActivity: track, on: (_: string, fn: typeof receive) => { receive = fn; return unsubscribe; }});
+  window.addEventListener(activityChanged, changed);
+  const stop = observeAccountActivity("first");
+  const log = {first: "2026-11-25", lastVisit: 20000, days: {"2026-11-25": {ms: 17000, sessions: 1}}};
+  receive({owner: "another", log});
+  expect(changed).not.toHaveBeenCalled();
+  receive({owner: "first", log});
+  expect(readActivity("first")).toEqual(log);
+  expect(changed).toHaveBeenCalledOnce();
+  stop();
+  expect(track.mock.calls).toEqual([["first"], [null]]);
+  expect(unsubscribe).toHaveBeenCalledOnce();
+  window.removeEventListener(activityChanged, changed);
 });

@@ -7,7 +7,10 @@ const releaseTag = process.env.GITHUB_REF_TYPE === "tag" ? process.env.GITHUB_RE
 let displayVersion = releaseTag || pkg.version;
 if (!releaseTag) {
   try {
-    displayVersion = `${execFileSync("git", ["describe", "--tags", "--always", "--dirty"], { encoding: "utf8" }).trim().replace(/^v/, "")} (dev)`;
+    const branch = process.env.GITHUB_REF_NAME || execFileSync("git", ["branch", "--show-current"], { encoding: "utf8" }).trim();
+    if (branch !== `release/v${pkg.version}`) {
+      displayVersion = `${execFileSync("git", ["describe", "--tags", "--always", "--dirty"], { encoding: "utf8" }).trim().replace(/^v/, "")} (dev)`;
+    }
   } catch { displayVersion = `${pkg.version} (dev)`; }
 }
 

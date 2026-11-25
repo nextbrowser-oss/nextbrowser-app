@@ -1,0 +1,48 @@
+.task-daterange__trigger {
+  display: inline-flex; align-items: center; gap: 6px; width: auto;
+  border-radius: 8px; background: var(--surface-2); border: 1px solid var(--line);
+  color: var(--text); padding: 8px 10px; font: inherit; cursor: pointer; text-align: left;
+}
+.task-daterange__trigger[data-hovered] { border-color: var(--accent); }
+.task-daterange__popover {
+  --text: var(--glass-inverse-text);
+  --muted: var(--glass-inverse-muted);
+  --line: var(--glass-inverse-control-hover);
+  --surface-2: var(--glass-inverse-control);
+  --calendar-selection: color-mix(in srgb, var(--accent) 60%, var(--glass-inverse-text));
+  isolation: isolate; border-radius: 11px; padding: 9px; width: max-content;
+  color-scheme: dark;
+}
+.task-daterange__dialog { outline: none; display: flex; flex-direction: column; gap: 7px; }
+.task-daterange__inputs { display: flex; gap: 7px; }
+.task-daterange__label { display: block; font-size: 10px; color: var(--muted); margin-bottom: 2px; }
+.task-daterange__input {
+  display: inline-flex; gap: 1px; border-radius: 6px; background: var(--surface-2);
+  border: 1px solid var(--line); padding: 4px 6px; color: var(--text); font-size: 12px;
+}
+.task-daterange__input[data-focus-within] { border-color: var(--accent); }
+.task-daterange__segment { padding: 0 1px; outline: none; border-radius: 3px; font-variant-numeric: tabular-nums; }
+.task-daterange__segment[data-placeholder] { color: var(--muted); }
+.task-daterange__segment[data-focused] { background: var(--calendar-selection); color: var(--glass-inverse-solid); }
+.task-daterange__cal-header { display: flex; align-items: center; justify-content: space-between; padding: 1px 2px; }
+.task-daterange__heading { font-size: 12px; font-weight: 600; }
+.task-daterange__nav { background: transparent; border: 0; color: var(--text); cursor: pointer; padding: 3px; border-radius: 6px; display: inline-flex; }
+.task-daterange__nav[data-hovered] { background: var(--surface-2); }
+.task-daterange__grid { border-collapse: collapse; }
+.task-daterange__weekday { font-size: 10px; color: var(--muted); padding: 2px; text-align: center; }
+.task-daterange__cell {
+  width: 27px; height: 25px; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; border-radius: 6px; cursor: pointer; outline: none; color: var(--text); margin: 1px;
+}
+.task-daterange__cell[data-outside-month] { color: var(--muted); opacity: 0.45; }
+.task-daterange__cell[data-hovered] { background: var(--surface-2); }
+.task-daterange__cell[data-selected] { background: color-mix(in srgb, var(--calendar-selection) 28%, transparent); border-radius: 0; margin: 1px 0; }
+.task-daterange__cell[data-selection-start] { border-top-left-radius: 6px; border-bottom-left-radius: 6px; margin-left: 1px; }
+.task-daterange__cell[data-selection-end] { border-top-right-radius: 6px; border-bottom-right-radius: 6px; margin-right: 1px; }
+.task-daterange__cell[data-selection-start], .task-daterange__cell[data-selection-end] { background: var(--calendar-selection); color: var(--glass-inverse-solid); }
+.task-daterange__cell[data-focus-visible] { box-shadow: 0 0 0 2px var(--accent) inset; }
+.task-daterange__cell[data-today]:not([data-selected]) { box-shadow: 0 0 0 1px var(--line) inset; }
+.task-daterange__cell[data-disabled] { color: var(--muted); opacity: 0.4; cursor: default; }
+.task-daterange__actions { display: flex; justify-content: flex-end; }
+.task-daterange__clear { background: transparent; border: 0; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
+.task-daterange__clear[data-hovered] { color: var(--text); background: var(--surface-2); }

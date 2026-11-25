@@ -1,6 +1,6 @@
 # In-tab MCP tools
 
-**Settings → Agent → Prefer in-tab MCP tools** selects the default for new Nextbrowser agent and Codex turns and new Codex terminals on this installation. It starts off. Plain drafting runs have no browser tools.
+**Settings → Agent → Prefer WebMCP** selects the default for new Nextbrowser agent and Codex turns and new Codex terminals on this installation. Earlier versions called this switch **Prefer in-tab MCP tools**. Your saved preference carries over. It starts off. Plain drafting runs have no browser tools.
 
 | Approach | What the agent can do | Requirements |
 | --- | --- | --- |

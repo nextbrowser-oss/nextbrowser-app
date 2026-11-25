@@ -1,6 +1,6 @@
 {
   "name": "nextbrowser",
-  "version": "0.2.74",
+  "version": "0.2.80",
   "description": "Nextbrowser desktop agent console for macOS and Windows",
   "author": "Nextbrowser",
   "license": "AGPL-3.0-only",
@@ -31,6 +31,7 @@
     "@fontsource/hanken-grotesk": "^5.3.0",
     "@fontsource/inter": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
+    "@internationalized/date": "^3.12.3",
     "@nextbrowser-oss/facebook-monitoring": "github:nextbrowser-oss/nextbrowser-facebook-monitoring#bde1e5b802d841ed4cf64ab4b40ad5203325468c",
     "@nextbrowser-oss/instagram-monitoring": "github:nextbrowser-oss/nextbrowser-instagram-monitoring#b8f8c7638e9cc167cb227c2638f85dcbb4dd1bde",
     "@nextbrowser-oss/linkedin-monitoring": "github:nextbrowser-oss/nextbrowser-linkedin-monitoring#0b945f6214232e8799d18b2543973ccdd53a7aed",
@@ -43,10 +44,13 @@
     "electron-updater": "^6.8.9",
     "lucide-react": "^1.22.0",
     "node-pty": "^1.1.0",
+    "playwright-core": "1.56.1",
     "react": "^18.3.1",
+    "react-aria-components": "^1.19.0",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "smol-toml": "^1.4.2",
     "zustand": "^4.5.5"
   },
   "devDependencies": {
@@ -60,17 +64,18 @@
     "electron": "^43.0.0",
     "electron-builder": "^26.15.3",
     "jsdom": "27.0.1",
-    "playwright-core": "1.56.1",
     "typescript": "^5.6.2",
     "vite": "^8.1.2",
     "vitest": "^4.1.9",
-    "wait-on": "^8.0.1"
+    "wait-on": "^8.0.1",
+    "ws": "8.22.1"
   },
   "build": {
     "appId": "com.nextbrowser.desktop",
     "productName": "NextBrowser",
     "asar": true,
     "asarUnpack": [
+      "electron/account-activity-worker.cjs",
       "electron/tab-mcp.cjs",
       "electron/tab-mcp-launcher.cjs",
       "electron/user-mcp-launcher.cjs",

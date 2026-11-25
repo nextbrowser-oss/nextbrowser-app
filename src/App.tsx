@@ -8,12 +8,13 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExter
 import { useStore } from "./store";
 import { TitlebarActions } from "./components/DesktopShell";
 import { CommunityControls } from "./components/CommunityControls";
-import { MainViewNavigation } from "./components/MainViewNavigation";
 import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
 import { SkillsView } from "./components/SkillsView";
 import { MiniAppsPage } from "./pages/mini-apps";
 import { LiveView } from "./components/LiveView";
+import { ChatLiveWorkspace } from "./components/ChatLiveWorkspace";
+import { dockFocusKey, readDockFocus, type LivePanel } from "./lib/liveDock";
 import { LiveSessionsGrid, LiveSessionsPopover } from "./components/LiveSessions";
 import { useLiveSessions } from "./lib/useLiveSessions";
 import { UsageView } from "./components/UsageView";
@@ -44,7 +45,6 @@ import { observeAccountActivity } from "./lib/accountActivity";
 import {
   OPEN_AGENT_SETTINGS_EVENT,
   isUtilityDialogTab,
-  appTabLabel,
   isAppBackShortcut,
   isPrimaryAppTab,
   popPreviousAppTab,
@@ -65,11 +65,13 @@ import { WorkspaceSetupGate } from "./components/WorkspaceSetupGate";
 import { AgentInstallLink } from "./components/AgentInstallLink";
 import { DeviceDataSettings } from "./components/DeviceDataSettings";
 import { SettingsPanel, SettingsRail } from "./components/SettingsSections";
+import { DeviceSessions } from "./components/DeviceSessions";
 import { SettingsUpdates } from "./components/SettingsUpdates";
 import { SettingsDiagnostics } from "./components/SettingsDiagnostics";
 import { availableRuntimeUpdates, latestRuntimeOperation, type AppUpdateStatus, type BrowserRuntimeUpdateStatus, type BrowserRuntimeUpdateInstallStatus } from "./lib/settingsUpdates";
 import { settingsAttention, settingsSectionForUpdates, type SettingsSection } from "./lib/settingsSections";
 import { AutomationStudio } from "./components/AutomationStudio";
+import { MainViewNavigation } from "./components/MainViewNavigation";
 import { FeedbackModal } from "./components/FeedbackModal";
 import { feedbackPromptBlocked, feedbackPromptConfig, markFeedbackSubmitted, shouldPromptForFeedback } from "./lib/feedbackPrompt";
 import { multiloginSelectionForWorkspace } from "./lib/multiloginSelection";
@@ -492,6 +494,7 @@ function SettingsModal({
 
   const [section, setSection] = useState<SettingsSection>(requestedSection ?? "general");
   const [preferTabTools, setPreferTabTools] = useState(() => settingsStorage.getItem("nextbrowser.preferTabTools") === "1");
+  const [useHarness2, setUseHarness2] = useState(() => settingsStorage.getItem("nextbrowser.useHarness2") === "1");
   const [usageOpen, setUsageOpen] = useState(false);
   const [usageVisited, setUsageVisited] = useState(false);
   useEffect(() => {
@@ -553,6 +556,7 @@ function SettingsModal({
           <SettingsRail section={section} attention={attention} onSelect={setSection} />
 
           <SettingsPanel section={section}>
+            {section === "devices" && <DeviceSessions />}
             {section === "general" && (
               <div className="settings-group">
                 <div className="settings-row"><span className="muted small">Nextbrowser</span><strong>{__APP_VERSION__}</strong></div>
@@ -663,10 +667,9 @@ function SettingsModal({
                     )}
                   </div>}
                 </div>
-                {builtinAgent && <BuiltinAgentSetup />}
                 <div className="settings-group">
                   <div className="settings-row">
-                    <label htmlFor="prefer-tab-tools" className="small">Prefer in-tab MCP tools</label>
+                    <label htmlFor="prefer-tab-tools" className="small">Prefer WebMCP</label>
                     <label className="toggle">
                       <input id="prefer-tab-tools" type="checkbox" role="switch" checked={preferTabTools}
                         aria-describedby="tab-tools-help" onChange={event => {
@@ -678,10 +681,28 @@ function SettingsModal({
                     </label>
                   </div>
                   <p id="tab-tools-help" className="muted small settings-group-note">
-                    {preferTabTools ? "Use tools from the active tab first, then standard browser controls when needed." : "Use standard browser controls."}
-                    {" Applies to new Nextbrowser agent and Codex chat turns and new Codex terminals."}
+                    Use the active site's tools when available, with standard browser controls as a fallback.
+                    Applies to new Nextbrowser and Codex chat turns and new Codex terminals.
                   </p>
                 </div>
+                <div className="settings-group">
+                  <div className="settings-row">
+                    <label htmlFor="use-harness2" className="small">Use Harness²</label>
+                    <label className="toggle">
+                      <input id="use-harness2" type="checkbox" role="switch" checked={useHarness2}
+                        aria-describedby="harness2-help" onChange={event => {
+                          const enabled = event.currentTarget.checked;
+                          settingsStorage.setItem("nextbrowser.useHarness2", enabled ? "1" : "0");
+                          setUseHarness2(enabled);
+                        }} />
+                      <span className="toggle-track"><span className="toggle-knob" /></span>
+                    </label>
+                  </div>
+                  <p id="harness2-help" className="muted small settings-group-note">
+                    Let the agent compare two approaches with the current model at any point in a task, from planning to choosing the next step. Applies to new chat turns.
+                  </p>
+                </div>
+                {builtinAgent && <BuiltinAgentSetup />}
                 {agentError && !builtinAgent && (
                   <div className="error small settings-agent-error">
                     <UserFacingError message={agentError} surface="agent_settings" />
@@ -887,6 +908,7 @@ export function App() {
   // the sign-out flow is waiting on.
   const workspaceSyncing = useStore((s) => s.loggingOut && (s.projectsSyncing || s.isRefreshing));
   const tab = useStore((s) => s.tab);
+  const utilityDialog = useStore(s => s.utilityDialog);
   const setTab = useStore((s) => s.setTab);
   const activeWorkspaceId = useStore(s => s.activeWorkspaceId);
   const currentMiniAppOwner = useMiniAppsOwner();
@@ -908,6 +930,18 @@ export function App() {
   const liveKey = liveSession?.workspaceId === activeWorkspaceId && liveSessions.some(session => session.key === liveSession?.key)
     ? liveSession?.key : undefined;
   const focusedLive = tab === "live" && !!liveKey;
+  const liveWorkspace = tab === "live" && !!liveSession && liveSession.workspaceId === activeWorkspaceId;
+  const [hiddenBrowser, setHiddenBrowser] = useState<typeof liveSession>();
+  const browserOpen = liveWorkspace && hiddenBrowser !== liveSession;
+  const [liveFocus, setLiveFocus] = useState<LivePanel[]>(() => readDockFocus(settingsStorage.getItem(dockFocusKey)));
+  const focusLivePanel = (panel: LivePanel) => setLiveFocus(current =>
+    current[0] === panel ? current : [panel, ...current.filter(item => item !== panel)]);
+  const [liveProjectsSlot, setLiveProjectsSlot] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!liveWorkspace) setHiddenBrowser(undefined);
+  }, [liveWorkspace]);
+  useEffect(() => { settingsStorage.setItem(dockFocusKey, liveFocus.join(",")); }, [liveFocus]);
+  const chatWorkspace = tab === "chat" || liveWorkspace;
   const bootstrap = useStore((s) => s.bootstrap);
   const showOnboarding = useStore((s) => s.showOnboarding);
   const agentReady = useStore((s) => s.agentReady());
@@ -1404,6 +1438,12 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => window.nextbrowser?.on("interface-zoom-shortcut", action => {
+    if (action === "reset") setUiScale(1);
+    if (action === "increase") setUiScale(value => clampUiScale(value + UI_SCALE_STEP));
+    if (action === "decrease") setUiScale(value => clampUiScale(value - UI_SCALE_STEP));
+  }), []);
+
   useEffect(() => {
     // Electron's native page zoom (Chromium's own Ctrl/Cmd+ mechanism),
     // requested through the main process — not the CSS `zoom` property,
@@ -1660,8 +1700,9 @@ export function App() {
   }
 
   return (
-    <div data-settings-open={settingsOpen || undefined} className={"app" + (focusedLive ? " app-live" + (liveControlsOpen ? " app-live-controls-open" : "") : "")}>
+    <div className="app">
       {titlebarActions}
+      {!chatWorkspace && <TitlebarActions>{backgroundTaskPills}</TitlebarActions>}
       <aside
         id="app-sidebar"
         className={`${glassSurfaceClassName} sidebar sidebar-collapsed`}
@@ -1669,6 +1710,7 @@ export function App() {
       >
         <Sidebar
           projectsDock={projectsDock}
+          liveProjects={liveWorkspace ? { slot: liveProjectsSlot, showChat: () => focusLivePanel("chat") } : undefined}
           onOpenSettings={openSettingsFromButton}
           liveDestination={<LiveSessionsPopover key={activeWorkspaceId} sessions={liveSessions} selected={tab === "live"}
             onOverview={showLiveOverview} onOpen={openLiveSession} />}
@@ -1676,42 +1718,32 @@ export function App() {
         />
       </aside>
       <div ref={setProjectsDock} className="projects-dock-slot" />
-      <main className={"content" + (tab === "chat" ? " content-chat" : "")}>
-        {!settingsOpen && tab !== "chat" && tab !== "live" && tab !== "account" && <nav className="tabbar">
-          {!isPrimaryAppTab(tab) && backTarget && (
-            <Tooltip content={`Back to ${appTabLabel(backTarget)} · Esc`}><button
-              className="tabbar-back"
-              type="button"
-              onClick={navigateBack}
-              aria-label={`Back to ${appTabLabel(backTarget)}`}
-            >
-              <Icon name="chevron.left" size={18} strokeWidth={2.25} />
-            </button></Tooltip>
-          )}
-          <MainViewNavigation />
-          <span className="tabbar-spacer" />
-          <div className="tabbar-controls">
-            {backgroundTaskPills}
-          </div>
-        </nav>}
-        {!settingsOpen && tab !== "live" && tab !== "account" && <hr className="divider" />}
+      <main className={"content" + (chatWorkspace ? " content-chat" : "")}>
         {tab !== "live" && workspaceSyncing && <div className="workspace-sync-status muted small" role="status">
           <Spinner size={12} /> Syncing workspace…
         </div>}
         <div className={"tab-content" + (tab === "skills" ? " tab-content-bleed" : "")}>
-          <div className={"persistent-tab-panel" + (tab === "chat" ? "" : " is-hidden")}>
-            <ChatView headerAccessory={backgroundTaskPills} />
-          </div>
+          <ChatLiveWorkspace visible={chatWorkspace} live={liveWorkspace} browserOpen={browserOpen}
+            focus={liveFocus} onFocusPanel={focusLivePanel} projectsRef={setLiveProjectsSlot}
+            onToggle={() => {
+              if (browserOpen) setLiveControlsOpen(false);
+              setHiddenBrowser(browserOpen ? liveSession : undefined);
+            }}
+            chat={<ChatView headerAccessory={backgroundTaskPills} showSessionNavigation={tab === "chat" && !settingsOpen} />}>
+            {liveWorkspace && !focusedLive && <LiveSessionsGrid key={activeWorkspaceId} sessions={liveSessions} onOpen={openLiveSession} />}
+            <div className={"persistent-tab-panel" + (focusedLive ? "" : " is-hidden")}>
+              <LiveView active={focusedLive} requestedKey={liveKey ?? ""} profileOptions={liveSessions}
+                controlsOpen={liveControlsOpen} onControlsChange={setLiveControlsOpen} onOverview={showLiveOverview} />
+            </div>
+          </ChatLiveWorkspace>
           {tab === "skills" && <SkillsView onOpenAgentSettings={() => openSettings("agent")} />}
           {tab === "mini-apps" && <MiniAppsPage />}
-          {tab === "automation" && <AutomationStudio />}
-          {tab === "live" && !focusedLive && <LiveSessionsGrid key={activeWorkspaceId} sessions={liveSessions} onOpen={openLiveSession} />}
-          <div className={"persistent-tab-panel" + (focusedLive ? "" : " is-hidden")}>
-            <LiveView active={focusedLive} requestedKey={liveKey ?? ""} profileOptions={liveSessions}
-              controlsOpen={liveControlsOpen} onControlsChange={setLiveControlsOpen} onOverview={showLiveOverview}
-              controlsAccessory={backgroundTaskPills} />
-          </div>
-          {tab === "account" && <AccountProfileView />}
+          {tab === "automation" && <>
+            {!settingsOpen && !utilityDialog && <MainViewNavigation />}
+            <AutomationStudio />
+          </>}
+          {tab === "live" && !liveWorkspace && <LiveSessionsGrid key={activeWorkspaceId} sessions={liveSessions} onOpen={openLiveSession} />}
+          {tab === "account" && <AccountProfileView onDevices={() => openSettings("devices")} />}
           {tab === "usage" && <UsageView />}
           {tab === "guide" && <GuideView onOpenAgentSettings={() => openSettings("agent")} />}
         </div>

@@ -17,6 +17,13 @@ const { BUILTIN_AGENT_SYSTEM_PROMPT, DEFAULT_LIMITS, PLAIN_SYSTEM_PROMPT, runBui
 const BUILTIN_AGENT_SETTINGS_KEY = "nextbrowser.builtinAgent";
 const MCP_START_TIMEOUT_MS = 30_000;
 
+// A bare status follow-up asks about the preceding exchange. It does not
+// grant permission to restart an older task or initialize external tools.
+function isStatusFollowUp(request) {
+  return typeof request === "string" &&
+    /^(?:(?:(?:ну\s+)?а\s+)?(?:теперь|сейчас)|(?:what about|how about|and)\s+now|now)\s*[?？.]*$/iu.test(request.trim());
+}
+
 /** The non-secret settings from the app settings file. */
 function parseBuiltinAgentSettings(raw) {
   let value;
@@ -53,8 +60,12 @@ function turnResult(outcome, limits) {
     case "cancelled":
       return { status: "cancelled", code: 130, stdout: "", stderr: "", reason: "" };
     case "max_steps": {
-      const reason = `The Nextbrowser agent stopped after ${limits.maxSteps} steps without finishing. Try a smaller task, or pick a stronger model in Settings → Agent.`;
-      return { ...failed(reason, { code: "max_steps", expected: true }), status: "max_steps" };
+      const reason = `The agent paused after ${limits.maxSteps} steps. Review the progress above and continue with the remaining part of the task.`;
+      return { ...failed(reason, { code: "max_steps", expected: true }), status: "max_steps", stdout: outcome.text || "" };
+    }
+    case "no_progress": {
+      const reason = "The page repeatedly returned the same blocker. Review the current page or choose another source, then continue.";
+      return { ...failed(reason, { code: "no_progress", expected: true }), status: "no_progress", stdout: outcome.text || "" };
     }
     case "timeout": {
       const reason = `The Nextbrowser agent did not finish within ${Math.round(limits.runTimeoutMs / 60_000)} minutes and was stopped. Try a smaller task.`;
@@ -73,9 +84,10 @@ function turnResult(outcome, limits) {
  */
 async function runBuiltinAgentTurn({
   settings,
-  managedOpenRouterURL,
+  managedProviderURL,
   loadKey,
   prompt,
+  chatTurn,
   plain = false,
   mcp,
   userMcpServers = [],
@@ -84,13 +96,16 @@ async function runBuiltinAgentTurn({
   fetchImpl,
   signal,
   onStep = () => {},
+  onReport,
+  useHarness2 = false,
   limits: limitOverrides = {},
   sleep,
 }) {
   const limits = { ...DEFAULT_LIMITS, ...limitOverrides };
+  const statusOnly = !plain && isStatusFollowUp(chatTurn?.request);
   let provider;
   try {
-    provider = resolveProviderSettings(settings, managedOpenRouterURL);
+    provider = resolveProviderSettings(settings, managedProviderURL);
   } catch (error) {
     return failedWith(error, "The Nextbrowser agent is not set up.");
   }
@@ -102,39 +117,43 @@ async function runBuiltinAgentTurn({
     return { ...failedWith(error, `Nextbrowser could not read the saved ${provider.providerName} key.`), ...identity };
   }
   if (provider.keyRequired && !apiKey) {
-    const message = provider.provider === "openrouter" ? "Sign in to Nextbrowser to use free OpenRouter models."
+    const message = managedProviderURL ? `Sign in to Nextbrowser to use managed ${provider.providerName} models.`
       : `Add your ${provider.providerName} API key in Settings → Agent.`;
     return { ...failed(message, { code: "not_configured", expected: true }), ...identity };
   }
   if (signal?.aborted) return { ...turnResult({ status: "cancelled" }, limits), ...identity };
-  const client = createProviderClient({ ...provider, apiKey, ...(fetchImpl ? { fetchImpl } : {}) });
+  const client = createProviderClient({ ...provider, apiKey, managed: !!managedProviderURL, ...(fetchImpl ? { fetchImpl } : {}) });
 
   let mcpClient;
   let toolset;
   let userTools;
+  const hasWorkspaceTools = userMcpServers.some(server => server.id === 'stock');
+  let browserUnavailable = false;
   const closeRunner = () => { mcpClient?.close(); userTools?.close(); };
   signal?.addEventListener("abort", closeRunner, { once: true });
   try {
-    if (!plain) {
+    if (!plain && !statusOnly && mcp) {
       let runnerGone = false;
-      mcpClient = createMCPClient({
-        binary: mcp.binary,
-        args: mcp.args,
-        env: mcp.env,
-        ...(mcp.spawnImpl ? { spawnImpl: mcp.spawnImpl } : {}),
-        onExit: (...details) => {
-          runnerGone = true;
-          mcp.onRunnerExit?.(...details);
-        },
-      });
       let mcpTools;
       try {
         onStep("Starting the browser tools");
+        mcpClient = createMCPClient({
+          binary: mcp.binary,
+          args: mcp.args,
+          env: mcp.env,
+          ...(mcp.spawnImpl ? { spawnImpl: mcp.spawnImpl } : {}),
+          onExit: (...details) => {
+            runnerGone = true;
+            mcp.onRunnerExit?.(...details);
+          },
+        });
         await mcpClient.initialize(MCP_START_TIMEOUT_MS);
         mcpTools = await mcpClient.listTools(MCP_START_TIMEOUT_MS);
       } catch (error) {
         if (signal?.aborted) return { ...turnResult({ status: "cancelled" }, limits), ...identity };
-        return { ...failedWith(error, "The Nextbrowser agent could not start its browser tools."), ...identity };
+        if (!hasWorkspaceTools) return { ...failedWith(error, "The Nextbrowser agent could not start its browser tools."), ...identity };
+        mcpClient?.close();
+        mcpTools = [];
       }
       toolset = createMCPToolset({
         client: {
@@ -149,13 +168,17 @@ async function runBuiltinAgentTurn({
         strict: provider.provider === "gemini",
         defaultProfile,
       });
-      if (!toolset.definitions.length) {
+      if (!toolset.definitions.length && !hasWorkspaceTools) {
         return { ...failed("The browser tools of this Nextbrowser installation are not the ones the Nextbrowser agent uses. Update Nextbrowser, then try again.", { code: "tools_unavailable", expected: false }), ...identity };
       }
+    }
+    if (!plain && !statusOnly) {
+      browserUnavailable = !toolset?.definitions.length;
+      if (browserUnavailable && hasWorkspaceTools) onStep("Browser tools unavailable; workspace tools are available for local tasks");
       if (userMcpServers.length) {
         try {
           userTools = await connectUserMcpTools(userMcpServers, { ...userMcpDeps, signal, onStep, vision: modelSupportsVision(provider.model), strict: provider.provider === 'gemini' });
-          toolset = mergeToolsets(toolset, userTools);
+          toolset = toolset ? mergeToolsets(toolset, userTools) : userTools;
         } catch (error) { return { ...failedWith(error, 'MCP setup failed.'), ...identity }; }
       }
     }
@@ -163,20 +186,29 @@ async function runBuiltinAgentTurn({
       client,
       model: provider.model,
       providerName: provider.providerName,
-      systemPrompt: plain ? PLAIN_SYSTEM_PROMPT : [
+      systemPrompt: statusOnly
+        ? "Answer the latest question in the user's language. Resolve its reference from the preceding user question. An unrelated action offered by the assistant was not requested. If the reference is ambiguous, ask one short clarifying question. No actions were taken this turn. The list of configured services does not prove a working connection."
+        : plain ? PLAIN_SYSTEM_PROMPT : [
         BUILTIN_AGENT_SYSTEM_PROMPT,
+        browserUnavailable && "Browser tools are unavailable this turn. For browser requests report that status. Use workspace tools for requested local development tasks.",
         toolset?.has("tab_tools_list") && TAB_INSTRUCTIONS,
         userMcpServers.some(server => server.id === 'miniapps') && miniAppInstructions,
         userMcpServers.some(server => server.id === 'stock') && stockInstructions,
       ].filter(Boolean).join("\n"),
-      prompt,
+      prompt: statusOnly
+        ? "Configured workspace MCP services (names only): " + JSON.stringify(userMcpServers.map(server => server.name)) + "\n\nCurrent user request:\n" + chatTurn.request
+        : prompt,
+      chatTurn: statusOnly ? { request: chatTurn.request, history: chatTurn.history?.slice(-2) }
+        : plain ? undefined : chatTurn,
       tools: toolset,
       signal,
       limits,
       onStep,
+      onReport: plain ? undefined : onReport,
+      useHarness2: !plain && useHarness2,
       ...(sleep ? { sleep } : {}),
     });
-    return { ...turnResult(outcome, limits), ...identity };
+    return { ...turnResult(outcome, limits), ...identity, steps: outcome.steps };
   } finally {
     signal?.removeEventListener("abort", closeRunner);
     closeRunner();
@@ -186,6 +218,7 @@ async function runBuiltinAgentTurn({
 module.exports = {
   BUILTIN_AGENT_SETTINGS_KEY,
   parseBuiltinAgentSettings,
+  isStatusFollowUp,
   runBuiltinAgentTurn,
   turnResult,
 };

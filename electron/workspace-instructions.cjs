@@ -1,6 +1,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { TAB_INSTRUCTIONS } = require("./tab-mcp.cjs");
+const harness2 = require("./harness2.cjs");
 
 const START = "<!-- NEXTBROWSER MANAGED INSTRUCTIONS START -->";
 const END = "<!-- NEXTBROWSER MANAGED INSTRUCTIONS END -->";
@@ -9,6 +10,10 @@ function managedInstructions(browserContext = "") {
 # Nextbrowser browser workspace
 
 - ${TAB_INSTRUCTIONS}
+
+- In Codex, use the nextbrowser_desktop MCP server for Nextbrowser settings, widgets and installed extensions. Read get_session_settings for this run's Harness² and website WebMCP settings. Use list_apps to identify the installed app (including Music Player), list_app_tools for its live actions and call_app_tool to operate it.
+
+- When the desktop exposes harness2_propose, ${harness2.mcpInstructions} In a terminal launched with NEXTBROWSER_HARNESS2_MODE=inline, ${harness2.inlineInstructions}
 
 - For browser tasks, use the connected Nextbrowser MCP tools immediately when they are available. They reuse the selected profile's native control channel (Playwright for Camoufox, CDP where supported). Use the CLI only when MCP is unavailable; then prefer \`nbc\` and fall back to \`nextctl\`.
 - Do not probe for the CLI, run a duplicate CLI \`start\`, or switch between CLI and MCP after a successful MCP call.

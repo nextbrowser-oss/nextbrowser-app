@@ -9,7 +9,7 @@ A v2 mini app publishes its full user-facing functionality through native WebMCP
 3. Declare all tool names in the manifest. Register that exact set on the entry document at startup using `document.modelContext.registerTool`. Register independently of the currently selected item, view or open dialog. Report temporarily unavailable actions through a tool error.
 4. Supply a meaningful description, an object JSON Schema for the arguments and an asynchronous or synchronous `execute(input)` handler. Validate arguments in the handler. Resolve with a JSON-serializable `{ok: true, value: ...}` or `{ok: false, error: "actionable message"}`. Only report a successful mutation after it has been saved. Keep output small and page lists.
 
-At installation Nextbrowser loads the package in a disposable guest with empty state, and compares the native tool registry to the manifest. Missing or extra registrations, an empty tool set, or invalid descriptors fail installation. The host repeats discovery in the live app. Authors must also test UI-to-tool parity: matching names alone cannot establish what an app actually does.
+At installation Nextbrowser compares the native tool registry to the manifest in a disposable guest with empty state. It repeats this check for the full app and for the tile and popover on each declared widget surface. Missing or extra registrations, an empty tool set, or invalid descriptors fail installation. The host repeats discovery in the live app. Test that actions produce the same observable result from every surface, including when the player or other controlled service runs in a separate window.
 
 ## First package
 
@@ -70,7 +70,9 @@ Each app runs at a synthetic HTTPS origin in an isolated Electron guest. The ses
 
 Nextbrowser provides its built-in workspace agent and Codex with an authenticated local MCP endpoint. Package authors only implement WebMCP in the document. The user's browser-tab interaction preference applies to websites; installed v2 apps always expose their tools.
 
-1. `list_apps` returns the available v2 apps for the account in `apps`. Follow `next_offset` to read the next page.
+The desktop tool `get_session_settings` reports the agent, its preferences at launch and the effective modes for this session. Builds reporting `effective.harness2Mode` support comparing strategies while planning or acting. In MCP mode Codex and Claude Code can call `harness2_propose`, `harness2_probe` and `harness2_compose` on `nextbrowser_desktop`. The website WebMCP preference is independent of Harness².
+
+1. `list_apps` returns the available v2 apps for the account in `apps`, including widget names and their enabled surfaces. Follow `next_offset` to read the next page.
 2. `list_app_tools({app_id})` opens the app if necessary and returns its registered tools, their schemas and an `instance`. Follow `next_offset` with the same app ID to discover additional tools.
 3. `call_app_tool({app_id, instance, tool, input_json})` runs the named handler. Encode the argument object as JSON text, up to 24,000 characters. Success returns the app's value, and failure returns an MCP tool error. Read state before retrying a mutation after a timeout or conflict.
 

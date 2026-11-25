@@ -138,8 +138,7 @@ async function refresh() {
   el('toggle').setAttribute('aria-label', playing ? 'Pause' : 'Play');
   document.body.dataset.playing = String(playing);
   el('track').textContent = status.title || service?.name || 'Music Player';
-  el('artist').textContent = status.artist || (account?.login === 'google' ? 'Playback controls are in your music browser' : account?.label || '');
-  el('toggle').hidden = account?.login === 'google';
+  el('artist').textContent = status.artist || account?.label || '';
   el('choose').querySelector('span').textContent = account ? account.label : 'Add account';
   el('choose').querySelector('use').setAttribute('href','#icon-' + (account?.service ?? 'plus'));
   el('no-accounts').hidden = !!account;

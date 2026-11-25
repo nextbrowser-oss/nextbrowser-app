@@ -76,6 +76,26 @@ function ComposerModel({ skin }: { skin: Skin }) {
   </figure>;
 }
 
+export function ComposerSkinChoices({ skin, onChange }: { skin: Skin; onChange: (skin: Skin) => void }) {
+  return <div className="skin-options" role="group" aria-label="Composer skins">
+    {(Object.keys(presets) as Preset[]).map(id => <button key={id} type="button" data-skin={id}
+      aria-pressed={skin.id === id} onClick={() => onChange({ ...skin, id })}>
+      <span className="skin-sample" aria-hidden="true"><i /><i /><i /></span>
+      <span>{presets[id]}</span>{skin.id === id && <Check size={13} aria-hidden="true" />}
+    </button>)}
+  </div>;
+}
+
+export function ComposerColorChoice({ skin, onChange }: { skin: Skin; onChange: (skin: Skin) => void }) {
+  return <>
+    <label className="skin-color"><span>Custom color</span><input type="color" aria-label="Custom composer color"
+      value={skin.color} onClick={() => onChange({ ...skin, id: 'custom' })}
+      onChange={event => onChange({ id: 'custom', color: event.target.value })} /></label>
+    <button className="skin-color-value" type="button" aria-label={'Use custom color ' + skin.color} aria-pressed={skin.id === 'custom'}
+      onClick={() => onChange({ ...skin, id: 'custom' })}>{skin.color.toUpperCase()}</button>
+  </>;
+}
+
 export function ComposerSkinPicker({ skin, onApply, chooseSurface = false }: { skin: Skin; onApply: (skin: Skin) => void; chooseSurface?: boolean }) {
   const [surface, setSurface] = useState<WidgetSurface>('chat.panel');
   const [draft, setDraft] = useState<Skin | null>(null);
@@ -84,24 +104,14 @@ export function ComposerSkinPicker({ skin, onApply, chooseSurface = false }: { s
       aria-haspopup="dialog" aria-expanded={Boolean(draft)} onClick={() => setDraft(skin)}><Palette size={15} /></IconButton>
     {draft && <Dialog title="Composer appearance" className="composer-skin-dialog" onClose={() => setDraft(null)}>
       <ComposerModel skin={draft} />
-      <div className="skin-options" role="group" aria-label="Composer skins">
-        {(Object.keys(presets) as Preset[]).map(id => <button key={id} type="button" data-skin={id}
-          aria-pressed={draft.id === id} onClick={() => setDraft({ ...draft, id })}>
-          <span className="skin-sample" aria-hidden="true"><i /><i /><i /></span>
-          <span>{presets[id]}</span>{draft.id === id && <Check size={13} aria-hidden="true" />}
-        </button>)}
-      </div>
+      <ComposerSkinChoices skin={draft} onChange={setDraft} />
       {chooseSurface && <div className="widget-surface-options" role="group" aria-label="Widget placement">
         <Button aria-pressed={surface === 'chat.panel'} onClick={() => setSurface('chat.panel')}>Composer</Button>
         <Button aria-pressed={surface === 'settings.design'} onClick={() => setSurface('settings.design')}>Theme settings</Button>
       </div>}
       <WidgetPicker surface={surface} />
       <div className="skin-settings-footer">
-        <label className="skin-color"><span>Custom color</span><input type="color" aria-label="Custom composer color"
-          value={draft.color} onClick={() => setDraft({ ...draft, id: 'custom' })}
-          onChange={event => setDraft({ id: 'custom', color: event.target.value })} /></label>
-        <button className="skin-color-value" type="button" aria-label={'Use custom color ' + draft.color} aria-pressed={draft.id === 'custom'}
-          onClick={() => setDraft({ ...draft, id: 'custom' })}>{draft.color.toUpperCase()}</button>
+        <ComposerColorChoice skin={draft} onChange={setDraft} />
         <Button className="skin-apply" onClick={() => { onApply(draft); setDraft(null); }}>Apply skin</Button>
       </div>
     </Dialog>}

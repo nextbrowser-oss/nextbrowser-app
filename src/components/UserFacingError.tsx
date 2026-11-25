@@ -4,16 +4,14 @@ import { trackEvent } from "../lib/analytics";
 import { reportUserFacingMessage } from "../lib/errorReporting";
 import { needsSupportLink } from "../lib/userFacingError";
 
-export function UserFacingError({
-  message,
-  surface,
-  discordLabel,
-}: {
+interface ErrorSupportProps {
   message: string;
   surface: string;
   /** Always link to Discord with this label, e.g. when the fix lives there. */
   discordLabel?: string;
-}) {
+}
+
+export function ErrorSupportLink({ message, surface, discordLabel }: ErrorSupportProps) {
   const supportRef = needsSupportLink(message);
   const label = discordLabel ?? (supportRef ? "Get help in Discord." : undefined);
   // A message with a Ref is an internal error the user is looking at. It is
@@ -22,22 +20,22 @@ export function UserFacingError({
   useEffect(() => {
     if (supportRef) reportUserFacingMessage(surface.replace(/_/g, "-"), message);
   }, [supportRef, surface, message]);
+  return label ? (
+    <a
+      href={discordUrl}
+      target="_blank"
+      rel="noreferrer"
+      onClick={() => trackEvent("internal_error_support_opened", { surface })}
+    >
+      {label}
+    </a>
+  ) : null;
+}
+
+export function UserFacingError(props: ErrorSupportProps) {
   return (
     <span className="user-facing-error">
-      <span>{message}</span>
-      {label && (
-        <>
-          {" "}
-          <a
-            href={discordUrl}
-            target="_blank"
-            rel="noreferrer"
-            onClick={() => trackEvent("internal_error_support_opened", { surface })}
-          >
-            {label}
-          </a>
-        </>
-      )}
+      <span>{props.message}</span>{" "}<ErrorSupportLink {...props} />
     </span>
   );
 }

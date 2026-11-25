@@ -13,22 +13,20 @@ vi.mock("../electronBridge", () => ({ invoke: vi.fn(() => new Promise(() => unde
 import { BuiltinAgentSetup } from "./BuiltinAgentSetup";
 
 describe("BuiltinAgentSetup", () => {
-  it("offers the providers with their limits, NVIDIA first, and a free key link", () => {
+  it("offers the managed NVIDIA provider first and leaves personal credentials optional", () => {
     const html = renderToStaticMarkup(<BuiltinAgentSetup />);
     for (const name of ["NVIDIA", "OpenRouter", "DeepSeek", "Anthropic", "Google Gemini", "Custom"]) expect(html).toContain(`<strong>${name}</strong>`);
     expect(html).toMatch(/role="radio" aria-checked="true" class="builtin-agent-provider is-selected" disabled=""><span class="builtin-agent-provider-head"><strong>NVIDIA<\/strong>/);
-    expect(html).toContain("about 40 requests a minute");
+    expect(html).toContain("Nemotron is included with your Nextbrowser account.");
     expect(html).toContain("Free models are available through your Nextbrowser account, subject to shared capacity.");
-    expect(html).toContain('href="https://build.nvidia.com"');
-    expect(html).toContain("Get a free key");
+    expect(html).toContain("Use a personal NVIDIA key");
     expect(html).toContain("Your tasks and the page text the agent reads are sent to NVIDIA.");
-    expect(html).toContain("for development and testing");
   });
 
-  it("takes the key in a password field and keeps Test and Save off until a key and a model are there", () => {
+  it("requires no personal key and waits for a model before enabling Test and Save", () => {
     const html = renderToStaticMarkup(<BuiltinAgentSetup />);
-    expect(html).toMatch(/<input type="password" autoComplete="off"[^>]*aria-label="NVIDIA API key"/);
-    expect(html).toContain("Save a key to load the models");
+    expect(html).not.toContain('type="password"');
+    expect(html).not.toContain("Save a key to load the models");
     expect(html).toMatch(/<button type="button" class="mini" disabled="">[^<]*<svg[\s\S]*?<\/svg> Test<\/button>/);
     expect(html).toMatch(/<button type="button" class="mini primary-mini" disabled=""> Use this model<\/button>/);
   });

@@ -15,7 +15,7 @@ const {
   testProvider,
 } = require("./builtin-agent-providers.cjs");
 const { BUILTIN_AGENT_TOOLS, coerceArguments, createMCPToolset, selectTools, toOpenAIParameters, toolResultForModel } = require("./builtin-agent-tools.cjs");
-const { fitContext, messageText, parseToolCalls } = require("./builtin-agent.cjs");
+const { fitContext, messageText, parseToolCalls, runBuiltinAgent } = require("./builtin-agent.cjs");
 const { parseBuiltinAgentSettings, runBuiltinAgentTurn } = require("./builtin-agent-run.cjs");
 const { describeBuiltinAgentResult } = require("./agent-failure-report.cjs");
 
@@ -145,6 +145,64 @@ function turn(provider, mcp, overrides = {}) {
 
 // ---- The loop ----------------------------------------------------------------
 
+test("a status question about MCP after a paused search never executes the older search", async () => {
+  const history = [
+    { role: "user", content: "Найди билеты" },
+    { role: "assistant", content: "Поиск остановлен." },
+    { role: "user", content: "Ты можешь сам себе MCP поставить?" },
+    { role: "assistant", content: "Посмотри подключения MCP. Если хочешь, могу вернуться к билетам." },
+  ];
+  const provider = await fakeProvider(() => reply({ content: "Ищу билеты.", tool_calls: [toolCall("open", { url: "https://example.com" })] }));
+  const mcp = fakeMCP();
+  try {
+    const result = await turn(provider, mcp, { prompt: "Workspace context", chatTurn: { request: "а теперь ?", history },
+      userMcpServers: [{ name: "Calendar", env: { TOKEN: "must-stay-local" } }], onReport: () => {}, useHarness2: true }).promise;
+    assert.equal(result.status, "completed");
+    assert.equal(result.stdout, "Что именно проверить сейчас?");
+    assert.equal(provider.requests.length, 1);
+    assert.equal(mcp.spawned.length, 0);
+    assert.deepEqual(mcp.toolCalls(), []);
+    assert.ok(provider.requests.every(({ body }) => !body.tools));
+    const messages = provider.requests[0].body.messages;
+    assert.deepEqual(messages.slice(1, -1), history.slice(-2));
+    assert.equal(messages.at(-1).role, "user");
+    assert.match(messages.at(-1).content, /Calendar[\s\S]*а теперь \?$/);
+    assert.ok(!JSON.stringify(messages).includes("must-stay-local"));
+  } finally { await provider.close(); }
+});
+
+test("an explanation about a different topic can finish at the planning step without a browser call", async () => {
+  const provider = await fakeProvider(() => reply({ content: "ANSWER: MCP connects an agent to tools." }));
+  const mcp = fakeMCP();
+  try {
+    const request = "What does MCP do?";
+    const result = await turn(provider, mcp, { prompt: request, chatTurn: { request, history: [
+      { role: "user", content: "Find flights" }, { role: "assistant", content: "The search paused." },
+    ] }, onReport: () => {} }).promise;
+    assert.equal(result.stdout, "MCP connects an agent to tools.");
+    assert.equal(provider.requests.length, 1);
+    assert.deepEqual(mcp.toolCalls(), []);
+  } finally { await provider.close(); }
+});
+
+test("an explicit action after changing topics reaches the planner and the tools", async () => {
+  const history = [{ role: "user", content: "Расскажи про MCP" }, { role: "assistant", content: "Это протокол." }];
+  const request = "А теперь открой example.com";
+  const provider = await fakeProvider((_body, _req, index) => {
+    if (!index) return reply({ content: "Открыть страницу" });
+    if (index === 1) return reply({ tool_calls: [toolCall("open", { url: "https://example.com" })] });
+    return reply({ content: "Открыто." });
+  });
+  const mcp = fakeMCP();
+  try {
+    const result = await turn(provider, mcp, { prompt: request, chatTurn: { request, history }, onReport: () => {} }).promise;
+    assert.equal(result.status, "completed");
+    assert.deepEqual(provider.requests[0].body.messages.slice(1), [...history, { role: "user", content: request }]);
+    assert.deepEqual(provider.requests[1].body.messages.slice(1, 4), [...history, { role: "user", content: request }]);
+    assert.deepEqual(mcp.toolCalls().map(call => call.name), ["open"]);
+  } finally { await provider.close(); }
+});
+
 test("a missing managed OpenRouter route reports a server error for catalog and chat", async () => {
   const client = createProviderClient({
     provider: "openrouter",
@@ -163,7 +221,7 @@ test("OpenRouter chat uses the Nextbrowser backend and its runtime token", async
   const model = "vendor/model:free";
   const { promise } = turn(backend, null, {
     settings: { provider: "openrouter", model, baseURL: "https://ignored.test" },
-    managedOpenRouterURL: endpoint,
+    managedProviderURL: endpoint,
     loadKey: async () => "nextbrowser-runtime-token",
     plain: true,
   });
@@ -172,6 +230,21 @@ test("OpenRouter chat uses the Nextbrowser backend and its runtime token", async
   assert.equal(backend.requests[0].url, "/v1/agent/openrouter/chat/completions");
   assert.equal(backend.requests[0].headers.authorization, "Bearer nextbrowser-runtime-token");
   assert.equal(backend.requests[0].body.model, model);
+});
+
+test("a fresh account uses managed NVIDIA without saving a personal key or choosing a model", async (t) => {
+  const backend = await fakeProvider(() => reply({content:"OK"}));
+  t.after(() => backend.close());
+  const options = { settings:{}, plain:true, managedProviderURL:backend.baseURL + "/agent/nvidia" };
+  const signedOut = await turn(backend, null, {...options, loadKey:async () => ""}).promise;
+  assert.match(signedOut.reason, /Sign in to Nextbrowser/);
+  assert.equal(backend.requests.length, 0);
+  const signedIn = await turn(backend, null, {...options, loadKey:async () => "fixture-account-token"}).promise;
+  assert.equal(signedIn.status, "completed");
+  assert.equal(backend.requests[0].url, "/v1/agent/nvidia/chat/completions");
+  assert.equal(backend.requests[0].headers.authorization, "Bearer fixture-account-token");
+  assert.equal(backend.requests[0].body.model, "nvidia/nemotron-3.5-super-vl-120b-a12b");
+  assert.throws(() => resolveProviderSettings({provider:"nvidia"}, ""));
 });
 
 test("a two-step tool loop ends in the model's final answer", async () => {
@@ -274,10 +347,124 @@ test("the run stops after its step limit", async () => {
     assert.equal(result.status, "max_steps");
     assert.equal(result.code, 1);
     assert.equal(provider.requests.length, 3);
-    assert.match(result.reason, /stopped after 3 steps without finishing/);
+    assert.match(result.reason, /paused after 3 steps/);
     assert.deepEqual(result.failure, { code: "max_steps", expected: true });
   } finally {
     await provider.close();
+  }
+});
+
+test("plans before acting and pauses a stale-element loop with confirmed partial results", async () => {
+  const reports = [];
+  const provider = await fakeProvider((body, _req, index) => {
+    if (!index) { assert.ok(!body.tools); return reply({content:"Check the route\nCompare verified fares"}); }
+    if (!body.tools) return reply({content:"No fare was verified. The calendar could not be selected."});
+    return reply({tool_calls:[toolCall("click", {element_id:709})]});
+  });
+  const mcp = fakeMCP((name) => {
+    assert.equal(reports.at(-1).plan.length, 2);
+    if (name === "state") return {content:[{type:"text",text:"Calendar unavailable"}]};
+    return {isError:true, content:[{type:"text", text:"stale element id 709: no longer visible"}]};
+  });
+  try {
+    const result = await turn(provider, mcp, {onReport: report => reports.push(report)}).promise;
+    assert.deepEqual(mcp.toolCalls().map(call => call.name), ["click", "state", "click"]);
+    assert.equal(result.failure.code, "no_progress");
+    assert.match(result.stdout, /No fare was verified/);
+    assert.ok(result.steps < 10);
+    assert.ok(reports.some(r => r.progress.includes("repeating")));
+  } finally { await provider.close(); }
+});
+
+test("Harness² compares two strategies for a blocked action and feeds the proposed recovery to the live turn", async () => {
+  for (const enabled of [true, false]) {
+    const probes = [];
+    let proposals = 0, compositions = 0;
+    const provider = await fakeProvider(body => {
+      const instruction = body.messages[0].content;
+      if (instruction.startsWith("Propose two")) {
+        proposals++;
+        assert.equal(body.tools, undefined);
+        return reply({content: "Read the status banner\nCheck a different date"});
+      }
+      if (instruction.startsWith("Probe this")) {
+        assert.equal(body.tools, undefined);
+        const probe = JSON.parse(body.messages[1].content);
+        probes.push(probe);
+        return reply({content: "Evidence for " + probe.strategy});
+      }
+      if (instruction.startsWith("Compare the two")) {
+        compositions++;
+        assert.equal(body.tools, undefined);
+        assert.equal(JSON.parse(body.messages[1].content).probes.length, 2);
+        return reply({content: "Read the status banner before selecting a new date."});
+      }
+      if (body.messages.some(message => message.role === "tool" && message.content.includes("Proposed recovery"))) {
+        return reply({content: "The observed status banner says booking is closed."});
+      }
+      return reply({tool_calls:[toolCall("click", {element_id:709})]});
+    });
+    const mcp = fakeMCP(name => name === "state" ? {content:[{type:"text",text:"Status banner: booking closed"}]} :
+      {isError:true,content:[{type:"text",text:"stale element id 709"}]});
+    try {
+      const result = await turn(provider, mcp, {useHarness2:enabled}).promise;
+      assert.equal(result.status, enabled ? "completed" : "no_progress");
+      assert.equal(proposals, enabled ? 1 : 0);
+      assert.equal(compositions, proposals);
+      assert.equal(probes.length, proposals * 2);
+      if (enabled) {
+        assert.notEqual(probes[0].strategy, probes[1].strategy);
+        assert.deepEqual(probes[0].observations, probes[1].observations);
+        assert.match(probes[0].observations.join(" "), /booking closed/);
+      }
+      assert.deepEqual(mcp.toolCalls().map(call => call.name), ["click", "state", "click"]);
+    } finally { await provider.close(); }
+  }
+});
+
+test("Harness² is callable twice from planning without any browser action or failure", async () => {
+  for (const enabled of [true,false]) {
+    let requests=0, proposals=0, probes=0, compositions=0;
+    const provider = await fakeProvider(body => {
+      const instruction = body.messages[0].content;
+      if (instruction.startsWith("Propose two")) {
+        proposals++;
+        assert.deepEqual(JSON.parse(body.messages[1].content).observations,["Flexible dates"]);
+        return reply({content:"Search direct flights\nCompare dates"});
+      }
+      if (instruction.startsWith("Probe this")) { probes++; return reply({content:"This search verifies the chosen dates."}); }
+      if (instruction.startsWith("Compare the two")) { compositions++; return reply({content:"Check direct availability first."}); }
+      assert.equal(body.tools.some(t=>t.function.name==="harness2_compare"),enabled);
+      if (enabled && requests++ < 2) {
+        return reply({tool_calls:[toolCall("harness2_compare",{goal:requests===1?"Choose an initial search":"Choose dates for a second search",evidence:"Flexible dates"})]});
+      }
+      if (enabled) assert.equal(JSON.parse(body.messages.at(-1).content).proposedNextStep,"Check direct availability first.");
+      return reply({content:"Ready to search"});
+    });
+    const mcp = fakeMCP();
+    try {
+      const result = await turn(provider,mcp,{useHarness2:enabled}).promise;
+      assert.equal(result.status,"completed");
+      assert.deepEqual([proposals,probes,compositions],enabled ? [2,4,2] : [0,0,0]);
+      assert.deepEqual(mcp.toolCalls(),[]);
+    } finally { await provider.close(); }
+  }
+});
+
+test("stops scrolling an unchanged page but continues through genuinely new rows", async () => {
+  for (const changing of [false, true]) {
+    let modelCalls = 0, scrolls = 0;
+    const result = await runBuiltinAgent({
+      prompt:"Find comparable fares", model:"test",
+      client:{chat: async () => ({message: ++modelCalls > 10 ? {content:"Comparison ready"} : {tool_calls:[toolCall("scroll",{amount:700})]}})},
+      tools:{
+        definitions:[{type:"function",function:{name:"scroll"}}], has: name => name === "scroll",
+        prepare: (_name,args) => args,
+        call: async () => { scrolls++; return {text:changing ? "New row " + scrolls : "End of page",images:[]}; },
+      },
+    });
+    assert.equal(result.status, changing ? "completed" : "no_progress");
+    assert.equal(scrolls, changing ? 10 : 4);
   }
 });
 
@@ -351,6 +538,31 @@ test('connected MCP tools reach the model, execute and do not enter plain runs',
   finally { await plainProvider.close(); }
 });
 
+test('workspace tools execute with a missing or unlaunchable browser CLI', async () => {
+  for (const browser of [undefined, { binary: '/unavailable', spawnImpl() { throw Error('Browser unavailable'); } }]) {
+    const workspace = fakeMCP(() => ({ content: [{ type: 'text', text: 'workspace-ok' }] }));
+    const provider = await fakeProvider((body, _request, index) => {
+      if (index === 0) {
+        const tool = body.tools.find(item => item.function.description.startsWith('[Workspace tools]'));
+        assert.ok(tool);
+        return reply({ tool_calls: [toolCall(tool.function.name, {})] });
+      }
+      assert.ok(body.messages.some(message => message.role === 'tool' && message.content.includes('workspace-ok')));
+      return reply({ content: 'Workspace ready.' });
+    });
+    try {
+      const result = await turn(provider, null, {
+        prompt: 'Check my working folder.',
+        mcp: browser,
+        userMcpServers: [{ id: 'stock', name: 'Workspace tools', command: '/fake/workspace', args: [] }],
+        userMcpDeps: { spawnImpl: workspace.spawnImpl },
+      }).promise;
+      assert.equal(result.stdout, 'Workspace ready.');
+      assert.equal(workspace.toolCalls().length, 1);
+    } finally { await provider.close(); }
+  }
+});
+
 test("browser tools that cannot start end the run with a reason", async () => {
   const provider = await fakeProvider(() => reply({ content: "never" }));
   const spawnImpl = () => {
@@ -392,7 +604,7 @@ for (const [status, code, pattern] of [
       assert.equal(result.failure.expected, true);
       assert.equal(result.failure.status, status);
       assert.ok(!JSON.stringify(result).includes(SECRET), "the key never reaches the result");
-      assert.equal(describeBuiltinAgentResult({ result, provider: "nvidia", model: "m" }).event, null, "the user fixes it; no report");
+      assert.equal(describeBuiltinAgentResult({ result, provider: "nvidia", model: "m" }).event.context.failure, code);
     } finally {
       await provider.close();
     }
@@ -458,7 +670,7 @@ test("a missing key or setting fails before anything is sent", async () => {
     const noKey = await turn(provider, fakeMCP(), { settings: { provider: "nvidia", model: "m" }, loadKey: async () => "" }).promise;
     assert.match(noKey.reason, /Add your NVIDIA API key in Settings → Agent/);
     assert.deepEqual(noKey.failure, { code: "not_configured", expected: true });
-    const noModel = await turn(provider, fakeMCP(), { settings: { provider: "nvidia" } }).promise;
+    const noModel = await turn(provider, fakeMCP(), { settings: { provider: "deepseek" } }).promise;
     assert.match(noModel.reason, /Pick a model/);
     const noURL = await turn(provider, fakeMCP(), { settings: { provider: "custom", model: "m" } }).promise;
     assert.match(noURL.reason, /base URL/);
@@ -666,7 +878,7 @@ test("NVIDIA preselects a chat Nemotron model: Super, then Ultra, then Nano", ()
   assert.equal(defaultModelFor("nvidia", models), "nvidia/llama-3.3-nemotron-super-49b-v1.5");
   assert.equal(defaultModelFor("nvidia", models.filter((model) => !/super/.test(model.id))), "nvidia/llama-3.1-nemotron-ultra-253b-v1");
   assert.equal(defaultModelFor("nvidia", models.filter((model) => /nano/.test(model.id))), "nvidia/nvidia-nemotron-nano-9b-v2");
-  assert.equal(defaultModelFor("nvidia", []), "nvidia/llama-3.3-nemotron-super-49b-v1.5");
+  assert.equal(defaultModelFor("nvidia", []), "nvidia/nemotron-3.5-super-vl-120b-a12b");
   assert.ok(!offeredModels("nvidia", models).some((model) => /embed|reward/.test(model.id)));
   assert.equal(models.find((model) => model.id.endsWith("-vl")).vision, true);
 });

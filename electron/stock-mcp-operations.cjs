@@ -1,15 +1,37 @@
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { serverEnvironment } = require('./mcp-environment.cjs');
 const { terminateProcessTree } = require('./process-tree.cjs');
 
+function executable(files) {
+  return files.find(file => {
+    if (!file || !path.isAbsolute(file)) return false;
+    try { fs.accessSync(file, fs.constants.X_OK); return fs.statSync(file).isFile(); }
+    catch { return false; }
+  });
+}
+function onPath(name) {
+  return (process.env.PATH || '').split(path.delimiter).filter(dir => path.isAbsolute(dir)).map(dir => path.join(dir, name));
+}
 function shells() {
-  if (process.platform !== 'win32') return fs.existsSync('/bin/bash') ? { bash: '/bin/bash' } : {};
-  const gitBash = [process.env.ProgramW6432, process.env.ProgramFiles, process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs')]
-    .filter(Boolean).map(dir => path.join(dir, 'Git', 'bin', 'bash.exe')).find(file => fs.existsSync(file));
-  const powershell = path.join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-  return { ...(gitBash ? { bash: gitBash } : {}), ...(fs.existsSync(powershell) ? { powershell } : {}) };
+  const win = process.platform === 'win32';
+  const programs = [process.env.ProgramW6432, process.env.ProgramFiles, process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs')].filter(Boolean);
+  const bash = executable(win ? programs.map(dir => path.join(dir, 'Git', 'bin', 'bash.exe'))
+    .concat(onPath('bash.exe').filter(file => !/[/\\](?:system32|syswow64)[/\\]bash\.exe$/i.test(file))) : ['/bin/bash', ...onPath('bash')]);
+  const powershell = executable(win ? [...programs.map(dir => path.join(dir, 'PowerShell', '7', 'pwsh.exe')),
+    path.join(process.env.SystemRoot || '', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ...onPath('pwsh.exe')]
+    : [...onPath('pwsh'), '/opt/microsoft/powershell/7/pwsh', '/opt/homebrew/bin/pwsh', '/usr/local/bin/pwsh']);
+  return { ...(bash && { bash }), ...(powershell && { powershell }) };
+}
+function adbExecutable(sdkFolder) {
+  const name = process.platform === 'win32' ? 'adb.exe' : 'adb';
+  if (sdkFolder) return executable([path.join(sdkFolder, 'platform-tools', name), path.join(sdkFolder, name)]);
+  const roots = [process.env.ANDROID_HOME, process.env.ANDROID_SDK_ROOT,
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Android', 'Sdk'),
+    path.join(os.homedir(), 'Library', 'Android', 'sdk'), path.join(os.homedir(), 'Android', 'Sdk')];
+  return executable([...roots.filter(Boolean).map(dir => path.join(dir, 'platform-tools', name)), ...onPath(name), '/opt/homebrew/bin/adb', '/usr/local/bin/adb']);
 }
 
 function safeText(value, limit) {
@@ -64,8 +86,11 @@ async function readEntry(root, relative, list, offset = 0) {
 }
 
 function runShell(file, shell, command, cwd, signal) {
-  signal.throwIfAborted();
   const args = shell === 'bash' ? ['--noprofile', '--norc', '-c', command] : ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command];
+  return runProgram(file, args, cwd, signal);
+}
+function runProgram(file, args, cwd, signal, timeoutMs = 25_000) {
+  signal.throwIfAborted();
   const child = spawn(file, args, { cwd, shell: false, windowsHide: true, env: serverEnvironment(process.env), stdio: ['ignore', 'pipe', 'pipe'] });
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -83,7 +108,7 @@ function runShell(file, shell, command, cwd, signal) {
       if (child.pid && child.exitCode === null && child.signalCode === null) void terminateProcessTree(child.pid, { includeRoot: true }).catch(() => child.kill());
       child.stdout.destroy(); child.stderr.destroy();
     };
-    const timer = setTimeout(stop, 25_000);
+    const timer = setTimeout(stop, timeoutMs);
     signal.addEventListener('abort', stop, { once: true });
     const cleanup = () => { clearTimeout(timer); signal.removeEventListener('abort', stop); };
     child.once('error', error => { cleanup(); reject(error); });
@@ -94,4 +119,4 @@ function runShell(file, shell, command, cwd, signal) {
     });
   });
 }
-module.exports = { shells, safeText, readEntry, resolveEntry, runShell };
+module.exports = { shells, adbExecutable, safeText, readEntry, resolveEntry, runShell, runProgram };

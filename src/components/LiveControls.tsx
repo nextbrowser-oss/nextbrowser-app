@@ -59,9 +59,9 @@ export function LiveControls({ open, onOpenChange, children }: {
     "--live-button-x": position.x, "--live-button-y": position.y,
     "--live-button-margin": `${MARGIN}px`, "--live-button-size": `${BUTTON_SIZE}px`,
   } as CSSProperties}>
-    <Popover label="Live controls" open={open} onOpenChange={onOpenChange} side="right" align="end" dismissOnOutside={false}
+    <Popover label="Process controls" open={open} onOpenChange={onOpenChange} side="right" align="end" dismissOnOutside={false}
       className="live-controls-panel shared-scrollbarless"
-      trigger={props => <IconButton {...props} label={open ? "Hide Live controls" : "Show Live controls"}
+      trigger={props => <IconButton {...props} label={open ? "Hide process controls" : "Show process controls"}
         hint="" className="live-controls-trigger" aria-description="Drag to move this button"
         data-dragging={dragging || undefined}
         onPointerDown={event => {

@@ -14,7 +14,7 @@ const root = process.cwd();
 const data = await mkdtemp(path.join(os.tmpdir(), 'nb-stock-smoke-'));
 const folder = path.join(data, 'approved-folder');
 await mkdir(folder);
-let step = 0, error, shell, page;
+let step = 0, error, shell, page, androidChecked = false;
 let shellLine, deniedLine;
 const registryFixture = { instructions: '', serverInfo: { name: 'fixture', version: '1' },
   tools: [{ name: 'fixture_ping', description: 'Read a local test value.', inputSchema: { type: 'object', properties: {} } }] };
@@ -31,18 +31,21 @@ const service = http.createServer(async (req, res) => {
     };
     const reply = content => ({ role: 'assistant', content });
     let message;
-    switch (step++) {
+    if (!tools && messages[0]?.content.startsWith('Respond to the latest user message')) {
+      message = reply('Check workspace tools');
+    } else switch (step++) {
       case 0: message = call('get_permissions', {}); break;
       case 1: {
         const prefs = JSON.parse(last);
         assert.equal(prefs.folder, folder); assert.equal(prefs.files, 'allow');
-        shell = prefs.shells.includes('bash') ? 'bash' : 'powershell';
+        shell = prefs.defaultShell;
         assert(prefs.shells.includes(shell));
+        if (prefs.shells.includes('bash')) assert.equal(shell, 'bash');
         deniedLine = shell === 'bash' ? 'printf denied > rejected.txt' : 'Set-Content rejected.txt denied';
         shellLine = shell === 'bash' ? 'printf approved > visible.txt' : 'Set-Content -Encoding ascii visible.txt approved';
         message = call('run_command', { shell, command: deniedLine }); break;
       }
-      case 2: assert.match(last, /denied/i); message = call('run_command', { shell, command: shellLine }); break;
+      case 2: assert.match(last, /denied/i); message = call('run_command', { command: shellLine }); break;
       case 3: assert.equal(JSON.parse(last).exitCode, 0); message = call('list_directory', { path: '.' }); break;
       case 4: assert.deepEqual(JSON.parse(last).entries.map(e => e.name), ['visible.txt']); message = call('read_text_file', { path: 'visible.txt' }); break;
       case 5:
@@ -52,7 +55,14 @@ const service = http.createServer(async (req, res) => {
       case 7:
         assert(!tools.some(t => t.function.description.startsWith('[Workspace tools] run_command:')));
         message = call('fixture_ping', {}, 'Fixture service'); break;
-      case 8: assert.match(last, /pong/); message = reply('Connected'); break;
+      case 8: assert.match(last, /pong/); message = process.env.NB_TEST_ANDROID === '1' ? call('android_devices', {}) : reply('Connected'); break;
+      case 9: {
+        const result = JSON.parse(last);
+        assert.equal(result.exitCode, 0);
+        assert.match(result.output, /List of devices attached/);
+        androidChecked = true;
+        message = reply('Connected'); break;
+      }
       default: throw Error('Unexpected model turn.');
     }
     res.setHeader('Content-Type', 'application/json');
@@ -79,6 +89,8 @@ try {
   await page.goto(url);
   const modal = page.getByRole('dialog', { name: 'MCP', exact: true });
   await modal.getByRole('button', { name: 'Permissions', exact: true }).click();
+  await modal.getByRole('combobox', { name: 'Default shell', exact: true }).waitFor();
+  await modal.getByRole('combobox', { name: 'Android permission', exact: true }).waitFor();
   await modal.getByRole('button', { name: 'Choose folder' }).click();
   await modal.getByText(folder, { exact: true }).waitFor();
   await modal.getByRole('combobox', { name: 'Workspace files permission' }).click();
@@ -106,5 +118,6 @@ try {
   const next = await turn();
   if (error) throw error;
   assert.equal(next.stdout, 'Connected', next.stderr);
-  console.log('Passed desktop permissions, denied and approved ' + shell + ', scoped reads, reviewed MCP setup and next-turn tools.');
+  console.log('Passed desktop permissions, denied and approved ' + shell + ', scoped reads, reviewed MCP setup and next-turn tools.' +
+    (androidChecked ? ' Verified android_devices with real adb.' : ''));
 } finally { await app?.close(); service.closeAllConnections(); await new Promise(resolve => service.close(resolve)); }

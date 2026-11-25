@@ -13,7 +13,7 @@ const extensions: Array<{ id: AppTab; label: string; compact: string; icon: Glyp
 const destinations: typeof extensions = [
   { id: "scheduled", label: "Scheduled", compact: "Schedule", icon: "clock" },
   { id: "guide", label: "Guide", compact: "Guide", icon: "book-open" },
-  { id: "live", label: "Profiles", compact: "Profiles", icon: "monitor" },
+  { id: "live", label: "Processes", compact: "Processes", icon: "activity" },
 ];
 
 export function SidebarNavigation({ collapsed = false, tab, modal, badgeFor, onSelect, liveDestination, pinnedApps }: {

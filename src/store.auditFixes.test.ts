@@ -394,6 +394,7 @@ it("drops queued replies when the chat is cleared", async () => {
     conversations: [project],
     activeConvId: { claude: "c1" },
     runtime: { ...runtime, claude: { ...runtime.claude, queue: [{ conversationId: "c1", rawText: "hi", replyId: "q1", executionTarget: "local" as const }] } },
+    agentId: project.agent,
   });
   useStore.getState().clearChat();
   expect(useStore.getState().runtime.claude.queue).toEqual([]);

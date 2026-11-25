@@ -33,7 +33,7 @@ describe("Guide feature navigation", () => {
     const copy = features.map((feature) => `${feature.title} ${feature.caption}`).join(" ");
 
     expect(copy).not.toMatch(/killed|each its own tab|automatically solved|universal bypass|source totals/i);
-    expect(copy).toContain("Live Streaming");
+    expect(copy).toContain("Processes");
     expect(copy).toContain("while this device is awake");
   });
 

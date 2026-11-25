@@ -2,7 +2,7 @@ import { Button, Dialog, Popover, Select, Tooltip } from "../shared/ui";
 import { AccountAvatar } from "./AccountAvatar";
 import { PersonalProxyNavigation } from "./PersonalProxyNavigation";
 import { PROFILE_ACTIONS_EVENT } from "../lib/profileNavigation";
-import { RecentProjects } from "./RecentProjects";
+import { RecentProjects, type LiveProjectsPanel } from "./RecentProjects";
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { personalProxyUsers, useStore, type ManualProxyProfileInput } from "../store";
@@ -95,15 +95,24 @@ function multiloginCreationError(error: unknown, kind: MultiloginProfileKind): s
 
 interface SidebarProps {
   projectsDock: HTMLElement | null;
+  liveProjects?: LiveProjectsPanel;
   onOpenSettings: () => void;
   settingsAttention?: boolean;
   /** Profiles rail destination, including the hover preview. */
   liveDestination: ReactNode;
 }
 
-export function Sidebar({ onOpenSettings, settingsAttention, liveDestination, projectsDock }: SidebarProps) {
+export function Sidebar({ onOpenSettings, settingsAttention, liveDestination, projectsDock, liveProjects }: SidebarProps) {
   const s = useStore();
   const [automationStatusOpen, setAutomationStatusOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState("");
+  async function signOut() {
+    setSigningOut(true);
+    try { await s.logout(); }
+    catch { setSignOutError(internalError("We couldn't sign you out.", "ACCOUNT_SIGN_OUT_FAILED")); }
+    finally { setSigningOut(false); }
+  }
   const [projectsMenuOpen, setProjectsMenuOpen] = useState(false);
   useEffect(() => {
     const projects = () => setProjectsMenuOpen(true);
@@ -368,11 +377,12 @@ export function Sidebar({ onOpenSettings, settingsAttention, liveDestination, pr
       if (!Number.isInteger(index) || index < 0 || index >= Math.min(projects.length, 9)) return;
       event.preventDefault();
       s.selectConversation(projects[index].id);
-      s.setTab("chat");
+      if (liveProjects) liveProjects.showChat();
+      else s.setTab("chat");
     };
     window.addEventListener("keydown", handleProjectShortcut);
     return () => window.removeEventListener("keydown", handleProjectShortcut);
-  }, [projects, s]);
+  }, [projects, s, liveProjects]);
   const skillCount = withLocalScripts(s.skillCategories).reduce((total, category) => total + category.entries.length, 0);
   const defaultStatus = s.defaultSession?.status ?? "unknown";
   const defaultKnown = !!s.defaultSession?.session?.name || defaultStatus !== "unknown";
@@ -1323,7 +1333,7 @@ export function Sidebar({ onOpenSettings, settingsAttention, liveDestination, pr
           {s.authed ? <AccountAvatar ownerId={s.accountOwnerId} name={s.accountName} email={s.accountEmail} /> : <AccountAvatar />}
         </button>
       </Tooltip>
-      <div className="sidebar-destinations is-compact"><RecentProjects dock={projectsDock} open={projectsMenuOpen} onOpenChange={setProjectsMenuOpen} /></div>
+      <div className="sidebar-destinations is-compact"><RecentProjects dock={projectsDock} livePanel={liveProjects} open={projectsMenuOpen} onOpenChange={setProjectsMenuOpen} /></div>
       <div className="sidebar-destinations is-compact"><PersonalProxyNavigation count={s.personalProxies.length}
         onLoad={() => { if (s.authed) void s.loadPersonalProxies().catch(() => setManualError("Could not load proxies. Try opening the list again.")); }}
         onCreate={bulk => {
@@ -1336,7 +1346,13 @@ export function Sidebar({ onOpenSettings, settingsAttention, liveDestination, pr
       {automationExecution && !activeRecording && <Tooltip content="Automation status" side="right"><button className="mini-nav-btn" aria-label="Automation status" onClick={() => setAutomationStatusOpen(true)}><Icon name="play.fill" size={18} /></button></Tooltip>}
       <span className="spacer" />
       <SidebarSettingsButton collapsed attention={settingsAttention} onClick={onOpenSettings} />
+      {s.authed && <Tooltip content="Sign out" side="right">
+        <button type="button" className="sidebar-settings-button is-compact" aria-label="Sign out" disabled={signingOut} onClick={() => void signOut()}>
+          {signingOut ? <Spinner size={18} /> : <Icon name="rectangle.portrait.and.arrow.right" size={18} />}
+        </button>
+      </Tooltip>}
     </div>
+    {signOutError && <Dialog title="Sign out failed" onClose={() => setSignOutError("")}><UserFacingError message={signOutError} surface="account_sign_out" /></Dialog>}
     {profileActionError && <Dialog title="Browser action failed" onClose={() => setProfileActionError(null)}><UserFacingError message={profileActionError} surface="profile_action" /></Dialog>}
     {automationStatusOpen && <Dialog title="Automation status" className="workspace-tools utility-dialog" onClose={() => setAutomationStatusOpen(false)}>
     <div className="sidebar-shell">

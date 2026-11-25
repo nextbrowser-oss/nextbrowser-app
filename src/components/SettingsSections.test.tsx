@@ -17,7 +17,7 @@ describe("Settings section rail", () => {
     expect(html).toMatch(/^<div[^>]*role="tablist"[^>]*>/);
     expect(html).toContain('aria-orientation="vertical"');
     expect(html).toContain('aria-label="Settings sections"');
-    expect(Object.keys(tabs(html))).toEqual(["general", "themes", "updates", "privacy", "agent", "browser", "proxy"]);
+    expect(Object.keys(tabs(html))).toEqual(["general", "themes", "updates", "privacy", "devices", "agent", "browser", "proxy"]);
   });
 
   it("selects one tab and keeps only it in the Tab order", () => {

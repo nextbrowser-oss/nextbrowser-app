@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import type { BuiltinAgentStatus } from "./lib/builtinAgent";
+import type { BuiltinAgentFailure, BuiltinAgentStatus } from "./lib/builtinAgent";
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn(), prepareSession: vi.fn() }));
 vi.mock("./electronBridge", () => ({ invoke: mocks.invoke, listen: mocks.listen, filePathForFile: () => "" }));
@@ -27,7 +27,7 @@ const READY: BuiltinAgentStatus = {
 };
 
 let status: BuiltinAgentStatus = READY;
-let agentRun: { code: number; stdout: string; stderr: string; reason?: string; failure?: { code: string; expected: boolean } };
+let agentRun: { code: number; stdout: string; stderr: string; reason?: string; failure?: BuiltinAgentFailure };
 let storage: ReturnType<typeof memoryStorage>;
 
 beforeEach(() => {
@@ -107,6 +107,7 @@ it("sends a chat turn to the built-in agent with tool-only instructions", async 
   expect(run).toMatchObject({ agentId: "nextbrowser", args: [], binary: "", envVar: "", conversationId: "c", workspaceId: "w" });
   const prompt = String(run.stdinText);
   expect(prompt).toContain("Open example.com and tell me the title");
+  expect(run.chatTurn).toEqual({ request: "Open example.com and tell me the title", history: [] });
   expect(prompt).toContain("- Work: Camoufox");
   expect(prompt).toContain("camoufox for Camoufox");
   // Nothing a CLI agent needs: no shell, no curl, no host start commands.
@@ -114,9 +115,19 @@ it("sends a chat turn to the built-in agent with tool-only instructions", async 
   expect(run.browserProfiles).toEqual([{ name: "Work", runtime: "camoufox", running: true, selected: true, ownerConversationId: undefined }]);
   const reply = useStore.getState().conversations[0].messages.find((message) => message.id === item.replyId);
   expect(reply).toMatchObject({ status: "done", text: "The title is Example Domain." });
+
+  useStore.getState().enqueue("а теперь ?");
+  const followUp = useStore.getState().runtime.nextbrowser.queue.at(-1)!;
+  await useStore.getState().processItem("nextbrowser", followUp);
+  const second = mocks.invoke.mock.calls.filter(([command]) => command === "agent_run").at(-1)![1] as Record<string, unknown>;
+  expect(second.chatTurn).toEqual({ request: "а теперь ?", history: [
+    { role: "user", content: "Open example.com and tell me the title" },
+    { role: "assistant", content: "The title is Example Domain." },
+  ] });
+  expect(second.stdinText).not.toContain("Open example.com");
 });
 
-it("shows a failure the user fixes in Settings without a reference, and an unexpected one with one", async () => {
+it("shows the diagnostic reference, keeps local fallback codes and preserves partial findings", async () => {
   const useStore = await setup();
   await useStore.getState().authorizeAgent();
   useStore.setState({ startConsumer: vi.fn() });
@@ -126,15 +137,22 @@ it("shows a failure the user fixes in Settings without a reference, and an unexp
     await useStore.getState().processItem("nextbrowser", item);
     return useStore.getState().conversations[0].messages.find((message) => message.id === item.replyId)!;
   };
-  agentRun = { code: 1, stdout: "", stderr: "x", reason: "NVIDIA's free limit is reached. Wait a minute and try again, or switch to another provider in Settings → Agent.", failure: { code: "rate_limit", expected: true } };
+  const ref = "NB-A1B2C3D4-ABCD";
+  agentRun = { code: 1, stdout: "", stderr: "x", reason: "NVIDIA's free limit is reached. Wait a minute and try again, or switch to another provider in Settings → Agent.", failure: { code: "rate_limit", expected: true, ref, diagnosticCode:"BUILTIN_AGENT_RATE_LIMIT" } };
   const limited = await run();
   expect(limited.status).toBe("failed");
-  expect(limited.text).toBe(agentRun.reason);
+  expect(limited.text).toBe(agentRun.reason + " Ref: " + ref);
+  expect(limited.runIssue).toEqual({code:"BUILTIN_AGENT_RATE_LIMIT", ref});
 
   agentRun = { code: 1, stdout: "", stderr: "x", reason: "NVIDIA had a server error (HTTP 503). Try again in a minute.", failure: { code: "server", expected: false } };
   const broken = await run();
   expect(broken.status).toBe("failed");
   expect(broken.text).toMatch(/^NVIDIA had a server error \(HTTP 503\)\. Try again in a minute\. Ref: NB-[0-9A-F]{8}-[0-9A-F]{4}$/);
+  agentRun = {code:1,stdout:"No fare was verified.",stderr:"",reason:"Review the page.",failure:{code:"no_progress",expected:true,ref}};
+  const partial = await run();
+  expect(partial.status).toBe("needsAttention");
+  expect(partial.text).toContain("No fare was verified.");
+  expect(partial.text).toContain(ref);
 });
 
 it("keeps built-in agent projects out of the terminal", async () => {

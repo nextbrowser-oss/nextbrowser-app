@@ -20,7 +20,7 @@ const APP_TAB_LABELS: Record<AppTab, string> = {
   skills: "Skills",
   connectors: "Connectors",
   mcp: "MCP",
-  live: "Profiles",
+  live: "Processes",
   usage: "Usage",
   guide: "Guide",
   scheduled: "Scheduled",

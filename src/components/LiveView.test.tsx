@@ -21,7 +21,6 @@ const state = vi.hoisted(() => ({
 vi.mock("../store", () => ({ useStore: Object.assign(() => state, { getState: () => state }) }));
 vi.mock("../electronBridge", () => ({ invoke: vi.fn() }));
 vi.mock("../lib/liveStartPage", () => ({ showLiveStartPage: vi.fn(async () => {}) }));
-vi.mock("./MainViewNavigation", () => ({ MainViewNavigation: () => null }));
 
 const session = { id: "native-session", attached: true };
 const onControlsChange = () => {};
@@ -50,19 +49,20 @@ it("opens an already running profile inside Live after Windows attaches its wind
   });
   mount();
   await screen.findByRole("button", { name: "Open in separate window" });
+  expect(screen.queryByRole("tablist", { name: "Main views" })).toBeNull();
   expect(invoke).toHaveBeenCalledWith("live_window", expect.objectContaining({
     operation: "start", profile: "local", runtime: "clawbrowser",
   }));
   expect(showLiveStartPage).toHaveBeenCalledOnce();
   expect(state.startProfile).not.toHaveBeenCalled();
   expect(state.startRemoteStream).not.toHaveBeenCalled();
-  expect(screen.queryByRole("button", { name: "Restart in Live" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Restart in Processes" })).toBeNull();
 });
 
 it("offers a restart when the running profile has no window to attach", async () => {
   vi.mocked(invoke).mockImplementation(async command => command === "live_window_available" ? true : null);
   mount();
-  await screen.findByRole("button", { name: "Restart in Live" });
+  await screen.findByRole("button", { name: "Restart in Processes" });
   expect(showLiveStartPage).not.toHaveBeenCalled();
   expect(state.startRemoteStream).not.toHaveBeenCalled();
 });

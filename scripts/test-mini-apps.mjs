@@ -109,10 +109,10 @@ try {
   await pin().check();
   await backToCatalog();
   await shortcut('Kanban').waitFor();
-  const profilesBox = await page.getByRole('button', { name: 'Open Profiles', exact: true }).boundingBox();
+  const processesBox = await page.getByRole('button', { name: 'Open Processes', exact: true }).boundingBox();
   const dividerBox = await divider().boundingBox();
   const kanbanBox = await shortcut('Kanban').boundingBox();
-  assert.ok(profilesBox.y + profilesBox.height <= dividerBox.y && dividerBox.y + dividerBox.height <= kanbanBox.y);
+  assert.ok(processesBox.y + processesBox.height <= dividerBox.y && dividerBox.y + dividerBox.height <= kanbanBox.y);
   await page.getByRole('button', { name: 'Open', exact: true }).click();
   await waitForBoard();
   await checkWindowLayout();

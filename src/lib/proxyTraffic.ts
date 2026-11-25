@@ -73,8 +73,11 @@ export function isProxyTrafficHistoryRangeValid(from: string, to: string): boole
 export function proxyTrafficHistoryWindows(
   from: string,
   to: string,
+  accountStart?: string,
 ): ProxyTrafficHistoryWindow[] {
-  if (!isProxyTrafficHistoryRangeValid(from, to)) return [];
+  const lifetime = accountStart && from === accountStart && /^\d{4}-\d{2}-\d{2}$/.test(from)
+    && /^\d{4}-\d{2}-\d{2}$/.test(to) && Number.isFinite(Date.parse(from)) && Number.isFinite(Date.parse(to)) && from <= to;
+  if (!lifetime && !isProxyTrafficHistoryRangeValid(from, to)) return [];
 
   const windows: ProxyTrafficHistoryWindow[] = [];
   let cursor = from;

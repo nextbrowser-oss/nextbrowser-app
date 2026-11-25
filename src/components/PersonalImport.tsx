@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { ArchiveRestore, Bookmark, ChevronRight, Clock3, Download, Flame, FolderOpen, Globe, Image, PanelsTopLeft, RefreshCw, TrendingUp } from "lucide-react";
+import { ArchiveRestore, Bookmark, Check, ChevronRight, Clock3, Download, Flame, FolderOpen, Globe, Image, PanelsTopLeft, RefreshCw, TrendingUp } from "lucide-react";
 import { invoke } from "../electronBridge";
 import { Button } from "../shared/ui";
 
@@ -13,6 +13,7 @@ export interface PersonalProfile {
 }
 interface Source {
   id: string; browser: string; name: string;
+  previouslyImported?: boolean;
   items: Partial<Record<Category,{busy?: boolean; imported: boolean; updated?: boolean; unreadable?: boolean}>>;
 }
 interface Props {
@@ -100,7 +101,9 @@ export function PersonalImport({workspaceId,owner,initialSource,disabled,onSaved
               onClick={() => { if (s.id !== active) choose(s); setError(""); }}>
               <Icon size={17} aria-hidden="true"/>
               <span><strong>{s.name}</strong><small>{s.browser} · {readyCount(s)} available</small></span>
-              {s.id === active && <ChevronRight size={15} aria-hidden="true"/>}
+              {s.previouslyImported || Object.values(s.items).some(item => item?.imported)
+                ? <small className="personal-imported-badge"><Check size={12} aria-hidden="true"/>Imported</small>
+                : s.id === active && <ChevronRight size={15} aria-hidden="true"/>}
             </button></li>;
           })}
         </ul>

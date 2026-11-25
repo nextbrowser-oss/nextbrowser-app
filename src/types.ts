@@ -121,6 +121,7 @@ export type MessageRole = "user" | "assistant" | "system";
 export type MessageStatus =
   | "queued"
   | "streaming"
+  | "needsAttention"
   | "done"
   | "failed"
   | "cancelled"
@@ -155,6 +156,8 @@ export interface ChatMessage {
   lastActivityAt?: number;
   stalled?: boolean;
   activityLabel?: string;
+  runReport?: { plan: string[]; progress: string };
+  runIssue?: { code: string; ref: string };
   toolEvents?: ToolEvent[];
   commandChip?: UserCommandChip;
   attachments?: ChatAttachment[];
@@ -163,6 +166,9 @@ export interface ChatMessage {
 export interface Conversation {
   id: string;
   title: string;
+  /** A root conversation is also a project. Its session can have an independent name. */
+  sessionTitle?: string;
+  sessionTitleEditedAt?: number;
   agent: string;
   messages: ChatMessage[];
   createdAt: number;

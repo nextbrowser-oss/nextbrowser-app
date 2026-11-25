@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import { AppWindow, Archive, Download, Ellipsis, FolderKey, Monitor, ScanSearch, X } from "lucide-react";
+import { Menu, MenuItem, MenuTrigger, Popover, Pressable } from "react-aria-components";
 import { invoke } from "../electronBridge";
 import { useStore } from "../store";
-import { Button } from "../shared/ui";
+import { Button, glassSurfaceClassName, IconButton } from "../shared/ui";
 import { categoryLabel, PersonalImport, type PersonalProfile as Profile } from "./PersonalImport";
 
 export function PersonalProfiles({ owner }: { owner: string }) {
@@ -50,8 +52,10 @@ export function PersonalProfiles({ owner }: { owner: string }) {
     } catch (e) { if (seq === generation.current) setError(e instanceof Error ? e.message : "Could not open the profile."); }
     finally { if (seq === generation.current) setBusy(false); }
   }
-  return <section className="personal-profiles claw-card">
-    <header><h3>Personal browser profiles</h3><Button disabled={busy || scanning || !workspaceId} aria-expanded={form} onClick={() => { setInitialSource(undefined); setForm(!form); }}>{form ? "Close import" : "Import browser data"}</Button></header>
+  return <section className="personal-profiles account-network-section">
+    <header><h3>Personal browser profiles</h3><Button className="personal-import-trigger" disabled={busy || scanning || !workspaceId} aria-expanded={form} onClick={() => { setInitialSource(undefined); setForm(!form); }}>
+      {form ? <X size={14} aria-hidden="true"/> : <Download size={14} aria-hidden="true"/>}{form ? "Close import" : "Import browser data"}
+    </Button></header>
     {form && workspaceId && <PersonalImport workspaceId={workspaceId} owner={owner} initialSource={initialSource} disabled={busy}
       onBusy={setScanning} onRestore={() => void run("restore")} onSaved={profile => {
         setProfiles(list => [...list.filter(p => p.id !== profile.id),profile]);
@@ -60,13 +64,33 @@ export function PersonalProfiles({ owner }: { owner: string }) {
       }}/>}
     {profiles.map(p => <div key={p.id}>
       <div className="personal-profile-row">
-        <span>{p.name}<small>Personal · This device</small></span>
-        <div className="personal-profile-actions">
-          {p.backup && <Button aria-expanded={expanded === p.id} onClick={() => setExpanded(expanded === p.id ? undefined : p.id)}>Recovery files</Button>}
-          {(!p.backup || p.pendingBackup) && <Button disabled={busy} onClick={() => void run("backup",p.id)}>{p.pendingBackup ? "Finish backup" : "Create encrypted archive"}</Button>}
-          <Button disabled={busy || scanning} onClick={() => { setInitialSource(p.source?.id); setForm(true); }}>Scan browser data…</Button>
-          <Button disabled={busy || scanning} onClick={() => void run("open",p.id)}>Open profile</Button>
+        <Monitor size={16} aria-hidden="true"/>
+        <div className="personal-profile-label">
+          <span>{p.name}</span><small>Personal · This device</small>
         </div>
+        <MenuTrigger>
+          <Pressable>
+            <IconButton appearance="plain" size="small" label={`Actions for ${p.name}`} hint="Profile actions">
+              <Ellipsis size={18} aria-hidden="true"/>
+            </IconButton>
+          </Pressable>
+          <Popover placement="bottom end" offset={4} className={`${glassSurfaceClassName} personal-profile-menu`}>
+            <Menu aria-label={`Actions for ${p.name}`}>
+              <MenuItem textValue="Open profile" isDisabled={busy || scanning} onAction={() => void run("open", p.id)}>
+                <AppWindow/>Open profile
+              </MenuItem>
+              <MenuItem textValue="Scan browser data" isDisabled={busy || scanning} onAction={() => { setInitialSource(p.source?.id); setForm(true); }}>
+                <ScanSearch/>Scan browser data…
+              </MenuItem>
+              {p.backup && <MenuItem textValue="Recovery files" onAction={() => setExpanded(expanded === p.id ? undefined : p.id)}>
+                <FolderKey/>{expanded === p.id ? "Hide recovery files" : "Recovery files"}
+              </MenuItem>}
+              {(!p.backup || p.pendingBackup) && <MenuItem isDisabled={busy} textValue={p.pendingBackup ? "Finish backup" : "Create encrypted archive"} onAction={() => void run("backup", p.id)}>
+                <Archive/>{p.pendingBackup ? "Finish backup" : "Create encrypted archive"}
+              </MenuItem>}
+            </Menu>
+          </Popover>
+        </MenuTrigger>
       </div>
       {p.backup && expanded === p.id && <section className="personal-recovery" aria-label="Recovery files">
         <p>Only someone with the key file can decrypt the archive. Save the key separately and keep both files for recovery. Nextbrowser cannot replace a lost key.</p>

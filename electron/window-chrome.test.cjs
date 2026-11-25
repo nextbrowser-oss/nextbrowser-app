@@ -1,7 +1,24 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { windowChromeOptions, applyWindowChrome, applyWindowZoom, controlWindow, watchWindowState } = require("./window-chrome.cjs");
+const { interfaceZoomShortcut, restoredWindowSize, windowChromeOptions, applyWindowChrome, applyWindowZoom, controlWindow, watchWindowState } = require("./window-chrome.cjs");
 const { EventEmitter } = require("node:events");
+
+test("zoom shortcuts accept the platform modifier and leave AltGr, composition and unmodified typing alone", () => {
+  const key = { type: "keyDown", key: "+" };
+  assert.equal(interfaceZoomShortcut({ ...key, meta: true }, "darwin"), "increase");
+  assert.equal(interfaceZoomShortcut({ ...key, control: true, key: "-" }, "linux"), "decrease");
+  for (const extra of [{}, { meta: true }, { control: true, alt: true }, { control: true, type: "keyUp" }, { control: true, isComposing: true }]) {
+    assert.equal(interfaceZoomShortcut({ ...key, ...extra }, "win32"), undefined);
+  }
+});
+
+test("saved window size fits the current display and malformed preferences fall back to defaults", () => {
+  const settings = raw => ({ snapshot: () => ({ values: { "nextbrowser.windowSize": raw } }) });
+  const workArea = { width: 1440, height: 900 };
+  assert.deepEqual(restoredWindowSize(settings("{"), workArea), { width: 1180, height: 760, maximized: false });
+  assert.deepEqual(restoredWindowSize(settings('{"width":2200,"height":1,"maximized":true}'), workArea),
+    { width: 1440, height: 640, maximized: true });
+});
 
 test("Windows and Linux use renderer controls without a native caption overlay", () => {
   for (const platform of ["win32", "linux"]) {

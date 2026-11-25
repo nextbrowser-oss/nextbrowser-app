@@ -2,7 +2,13 @@
 
 Open **Extensions → MCP**. The browser MCP remains managed by the app.
 
-Under **Settings → Agent**, turn on **Prefer in-tab MCP tools** to discover website actions in the active document. This takes effect on the next Nextbrowser agent or Codex chat turn, or when opening a new Codex terminal. Standard controls are the default. See [in-tab tools and runtime support](in-tab-mcp.md).
+Under **Settings → Agent**, turn on **Prefer WebMCP** to discover website actions in the active document. This takes effect on the next Nextbrowser agent or Codex chat turn, or when opening a new Codex terminal. Standard controls are the default. See [in-tab tools and runtime support](in-tab-mcp.md).
+
+**Use Harness²** lets a project agent compare two strategies at any decision point, including during initial planning. The agent can repeat the comparison when new evidence changes the decision. The setting applies to newly started chat turns and terminals.
+
+The built-in agent can call `harness2_compare` directly. It asks its current model to propose two strategies, assess them separately against the same observations and select a next step. Each comparison uses up to four additional model requests. A repeating browser action can also trigger a comparison automatically.
+
+Codex and Claude Code receive `harness2_propose`, `harness2_probe` and `harness2_compose` on the scoped desktop MCP. Their own model proposes the alternatives and evaluates each one. Nextbrowser records the shared evidence and requires both assessments before accepting a conclusion. Other chat adapters receive the same comparison procedure in the task prompt. The agent uses its ordinary permissions to execute the selected next step. This workflow adapts the propose, probe and compose stages of [Google Research Harness²](https://github.com/google-research/harness2).
 
 - **Discover** reads current entries from the official MCP Registry, with search and pagination. Select Configure to review a package version, command, environment variables or remote endpoint before running it. Registry entries are third-party metadata, not an endorsement or a promise of free service.
 - **Add custom** accepts one launch command, a `command` / `args` / `env` object, one `mcpServers` entry, or a Streamable HTTP `url` with optional `headers`. Node.js/npx or uvx must already be installed for packages that require them. Shell pipelines and implicit shell evaluation are not supported.
@@ -26,7 +32,8 @@ Validation: Node tests cover real stdio and HTTP connections, SSE, pagination, t
 
 In **Extensions → MCP → Permissions**, select the folder and permissions for the built-in Nextbrowser agent. Each account and workspace starts with its own working folder. Changes also apply to active requests. Start a new chat turn to discover newly enabled tools.
 
-- **Terminal** supports Bash on macOS/Linux, and Git Bash and Windows PowerShell when installed in their standard locations on Windows. Each invocation shows the executable, folder and exact command in a native desktop prompt. **Allow once** runs it as the current OS user. The folder is its starting directory. The agent receives bounded output and the exit status. Foreground commands have a 25-second timeout.
+- **Terminal** uses Bash by default, including Git Bash on Windows. Automatic selection uses PowerShell if Bash is unavailable. Choose a different default for the workspace under **Default shell**. Each invocation shows the executable, folder and exact command. **Allow once** runs it as the current OS user. The agent receives bounded output and the exit status.
+- **Android** works with connected development phones and emulators. The agent can list devices, inspect a device's SDK level, install a workspace APK, and run a specified instrumentation test runner. Each device operation identifies its target in the desktop confirmation. Nextbrowser discovers adb in the SDK or on PATH. For a custom installation use **Choose SDK folder**. The adapters ship with Nextbrowser and appear in existing workspaces on update. Install [Android SDK Platform-Tools](https://developer.android.com/tools/releases/platform-tools) if adb is missing.
 - **Workspace files** can list directories and read UTF-8 text files up to 512 KiB. Choose **Ask every time**, **Allow in selected folder** or **Off**. Both listing and reading support continuation offsets. Links outside the selected directory are rejected.
 - **MCP setup** lets the agent search the public registry and prepare an editable configuration. The user supplies credentials and selects **Connect & save**. The server's tools are available on the next turn. Switch setup to **Off** to disable both agent actions.
 

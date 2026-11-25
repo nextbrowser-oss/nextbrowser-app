@@ -17,7 +17,7 @@ const PROVIDERS = Object.freeze({
 const DEFAULT_PROVIDER = "nvidia";
 // Used when the provider's model list cannot be read.
 const FALLBACK_MODELS = Object.freeze({
-  nvidia: "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+  nvidia: "nvidia/nemotron-3.5-super-vl-120b-a12b",
   openrouter: "openrouter/free",
   gemini: "gemini-2.5-flash",
   deepseek: "deepseek-flash",
@@ -69,15 +69,17 @@ function cleanModelId(value) {
  * The provider, base URL and model from the saved settings. Throws a
  * user-facing message when something the run needs is missing.
  */
-function resolveProviderSettings(settings = {}, managedOpenRouterURL = "") {
+function resolveProviderSettings(settings = {}, managedProviderURL) {
   const preset = PROVIDERS[settings.provider] || PROVIDERS[DEFAULT_PROVIDER];
-  const baseURL = preset.id === "openrouter" ? managedOpenRouterURL
+  const managedNvidia = preset.id === "nvidia" && managedProviderURL !== undefined;
+  const baseURL = preset.id === "openrouter" || managedNvidia ? managedProviderURL
     : preset.id === "custom" ? normalizeBaseURL(settings.baseURL) : preset.baseURL;
   if (!baseURL) {
     throw new ProviderError("not_configured", "Enter the base URL of your provider in Settings → Agent.", { expected: true });
   }
   const savedModel = cleanModelId(settings.model);
-  const model = preset.id === "openrouter" && !isFreeOpenRouterModel(savedModel) ? OPENROUTER_FREE_ROUTER : savedModel;
+  const model = preset.id === "nvidia" && (managedNvidia || !savedModel) ? FALLBACK_MODELS.nvidia
+    : preset.id === "openrouter" && !isFreeOpenRouterModel(savedModel) ? OPENROUTER_FREE_ROUTER : savedModel;
   if (!model) {
     throw new ProviderError("not_configured", "Pick a model for the Nextbrowser agent in Settings → Agent.", { expected: true });
   }
@@ -130,10 +132,19 @@ const TOOL_SUPPORT_REJECTED = /(?:does not|doesn't|do not|not)\s+support(?:ed)?\
 const CONTEXT_TOO_LONG = /context (?:length|window)|maximum context|too many tokens|prompt is too long|input is too long|reduce the length/i;
 
 /** Turns a provider's failed answer into a ProviderError the chat can show. */
-function classifyProviderFailure({ status, body, rawText, provider, providerName, model, secret, retryAfter }) {
+function classifyProviderFailure({ status, body, rawText, provider, providerName, model, secret, retryAfter, managed }) {
   const detail = redactSecrets(oneLine(providerMessage(body, rawText)), secret);
   const name = providerName || "The provider";
   const options = { status, expected: true };
+  if (managed && provider === "nvidia" && body?.code === "nvidia_credential_rejected") {
+    return new ProviderError("tools_unavailable", "NVIDIA denied access for Nextbrowser's shared account. Contact Nextbrowser support or choose another provider.", { status });
+  }
+  if (managed && provider === "nvidia" && body?.code === "nvidia_model_unavailable") {
+    return new ProviderError("model_not_found", "The managed NVIDIA model is unavailable. Choose another provider or contact Nextbrowser support.", { status });
+  }
+  if (managed && provider === "nvidia" && (status === 401 || status === 403)) {
+    return new ProviderError("auth", status === 401 ? "Sign in again to Nextbrowser to use NVIDIA." : "Your Nextbrowser account does not have access to NVIDIA.", options);
+  }
   if (provider === "openrouter") {
     if (status === 401) {
       return new ProviderError("auth", "Sign in again to Nextbrowser to use free OpenRouter models.", options);
@@ -216,7 +227,7 @@ async function fetchWithin(fetchImpl, url, init, { signal, timeoutMs, providerNa
  * A client for one provider. `apiKey` may be empty for a local server
  * (Ollama, LM Studio) that needs none.
  */
-function createProviderClient({ provider, providerName, baseURL, apiKey = "", fetchImpl = (...args) => fetch(...args) }) {
+function createProviderClient({ provider, providerName, baseURL, apiKey = "", managed = false, fetchImpl = (...args) => fetch(...args) }) {
   const name = providerName || PROVIDERS[provider]?.name || "The provider";
   const headers = {
     accept: "application/json",
@@ -241,12 +252,12 @@ function createProviderClient({ provider, providerName, baseURL, apiKey = "", fe
       }, { signal, timeoutMs, providerName: name });
       const parsed = parseJSON(text);
       if (!response.ok) {
-        throw classifyProviderFailure({ status: response.status, body: parsed, rawText: text.slice(0, ERROR_BODY_LIMIT), provider, providerName: name, model: body.model, secret: apiKey, retryAfter: retryAfterMs(response) });
+        throw classifyProviderFailure({ status: response.status, body: parsed, rawText: text.slice(0, ERROR_BODY_LIMIT), provider, providerName: name, model: body.model, secret: apiKey, retryAfter: retryAfterMs(response), managed });
       }
       // OpenRouter answers some upstream failures with HTTP 200 and an error body.
       if (parsed?.error && !Array.isArray(parsed?.choices)) {
         const status = Number(parsed.error.code) || 502;
-        throw classifyProviderFailure({ status, body: parsed, rawText: "", provider, providerName: name, model: body.model, secret: apiKey });
+        throw classifyProviderFailure({ status, body: parsed, rawText: "", provider, providerName: name, model: body.model, secret: apiKey, managed });
       }
       const message = parsed?.choices?.[0]?.message;
       if (!message || typeof message !== "object") {
@@ -262,7 +273,7 @@ function createProviderClient({ provider, providerName, baseURL, apiKey = "", fe
       }, { signal, timeoutMs, providerName: name });
       const parsed = parseJSON(text);
       if (!response.ok) {
-        throw classifyProviderFailure({ status: response.status, body: parsed, rawText: text.slice(0, ERROR_BODY_LIMIT), provider, providerName: name, model: "", secret: apiKey });
+        throw classifyProviderFailure({ status: response.status, body: parsed, rawText: text.slice(0, ERROR_BODY_LIMIT), provider, providerName: name, model: "", secret: apiKey, managed });
       }
       const list = Array.isArray(parsed?.data) ? parsed.data : Array.isArray(parsed?.models) ? parsed.models : [];
       return list

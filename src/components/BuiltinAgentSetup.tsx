@@ -58,7 +58,7 @@ export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = t
   const [saved, setSaved] = useState(false);
   const preset = builtinProvider(provider);
   const keySaved = !!status?.keys[provider];
-  const keyReady = keySaved || !preset.keyRequired;
+  const keyReady = provider === "nvidia" || keySaved || !preset.keyRequired;
   const baseURLReady = provider !== "custom" || !!baseURL.trim();
   const freeModels = provider === "openrouter" ? freeOpenRouterOptions(models) : [];
   const modelReady = provider === "openrouter" ? freeModels.some(option => option.value === model) : !!model.trim();
@@ -90,7 +90,7 @@ export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = t
       setProvider(settings.provider);
       setBaseURL(settings.baseURL);
       setModel(settings.model);
-      const hasKey = !!next.keys[settings.provider] || !builtinProvider(settings.provider).keyRequired;
+      const hasKey = settings.provider === "nvidia" || !!next.keys[settings.provider] || !builtinProvider(settings.provider).keyRequired;
       if (hasKey && (settings.provider !== "custom" || settings.baseURL)) void loadModels(settings.provider, settings.baseURL, settings.model);
     }).catch((failure) => { if (active) setError(errorText(failure)); });
     return () => { active = false; };
@@ -110,7 +110,7 @@ export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = t
     const sameAsSaved = status?.settings.provider === next;
     const nextModel = sameAsSaved ? status?.settings.model ?? "" : "";
     setModel(nextModel);
-    if ((status?.keys[next] || !builtinProvider(next).keyRequired) && (next !== "custom" || baseURL.trim())) {
+    if ((next === "nvidia" || status?.keys[next] || !builtinProvider(next).keyRequired) && (next !== "custom" || baseURL.trim())) {
       void loadModels(next, baseURL, nextModel);
     }
   };
@@ -142,6 +142,8 @@ export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = t
       setModels([]);
       setTest(undefined);
       trackEvent("builtin_agent_key_removed", { provider });
+      setReplacingKey(false);
+      if (provider === "nvidia") await loadModels(provider, "", "");
       await refreshBuiltinAgent();
     } catch (failure) {
       setError(errorText(failure));
@@ -226,7 +228,8 @@ export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = t
         </label>
       )}
 
-      {provider !== "openrouter" && <div className="modal-field">
+      {provider === "nvidia" && !keySaved && !replacingKey && <button type="button" className="mini" onClick={() => setReplacingKey(true)}>Use a personal NVIDIA key</button>}
+      {provider !== "openrouter" && (provider !== "nvidia" || keySaved || replacingKey) && <div className="modal-field">
         <span className="modal-field-heading">
           <span>{preset.keyRequired ? "API key" : "API key (optional)"}</span>
           {preset.keyURL && (

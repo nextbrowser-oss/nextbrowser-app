@@ -86,15 +86,15 @@ export function LiveSessionsPopover({ sessions, selected, onOverview, onOpen }: 
     if (!next) setQuery("");
   };
   const choose = (key: string) => { changeOpen(false); onOpen(key); };
-  return <Popover label="Profiles" open={open} onOpenChange={changeOpen} openOnHover side="right" align="start"
+  return <Popover label="Processes" open={open} onOpenChange={changeOpen} openOnHover side="right" align="start"
     className="live-sessions-popover shared-scrollbarless" trigger={props => <button {...props}
       className={`sidebar-destination${selected ? " active" : ""}`}
-      aria-current={selected ? "page" : undefined} aria-label="Open Profiles"
+      aria-current={selected ? "page" : undefined} aria-label="Open Processes"
       onClick={() => { changeOpen(false); onOverview(); }}>
-      <Glyph name="monitor" />
+      <Glyph name="activity" />
       {sessions.length > 0 && <span className="sidebar-destination-count" aria-hidden="true">{active.length}/{sessions.length}</span>}
     </button>}>
-    <div className="rail-popover-heading">Profiles</div>
+    <div className="rail-popover-heading">Processes</div>
     <ProfileListTools query={query} onChange={setQuery} compact onCreate={() => { changeOpen(false); createLiveProfile(); }} />
     {filtered.length > 0
         ? <SessionRows sessions={filtered} onOpen={choose} />
@@ -166,9 +166,9 @@ function SessionPreview({ session }: { session: LiveSessionOption }) {
 export function LiveSessionsGrid({ sessions, onOpen }: { sessions: LiveSessionOption[]; onOpen: (key: string) => void }) {
   const [query, setQuery] = useState("");
   const filtered = useVisibleProfiles(sessions, query);
-  return <section className="live-sessions-overview" aria-label="Profiles">
+  return <section className="live-sessions-overview" aria-label="Processes">
     <header className="live-sessions-header">
-      <h1>Profiles</h1>
+      <h1>Processes</h1>
       <ProfileListTools query={query} onChange={setQuery} onCreate={createLiveProfile} />
     </header>
     {filtered.length > 0 ? <div className="live-sessions-grid">

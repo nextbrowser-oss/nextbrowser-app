@@ -36,6 +36,17 @@ describe("proxy traffic history range", () => {
     expect(isProxyTrafficHistoryRangeValid("", "2026-07-19")).toBe(false);
   });
 
+  it("loads multiple years only from the account registration date", () => {
+    const start = "2024-01-01";
+    const end = "2026-02-01";
+    expect(proxyTrafficHistoryWindows(start, end)).toEqual([]);
+    expect(proxyTrafficHistoryWindows(start, end, "2024-01-02")).toEqual([]);
+    const history = proxyTrafficHistoryWindows(start, end, start);
+    expect(history[0]).toEqual({ from: start, to: "2024-01-30" });
+    expect(history.at(-1)?.to).toBe(end);
+    expect(history).toHaveLength(26);
+  });
+
   it("splits long ranges into provider-safe windows", () => {
     expect(proxyTrafficHistoryRequestDays).toBe(30);
     expect(proxyTrafficHistoryWindows("2026-04-23", "2026-07-21")).toEqual([
