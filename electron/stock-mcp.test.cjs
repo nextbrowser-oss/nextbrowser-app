@@ -43,6 +43,7 @@ test('the default workspace works through an OS alias to the app data directory'
   const { host, scope, client } = await fixture(t, undefined, { dataRoot: path.join(alias, 'new-user') });
   await host.settings(scope, 'stock_mcp_set', { group: 'files', mode: 'allow' });
   const result = await client.callTool('list_directory', { path: '.' });
+  assert.ok(!result.isError, result.content[0].text);
   assert.deepEqual(JSON.parse(result.content[0].text).entries, []);
 });
 test('only the current authenticated agent session can discover stock tools; disabled tools cannot execute', async t => {

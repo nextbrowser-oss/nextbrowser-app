@@ -55,7 +55,8 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid
   function defaultFolder(key) {
     if (!canonicalDataRoot) {
       mkdirSync(dataRoot, { recursive: true, mode: 0o700 });
-      canonicalDataRoot = realpathSync(dataRoot);
+      // Match fs.promises.realpath, including Windows short names in TEMP.
+      canonicalDataRoot = realpathSync.native(dataRoot);
     }
     return path.join(canonicalDataRoot, 'workspace-files', key);
   }
