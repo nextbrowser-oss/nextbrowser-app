@@ -8,10 +8,15 @@ let displayVersion = releaseTag || pkg.version;
 if (!releaseTag) {
   try {
     const branch = process.env.GITHUB_REF_NAME || execFileSync("git", ["branch", "--show-current"], { encoding: "utf8" }).trim();
-    if (branch !== `release/v${pkg.version}`) {
+    const nextVersion = /^releases\/next-(\d+\.\d+\.\d+)-dev$/.exec(branch)?.[1];
+    if (nextVersion) {
+      displayVersion = `${nextVersion} (dev)`;
+      const revision = execFileSync("git", ["describe", "--always", "--dirty", "--exclude", "*"], { encoding: "utf8" }).trim();
+      displayVersion = `${nextVersion} (dev · ${revision})`;
+    } else if (branch !== `release/v${pkg.version}`) {
       displayVersion = `${execFileSync("git", ["describe", "--tags", "--always", "--dirty"], { encoding: "utf8" }).trim().replace(/^v/, "")} (dev)`;
     }
-  } catch { displayVersion = `${pkg.version} (dev)`; }
+  } catch { if (displayVersion === pkg.version) displayVersion = `${pkg.version} (dev)`; }
 }
 
 // Electron loads this Vite server in development and `dist/index.html` in production.
