@@ -1,21 +1,25 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SwipeForge</title>
 <style>
-:root{color-scheme:light dark;font:13px/1.45 Inter,"Geist",system-ui,-apple-system,"Segoe UI",sans-serif;--bg:#faf9ff;--nav:#f5f4ff;--card:#fff;--soft:#f0edff;--line:#ebe8f3;--field:#f6f5fb;--ink:#242331;--muted:#6d6a7c;--accent:#17483f;--accent-ink:#fff;--mint:#2f7563;--ok:#2f7563;--ok-bg:#e3f2ea;--warn:#8a5a00;--warn-bg:#fdf1d8;--danger:#b4233a;--danger-bg:#fbe5e9;--shadow:0 1px 2px #1d1b2a0f,0 8px 24px #1d1b2a0d}
-@media (prefers-color-scheme:dark){:root{--bg:#15151f;--nav:#191925;--card:#222230;--soft:#2e2c40;--line:#343244;--field:#1b1b27;--ink:#ededf5;--muted:#a9a6ba;--accent:#79c49d;--accent-ink:#0f2219;--mint:#3d906a;--ok:#79c49d;--ok-bg:#1e3a2e;--warn:#f0b85a;--warn-bg:#3a2e17;--danger:#ff8f9f;--danger-bg:#3d1f27;--shadow:0 1px 2px #0006,0 12px 32px #0005}}
+:root{color-scheme:light dark;font:13px/1.45 Inter,"Geist",system-ui,-apple-system,"Segoe UI",sans-serif;--bg:#faf9ff;--nav:#f5f4ff;--card:#fff;--soft:#f0edff;--line:#ebe8f3;--field:#f6f5fb;--ink:#242331;--muted:#6d6a7c;--accent:#17483f;--accent-ink:#fff;--mint:#2f7563;--ok:#2f7563;--ok-bg:#e3f2ea;--warn:#8a5a00;--warn-bg:#fdf1d8;--danger:#b4233a;--danger-bg:#fbe5e9;--shadow:0 1px 2px #1d1b2a0f,0 8px 24px #1d1b2a0d;--hover:#24233114;--menu:#fff;--menu-line:#e6e3ef;--menu-shadow:0 16px 44px #1d1b2a24}
+@media (prefers-color-scheme:dark){:root{--bg:#15151f;--nav:#191925;--card:#222230;--soft:#2e2c40;--line:#343244;--field:#1b1b27;--ink:#ededf5;--muted:#a9a6ba;--accent:#79c49d;--accent-ink:#0f2219;--mint:#3d906a;--ok:#79c49d;--ok-bg:#1e3a2e;--warn:#f0b85a;--warn-bg:#3a2e17;--danger:#ff8f9f;--danger-bg:#3d1f27;--shadow:0 1px 2px #0006,0 12px 32px #0005;--hover:#ffffff12;--menu:#2a2a38;--menu-line:#ffffff14;--menu-shadow:0 18px 50px #0008}}
 *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%}body{background:var(--bg);color:var(--ink);overflow:hidden;-webkit-font-smoothing:antialiased}
 [hidden]{display:none!important}
 h1,h2,p{margin:0}h1{font-size:22px;line-height:1.25;letter-spacing:-.01em}h2{font-size:14px}
 button,select,input,textarea{font:inherit;color:inherit;min-width:0}
 button{cursor:pointer;border:1px solid transparent;border-radius:10px;padding:7px 12px;background:var(--field);display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
-button:hover:enabled{filter:brightness(.97)}@media (prefers-color-scheme:dark){button:hover:enabled{filter:brightness(1.12)}}
+button,.picker,.item,.thumb img,.nav button,.filters button,.segmented button{transition:background-color .16s ease,color .16s ease,border-color .16s ease,box-shadow .2s ease,transform .2s ease,opacity .16s ease}
+button:hover:enabled{background-color:color-mix(in srgb,var(--field),var(--ink) 7%)}
+.primary:hover:enabled{background-color:color-mix(in srgb,var(--accent),var(--ink) 10%);box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 30%,transparent)}
+.primary:active:enabled,button:active:enabled{transform:translateY(1px)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
 button:disabled{opacity:.45;cursor:default}
 :is(button,select,input,textarea,a):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 select,input,textarea{border:1px solid var(--line);border-radius:10px;padding:7px 10px;background:var(--field)}
 label{display:grid;gap:5px;font-size:11px;font-weight:600;color:var(--muted)}
 .lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .primary{background:var(--accent);color:var(--accent-ink);font-weight:600}
-.ghost{background:transparent}.ghost:hover:enabled{background:var(--field);filter:none}
+.ghost{background:transparent}.ghost:hover:enabled{background:var(--hover)}
 .danger{color:var(--danger)}
 .row{display:flex;align-items:center;gap:8px;min-width:0}.grow{flex:1;min-width:0}.wrap{flex-wrap:wrap}
 .muted{color:var(--muted)}.small{font-size:12px}.ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -39,13 +43,14 @@ label{display:grid;gap:5px;font-size:11px;font-weight:600;color:var(--muted)}
 .brand{display:flex;align-items:center;gap:10px;padding:2px 6px 14px;font-size:15px}
 .nav{display:grid;gap:2px}
 .nav button{justify-content:flex-start;gap:10px;background:transparent;padding:9px 10px;color:var(--muted);font-weight:500}
+.nav button:not([aria-current]):hover{background:var(--hover);color:var(--ink)}
 .nav button[aria-current=page]{background:var(--card);color:var(--ink);font-weight:600;box-shadow:var(--shadow)}
 .side-foot{margin-top:auto;display:grid;gap:6px}
 .me{display:flex;align-items:center;gap:10px;padding:10px 8px;border-top:1px solid var(--line)}
 .avatar{flex:none;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--soft);font-weight:700;font-size:13px}
 .me strong,.me small{display:block}.me small{color:var(--muted);font-size:11px}
 .side-foot button{justify-content:flex-start;background:transparent;color:var(--muted);padding:7px 10px}
-.side-foot button:hover:enabled{background:var(--field);color:var(--ink);filter:none}
+.side-foot button:hover:enabled{background:var(--hover);color:var(--ink)}
 main{height:100%;overflow:auto;min-width:0}
 .page{max-width:1040px;margin:0 auto;padding:28px 32px 40px;display:grid;gap:18px;align-content:start}
 .page-head{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap}.page-head h1{margin-right:auto}
@@ -54,10 +59,29 @@ main{height:100%;overflow:auto;min-width:0}
 .composer{display:grid;gap:12px;padding:14px;border:1px solid var(--line);border-radius:18px;background:var(--card);box-shadow:var(--shadow)}
 .segmented{display:flex;gap:2px;padding:3px;border-radius:12px;background:var(--field);width:max-content;max-width:100%}
 .segmented button{background:transparent;padding:6px 12px;border-radius:9px;color:var(--muted);font-weight:500}
+.segmented button:not([aria-pressed=true]):hover:enabled{background:var(--hover);color:var(--ink)}
 .segmented button[aria-pressed=true]{background:var(--card);color:var(--ink);font-weight:600;box-shadow:0 1px 3px #0000001f}
 .composer textarea{border:0;background:transparent;padding:4px 2px;resize:none;min-height:84px;font-size:15px;line-height:1.5;width:100%}
 .composer textarea:focus-visible{outline:none}
 .controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding-top:10px;border-top:1px solid var(--line)}
+.picker{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 10px 0 11px;border:1px solid var(--line);border-radius:10px;background:var(--field);font-size:12px;max-width:100%;min-width:0}
+.picker:hover:enabled{background:var(--field);border-color:color-mix(in srgb,var(--line),var(--ink) 22%)}
+.picker[aria-expanded=true]{border-color:color-mix(in srgb,var(--accent) 60%,var(--line))}
+.picker .k{color:var(--muted);font-weight:600;font-size:11px}
+.picker .v{font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.picker .chev{width:14px;height:14px;flex:none;color:var(--muted);transition:transform .2s ease}
+.picker[aria-expanded=true] .chev{transform:rotate(180deg)}
+.picker.model{max-width:280px}
+.menu{position:fixed;z-index:30;min-width:200px;max-width:min(360px,calc(100vw - 16px));overflow:auto;padding:6px;border-radius:16px;background:var(--menu);border:1px solid var(--menu-line);box-shadow:var(--menu-shadow);opacity:0;transform:translateY(-4px) scale(.98);transition:opacity .14s ease,transform .14s ease;pointer-events:none;outline:none}
+.menu.up{transform:translateY(4px) scale(.98)}
+.menu.open{opacity:1;transform:none;pointer-events:auto}
+.menu .opt{display:grid;grid-template-columns:minmax(0,1fr) 16px;align-items:center;gap:12px;padding:9px 12px;border-radius:10px;cursor:pointer;transition:background-color .12s ease}
+.menu .opt b{display:block;font-weight:500;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.menu .opt small{display:block;color:var(--muted);font-size:11.5px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.menu .opt.active{background:var(--hover)}
+.menu .opt .check{width:16px;height:16px;opacity:0;color:var(--ink)}
+.menu .opt[aria-selected=true] .check{opacity:1}
+.boot{display:grid;place-items:center;height:60vh;color:var(--muted)}.boot .spin{width:20px;height:20px}
 .controls label{display:flex;align-items:center;gap:0;border:1px solid var(--line);border-radius:10px;background:var(--field);padding:0 0 0 10px;font-size:11px}
 .controls label>span:first-child{color:var(--muted);font-weight:600;margin-right:2px}
 .controls select,.controls input{border:0;background:transparent;padding:6px 8px;font-size:12px;font-weight:500;color:var(--ink)}
@@ -65,7 +89,7 @@ main{height:100%;overflow:auto;min-width:0}
 .controls .model select{max-width:220px}
 .controls #generate{margin-left:auto;padding:8px 18px}
 .section-head{display:flex;align-items:center;gap:8px}.section-head h2{margin-right:auto}
-.link{background:transparent;color:var(--mint);font-weight:600;padding:4px 6px}
+.link{background:transparent;color:var(--mint);font-weight:600;padding:4px 8px}.link:hover:enabled{background:var(--hover)}
 /* Creation cards */
 .grid{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(176px,1fr));gap:14px}
 .item{position:relative;display:grid;grid-template-rows:auto 1fr;border:1px solid var(--line);border-radius:14px;background:var(--card);overflow:hidden;min-width:0}
@@ -75,15 +99,20 @@ main{height:100%;overflow:auto;min-width:0}
 .info{display:grid;gap:3px;padding:10px 12px 12px;min-width:0}
 .info strong{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-size:13px;line-height:1.35}
 .info small{color:var(--muted);font-size:11px}
-.item .actions{position:absolute;right:8px;top:8px;display:flex;gap:4px;opacity:0;transition:opacity .15s}
-.item:hover .actions,.item:focus-within .actions{opacity:1}
+.item:hover{transform:translateY(-2px);box-shadow:var(--shadow);border-color:color-mix(in srgb,var(--line),var(--ink) 12%)}
+.thumb img{transition-duration:.5s}.item:hover .thumb img{transform:scale(1.035)}
+.item .actions{position:absolute;right:8px;top:8px;display:flex;gap:4px;opacity:0;transform:translateY(-3px);transition:opacity .18s ease,transform .18s ease}
+.item .actions button:hover:enabled{background:var(--soft)}
+.item:hover .actions,.item:focus-within .actions{opacity:1;transform:none}
 .item .actions button{width:30px;height:30px;padding:0;border-radius:9px;background:var(--card);box-shadow:0 1px 3px #0003}
 .empty{grid-column:1/-1;padding:36px 20px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:14px;list-style:none}
 .filters{display:flex;gap:6px;flex-wrap:wrap}
 .filters button{background:transparent;border-color:var(--line);border-radius:99px;padding:5px 12px;color:var(--muted);font-weight:500}
+.filters button:not([aria-pressed=true]):hover{background:var(--hover);color:var(--ink)}
 .filters button[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
 /* Posts */
 .rows{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.post:hover{border-color:color-mix(in srgb,var(--line),var(--ink) 12%)}
 .post{display:grid;grid-template-columns:40px minmax(0,1fr) auto auto;gap:12px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:var(--card)}
 .badge{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:var(--soft);font-weight:700;font-size:13px}
 .post .actions{display:flex;gap:4px}
@@ -108,7 +137,7 @@ main{height:100%;overflow:auto;min-width:0}
   .nav{display:flex}.nav button{padding:7px 10px}
   .side-foot{margin:0 0 0 auto;display:flex}.me{display:none}.side-foot button span{display:none}
   .page{padding:18px 16px 28px}
-  .controls .model{flex-basis:100%}.controls .model select{max-width:none;width:100%}
+  .controls .model{flex-basis:100%}.picker.model{max-width:none;width:100%}
 }
 /* Popover: the composer and the two newest creations */
 body[data-view=popover]{background:var(--card);overflow-x:hidden;overflow-y:auto}
@@ -119,7 +148,7 @@ body[data-view=popover] .page{padding:10px;gap:10px}
 body[data-view=popover] .composer{padding:10px;gap:8px;box-shadow:none;border-radius:14px}
 body[data-view=popover] .composer textarea{min-height:44px;height:44px;font-size:13px}
 body[data-view=popover] .controls{padding-top:8px;gap:6px}
-body[data-view=popover] .controls .model{flex:1}.controls .model select{max-width:none}
+body[data-view=popover] .controls .model{flex:1;min-width:0}body[data-view=popover] .picker.model{max-width:none;width:100%}
 body[data-view=popover] .grid{grid-template-columns:1fr;gap:6px}
 body[data-view=popover] .item{grid-template-columns:40px minmax(0,1fr);grid-template-rows:none;align-items:center;border-radius:10px}
 body[data-view=popover] .thumb{aspect-ratio:1;border-radius:8px;margin:4px}
@@ -150,6 +179,8 @@ body[data-view=tile] #tile{display:flex;align-items:center;gap:8px;width:100vw;h
 <symbol id="i-open" viewBox="0 0 24 24"><path d="M13 4h7v7m0-7-9 9M10 5H5v14h14v-5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
 <symbol id="i-send" viewBox="0 0 24 24"><path d="m4 12 16-8-6 16-2.5-6.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
 <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+<symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 <symbol id="i-out" viewBox="0 0 24 24"><path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h9" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 </defs></svg>
 <div id="tile" aria-live="polite"><div class="face" id="tile-face"><span class="sf-mark" aria-hidden="true"></span></div><div class="text grow"><strong id="tile-title">SwipeForge</strong><small id="tile-sub">Connect to start creating</small></div><span class="spin" id="tile-spin" hidden></span></div>
@@ -177,6 +208,7 @@ body[data-view=tile] #tile{display:flex;align-items:center;gap:8px;width:100vw;h
       <button class="ghost" id="cancel-connect" type="button" hidden>Cancel</button>
       <p class="notice" id="connect-note"></p>
     </section>
+    <div class="boot" id="boot" role="status" aria-label="Loading"><span class="spin"></span></div>
     <div id="workspace" hidden>
       <section class="page" data-page="create">
         <div class="page-head"><h1>What do you want to create?</h1></div>
@@ -187,11 +219,11 @@ body[data-view=tile] #tile{display:flex;align-items:center;gap:8px;width:100vw;h
           </div>
           <label><span class="lbl">Your idea</span><textarea id="prompt" maxlength="10000" placeholder="Describe your idea: a paper boat drifting through a rainy neon street" rows="3" required></textarea></label>
           <div class="controls">
-            <label class="model"><span>Model</span><select id="model"></select></label>
+            <div class="model"><select id="model" hidden data-label="Model"></select></div>
             <label data-for="video audio" class="only-app"><span>Length</span><input id="duration" type="number" min="1" max="120" step="1" value="5" aria-label="Length in seconds"></label>
-            <label data-for="video" class="only-app"><span>Quality</span><select id="resolution"><option>480p</option><option selected>720p</option><option>1080p</option><option value="4k">4K</option></select></label>
-            <label data-for="video image" class="only-app"><span>Shape</span><select id="aspect"><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option><option value="4:5">4:5</option></select></label>
-            <label class="only-app"><span>For</span><select id="platform"><option value="tiktok">TikTok</option><option value="instagram">Instagram</option><option value="youtube">YouTube</option><option value="x">X</option><option value="facebook">Facebook</option><option value="linkedin">LinkedIn</option></select></label>
+            <div data-for="video" class="only-app"><select id="resolution" hidden data-label="Quality"><option>480p</option><option selected>720p</option><option>1080p</option><option value="4k">4K</option></select></div>
+            <div data-for="video image" class="only-app"><select id="aspect" hidden data-label="Shape"><option value="9:16" data-sub="Vertical · TikTok, Reels, Shorts">9:16</option><option value="16:9" data-sub="Wide · YouTube">16:9</option><option value="1:1" data-sub="Square">1:1</option><option value="4:5" data-sub="Portrait · Instagram feed">4:5</option></select></div>
+            <div class="only-app"><select id="platform" hidden data-label="For"><option value="tiktok">TikTok</option><option value="instagram">Instagram</option><option value="youtube">YouTube</option><option value="x">X</option><option value="facebook">Facebook</option><option value="linkedin">LinkedIn</option></select></div>
             <button class="primary" id="generate" type="submit">Generate</button>
           </div>
         </form>
@@ -341,6 +373,7 @@ const ops = {
     if (!state.models || Date.now() - state.modelsAt > 300000) {
       const value = await remote('get_generation_models');
       state.models = (value?.models ?? []).map(m => ({ provider_id:m.providerId, model:m.model, type:m.type, available:m.available === true, priced:m.priced === true }));
+      for (const m of state.models) { const info = typeof MODEL_INFO === 'object' && MODEL_INFO[m.provider_id + '|' + m.model]; if (info) m.name = info[0]; }
       state.modelsAt = Date.now();
     }
     const models = state.models.filter(m => (!type || m.type === type) && (include_unavailable || m.available));
@@ -596,15 +629,38 @@ function syncTypeFields() {
   for (const field of document.querySelectorAll('[data-for]')) field.hidden = !field.dataset.for.split(' ').includes(type);
   el('prompt').placeholder = placeholders[type] ?? placeholders.video;
 }
+// Names and uses from the studio's model catalog. Editing tools and retired models
+// stay out of the composer; the agent still reaches them through the generic tool.
+const MODEL_INFO = {
+  'google|gemini-omni-1.1-flash': ['Gemini Omni Flash', 'Video with sound · references and editing'],
+  'ltx|ltx-2-5-fast': ['LTX 2.5 Fast', 'Video with sound · economical short clips'],
+  'ltx|ltx-2-5-pro': ['LTX 2.5 Pro', 'Video with sound · higher quality'],
+  'ltx-hf|ltx-2-5-fast': ['LTX 2.5 Fast · Higgsfield', 'Native audio · 6, 8 or 10 seconds'],
+  'ltx-hf|ltx-2-5-pro': ['LTX 2.5 Pro · Higgsfield', 'Native audio · 6, 8 or 10 seconds'],
+  'seedance|dreamina-seedance-2-5-260628': ['Seedance 2.5', 'Animation, memes and dance · with sound'],
+  'higgsfield|kling-video/v3.0/pro/text-to-video': ['Kling 3.0 Pro', 'Product ads and cinematic scenes · with sound'],
+  'openai-image|gpt-image-2.5-flare': ['GPT Image 2.5 Flare', 'Product visuals and illustrations'],
+  'gemini-text|gemini-3.5-flash': ['Gemini 3.5 Flash', 'Post text, captions and scripts'],
+  'elevenlabs|eleven_multilingual_v2': ['ElevenLabs Multilingual v2', 'Voice-over in many languages'],
+  'elevenlabs|eleven_v3': ['ElevenLabs v3', 'Expressive voice-over'],
+  'elevenlabs|music_v2_5': ['ElevenLabs Music', 'Music track'],
+};
+const NOT_FOR_COMPOSER = /genjutsu|video-edit|image-to-video|freefield|_sts_|^runway\||\|aleph|\|gen4/;
+const modelKey = m => m.provider_id + '|' + m.model;
+const prettyModel = id => id.split('/').filter(Boolean).slice(-2).join(' ').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 async function fillModels() {
   const current = settings();
   const { models } = await ops.list_models({ type:current.type });
   const select = el('model');
   const wanted = current.provider_id && current.model ? current.provider_id + '|' + current.model : select.value;
-  select.replaceChildren(...models.map(m => node('option', { value:m.provider_id + '|' + m.model, text:m.model + (m.priced || !state.connection?.budget ? '' : ' · price on approval') })));
-  if (!models.length) select.append(node('option', { value:'', text:'No ' + current.type + ' models right now' }));
+  const offered = models.filter(m => !NOT_FOR_COMPOSER.test(modelKey(m)));
+  select.replaceChildren(...offered.map(m => {
+    const [name, use] = MODEL_INFO[modelKey(m)] ?? [prettyModel(m.model), m.provider_id];
+    return node('option', { value:modelKey(m), text:name, 'data-sub':use + (m.priced || !state.connection?.budget ? '' : ' · price on approval') });
+  }));
+  if (!offered.length) select.append(node('option', { value:'', text:'No ' + current.type + ' models right now' }));
   if ([...select.options].some(o => o.value === wanted)) select.value = wanted;
-  select.disabled = !models.length;
+  select.disabled = !offered.length;
 }
 let estimateTimer, estimateTick = 0, lastEstimate = null;
 function scheduleEstimate() {
@@ -636,6 +692,84 @@ function budgetFor(estimate) {
   return Math.max(0.01, Math.ceil((usd * 1.2 + 0.005) * 100) / 100);
 }
 
+// Each composer select is shown as a button that opens one shared, keyboard-friendly menu.
+const menu = node('div', { class:'menu', role:'listbox', tabindex:'-1' });
+document.body.append(menu);
+let menuFor = null, menuActive = -1;
+function mountPicker(select) {
+  const button = node('button', { type:'button', class:'picker' + (select.id === 'model' ? ' model' : ''), 'aria-haspopup':'listbox', 'aria-expanded':'false' },
+    node('span', { class:'k', text:select.dataset.label }), node('span', { class:'v' }), icon('#i-chev', 'chev'));
+  select.after(button);
+  select.picker = button;
+  const sync = () => {
+    const option = select.selectedOptions[0];
+    button.querySelector('.v').textContent = option?.textContent ?? '';
+    button.setAttribute('aria-label', select.dataset.label + ': ' + (option?.textContent ?? 'none'));
+    button.disabled = select.disabled;
+  };
+  select.addEventListener('change', sync);
+  new MutationObserver(sync).observe(select, { childList:true, subtree:true, attributes:true });
+  button.onclick = () => menuFor === select ? closeMenu() : openMenu(select);
+  sync();
+}
+function openMenu(select) {
+  closeMenu();
+  menuFor = select;
+  const options = [...select.options].filter(o => o.value !== '' || select.options.length === 1);
+  menu.replaceChildren(...options.map((o, i) => {
+    const item = node('div', { class:'opt', role:'option', 'aria-selected':String(o.selected), 'data-index':String(i) },
+      node('span', {}, node('b', { text:o.textContent }), o.dataset.sub ? node('small', { text:o.dataset.sub }) : null), icon('#i-check', 'check'));
+    item.onmouseenter = () => setActive(i);
+    item.onclick = () => choose(o.value);
+    return item;
+  }));
+  const box = select.picker.getBoundingClientRect();
+  const below = innerHeight - box.bottom - 8, above = box.top - 8;
+  const up = below < 220 && above > below;
+  menu.style.maxHeight = Math.max(120, Math.min(360, (up ? above : below) - 6)) + 'px';
+  menu.style.minWidth = Math.max(200, box.width) + 'px';
+  menu.style.left = Math.min(box.left, innerWidth - Math.max(200, box.width) - 8) + 'px';
+  menu.style.top = up ? '' : box.bottom + 6 + 'px';
+  menu.style.bottom = up ? innerHeight - box.top + 6 + 'px' : '';
+  menu.classList.toggle('up', up);
+  select.picker.setAttribute('aria-expanded', 'true');
+  requestAnimationFrame(() => menu.classList.add('open'));
+  setActive(Math.max(0, options.findIndex(o => o.selected)));
+  menu.focus({ preventScroll:true });
+}
+function setActive(i) {
+  const items = menu.querySelectorAll('.opt');
+  if (!items.length) return;
+  menuActive = (i + items.length) % items.length;
+  items.forEach((item, n) => item.classList.toggle('active', n === menuActive));
+  items[menuActive].scrollIntoView({ block:'nearest' });
+}
+function choose(value) {
+  const select = menuFor;
+  closeMenu(true);
+  if (!select || select.value === value) return;
+  select.value = value;
+  select.dispatchEvent(new Event('change'));
+}
+function closeMenu(refocus = false) {
+  if (!menuFor) return;
+  const button = menuFor.picker;
+  menuFor = null;
+  menu.classList.remove('open');
+  button.setAttribute('aria-expanded', 'false');
+  if (refocus) button.focus();
+}
+menu.addEventListener('keydown', event => {
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); setActive(menuActive + (event.key === 'ArrowDown' ? 1 : -1)); }
+  else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); menu.querySelectorAll('.opt')[menuActive]?.click(); }
+  else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeMenu(true); }
+  else if (event.key === 'Tab') closeMenu();
+});
+document.addEventListener('pointerdown', event => { if (menuFor && !menu.contains(event.target) && !menuFor.picker.contains(event.target)) closeMenu(); });
+addEventListener('resize', () => closeMenu());
+el('main').addEventListener('scroll', () => closeMenu(), { passive:true });
+for (const id of ['model', 'resolution', 'aspect', 'platform']) mountPicker(el(id));
+
 function showSection(section) {
   state.section = section;
   for (const button of el('nav').querySelectorAll('button')) {
@@ -647,6 +781,7 @@ function showSection(section) {
 function renderConnection() {
   const c = state.connection;
   const connected = !!c?.connected;
+  el('boot').hidden = true;
   el('connect-card').hidden = connected;
   el('workspace').hidden = !connected;
   el('disconnect').hidden = !connected;

@@ -2,7 +2,7 @@
   "apiVersion": 2,
   "id": "swipeforge",
   "name": "SwipeForge",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Generate videos, images and posts with SwipeForge, follow their progress and publish to your connected accounts after you approve each post.",
   "icon": "swipeforge",
   "permissions": [
