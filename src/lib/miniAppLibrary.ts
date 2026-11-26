@@ -3,13 +3,29 @@ import { invoke } from '../electronBridge';
 import { getPreviewMode } from '../preview';
 import { useStore } from '../store';
 
-export interface AppInfo { id: string; name: string; version: string; description: string; apiVersion: number; tools?: string[]; permissions: string[]; icon?: 'board' | 'calendar' | 'list' | 'notebook' | 'chart' | 'grid' | 'music' | 'video' }
+export interface AppInfo { id: string; name: string; version: string; description: string; apiVersion: number; tools?: string[]; permissions: string[]; icon?: 'board' | 'calendar' | 'list' | 'notebook' | 'chart' | 'grid' | 'music' | 'video' | 'swipeforge' }
 export type WidgetSurface = 'chat.panel' | 'settings.design';
 export type GridSize = [number, number];
 export interface WidgetBlock { id: string; name: string; surfaces: WidgetSurface[]; grid: {min: GridSize; preferred: GridSize; max: GridSize} }
 export interface AppInfo { skill?: string; widgets?: WidgetBlock[] }
+export interface ListingText { description: string; useCases: string[]; requirements: string; example: string; screenshots: Record<string, string> }
 export interface CatalogApp extends AppInfo {
-  listing: { screenshots: { file: string; alt: string }[]; useCases: string[]; requirements: string; example: string };
+  listing: { screenshots: { file: string; alt: string }[]; useCases: string[]; requirements: string; example: string; description: string; locales: Record<string, ListingText> };
+}
+
+/** The best of `available` for the system languages: the exact tag, then the base language; else English. */
+export function pickLocale(available: string[], languages: readonly string[] = navigator.languages ?? [navigator.language]): string {
+  for (const wanted of languages) {
+    const tag = wanted.toLowerCase(), base = tag.split('-')[0];
+    const found = available.find(k => k.toLowerCase() === tag) ?? available.find(k => k.toLowerCase() === base) ?? available.find(k => k.toLowerCase().split('-')[0] === base);
+    if (found) return found;
+  }
+  return 'en';
+}
+/** The listing text in the system language, else English. */
+export function listingText(app: CatalogApp, languages?: readonly string[]): ListingText {
+  const { locales } = app.listing;
+  return locales[pickLocale(Object.keys(locales), languages)] ?? locales.en;
 }
 interface Library { installed: (AppInfo & { pinned: boolean; railIndex: number; generation: string; placements?: Record<string, GridSize> })[]; catalog: CatalogApp[] }
 

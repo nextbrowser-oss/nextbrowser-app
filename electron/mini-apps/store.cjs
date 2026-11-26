@@ -16,6 +16,7 @@ const shippedMusicHashes = new Map([
 // Add the HTML hash of each released SwipeForge version here when shipping the next one,
 // so earlier installations upgrade in place and keep their connection.
 const shippedSwipeForgeHashes = new Map([
+  ['1.0.1', 'e7b92caa3544d3c8a81db36fd7bd4bc1276327661783011ed960f4fc4c55caa9'],
   ['1.0.0', '982e10f059580c0ddc78c88cdd6d7d53d9debc9187c1c4c1fa43d04c480b10d3'],
 ]);
 const shippedCatalogHashes = { 'music-player': shippedMusicHashes, swipeforge: shippedSwipeForgeHashes };
@@ -49,7 +50,7 @@ function parsePackage(raw) {
       typeof p.description !== 'string' || p.description.length > 240 ||
       typeof p.version !== 'string' || !/^\d{1,5}\.\d{1,5}\.\d{1,5}$/.test(p.version) ||
       typeof p.html !== 'string' || !p.html.trim() ||
-      (p.icon !== undefined && !['board', 'calendar', 'list', 'notebook', 'chart', 'grid', 'music', 'video'].includes(p.icon)) ||
+      (p.icon !== undefined && !['board', 'calendar', 'list', 'notebook', 'chart', 'grid', 'music', 'video', 'swipeforge'].includes(p.icon)) ||
       !Array.isArray(p.permissions) || p.permissions.length > 1 || p.permissions.some(v => v !== 'storage')) {
     throw Error('Mini Apps v2 requires a valid manifest and a nonempty list of unique WebMCP tool names.');
   }

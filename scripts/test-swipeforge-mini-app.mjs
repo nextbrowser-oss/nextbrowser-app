@@ -109,7 +109,7 @@ try {
   assert.equal(retried.content_id, started.content_id, 'a retried request_id must not start a second generation');
   const done = await until(async () => { const c = await ok('get_creation', { id: started.content_id }); return c.status === 'success' && c; }, 60000, 'the fixture video');
   assert.ok(done.media.length >= 1);
-  await until(() => guest(() => [...document.querySelectorAll('#items .item')].some(li => li.textContent.includes('A paper boat') && li.textContent.includes('Ready') && li.querySelector('.thumb img'))));
+  await until(() => guest(() => [...document.querySelectorAll(':is(#recent, #items) .item')].some(li => li.textContent.includes('A paper boat') && li.textContent.includes('Ready') && li.querySelector('.thumb img'))));
   console.log('Agent generated a video; the app shows it as Ready with its thumbnail.');
 
   // UI path: the same operation from the form.
