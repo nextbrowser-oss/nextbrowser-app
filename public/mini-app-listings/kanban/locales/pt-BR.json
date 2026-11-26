@@ -1,0 +1,13 @@
+{
+  "description": "Quadro de tarefas com as colunas To do, In progress e Done.",
+  "useCases": [
+    "Organize as tarefas em três colunas e mova-as conforme o trabalho avança.",
+    "O agente pode criar tarefas, editar notas e mover cartões."
+  ],
+  "requirements": "As tarefas ficam salvas localmente na sua conta Nextbrowser. Não precisa de outro login.",
+  "example": "Mova o checklist de lançamento para In progress.",
+  "screenshots": {
+    "board.png": "Quadro com tarefas de exemplo",
+    "editor.png": "Editor de tarefa"
+  }
+}

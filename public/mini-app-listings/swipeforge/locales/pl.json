@@ -1,0 +1,13 @@
+{
+  "description": "Wideo, obrazy i posty AI ze SwipeForge, publikowane na Twoich kontach społecznościowych.",
+  "useCases": [
+    "Generuj wideo, obraz, post lub lektora z opisu tekstowego.",
+    "Śledź renderowanie i publikuj na TikToku, Instagramie, YouTube lub X."
+  ],
+  "requirements": "Logowanie kontem Nextbrowser. Limity generowania zależą od Twojego poziomu w SwipeForge. Posty wychodzą dopiero po Twojej akceptacji.",
+  "example": "Zrób pionowe wideo na 5 sekund: papierowa łódka na deszczowej neonowej ulicy.",
+  "screenshots": {
+    "workspace.png": "Tworzenie wideo",
+    "connect.png": "Łączenie SwipeForge"
+  }
+}

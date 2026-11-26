@@ -1,0 +1,13 @@
+{
+  "description": "Bảng công việc với các cột To do, In progress và Done.",
+  "useCases": [
+    "Quản lý việc trong ba cột và di chuyển theo tiến độ.",
+    "Agent có thể thêm việc, sửa ghi chú và di chuyển thẻ."
+  ],
+  "requirements": "Công việc được lưu cục bộ trong tài khoản Nextbrowser của bạn. Không cần đăng nhập thêm.",
+  "example": "Chuyển checklist phát hành sang In progress.",
+  "screenshots": {
+    "board.png": "Bảng với các việc mẫu",
+    "editor.png": "Trình sửa công việc"
+  }
+}

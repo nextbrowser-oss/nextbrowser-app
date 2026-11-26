@@ -10,7 +10,7 @@ import { useMiniAppLibrary, useMiniAppsOwner, type AppInfo } from '../../lib/min
 import { settingsStorage } from '../../lib/settingsStorage';
 import './mini-apps.css';
 import { CatalogDetails, screenshotUrl } from './CatalogDetails';
-import type { CatalogApp } from '../../lib/miniAppLibrary';
+import { listingText, type CatalogApp } from '../../lib/miniAppLibrary';
 
 type Review = { action: 'install' | 'remove'; app: AppInfo; raw?: string; previousGeneration?: string };
 
@@ -105,11 +105,12 @@ function LibraryView({ owner }: { owner: string }) {
       </> : <div className="mini-apps-catalog">{library.catalog.filter(app => !widgetsOnly || app.widgets?.length).map(app => {
         const installed = library.installed.some(item => item.id === app.id);
         const cover = app.listing.screenshots[0];
+        const text = listingText(app);
         return <article key={app.id} className="catalog-card">
           <button className="catalog-card-preview" aria-label={'Preview ' + app.name} onClick={() => setDetails(app)}>
-            <img src={screenshotUrl(app.id, cover.file)} alt={cover.alt} />
+            <img src={screenshotUrl(app.id, cover.file)} alt={text.screenshots[cover.file] ?? cover.alt} />
           </button>
-          <div className="catalog-app-title"><MiniAppIcon app={app} /><h2><button onClick={() => setDetails(app)}>{app.name}</button></h2></div><p>{app.description}</p>
+          <div className="catalog-app-title"><MiniAppIcon app={app} /><h2><button onClick={() => setDetails(app)}>{app.name}</button></h2></div><p>{text.description}</p>
           <div className="catalog-card-actions"><Button disabled={busy} onClick={() => installed ? open(app.id) : setReview({ action: 'install', app })}>{installed ? 'Open' : 'Install'}</Button>
           <Button disabled={busy} onClick={() => void run(() => invoke('mini_apps_download', { owner, id: app.id }))}>Download package</Button>
           </div></article>;

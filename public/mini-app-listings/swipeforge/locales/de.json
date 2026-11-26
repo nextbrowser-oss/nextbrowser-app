@@ -1,0 +1,13 @@
+{
+  "description": "KI-Videos, Bilder und Posts aus SwipeForge, veröffentlicht in deinen Social-Media-Konten.",
+  "useCases": [
+    "Video, Bild, Post oder Voice-over aus einer Textbeschreibung erzeugen.",
+    "Rendering verfolgen und auf TikTok, Instagram, YouTube oder X veröffentlichen."
+  ],
+  "requirements": "Anmeldung mit deinem Nextbrowser-Konto. Die Generierungslimits richten sich nach deinem SwipeForge-Level. Posts gehen erst nach deiner Freigabe raus.",
+  "example": "Mach ein 5-Sekunden-Hochkantvideo: ein Papierboot auf einer verregneten Neonstraße.",
+  "screenshots": {
+    "workspace.png": "Video erstellen",
+    "connect.png": "SwipeForge verbinden"
+  }
+}

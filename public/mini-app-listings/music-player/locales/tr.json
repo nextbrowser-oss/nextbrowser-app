@@ -1,0 +1,13 @@
+{
+  "description": "Sohbet panelinde müzik kontrolleri.",
+  "useCases": [
+    "Sohbetten çıkmadan çalın, duraklatın ve parça değiştirin.",
+    "Birden fazla müzik hesabı ekleyin ve aralarında geçiş yapın."
+  ],
+  "requirements": "Müzik servisinin sitesinde oturum açın. Kontroller oynatıcı penceresi açıkken çalışır.",
+  "example": "Şu an ne çalıyor? Sonraki parça.",
+  "screenshots": {
+    "player.png": "Örnek hesaplı oynatıcı",
+    "account.png": "Müzik hesabı ekleme"
+  }
+}

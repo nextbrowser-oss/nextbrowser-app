@@ -1,0 +1,13 @@
+{
+  "description": "Controlli musicali nel pannello della chat.",
+  "useCases": [
+    "Riproduci, metti in pausa e cambia brano senza uscire dalla chat.",
+    "Aggiungi più account musicali e passa dall’uno all’altro."
+  ],
+  "requirements": "Accedi dal sito del servizio musicale. I controlli funzionano finché il player è aperto.",
+  "example": "Cosa sta suonando? Brano successivo.",
+  "screenshots": {
+    "player.png": "Player con un account di esempio",
+    "account.png": "Aggiunta di un account musicale"
+  }
+}

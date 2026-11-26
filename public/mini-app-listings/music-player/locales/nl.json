@@ -1,0 +1,13 @@
+{
+  "description": "Muziekbediening in het chatpaneel.",
+  "useCases": [
+    "Afspelen, pauzeren en van nummer wisselen zonder de chat te verlaten.",
+    "Voeg meerdere muziekaccounts toe en wissel ertussen."
+  ],
+  "requirements": "Log in op de website van de muziekdienst. De bediening werkt zolang het spelervenster open is.",
+  "example": "Wat speelt er nu? Volgend nummer.",
+  "screenshots": {
+    "player.png": "Speler met een voorbeeldaccount",
+    "account.png": "Muziekaccount toevoegen"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "description": "Video, gambar, dan postingan AI dari SwipeForge, langsung terbit di akun sosial Anda.",
+  "useCases": [
+    "Buat video, gambar, postingan, atau sulih suara dari teks.",
+    "Pantau proses render dan terbitkan ke TikTok, Instagram, YouTube, atau X."
+  ],
+  "requirements": "Masuk dengan akun Nextbrowser. Batas pembuatan mengikuti level SwipeForge Anda. Postingan baru terbit setelah Anda setujui.",
+  "example": "Buat video vertikal 5 detik: perahu kertas di jalan neon yang hujan.",
+  "screenshots": {
+    "workspace.png": "Membuat video",
+    "connect.png": "Menghubungkan SwipeForge"
+  }
+}

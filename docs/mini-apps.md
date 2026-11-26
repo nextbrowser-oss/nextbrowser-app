@@ -15,13 +15,13 @@ At installation Nextbrowser compares the native tool registry to the manifest in
 
 ### Publishing a catalog listing
 
-Ship `public/mini-app-listings/<id>/listing.json` and 2–8 distinct PNG or WebP screenshots beside the executable package. The cover is the first image. Capture the real interface at 16:9 (recommended 1200 × 675), including an overview and a second task, workflow or setup screen. Use a clean demo account. Remove private data; identify sample content in the captions. The store bundles these assets so every gallery works offline.
+Ship `public/mini-app-listings/<id>/listing.json`, `public/mini-app-listings/<id>/locales/<lang>.json` and 2–8 distinct PNG or WebP screenshots beside the executable package. The cover is the first image. Capture the real interface at 16:9 (recommended 1200 × 675), including an overview and a second task, workflow or setup screen. Use a clean demo account. Remove private data; identify sample content in the captions. The store bundles these assets so every gallery works offline.
 
-The listing requires `screenshots` (each with a unique lowercase filename and descriptive `alt`), `useCases` (specific tasks), `requirements` (accounts, permissions or cost constraints) and `example` (a request the published tools support). Keep editorial metadata outside the portable package so older v2 installers can still read it. See the [Kanban listing](../public/mini-app-listings/kanban/listing.json).
+`listing.json` holds only the screenshot order: `{"screenshots": ["board.png", "editor.png"]}` with unique lowercase filenames. Every text lives in one file per language under `locales/`: `description` (the one-line pitch on the catalog card), `useCases` (specific tasks), `requirements` (accounts, permissions or cost constraints), `example` (a request the published tools support) and `screenshots`, a caption for every file. `en.json` is required; other languages are optional, use the tags of the README translations (`ru`, `pt-BR`, `zh-CN`…) and must translate every field. Nextbrowser shows the system language, then its base language, then English. Keep editorial metadata outside the portable package so older v2 installers can still read it. See the [Kanban listing](../public/mini-app-listings/kanban/locales/en.json).
 
 The desktop catalog opens the listing in a dialog. Users can browse the screenshots before installing and read community reviews. The official catalog links each app to GitHub issues whose title begins with `NBReview-<id>:`. Authors post under their own account.
 
-From the desktop repo, run `node scripts/capture-mini-app-gallery.mjs` to refresh the bundled examples. Review the images and their captions together before committing.
+From the desktop repo, run `node scripts/capture-mini-app-gallery.mjs` to refresh the bundled examples, or pass app IDs to recapture only those; set `CHROME_PATH` to any Chromium-based browser when Google Chrome is not installed. Review the images and their captions together before committing.
 
 ### Installable example
 
@@ -40,7 +40,7 @@ Save the following file as `counter.nbmini.json` and select **Extensions → Min
 }
 ```
 
-The UTF-8 package is limited to 256 KiB. Bundle all HTML, CSS and JavaScript in `html`. All fields shown above are required. The optional `icon` accepts `board`, `calendar`, `list`, `notebook`, `chart` or `grid`. Unknown fields and permissions fail validation.
+The UTF-8 package is limited to 256 KiB. Bundle all HTML, CSS and JavaScript in `html`. All fields shown above are required. The optional `icon` accepts `board`, `calendar`, `list`, `notebook`, `chart`, `grid`, `music` or `video`; `swipeforge` is the brand mark of the bundled SwipeForge app. Unknown fields and permissions fail validation.
 
 | Field | Accepted values |
 | --- | --- |

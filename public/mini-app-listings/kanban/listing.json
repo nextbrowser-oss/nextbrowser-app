@@ -1,18 +1,6 @@
 {
-  "useCases": [
-    "Plan a sprint on a three-column task board.",
-    "Ask the agent to create a task, edit its notes or move it to Done."
-  ],
-  "requirements": "Tasks are saved locally for this Nextbrowser account. No external service account is required.",
-  "example": "List my unfinished tasks, then move the release checklist to In progress.",
   "screenshots": [
-    {
-      "file": "board.png",
-      "alt": "A sample release board grouped by task status"
-    },
-    {
-      "file": "editor.png",
-      "alt": "Editing a task, its notes and its stage"
-    }
+    "board.png",
+    "editor.png"
   ]
 }

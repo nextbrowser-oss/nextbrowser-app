@@ -1,0 +1,13 @@
+{
+  "description": "AI-video’s, afbeeldingen en posts van SwipeForge, gepubliceerd op je socialmedia-accounts.",
+  "useCases": [
+    "Maak een video, afbeelding, post of voice-over op basis van tekst.",
+    "Volg het renderen en publiceer op TikTok, Instagram, YouTube of X."
+  ],
+  "requirements": "Log in met je Nextbrowser-account. Generatielimieten volgen je SwipeForge-niveau. Posts gaan pas live na jouw goedkeuring.",
+  "example": "Maak een verticale video van 5 seconden: een papieren bootje in een regenachtige neonstraat.",
+  "screenshots": {
+    "workspace.png": "Een video maken",
+    "connect.png": "SwipeForge koppelen"
+  }
+}

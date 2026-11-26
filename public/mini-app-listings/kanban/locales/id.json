@@ -1,0 +1,13 @@
+{
+  "description": "Papan tugas dengan kolom To do, In progress, dan Done.",
+  "useCases": [
+    "Kelola tugas dalam tiga kolom dan pindahkan sesuai progres.",
+    "Agen bisa menambah tugas, mengedit catatan, dan memindahkan kartu."
+  ],
+  "requirements": "Tugas disimpan secara lokal di akun Nextbrowser Anda. Tidak perlu login lain.",
+  "example": "Pindahkan checklist rilis ke In progress.",
+  "screenshots": {
+    "board.png": "Papan dengan contoh tugas",
+    "editor.png": "Editor tugas"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "description": "Kontrol musik di panel chat.",
+  "useCases": [
+    "Putar, jeda, dan ganti lagu tanpa keluar dari chat.",
+    "Tambahkan beberapa akun musik dan beralih di antaranya."
+  ],
+  "requirements": "Masuk di situs layanan musik. Kontrol berfungsi selama jendela pemutarnya terbuka.",
+  "example": "Lagu apa yang diputar? Lagu berikutnya.",
+  "screenshots": {
+    "player.png": "Pemutar dengan akun contoh",
+    "account.png": "Menambah akun musik"
+  }
+}

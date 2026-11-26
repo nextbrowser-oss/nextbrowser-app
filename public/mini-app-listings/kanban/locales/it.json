@@ -1,0 +1,13 @@
+{
+  "description": "Bacheca attività con le colonne To do, In progress e Done.",
+  "useCases": [
+    "Organizza le attività in tre colonne e spostale man mano che procedi.",
+    "L’agente può aggiungere attività, modificare note e spostare schede."
+  ],
+  "requirements": "Le attività sono salvate in locale nel tuo account Nextbrowser. Non serve un altro accesso.",
+  "example": "Sposta la checklist di rilascio in In progress.",
+  "screenshots": {
+    "board.png": "Bacheca con attività di esempio",
+    "editor.png": "Editor dell’attività"
+  }
+}

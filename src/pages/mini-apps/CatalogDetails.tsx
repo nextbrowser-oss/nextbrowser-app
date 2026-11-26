@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { Dialog, IconButton, Button } from '../../shared/ui';
-import type { CatalogApp } from '../../lib/miniAppLibrary';
+import { Check } from 'lucide-react';
+import { Dialog, Button } from '../../shared/ui';
+import { listingText, type CatalogApp } from '../../lib/miniAppLibrary';
+import { MiniAppIcon } from '../../components/MiniAppIcon';
 import { CatalogReviews } from './CatalogReviews';
+import { catalogLabels } from './catalogLabels';
 
 export function screenshotUrl(id: string, file: string) {
   return './mini-app-listings/' + id + '/' + file;
@@ -12,23 +14,32 @@ export function CatalogDetails({ app, installed, busy, launch, onClose }: {
   app: CatalogApp; installed: boolean; busy: boolean; launch: () => void; onClose: () => void;
 }) {
   const [index, setIndex] = useState(0);
-  const { screenshots, useCases, requirements, example } = app.listing;
-  const shot = screenshots[index];
+  const text = listingText(app);
+  const t = catalogLabels();
+  const shots = app.listing.screenshots.map(shot => ({ file: shot.file, alt: text.screenshots[shot.file] ?? shot.alt }));
+  const shot = shots[index];
   return <Dialog title={app.name} onClose={onClose} className="catalog-detail">
-    <p>{app.description}</p>
+    <header className="catalog-hero">
+      <span className="catalog-hero-icon"><MiniAppIcon app={app} /></span>
+      <p>{text.description}</p>
+      <div className="catalog-hero-actions">
+        <Button className="primary" disabled={busy} onClick={launch}>{installed ? t.open : t.install}</Button>
+      </div>
+    </header>
     <figure className="catalog-gallery">
-      <img src={screenshotUrl(app.id, shot.file)} alt={shot.alt} />
-      <figcaption>
-        <IconButton label="Previous screenshot" appearance="plain" onClick={() => setIndex((index + screenshots.length - 1) % screenshots.length)}><ChevronLeft size={16} /></IconButton>
-        <span aria-live="polite">{index + 1} / {screenshots.length} · {shot.alt}</span>
-        <IconButton label="Next screenshot" appearance="plain" onClick={() => setIndex((index + 1) % screenshots.length)}><ChevronRight size={16} /></IconButton>
-      </figcaption>
+      <div className="catalog-gallery-frame"><img src={screenshotUrl(app.id, shot.file)} alt={shot.alt} /></div>
+      <figcaption aria-live="polite">{shot.alt}</figcaption>
+      <div className="catalog-gallery-thumbs" role="group" aria-label="Screenshots">
+        {shots.map((item, i) => <button key={item.file} type="button" aria-label={item.alt} aria-pressed={i === index} onClick={() => setIndex(i)}>
+          <img src={screenshotUrl(app.id, item.file)} alt="" />
+        </button>)}
+      </div>
     </figure>
-    <div className="catalog-detail-actions">
-      <Button className="primary" disabled={busy} onClick={launch}>{installed ? 'Open' : 'Install'}</Button>
+    <div className="catalog-facts">
+      <section><h3>{t.whatItDoes}</h3><ul>{text.useCases.map(line => <li key={line}><Check size={15} aria-hidden="true" />{line}</li>)}</ul></section>
+      <section><h3>{t.requirements}</h3><p>{text.requirements}</p></section>
+      <section className="catalog-ask"><h3>{t.askAgent}</h3><p>“{text.example}”</p></section>
     </div>
-    <ul>{useCases.map(line => <li key={line}>{line}</li>)}</ul><p>{requirements}</p>
-    <h3>Ask your agent</h3><p>{example}</p>
     <CatalogReviews id={app.id} />
   </Dialog>;
 }

@@ -1,0 +1,13 @@
+{
+  "description": "To do、In progress、Done の3列のタスクボード。",
+  "useCases": [
+    "タスクを3列で管理し、進み具合に合わせて移動できます。",
+    "エージェントがタスクの追加、メモの編集、カードの移動を行えます。"
+  ],
+  "requirements": "タスクは Nextbrowser アカウントのローカルに保存されます。別のサインインは不要です。",
+  "example": "リリースのチェックリストを In progress に移動して。",
+  "screenshots": {
+    "board.png": "サンプルタスクのボード",
+    "editor.png": "タスクの編集画面"
+  }
+}

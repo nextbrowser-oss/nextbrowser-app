@@ -1,0 +1,13 @@
+{
+  "description": "Takenbord met de kolommen To do, In progress en Done.",
+  "useCases": [
+    "Houd taken bij in drie kolommen en verplaats ze naarmate het werk vordert.",
+    "De agent kan taken toevoegen, notities bewerken en kaarten verplaatsen."
+  ],
+  "requirements": "Taken worden lokaal opgeslagen in je Nextbrowser-account. Je hoeft nergens anders in te loggen.",
+  "example": "Zet de releasechecklist op In progress.",
+  "screenshots": {
+    "board.png": "Bord met voorbeeldtaken",
+    "editor.png": "Taakeditor"
+  }
+}
