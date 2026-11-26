@@ -19,9 +19,9 @@ Ship `public/mini-app-listings/<id>/listing.json` and 2–8 distinct PNG or WebP
 
 The listing requires `screenshots` (each with a unique lowercase filename and descriptive `alt`), `useCases` (specific tasks), `requirements` (accounts, permissions or cost constraints) and `example` (a request the published tools support). Keep editorial metadata outside the portable package so older v2 installers can still read it. See the [Kanban listing](../public/mini-app-listings/kanban/listing.json).
 
-Publish an indexable HTML page at `/mini-apps/<id>/`. Describe when to use the app, what to ask the agent, how to install it and the tool names that answer each workflow. Include a canonical URL, descriptive image text, internal catalog links, a sitemap entry and SoftwareApplication metadata consistent with the visible content. Show only actual community reviews. The official catalog links each app to GitHub issues whose title begins with `NBReview-<id>:`. Authors post under their own account.
+The desktop catalog opens the listing in a dialog. Users can browse the screenshots before installing and read community reviews. The official catalog links each app to GitHub issues whose title begins with `NBReview-<id>:`. Authors post under their own account.
 
-From the desktop repo, run `node scripts/capture-mini-app-gallery.mjs` for the bundled examples. Run `node scripts/export-mini-app-listings.mjs <nextbrowser-landing/site>` and format the exported files with the website formatter when updating the public catalog.
+From the desktop repo, run `node scripts/capture-mini-app-gallery.mjs` to refresh the bundled examples. Review the images and their captions together before committing.
 
 ### Installable example
 

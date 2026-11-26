@@ -24,8 +24,9 @@ export function CatalogDetails({ app, installed, busy, launch, onClose }: {
         <IconButton label="Next screenshot" appearance="plain" onClick={() => setIndex((index + 1) % screenshots.length)}><ChevronRight size={16} /></IconButton>
       </figcaption>
     </figure>
-    <div className="catalog-detail-actions"><Button className="primary" disabled={busy} onClick={launch}>{installed ? 'Open' : 'Install'}</Button>
-      <a href={'https://nextbrowser.com/mini-apps/' + app.id + '/'} target="_blank" rel="noreferrer">Public app page ↗</a></div>
+    <div className="catalog-detail-actions">
+      <Button className="primary" disabled={busy} onClick={launch}>{installed ? 'Open' : 'Install'}</Button>
+    </div>
     <ul>{useCases.map(line => <li key={line}>{line}</li>)}</ul><p>{requirements}</p>
     <h3>Ask your agent</h3><p>{example}</p>
     <CatalogReviews id={app.id} />
