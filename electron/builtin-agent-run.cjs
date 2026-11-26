@@ -127,11 +127,30 @@ async function runBuiltinAgentTurn({
   let mcpClient;
   let toolset;
   let userTools;
-  const hasWorkspaceTools = userMcpServers.some(server => server.id === 'stock');
+  const workspaceServer = userMcpServers.find(server => server.id === 'stock');
+  const hasWorkspaceTools = Boolean(workspaceServer);
   let browserUnavailable = false;
   const closeRunner = () => { mcpClient?.close(); userTools?.close(); };
   signal?.addEventListener("abort", closeRunner, { once: true });
   try {
+    let workspaceStatus = "Current workspace permissions could not be verified.";
+    if (statusOnly && workspaceServer) {
+      // Probe only the built-in host. The status answer has no callable tools,
+      // so a short follow-up cannot resume an earlier command or browser task.
+      try {
+        userTools = await connectUserMcpTools([workspaceServer], { ...userMcpDeps, signal, onStep });
+        onStep("Checking current workspace permissions");
+        const result = await userTools.call("workspace_get_permissions", {});
+        if (!result.isError) {
+          const { terminal, shells, files, android, setup, adbAvailable, commandAccess, fileToolScope } = JSON.parse(result.text);
+          if (['ask', 'off'].includes(terminal) && Array.isArray(shells)) {
+            workspaceStatus = "Current permissions verified by Nextbrowser: " + JSON.stringify({ terminal, shells, files, android, setup, adbAvailable, commandAccess, fileToolScope });
+          }
+        }
+      } catch {
+        if (signal?.aborted) return { ...turnResult({ status: "cancelled" }, limits), ...identity };
+      }
+    }
     if (!plain && !statusOnly && mcp) {
       let runnerGone = false;
       let mcpTools;
@@ -187,7 +206,7 @@ async function runBuiltinAgentTurn({
       model: provider.model,
       providerName: provider.providerName,
       systemPrompt: statusOnly
-        ? "Answer the latest question in the user's language. Resolve its reference from the preceding user question. An unrelated action offered by the assistant was not requested. If the reference is ambiguous, ask one short clarifying question. No actions were taken this turn. The list of configured services does not prove a working connection."
+        ? "Answer the latest question in the user's language about the most recent subject. Use the current workspace permission check for local capabilities; it supersedes older assistant claims. Explain the relevant capability and any required approval. If the check is unavailable, describe the uncertainty. Names of other configured services alone do not verify connectivity. No user command or browser task was executed on this status turn. If the reference is unclear, ask one short question."
         : plain ? PLAIN_SYSTEM_PROMPT : [
         BUILTIN_AGENT_SYSTEM_PROMPT,
         browserUnavailable && "Browser tools are unavailable this turn. For browser requests report that status. Use workspace tools for requested local development tasks.",
@@ -196,10 +215,9 @@ async function runBuiltinAgentTurn({
         hasWorkspaceTools && stockInstructions('workspace_'),
       ].filter(Boolean).join("\n"),
       prompt: statusOnly
-        ? "Configured workspace MCP services (names only): " + JSON.stringify(userMcpServers.map(server => server.name)) + "\n\nCurrent user request:\n" + chatTurn.request
+        ? "Configured workspace MCP services (names only): " + JSON.stringify(userMcpServers.map(server => server.name)) + "\n" + workspaceStatus + "\n\nCurrent user request:\n" + chatTurn.request
         : prompt,
-      chatTurn: statusOnly ? { request: chatTurn.request, history: chatTurn.history?.slice(-2) }
-        : plain ? undefined : chatTurn,
+      chatTurn: plain ? undefined : chatTurn,
       tools: toolset,
       signal,
       limits,

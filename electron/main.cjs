@@ -624,7 +624,7 @@ async function runBuiltinAgent({ replyId, prompt, chatTurn, plain, run, mcpEnv, 
       }
     }
     const managed = await managedAgentEndpoint(settings.provider);
-    if (enableTools && desktopScope) stockSession = stockTools().open(desktopScope, mcpEnv.NEXTBROWSER_CONTROL_URL, controller.signal);
+    if (desktopScope) stockSession = stockTools().open(desktopScope, mcpEnv.NEXTBROWSER_CONTROL_URL, controller.signal);
     const result = await runBuiltinAgentTurn({
       settings,
       useHarness2: run === "chat" && desktopSettings.effective.harness2Recovery,
@@ -639,7 +639,6 @@ async function runBuiltinAgent({ replyId, prompt, chatTurn, plain, run, mcpEnv, 
           ? [miniAppMcp.builtinServer(mcpEnv.NEXTBROWSER_CONTROL_URL, mcpEnv.NEXTBROWSER_CONTROL_TOKEN)] : []),
         ...await userMcp().enabled(mcpEnv.NEXTBROWSER_WORKSPACE_ID),
         ...(stockSession ? [stockSession.server] : []),
-        ...(!enableTools && desktopScope ? [{ id: 'stock', name: 'Workspace tools (Bash, PowerShell and Android)' }] : []),
       ] : [],
       userMcpDeps: userMcpDependencies(),
       defaultProfile,

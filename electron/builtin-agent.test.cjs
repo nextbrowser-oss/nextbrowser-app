@@ -164,11 +164,44 @@ test("a status question about MCP after a paused search never executes the older
     assert.deepEqual(mcp.toolCalls(), []);
     assert.ok(provider.requests.every(({ body }) => !body.tools));
     const messages = provider.requests[0].body.messages;
-    assert.deepEqual(messages.slice(1, -1), history.slice(-2));
+    assert.deepEqual(messages.slice(1, -1), history);
     assert.equal(messages.at(-1).role, "user");
     assert.match(messages.at(-1).content, /Calendar[\s\S]*а теперь \?$/);
     assert.ok(!JSON.stringify(messages).includes("must-stay-local"));
   } finally { await provider.close(); }
+});
+
+test("a bare follow-up checks the current workspace policy without exposing executable tools", async () => {
+  const history = [
+    { role: "user", content: "Можешь создать папку на рабочем столе?" },
+    { role: "assistant", content: "Доступа нет." },
+    { role: "user", content: "Уверен?" },
+    { role: "assistant", content: "Да." },
+  ];
+  for (const terminal of ["ask", "off", null]) {
+    const workspace = fakeMCP(() => terminal === null
+      ? { isError: true, content: [{ type: "text", text: "internal-fixture-detail" }] }
+      : { content: [{ type: "text", text: JSON.stringify({ terminal, shells: ["powershell"], folder: "private-path-fixture" }) }] },
+    [{ name: "get_permissions", inputSchema: { type: "object", properties: {} } }]);
+    const browser = fakeMCP();
+    const provider = await fakeProvider(body => {
+      assert.equal(body.tools, undefined);
+      assert.deepEqual(body.messages.slice(1, -1), history);
+      const context = body.messages.at(-1).content;
+      if (terminal === null) assert.match(context, /could not be verified/);
+      else assert.ok(context.includes('"terminal":"' + terminal + '"'));
+      assert.doesNotMatch(context, /private-path-fixture|internal-fixture-detail/);
+      return reply({ content: "Ответ о правах." });
+    });
+    try {
+      const result = await turn(provider, browser, { chatTurn: { request: "а теперь ?", history }, onReport: () => {},
+        userMcpServers: [{ id: "stock", command: "/fake/workspace", args: [] }], userMcpDeps: { spawnImpl: workspace.spawnImpl },
+      }).promise;
+      assert.equal(result.stdout, "Ответ о правах.");
+      assert.deepEqual(workspace.toolCalls(), [{ name: "get_permissions", arguments: {} }]);
+      assert.equal(browser.spawned.length, 0);
+    } finally { await provider.close(); }
+  }
 });
 
 test("an explanation about a different topic can finish at the planning step without a browser call", async () => {
