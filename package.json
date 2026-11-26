@@ -1,6 +1,6 @@
 {
   "name": "nextbrowser",
-  "version": "0.2.82",
+  "version": "0.2.83",
   "description": "Nextbrowser desktop agent console for macOS and Windows",
   "author": "Nextbrowser",
   "license": "AGPL-3.0-only",
@@ -108,7 +108,12 @@
       }
     ],
     "mac": {
-      "extraResources": [{ "from": "build/input-language", "to": "input-language" }],
+      "extraResources": [
+        {
+          "from": "build/input-language",
+          "to": "input-language"
+        }
+      ],
       "target": [
         "dmg",
         "zip"

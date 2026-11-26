@@ -56,9 +56,9 @@ export function ComposerSample({ skin, still }: { skin: Skin; still?: boolean })
     <ComposerSurface skin={skin} still={still}>
       <textarea readOnly tabIndex={-1} rows={2} placeholder={translate("Message Nextbrowser agent — / for commands")} />
       <div className="composer-actions">
-        <IconButton label={translate("Attach")} text="Attach" appearance="embedded" size="small"><Paperclip size={14} /></IconButton>
-        <IconButton label={translate("Scripts")} text="Scripts" appearance="embedded" size="small"><ScrollText size={14} /></IconButton>
-        <IconButton label={translate("Agent")} text="Agent" appearance="embedded" size="small"><Sparkles size={14} /></IconButton>
+        <IconButton label={translate("Attach")} text={translate("Attach")} appearance="embedded" size="small"><Paperclip size={14} /></IconButton>
+        <IconButton label={translate("Scripts")} text={translate("Scripts")} appearance="embedded" size="small"><ScrollText size={14} /></IconButton>
+        <IconButton label={translate("Agent")} text={translate("Agent")} appearance="embedded" size="small"><Sparkles size={14} /></IconButton>
         <IconButton className="composer-grid-trigger" label={translate("Edit grid")} appearance="embedded" size="small"><Grid2X2 size={15} /></IconButton>
         <IconButton className="composer-skin-trigger" label={translate("Appearance")} appearance="embedded" size="small"><Palette size={15} /></IconButton>
         <IconButton label={translate("Send")} appearance="embedded"><ArrowUp size={20} /></IconButton>

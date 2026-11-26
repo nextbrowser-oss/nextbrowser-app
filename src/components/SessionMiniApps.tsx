@@ -24,6 +24,6 @@ export function AddMiniAppTab() {
 
 export function OpenInSession({ id }: { id: string }) {
   const session = useContext(SessionMiniApps);
-  return session && <IconButton label={translate("Open beside chat")} text="Open beside chat" appearance="plain" size="small"
+  return session && <IconButton label={translate("Open beside chat")} text={translate("Open beside chat")} appearance="plain" size="small"
     onClick={() => session.open(id)}><Columns2 size={15} /></IconButton>;
 }

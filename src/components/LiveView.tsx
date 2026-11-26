@@ -874,7 +874,7 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
         </div>
         {createPortal(<div className="live live-detached">
           {stage}
-          <IconButton label={translate("Return to Nextbrowser")} text="Return to Nextbrowser" hint="" className="live-return-button" onClick={closeViewerWindow}>
+          <IconButton label={translate("Return to Nextbrowser")} text={translate("Return to Nextbrowser")} hint="" className="live-return-button" onClick={closeViewerWindow}>
             <Icon name="xmark" size={16} />
           </IconButton>
           {inputWarning && <div className="live-input-warning" role="status">{inputWarning}</div>}
@@ -885,7 +885,7 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
       </>}
       {active && <LiveControls open={controlsOpen} onOpenChange={onControlsChange}>
         {controlsAccessory}
-        <IconButton appearance="plain" label={translate("All Processes")} text="Processes" onClick={onOverview}><Glyph name="activity" size={14} /></IconButton>
+        <IconButton appearance="plain" label={translate("All Processes")} text={translate("Processes")} onClick={onOverview}><Glyph name="activity" size={14} /></IconButton>
         <div className="live-controls">
           <Select label={translate("Browser profile")} value={launchTarget} onChange={switchProfile}
             options={profileOptions.map(profile => ({

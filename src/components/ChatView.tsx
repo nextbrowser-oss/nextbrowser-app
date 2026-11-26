@@ -625,7 +625,7 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
                           label={translate("Attach local files to the next message")}
                           appearance="embedded"
                           size="small"
-                          text="Attach"
+                          text={translate("Attach")}
                           disabled={!ready}
                           onClick={() => void attachFiles()}
                         >
@@ -638,7 +638,7 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
                             label={translate("Open scripts menu")}
                             appearance="embedded"
                             size="small"
-                            text="Scripts"
+                            text={translate("Scripts")}
                             aria-haspopup="true"
                             aria-expanded={scriptOpen}
                             onClick={() => setScriptOpen((o) => !o)}

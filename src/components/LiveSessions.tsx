@@ -53,13 +53,13 @@ function ProfileListTools({ query, onChange, onCreate, compact = false }: {
   return <div className="profile-list-tools">
     <div className="live-session-tools">
       <SessionSearch query={query} onChange={onChange} />
-      <IconButton label={translate("Create browser profile")} text={compact ? undefined : "Create profile"}
+      <IconButton label={translate("Create browser profile")} text={compact ? undefined : translate("Create profile")}
         appearance={compact ? "plain" : "glass"} size="small" onClick={onCreate}>
         <Icon name="plus" size={compact ? 15 : 14} />
       </IconButton>
     </div>
     <IconButton className="profile-name-sort" data-direction={direction} label={sortLabel}
-      text="Sort" hint={translate("Sort by name %1", nextOrder)}
+      text={translate("Sort")} hint={translate("Sort by name %1", nextOrder)}
       size="small" appearance="plain" onClick={toggleSort}>
       <Glyph name="arrow-down" size={12} />
     </IconButton>

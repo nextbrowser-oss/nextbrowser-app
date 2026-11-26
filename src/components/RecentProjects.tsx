@@ -45,7 +45,7 @@ export function RecentProjects({ activeId, open: controlledOpen, onOpenChange, b
   const contents = <>
     <div className="project-popover-toolbar">
       <div className="rail-popover-heading">{translate("Projects")}</div>
-      <IconButton label={docked ? translate("Unpin Projects") : translate("Pin Projects")} text={docked ? "Unpin" : "Pin"} aria-pressed={docked} disabled={!dock}
+      <IconButton label={docked ? translate("Unpin Projects") : translate("Pin Projects")} text={docked ? translate("Unpin") : translate("Pin")} aria-pressed={docked} disabled={!dock}
         appearance="embedded" size="small" className="project-pin" onClick={() => {
           if (docked) livePanel?.showChat();
           setProjectsPinned(!docked);
