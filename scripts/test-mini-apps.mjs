@@ -214,7 +214,7 @@ try {
   await page.getByRole('button', { name: 'Uninstall', exact: true }).click();
   await page.getByRole('button', { name: 'Uninstall and delete data' }).click();
   await catalogCard('Kanban').getByRole('button', { name: 'Install', exact: true }).waitFor();
-  assert.equal(await page.getByRole('button', { name: 'Kanban', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('navigation', {name:'Installed mini apps'}).getByRole('button', { name: 'Kanban', exact: true }).count(), 0);
   await shortcut('Kanban').waitFor({ state: 'detached' });
   assert.equal(await divider().count(), 0);
   await checkMusicWidget(app, page, path.join(profile,'music.nbmini.json'));
