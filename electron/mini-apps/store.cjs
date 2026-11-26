@@ -16,6 +16,7 @@ const shippedMusicHashes = new Map([
 // Add the HTML hash of each released SwipeForge version here when shipping the next one,
 // so earlier installations upgrade in place and keep their connection.
 const shippedSwipeForgeHashes = new Map([
+  ['1.0.4', 'ee26109744060dda106d207c220417e48fe230c3cb696a5b5d0f6c711ae2f648'],
   ['1.0.3', 'a0cd19c17aaed52cd4eea7a0f701991119bdbb5ad5a354aad915ec34b3c4bb8a'],
   ['1.0.2', '8073bd1b7b7c604252f352b42b5da231834f6f887570f141eeff42acc07e1162'],
   ['1.0.1', 'e7b92caa3544d3c8a81db36fd7bd4bc1276327661783011ed960f4fc4c55caa9'],

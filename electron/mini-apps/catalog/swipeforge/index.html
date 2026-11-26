@@ -14,7 +14,8 @@ button:hover:enabled{background-color:color-mix(in srgb,var(--field),var(--ink) 
 .primary:active:enabled,button:active:enabled{transform:translateY(1px)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 button:disabled{opacity:.45;cursor:default}
-:is(button,select,input,textarea,a):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+:is(button,select,input,textarea,a):focus-visible{outline:2px solid color-mix(in srgb,var(--accent) 60%,transparent);outline-offset:2px}
+.picker:focus-visible,.controls :is(label,.stepper):focus-within{outline:none;border-color:color-mix(in srgb,var(--accent) 55%,var(--line));box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 16%,transparent)}
 select,input,textarea{border:1px solid var(--line);border-radius:10px;padding:7px 10px;background:var(--field)}
 label{display:grid;gap:5px;font-size:11px;font-weight:600;color:var(--muted)}
 .lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
@@ -88,10 +89,17 @@ main{height:100%;overflow:auto;min-width:0}
 .menu .opt.dim{opacity:.4}
 .menu .note{padding:6px 12px 8px;color:var(--muted);font-size:11.5px}
 .boot{display:grid;place-items:center;height:60vh;color:var(--muted)}.boot .spin{width:20px;height:20px}
-.controls label{display:flex;align-items:center;gap:0;border:1px solid var(--line);border-radius:10px;background:var(--field);padding:0 0 0 10px;font-size:11px}
-.controls label>span:first-child{color:var(--muted);font-weight:600;margin-right:2px}
-.controls select,.controls input{border:0;background:transparent;padding:6px 8px;font-size:12px;font-weight:500;color:var(--ink)}
-.controls input{width:56px}
+.controls :is(label,.stepper){display:flex;align-items:center;gap:2px;height:34px;border:1px solid var(--line);border-radius:10px;background:var(--field);padding:0 4px 0 11px;font-size:11px;transition:border-color .16s ease,box-shadow .2s ease}
+.controls :is(label,.stepper):hover{border-color:color-mix(in srgb,var(--line),var(--ink) 22%)}
+.controls :is(label,.stepper)>span:first-child{color:var(--muted);font-weight:600;margin-right:4px}
+.controls select,.controls input{border:0;background:transparent;padding:0;font-size:12px;font-weight:500;color:var(--ink)}
+.controls input:focus-visible{outline:none}
+.stepper input{width:22px;text-align:right;appearance:textfield;-moz-appearance:textfield}
+.stepper input::-webkit-inner-spin-button,.stepper input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.stepper .unit{color:var(--ink);font-size:12px;font-weight:500;margin-right:2px}
+.stepper .step{width:24px;height:24px;padding:0;border-radius:7px;background:transparent;color:var(--muted);font-size:15px;line-height:1}
+.stepper .step:hover:enabled{background:var(--hover);color:var(--ink)}
+.stepper .step:disabled{opacity:.3}
 .controls .model select{max-width:220px}
 .controls #generate{margin-left:auto;padding:8px 18px}
 .section-head{display:flex;align-items:center;gap:8px}.section-head h2{margin-right:auto}
@@ -269,7 +277,7 @@ body[data-view=tile] #tile{display:flex;align-items:center;gap:8px;width:100vw;h
           <div class="controls">
             <div id="style-slot"></div>
             <div class="model"><select id="model" hidden data-label="Model"></select></div>
-            <label data-for="video audio" class="only-app"><span>Length</span><input id="duration" type="number" min="1" max="120" step="1" value="5" aria-label="Length in seconds"></label>
+            <div data-for="video audio" class="only-app stepper" role="group" aria-label="Length"><span>Length</span><button type="button" class="step" data-step="-1" aria-label="Shorter" tabindex="-1">−</button><input id="duration" type="number" inputmode="numeric" min="1" max="120" step="1" value="5" aria-label="Length in seconds"><span class="unit">s</span><button type="button" class="step" data-step="1" aria-label="Longer" tabindex="-1">+</button></div>
             <div data-for="video" class="only-app"><select id="resolution" hidden data-label="Quality"><option>480p</option><option selected>720p</option><option>1080p</option><option value="4k">4K</option></select></div>
             <div data-for="video image" class="only-app"><select id="aspect" hidden data-label="Shape"><option value="9:16" data-sub="Vertical · TikTok, Reels, Shorts">9:16</option><option value="16:9" data-sub="Wide · YouTube">16:9</option><option value="1:1" data-sub="Square">1:1</option><option value="4:5" data-sub="Portrait · Instagram feed">4:5</option></select></div>
             <div class="only-app"><select id="platform" hidden data-label="For"><option value="tiktok">TikTok</option><option value="instagram">Instagram</option><option value="youtube">YouTube</option><option value="x">X</option><option value="facebook">Facebook</option><option value="linkedin">LinkedIn</option></select></div>
@@ -1321,6 +1329,20 @@ el('model').onchange = () => { const [provider_id, model] = el('model').value.sp
 for (const [field, key, read] of [['duration','duration_seconds',v => Number(v)],['resolution','resolution',v => v],['aspect','aspect_ratio',v => v],['platform','platform',v => v]]) {
   el(field).onchange = () => { saveSettings({ [key]:read(el(field).value) }); scheduleEstimate(); };
 }
+function stepDuration(delta) {
+  const input = el('duration');
+  const next = Math.min(Number(input.max), Math.max(Number(input.min), (Number(input.value) || 0) + delta));
+  if (String(next) === input.value) return;
+  input.value = next;
+  input.dispatchEvent(new Event('change'));
+}
+function syncSteppers() {
+  const input = el('duration'), value = Number(input.value);
+  for (const button of document.querySelectorAll('.stepper .step')) button.disabled = button.dataset.step < 0 ? value <= Number(input.min) : value >= Number(input.max);
+}
+for (const button of document.querySelectorAll('.stepper .step')) button.onclick = () => stepDuration(Number(button.dataset.step));
+el('duration').addEventListener('change', syncSteppers);
+el('duration').addEventListener('input', syncSteppers);
 el('prompt').oninput = scheduleEstimate;
 // Enter starts the generation; Shift+Enter adds a line.
 el('prompt').onkeydown = event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); el('create').requestSubmit(); } };
@@ -1363,6 +1385,7 @@ fetch('/context').then(r => r.json()).catch(() => ({})).then(async context => {
   await loadSaved();
   const current = settings();
   el('duration').value = current.duration_seconds;
+  syncSteppers();
   el('resolution').value = current.resolution;
   el('aspect').value = current.aspect_ratio;
   el('platform').value = current.platform;
