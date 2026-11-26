@@ -54,10 +54,10 @@ function createSwipeForge({ root, safeStorage, openExternal, fetch: fetchImpl = 
   platform = process.platform, now = Date.now, clientName = 'Nextbrowser', signInConnection = process.env.NEXTBROWSER_SWIPEFORGE_CONNECTION }) {
   const base = resolveBase(baseUrl);
   // Production SwipeForge signs people in through their Nextbrowser account
-  // (the Auth0 "nextbrowser" connection). A loopback development stack has
+  // (the Auth0 "Nextbrowser" connection). A loopback development stack has
   // no such connection and keeps its own sign-in.
-  const connection = signInConnection ?? (base.startsWith('https:') ? 'nextbrowser' : '');
-  if (connection && !/^[a-z0-9][a-z0-9-]{0,63}$/.test(connection)) throw Error('Invalid SwipeForge sign-in connection.');
+  const connection = signInConnection ?? (base.startsWith('https:') ? 'Nextbrowser' : '');
+  if (connection && !/^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/.test(connection)) throw Error('Invalid SwipeForge sign-in connection.');
   const pending = new Map();
   const cache = new Map();
   const problems = new Map();

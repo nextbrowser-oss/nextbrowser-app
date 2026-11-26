@@ -243,11 +243,11 @@ test('secure storage is required before a sign-in starts', async t => {
 
 test('production sign-in goes through the Nextbrowser connection, then the same consent page', async t => {
   const fake = await fakeSwipeForge(t);
-  const { sf } = client(t, fake, { signInConnection: 'nextbrowser' });
+  const { sf } = client(t, fake, { signInConnection: 'Nextbrowser' });
   await sf.action(binding, { action: 'connect' }, active);
   const opened = new URL(fake.opened[0]);
   assert.equal(opened.pathname, '/api/session/login');
-  assert.equal(opened.searchParams.get('connection'), 'nextbrowser');
+  assert.equal(opened.searchParams.get('connection'), 'Nextbrowser');
   assert.match(opened.searchParams.get('next'), /^\/mcp\/consent\?request=intent-0$/);
   assert.equal((await fake.browser(fake.opened[0])).status, 200);
   assert.equal((await sf.action(binding, { action: 'status' }, active)).connected, true);

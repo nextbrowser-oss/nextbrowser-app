@@ -95,7 +95,7 @@ body[data-view=tile] #tile{display:flex;align-items:center;gap:8px;width:100vw;h
   </header>
   <section class="card" id="connect-card" hidden>
     <div class="row"><svg class="mark" aria-hidden="true"><use href="#i-logo"/></svg><strong class="grow">Connect SwipeForge</strong></div>
-    <ol class="only-app"><li>Nextbrowser opens SwipeForge in your browser.</li><li>Sign in with your Nextbrowser account, choose the permissions and a generation budget, then approve.</li><li>Come back here: your videos, images and posts appear in this app.</li></ol>
+    <ol class="only-app"><li>Nextbrowser opens SwipeForge in your browser.</li><li>Sign in with your Nextbrowser account and press Allow (Enter).</li><li>Come back here: your videos, images and posts appear in this app.</li></ol>
     <p class="notice" id="connect-note"></p>
     <div class="row wrap"><button class="primary" id="connect" type="button">Connect SwipeForge</button><button id="cancel-connect" type="button" hidden>Cancel</button></div>
   </section>
@@ -231,7 +231,8 @@ const ops = {
     if (status.connected) {
       const me = rest(await remote('get_workspace'));
       out.workspace = { name:me?.tenant?.name ?? null, email:me?.email ?? null };
-      if (me?.mcp) out.budget = { total_usd:me.mcp.budgetEstimatedUsd, remaining_usd:me.mcp.remainingEstimatedUsd, reserved_usd:me.mcp.reservedEstimatedUsd };
+      // Nextbrowser connections have no allowance of their own: the account's level limits apply.
+      if (me?.mcp && !me.mcp.unmetered) out.budget = { total_usd:me.mcp.budgetEstimatedUsd, remaining_usd:me.mcp.remainingEstimatedUsd, reserved_usd:me.mcp.reservedEstimatedUsd };
       try { out.generation_access = rest(await remote('get_generation_access'))?.status ?? null; } catch { out.generation_access = null; }
     }
     state.connection = out;
@@ -240,7 +241,7 @@ const ops = {
   async connect() {
     const status = await bridge('connect');
     return { connected:status.connected, pending:status.pending,
-      message: status.connected ? 'SwipeForge is already connected.' : 'SwipeForge opened in the browser. Ask the user to sign in and approve Nextbrowser there, then call get_connection.' };
+      message: status.connected ? 'SwipeForge is already connected.' : 'SwipeForge opened in the browser. Ask the user to sign in and press Allow there, then call get_connection.' };
   },
   async disconnect({ confirm }) {
     if (confirm !== true) throw Error('Ask the user to confirm disconnecting SwipeForge, then pass confirm=true.');
@@ -255,7 +256,7 @@ const ops = {
       state.modelsAt = Date.now();
     }
     const models = state.models.filter(m => (!type || m.type === type) && (include_unavailable || m.available));
-    return { models:models.slice(0, 60), note:'Models without a known price need a one-time cost approval in the browser.' };
+    return { models:models.slice(0, 60), note:'Generations count against the SwipeForge account\'s level limits.' };
   },
   async estimate_generation(input) {
     const body = generationBody(input);
@@ -276,7 +277,8 @@ const ops = {
   },
   async generate(input) {
     const key = 'nb-' + (input.request_id ?? uuid());
-    const args = { body:generationBody(input), idempotencyKey:key, maxEstimatedUsd:input.max_estimated_usd };
+    const args = { body:generationBody(input), idempotencyKey:key };
+    if (input.max_estimated_usd !== undefined) args.maxEstimatedUsd = input.max_estimated_usd;
     if (input.action_id) args.actionId = input.action_id;
     const value = await remote('start_generation', args);
     if (value?.executed === false || value?.approvalUrl) {
@@ -379,7 +381,6 @@ const ops = {
     const found = tools.find(t => t.name === tool);
     if (!found) throw Error('Unknown SwipeForge tool. Read list_swipeforge_tools.');
     if (!found.readOnly && confirm !== true) throw Error('This tool changes data in SwipeForge. Ask the user, then pass confirm=true.');
-    if (['start_generation','start_bulk_generation','submit_draft','retry_generation','generate_from_template'].includes(tool) && typeof args.maxEstimatedUsd !== 'number') throw Error('Paid generation needs maxEstimatedUsd. Prefer estimate_generation and generate.');
     const out = await bridge('call', { tool, arguments:args });
     const text = JSON.stringify(out.isError ? { error:out.error } : out.value ?? null);
     if (out.isError) throw Error(out.error);
@@ -389,14 +390,14 @@ const ops = {
 
 // ---------- WebMCP registration: the full set, in every view, at startup ----------
 const tools = [
-  ['get_connection', 'Read whether SwipeForge is connected, the workspace, the generation budget left on this connection and its expiry.', {}],
-  ['connect', 'Open the SwipeForge sign-in in the user\'s browser so they can approve Nextbrowser, choose permissions and a budget. Poll get_connection afterwards.', {}],
+  ['get_connection', 'Read whether SwipeForge is connected, the workspace, the generation access level and the connection expiry.', {}],
+  ['connect', 'Open the SwipeForge sign-in in the user\'s browser; they sign in with Nextbrowser and press Allow. Poll get_connection afterwards.', {}],
   ['disconnect', 'Revoke this SwipeForge connection on SwipeForge and remove it from this device.', { confirm:confirmArg }, ['confirm']],
   ['list_models', 'List generation models with provider_id, model, type and availability for this workspace.', { type:s('Filter by type.', { enum:TYPES }), include_unavailable:{ type:'boolean', description:'Also list models that are not enabled now.' } }],
   ['estimate_generation', 'Estimate the list price of a generation without starting it. Use before generate and tell the user the amount.', generation, ['type','prompt','provider_id','model']],
-  ['generate', 'Start one generation in SwipeForge. It runs in the background and is charged against the connection budget; poll get_creation for the result.',
-    { ...generation, max_estimated_usd:{ type:'number', exclusiveMinimum:0, maximum:1000, description:'Highest estimate in USD the user accepts for this generation.' }, request_id:requestId, action_id:s('Approval action_id returned for an unknown price, after the user approved it.', { maxLength:200 }) },
-    ['type','prompt','provider_id','model','max_estimated_usd']],
+  ['generate', 'Start one generation in SwipeForge. It runs in the background and counts against the account\'s level limits; poll get_creation for the result.',
+    { ...generation, max_estimated_usd:{ type:'number', exclusiveMinimum:0, maximum:1000, description:'Optional: the highest estimate in USD the user accepts for this generation.' }, request_id:requestId, action_id:s('Approval action_id returned for an unknown price, after the user approved it.', { maxLength:200 }) },
+    ['type','prompt','provider_id','model']],
   ['list_creations', 'List the newest creations (videos, images, texts, audio) with status. Page through with page.', { status:s('Comma-separated: draft, pending, in_progress, success, failed.', { pattern:'^[a-z_,]{1,80}$' }), type:s('Filter by type.', { enum:TYPES }), search:s('Text search.', { maxLength:120 }), page:{ type:'integer', minimum:1, maximum:1000 }, limit:{ type:'integer', minimum:1, maximum:20 } }],
   ['get_creation', 'Read one creation: status, prompt, settings, error and media files.', { id:id('Creation ID.') }, ['id']],
   ['delete_creation', 'Delete a creation from the SwipeForge library.', { id:id('Creation ID.'), confirm:confirmArg }, ['id','confirm']],
@@ -503,7 +504,7 @@ async function fillModels() {
   const { models } = await ops.list_models({ type:current.type });
   const select = el('model');
   const wanted = current.provider_id && current.model ? current.provider_id + '|' + current.model : select.value;
-  select.replaceChildren(...models.map(m => node('option', { value:m.provider_id + '|' + m.model, text:`${m.model} · ${m.provider_id}${m.priced ? '' : ' · price on approval'}` })));
+  select.replaceChildren(...models.map(m => node('option', { value:m.provider_id + '|' + m.model, text:`${m.model} · ${m.provider_id}${m.priced || !state.connection?.budget ? '' : ' · price on approval'}` })));
   if (!models.length) select.append(node('option', { value:'', text:'No ' + current.type + ' models are available right now' }));
   if ([...select.options].some(o => o.value === wanted)) select.value = wanted;
   select.disabled = !models.length;
@@ -530,8 +531,9 @@ async function updateEstimate() {
       el('estimate').textContent = (estimate.simulation ? 'Test generation, no charge.' : `About $${estimate.estimated_usd.toFixed(2)}${range}. A list price estimate, not an invoice.`);
       el('generate').textContent = estimate.simulation ? 'Generate' : `Generate · ~$${estimate.estimated_usd.toFixed(2)}`;
     } else {
-      el('estimate').textContent = estimate.message || 'This model has no known price. SwipeForge asks you to approve the cost in the browser.';
-      el('generate').textContent = 'Request cost approval';
+      const metered = !!state.connection?.budget;
+      el('estimate').textContent = metered ? estimate.message || 'This model has no known price. SwipeForge asks you to approve the cost in the browser.' : 'No list price for this model. It counts against your SwipeForge level.';
+      el('generate').textContent = metered ? 'Request cost approval' : 'Generate';
     }
   } catch (error) { if (tick === estimateTick) el('estimate').textContent = error.message; }
 }
@@ -551,7 +553,7 @@ function renderConnection() {
   el('identity').textContent = connected ? [c.workspace?.name, c.workspace?.email].filter(Boolean).join(' · ') || 'Connected' : c?.pending ? 'Waiting for approval in your browser' : 'Not connected';
   el('connect').textContent = c?.pending ? 'Open the sign-in again' : 'Connect SwipeForge';
   el('cancel-connect').hidden = !c?.pending;
-  el('connect-note').textContent = c?.pending ? 'Approve Nextbrowser on the SwipeForge page in your browser. This window updates by itself.' : c?.problem ?? '';
+  el('connect-note').textContent = c?.pending ? 'Press Allow on the SwipeForge page in your browser. This window updates by itself.' : c?.problem ?? '';
   if (connected && c.generation_access && c.generation_access !== 'unlocked') {
     el('estimate').textContent = 'For now this SwipeForge account makes text and up to 10 images. AI video opens on a higher level: see Levels in SwipeForge.';
   }
@@ -769,7 +771,7 @@ el('create').onsubmit = event => {
     const approved = state.pendingCostApproval?.input === JSON.stringify(input) ? state.pendingCostApproval.action : undefined;
     el('generate').disabled = true;
     try {
-      const started = await ops.generate({ ...input, max_estimated_usd:budgetFor(estimate), ...(approved ? { action_id:approved } : {}) });
+      const started = await ops.generate({ ...input, ...(state.connection?.budget ? { max_estimated_usd:budgetFor(estimate) } : {}), ...(approved ? { action_id:approved } : {}) });
       state.pendingCostApproval = null;
       el('estimate').textContent = started.executed ? 'Started. It appears below and keeps rendering in SwipeForge if you close this window.' : 'Approve the cost on the SwipeForge page in your browser, then press Generate again.';
       if (started.executed) { el('prompt').value = ''; state.tab = 'creations'; state.page = 1; }

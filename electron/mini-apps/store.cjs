@@ -15,7 +15,9 @@ const shippedMusicHashes = new Map([
 ]);
 // Add the HTML hash of each released SwipeForge version here when shipping the next one,
 // so earlier installations upgrade in place and keep their connection.
-const shippedSwipeForgeHashes = new Map();
+const shippedSwipeForgeHashes = new Map([
+  ['1.0.0', '982e10f059580c0ddc78c88cdd6d7d53d9debc9187c1c4c1fa43d04c480b10d3'],
+]);
 const shippedCatalogHashes = { 'music-player': shippedMusicHashes, swipeforge: shippedSwipeForgeHashes };
 function validateWidgets(pkg) {
   if (pkg.skill !== undefined && (typeof pkg.skill !== 'string' || !pkg.skill.trim() || pkg.skill.length > 2400)) throw Error('Invalid mini app skill.');
