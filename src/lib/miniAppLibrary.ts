@@ -8,7 +8,10 @@ export type WidgetSurface = 'chat.panel' | 'settings.design';
 export type GridSize = [number, number];
 export interface WidgetBlock { id: string; name: string; surfaces: WidgetSurface[]; grid: {min: GridSize; preferred: GridSize; max: GridSize} }
 export interface AppInfo { skill?: string; widgets?: WidgetBlock[] }
-interface Library { installed: (AppInfo & { pinned: boolean; railIndex: number; generation: string; placements?: Record<string, GridSize> })[]; catalog: AppInfo[] }
+export interface CatalogApp extends AppInfo {
+  listing: { screenshots: { file: string; alt: string }[]; useCases: string[]; requirements: string; example: string };
+}
+interface Library { installed: (AppInfo & { pinned: boolean; railIndex: number; generation: string; placements?: Record<string, GridSize> })[]; catalog: CatalogApp[] }
 
 export function useMiniAppsOwner() {
   const owner = useStore(s => s.accountOwnerId);

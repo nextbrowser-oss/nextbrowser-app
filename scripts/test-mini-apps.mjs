@@ -71,6 +71,26 @@ try {
     await assert.rejects(install({ ...pkg, id: 'invalid-board', tools }), /register every declared WebMCP tool/);
   }
   const guide = await readFile(path.join(root, 'docs/mini-apps.md'), 'utf8');
+  const cardSizes = await page.locator('.catalog-card').evaluateAll(cards => cards.map(card => [card.offsetWidth,card.offsetHeight]));
+  assert.equal(cardSizes.length, 3);
+  assert.equal(new Set(cardSizes.map(String)).size, 1);
+  const reviewsApi = 'https://api.github.com/search/issues?*';
+  await page.route(reviewsApi, route => route.fulfill({json:{items:[]}}));
+  for (const name of ['Kanban', 'Music Player', 'SwipeForge']) {
+    await page.getByRole('button', {name:'Preview ' + name, exact:true}).click();
+    const detail = page.getByRole('dialog', {name,exact:true});
+    const image = detail.locator('figure img');
+    await until(() => image.evaluate(img => img.naturalWidth === 1200));
+    const first = await image.getAttribute('src');
+    await detail.getByRole('button',{name:'Next screenshot'}).click();
+    await until(() => image.evaluate(img => img.naturalWidth === 1200));
+    assert.notEqual(await image.getAttribute('src'), first);
+    await detail.getByText('No reviews yet.').waitFor();
+    assert.match(await detail.getByRole('link',{name:'Write a review on GitHub'}).getAttribute('href'), /NBReview-/);
+    await page.keyboard.press('Escape');
+    await detail.waitFor({state:'detached'});
+  }
+  await page.unroute(reviewsApi);
   const counter = JSON.parse(guide.match(/`{3}json\s*([\s\S]*?)`{3}/)[1]);
   await install(counter);
   const library = await page.evaluate(() => window.nextbrowser.invoke('mini_apps_list', { owner: 'preview' }));

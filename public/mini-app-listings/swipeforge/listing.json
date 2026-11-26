@@ -1,0 +1,18 @@
+{
+  "useCases": [
+    "Prepare a video, image, audio clip or social post from a prompt.",
+    "Track a generation and approve a post before publishing to a connected account."
+  ],
+  "requirements": "Connect a SwipeForge workspace and choose permissions and a budget. Generation availability depends on the account. Publishing needs a linked social account and approval.",
+  "example": "List available video models and estimate the cost of a five-second vertical clip.",
+  "screenshots": [
+    {
+      "file": "workspace.png",
+      "alt": "Video creation settings in a demonstration workspace"
+    },
+    {
+      "file": "connect.png",
+      "alt": "Connecting a workspace and approving permissions"
+    }
+  ]
+}

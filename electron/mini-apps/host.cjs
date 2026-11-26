@@ -46,20 +46,7 @@ async function readStateRequest(request) {
 }
 
 function createHost({ root, session, dialog, WebContentsView, BrowserWindow, libraryChanged, safeStorage, openExternal }) {
-  const catalogIds = ['kanban', 'music-player', 'swipeforge'];
-  const catalog = (id = 'kanban') => {
-    if (!catalogIds.includes(id)) throw Error('Unknown catalog app.');
-    if (id === 'music-player' || id === 'swipeforge') {
-      const folder = path.join(__dirname, 'catalog', id);
-      const root = path.resolve(__dirname, '../..');
-      const cssPath = 'mini-app-ui/select-fields.css';
-      const source = path.join(root, 'public', cssPath);
-      const css = fs.readFileSync(fs.existsSync(source) ? source : path.join(root, 'dist', cssPath), 'utf8');
-      const html = fs.readFileSync(path.join(folder, 'index.html'), 'utf8').replace('/* shared-select-fields */', () => css);
-      return JSON.stringify({ ...JSON.parse(fs.readFileSync(path.join(folder, 'manifest.json'), 'utf8')), html });
-    }
-    return fs.readFileSync(path.join(__dirname, 'catalog', id + '.nbmini.json'), 'utf8');
-  };
+  const { catalog, catalogIds, catalogEntry } = require('./catalog.cjs');
   const store = createStore(root, id => parsePackage(catalog(id)));
   const bindings = new Map();
   const scopes = new Map();
@@ -283,7 +270,7 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
     const { owner, id } = args;
     switch (name) {
       case 'mini_apps_context': return setScope(window, owner, args.workspaceId);
-      case 'mini_apps_list': return { installed: store.list(owner), catalog: catalogIds.map(key => metadata(parsePackage(catalog(key)))) };
+      case 'mini_apps_list': return { installed: store.list(owner), catalog: catalogIds.map(catalogEntry) };
       case 'mini_apps_set_widget':
         store.setWidget(owner, id, args.blockId, args.surface, args.size);
         libraryChanged();

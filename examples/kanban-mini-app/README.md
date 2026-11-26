@@ -1,5 +1,10 @@
 # Kanban mini app
 
+![A sample release board grouped by task status](../../public/mini-app-listings/kanban/board.png)
+![Editing a task, its notes and its stage](../../public/mini-app-listings/kanban/editor.png)
+
+The demo’s [catalog listing](../../public/mini-app-listings/kanban/listing.json) pairs these screenshots with supported workflows, requirements and an example agent request.
+
 A standalone Nextbrowser Mini Apps v2 example. The UI and six native WebMCP tools share the same operations. Agents can read the board, get task details, create and edit tasks, move them to any column and confirm a deletion. Each board is private to the installation and account on this device.
 
 Run `npm run build` in this directory using Node.js 22. The build has no npm dependencies. In Nextbrowser, open **Extensions → Mini Apps → Install from file**, select `kanban.nbmini.json` and grant access to the app's own storage.

@@ -9,6 +9,8 @@ import { MiniAppIcon } from '../../components/MiniAppIcon';
 import { useMiniAppLibrary, useMiniAppsOwner, type AppInfo } from '../../lib/miniAppLibrary';
 import { settingsStorage } from '../../lib/settingsStorage';
 import './mini-apps.css';
+import { CatalogDetails, screenshotUrl } from './CatalogDetails';
+import type { CatalogApp } from '../../lib/miniAppLibrary';
 
 type Review = { action: 'install' | 'remove'; app: AppInfo; raw?: string; previousGeneration?: string };
 
@@ -25,6 +27,7 @@ function LibraryView({ owner }: { owner: string }) {
   const [widgetsOnly, setWidgetsOnly] = useState(false);
   const [review, setReview] = useState<Review>();
   const [guide, setGuide] = useState(false);
+  const [details, setDetails] = useState<CatalogApp>();
   const [railHidden, setRailHidden] = useState(() => settingsStorage.getItem('miniAppRailHidden') === 'true');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -101,17 +104,28 @@ function LibraryView({ owner }: { owner: string }) {
         <OpenGuest key={current.id} id={current.id} owner={owner} name={current.name} />
       </> : <div className="mini-apps-catalog">{library.catalog.filter(app => !widgetsOnly || app.widgets?.length).map(app => {
         const installed = library.installed.some(item => item.id === app.id);
-        return <article key={app.id}><div className="catalog-app-title"><MiniAppIcon app={app} /><h2>{app.name}</h2></div><p>{app.description}</p>
-          <Button disabled={busy} onClick={() => installed ? open(app.id) : setReview({ action: 'install', app })}>{installed ? 'Open' : 'Install'}</Button>
+        const cover = app.listing.screenshots[0];
+        return <article key={app.id} className="catalog-card">
+          <button className="catalog-card-preview" aria-label={'Preview ' + app.name} onClick={() => setDetails(app)}>
+            <img src={screenshotUrl(app.id, cover.file)} alt={cover.alt} />
+          </button>
+          <div className="catalog-app-title"><MiniAppIcon app={app} /><h2><button onClick={() => setDetails(app)}>{app.name}</button></h2></div><p>{app.description}</p>
+          <div className="catalog-card-actions"><Button disabled={busy} onClick={() => installed ? open(app.id) : setReview({ action: 'install', app })}>{installed ? 'Open' : 'Install'}</Button>
           <Button disabled={busy} onClick={() => void run(() => invoke('mini_apps_download', { owner, id: app.id }))}>Download package</Button>
-        </article>;
+          </div></article>;
       })}</div>}
     </>}
+    {details && <CatalogDetails app={details} installed={!!library?.installed.some(a => a.id === details.id)} busy={busy} onClose={() => setDetails(undefined)} launch={() => {
+      setDetails(undefined);
+      if (library?.installed.some(a => a.id === details.id)) open(details.id);
+      else setReview({ action: 'install', app: details });
+    }} />}
     {guide && <Dialog title="Build a mini app" onClose={() => setGuide(false)}>
       <ol><li>Download the Kanban package from the catalog.</li>
         <li>Give it a unique ID and name. Put your interface, scripts and styles in the HTML field.</li>
         <li>Declare every app action in <code>tools</code> and register each with <code>document.modelContext.registerTool()</code>.</li>
         <li>To embed a widget, declare its surfaces, grid limits and a skill explaining how to use its WebMCP tools. Download Music Player for a working example.</li>
+        <li>For a catalog listing, include two or more screenshots of real screens, descriptive captions, requirements and an example agent request alongside the package.</li>
         <li>Choose Install from file to validate the WebMCP tools and install. Request storage to persist data using <code>/state</code>.</li></ol>
       <Button onClick={() => void run(() => invoke('mini_apps_download', { owner, id: 'kanban' }))}>Download Kanban package</Button>
     </Dialog>}
