@@ -65,14 +65,14 @@ test('background execution uses the approved sandbox and the owning MCP session;
 });
 
 test('a coding chat verifies test exit codes after its last patch and rejects an unsupported success claim', async t => {
-  const command = 'node --test price.test.cjs';
+  const command = 'node --test price.test.mjs';
   const { host, scope, session } = await fixture(t, async (_scope, _chat, prompt) =>
     prompt.detail.startsWith(command) ? 'once' : 'deny');
   const policy = await host.settings(scope, 'stock_mcp_preset', { preset: 'autonomous' });
   await fs.mkdir(policy.folder, { recursive: true });
   const broken = 'module.exports = (p, d) => p * (1 + d / 100);';
   const fixed = broken.replace('+', '-');
-  await fs.writeFile(path.join(policy.folder, 'price.test.cjs'), "require('node:assert/strict').equal(require('./price.cjs')(100,20),80);");
+  await fs.writeFile(path.join(policy.folder, 'price.test.mjs'), "import assert from 'node:assert/strict';\nimport price from './price.cjs';\nassert.equal(price(100,20),80);");
   for (const variant of ['repair', 'premature', 'stale', 'missing']) {
     await fs.writeFile(path.join(policy.folder, 'price.cjs'), variant === 'stale' ? fixed : broken);
     let turn = 0;
