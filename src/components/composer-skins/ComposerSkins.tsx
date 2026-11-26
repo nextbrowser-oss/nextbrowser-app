@@ -1,3 +1,4 @@
+import { translate } from "../../shared/lib/i18n";
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { ArrowUp, Check, Palette, Grid2X2, Paperclip, ScrollText, Sparkles } from 'lucide-react';
 import { Button, Dialog, glassSurfaceClassName, IconButton } from '../../shared/ui';
@@ -53,14 +54,14 @@ export function ComposerSurface({ skin, children, still }: { skin: Skin; childre
 export function ComposerSample({ skin, still }: { skin: Skin; still?: boolean }) {
   return <div className="chat-composer-dock composer-sample" aria-hidden="true" ref={node => { if (node) node.inert = true; }}>
     <ComposerSurface skin={skin} still={still}>
-      <textarea readOnly tabIndex={-1} rows={2} placeholder="Message Nextbrowser agent — / for commands" />
+      <textarea readOnly tabIndex={-1} rows={2} placeholder={translate("Message Nextbrowser agent — / for commands")} />
       <div className="composer-actions">
-        <IconButton label="Attach" text="Attach" appearance="embedded" size="small"><Paperclip size={14} /></IconButton>
-        <IconButton label="Scripts" text="Scripts" appearance="embedded" size="small"><ScrollText size={14} /></IconButton>
-        <IconButton label="Agent" text="Agent" appearance="embedded" size="small"><Sparkles size={14} /></IconButton>
-        <IconButton className="composer-grid-trigger" label="Edit grid" appearance="embedded" size="small"><Grid2X2 size={15} /></IconButton>
-        <IconButton className="composer-skin-trigger" label="Appearance" appearance="embedded" size="small"><Palette size={15} /></IconButton>
-        <IconButton label="Send" appearance="embedded"><ArrowUp size={20} /></IconButton>
+        <IconButton label={translate("Attach")} text="Attach" appearance="embedded" size="small"><Paperclip size={14} /></IconButton>
+        <IconButton label={translate("Scripts")} text="Scripts" appearance="embedded" size="small"><ScrollText size={14} /></IconButton>
+        <IconButton label={translate("Agent")} text="Agent" appearance="embedded" size="small"><Sparkles size={14} /></IconButton>
+        <IconButton className="composer-grid-trigger" label={translate("Edit grid")} appearance="embedded" size="small"><Grid2X2 size={15} /></IconButton>
+        <IconButton className="composer-skin-trigger" label={translate("Appearance")} appearance="embedded" size="small"><Palette size={15} /></IconButton>
+        <IconButton label={translate("Send")} appearance="embedded"><ArrowUp size={20} /></IconButton>
       </div>
     </ComposerSurface>
   </div>;
@@ -77,7 +78,7 @@ function ComposerModel({ skin }: { skin: Skin }) {
 }
 
 export function ComposerSkinChoices({ skin, onChange }: { skin: Skin; onChange: (skin: Skin) => void }) {
-  return <div className="skin-options" role="group" aria-label="Composer skins">
+  return <div className="skin-options" role="group" aria-label={translate("Composer skins")}>
     {(Object.keys(presets) as Preset[]).map(id => <button key={id} type="button" data-skin={id}
       aria-pressed={skin.id === id} onClick={() => onChange({ ...skin, id })}>
       <span className="skin-sample" aria-hidden="true"><i /><i /><i /></span>
@@ -88,7 +89,7 @@ export function ComposerSkinChoices({ skin, onChange }: { skin: Skin; onChange: 
 
 export function ComposerColorChoice({ skin, onChange }: { skin: Skin; onChange: (skin: Skin) => void }) {
   return <>
-    <label className="skin-color"><span>Custom color</span><input type="color" aria-label="Custom composer color"
+    <label className="skin-color"><span>{translate("Custom color")}</span><input type="color" aria-label={translate("Custom composer color")}
       value={skin.color} onClick={() => onChange({ ...skin, id: 'custom' })}
       onChange={event => onChange({ id: 'custom', color: event.target.value })} /></label>
     <button className="skin-color-value" type="button" aria-label={'Use custom color ' + skin.color} aria-pressed={skin.id === 'custom'}
@@ -100,19 +101,19 @@ export function ComposerSkinPicker({ skin, onApply, chooseSurface = false }: { s
   const [surface, setSurface] = useState<WidgetSurface>('chat.panel');
   const [draft, setDraft] = useState<Skin | null>(null);
   return <>
-    <IconButton label="Customize composer appearance" appearance="embedded" size="small" className="composer-skin-trigger"
+    <IconButton label={translate("Customize composer appearance")} appearance="embedded" size="small" className="composer-skin-trigger"
       aria-haspopup="dialog" aria-expanded={Boolean(draft)} onClick={() => setDraft(skin)}><Palette size={15} /></IconButton>
-    {draft && <Dialog title="Composer appearance" className="composer-skin-dialog" onClose={() => setDraft(null)}>
+    {draft && <Dialog title={translate("Composer appearance")} className="composer-skin-dialog" onClose={() => setDraft(null)}>
       <ComposerModel skin={draft} />
       <ComposerSkinChoices skin={draft} onChange={setDraft} />
-      {chooseSurface && <div className="widget-surface-options" role="group" aria-label="Widget placement">
-        <Button aria-pressed={surface === 'chat.panel'} onClick={() => setSurface('chat.panel')}>Composer</Button>
-        <Button aria-pressed={surface === 'settings.design'} onClick={() => setSurface('settings.design')}>Theme settings</Button>
+      {chooseSurface && <div className="widget-surface-options" role="group" aria-label={translate("Widget placement")}>
+        <Button aria-pressed={surface === 'chat.panel'} onClick={() => setSurface('chat.panel')}>{translate("Composer")}</Button>
+        <Button aria-pressed={surface === 'settings.design'} onClick={() => setSurface('settings.design')}>{translate("Theme settings")}</Button>
       </div>}
       <WidgetPicker surface={surface} />
       <div className="skin-settings-footer">
         <ComposerColorChoice skin={draft} onChange={setDraft} />
-        <Button className="skin-apply" onClick={() => { onApply(draft); setDraft(null); }}>Apply skin</Button>
+        <Button className="skin-apply" onClick={() => { onApply(draft); setDraft(null); }}>{translate("Apply skin")}</Button>
       </div>
     </Dialog>}
   </>;

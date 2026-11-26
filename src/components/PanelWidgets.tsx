@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { Grip, Maximize2, Minus, Plus, X } from 'lucide-react';
 import { invoke } from '../electronBridge';
@@ -117,7 +118,7 @@ function WidgetGrid({ owner, surface, controls, editing }: { owner?: string; sur
         await refresh();
       }
       place(item.key, rect, resizing && !item.block ? [rect.w,rect.h] : undefined);
-    } catch (e) { setError(e instanceof Error ? e.message : 'Could not save this layout.'); }
+    } catch (e) { setError(e instanceof Error ? e.message : translate("Could not save this layout.")); }
   }
   function constrained(item: Item, r: TileRect, dx: number, dy: number, resize: boolean, rows: number): TileRect {
     if (resize && item.block) {
@@ -168,7 +169,7 @@ function WidgetGrid({ owner, surface, controls, editing }: { owner?: string; sur
       onKeyDown={e => handleKeys(e,item,resize)}>{resize ? <Maximize2 size={12}/> : <Grip size={12}/>}</button></Tooltip>;
   }
   return <div className="composer-widget-region" data-surface={surface}>
-    <div ref={ref} className="panel-widget-grid" data-editing={editing || undefined} aria-label="Widget grid"
+    <div ref={ref} className="panel-widget-grid" data-editing={editing || undefined} aria-label={translate("Widget grid")}
       style={{height: usedRows * step - gap}}>
       {items.map(item => {
         const r = rects.get(item.key)!;
@@ -203,11 +204,11 @@ function WidgetOptions({ owner, surface }: { owner: string; surface: WidgetSurfa
       if (!installed) await invoke('mini_apps_install',{ owner, id: app.id, catalog:true });
       await invoke('mini_apps_set_widget',{ owner, id:app.id, blockId:block.id, surface, size:enabled ? null : block.grid.preferred });
       await refresh();
-    } catch (e) { setError(e instanceof Error ? e.message : 'Could not update this widget.'); }
+    } catch (e) { setError(e instanceof Error ? e.message : translate("Could not update this widget.")); }
     finally { setBusy(false); }
   }
   const choices = [...library?.installed ?? [], ...library?.catalog.filter(app => !library.installed.some(a => a.id === app.id)) ?? []];
-  return <section className="composer-widget-picker" aria-label="Widgets"><h3>Widgets</h3>
+  return <section className="composer-widget-picker" aria-label={translate("Widgets")}><h3>{translate("Widgets")}</h3>
     {(error || loadError) && <p role="alert">{error || loadError}</p>}
     {choices.flatMap(app => app.widgets?.filter(b => b.surfaces.includes(surface)).map(block => {
       const saved = library!.installed.find(a => a.id === app.id);

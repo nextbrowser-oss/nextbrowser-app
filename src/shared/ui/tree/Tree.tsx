@@ -1,3 +1,4 @@
+import { translate } from "../../lib/i18n";
 // Adapted from 0nliner/fractalUI, MIT; see UPSTREAM.md and LICENSE.
 import {
   useCallback,
@@ -336,7 +337,7 @@ const DEFAULT_SWITCHER = (expanded: boolean) => (
  * торчит ровно то, что нужно потребителю.
  */
 export function Tree({
-  label = "Tree",
+  label = translate("Tree"),
   className = "",
   canDrop,
   nodes,
@@ -361,7 +362,7 @@ export function Tree({
   dragData,
   onRename,
   menuItems,
-  emptyText = 'No items',
+  emptyText = translate("No items"),
   renderSwitcher = DEFAULT_SWITCHER,
 }: TreeProps) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -806,7 +807,7 @@ export function Tree({
               type="button"
               className={s.filterButton}
               data-active={facetsActive ? 'true' : undefined}
-              aria-label="Filters"
+              aria-label={translate("Filters")}
               aria-expanded={panelOpen}
               onClick={() => setPanelOpen((o) => !o)}
             >
@@ -835,7 +836,7 @@ export function Tree({
                 ) : null,
               )}
               {facetsActive && (
-                <button type="button" className={s.facetReset} onClick={resetFacets} aria-label="Reset filters">
+                <button type="button" className={s.facetReset} onClick={resetFacets} aria-label={translate("Reset filters")}>
                   {CLOSE_ICON}
                 </button>
               )}
@@ -883,7 +884,7 @@ export function Tree({
                     {sel.map((tag) => (
                       <span key={tag} className={s.tagChip}>
                         {tag}
-                        <button type="button" className={s.tagChipRemove} onClick={() => removeFacetTag(f.id, tag)} aria-label="Remove tag">
+                        <button type="button" className={s.tagChipRemove} onClick={() => removeFacetTag(f.id, tag)} aria-label={translate("Remove tag")}>
                           {CLOSE_ICON}
                         </button>
                       </span>
@@ -894,7 +895,7 @@ export function Tree({
                   <input
                     className={s.tagInput}
                     value={draft}
-                    placeholder={f.placeholder ?? '+ tag'}
+                    placeholder={f.placeholder ?? translate("+ tag")}
                     onChange={(e) => setTagDraft((d) => ({ ...d, [f.id]: e.target.value }))}
                     onFocus={() => setTagFocus(f.id)}
                     onKeyDown={(e) => {
@@ -994,12 +995,8 @@ function TreeContextMenu({
                 it.onSelect?.(node);
                 onClose();
               }}
-            >
-              Yes
-            </button>
-            <button className={s.menuButton} style={{ width: 'auto' }} onClick={() => setConfirming(null)}>
-              No
-            </button>
+            >{translate("Yes")}</button>
+            <button className={s.menuButton} style={{ width: 'auto' }} onClick={() => setConfirming(null)}>{translate("No")}</button>
           </div>
         ) : it.items && it.items.length > 0 ? (
           <div

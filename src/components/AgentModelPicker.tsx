@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { agentById, isBuiltinAgent } from "../agents";
 import { invoke } from "../electronBridge";
@@ -83,49 +84,48 @@ export function AgentModelPicker({ agentId, version, disabled, onActivate, onRef
   const freeModels = freeOpenRouterOptions(models);
   const managedNvidia = provider === "nvidia" && !status?.keys.nvidia;
   const modelFields = <>
-    <div className="agent-model-picker-field"><span>Model</span>
-      <Select overlay label="Provider model" searchPlaceholder="Search provider models" value={model}
+    <div className="agent-model-picker-field"><span>{translate("Model")}</span>
+      <Select overlay label={translate("Provider model")} searchPlaceholder={translate("Search provider models")} value={model}
         options={models.map(item => ({ value: item.id, label: item.id, description: item.free ? "Free" : undefined }))}
         disabled={!canChoose || loading || saving} onChange={setModel} />
-      {loading && <div role="status">Loading models…</div>}
-      {!loading && canChoose && !models.length && <div>{managedNvidia ? "NVIDIA model list is unavailable." : "No models available. Enter a model ID below."}</div>}
+      {loading && <div role="status">{translate("Loading models…")}</div>}
+      {!loading && canChoose && !models.length && <div>{managedNvidia ? translate("NVIDIA model list is unavailable.") : translate("No models available. Enter a model ID below.")}</div>}
     </div>
-    {!managedNvidia && <label className="agent-model-picker-field">Model ID
-      <input aria-label="Agent model ID" value={model} spellCheck={false} disabled={!status || saving} onChange={event => setModel(event.target.value)} placeholder="Model ID" />
+    {!managedNvidia && <label className="agent-model-picker-field">{translate("Model ID")}<input aria-label={translate("Agent model ID")} value={model} spellCheck={false} disabled={!status || saving} onChange={event => setModel(event.target.value)} placeholder={translate("Model ID")} />
     </label>}
   </>;
   return <>
-    <Popover label="Agent provider and model" open={open && !disabled} onOpenChange={changeOpen} side="top" align="start"
+    <Popover label={translate("Agent provider and model")} open={open && !disabled} onOpenChange={changeOpen} side="top" align="start"
       className="agent-model-picker shared-scrollbarless"
-      trigger={props => <IconButton {...props} label="Choose agent provider and model" hint={disabled ? "Stop the agent to change its model. API providers run locally." : label}
+      trigger={props => <IconButton {...props} label={translate("Choose agent provider and model")} hint={disabled ? translate("Stop the agent to change its model. API providers run locally.") : label}
         appearance="embedded" size="small" className="agent-model-picker-trigger" text={label} disabled={disabled}>
         <Glyph name="sparkles" size={14} />
       </IconButton>}>
-      <div className="agent-model-picker-heading"><strong>Provider & model</strong><span>Nextbrowser agent</span></div>
-      <div className="agent-model-picker-field"><span>Provider</span>
-        <Select overlay label="Agent provider" autoFocus value={provider} disabled={!status || saving} onChange={value => {
+      <div className="agent-model-picker-heading"><strong>{translate("Provider & model")}</strong><span>{translate("Nextbrowser agent")}</span></div>
+      <div className="agent-model-picker-field"><span>{translate("Provider")}</span>
+        <Select overlay label={translate("Agent provider")} autoFocus value={provider} disabled={!status || saving} onChange={value => {
           const next = value as BuiltinProviderId;
           setProvider(next); setModel(next === status?.settings.provider ? status.settings.model ?? "" : ""); setError(undefined);
         }} options={BUILTIN_PROVIDERS.map(item => ({ value: item.id, label: item.name }))} />
       </div>
-      {status && !canChoose ? <div className="agent-model-picker-note">{keyReady ? "Add a base URL in provider settings." : `Add your ${preset.name} API key to choose a model.`}</div> : provider === "openrouter" ? <>
+      {status && !canChoose ? <div className="agent-model-picker-note">{keyReady ? translate("Add a base URL in provider settings.") : translate("Add your %1 API key to choose a model.", preset.name)}</div> : provider === "openrouter" ? <>
         <div className="agent-model-picker-field">
-          <span>Free model</span>
-          <Select overlay label="Free OpenRouter model" searchPlaceholder="Search free models…" value={model}
+          <span>{translate("Free model")}</span>
+          <Select overlay label={translate("Free OpenRouter model")} searchPlaceholder={translate("Search free models…")} value={model}
             options={freeModels} onChange={setModel} disabled={!canChoose || loading || saving || !freeModels.length} />
-          {loading && <div role="status">Loading free models…</div>}
+          {loading && <div role="status">{translate("Loading free models…")}</div>}
         </div>
       </> : modelFields}
       {modelsNote && <div className="agent-model-picker-note" role="status">{modelsNote}</div>}
-      <p className="agent-model-picker-note">{isBuiltinAgent(agentId) ? "Applies to your Nextbrowser agent chats." : "Uses the API agent. Your current chat is kept; a new session opens if it has messages."}{provider === "nvidia" && !status?.keys.nvidia ? " NVIDIA is included with your Nextbrowser account." : provider !== "openrouter" && " Paid models use your provider balance."}</p>
+      <p className="agent-model-picker-note">{isBuiltinAgent(agentId) ? translate("Applies to your Nextbrowser agent chats.") : translate("Uses the API agent. Your current chat is kept; a new session opens if it has messages.")}{provider === "nvidia" && !status?.keys.nvidia ? translate(" NVIDIA is included with your Nextbrowser account.") : provider !== "openrouter" && translate(" Paid models use your provider balance.")}</p>
       {error && <div className="agent-model-picker-note" role="alert">{error}</div>}
       <div className="agent-model-picker-actions">
-        {provider === "openrouter" && modelsNote && <button type="button" disabled={loading || saving} onClick={() => setCatalogAttempt(attempt => attempt + 1)}>Retry model list</button>}
-        <button type="button" disabled={!status || saving} onClick={() => { setOpen(false); setSetup(provider); }}>Provider settings</button>
-        <button type="button" disabled={!canChoose || !model.trim() || saving || disabled || (provider === "openrouter" && !freeModels.some(item => item.value === model))} onClick={() => void activate()}>{saving ? "Saving…" : "Use model"}</button>
+        {provider === "openrouter" && modelsNote && <button type="button" disabled={loading || saving} onClick={() => setCatalogAttempt(attempt => attempt + 1)}>{translate("Retry model list")}</button>}
+        <button type="button" disabled={!status || saving} onClick={() => { setOpen(false); setSetup(provider); }}>{translate("Provider settings")}</button>
+        <button type="button" disabled={!canChoose || !model.trim() || saving || disabled || (provider === "openrouter" && !freeModels.some(item => item.value === model))} onClick={() => void activate()}>{saving ? translate("Saving…") : translate("Use model")}</button>
       </div>
     </Popover>
-    {setup && <Dialog title="Agent provider settings" onClose={() => setSetup(undefined)} className="agent-model-setup">
+    {setup && <Dialog title={translate("Agent provider settings")} onClose={() => setSetup(undefined)} className="agent-model-setup">
       <BuiltinAgentSetup initialProvider={setup} activateOnSave={false} onReady={() => { onActivate(); setSetup(undefined); }} />
     </Dialog>}
   </>;

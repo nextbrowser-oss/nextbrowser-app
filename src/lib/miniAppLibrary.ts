@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '../electronBridge';
 import { getPreviewMode } from '../preview';
 import { useStore } from '../store';
+import { formattingLocale } from '../shared/lib/i18n';
 
 export interface AppInfo { id: string; name: string; version: string; description: string; apiVersion: number; tools?: string[]; permissions: string[]; icon?: 'board' | 'calendar' | 'list' | 'notebook' | 'chart' | 'grid' | 'music' | 'video' | 'swipeforge' }
 export type WidgetSurface = 'chat.panel' | 'settings.design';
@@ -17,7 +18,7 @@ export interface CatalogApp extends AppInfo {
 }
 
 /** The best of `available` for the system languages: the exact tag, then the base language; else English. */
-export function pickLocale(available: string[], languages: readonly string[] = navigator.languages ?? [navigator.language]): string {
+export function pickLocale(available: string[], languages: readonly string[] = [formattingLocale()]): string {
   for (const wanted of languages) {
     const tag = wanted.toLowerCase(), base = tag.split('-')[0];
     const found = available.find(k => k.toLowerCase() === tag) ?? available.find(k => k.toLowerCase() === base) ?? available.find(k => k.toLowerCase().split('-')[0] === base);
@@ -25,7 +26,7 @@ export function pickLocale(available: string[], languages: readonly string[] = n
   }
   return 'en';
 }
-/** The listing text in the system language, else English. */
+/** Use the interface language for publisher-provided listings. */
 export function listingText(app: CatalogApp, languages?: readonly string[]): ListingText {
   const { locales } = app.listing;
   if (!locales) return { ...app.listing, description:app.description, screenshots:Object.fromEntries(app.listing.screenshots.map(s => [s.file,s.alt])) };

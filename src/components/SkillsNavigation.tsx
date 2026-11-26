@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useRef } from "react";
 
 export function SkillsNavigation({ items, selected, onSelect }: {
@@ -10,7 +11,7 @@ export function SkillsNavigation({ items, selected, onSelect }: {
     nav.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [selected]);
   return (
-    <div ref={nav} className="skills-nav" role="tablist" aria-label="Skills sections" onKeyDown={(event) => {
+    <div ref={nav} className="skills-nav" role="tablist" aria-label={translate("Skills sections")} onKeyDown={(event) => {
       const index = items.findIndex((item) => item.id === selected);
       const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1
         : event.key === "ArrowRight" ? (index + 1) % items.length

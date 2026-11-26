@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { agentById, BUILTIN_AGENT_ID, isBuiltinAgent, PRIMARY_AGENTS } from "../agents";
 import { trackEvent } from "../lib/analytics";
@@ -247,11 +248,11 @@ export function OnboardingView() {
           <div className="onboarding-brand">
             <BrandLogo size={38} />
             <div>
-              <strong>Getting started</strong>
-              <span>About 2 minutes</span>
+              <strong>{translate("Getting started")}</strong>
+              <span>{translate("About 2 minutes")}</span>
             </div>
           </div>
-          <nav className="onboarding-step-list" aria-label="Tutorial steps">
+          <nav className="onboarding-step-list" aria-label={translate("Tutorial steps")}>
             {ONBOARDING_STEPS.map((item, index) => (
               <button
                 key={item.id}
@@ -273,23 +274,20 @@ export function OnboardingView() {
           </nav>
           <div className="onboarding-rail-note">
             <Icon name="book.fill" size={14} />
-            <span>You can replay this tutorial anytime from Guide.</span>
+            <span>{translate("You can replay this tutorial anytime from Guide.")}</span>
           </div>
         </aside>
 
         <section className="onboarding-main">
           <header className="onboarding-top">
-            <div className="onboarding-mobile-progress">
-              Step {stepIndex + 1} of {ONBOARDING_STEPS.length}
+            <div className="onboarding-mobile-progress">{translate("Step")} {stepIndex + 1} {translate("of")} {ONBOARDING_STEPS.length}
             </div>
             <span className="spacer" />
             <button
               type="button"
               className="onboarding-skip"
               onClick={() => closeTutorial("skipped")}
-            >
-              Skip tutorial
-            </button>
+            >{translate("Skip tutorial")}</button>
           </header>
 
           <div className="onboarding-scroll">
@@ -310,12 +308,12 @@ export function OnboardingView() {
 
             {current.id === "workspace" && (
               <div className="onboarding-step-content">
-                <div className="onboarding-flow" aria-label="How a Nextbrowser task works">
+                <div className="onboarding-flow" aria-label={translate("How a Nextbrowser task works")}>
                   {[
-                    { icon: "person.crop.circle", title: "You", text: "Set the goal" },
-                    { icon: "cpu.fill", title: "Agent", text: "Does the work" },
-                    { icon: "person.2.fill", title: "Profile", text: "Provides browser context" },
-                    { icon: "waveform", title: "Processes", text: "Shows the real page" },
+                    { icon: "person.crop.circle", title: translate("You"), text: "Set the goal" },
+                    { icon: "cpu.fill", title: translate("Agent"), text: "Does the work" },
+                    { icon: "person.2.fill", title: translate("Profile"), text: "Provides browser context" },
+                    { icon: "waveform", title: translate("Processes"), text: "Shows the real page" },
                   ].map((item, index) => (
                     <div className="onboarding-flow-stage" key={item.title}>
                       <div className="onboarding-flow-card">
@@ -330,13 +328,11 @@ export function OnboardingView() {
                 <div className={"onboarding-account-status" + (authed ? " is-ready" : "")}>
                   <Icon name={authed ? "checkmark.circle.fill" : "info.circle"} size={16} />
                   <span>
-                    <strong>{authed ? "Browser account connected" : "Browser account not connected yet"}</strong>
-                    <span>{authed ? "Managed profiles and proxy controls are available." : "Connect in your browser to use managed profiles and proxy controls."}</span>
+                    <strong>{authed ? translate("Browser account connected") : translate("Browser account not connected yet")}</strong>
+                    <span>{authed ? translate("Managed profiles and proxy controls are available.") : translate("Connect in your browser to use managed profiles and proxy controls.")}</span>
                   </span>
                   {!authed && (
-                    <button type="button" className="mini" onClick={openAccountSetup}>
-                      Connect account
-                    </button>
+                    <button type="button" className="mini" onClick={openAccountSetup}>{translate("Connect account")}</button>
                   )}
                 </div>
               </div>
@@ -374,8 +370,8 @@ export function OnboardingView() {
                 >
                   <Icon name="bolt.fill" size={17} />
                   <span>
-                    <strong>Use a free model</strong>
-                    <span className="muted small">Your Nextbrowser account includes Nemotron 3.5 Super on OpenRouter. Sign in to use it.</span>
+                    <strong>{translate("Use a free model")}</strong>
+                    <span className="muted small">{translate("Your Nextbrowser account includes Nemotron 3.5 Super on OpenRouter. Sign in to use it.")}</span>
                   </span>
                   {isBuiltinAgent(agentId) && ready && <Icon name="checkmark.circle.fill" size={17} className="ok" />}
                 </button>
@@ -383,7 +379,7 @@ export function OnboardingView() {
                 {isBuiltinAgent(agentId) ? <BuiltinAgentSetup /> : !ready && <div className="onboarding-agent-connect">
                   <button type="button" className="btn-bordered-prominent" disabled={authorizing} onClick={connectAgent}>
                     {authorizing && <Spinner size={13} />}
-                    {authorizing ? "Checking…" : agentNeedsLogin ? `Sign in to ${agent.name}` : `Connect ${agent.name}`}
+                    {authorizing ? translate("Checking…") : agentNeedsLogin ? translate("Sign in to %1", agent.name) : translate("Connect %1", agent.name)}
                   </button>
                 </div>}
                 {agentError && !isBuiltinAgent(agentId) && (
@@ -405,18 +401,18 @@ export function OnboardingView() {
                   <span>
                     <strong>
                       {selectedSessionRunning
-                        ? "Profile ready"
+                        ? translate("Profile ready")
                         : noLocalProfiles
-                          ? "No profiles on this computer"
+                          ? translate("No profiles on this computer")
                           : profileCount === 0
-                            ? "Create a profile"
+                            ? translate("Create a profile")
                             : selectedWorkspaceProfile
-                              ? "Start a profile"
-                              : "Choose a profile"}
+                              ? translate("Start a profile")
+                              : translate("Choose a profile")}
                     </strong>
                     <span>
                       {noLocalProfiles
-                        ? "Profiles stay on the computer where they were created."
+                        ? translate("Profiles stay on the computer where they were created.")
                         : onboardingProfileSummary(profileCount, runningProfileCount)}
                     </span>
                   </span>
@@ -428,12 +424,10 @@ export function OnboardingView() {
                       onClick={createDefaultProfilesHere}
                     >
                       {creatingDefaultProfiles && <Spinner size={13} />}
-                      {creatingDefaultProfiles ? "Creating…" : "Create default profiles"}
+                      {creatingDefaultProfiles ? translate("Creating…") : translate("Create default profiles")}
                     </button>
                   ) : profileCount === 0 ? (
-                    <button type="button" className="btn-bordered" onClick={openProfileSetup}>
-                      Set up profile
-                      <Icon name="chevron.right" size={13} />
+                    <button type="button" className="btn-bordered" onClick={openProfileSetup}>{translate("Set up profile")}<Icon name="chevron.right" size={13} />
                     </button>
                   ) : !selectedSessionRunning && (
                     <button
@@ -443,13 +437,13 @@ export function OnboardingView() {
                       onClick={startChosenProfile}
                     >
                       {selectedSessionStarting && <Spinner size={13} />}
-                      {selectedSessionStarting ? "Starting…" : "Start profile"}
+                      {selectedSessionStarting ? translate("Starting…") : translate("Start profile")}
                       {!selectedSessionStarting && <Icon name="chevron.right" size={13} />}
                     </button>
                   )}
                 </div>
                 {profileCount > 0 && (
-                  <div className="onboarding-profile-options" role="group" aria-label="Workspace profiles">
+                  <div className="onboarding-profile-options" role="group" aria-label={translate("Workspace profiles")}>
                     {profileChoices.map((choice) => {
                       const chosen = choice.name === selectedWorkspaceProfile;
                       return (
@@ -483,11 +477,9 @@ export function OnboardingView() {
                 )}
                 {(profileCount > 0 || noLocalProfiles) && (
                   <button type="button" className="btn-bordered onboarding-profile-create" onClick={openProfileSetup}>
-                    <Icon name="plus" size={13} />
-                    Create a profile
-                  </button>
+                    <Icon name="plus" size={13} />{translate("Create a profile")}</button>
                 )}
-                <p className="muted small">Saved profiles are browser settings. A browser toolset downloads separately when you first start it.</p>
+                <p className="muted small">{translate("Saved profiles are browser settings. A browser toolset downloads separately when you first start it.")}</p>
               </div>
             )}
 
@@ -495,10 +487,8 @@ export function OnboardingView() {
               <div className="onboarding-step-content">
                 <div className="onboarding-prompt-example">
                   <div className="onboarding-example-heading">
-                    <strong>Example task</strong>
-                    <button type="button" className="btn-bordered-prominent" onClick={openTryChatConfirmation}>
-                      Try in Chat
-                      <Icon name="chevron.right" size={13} />
+                    <strong>{translate("Example task")}</strong>
+                    <button type="button" className="btn-bordered-prominent" onClick={openTryChatConfirmation}>{translate("Try in Chat")}<Icon name="chevron.right" size={13} />
                     </button>
                   </div>
                   <p>{FIRST_TASK_EXAMPLE}</p>
@@ -512,17 +502,17 @@ export function OnboardingView() {
                   {[
                     {
                       icon: "play.circle",
-                      title: "Follow the run",
+                      title: translate("Follow the run"),
                       text: "See each click, page change, and result.",
                     },
                     {
                       icon: "square.stack.3d.up.fill",
-                      title: "Switch tabs",
+                      title: translate("Switch tabs"),
                       text: "Move between the session’s open tabs.",
                     },
                     {
                       icon: "square.and.pencil",
-                      title: "Take control",
+                      title: translate("Take control"),
                       text: "Click or type when the agent needs help.",
                     },
                   ].map((item) => (
@@ -540,17 +530,15 @@ export function OnboardingView() {
                   />
                   <strong>
                     {selectedSessionRunning
-                      ? "Processes is ready"
-                      : "Start a profile to use Processes"}
+                      ? translate("Processes is ready")
+                      : translate("Start a profile to use Processes")}
                   </strong>
                   {selectedSessionRunning ? (
                     <button
                       type="button"
                       className="btn-bordered-prominent"
                       onClick={() => { completeCurrentStep("open_live"); closeTutorial("completed", "live"); }}
-                    >
-                      Open Processes
-                      <Icon name="chevron.right" size={13} />
+                    >{translate("Open Processes")}<Icon name="chevron.right" size={13} />
                     </button>
                   ) : (
                     <button
@@ -561,10 +549,10 @@ export function OnboardingView() {
                     >
                       {selectedSessionStarting && <Spinner size={13} />}
                       {profileCount === 0
-                        ? "Set up profile"
+                        ? translate("Set up profile")
                         : selectedSessionStarting
-                          ? "Starting…"
-                          : "Start profile"}
+                          ? translate("Starting…")
+                          : translate("Start profile")}
                       {!selectedSessionStarting && <Icon name="chevron.right" size={13} />}
                     </button>
                   )}
@@ -584,20 +572,14 @@ export function OnboardingView() {
             </span>
             {stepIndex > 0 && (
               <button type="button" className="btn-bordered" onClick={() => goToStep(stepIndex - 1)}>
-                <Icon name="chevron.left" size={13} />
-                Back
-              </button>
+                <Icon name="chevron.left" size={13} />{translate("Back")}</button>
             )}
             <span className="spacer" />
             {isLastStep ? (
-              <button type="button" className="btn-bordered-prominent" onClick={() => { completeCurrentStep("finish"); closeTutorial("completed", "guide"); }}>
-                Continue in Guide
-                <Icon name="chevron.right" size={13} />
+              <button type="button" className="btn-bordered-prominent" onClick={() => { completeCurrentStep("finish"); closeTutorial("completed", "guide"); }}>{translate("Continue in Guide")}<Icon name="chevron.right" size={13} />
               </button>
             ) : (
-              <button type="button" className="btn-bordered-prominent" onClick={() => goToStep(stepIndex + 1, "continue")}>
-                Continue
-                <Icon name="chevron.right" size={13} />
+              <button type="button" className="btn-bordered-prominent" onClick={() => goToStep(stepIndex + 1, "continue")}>{translate("Continue")}<Icon name="chevron.right" size={13} />
               </button>
             )}
           </footer>
@@ -606,7 +588,7 @@ export function OnboardingView() {
       {tryChatConfirmOpen && (
         <GuideActionModal
           confirmation={{
-            title: "Try this task in Chat?",
+            title: translate("Try this task in Chat?"),
             confirmLabel: "Try in Chat",
             icon: "bubble.left.and.bubble.right.fill",
             tint: "var(--warn)",

@@ -68,13 +68,13 @@ describe("Settings sections hold every setting", () => {
   };
 
   it.each([
-    ["general", ["Nextbrowser</span>", "Versions and updates", "Interface size", "<UIScaleSlider"]],
+    ["general", ["Nextbrowser</span>", "<InterfaceLanguageSetting", "Versions and updates", "Interface size", "<UIScaleSlider"]],
     ["themes", ["<ThemePicker", "<ThemeEditor"]],
     ["updates", ["<SettingsUpdates", "Restart and update", "<ManualReleaseDownload"]],
     ["privacy", ["Send error reports", "<DeviceDataSettings />"]],
     ["agent", ["<AgentPicker", "Connect", "Login", "Log out", "<AgentInstallLink", "<BuiltinAgentSetup />", "<StockMcpPermissions"]],
-    ["browser", ["Profiles</span>", "Browser toolsets and updates", "setSection(\"updates\")"]],
-    ["proxy", ["Proxy</span>", "Proxy usage", "setUsageOpen(true)", "<UsageView />"]],
+    ["browser", ['{translate("Profiles")}</span>', "Browser toolsets and updates", "setSection(\"updates\")"]],
+    ["proxy", ['{translate("Proxy")}</span>', "Proxy usage", "setUsageOpen(true)", "<UsageView />"]],
   ])("%s", (section, settings) => {
     const source = block(section as string);
     for (const setting of settings as string[]) expect(source).toContain(setting);

@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { brandName } from "../constants";
 import { describeError, reportRendererError } from "../lib/errorReporting";
@@ -32,8 +33,8 @@ export class AppErrorBoundary extends Component<{ children: ReactNode }, AppErro
       <div className="splash" role="alert">
         <div className="splash-title">{brandName}</div>
         <div className="startup-recovery">
-          <p className="muted small">Something went wrong and this window needs to reload. Ref: {this.state.reference}</p>
-          <button className="primary" onClick={() => window.location.reload()}>Reload</button>
+          <p className="muted small">{translate("Something went wrong and this window needs to reload. Ref:")} {this.state.reference}</p>
+          <button className="primary" onClick={() => window.location.reload()}>{translate("Reload")}</button>
         </div>
       </div>
     );

@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { Select } from "../shared/ui";
 import { countryFlag, filterCountryList, type RotationCountry } from "../lib/countryFlag";
 import { Icon } from "./Icon";
@@ -24,8 +25,8 @@ function countryOption({ code, name }: RotationCountry) {
 export function ProfileCountrySelect({ countries, value, disabled, onChange }: {
   countries: RotationCountry[]; value: string; disabled: boolean; onChange: (value: string) => void;
 }) {
-  return <Select overlay label="Proxy country" value={value.toUpperCase()} disabled={disabled} onChange={onChange}
-    options={countries.map(countryOption)} searchPlaceholder="Search countries…"
+  return <Select overlay label={translate("Proxy country")} value={value.toUpperCase()} disabled={disabled} onChange={onChange}
+    options={countries.map(countryOption)} searchPlaceholder={translate("Search countries…")}
     filterOptions={query => filterCountryList(countries, query).map(countryOption)} />;
 }
 
@@ -35,6 +36,6 @@ export function ProfileProxySelect({ proxies, value, disabled, label, onChange, 
   return <>
     <Select overlay label={label} value={value} disabled={disabled} onChange={onChange}
       options={proxies.map(proxy => ({ value: proxy.id, label: proxy.name, description: `${proxy.scheme.toUpperCase()} · ${proxy.host}:${proxy.port}` }))} />
-    <button className="link profile-add-proxy" type="button" disabled={disabled} onClick={onAdd}><Icon name="plus" size={13} /> Add proxy</button>
+    <button className="link profile-add-proxy" type="button" disabled={disabled} onClick={onAdd}><Icon name="plus" size={13} /> {translate("Add proxy")}</button>
   </>;
 }

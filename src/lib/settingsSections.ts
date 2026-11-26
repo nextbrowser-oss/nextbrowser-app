@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import type { TrafficGateTone } from "./trafficGate";
 
 // The Settings dialog shows one section at a time, picked from a rail on the
@@ -12,14 +13,14 @@ export interface SettingsSectionInfo {
 }
 
 export const SETTINGS_SECTIONS: readonly SettingsSectionInfo[] = [
-  { id: "general", label: "General", icon: "gearshape", summary: "Interface size and app version." },
-  { id: "themes", label: "Themes", icon: "palette", summary: "Customize light and dark appearance separately." },
-  { id: "updates", label: "Updates", icon: "arrow.down.circle", summary: "Installed versions, available updates, and download progress." },
-  { id: "privacy", label: "Privacy", icon: "checkmark.shield", summary: "Error reports and the device data sent with your account." },
-  { id: "devices", label: "Device sessions", icon: "desktopcomputer", summary: "Devices connected to your Nextbrowser account." },
-  { id: "agent", label: "Agent", icon: "cpu.fill", summary: "The local agent used for chats, skills, and scheduled runs." },
-  { id: "browser", label: "Browser", icon: "globe", summary: "Browser control, profiles, and installed toolsets." },
-  { id: "proxy", label: "Proxy", icon: "network", summary: "Managed proxy state and traffic." },
+  { id: "general", get label() { return translate("General"); }, icon: "gearshape", get summary() { return translate("Interface size and app version."); } },
+  { id: "themes", get label() { return translate("Themes"); }, icon: "palette", get summary() { return translate("Customize light and dark appearance separately."); } },
+  { id: "updates", get label() { return translate("Updates"); }, icon: "arrow.down.circle", get summary() { return translate("Installed versions, available updates, and download progress."); } },
+  { id: "privacy", get label() { return translate("Privacy"); }, icon: "checkmark.shield", get summary() { return translate("Error reports and the device data sent with your account."); } },
+  { id: "devices", get label() { return translate("Device sessions"); }, icon: "desktopcomputer", get summary() { return translate("Devices connected to your Nextbrowser account."); } },
+  { id: "agent", get label() { return translate("Agent"); }, icon: "cpu.fill", get summary() { return translate("The local agent used for chats, skills, and scheduled runs."); } },
+  { id: "browser", get label() { return translate("Browser"); }, icon: "globe", get summary() { return translate("Browser control, profiles, and installed toolsets."); } },
+  { id: "proxy", get label() { return translate("Proxy"); }, icon: "network", get summary() { return translate("Managed proxy state and traffic."); } },
 ];
 
 export function settingsSectionInfo(section: SettingsSection): SettingsSectionInfo {

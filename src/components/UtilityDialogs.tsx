@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { Dialog } from "../shared/ui";
 import { useStore } from "../store";
 import { ConnectorsView } from "./ConnectorsView";
@@ -20,7 +21,7 @@ export function UtilityDialogs() {
   }), [owner, workspaceId, setTab]);
   useEffect(() => { if (modal !== 'mcp') setProposal(undefined); }, [modal]);
   if (!modal) return null;
-  return <Dialog key={modal} title={modal === "connectors" ? "Connectors" : modal === "mcp" ? "MCP" : "Schedule"} onClose={close} className="utility-dialog">
+  return <Dialog key={modal} title={modal === "connectors" ? translate("Connectors") : modal === "mcp" ? "MCP" : translate("Schedule")} onClose={close} className="utility-dialog">
     {modal === "connectors" ? <ConnectorsView embedded /> : modal === "mcp" ? <McpView key={owner} proposal={owner === proposal?.owner ? proposal : undefined} /> : <ScheduledRunsPanel asPage embedded />}
   </Dialog>;
 }

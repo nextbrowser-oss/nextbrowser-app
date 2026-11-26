@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useState, type FormEvent } from "react";
 import { ArrowLeft, ArrowRight, Plus, RotateCw, X } from "lucide-react";
 import { IconButton, Tooltip } from "../shared/ui";
@@ -36,7 +37,7 @@ export function LiveBrowserToolbar({ tabs, currentURL, canNavigate, busy, onSele
 
   return <div className="live-browser-toolbar">
     <div className="live-browser-tab-row">
-      <div className="live-browser-tabs shared-scrollbarless" role="group" aria-label="Browser tabs">
+      <div className="live-browser-tabs shared-scrollbarless" role="group" aria-label={translate("Browser tabs")}>
         {tabs.map(tab => {
           const title = tab.title || (tab.url === "about:blank" ? "New tab" : tab.url) || "New tab";
           return <div className="live-browser-tab" data-active={tab.active || undefined} key={tab.target_id}>
@@ -46,27 +47,27 @@ export function LiveBrowserToolbar({ tabs, currentURL, canNavigate, busy, onSele
                 {title}
               </button>
             </Tooltip>
-            {canNavigate && tabs.length > 1 && tab.can_close && <IconButton label={`Close ${title}`} size="small" appearance="plain"
+            {canNavigate && tabs.length > 1 && tab.can_close && <IconButton label={translate("Close %1", title)} size="small" appearance="plain"
               disabled={busy} onClick={() => onAction("close", tab.target_id)}><X size={14} /></IconButton>}
           </div>;
         })}
       </div>
-      {canNavigate && <IconButton label="New tab" appearance="plain" size="small" disabled={busy} onClick={() => onAction("new")}>
+      {canNavigate && <IconButton label={translate("New tab")} appearance="plain" size="small" disabled={busy} onClick={() => onAction("new")}>
         <Plus size={17} />
       </IconButton>}
     </div>
     <form className="live-browser-address" onSubmit={navigate}>
-      <IconButton label="Back" appearance="plain" size="small" disabled={!canUseActiveTab} onClick={() => onAction("back", activeTab?.target_id)}>
+      <IconButton label={translate("Back")} appearance="plain" size="small" disabled={!canUseActiveTab} onClick={() => onAction("back", activeTab?.target_id)}>
         <ArrowLeft size={17} />
       </IconButton>
-      <IconButton label="Forward" appearance="plain" size="small" disabled={!canUseActiveTab} onClick={() => onAction("forward", activeTab?.target_id)}>
+      <IconButton label={translate("Forward")} appearance="plain" size="small" disabled={!canUseActiveTab} onClick={() => onAction("forward", activeTab?.target_id)}>
         <ArrowRight size={17} />
       </IconButton>
-      <IconButton label="Reload" appearance="plain" size="small" disabled={!canUseActiveTab} onClick={() => onAction("reload", activeTab?.target_id)}>
+      <IconButton label={translate("Reload")} appearance="plain" size="small" disabled={!canUseActiveTab} onClick={() => onAction("reload", activeTab?.target_id)}>
         <RotateCw size={16} />
       </IconButton>
-      <input type="text" aria-label="Browser address" aria-invalid={invalid || undefined} autoComplete="off" spellCheck={false}
-        placeholder="Enter a web address" readOnly={!canNavigate || !activeTab}
+      <input type="text" aria-label={translate("Browser address")} aria-invalid={invalid || undefined} autoComplete="off" spellCheck={false}
+        placeholder={translate("Enter a web address")} readOnly={!canNavigate || !activeTab}
         value={draft ?? address} onChange={event => { setDraft(event.target.value); setInvalid(false); }}
         onFocus={event => event.currentTarget.select()}
         onKeyDown={event => {
@@ -75,7 +76,7 @@ export function LiveBrowserToolbar({ tabs, currentURL, canNavigate, busy, onSele
           setInvalid(false);
           event.stopPropagation();
         }} />
-      {invalid && <span role="alert" className="live-browser-address-error">Enter an HTTP or HTTPS address.</span>}
+      {invalid && <span role="alert" className="live-browser-address-error">{translate("Enter an HTTP or HTTPS address.")}</span>}
     </form>
   </div>;
 }

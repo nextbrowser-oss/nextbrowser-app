@@ -1,10 +1,11 @@
+import { translate } from "../../lib/i18n";
 import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import "./fileDropArea.css";
 
 const containsFiles = (event: DragEvent) => Array.from(event.dataTransfer.types).includes("Files") || event.dataTransfer.files.length > 0;
 
 /** File-only drop feedback; the caller owns attachment processing and storage. */
-export function FileDropArea({ children, onFiles, disabled = false, className = "", label = "Drop files to attach", unavailableLabel = "File attachments are unavailable" }: {
+export function FileDropArea({ children, onFiles, disabled = false, className = "", label = translate("Drop files to attach"), unavailableLabel = "File attachments are unavailable" }: {
   children: ReactNode;
   onFiles: (files: File[]) => void;
   disabled?: boolean;

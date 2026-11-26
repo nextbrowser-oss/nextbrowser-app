@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useState } from "react";
 import { IconButton } from "../shared/ui";
 import { useStore } from "../store";
@@ -58,7 +59,7 @@ function DiscordButton() {
     : tone === "missing"
       ? "Your GitHub star is not verified. Star Nextbrowser on GitHub and verify it in Usage. Join our Discord community for help."
       : "Join our Discord community. Sign in with GitHub and verify your star in Usage to show your support status.";
-  return <IconButton appearance="plain" size="small" label="Join Nextbrowser on Discord" hint={hint}
+  return <IconButton appearance="plain" size="small" label={translate("Join Nextbrowser on Discord")} hint={hint}
     className={`community-discord community-discord--${tone}`}
     onClick={() => window.open(discordUrl, "_blank", "noopener,noreferrer")}>
     <DiscordMark size={18} />

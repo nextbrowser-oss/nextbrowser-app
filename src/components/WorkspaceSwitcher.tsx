@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useCallback, useState } from "react";
 import { Dialog, IconButton, Popover } from "../shared/ui";
 import { useStore } from "../store";
@@ -22,17 +23,17 @@ export function WorkspaceSwitcher({ disabled = false }: { disabled?: boolean }) 
     window.dispatchEvent(new CustomEvent(event, { detail: id }));
   };
   return <>
-    <Popover label="Workspaces" open={open && !disabled} onOpenChange={changeOpen} openOnHover align="start"
+    <Popover label={translate("Workspaces")} open={open && !disabled} onOpenChange={changeOpen} openOnHover align="start"
       className="titlebar-workspaces shared-scrollbarless"
-      trigger={props => <button {...props} className="titlebar-workspace-switcher" disabled={disabled} aria-label={`Switch workspace, ${active?.name ?? "no workspace"}`}>
-        <span>Workspaces{active ? ` (${active.name})` : ""}</span><Icon name="chevron.down" size={10} />
+      trigger={props => <button {...props} className="titlebar-workspace-switcher" disabled={disabled} aria-label={translate("Switch workspace, %1", active?.name ?? "no workspace")}>
+        <span>{translate("Workspaces")}{active ? ` (${active.name})` : ""}</span><Icon name="chevron.down" size={10} />
       </button>}>
       <div className="workspace-switcher-toolbar">
         <label className="workspace-switcher-search">
           <Icon name="magnifyingglass" size={13} />
-          <input aria-label="Search workspaces" placeholder="Search workspaces" value={query} onChange={event => setQuery(event.target.value)} />
+          <input aria-label={translate("Search workspaces")} placeholder={translate("Search workspaces")} value={query} onChange={event => setQuery(event.target.value)} />
         </label>
-        <IconButton label="Create workspace" appearance="plain" size="small" onClick={() => action("nextbrowser:create-workspace")}><Icon name="plus" size={15} /></IconButton>
+        <IconButton label={translate("Create workspace")} appearance="plain" size="small" onClick={() => action("nextbrowser:create-workspace")}><Icon name="plus" size={15} /></IconButton>
       </div>
       <div className="workspace-switcher-list shared-scrollbarless">
         {visible.map(workspace => <div className="workspace-switcher-row" key={workspace.id}>
@@ -40,14 +41,13 @@ export function WorkspaceSwitcher({ disabled = false }: { disabled?: boolean }) 
             onClick={() => { select(workspace.id); changeOpen(false); }}>
             <Icon name={workspace.id === activeId ? "checkmark" : "square.grid.2x2"} size={13} /><span>{workspace.name}</span>
           </button>
-          <IconButton label={`Delete workspace ${workspace.name}`} appearance="plain" size="small" className="workspace-switcher-delete"
+          <IconButton label={translate("Delete workspace %1", workspace.name)} appearance="plain" size="small" className="workspace-switcher-delete"
             onClick={() => action("nextbrowser:delete-workspace", workspace.id)}><Icon name="trash" size={13} /></IconButton>
         </div>)}
-        {!visible.length && <p className="workspace-switcher-empty">{search ? "No matching workspaces" : "No workspaces yet"}</p>}
+        {!visible.length && <p className="workspace-switcher-empty">{search ? translate("No matching workspaces") : translate("No workspaces yet")}</p>}
       </div>
       <button type="button" className="workspace-switcher-reset" onClick={() => { changeOpen(false); setResetOpen(true); }}>
-        <Icon name="exclamationmark.triangle.fill" size={13} />Emergency data reset
-      </button>
+        <Icon name="exclamationmark.triangle.fill" size={13} />{translate("Emergency data reset")}</button>
     </Popover>
     {resetOpen && <WorkspaceResetDialog onClose={() => setResetOpen(false)} />}
   </>;
@@ -60,7 +60,7 @@ function WorkspaceResetDialog({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState("");
   const [resetting, setResetting] = useState(false);
   const close = () => { if (!resetting) onClose(); };
-  return <Dialog title="Emergency data reset" className="workspace-reset-dialog" onClose={close}>
+  return <Dialog title={translate("Emergency data reset")} className="workspace-reset-dialog" onClose={close}>
     <form onSubmit={event => {
       event.preventDefault();
       if (confirmation !== "DROP" || resetting) return;
@@ -71,17 +71,17 @@ function WorkspaceResetDialog({ onClose }: { onClose: () => void }) {
         setResetting(false);
       });
     }}>
-      <p>This permanently deletes all workspaces in your connected Nextbrowser account, including synced projects, chats, and schedules. It also erases this device’s Nextbrowser data, including local browser profiles, files in the Nextbrowser agent workspace, settings, and saved credentials. The app then restarts.</p>
+      <p>{translate("This permanently deletes all workspaces in your connected Nextbrowser account, including synced projects, chats, and schedules. It also erases this device’s Nextbrowser data, including local browser profiles, files in the Nextbrowser agent workspace, settings, and saved credentials. The app then restarts.")}</p>
       <label className="modal-field">
-        <span>Type DROP to confirm. This cannot be undone.</span>
+        <span>{translate("Type DROP to confirm. This cannot be undone.")}</span>
         <input data-autofocus value={confirmation} onChange={event => setConfirmation(event.target.value)}
           disabled={resetting} autoComplete="off" autoCapitalize="off" spellCheck={false} />
       </label>
       {resetting && <p className="muted small" role="status">{progress}</p>}
       {error && <p className="error small" role="alert">{error}</p>}
       <div className="modal-actions">
-        <button type="button" className="secondary" onClick={close} disabled={resetting}>Cancel</button>
-        <button type="submit" className="primary danger" disabled={confirmation !== "DROP" || resetting}>Delete all data</button>
+        <button type="button" className="secondary" onClick={close} disabled={resetting}>{translate("Cancel")}</button>
+        <button type="submit" className="primary danger" disabled={confirmation !== "DROP" || resetting}>{translate("Delete all data")}</button>
       </div>
     </form>
   </Dialog>;

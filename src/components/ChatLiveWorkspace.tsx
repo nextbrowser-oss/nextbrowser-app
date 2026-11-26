@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode, type RefCallback } from "react";
 import { dockFrames, dockPanel, dropAt, isMiniPanel, limitSplit, miniPanel, panelIds, resizeDock, type Divider, type Dock, type Edge, type LivePanel, type Rect } from "../lib/liveDock";
 import type { AppInfo } from "../lib/miniAppLibrary";
@@ -152,10 +153,10 @@ export function ChatLiveWorkspace({ visible, live, browserOpen, onToggle, focus,
     onClickCapture={event => {
       if (event.detail && suppressClick.current) { event.preventDefault(); event.stopPropagation(); suppressClick.current = false; }
     }}>
-    <section id="live-browser-pane" aria-label="Live browser" className="live-browser-pane" style={contentStyle("live")} hidden={!live || !shownBrowser}>{children}</section>
+    <section id="live-browser-pane" aria-label={translate("Live browser")} className="live-browser-pane" style={contentStyle("live")} hidden={!live || !shownBrowser}>{children}</section>
     {docked && dividers.map(divider => {
       const vertical = divider.axis === "x";
-      return <div key={divider.path} role="separator" aria-label={divider.path || !live ? "Resize workspace panels" : "Resize Live browser"}
+      return <div key={divider.path} role="separator" aria-label={divider.path || !live ? translate("Resize workspace panels") : translate("Resize Live browser")}
         aria-orientation={vertical ? "vertical" : "horizontal"} aria-valuemin={20} aria-valuemax={80}
         aria-valuenow={divider.percent} aria-valuetext={divider.percent + "%"} style={rectStyle(divider)}
         tabIndex={0} className="live-splitter" data-resizing={resizing && gesture.current?.kind === "size" && gesture.current.divider.path === divider.path || undefined}
@@ -173,7 +174,7 @@ export function ChatLiveWorkspace({ visible, live, browserOpen, onToggle, focus,
         <div className={glassSurfaceClassName + " live-workspace-pill"}>
           {!live && group.tabs.includes("chat") && <MainViewNavigation onSelectPrimary={() => onFocusPanel("chat")} primaryActive={group.selected === "chat"} />}
           <div className="live-workspace-tabs" role="tablist" aria-label={group.tabs.map(name).join(" / ") + " panels"}>
-          {group.tabs.map((tab, i) => (!live && tab === "chat") ? null : <Tooltip key={tab} content={`Drag ${name(tab)} to move panel`}>
+          {group.tabs.map((tab, i) => (!live && tab === "chat") ? null : <Tooltip key={tab} content={translate("Drag %1 to move panel", name(tab))}>
             <button type="button" role="tab" id={"live-tab-" + tab} aria-controls={tab === "live" ? "live-browser-pane" : "live-side-" + tab}
               data-lifted={dragging === tab || undefined} aria-selected={group.selected === tab} tabIndex={group.selected === tab || (!live && group.selected === "chat" && tab === group.tabs.find(isMiniPanel)) ? 0 : -1} onClick={() => onFocusPanel(tab)}
               onPointerDown={event => begin(event, tab)}
@@ -190,7 +191,7 @@ export function ChatLiveWorkspace({ visible, live, browserOpen, onToggle, focus,
           {live && group.tabs.includes("chat") && <><SessionTitle /><AddMiniAppTab /></>}
           {isMiniPanel(group.selected) && <IconButton label={"Close " + name(group.selected)} appearance="plain" size="small" onClick={() => onCloseApp(group.selected)}><Glyph name="x" size={14} /></IconButton>}
           {live && ((group.selected === "live") || (!browserOpen && group.tabs.includes("chat"))) &&
-            <IconButton label={browserOpen ? "Hide browser" : "Show browser"} appearance="plain" size="small"
+            <IconButton label={browserOpen ? translate("Hide browser") : translate("Show browser")} appearance="plain" size="small"
               onClick={() => { onToggle(); if (!browserOpen) onFocusPanel("live"); }}><Glyph name={browserOpen ? "minus" : "activity"} size={14} /></IconButton>}
         </div>
       </header>)}
@@ -210,7 +211,7 @@ export function ChatLiveWorkspace({ visible, live, browserOpen, onToggle, focus,
     {dragging && <div className="live-dock-shield" aria-hidden="true">
       <span className={glassSurfaceClassName + " live-dock-chip"} style={{ left: pointer.x, top: pointer.y }}>{name(dragging)}</span>
       {preview && drop && <div className="live-dock-preview" style={rectStyle(preview)}>
-        <span>{drop.edge === "center" ? `Group ${name(dragging)} with ${name(drop.target)}` : `Move ${name(dragging)} ${drop.edge}`}</span>
+        <span>{drop.edge === "center" ? translate("Group %1 with %2", name(dragging), name(drop.target)) : translate("Move %1 %2", name(dragging), drop.edge)}</span>
       </div>}
     </div>}
   </div>;

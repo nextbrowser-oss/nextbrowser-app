@@ -1,13 +1,14 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "../shared/ui";
 import { colorFields, readWallpaper, type Appearance, type ColorField, type UpdateAppearance } from "../lib/appearance";
 import type { Theme } from "../theme";
 
 const patterns = [
-  { value: "glow", label: "Glow" },
-  { value: "solid", label: "Solid" },
-  { value: "gradient", label: "Gradient" },
-  { value: "dots", label: "Dots" },
+  { value: "glow", get label() { return translate("Glow"); } },
+  { value: "solid", get label() { return translate("Solid"); } },
+  { value: "gradient", get label() { return translate("Gradient"); } },
+  { value: "dots", get label() { return translate("Dots"); } },
 ] as const;
 const fields = Object.keys(colorFields) as ColorField[];
 export function ThemeColorFields({ control, readOnly = false }: { control: (key: ColorField) => ReactNode; readOnly?: boolean }) {
@@ -45,7 +46,7 @@ export function ThemeEditor({ mode, appearance, canReset, updateAppearance }: {
       const photo = await readWallpaper(file);
       if (id === request.current) updateAppearance({ photo, wallpaper: "photo" });
     } catch (reason) {
-      if (id === request.current) setError(reason instanceof Error ? reason.message : "Could not open this image.");
+      if (id === request.current) setError(reason instanceof Error ? reason.message : translate("Could not open this image."));
     } finally {
       if (id === request.current) setLoading(false);
     }
@@ -54,36 +55,36 @@ export function ThemeEditor({ mode, appearance, canReset, updateAppearance }: {
   return <>
     <span hidden ref={sample} data-palette={mode} className="settings-theme-sample" />
     <fieldset className="theme-editor-section">
-      <legend>{name} colors</legend>
+      <legend>{name} {translate("colors")}</legend>
       <ThemeColorFields control={key => defaults[key] && <input type="color"
         value={appearance[key] ?? (key === "outgoing" ? appearance.accent : undefined) ?? defaults[key]}
         onChange={event => updateAppearance({ [key]: event.target.value })} />} />
     </fieldset>
     <fieldset className="theme-editor-section">
-      <legend>Wallpaper</legend>
+      <legend>{translate("Wallpaper")}</legend>
       <div className="theme-patterns">
         {patterns.map(pattern => <Button key={pattern.value} disabled={loading} aria-pressed={wallpaper === pattern.value}
           onClick={() => updateAppearance({ wallpaper: pattern.value })}>{pattern.label}</Button>)}
         {appearance.photo && <Button disabled={loading} aria-pressed={wallpaper === "photo"}
-          onClick={() => updateAppearance({ wallpaper: "photo" })}>My photo</Button>}
-        <Button disabled={loading} onClick={() => upload.current?.click()}>{loading ? "Opening…" : appearance.photo ? "Change photo…" : "Choose photo…"}</Button>
-        <input type="file" ref={upload} hidden accept="image/png,image/jpeg,image/webp" aria-label="Wallpaper image"
+          onClick={() => updateAppearance({ wallpaper: "photo" })}>{translate("My photo")}</Button>}
+        <Button disabled={loading} onClick={() => upload.current?.click()}>{loading ? translate("Opening…") : appearance.photo ? translate("Change photo…") : translate("Choose photo…")}</Button>
+        <input type="file" ref={upload} hidden accept="image/png,image/jpeg,image/webp" aria-label={translate("Wallpaper image")}
           onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void choosePhoto(file); }} />
       </div>
       {wallpaper === "gradient" && defaults.outgoing && <label className="theme-color-field theme-gradient-end">
-        <span>Gradient end</span>
+        <span>{translate("Gradient end")}</span>
         <input type="color" value={appearance.gradientEnd ?? appearance.accent ?? defaults.outgoing}
           onChange={event => updateAppearance({ gradientEnd: event.target.value })} />
       </label>}
       {error && <p className="error small" role="alert">{error}</p>}
     </fieldset>
     <label className="theme-radius">
-      <span>Bubble corners</span>
+      <span>{translate("Bubble corners")}</span>
       <input type="range" min="4" max="28" value={radius} aria-valuetext={radius + " pixels"}
         onChange={event => updateAppearance({ radius: event.target.valueAsNumber })} />
-      <output>{radius} px</output>
+      <output>{radius} {translate("px")}</output>
     </label>
     <Button className="theme-reset" disabled={!canReset || loading}
-      onClick={() => { setError(""); updateAppearance(null); }}>Reset {mode} appearance</Button>
+      onClick={() => { setError(""); updateAppearance(null); }}>{translate("Reset")} {mode} {translate("appearance")}</Button>
   </>;
 }

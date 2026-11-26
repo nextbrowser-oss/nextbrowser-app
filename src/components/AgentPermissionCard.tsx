@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useState } from 'react';
 import { Check, Folder, ShieldCheck, SquareTerminal, X } from 'lucide-react';
 import { Button } from '../shared/ui';
@@ -55,13 +56,13 @@ export function AgentPermissionCard({ request }: { request: AgentPermissionReque
     setBusy(true);
     try {
       const { id, conversationId, workspaceId } = request;
-      if (!await invoke<boolean>('stock_mcp_answer', { id, conversationId, workspaceId, decision })) setError('This request is no longer active.');
+      if (!await invoke<boolean>('stock_mcp_answer', { id, conversationId, workspaceId, decision })) setError(translate("This request is no longer active."));
     } catch {
-      setError('Could not send your decision. Try again.');
+      setError(translate("Could not send your decision. Try again."));
       setBusy(false);
     }
   }
-  return <section className="agent-permission-card" aria-label="Agent permission request">
+  return <section className="agent-permission-card" aria-label={translate("Agent permission request")}>
     <div className="agent-permission-heading" role="status"><ShieldCheck size={18} /><strong>{request.title}</strong></div>
     <div className="agent-permission-context">
       {request.shell && <span><SquareTerminal size={13} />{request.shell}</span>}
@@ -69,9 +70,9 @@ export function AgentPermissionCard({ request }: { request: AgentPermissionReque
     </div>
     <pre tabIndex={0} dir="ltr">{request.detail}</pre>
     <div className="agent-permission-actions">
-      {request.canRemember && <Button disabled={busy} onClick={() => void answer('remember')}>Remember this exact command</Button>}
-      <Button disabled={busy} onClick={() => void answer('deny')}><X size={14} />Deny</Button>
-      <Button className="primary" disabled={busy} onClick={() => void answer('once')}><Check size={14} />Allow once</Button>
+      {request.canRemember && <Button disabled={busy} onClick={() => void answer('remember')}>{translate("Remember this exact command")}</Button>}
+      <Button disabled={busy} onClick={() => void answer('deny')}><X size={14} />{translate("Deny")}</Button>
+      <Button className="primary" disabled={busy} onClick={() => void answer('once')}><Check size={14} />{translate("Allow once")}</Button>
     </div>
     {error && <span role="alert">{error}</span>}
   </section>;

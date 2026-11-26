@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Pin } from "lucide-react";
@@ -43,20 +44,20 @@ export function RecentProjects({ activeId, open: controlledOpen, onOpenChange, b
   const root = current && projectRoot(current, conversations);
   const contents = <>
     <div className="project-popover-toolbar">
-      <div className="rail-popover-heading">Projects</div>
-      <IconButton label={docked ? "Unpin Projects" : "Pin Projects"} text={docked ? "Unpin" : "Pin"} aria-pressed={docked} disabled={!dock}
+      <div className="rail-popover-heading">{translate("Projects")}</div>
+      <IconButton label={docked ? translate("Unpin Projects") : translate("Pin Projects")} text={docked ? "Unpin" : "Pin"} aria-pressed={docked} disabled={!dock}
         appearance="embedded" size="small" className="project-pin" onClick={() => {
           if (docked) livePanel?.showChat();
           setProjectsPinned(!docked);
           setOpen(true);
         }}><Pin size={14} aria-hidden="true" /></IconButton>
-      <IconButton label="Create project" appearance="plain" size="small" className="project-new-session" onClick={() => { closeAfterSelect(); livePanel?.showChat(); window.dispatchEvent(new CustomEvent("nextbrowser:create-project")); }}><Glyph name="folder" size={14} /></IconButton>
-      <IconButton label="New session" disabled={!root} appearance="plain" size="small" className="project-new-session" onClick={() => { if (current && createSession(current.id)) showChat(); }}><Icon name="plus" size={14} /></IconButton>
+      <IconButton label={translate("Create project")} appearance="plain" size="small" className="project-new-session" onClick={() => { closeAfterSelect(); livePanel?.showChat(); window.dispatchEvent(new CustomEvent("nextbrowser:create-project")); }}><Glyph name="folder" size={14} /></IconButton>
+      <IconButton label={translate("New session")} disabled={!root} appearance="plain" size="small" className="project-new-session" onClick={() => { if (current && createSession(current.id)) showChat(); }}><Icon name="plus" size={14} /></IconButton>
     </div>
     <div className="profile-list-tools project-list-tools">
-      <label className="project-search"><input ref={docked ? search : undefined} type="search" data-autofocus aria-label="Search projects"
-        placeholder="Search projects" value={query} onChange={event => setQuery(event.target.value)} /></label>
-      <Select label="Sort projects" triggerContent={<><Glyph name="arrow-down" size={12} /><span>Sort</span></>}
+      <label className="project-search"><input ref={docked ? search : undefined} type="search" data-autofocus aria-label={translate("Search projects")}
+        placeholder={translate("Search projects")} value={query} onChange={event => setQuery(event.target.value)} /></label>
+      <Select label={translate("Sort projects")} triggerContent={<><Glyph name="arrow-down" size={12} /><span>{translate("Sort")}</span></>}
         value={sort} options={projectSortOptions} onChange={value => {
           const next = projectSortMode(value);
           setSort(next);
@@ -68,12 +69,12 @@ export function RecentProjects({ activeId, open: controlledOpen, onOpenChange, b
     </div>
   </>;
   if (dock && docked) return <>
-    <Tooltip content="Projects" side="right"><button type="button" className="sidebar-destination active" aria-label="Open Projects"
+    <Tooltip content={translate("Projects")} side="right"><button type="button" className="sidebar-destination active" aria-label={translate("Open Projects")}
       aria-expanded="true" aria-controls="pinned-projects" onClick={() => search.current?.focus()}><Glyph name="folder" /></button></Tooltip>
     {createPortal(<ProjectsDock>{contents}</ProjectsDock>, dock)}
   </>;
-  return <><Popover label="Projects" open={open} onOpenChange={setOpen} openOnHover align="start" side="right" boundaryRef={boundaryRef}
-    className="recent-projects shared-scrollbarless" trigger={props => <button {...props} className="sidebar-destination" aria-label="Open Projects">
+  return <><Popover label={translate("Projects")} open={open} onOpenChange={setOpen} openOnHover align="start" side="right" boundaryRef={boundaryRef}
+    className="recent-projects shared-scrollbarless" trigger={props => <button {...props} className="sidebar-destination" aria-label={translate("Open Projects")}>
       <Glyph name="folder" />
     </button>}>{contents}</Popover>
     {livePanel?.slot && createPortal(contents, livePanel.slot)}

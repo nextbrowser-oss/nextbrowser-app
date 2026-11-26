@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useState } from "react";
 import type { SkillEntry } from "../skillsCatalog";
 
@@ -33,15 +34,15 @@ export function RunSkillSheet({ entry, onClose, onRun }: {
         aria-labelledby="run-skill-title"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <strong id="run-skill-title">Run {entry.title}</strong>
-        <p className="muted small">The agent runs this skill in chat on {skillRunTarget(entry)}.</p>
-        <label className="field-label" htmlFor="run-skill-task">Task for this run (optional)</label>
+        <strong id="run-skill-title">{translate("Run")} {entry.title}</strong>
+        <p className="muted small">{translate("The agent runs this skill in chat on")} {skillRunTarget(entry)}.</p>
+        <label className="field-label" htmlFor="run-skill-task">{translate("Task for this run (optional)")}</label>
         <textarea
           id="run-skill-task"
           rows={4}
           autoFocus
           value={task}
-          placeholder="For example: fill in the login form, but don't submit it."
+          placeholder={translate("For example: fill in the login form, but don't submit it.")}
           onChange={(event) => setTask(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -50,11 +51,11 @@ export function RunSkillSheet({ entry, onClose, onRun }: {
             }
           }}
         />
-        <p className="muted small">Leave it empty to run the skill as written.</p>
+        <p className="muted small">{translate("Leave it empty to run the skill as written.")}</p>
         <div className="row" style={{ gap: 8 }}>
           <span className="spacer" />
-          <button className="secondary" onClick={onClose}>Cancel</button>
-          <button className="primary" onClick={run}>Run skill</button>
+          <button className="secondary" onClick={onClose}>{translate("Cancel")}</button>
+          <button className="primary" onClick={run}>{translate("Run skill")}</button>
         </div>
       </div>
     </div>

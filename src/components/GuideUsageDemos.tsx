@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useState, type ComponentType, type CSSProperties, type ReactNode } from "react";
 import { openGuideChatDraft } from "../lib/guideDraft";
 import { useStore } from "../store";
@@ -96,9 +97,9 @@ function LaunchBrowserDemo({ phase }: { phase: number }) {
       <div className="demo-launch">
         <div className="demo-chat-head">
           <span className="demo-accent-bar" />
-          <span className="muted">Chat</span>
+          <span className="muted">{translate("Chat")}</span>
           <span className="spacer" />
-          <span className="ok small">Agent</span>
+          <span className="ok small">{translate("Agent")}</span>
         </div>
         <DemoChatBubble text="Save the 5 newest Hacker News stories as JSON" opacity={chatOpacity} />
         <DemoChatBubble
@@ -137,34 +138,31 @@ function SpanishProxyDemo({ phase }: { phase: number }) {
     <DemoCanvas>
       <div className="demo-proxy-split">
         <div className="demo-proxy-sidebar">
-          <div className="muted small" style={{ fontWeight: 700 }}>
-            Profiles
-          </div>
+          <div className="muted small" style={{ fontWeight: 700 }}>{translate("Profiles")}</div>
           <div className="demo-profile-active">
             <Icon name="person.crop.circle.fill" size={10} />
-            <span>selected-profile</span>
+            <span>{translate("selected-profile")}</span>
             <span className="spacer" />
             <span className="dot green" />
           </div>
           {menuOpen && (
             <div className="demo-menu">
-              <div>↻ Rotate</div>
+              <div>{translate("↻ Rotate")}</div>
               <div className="highlight">
-                <Icon name="globe" size={8} /> Rotate country
-              </div>
-              <div className="danger">Delete</div>
+                <Icon name="globe" size={8} /> {translate("Rotate country")}</div>
+              <div className="danger">{translate("Delete")}</div>
             </div>
           )}
         </div>
         <div className="demo-proxy-main">
           <DemoChatBubble text="Rotate this profile to ES, then verify it" />
           {esSelected && (
-            <div className="demo-es-badge">🇪🇸 Spain ✓</div>
+            <div className="demo-es-badge">{translate("🇪🇸 Spain ✓")}</div>
           )}
           <div className="demo-proxy-active" style={{ opacity: badgeOpacity }}>
             <Icon name="network" size={10} />
             <span>ES</span>
-            <span className="muted small">verify country & IP</span>
+            <span className="muted small">{translate("verify country & IP")}</span>
           </div>
         </div>
       </div>
@@ -185,27 +183,21 @@ function PublishedSkillDemo({ phase }: { phase: number }) {
   return (
     <DemoCanvas>
       <div className="demo-parse">
-        <div className="muted small">Skills → Apply</div>
+        <div className="muted small">{translate("Skills → Apply")}</div>
         <div className="demo-skill-chip" style={{ opacity: chipOpacity }}>
           <Icon name="sparkles" size={12} />
           <div>
-            <div className="muted" style={{ fontSize: 8 }}>
-              Example skill
-            </div>
-            <strong style={{ fontSize: 10 }}>Data extractor</strong>
-            <div className="muted" style={{ fontSize: 8 }}>
-              published workflow
-            </div>
+            <div className="muted" style={{ fontSize: 8 }}>{translate("Example skill")}</div>
+            <strong style={{ fontSize: 10 }}>{translate("Data extractor")}</strong>
+            <div className="muted" style={{ fontSize: 8 }}>{translate("published workflow")}</div>
           </div>
         </div>
         {rowsVisible > 0 && (
           <div className="demo-table">
-            <div className="ok small" style={{ fontWeight: 600 }}>
-              Example structured output
-            </div>
+            <div className="ok small" style={{ fontWeight: 600 }}>{translate("Example structured output")}</div>
             <div className="demo-table-head">
-              <span>Listing</span>
-              <span>Price</span>
+              <span>{translate("Listing")}</span>
+              <span>{translate("Price")}</span>
             </div>
             {rows.slice(0, rowsVisible).map(([t, p]) => (
               <div key={t} className="demo-table-row">
@@ -299,10 +291,8 @@ export function GuideUsageSection() {
     <>
       <section className="guide-usage">
         <h3 className="guide-section-title">
-          <Icon name="play.rectangle.on.rectangle.fill" size={20} />
-          Examples
-        </h3>
-        <p className="muted">Choose an example to see the next step. Chat examples open a ready-to-review draft and do not run until you press Send.</p>
+          <Icon name="play.rectangle.on.rectangle.fill" size={20} />{translate("Examples")}</h3>
+        <p className="muted">{translate("Choose an example to see the next step. Chat examples open a ready-to-review draft and do not run until you press Send.")}</p>
         <div className="usage-grid">
           {GUIDE_USAGE_DEMOS.map((demo) => {
             const actionLabel = actionLabelFor(demo);

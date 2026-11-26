@@ -1,3 +1,4 @@
+import { formattingLocale } from "../shared/lib/i18n";
 const nodeMavenDatePattern = /^(\d{4})[.-](\d{1,2})[.-](\d{1,2})$/;
 const binaryUnit = 1024;
 const trafficScaleSteps = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1024];
@@ -24,7 +25,7 @@ function historyDate(label: string): Date | undefined {
   return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
-export function formatHistoryDateLabel(label: string, locale?: string): string {
+export function formatHistoryDateLabel(label: string, locale = formattingLocale()): string {
   const parsed = historyDate(label);
   return parsed?.toLocaleDateString(locale, { month: "short", day: "numeric" }) ?? label;
 }

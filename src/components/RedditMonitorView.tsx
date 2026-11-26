@@ -1,3 +1,4 @@
+import { formattingLocale, translate } from "../shared/lib/i18n";
 import { Tooltip } from "../shared/ui";
 import { useEffect, useState } from "react";
 import { normalizeCommunity, splitKeywords, type Match } from "@nextbrowser-oss/reddit-monitoring";
@@ -32,7 +33,7 @@ function until(timestamp?: number): string {
 }
 
 function count(value?: number): string {
-  return value === undefined ? "—" : value.toLocaleString();
+  return value === undefined ? "—" : value.toLocaleString(formattingLocale());
 }
 
 function openUrl(url: string) {
@@ -120,22 +121,20 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
   };
 
   const logLink = (
-    <Tooltip content="Reveal the monitor's log file"><button className="link small"
-      onClick={() => void invoke("app_data_reveal", { name: REDDIT_MONITOR_LOG_FILE })}>
-      Show log
-    </button></Tooltip>
+    <Tooltip content={translate("Reveal the monitor's log file")}><button className="link small"
+      onClick={() => void invoke("app_data_reveal", { name: REDDIT_MONITOR_LOG_FILE })}>{translate("Show log")}</button></Tooltip>
   );
 
   return (
     <>
       <div className="row watchlist-profile">
-        <label className="muted small">Profile</label>
-        <Tooltip content={running ? "Stop monitoring to change the profile" : "The browser profile signed in to reddit.com"}><select
+        <label className="muted small">{translate("Profile")}</label>
+        <Tooltip content={running ? translate("Stop monitoring to change the profile") : translate("The browser profile signed in to reddit.com")}><select
           value={profileAvailable ? profile : "__choose_profile__"}
           disabled={busy || running}
           onChange={(event) => chooseProfile(event.target.value)}
         >
-          {!profileAvailable && <option value="__choose_profile__" disabled>Choose a profile in this workspace</option>}
+          {!profileAvailable && <option value="__choose_profile__" disabled>{translate("Choose a profile in this workspace")}</option>}
           {browserProfiles.map((item) => (
             <option key={item.name} value={item.name}>
               {item.name}{item.country ? ` · ${item.country.toUpperCase()}` : ""}
@@ -143,13 +142,12 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
           ))}
         </select></Tooltip>
         <span className="spacer" />
-        <Tooltip content={`Open ${site} in this profile to sign in or switch account`}><button className="mini" disabled={busy || !profileAvailable}
-          onClick={() => void openSite(entry, profile)}>
-          Open {site}
+        <Tooltip content={translate("Open %1 in this profile to sign in or switch account", site)}><button className="mini" disabled={busy || !profileAvailable}
+          onClick={() => void openSite(entry, profile)}>{translate("Open")} {site}
         </button></Tooltip>
       </div>
       {!profileAvailable && (
-        <p className="muted small" role="status">Choose a browser profile from this workspace to monitor Reddit with.</p>
+        <p className="muted small" role="status">{translate("Choose a browser profile from this workspace to monitor Reddit with.")}</p>
       )}
 
       {(running || hasData) && (
@@ -158,20 +156,20 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
             {handle ? handle.slice(0, 1).toUpperCase() : <Icon name="person.crop.circle" size={16} />}
           </span>
           <div className="xmon-account-text">
-            <strong>{handle ? `u/${handle}` : account ? "No Reddit account" : "Reading the account…"}</strong>
+            <strong>{handle ? translate("u/%1", handle) : account ? translate("No Reddit account") : translate("Reading the account…")}</strong>
             <span className="muted small">
               <span className={"status-dot " + (signedIn ? "ok-dot" : "muted-dot")} />
               {signedIn
-                ? `Signed in${account?.checkedAt ? ` · checked ${since(account.checkedAt)}` : ""}`
+                ? translate("Signed in%1", account?.checkedAt ? ` · checked ${since(account.checkedAt)}` : "")
                 : account
-                  ? `Not signed in to ${site} — mentions wait for a sign-in; communities and search still run`
-                  : "The first check is on its way"}
+                  ? translate("Not signed in to %1 — mentions wait for a sign-in; communities and search still run", site)
+                  : translate("The first check is on its way")}
             </span>
           </div>
           <span className="spacer" />
           {!running && (
-            <Tooltip content="Read the signed-in account again"><button className="plain-icon-btn" disabled={busy || !profileAvailable}
-               aria-label="Read the signed-in account again"
+            <Tooltip content={translate("Read the signed-in account again")}><button className="plain-icon-btn" disabled={busy || !profileAvailable}
+               aria-label={translate("Read the signed-in account again")}
               onClick={() => void openSite(entry, profile)}>
               <Icon name="arrow.clockwise" size={14} />
             </button></Tooltip>
@@ -181,49 +179,48 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
 
       <div className="xmon-setup rmon-watch">
         <div className="xmon-setup-head">
-          <strong className="small">What to watch</strong>
-          <span className="muted small">Mentions of the account always count. Keywords are found as whole words in posts, comments and search.</span>
+          <strong className="small">{translate("What to watch")}</strong>
+          <span className="muted small">{translate("Mentions of the account always count. Keywords are found as whole words in posts, comments and search.")}</span>
         </div>
         <TermList
-          label="Keywords"
-          placeholder="brand, product or phrase"
+          label={translate("Keywords")}
+          placeholder={translate("brand, product or phrase")}
           values={settings.keywords}
           parse={splitKeywords}
           onChange={(keywords) => updateSettings({ keywords })}
         />
         <TermList
-          label="Communities"
+          label={translate("Communities")}
           prefix="r/"
-          placeholder="community without r/"
+          placeholder={translate("community without r/")}
           values={settings.communities}
           parse={(text) => text.split(/[\s,]+/).map(normalizeCommunity).filter(Boolean)}
           onChange={(communities) => updateSettings({ communities })}
           extra={missingCommunities.length > 0 && (
-            <Tooltip content="The communities the reply agent answers in"><button className="link small"
-              onClick={() => updateSettings({ communities: [...settings.communities, ...missingCommunities] })}>
-              Add the reply agent's {missingCommunities.length === 1 ? `r/${missingCommunities[0]}` : `${missingCommunities.length} communities`}
+            <Tooltip content={translate("The communities the reply agent answers in")}><button className="link small"
+              onClick={() => updateSettings({ communities: [...settings.communities, ...missingCommunities] })}>{translate("Add the reply agent's")} {missingCommunities.length === 1 ? translate("r/%1", missingCommunities[0]) : translate("%1 communities", missingCommunities.length)}
             </button></Tooltip>
           )}
         />
         <TermList
-          label="Skip"
-          placeholder="words that rule a match out"
+          label={translate("Skip")}
+          placeholder={translate("words that rule a match out")}
           values={settings.excludeKeywords}
           parse={splitKeywords}
           onChange={(excludeKeywords) => updateSettings({ excludeKeywords })}
         />
         <div className="rmon-toggles">
-          <Toggle label="Inbox mentions and replies" value={settings.watchInbox} onChange={(watchInbox) => updateSettings({ watchInbox })} />
-          <Toggle label="Search all of Reddit" value={settings.searchAll} onChange={(searchAll) => updateSettings({ searchAll })}
-            title="Search covers posts; comments are matched in your communities" />
-          <Toggle label="Comments in communities" value={settings.watchComments} onChange={(watchComments) => updateSettings({ watchComments })} />
+          <Toggle label={translate("Inbox mentions and replies")} value={settings.watchInbox} onChange={(watchInbox) => updateSettings({ watchInbox })} />
+          <Toggle label={translate("Search all of Reddit")} value={settings.searchAll} onChange={(searchAll) => updateSettings({ searchAll })}
+            title={translate("Search covers posts; comments are matched in your communities")} />
+          <Toggle label={translate("Comments in communities")} value={settings.watchComments} onChange={(watchComments) => updateSettings({ watchComments })} />
         </div>
       </div>
 
       {!running && (
         <div className="xmon-setup">
           <div className="xmon-setup-head">
-            <strong className="small">Schedule</strong>
+            <strong className="small">{translate("Schedule")}</strong>
             {busy && step && <span className="muted small">{`${step}…`}</span>}
           </div>
           <IntervalDial
@@ -237,13 +234,12 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
           <div className="row xmon-setup-actions">
             {hasData ? logLink : <span />}
             <span className="spacer" />
-            <Tooltip content={somethingToWatch ? "Read Reddit now and then on this interval" : "Add a keyword or a community first"}><button
+            <Tooltip content={somethingToWatch ? translate("Read Reddit now and then on this interval") : translate("Add a keyword or a community first")}><button
               className="btn-bordered-prominent"
               disabled={!profileAvailable || busy || !somethingToWatch}
               onClick={() => void startSchedule(entry, { intervalMinutes: interval, profileName: profile })}
             >
-              <Icon name="play.fill" size={13} /> Start
-            </button></Tooltip>
+              <Icon name="play.fill" size={13} /> {translate("Start")}</button></Tooltip>
           </div>
         </div>
       )}
@@ -251,26 +247,25 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
       {hasStats && (
         <div className="xmon-stats">
           <div className="xmon-stat xmon-stat-main">
-            <span className="muted small">Karma</span>
+            <span className="muted small">{translate("Karma")}</span>
             <div className="xmon-stat-row">
               <strong className="xmon-value">{count(karma?.total)}</strong>
               {trend.delta !== undefined && trend.delta !== 0 && (
                 <span className={"xmon-delta " + (trend.delta > 0 ? "up" : "down")}>
                   <Icon name={trend.delta > 0 ? "arrow.up.circle" : "arrow.down.circle"} size={11} />
-                  {trend.delta > 0 ? "+" : "−"}{Math.abs(trend.delta).toLocaleString()} · 7d
-                </span>
+                  {trend.delta > 0 ? "+" : "−"}{Math.abs(trend.delta).toLocaleString(formattingLocale())} {translate("· 7d")}</span>
               )}
             </div>
-            <Sparkline points={trend.points} label="Karma over time" />
+            <Sparkline points={trend.points} label={translate("Karma over time")} />
           </div>
           <div className="xmon-stat">
-            <span className="muted small">New matches · 24h</span>
-            <strong className="xmon-value">{feed.readAt ? announcedToday(feed, Date.now()).toLocaleString() : "—"}</strong>
+            <span className="muted small">{translate("New matches · 24h")}</span>
+            <strong className="xmon-value">{feed.readAt ? announcedToday(feed, Date.now()).toLocaleString(formattingLocale()) : "—"}</strong>
           </div>
           <div className="xmon-stat">
-            <span className="muted small">Urgent · 24h</span>
+            <span className="muted small">{translate("Urgent · 24h")}</span>
             <strong className={"xmon-value" + (announcedToday(feed, Date.now(), "high") > 0 ? " rmon-urgent-value" : "")}>
-              {feed.readAt ? announcedToday(feed, Date.now(), "high").toLocaleString() : "—"}
+              {feed.readAt ? announcedToday(feed, Date.now(), "high").toLocaleString(formattingLocale()) : "—"}
             </strong>
           </div>
         </div>
@@ -279,17 +274,17 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
       {hasData && feed.matches.length > 0 && (
         <div className="xmon-feed">
           <div className="row xmon-feed-head">
-            <strong className="small">Needs a look{matches.length ? ` · ${matches.length}` : ""}</strong>
+            <strong className="small">{translate("Needs a look")}{matches.length ? ` · ${matches.length}` : ""}</strong>
             <span className="spacer" />
             {doneMatches.length > 0 && (
               <button className="link small" onClick={() => setShowDone((value) => !value)}>
-                {showDone ? "Hide done" : `${doneMatches.length} done`}
+                {showDone ? translate("Hide done") : translate("%1 done", doneMatches.length)}
               </button>
             )}
-            {feed.readAt && <span className="muted small">Updated {since(feed.readAt)}</span>}
+            {feed.readAt && <span className="muted small">{translate("Updated")} {since(feed.readAt)}</span>}
           </div>
           <div className="xmon-posts">
-            {matches.length === 0 && !showDone && <div className="muted small">All caught up.</div>}
+            {matches.length === 0 && !showDone && <div className="muted small">{translate("All caught up.")}</div>}
             {matches.map((match) => (
               <MatchRow key={match.item.key} match={match} fresh={isNew(feed, match.item.key)} replyReady={agentReady}
                 onReply={() => void draftReply(entry, match, profile)} onDone={() => setDone(match.item.key, true)} />
@@ -299,7 +294,7 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
                 onReply={() => void draftReply(entry, match, profile)} onDone={() => setDone(match.item.key, false)} />
             ))}
           </div>
-          {!agentReady && <div className="muted small">Connect an agent to draft replies. It shows every draft before anything is posted.</div>}
+          {!agentReady && <div className="muted small">{translate("Connect an agent to draft replies. It shows every draft before anything is posted.")}</div>}
         </div>
       )}
 
@@ -308,18 +303,17 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
           <div className="row xmon-running-row">
             <span className={"status-dot " + (busy ? "warn-dot" : "ok-dot")} />
             <div className="xmon-running-text">
-              <strong className="small">{busy ? "Working" : `Running · every ${formatInterval(schedule?.intervalMinutes ?? interval)}`}</strong>
+              <strong className="small">{busy ? translate("Working") : translate("Running · every %1", formatInterval(schedule?.intervalMinutes ?? interval))}</strong>
               <span className="muted small">
                 {busy && step
                   ? `${step}…`
-                  : `Next check ${until(nextRunAt)}${lastPass ? ` · last ${since(lastPass.at)}` : ""}`}
+                  : translate("Next check %1%2", until(nextRunAt), lastPass ? ` · last ${since(lastPass.at)}` : "")}
               </span>
             </div>
             <span className="spacer" />
             {logLink}
-            <Tooltip content="Stop monitoring"><button className="btn-bordered" onClick={() => stopSchedule(entry.id)}>
-              <Icon name="stop" size={14} /> Stop
-            </button></Tooltip>
+            <Tooltip content={translate("Stop monitoring")}><button className="btn-bordered" onClick={() => stopSchedule(entry.id)}>
+              <Icon name="stop" size={14} /> {translate("Stop")}</button></Tooltip>
           </div>
           {notes.map((text) => <div key={text} className="small watchlist-pass-note"><UserFacingError message={text} surface="reddit_monitor" /></div>)}
         </div>
@@ -356,7 +350,7 @@ export function TermList({ label, prefix, placeholder, values, parse, onChange, 
         {values.map((value) => (
           <span key={value} className="rmon-term">
             {prefix}{value}
-            <Tooltip content={`Remove ${prefix ?? ""}${value}`}><button className="rmon-term-remove" aria-label={`Remove ${prefix ?? ""}${value}`}
+            <Tooltip content={translate("Remove %1%2", prefix ?? "", value)}><button className="rmon-term-remove" aria-label={translate("Remove %1%2", prefix ?? "", value)}
               onClick={() => onChange(values.filter((item) => item !== value))}>
               <Icon name="xmark" size={9} />
             </button></Tooltip>
@@ -412,10 +406,9 @@ function MatchRow({ match, fresh, done, replyReady, onReply, onDone }: {
         <div className="xmon-post-head small">
           <span className={"watchlist-chip rmon-urgency " + triage.urgency}>{URGENCY_LABEL[triage.urgency]}</span>
           <span className="muted">{where}</span>
-          <Tooltip content={`Open u/${item.author}`}><button className="watchlist-handle" onClick={() => openUrl(`https://www.reddit.com/user/${item.author}`)}>
-            u/{item.author}
+          <Tooltip content={translate("Open u/%1", item.author)}><button className="watchlist-handle" onClick={() => openUrl(`https://www.reddit.com/user/${item.author}`)}>{translate("u/")}{item.author}
           </button></Tooltip>
-          {fresh && <span className="watchlist-chip ok">New</span>}
+          {fresh && <span className="watchlist-chip ok">{translate("New")}</span>}
           <span className="spacer" />
           <span className="muted">{since(item.createdAt)}</span>
         </div>
@@ -424,15 +417,14 @@ function MatchRow({ match, fresh, done, replyReady, onReply, onDone }: {
         {triage.reasons.length > 0 && <div className="muted small rmon-reasons">{triage.reasons.join(" · ")}</div>}
       </div>
       <div className="rmon-actions">
-        <Tooltip content="Hand this to the reply agent: it shows you a draft and posts only what you approve"><button className="mini" disabled={!replyReady}
+        <Tooltip content={translate("Hand this to the reply agent: it shows you a draft and posts only what you approve")}><button className="mini" disabled={!replyReady}
           onClick={onReply}>
-          <Icon name="square.and.pencil" size={12} /> Draft reply
-        </button></Tooltip>
+          <Icon name="square.and.pencil" size={12} /> {translate("Draft reply")}</button></Tooltip>
         <div className="row rmon-actions-icons">
-          <Tooltip content="Open on reddit.com"><button className="plain-icon-btn" onClick={() => openUrl(item.url)}>
+          <Tooltip content={translate("Open on reddit.com")}><button className="plain-icon-btn" onClick={() => openUrl(item.url)}>
             <Icon name="arrow.up.right.square" size={14} />
           </button></Tooltip>
-          <Tooltip content={done ? "Bring it back" : "Mark done"}><button className="plain-icon-btn" aria-label={done ? "Bring it back" : "Mark done"} onClick={onDone}>
+          <Tooltip content={done ? translate("Bring it back") : translate("Mark done")}><button className="plain-icon-btn" aria-label={done ? translate("Bring it back") : translate("Mark done")} onClick={onDone}>
             <Icon name={done ? "arrow.uturn.left" : "checkmark.circle.fill"} size={14} />
           </button></Tooltip>
         </div>

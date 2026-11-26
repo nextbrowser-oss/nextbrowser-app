@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
 import { Glyph, IconButton, Popover } from "../shared/ui";
 import { settingsStorage } from "../lib/settingsStorage";
@@ -59,10 +60,10 @@ export function LiveControls({ open, onOpenChange, children }: {
     "--live-button-x": position.x, "--live-button-y": position.y,
     "--live-button-margin": `${MARGIN}px`, "--live-button-size": `${BUTTON_SIZE}px`,
   } as CSSProperties}>
-    <Popover label="Process controls" open={open} onOpenChange={onOpenChange} side="right" align="end" dismissOnOutside={false}
+    <Popover label={translate("Process controls")} open={open} onOpenChange={onOpenChange} side="right" align="end" dismissOnOutside={false}
       className="live-controls-panel shared-scrollbarless"
-      trigger={props => <IconButton {...props} label={open ? "Hide process controls" : "Show process controls"}
-        hint="" className="live-controls-trigger" aria-description="Drag to move this button"
+      trigger={props => <IconButton {...props} label={open ? translate("Hide process controls") : translate("Show process controls")}
+        hint="" className="live-controls-trigger" aria-description={translate("Drag to move this button")}
         data-dragging={dragging || undefined}
         onPointerDown={event => {
           if (event.button !== 0 || !event.isPrimary) return;

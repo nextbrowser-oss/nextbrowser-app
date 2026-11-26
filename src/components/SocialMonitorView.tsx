@@ -1,3 +1,4 @@
+import { formattingLocale, translate } from "../shared/lib/i18n";
 import { Tooltip } from "../shared/ui";
 import { useEffect, useState } from "react";
 import { useStore } from "../store";
@@ -35,7 +36,7 @@ function until(timestamp?: number): string {
 }
 
 function count(value?: number): string {
-  return value === undefined ? "—" : value.toLocaleString();
+  return value === undefined ? "—" : value.toLocaleString(formattingLocale());
 }
 
 function openUrl(url: string) {
@@ -137,22 +138,20 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
   };
 
   const logLink = (
-    <Tooltip content="Reveal the monitor's log file"><button className="link small"
-      onClick={() => void invoke("app_data_reveal", { name: spec.files.log })}>
-      Show log
-    </button></Tooltip>
+    <Tooltip content={translate("Reveal the monitor's log file")}><button className="link small"
+      onClick={() => void invoke("app_data_reveal", { name: spec.files.log })}>{translate("Show log")}</button></Tooltip>
   );
 
   return (
     <>
       <div className="row watchlist-profile">
-        <label className="muted small">Profile</label>
-        <Tooltip content={running ? "Stop monitoring to change the profile" : `The browser profile signed in to ${site}`}><select
+        <label className="muted small">{translate("Profile")}</label>
+        <Tooltip content={running ? translate("Stop monitoring to change the profile") : translate("The browser profile signed in to %1", site)}><select
           value={profileAvailable ? profile : "__choose_profile__"}
           disabled={busy || running}
           onChange={(event) => chooseProfile(event.target.value)}
         >
-          {!profileAvailable && <option value="__choose_profile__" disabled>Choose a profile in this workspace</option>}
+          {!profileAvailable && <option value="__choose_profile__" disabled>{translate("Choose a profile in this workspace")}</option>}
           {browserProfiles.map((item) => (
             <option key={item.name} value={item.name}>
               {item.name}{item.country ? ` · ${item.country.toUpperCase()}` : ""}
@@ -160,13 +159,12 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
           ))}
         </select></Tooltip>
         <span className="spacer" />
-        <Tooltip content={`Open ${site} in this profile to sign in or switch account`}><button className="mini" disabled={busy || !profileAvailable}
-          onClick={() => { armRecheck(); void openSite(entry, profile); }}>
-          Open {site}
+        <Tooltip content={translate("Open %1 in this profile to sign in or switch account", site)}><button className="mini" disabled={busy || !profileAvailable}
+          onClick={() => { armRecheck(); void openSite(entry, profile); }}>{translate("Open")} {site}
         </button></Tooltip>
       </div>
       {!profileAvailable && (
-        <p className="muted small" role="status">Choose a browser profile from this workspace to monitor {spec.name} with.</p>
+        <p className="muted small" role="status">{translate("Choose a browser profile from this workspace to monitor")} {spec.name} {translate("with.")}</p>
       )}
 
       {(running || hasData || profileAvailable) && (
@@ -175,22 +173,22 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
             {handle ? handle.slice(0, 1).toUpperCase() : <Icon name="person.crop.circle" size={16} />}
           </span>
           <div className="xmon-account-text">
-            <strong>{handle ? `${spec.handlePrefix}${handle}` : account ? `No ${spec.name} account` : busy || running ? "Reading the account…" : `${spec.name} account not checked yet`}</strong>
+            <strong>{handle ? `${spec.handlePrefix}${handle}` : account ? translate("No %1 account", spec.name) : busy || running ? translate("Reading the account…") : translate("%1 account not checked yet", spec.name)}</strong>
             <span className="muted small">
               <span className={"status-dot " + (signedIn ? "ok-dot" : "muted-dot")} />
               {signedIn
-                ? `Signed in${account?.checkedAt ? ` · checked ${since(account.checkedAt)}` : ""}`
+                ? translate("Signed in%1", account?.checkedAt ? ` · checked ${since(account.checkedAt)}` : "")
                 : account
-                  ? `Not signed in to ${site} — ${spec.signedOutNote}`
+                  ? translate("Not signed in to %1 — %2", site, spec.signedOutNote)
                   : busy || running
-                    ? "The first check is on its way"
-                    : `Open ${site} to sign in; the panel reads the account when you come back`}
+                    ? translate("The first check is on its way")
+                    : translate("Open %1 to sign in; the panel reads the account when you come back", site)}
             </span>
           </div>
           <span className="spacer" />
           {!running && (
-            <Tooltip content="Read the signed-in account again"><button className="plain-icon-btn" disabled={busy || !profileAvailable}
-               aria-label="Read the signed-in account again"
+            <Tooltip content={translate("Read the signed-in account again")}><button className="plain-icon-btn" disabled={busy || !profileAvailable}
+               aria-label={translate("Read the signed-in account again")}
               onClick={() => void openSite(entry, profile)}>
               <Icon name="arrow.clockwise" size={14} />
             </button></Tooltip>
@@ -200,7 +198,7 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
 
       <div className="xmon-setup rmon-watch">
         <div className="xmon-setup-head">
-          <strong className="small">What to watch</strong>
+          <strong className="small">{translate("What to watch")}</strong>
           <span className="muted small">{spec.intro}</span>
         </div>
         {spec.lists.map((list) => (
@@ -227,7 +225,7 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
       {!running && (
         <div className="xmon-setup">
           <div className="xmon-setup-head">
-            <strong className="small">Schedule</strong>
+            <strong className="small">{translate("Schedule")}</strong>
             {busy && step && <span className="muted small">{`${step}…`}</span>}
           </div>
           <IntervalDial
@@ -241,13 +239,12 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
           <div className="row xmon-setup-actions">
             {hasData ? logLink : <span />}
             <span className="spacer" />
-            <Tooltip content={canStart ? `Read ${spec.name} now and then on this interval` : spec.startHint}><button
+            <Tooltip content={canStart ? translate("Read %1 now and then on this interval", spec.name) : spec.startHint}><button
               className="btn-bordered-prominent"
               disabled={!profileAvailable || busy || !canStart}
               onClick={() => void startSchedule(entry, { intervalMinutes: interval, profileName: profile })}
             >
-              <Icon name="play.fill" size={13} /> Start
-            </button></Tooltip>
+              <Icon name="play.fill" size={13} /> {translate("Start")}</button></Tooltip>
           </div>
         </div>
       )}
@@ -255,26 +252,25 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
       {hasStats && (
         <div className={"xmon-stats" + (tracksFollowers ? "" : " xmon-stats-plain")}>
           {tracksFollowers && <div className="xmon-stat xmon-stat-main">
-            <span className="muted small">Followers</span>
+            <span className="muted small">{translate("Followers")}</span>
             <div className="xmon-stat-row">
               <strong className="xmon-value">{count(followers?.value)}</strong>
               {trend.delta !== undefined && trend.delta !== 0 && (
                 <span className={"xmon-delta " + (trend.delta > 0 ? "up" : "down")}>
                   <Icon name={trend.delta > 0 ? "arrow.up.circle" : "arrow.down.circle"} size={11} />
-                  {trend.delta > 0 ? "+" : "−"}{Math.abs(trend.delta).toLocaleString()} · 7d
-                </span>
+                  {trend.delta > 0 ? "+" : "−"}{Math.abs(trend.delta).toLocaleString(formattingLocale())} {translate("· 7d")}</span>
               )}
             </div>
-            <Sparkline points={trend.points} label="Followers over time" />
+            <Sparkline points={trend.points} label={translate("Followers over time")} />
           </div>}
           <div className="xmon-stat">
-            <span className="muted small">New matches · 24h</span>
-            <strong className="xmon-value">{feed.readAt ? announcedToday(feed, Date.now()).toLocaleString() : "—"}</strong>
+            <span className="muted small">{translate("New matches · 24h")}</span>
+            <strong className="xmon-value">{feed.readAt ? announcedToday(feed, Date.now()).toLocaleString(formattingLocale()) : "—"}</strong>
           </div>
           <div className="xmon-stat">
-            <span className="muted small">Urgent · 24h</span>
+            <span className="muted small">{translate("Urgent · 24h")}</span>
             <strong className={"xmon-value" + (announcedToday(feed, Date.now(), "high") > 0 ? " rmon-urgent-value" : "")}>
-              {feed.readAt ? announcedToday(feed, Date.now(), "high").toLocaleString() : "—"}
+              {feed.readAt ? announcedToday(feed, Date.now(), "high").toLocaleString(formattingLocale()) : "—"}
             </strong>
           </div>
         </div>
@@ -283,17 +279,17 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
       {hasData && feed.matches.length > 0 && (
         <div className="xmon-feed">
           <div className="row xmon-feed-head">
-            <strong className="small">Needs a look{matches.length ? ` · ${matches.length}` : ""}</strong>
+            <strong className="small">{translate("Needs a look")}{matches.length ? ` · ${matches.length}` : ""}</strong>
             <span className="spacer" />
             {doneMatches.length > 0 && (
               <button className="link small" onClick={() => setShowDone((value) => !value)}>
-                {showDone ? "Hide done" : `${doneMatches.length} done`}
+                {showDone ? translate("Hide done") : translate("%1 done", doneMatches.length)}
               </button>
             )}
-            {feed.readAt && <span className="muted small">Updated {since(feed.readAt)}</span>}
+            {feed.readAt && <span className="muted small">{translate("Updated")} {since(feed.readAt)}</span>}
           </div>
           <div className="xmon-posts">
-            {matches.length === 0 && !showDone && <div className="muted small">All caught up.</div>}
+            {matches.length === 0 && !showDone && <div className="muted small">{translate("All caught up.")}</div>}
             {matches.map((match) => (
               <MatchRow key={match.item.key} spec={spec} match={match} fresh={isNew(feed, match.item.key)} replyReady={agentReady}
                 onReply={() => void draftReply(entry, match, profile)} onDone={() => setDone(spec.engine, match.item.key, true)} />
@@ -303,7 +299,7 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
                 onReply={() => void draftReply(entry, match, profile)} onDone={() => setDone(spec.engine, match.item.key, false)} />
             ))}
           </div>
-          {!agentReady && <div className="muted small">Connect an agent to draft replies. It shows every draft before anything is posted.</div>}
+          {!agentReady && <div className="muted small">{translate("Connect an agent to draft replies. It shows every draft before anything is posted.")}</div>}
         </div>
       )}
 
@@ -312,18 +308,17 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
           <div className="row xmon-running-row">
             <span className={"status-dot " + (busy ? "warn-dot" : "ok-dot")} />
             <div className="xmon-running-text">
-              <strong className="small">{busy ? "Working" : `Running · every ${formatInterval(schedule?.intervalMinutes ?? interval)}`}</strong>
+              <strong className="small">{busy ? translate("Working") : translate("Running · every %1", formatInterval(schedule?.intervalMinutes ?? interval))}</strong>
               <span className="muted small">
                 {busy && step
                   ? `${step}…`
-                  : `Next check ${until(nextRunAt)}${lastPass ? ` · last ${since(lastPass.at)}` : ""}`}
+                  : translate("Next check %1%2", until(nextRunAt), lastPass ? ` · last ${since(lastPass.at)}` : "")}
               </span>
             </div>
             <span className="spacer" />
             {logLink}
-            <Tooltip content="Stop monitoring"><button className="btn-bordered" onClick={() => stopSchedule(entry.id)}>
-              <Icon name="stop" size={14} /> Stop
-            </button></Tooltip>
+            <Tooltip content={translate("Stop monitoring")}><button className="btn-bordered" onClick={() => stopSchedule(entry.id)}>
+              <Icon name="stop" size={14} /> {translate("Stop")}</button></Tooltip>
           </div>
           {notes.map((text) => <div key={text} className="small watchlist-pass-note"><UserFacingError message={text} surface="social_monitor" /></div>)}
         </div>
@@ -354,12 +349,12 @@ function MatchRow({ spec, match, fresh, done, replyReady, onReply, onDone }: {
           <span className="muted">{spec.where(match)}</span>
           {item.author && (authorUrl
             ? (
-              <Tooltip content={`Open ${item.author}`}><button className="watchlist-handle" onClick={() => openUrl(authorUrl)}>
+              <Tooltip content={translate("Open %1", item.author)}><button className="watchlist-handle" onClick={() => openUrl(authorUrl)}>
                 {spec.handlePrefix}{item.author}
               </button></Tooltip>
             )
             : <strong className="small">{spec.handlePrefix}{item.author}</strong>)}
-          {fresh && <span className="watchlist-chip ok">New</span>}
+          {fresh && <span className="watchlist-chip ok">{translate("New")}</span>}
           <span className="spacer" />
           <span className="muted">{since(item.createdAt)}</span>
         </div>
@@ -368,15 +363,14 @@ function MatchRow({ spec, match, fresh, done, replyReady, onReply, onDone }: {
         {triage.reasons.length > 0 && <div className="muted small rmon-reasons">{triage.reasons.join(" · ")}</div>}
       </div>
       <div className="rmon-actions">
-        <Tooltip content="Hand this to the reply agent: it shows you a draft and posts only what you approve"><button className="mini" disabled={!replyReady}
+        <Tooltip content={translate("Hand this to the reply agent: it shows you a draft and posts only what you approve")}><button className="mini" disabled={!replyReady}
           onClick={onReply}>
-          <Icon name="square.and.pencil" size={12} /> Draft reply
-        </button></Tooltip>
+          <Icon name="square.and.pencil" size={12} /> {translate("Draft reply")}</button></Tooltip>
         <div className="row rmon-actions-icons">
-          <Tooltip content={`Open on ${spec.site}`}><button className="plain-icon-btn" onClick={() => openUrl(item.url)}>
+          <Tooltip content={translate("Open on %1", spec.site)}><button className="plain-icon-btn" onClick={() => openUrl(item.url)}>
             <Icon name="arrow.up.right.square" size={14} />
           </button></Tooltip>
-          <Tooltip content={done ? "Bring it back" : "Mark done"}><button className="plain-icon-btn" aria-label={done ? "Bring it back" : "Mark done"} onClick={onDone}>
+          <Tooltip content={done ? translate("Bring it back") : translate("Mark done")}><button className="plain-icon-btn" aria-label={done ? translate("Bring it back") : translate("Mark done")} onClick={onDone}>
             <Icon name={done ? "arrow.uturn.left" : "checkmark.circle.fill"} size={14} />
           </button></Tooltip>
         </div>

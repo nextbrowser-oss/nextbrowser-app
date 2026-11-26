@@ -1,3 +1,4 @@
+import { translate } from "../../lib/i18n";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { CommandList } from "../command-list";
 import { Glyph } from "../glyph";
@@ -51,7 +52,7 @@ export function Select({ label, value, options, onChange, disabled = false, auto
       aria-expanded="true" aria-controls={id} aria-autocomplete="list" aria-activedescendant={activeDescendant}
       placeholder={searchPlaceholder} value={query} onChange={event => { setQuery(event.target.value); setActive(""); }} />}
     <CommandList id={id} label={label} activeId={current} options={visible.map(option => ({ id: option.value, title: optionLabel(option), description: option.description ?? "" }))} onChoose={choose} />
-    {!visible.length && <div className="shared-select-empty" role="status">No matching options.</div>}
+    {!visible.length && <div className="shared-select-empty" role="status">{translate("No matching options.")}</div>}
   </>;
   return <div ref={root} className={overlay ? "shared-select shared-select-overlay" : "shared-select"} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false); }}
       onKeyDown={event => {
@@ -87,7 +88,7 @@ export function Select({ label, value, options, onChange, disabled = false, auto
       aria-activedescendant={searchPlaceholder ? undefined : activeDescendant}
       data-autofocus={autoFocus || undefined} disabled={disabled || !options.length}
       onClick={() => { setActive(value); setQuery(""); setOpen(!expanded); }}>
-      {triggerContent ?? <><span>{selected ? optionLabel(selected) : "Choose…"}</span><Glyph name="chevron-down" size={14} /></>}
+      {triggerContent ?? <><span>{selected ? optionLabel(selected) : translate("Choose…")}</span><Glyph name="chevron-down" size={14} /></>}
     </button>
     {expanded && (overlay ? <div ref={flyout} className="shared-select-flyout">{menu}</div> : menu)}
   </div>;

@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { Select, Tooltip } from "../shared/ui";
 import { useCallback, useEffect, useState } from "react";
 import { BUILTIN_AGENT_ID } from "../agents";
@@ -174,7 +175,7 @@ export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = t
       const next = await invoke<BuiltinAgentStatus>("builtin_agent_settings_save", { provider, baseURL, model });
       setStatus(next);
       if (provider === "openrouter" && !next.configured) {
-        setError(next.problem || "OpenRouter is unavailable. Try again.");
+        setError(next.problem || translate("OpenRouter is unavailable. Try again."));
         return;
       }
       setSaved(true);
@@ -191,7 +192,7 @@ export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = t
 
   return (
     <div className="builtin-agent-setup">
-      <div className="builtin-agent-providers" role="radiogroup" aria-label="Model provider">
+      <div className="builtin-agent-providers" role="radiogroup" aria-label={translate("Model provider")}>
         {BUILTIN_PROVIDERS.map((item) => (
           <button
             type="button"
@@ -204,20 +205,19 @@ export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = t
           >
             <span className="builtin-agent-provider-head">
               <strong>{item.name}</strong>
-              {item.id === DEFAULT_BUILTIN_PROVIDER && <span className="experimental-pill">Free</span>}
+              {item.id === DEFAULT_BUILTIN_PROVIDER && <span className="experimental-pill">{translate("Free")}</span>}
               {status?.keys[item.id] && <Icon name="checkmark.circle.fill" size={14} className="ok" />}
             </span>
             <span className="muted small">{item.limits}</span>
           </button>
         ))}
       </div>
-      <p className="muted small builtin-agent-data-use">
-        Your tasks and the page text the agent reads are sent to {provider === "custom" ? "the provider you enter" : preset.name}. {preset.dataUse}
+      <p className="muted small builtin-agent-data-use">{translate("Your tasks and the page text the agent reads are sent to")} {provider === "custom" ? translate("the provider you enter") : preset.name}. {preset.dataUse}
       </p>
 
       {provider === "custom" && (
         <label className="modal-field">
-          <span>Base URL</span>
+          <span>{translate("Base URL")}</span>
           <input
             value={baseURL}
             placeholder="http://localhost:11434/v1"
@@ -228,22 +228,22 @@ export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = t
         </label>
       )}
 
-      {provider === "nvidia" && !keySaved && !replacingKey && <button type="button" className="mini" onClick={() => setReplacingKey(true)}>Use a personal NVIDIA key</button>}
+      {provider === "nvidia" && !keySaved && !replacingKey && <button type="button" className="mini" onClick={() => setReplacingKey(true)}>{translate("Use a personal NVIDIA key")}</button>}
       {provider !== "openrouter" && (provider !== "nvidia" || keySaved || replacingKey) && <div className="modal-field">
         <span className="modal-field-heading">
-          <span>{preset.keyRequired ? "API key" : "API key (optional)"}</span>
+          <span>{preset.keyRequired ? translate("API key") : translate("API key (optional)")}</span>
           {preset.keyURL && (
             <a href={preset.keyURL} target="_blank" rel="noreferrer" onClick={() => trackEvent("builtin_agent_key_link_opened", { provider })}>
-              {provider === "anthropic" || provider === "deepseek" ? "Get an API key" : "Get a free key"} <Icon name="arrow.up.forward.app" size={11} />
+              {provider === "anthropic" || provider === "deepseek" ? translate("Get an API key") : translate("Get a free key")} <Icon name="arrow.up.forward.app" size={11} />
             </a>
           )}
         </span>
         {keySaved && !replacingKey ? (
           <div className="builtin-agent-key-saved">
             <Icon name="lock.fill" size={12} />
-            <span className="muted small">Key saved, encrypted on this computer.</span>
-            <button type="button" className="mini" disabled={!!busy} onClick={() => setReplacingKey(true)}>Replace</button>
-            <button type="button" className="mini" disabled={!!busy} onClick={() => void removeKey()}>Remove</button>
+            <span className="muted small">{translate("Key saved, encrypted on this computer.")}</span>
+            <button type="button" className="mini" disabled={!!busy} onClick={() => setReplacingKey(true)}>{translate("Replace")}</button>
+            <button type="button" className="mini" disabled={!!busy} onClick={() => void removeKey()}>{translate("Remove")}</button>
           </div>
         ) : (
           <form className="builtin-agent-key-row" onSubmit={(event) => { event.preventDefault(); void saveKey(); }}>
@@ -251,28 +251,27 @@ export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = t
               type="password"
               autoComplete="off"
               spellCheck={false}
-              aria-label={`${preset.name} API key`}
+              aria-label={translate("%1 API key", preset.name)}
               value={keyDraft}
-              placeholder={preset.keyRequired ? "Paste your key" : "Only if your server needs one"}
+              placeholder={preset.keyRequired ? translate("Paste your key") : translate("Only if your server needs one")}
               onChange={(event) => setKeyDraft(event.target.value)}
             />
             <button type="submit" className="mini primary-mini" disabled={!keyDraft.trim() || !!busy}>
-              {busy === "key" ? <Spinner size={11} /> : null} Save key
-            </button>
+              {busy === "key" ? <Spinner size={11} /> : null} {translate("Save key")}</button>
           </form>
         )}
         {status && !status.secureStorage && (
-          <span className="warn small">Secure key storage is unavailable on this computer, so a key cannot be saved.</span>
+          <span className="warn small">{translate("Secure key storage is unavailable on this computer, so a key cannot be saved.")}</span>
         )}
       </div>}
 
       <div className="modal-field">
         <span className="modal-field-heading">
-          <span>Model</span>
-          <Tooltip content="Reload the provider's models"><button
+          <span>{translate("Model")}</span>
+          <Tooltip content={translate("Reload the provider's models")}><button
             type="button"
             className="plain-icon-btn plain-icon-btn-compact"
-            aria-label="Reload the provider's models"
+            aria-label={translate("Reload the provider's models")}
             disabled={!keyReady || !baseURLReady || !!busy}
             onClick={() => void loadModels(provider, baseURL, model)}
           >
@@ -280,20 +279,20 @@ export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = t
           </button></Tooltip>
         </span>
         {provider === "openrouter" ? (
-          <Select label="Free OpenRouter model" searchPlaceholder="Search free models…" value={model}
+          <Select label={translate("Free OpenRouter model")} searchPlaceholder={translate("Search free models…")} value={model}
             options={freeModels} disabled={!freeModels.length || !!busy}
             onChange={value => { setModel(value); setTest(undefined); setSaved(false); }} />
         ) : models.length ? (
-          <select aria-label="Model" value={model} onChange={(event) => { setModel(event.target.value); setTest(undefined); setSaved(false); }}>
+          <select aria-label={translate("Model")} value={model} onChange={(event) => { setModel(event.target.value); setTest(undefined); setSaved(false); }}>
             {!models.some((item) => item.id === model) && model && <option value={model}>{model}</option>}
             {models.map((item) => <option key={item.id} value={item.id}>{modelLabel(item)}</option>)}
           </select>
         ) : (
           <input
             value={model}
-            aria-label="Model"
+            aria-label={translate("Model")}
             spellCheck={false}
-            placeholder={keyReady ? "Model ID, such as llama3.1" : "Save a key to load the models"}
+            placeholder={keyReady ? translate("Model ID, such as llama3.1") : translate("Save a key to load the models")}
             onChange={(event) => { setModel(event.target.value); setTest(undefined); setSaved(false); }}
           />
         )}
@@ -302,17 +301,15 @@ export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = t
 
       <div className="builtin-agent-actions">
         <button type="button" className="mini" disabled={!keyReady || !baseURLReady || !modelReady || !!busy} onClick={() => void runTest()}>
-          {busy === "test" ? <Spinner size={11} /> : <Icon name="checkmark.seal.fill" size={12} />} Test
-        </button>
+          {busy === "test" ? <Spinner size={11} /> : <Icon name="checkmark.seal.fill" size={12} />} {translate("Test")}</button>
         <button type="button" className="mini primary-mini" disabled={!keyReady || !baseURLReady || !modelReady || !!busy} onClick={() => void save()}>
-          {busy === "save" ? <Spinner size={11} /> : null} Use this model
-        </button>
-        {saved && status?.configured && <span className="ok small" role="status">Saved. The Nextbrowser agent is ready.</span>}
+          {busy === "save" ? <Spinner size={11} /> : null} {translate("Use this model")}</button>
+        {saved && status?.configured && <span className="ok small" role="status">{translate("Saved. The Nextbrowser agent is ready.")}</span>}
       </div>
 
       {test && (
         <div className={(test.ok && test.tools === "ok" ? "ok" : test.ok ? "warn" : "error") + " small builtin-agent-test"} role="status">
-          <span>Key: {TEST_LABELS[test.key]} · Tool calling: {TEST_LABELS[test.tools]}</span>
+          <span>{translate("Key:")} {TEST_LABELS[test.key]} {translate("· Tool calling:")} {TEST_LABELS[test.tools]}</span>
           <span>{test.message}</span>
         </div>
       )}

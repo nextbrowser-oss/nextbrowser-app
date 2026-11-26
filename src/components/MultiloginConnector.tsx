@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useState, type FormEvent } from "react";
 import { invoke } from "../electronBridge";
 import {
@@ -145,7 +146,7 @@ export function MultiloginConnectorView({
         </span>
         <span className="connector-copy">
           <strong>Multilogin</strong>
-          <span>Mimic browser profiles and Android cloud phones</span>
+          <span>{translate("Mimic browser profiles and Android cloud phones")}</span>
         </span>
         <span className={`connector-status${connected ? " is-connected" : needsReconnect ? " is-warning" : ""}`}>
           {checking && <Spinner size={11} />}
@@ -158,10 +159,10 @@ export function MultiloginConnectorView({
           disabled={checking || (!status?.secureStorageAvailable && !visibleError)}
           onClick={onOpen}
         >
-          {connected ? "Manage" : needsReconnect ? "Reconnect" : "Connect"}
+          {connected ? translate("Manage") : needsReconnect ? translate("Reconnect") : translate("Connect")}
         </button>
         {status && !status.secureStorageAvailable && (
-          <span className="error small connector-card-error">Unlock your system credential store, then reopen Nextbrowser.</span>
+          <span className="error small connector-card-error">{translate("Unlock your system credential store, then reopen Nextbrowser.")}</span>
         )}
         {!checking && visibleError && (
           <span className="error small connector-card-error" role="alert">
@@ -169,7 +170,7 @@ export function MultiloginConnectorView({
             {onRetryStatus && visibleError !== MULTILOGIN_TOKEN_EXPIRED && (
               <>
                 {" "}
-                <button type="button" className="connector-text-link" onClick={onRetryStatus}>Retry</button>
+                <button type="button" className="connector-text-link" onClick={onRetryStatus}>{translate("Retry")}</button>
               </>
             )}
           </span>
@@ -189,16 +190,16 @@ export function MultiloginConnectorView({
               <span className="connector-logo connector-logo-small"><img src="./multilogin-icon.svg" alt="" /></span>
               <span>
                 <strong id="multilogin-connector-title">
-                  {reconnecting ? "Connect another workspace" : connected ? "Multilogin connected" : "Connect Multilogin"}
+                  {reconnecting ? translate("Connect another workspace") : connected ? translate("Multilogin connected") : translate("Connect Multilogin")}
                 </strong>
                 <small>
                   {reconnecting
-                    ? "Replaces the saved token"
-                    : connected ? "Available to nbc and your agents" : "One-time setup"}
+                    ? translate("Replaces the saved token")
+                    : connected ? translate("Available to nbc and your agents") : translate("One-time setup")}
                 </small>
               </span>
               <span className="spacer" />
-              <button type="button" className="plain-icon-btn" onClick={onClose} disabled={busy} aria-label="Close Multilogin connector">
+              <button type="button" className="plain-icon-btn" onClick={onClose} disabled={busy} aria-label={translate("Close Multilogin connector")}>
                 <Icon name="xmark" size={17} />
               </button>
             </div>
@@ -206,22 +207,20 @@ export function MultiloginConnectorView({
             {connected && !reconnecting ? (
               <div className="connector-connected-view">
                 <div className="connector-connected-summary">
-                  <span className="connector-status is-connected"><span className="connector-status-dot" />Connected</span>
-                  <span className="muted small">No-expiration token · encrypted on this device</span>
+                  <span className="connector-status is-connected"><span className="connector-status-dot" />{translate("Connected")}</span>
+                  <span className="muted small">{translate("No-expiration token · encrypted on this device")}</span>
                 </div>
 
                 {/* A token opens exactly one workspace, so name it: shared workspaces look like your own otherwise. */}
                 <div className="connector-account-row">
                   <span>
-                    <small>{workspaceLabel || "Multilogin account"}</small>
-                    <strong>{status?.account?.email || "Unknown account"}</strong>
+                    <small>{workspaceLabel || translate("Multilogin account")}</small>
+                    <strong>{status?.account?.email || translate("Unknown account")}</strong>
                   </span>
-                  <button type="button" className="connector-text-link" disabled={busy} onClick={onReconnect}>
-                    Use another token
-                  </button>
+                  <button type="button" className="connector-text-link" disabled={busy} onClick={onReconnect}>{translate("Use another token")}</button>
                 </div>
 
-                <div className="connector-profile-tabs" role="tablist" aria-label="Multilogin profile types">
+                <div className="connector-profile-tabs" role="tablist" aria-label={translate("Multilogin profile types")}>
                   <button
                     type="button"
                     role="tab"
@@ -229,7 +228,7 @@ export function MultiloginConnectorView({
                     className={profileKind === "browser" ? "active" : ""}
                     onClick={() => onProfileKindChange("browser")}
                   >
-                    <span>Browser profiles</span>
+                    <span>{translate("Browser profiles")}</span>
                     <strong>{browserProfiles.length}</strong>
                   </button>
                   <button
@@ -239,21 +238,21 @@ export function MultiloginConnectorView({
                     className={profileKind === "mobile" ? "active" : ""}
                     onClick={() => onProfileKindChange("mobile")}
                   >
-                    <span>Cloud phones</span>
+                    <span>{translate("Cloud phones")}</span>
                     <strong>{cloudPhones.length}</strong>
                   </button>
                 </div>
 
                 {/* Without a choice the CLI picks the workspace's only folder, or asks for one when several exist. */}
                 <label className="modal-field connector-folder-field">
-                  <span>Folder</span>
+                  <span>{translate("Folder")}</span>
                   <select
                     value={status?.folders?.[profileKind] ?? ""}
                     disabled={busy || foldersLoading}
-                    aria-label={profileKind === "browser" ? "Browser profile folder" : "Cloud phone folder"}
+                    aria-label={profileKind === "browser" ? translate("Browser profile folder") : translate("Cloud phone folder")}
                     onChange={(event) => onSelectFolder(profileKind, event.target.value)}
                   >
-                    <option value="">{foldersLoading ? "Loading folders…" : "All folders"}</option>
+                    <option value="">{foldersLoading ? translate("Loading folders…") : translate("All folders")}</option>
                     {kindFolders.map((folder) => (
                       <option key={folder.id} value={folder.id}>
                         {folder.name}{folder.profilesCount ? ` (${folder.profilesCount})` : ""}
@@ -265,8 +264,8 @@ export function MultiloginConnectorView({
                 <div className="connector-profile-picker" role="tabpanel">
                   <div className="connector-profile-picker-head">
                     <span>
-                      <strong>{profileKind === "browser" ? "Mimic browser profiles" : "Android cloud phones"}</strong>
-                      <small>{workspaceName ? `Choose the default for ${workspaceName}` : "Select a workspace to choose a default"}</small>
+                      <strong>{profileKind === "browser" ? translate("Mimic browser profiles") : translate("Android cloud phones")}</strong>
+                      <small>{workspaceName ? translate("Choose the default for %1", workspaceName) : translate("Select a workspace to choose a default")}</small>
                     </span>
                     <span className="muted small">
                       {profileKind === "browser"
@@ -289,16 +288,14 @@ export function MultiloginConnectorView({
                           <span className="connector-profile-radio">{selected && <Icon name="checkmark" size={11} />}</span>
                           <span>
                             <strong>{profile.name}</strong>
-                            <small>{profile.status || (profileKind === "browser" ? "Mimic browser" : "Cloud phone")}</small>
+                            <small>{profile.status || (profileKind === "browser" ? translate("Mimic browser") : translate("Cloud phone"))}</small>
                           </span>
-                          {selected && <span className="connector-profile-default">Default</span>}
+                          {selected && <span className="connector-profile-default">{translate("Default")}</span>}
                         </button>
                       );
                     })}
                     {!activeProfiles.length && !activeProfilesError && (
-                      <div className="connector-profile-empty">
-                        No {profileKind === "browser" ? "browser profiles" : "cloud phones"} found.
-                      </div>
+                      <div className="connector-profile-empty">{translate("No")} {profileKind === "browser" ? translate("browser profiles") : translate("cloud phones")} {translate("found.")}</div>
                     )}
                     {activeProfilesError && <div className="error small connector-profile-error">{activeProfilesError}</div>}
                   </div>
@@ -307,43 +304,42 @@ export function MultiloginConnectorView({
                 {selection && (
                   <div className="connector-selection-summary">
                     <span>
-                      <small>Agent default{workspaceName ? ` · ${workspaceName}` : ""}</small>
+                      <small>{translate("Agent default")}{workspaceName ? ` · ${workspaceName}` : ""}</small>
                       <strong>{selection.name}</strong>
                     </span>
-                    <button type="button" className="connector-text-link" onClick={onClearSelection}>Clear</button>
+                    <button type="button" className="connector-text-link" onClick={onClearSelection}>{translate("Clear")}</button>
                   </div>
                 )}
 
                 <div className="connector-connected-actions">
-                  <button type="button" className="connector-text-link" onClick={onOpenMultilogin}>
-                    Open Multilogin <Icon name="arrow.up.forward.app" size={12} />
+                  <button type="button" className="connector-text-link" onClick={onOpenMultilogin}>{translate("Open Multilogin")} <Icon name="arrow.up.forward.app" size={12} />
                   </button>
                   <span className="spacer" />
                   {confirmDisconnect ? (
                     <div className="connector-disconnect-confirm">
-                      <span className="small">Remove the saved token?</span>
-                      <button type="button" className="secondary" disabled={busy} onClick={onDisconnectCancel}>Cancel</button>
+                      <span className="small">{translate("Remove the saved token?")}</span>
+                      <button type="button" className="secondary" disabled={busy} onClick={onDisconnectCancel}>{translate("Cancel")}</button>
                       <button type="button" className="secondary danger-text" disabled={busy} onClick={onDisconnect}>
-                        {busy ? "Removing…" : "Disconnect"}
+                        {busy ? translate("Removing…") : translate("Disconnect")}
                       </button>
                     </div>
                   ) : (
-                    <button type="button" className="connector-disconnect" disabled={busy} onClick={onDisconnectRequest}>Disconnect</button>
+                    <button type="button" className="connector-disconnect" disabled={busy} onClick={onDisconnectRequest}>{translate("Disconnect")}</button>
                   )}
                 </div>
               </div>
             ) : (
               <form onSubmit={onConnect}>
                 {onOpenLogin && <div className="connector-sign-in">
-                  <strong>Connect without copying a token</strong>
-                  <p className="muted small">Sign in to Multilogin, select the workspace you want to use, then return here to connect.</p>
+                  <strong>{translate("Connect without copying a token")}</strong>
+                  <p className="muted small">{translate("Sign in to Multilogin, select the workspace you want to use, then return here to connect.")}</p>
                   <div className="row">
-                    <button type="button" className={loginWindowOpen ? "secondary" : "primary"} disabled={busy} onClick={onOpenLogin}>{loginWindowOpen ? "Reopen Multilogin sign-in" : "Open Multilogin sign-in"}</button>
-                    {loginWindowOpen && <button type="button" className="primary" disabled={busy} onClick={onCompleteLogin}>{busy ? "Connecting…" : "Connect selected workspace"}</button>}
+                    <button type="button" className={loginWindowOpen ? "secondary" : "primary"} disabled={busy} onClick={onOpenLogin}>{loginWindowOpen ? translate("Reopen Multilogin sign-in") : translate("Open Multilogin sign-in")}</button>
+                    {loginWindowOpen && <button type="button" className="primary" disabled={busy} onClick={onCompleteLogin}>{busy ? translate("Connecting…") : translate("Connect selected workspace")}</button>}
                   </div>
                 </div>}
-                <p className="muted small">Or connect with a token:</p>
-                <div className="connector-profile-tabs connector-source-tabs" role="tablist" aria-label="Where to copy the Multilogin token from">
+                <p className="muted small">{translate("Or connect with a token:")}</p>
+                <div className="connector-profile-tabs connector-source-tabs" role="tablist" aria-label={translate("Where to copy the Multilogin token from")}>
                   <button
                     type="button"
                     role="tab"
@@ -351,7 +347,7 @@ export function MultiloginConnectorView({
                     className={tokenSource === "app" ? "active" : ""}
                     onClick={() => onTokenSourceChange("app")}
                   >
-                    <span>Desktop app</span>
+                    <span>{translate("Desktop app")}</span>
                   </button>
                   <button
                     type="button"
@@ -360,48 +356,47 @@ export function MultiloginConnectorView({
                     className={tokenSource === "web" ? "active" : ""}
                     onClick={() => onTokenSourceChange("web")}
                   >
-                    <span>Web</span>
+                    <span>{translate("Web")}</span>
                   </button>
                 </div>
                 {tokenSource === "app" ? (
                   <div className="connector-token-steps connector-token-steps-plain" role="tabpanel">
-                    <div><span>1</span><p><button type="button" onClick={onOpenMultiloginApp}>Open the Multilogin desktop app</button> and sign in.</p></div>
-                    <div><span>2</span><p>Select your workspace. Open DevTools: <kbd>Ctrl + Shift + F12</kbd> on Windows/Linux or <kbd>Cmd + Shift + Fn + F12</kbd> on macOS.</p></div>
-                    <div><span>3</span><p>Open <strong>Application</strong> (Windows) or <strong>Storage</strong> (macOS/Linux) → <strong>Local storage</strong> → <code>wails</code>. Copy the <code>token</code> value. If it is missing, check <strong>Session storage</strong>.</p></div>
-                    <p className="muted small">If your version has an Info menu, you can also copy its API token there.</p>
+                    <div><span>1</span><p><button type="button" onClick={onOpenMultiloginApp}>{translate("Open the Multilogin desktop app")}</button> {translate("and sign in.")}</p></div>
+                    <div><span>2</span><p>{translate("Select your workspace. Open DevTools:")} <kbd>Ctrl + Shift + F12</kbd> {translate("on Windows/Linux or")} <kbd>Cmd + Shift + Fn + F12</kbd> {translate("on macOS.")}</p></div>
+                    <div><span>3</span><p>{translate("Open")} <strong>{translate("Application")}</strong> {translate("(Windows) or")} <strong>{translate("Storage")}</strong> {translate("(macOS/Linux) →")} <strong>{translate("Local storage")}</strong> → <code>wails</code>{translate(". Copy the")} <code>token</code> {translate("value. If it is missing, check")} <strong>{translate("Session storage")}</strong>.</p></div>
+                    <p className="muted small">{translate("If your version has an Info menu, you can also copy its API token there.")}</p>
                   </div>
                 ) : (
                   <>
                     <div className="connector-token-steps" role="tabpanel">
-                      <div><span>1</span><p><button type="button" onClick={onOpenMultilogin}>Open Multilogin</button>, sign in and select your workspace.</p></div>
-                      <div><span>2</span><p>Open DevTools with <kbd>⌘ ⌥ I</kbd> on macOS or <kbd>F12</kbd> on Windows/Linux.</p></div>
-                      <div><span>3</span><p><strong>Application</strong> in Chrome, <strong>Storage</strong> in Firefox and Safari → <strong>Local storage</strong> → <code>https://app.multilogin.com</code> → copy the <code>token</code> value. If it is missing, check <strong>Session storage</strong>.</p></div>
+                      <div><span>1</span><p><button type="button" onClick={onOpenMultilogin}>{translate("Open Multilogin")}</button>{translate(", sign in and select your workspace.")}</p></div>
+                      <div><span>2</span><p>{translate("Open DevTools with")} <kbd>⌘ ⌥ I</kbd> {translate("on macOS or")} <kbd>F12</kbd> {translate("on Windows/Linux.")}</p></div>
+                      <div><span>3</span><p><strong>{translate("Application")}</strong> {translate("in Chrome,")} <strong>{translate("Storage")}</strong> {translate("in Firefox and Safari →")} <strong>{translate("Local storage")}</strong> → <code>https://app.multilogin.com</code> {translate("→ copy the")} <code>token</code> {translate("value. If it is missing, check")} <strong>{translate("Session storage")}</strong>.</p></div>
                       <MultiloginWebTokenFigure />
                     </div>
                   </>
                 )}
-                <button type="button" className="connector-text-link connector-guide-link" onClick={onOpenGuide}>
-                  Multilogin token guide <Icon name="arrow.up.forward.app" size={12} />
+                <button type="button" className="connector-text-link connector-guide-link" onClick={onOpenGuide}>{translate("Multilogin token guide")} <Icon name="arrow.up.forward.app" size={12} />
                 </button>
                 <label className="modal-field connector-token-field">
-                  <span>{tokenSource === "app" ? "API token" : "Bearer token"}</span>
+                  <span>{tokenSource === "app" ? translate("API token") : translate("Bearer token")}</span>
                   <input
                     type="password"
                     autoComplete="off"
                     spellCheck={false}
                     value={bearerToken}
-                    placeholder="eyJ…"
+                    placeholder={translate("eyJ…")}
                     disabled={busy}
                     onChange={(event) => onBearerTokenChange(event.target.value)}
                   />
                 </label>
                 {visibleError && <div className="error small connector-error">{visibleError}</div>}
                 <div className="modal-actions connector-modal-actions">
-                  <span className="muted small">Token is discarded after exchange.</span>
+                  <span className="muted small">{translate("Token is discarded after exchange.")}</span>
                   <span className="spacer" />
-                  <button type="button" className="secondary" disabled={busy} onClick={reconnecting ? onReconnectCancel : onClose}>Cancel</button>
+                  <button type="button" className="secondary" disabled={busy} onClick={reconnecting ? onReconnectCancel : onClose}>{translate("Cancel")}</button>
                   <button type="submit" className="primary" disabled={busy || !bearerToken.trim()}>
-                    {busy ? <><Spinner size={12} /> Connecting…</> : "Connect"}
+                    {busy ? <><Spinner size={12} /> {translate("Connecting…")}</> : translate("Connect")}
                   </button>
                 </div>
               </form>
@@ -421,30 +416,30 @@ function MultiloginWebTokenFigure() {
       <svg viewBox="0 0 424 126" role="presentation" focusable="false">
         <rect x="1" y="4" width="422" height="118" rx="9" fill="var(--surface-2)" stroke="var(--line-strong)" />
         {/* Only tab names every browser shares; the panel itself is Application in Chrome, Storage elsewhere. */}
-        <text x="14" y="21" fontSize="8.5" fill="var(--muted)">Console</text>
-        <text x="56" y="21" fontSize="8.5" fill="var(--muted)">Network</text>
-        <text x="100" y="21" fontSize="8.5" fill="var(--accent-text)" fontWeight="600">Application</text>
+        <text x="14" y="21" fontSize="8.5" fill="var(--muted)">{translate("Console")}</text>
+        <text x="56" y="21" fontSize="8.5" fill="var(--muted)">{translate("Network")}</text>
+        <text x="100" y="21" fontSize="8.5" fill="var(--accent-text)" fontWeight="600">{translate("Application")}</text>
         <line x1="98" y1="26" x2="152" y2="26" stroke="var(--accent)" strokeWidth="1.5" />
-        <text x="158" y="21" fontSize="8" fill="var(--muted)">or Storage</text>
+        <text x="158" y="21" fontSize="8" fill="var(--muted)">{translate("or Storage")}</text>
         <line x1="1" y1="30" x2="423" y2="30" stroke="var(--line-strong)" />
         <line x1="152" y1="30" x2="152" y2="122" stroke="var(--line-strong)" />
 
         {/* Storage tree */}
-        <text x="14" y="47" fontSize="8.5" fill="var(--text)">Local storage</text>
+        <text x="14" y="47" fontSize="8.5" fill="var(--text)">{translate("Local storage")}</text>
         <rect x="20" y="54" width="124" height="17" rx="5" fill="var(--accent-soft)" stroke="var(--accent)" />
         <text x="27" y="66" fontSize="8" fill="var(--accent-text)">app.multilogin.com</text>
-        <text x="14" y="88" fontSize="8.5" fill="var(--muted)">Session storage</text>
-        <text x="14" y="105" fontSize="8.5" fill="var(--muted)">Cookies</text>
+        <text x="14" y="88" fontSize="8.5" fill="var(--muted)">{translate("Session storage")}</text>
+        <text x="14" y="105" fontSize="8.5" fill="var(--muted)">{translate("Cookies")}</text>
 
         {/* Key / value table */}
-        <text x="164" y="47" fontSize="8" fill="var(--muted)">Key</text>
-        <text x="272" y="47" fontSize="8" fill="var(--muted)">Value</text>
+        <text x="164" y="47" fontSize="8" fill="var(--muted)">{translate("Key")}</text>
+        <text x="272" y="47" fontSize="8" fill="var(--muted)">{translate("Value")}</text>
         <line x1="158" y1="53" x2="414" y2="53" stroke="var(--line)" />
-        <text x="164" y="68" fontSize="8" fill="var(--muted)">email</text>
-        <text x="272" y="68" fontSize="8" fill="var(--muted)">you@example.com</text>
+        <text x="164" y="68" fontSize="8" fill="var(--muted)">{translate("email")}</text>
+        <text x="272" y="68" fontSize="8" fill="var(--muted)">{translate("you@example.com")}</text>
         <rect x="158" y="76" width="256" height="20" rx="5" fill="var(--accent-soft)" stroke="var(--accent)" />
-        <text x="165" y="89" fontSize="8.5" fill="var(--text)" fontWeight="600">token</text>
-        <text x="272" y="89" fontSize="8" fill="var(--accent-text)">eyJhbGciOiJIUzI1…</text>
+        <text x="165" y="89" fontSize="8.5" fill="var(--text)" fontWeight="600">{translate("token")}</text>
+        <text x="272" y="89" fontSize="8" fill="var(--accent-text)">{translate("eyJhbGciOiJIUzI1…")}</text>
         <path d="M196 116 Q 240 114 250 99" fill="none" stroke="var(--accent)" strokeWidth="1.3" markerEnd="url(#ml-web-arrow)" />
         <defs>
           <marker id="ml-web-arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">

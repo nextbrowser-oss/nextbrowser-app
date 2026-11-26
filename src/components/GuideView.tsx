@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useState, type CSSProperties } from "react";
 import { agentById } from "../agents";
 import { brandName } from "../constants";
@@ -167,61 +168,61 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
     tint: string;
   }> = [
     {
-      label: authed ? "Account connected" : "Connect account",
-      detail: authed ? "Ready" : "Profiles, traffic, and skills",
+      label: authed ? translate("Account connected") : translate("Connect account"),
+      detail: authed ? translate("Ready") : translate("Profiles, traffic, and skills"),
       action: "account",
-      actionLabel: authed ? "View usage" : "Connect account",
+      actionLabel: authed ? translate("View usage") : translate("Connect account"),
       icon: "key.fill",
       tint: "var(--info)",
     },
     {
-      label: agentReady ? `${agentName} connected` : "Connect agent",
+      label: agentReady ? translate("%1 connected", agentName) : translate("Connect agent"),
       detail: progress.states[1] === "locked"
-        ? `Complete step ${progress.currentIndex + 1} first`
-        : agentReady ? "Ready" : "Claude Code or Codex",
+        ? translate("Complete step %1 first", progress.currentIndex + 1)
+        : agentReady ? translate("Ready") : translate("Claude Code or Codex"),
       action: "agent",
-      actionLabel: "Open agent settings",
+      actionLabel: translate("Open agent settings"),
       icon: "cpu.fill",
       tint: "var(--purple)",
     },
     {
       label: sessionRunning
-        ? "Session running"
+        ? translate("Session running")
         : sessionStarting
-          ? "Starting session…"
+          ? translate("Starting session…")
         : sessionEverStarted
-          ? "First session completed"
+          ? translate("First session completed")
         : session.profile
-          ? "Start session"
-          : "Create profile",
+          ? translate("Start session")
+          : translate("Create profile"),
       detail: progress.states[2] === "locked"
-        ? `Complete step ${progress.currentIndex + 1} first`
+        ? translate("Complete step %1 first", progress.currentIndex + 1)
         : sessionEverStarted && !sessionRunning && !sessionStarting
-          ? "Ready"
+          ? translate("Ready")
         : sessionProfileLabel
           ? sessionRunning
-            ? `${sessionProfileLabel} is running`
+            ? translate("%1 is running", sessionProfileLabel)
             : sessionStarting
-              ? `${sessionProfileLabel} is starting`
-              : `Start ${sessionProfileLabel}`
-          : "Create a browser profile",
+              ? translate("%1 is starting", sessionProfileLabel)
+              : translate("Start %1", sessionProfileLabel)
+          : translate("Create a browser profile"),
       action: "start_session",
-      actionLabel: sessionRunning ? "Open Processes" : session.profile ? "Start profile" : "Create profile",
+      actionLabel: sessionRunning ? translate("Open Processes") : session.profile ? translate("Start profile") : translate("Create profile"),
       confirmTitle: sessionRunning
-        ? "Open Processes?"
+        ? translate("Open Processes?")
         : sessionProfileLabel
-          ? `Start ${sessionProfileLabel}?`
-          : "Create a profile?",
+          ? translate("Start %1?", sessionProfileLabel)
+          : translate("Create a profile?"),
       icon: "play.circle",
       tint: "var(--success)",
     },
     {
-      label: firstTaskSent ? "Continue in Chat" : "Start a chat",
+      label: firstTaskSent ? translate("Continue in Chat") : translate("Start a chat"),
       detail: progress.states[3] === "locked"
-        ? `Complete step ${progress.currentIndex + 1} first`
-        : firstTaskSent ? "Ready" : `Chat with ${agentName}`,
+        ? translate("Complete step %1 first", progress.currentIndex + 1)
+        : firstTaskSent ? translate("Ready") : translate("Chat with %1", agentName),
       action: "chat",
-      actionLabel: "Open Chat",
+      actionLabel: translate("Open Chat"),
       icon: "bubble.left.and.bubble.right.fill",
       tint: "var(--pink)",
     },
@@ -258,25 +259,23 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
         <BrandLogo size={52} />
         <div>
           <h2>{brandName}</h2>
-          <p className="muted">Connect what you need, then start a task.</p>
+          <p className="muted">{translate("Connect what you need, then start a task.")}</p>
         </div>
         <span className="spacer" />
         <button
           className="btn-bordered"
           onClick={showTour}
         >
-          <Icon name="play.circle" size={14} />
-          Replay tour
-        </button>
+          <Icon name="play.circle" size={14} />{translate("Replay tour")}</button>
       </div>
 
       <section className="guide-start-section" aria-labelledby="guide-start-title">
         <div className="guide-section-heading">
-          <h3 id="guide-start-title">Get started</h3>
+          <h3 id="guide-start-title">{translate("Get started")}</h3>
           <span className="muted small">
             {progress.currentIndex === -1
-              ? "Ready"
-              : `Next: ${quickSteps[progress.currentIndex].label}`}
+              ? translate("Ready")
+              : translate("Next: %1", quickSteps[progress.currentIndex].label)}
           </span>
         </div>
         <div className="quick-start claw-card">
@@ -320,7 +319,7 @@ export function GuideView({ onOpenAgentSettings }: { onOpenAgentSettings: () => 
 
       <section className="guide-features" aria-labelledby="guide-features-title">
         <div className="guide-section-heading guide-features-heading">
-          <h3 id="guide-features-title">Explore</h3>
+          <h3 id="guide-features-title">{translate("Explore")}</h3>
         </div>
         {GUIDE_FEATURE_GROUPS.map((group) => (
           <section key={group.id} className="guide-feature-group" aria-labelledby={`guide-group-${group.id}`}>

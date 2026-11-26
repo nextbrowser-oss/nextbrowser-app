@@ -1,3 +1,4 @@
+import { translate } from "../../lib/i18n";
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Glyph } from "../glyph";
@@ -42,7 +43,7 @@ export function Dialog({ title, children, onClose, closeLabel, dismissible = tru
   }}>
     <div ref={ref} className={`shared-dialog ${className}`.trim()} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
       <header className="shared-dialog-header"><h2 id={titleId}>{title}</h2>
-        <IconButton size="small" appearance="plain" label={closeLabel ?? `Close ${title}`} disabled={!dismissible} onClick={onClose}><Glyph name="x" size={17} /></IconButton>
+        <IconButton size="small" appearance="plain" label={closeLabel ?? translate("Close %1", title)} disabled={!dismissible} onClick={onClose}><Glyph name="x" size={17} /></IconButton>
       </header>
       <div className="shared-dialog-body">{children}</div>
     </div>

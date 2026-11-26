@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useState } from "react";
 import { BookOpen, Cable, FileText, MessagesSquare, Settings2 } from "lucide-react";
 import { invoke } from "../electronBridge";
@@ -21,7 +22,7 @@ export function AgentImport({ owner }: { owner: string }) {
   const workspaceId = useStore((s) => s.activeWorkspaceId);
   return workspaceId
     ? <AgentSources key={JSON.stringify([owner, workspaceId])} owner={owner} workspaceId={workspaceId} />
-    : <section className="personal-profiles account-network-section"><h3>Agent profiles</h3><p>Select a workspace to import agent data.</p></section>;
+    : <section className="personal-profiles account-network-section"><h3>{translate("Agent profiles")}</h3><p>{translate("Select a workspace to import agent data.")}</p></section>;
 }
 
 function AgentSources({ owner, workspaceId }: { owner: string; workspaceId: string }) {
@@ -43,16 +44,16 @@ function AgentSources({ owner, workspaceId }: { owner: string; workspaceId: stri
   return (
     <section className="personal-profiles account-network-section">
       <header>
-        <h3>Agent profiles</h3>
+        <h3>{translate("Agent profiles")}</h3>
         <Button disabled={!sources && !scanFailed} aria-expanded={open} onClick={() => setOpen(!open)}>
-          {open ? "Close library" : "Import agent data"}
+          {open ? translate("Close library") : translate("Import agent data")}
         </Button>
       </header>
       {!open && <div className="account-agent-sources">
         {sources ? sources.map(s => {
           const available = (Object.keys(kinds) as Kind[]).filter(kind => s.counts[kind] > 0);
-          return <div key={s.provider}>{s.provider} · {available.length ? available.map(kind => kinds[kind][0]).join(", ") : s.warnings ? "Scan incomplete" : "No local files found"}</div>;
-        }) : scanFailed ? "Could not scan local sources. Open the library to try again." : "Checking for local Codex and Claude data…"}
+          return <div key={s.provider}>{s.provider} · {available.length ? available.map(kind => kinds[kind][0]).join(", ") : s.warnings ? translate("Scan incomplete") : translate("No local files found")}</div>;
+        }) : scanFailed ? translate("Could not scan local sources. Open the library to try again.") : translate("Checking for local Codex and Claude data…")}
       </div>}
       {open && (
         <AgentLibrary owner={owner} workspaceId={workspaceId} initialSources={sources} onScan={setSources} />
@@ -150,26 +151,20 @@ function AgentLibrary({ owner, workspaceId, initialSources, onScan }: {
               setSelected([]);
             })
           }
-        >
-          Rescan
-        </Button>
-        <Button disabled={busy} onClick={() => void run(() => transfer("file"))}>
-          Choose {provider} export…
-        </Button>
-        <Button disabled={busy} onClick={() => void run(() => transfer("restore"))}>
-          Restore library…
-        </Button>
+        >{translate("Rescan")}</Button>
+        <Button disabled={busy} onClick={() => void run(() => transfer("file"))}>{translate("Choose")} {provider} {translate("export…")}</Button>
+        <Button disabled={busy} onClick={() => void run(() => transfer("restore"))}>{translate("Restore library…")}</Button>
       </div>
       {source && (
         <fieldset className="personal-source-items">
-          <legend>Local {source.provider} data</legend>
+          <legend>{translate("Local")} {source.provider} {translate("data")}</legend>
           {(Object.keys(kinds) as Kind[]).map((k) => {
             const [label, Icon] = kinds[k];
             return (
               <label className="personal-data-row" key={k}>
                 <Icon size={15} />
                 <span>{label}</span>
-                <small>{source.counts[k]} source files</small>
+                <small>{source.counts[k]} {translate("source files")}</small>
                 <span className="toggle">
                   <input
                     type="checkbox"
@@ -188,24 +183,19 @@ function AgentLibrary({ owner, workspaceId, initialSources, onScan }: {
               </label>
             );
           })}
-          {source.warnings > 0 && <small>{source.warnings} paths could not be scanned.</small>}
+          {source.warnings > 0 && <small>{source.warnings} {translate("paths could not be scanned.")}</small>}
         </fieldset>
       )}
       <div className="personal-import-footer">
-        <p>
-          Selected data stays in your encrypted library on this device. MCP servers require review before
-          connection.
-        </p>
-        <Button disabled={busy || !selected.length} onClick={() => void run(() => transfer("import"))}>
-          Import selected
-        </Button>
+        <p>{translate("Selected data stays in your encrypted library on this device. MCP servers require review before connection.")}</p>
+        <Button disabled={busy || !selected.length} onClick={() => void run(() => transfer("import"))}>{translate("Import selected")}</Button>
       </div>
       {library.entries.length > 0 && (
         <>
           <input
             className="shared-text-field"
-            aria-label="Search imported agent data"
-            placeholder="Search imported items"
+            aria-label={translate("Search imported agent data")}
+            placeholder={translate("Search imported items")}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
@@ -232,14 +222,14 @@ function AgentLibrary({ owner, workspaceId, initialSources, onScan }: {
             ))}
           </ul>
           <details className="personal-recovery">
-            <summary>Library and recovery key</summary>
-            <p>Save both files separately to restore the library.</p>
+            <summary>{translate("Library and recovery key")}</summary>
+            <p>{translate("Save both files separately to restore the library.")}</p>
             <code>{library.archivePath}</code>
             <code>{library.keyPath}</code>
           </details>
         </>
       )}
-      {busy && <p role="status">Reading local data…</p>}
+      {busy && <p role="status">{translate("Reading local data…")}</p>}
       {notice && <p role="status">{notice}</p>}
       {error && <p role="alert">{error}</p>}
       {detail && (
@@ -248,7 +238,7 @@ function AgentLibrary({ owner, workspaceId, initialSources, onScan }: {
             {detail.kind === "chats" && Array.isArray(detail.body) ? (
               detail.body.map((m, i) => (
                 <section key={i}>
-                  <strong>{m.role === "user" ? "You" : detail.provider}</strong>
+                  <strong>{m.role === "user" ? translate("You") : detail.provider}</strong>
                   <p>{m.text}</p>
                 </section>
               ))
@@ -270,9 +260,7 @@ function AgentLibrary({ owner, workspaceId, initialSources, onScan }: {
                 stageStartPageDraft(id, text);
                 store.setTab("chat");
               }}
-            >
-              Continue as an unsent draft
-            </Button>
+            >{translate("Continue as an unsent draft")}</Button>
           )}
           {detail.kind === "mcp" && (
             <Button
@@ -282,9 +270,7 @@ function AgentLibrary({ owner, workspaceId, initialSources, onScan }: {
                   setDetail(undefined);
                 })
               }
-            >
-              Review in Extensions → MCP
-            </Button>
+            >{translate("Review in Extensions → MCP")}</Button>
           )}
         </Dialog>
       )}

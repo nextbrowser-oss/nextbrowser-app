@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { settingsStorage } from "../lib/settingsStorage";
 import { glassSurfaceClassName } from "../shared/ui";
@@ -41,10 +42,10 @@ export function ProjectsDock({ children }: { children: ReactNode }) {
     setDragWidth(undefined);
   }
   return <>
-    <aside id="pinned-projects" aria-label="Projects" className={glassSurfaceClassName + " projects-dock"} style={{ width }}>
+    <aside id="pinned-projects" aria-label={translate("Projects")} className={glassSurfaceClassName + " projects-dock"} style={{ width }}>
       {children}
     </aside>
-    <div role="separator" tabIndex={0} aria-label="Resize Projects" aria-orientation="vertical" aria-controls="pinned-projects"
+    <div role="separator" tabIndex={0} aria-label={translate("Resize Projects")} aria-orientation="vertical" aria-controls="pinned-projects"
       aria-valuemin={minWidth} aria-valuemax={maxWidth} aria-valuenow={width} aria-valuetext={width + " px"}
       className="resize-handle projects-dock-resizer" data-resizing={dragWidth !== undefined || undefined}
       onPointerDown={event => {

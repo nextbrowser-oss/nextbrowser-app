@@ -1,3 +1,5 @@
+import { InterfaceLanguageSetting } from "./components/InterfaceLanguageSetting";
+import { translate } from "./shared/lib/i18n";
 import { AccountProfileView } from "./components/AccountProfileView";
 import { Button, glassSurfaceClassName, IconButton, Tooltip } from "./shared/ui";
 import { useAgentPermission } from "./components/AgentPermissionCard";
@@ -111,20 +113,20 @@ function clampUiScale(value: number): number {
 function UIScaleSlider({ value, onChange }: { value: number; onChange: (next: number) => void }) {
   return (
     <>
-      <Tooltip content="Decrease interface size"><button
+      <Tooltip content={translate("Decrease interface size")}><button
         className="plain-icon-btn plain-icon-btn-compact"
         onClick={() => onChange(clampUiScale(value - UI_SCALE_STEP))}
         disabled={value <= UI_SCALE_MIN}
-        aria-label="Decrease interface size"
+        aria-label={translate("Decrease interface size")}
       >
         <Icon name="minus" size={12} />
       </button></Tooltip>
       <span className="muted small ui-scale-value">{Math.round(value * 100)}%</span>
-      <Tooltip content="Increase interface size"><button
+      <Tooltip content={translate("Increase interface size")}><button
         className="plain-icon-btn plain-icon-btn-compact"
         onClick={() => onChange(clampUiScale(value + UI_SCALE_STEP))}
         disabled={value >= UI_SCALE_MAX}
-        aria-label="Increase interface size"
+        aria-label={translate("Increase interface size")}
       >
         <Icon name="plus" size={12} />
       </button></Tooltip>
@@ -146,25 +148,25 @@ function BrowserRuntimeInstallModal({ status, onCancel, onHide }: { status: Brow
   return (
     <div className="browser-install-overlay" role="status" aria-live="polite">
       <div className="modal-card browser-install-modal" aria-labelledby="browser-install-title">
-        <Tooltip content="Hide — the download keeps running"><button
+        <Tooltip content={translate("Hide — the download keeps running")}><button
           className="plain-icon-btn plain-icon-btn-compact background-card-hide"
           onClick={onHide}
-          aria-label={`Hide ${name} download progress`}
+          aria-label={translate("Hide %1 download progress", name)}
         >
           <Icon name="xmark" size={12} />
         </button></Tooltip>
         <InstallationSpinner />
         <div className="browser-install-copy">
-          <strong id="browser-install-title">{installing ? `Installing ${name}` : `Downloading ${name}`}</strong>
+          <strong id="browser-install-title">{installing ? translate("Installing %1", name) : translate("Downloading %1", name)}</strong>
           <p className="muted small">
             {installing
-              ? "Finishing the browser setup. This may take a moment."
-              : `Preparing ${name} for its first profile. The download time depends on your connection.`}
+              ? translate("Finishing the browser setup. This may take a moment.")
+              : translate("Preparing %1 for its first profile. The download time depends on your connection.", name)}
           </p>
         </div>
-        <InstallationProgress label={installing ? `Installing ${name}` : `Downloading ${name}`} />
-        <p className="muted browser-install-note">Keep Nextbrowser open until setup is complete.</p>
-        {status.requestId && <div className="modal-actions"><button className="secondary danger-text" type="button" onClick={onCancel}><Icon name="stop.fill" size={12} /> Stop download</button></div>}
+        <InstallationProgress label={installing ? translate("Installing %1", name) : translate("Downloading %1", name)} />
+        <p className="muted browser-install-note">{translate("Keep Nextbrowser open until setup is complete.")}</p>
+        {status.requestId && <div className="modal-actions"><button className="secondary danger-text" type="button" onClick={onCancel}><Icon name="stop.fill" size={12} /> {translate("Stop download")}</button></div>}
       </div>
     </div>
   );
@@ -175,7 +177,7 @@ function BrowserRuntimeInstallModal({ status, onCancel, onHide }: { status: Brow
 // it is still visibly running and one click brings the full card back.
 function BackgroundTaskPill({ label, onShow }: { label: string; onShow: () => void }) {
   return (
-    <Tooltip content={`${label} — show progress`}><button type="button" className="background-task-pill" onClick={onShow}>
+    <Tooltip content={translate("%1 — show progress", label)}><button type="button" className="background-task-pill" onClick={onShow}>
       <Spinner size={11} />
       <span>{label}</span>
     </button></Tooltip>
@@ -206,27 +208,27 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onCancel, onRetry, onOp
         </div>
       )}
       <div className="runtime-update-progress-copy">
-        <strong>{installing ? `Setting up ${status.currentName ?? "browsers"}` : status.status === "cancelled" ? "Browser setup stopped" : failed ? "Browser setup failed" : partial ? "Some browsers need attention" : "Browsers ready"}</strong>
+        <strong>{installing ? translate("Setting up %1", status.currentName ?? "browsers") : status.status === "cancelled" ? translate("Browser setup stopped") : failed ? translate("Browser setup failed") : partial ? translate("Some browsers need attention") : translate("Browsers ready")}</strong>
         <span className="muted small">{status.message}</span>
         {installing && <>
-          {status.percent !== undefined && <span className="small">{status.percent}% downloaded</span>}
-          <button className="mini" disabled={status.cancelRequested} onClick={() => onCancel()}>{status.cancelRequested ? "Stopping…" : status.items?.length ? "Stop all installations" : status.canCancel ? "Cancel update" : "Stop after this component"}</button>
+          {status.percent !== undefined && <span className="small">{status.percent}{translate("% downloaded")}</span>}
+          <button className="mini" disabled={status.cancelRequested} onClick={() => onCancel()}>{status.cancelRequested ? translate("Stopping…") : status.items?.length ? translate("Stop all installations") : status.canCancel ? translate("Cancel update") : translate("Stop after this component")}</button>
         </>}
         {!!errors.length && (
           <div className="runtime-update-errors">
             {errors.map((error) => (
               <section className="runtime-update-error" key={error.runtime}>
                 <div className="runtime-update-error-heading">
-                  <span>{error.name} couldn’t update</span>
-                  {error.code && <Tooltip content={error.code}><span className="runtime-update-error-code">{error.category ?? "Update could not finish"}</span></Tooltip>}
+                  <span>{error.name} {translate("couldn’t update")}</span>
+                  {error.code && <Tooltip content={error.code}><span className="runtime-update-error-code">{error.category ?? translate("Update could not finish")}</span></Tooltip>}
                 </div>
                 {/* The next step is what the user needs first; the raw message is
                     supporting detail, not the headline. */}
-                <p className="runtime-update-recovery">{error.recovery ?? "Keep Nextbrowser open, then try again."}</p>
+                <p className="runtime-update-recovery">{error.recovery ?? translate("Keep Nextbrowser open, then try again.")}</p>
                 <p className="muted small runtime-update-detail">{error.message}</p>
                 <div className="row runtime-update-error-actions">
-                  {error.retryable !== false && <button className="secondary small" onClick={() => onRetry([error.runtime])}>Retry {error.name}</button>}
-                  <button className="secondary small" onClick={() => onOpenManualGuide(error.releasePage)}>Update manually</button>
+                  {error.retryable !== false && <button className="secondary small" onClick={() => onRetry([error.runtime])}>{translate("Retry")} {error.name}</button>}
+                  <button className="secondary small" onClick={() => onOpenManualGuide(error.releasePage)}>{translate("Update manually")}</button>
                 </div>
               </section>
             ))}
@@ -234,21 +236,21 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onCancel, onRetry, onOp
         )}
         {canRetry && (
           <div className="row runtime-update-error-actions">
-            <button className="secondary small" onClick={() => onRetry(retryRuntimes)}>Retry</button>
+            <button className="secondary small" onClick={() => onRetry(retryRuntimes)}>{translate("Retry")}</button>
           </div>
         )}
-        {needsAttention && <p className="runtime-update-requirements">Before retrying: keep Nextbrowser open, use a stable connection, make sure there is free disk space, and close any running browser toolset.</p>}
+        {needsAttention && <p className="runtime-update-requirements">{translate("Before retrying: keep Nextbrowser open, use a stable connection, make sure there is free disk space, and close any running browser toolset.")}</p>}
       </div>
       {/* Hiding never cancels: the update keeps running behind a top-bar chip. */}
-      <Tooltip content={installing ? "Hide — the update keeps running" : "Dismiss"}><button
+      <Tooltip content={installing ? translate("Hide — the update keeps running") : translate("Dismiss")}><button
         className="plain-icon-btn plain-icon-btn-compact"
         onClick={onClose}
-        aria-label={installing ? "Hide update progress" : "Dismiss update status"}
+        aria-label={installing ? translate("Hide update progress") : translate("Dismiss update status")}
       >
         <Icon name="xmark" size={12} />
       </button></Tooltip>
       {!!status.items?.length && <div className="runtime-install-items">{status.items.map((item) => <RuntimeInstallationProgress key={item.runtime} item={item} onCancel={onCancel} />)}</div>}
-      {installing && !status.items?.length && <InstallationProgress label={`Updating ${status.currentName ?? "browser toolsets"}`} percent={status.percent} />}
+      {installing && !status.items?.length && <InstallationProgress label={translate("Updating %1", status.currentName ?? "browser toolsets")} percent={status.percent} />}
     </div>
   );
   // A transient status (installing, or a clean success) is ambient and stays
@@ -286,25 +288,25 @@ function browserRuntimeUpdateSignature(runtimes: BrowserRuntimeUpdateEntry[]): s
 }
 
 function updateLabel(status?: AppUpdateStatus | null): string {
-  if (!status) return "Check for updates";
-  if (status.status === "available") return `Update to ${status.version ?? "new version"}`;
-  if (status.status === "downloading") return `Downloading ${status.percent ?? 0}%`;
-  if (status.status === "downloaded") return `Restart to install ${status.version ?? "update"}`;
-  if (status.status === "not-available") return "Up to date";
-  if (status.status === "checking") return "Checking...";
-  if (status.status === "disabled") return "Updates unavailable in this build";
+  if (!status) return translate("Check for updates");
+  if (status.status === "available") return translate("Update to %1", status.version ?? "new version");
+  if (status.status === "downloading") return translate("Downloading %1%", status.percent ?? 0);
+  if (status.status === "downloaded") return translate("Restart to install %1", status.version ?? "update");
+  if (status.status === "not-available") return translate("Up to date");
+  if (status.status === "checking") return translate("Checking...");
+  if (status.status === "disabled") return translate("Updates unavailable in this build");
   if (status.status === "error") {
     // Surface the updater's own reason when the main process provided one,
     // instead of a generic message that hides what actually failed.
     const detail = status.message?.trim();
     if (!detail || detail === APP_UPDATE_ERROR) return APP_UPDATE_ERROR;
-    return `We couldn't update the Nextbrowser app: ${detail}`;
+    return translate("We couldn't update the Nextbrowser app: %1", detail);
   }
-  return "Check for updates";
+  return translate("Check for updates");
 }
 
 function ThemeToggle({ theme, onToggle }: { theme: Theme; onToggle: () => void }) {
-  const label = theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
+  const label = theme === "dark" ? translate("Switch to light theme") : translate("Switch to dark theme");
   return <IconButton appearance="plain" size="small" className="theme-toggle" label={label} onClick={onToggle}>
     <Icon name={theme === "dark" ? "sun" : "moon"} size={18} />
   </IconButton>;
@@ -312,10 +314,10 @@ function ThemeToggle({ theme, onToggle }: { theme: Theme; onToggle: () => void }
 
 function SettingsButton({ onClick, hasUpdate }: { onClick: () => void; hasUpdate?: boolean }) {
   return (
-    <Tooltip content={hasUpdate ? "Settings — update available" : "Settings"}><button
+    <Tooltip content={hasUpdate ? translate("Settings — update available") : translate("Settings")}><button
       className="settings-toggle plain-icon-btn"
       onClick={onClick}
-      aria-label={hasUpdate ? "Settings, update available" : "Settings"}
+      aria-label={hasUpdate ? translate("Settings, update available") : translate("Settings")}
     >
       <Icon name="gearshape" size={18} />
       {hasUpdate && <span className="settings-update-dot" aria-hidden="true" />}
@@ -325,15 +327,15 @@ function SettingsButton({ onClick, hasUpdate }: { onClick: () => void; hasUpdate
 
 function FeedbackButton({ onClick }: { onClick: () => void }) {
   return (
-    <Tooltip side="bottom" content="Send feedback (⌘⇧F on macOS, Ctrl+Shift+F on Windows/Linux)"><button
+    <Tooltip side="bottom" content={translate("Send feedback (⌘⇧F on macOS, Ctrl+Shift+F on Windows/Linux)")}><button
       className="titlebar-feedback"
       type="button"
       aria-haspopup="dialog"
       onClick={onClick}
-      aria-label="Send feedback. Shortcut: Command or Control, Shift, F"
+      aria-label={translate("Send feedback. Shortcut: Command or Control, Shift, F")}
     >
       <Icon name="bubble.left.and.bubble.right.fill" size={17} />
-      <span>Feedback</span>
+      <span>{translate("Feedback")}</span>
     </button></Tooltip>
   );
 }
@@ -347,7 +349,7 @@ function GlobalErrorNotice({ error, onClose }: { error: { reference: string; det
           <UserFacingError message={`Unexpected app error. Ref: ${error.reference}`} surface="unexpected_app_error" />
         </span></Tooltip>
       </span>
-      <button className="plain-icon-btn plain-icon-btn-compact" onClick={onClose} aria-label="Dismiss error">
+      <button className="plain-icon-btn plain-icon-btn-compact" onClick={onClose} aria-label={translate("Dismiss error")}>
         <Icon name="xmark" size={12} />
       </button>
     </div>
@@ -372,14 +374,14 @@ function ManualReleaseDownload({ onOpen, version, onLater }: { onOpen: () => Pro
   };
   return <div className="manual-release-download">
     <div className="manual-release-actions">
-      {onLater && <button className="secondary" autoFocus onClick={onLater}>Later</button>}
+      {onLater && <button className="secondary" autoFocus onClick={onLater}>{translate("Later")}</button>}
       <Tooltip content={downloadUrl}><button className={onLater ? "primary release-download-button" : "mini primary-mini release-download-button"} disabled={state === "opening"} onClick={() => void open()}>
         {state === "opening" && <Spinner size={12} />}
-        {state === "opening" ? "Opening download…" : "Download update"}
+        {state === "opening" ? translate("Opening download…") : translate("Download update")}
       </button></Tooltip>
     </div>
-    {state === "opened" && <p className="muted small" role="status">Download opened in your browser. When it finishes, open the DMG from Downloads and drag Nextbrowser into Applications.</p>}
-    {state === "error" && <p className="error small" role="alert">Could not open the download. Please try again.</p>}
+    {state === "opened" && <p className="muted small" role="status">{translate("Download opened in your browser. When it finishes, open the DMG from Downloads and drag Nextbrowser into Applications.")}</p>}
+    {state === "error" && <p className="error small" role="alert">{translate("Could not open the download. Please try again.")}</p>}
   </div>;
 }
 
@@ -551,8 +553,8 @@ function SettingsModal({
     <div className="modal-overlay settings-overlay" onMouseDown={onClose}>
       <div ref={dialogRef} className={"modal-card settings-modal" + (section === "proxy" && usageOpen ? " has-usage" : "")} role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1} onMouseDown={(e) => e.stopPropagation()}>
         <div className="settings-modal-header">
-          <strong id="settings-title">Settings</strong>
-          <Tooltip content="Close"><button className="plain-icon-btn" onClick={onClose} aria-label="Close settings">
+          <strong id="settings-title">{translate("Settings")}</strong>
+          <Tooltip content={translate("Close")}><button className="plain-icon-btn" onClick={onClose} aria-label={translate("Close settings")}>
             <Icon name="xmark" size={16} />
           </button></Tooltip>
         </div>
@@ -564,12 +566,13 @@ function SettingsModal({
             {section === "general" && (
               <div className="settings-group">
                 <div className="settings-row"><span className="muted small">Nextbrowser</span><strong>{__APP_VERSION__}</strong></div>
+                <InterfaceLanguageSetting />
                 <SettingsDiagnostics />
                 <button className="settings-feature-link" onClick={() => setSection("updates")}>
-                  <Icon name="arrow.down.circle" size={17} /><span className="settings-feature-copy"><strong>Versions and updates</strong><span className="muted small">All components and Update all</span></span><Icon name="chevron.right" size={14} />
+                  <Icon name="arrow.down.circle" size={17} /><span className="settings-feature-copy"><strong>{translate("Versions and updates")}</strong><span className="muted small">{translate("All components and Update all")}</span></span><Icon name="chevron.right" size={14} />
                 </button>
                 <div className="settings-row">
-                  <span className="muted small">Interface size</span>
+                  <span className="muted small">{translate("Interface size")}</span>
                   <div className="ui-scale-control-settings">
                     <UIScaleSlider value={uiScale} onChange={onUiScaleChange} />
                   </div>
@@ -591,8 +594,8 @@ function SettingsModal({
                 appVersion={__APP_VERSION__} appUpdate={appUpdate}
                 appLabel={appUpdate.status === "error" ? <UserFacingError message={updateLabel(appUpdate)} surface="app_update" /> : updateLabel(appUpdate)}
                 appActions={manualUpdate ? (updateAvailable(appUpdate) ? <ManualReleaseDownload onOpen={onOpenRelease} version={appUpdate.version} /> : null) : <>
-                  {appUpdate.status === "available" && <button className="mini primary-mini" disabled={bulkUpdating || runtimeOperation.status === "installing" || nextctlUpdating} onClick={onDownloadUpdate}>Download</button>}
-                  {appUpdate.status === "downloaded" && <button className="mini primary-mini" disabled={bulkUpdating || runtimeOperation.status === "installing" || nextctlUpdating} onClick={onInstallUpdate}>Restart and update</button>}
+                  {appUpdate.status === "available" && <button className="mini primary-mini" disabled={bulkUpdating || runtimeOperation.status === "installing" || nextctlUpdating} onClick={onDownloadUpdate}>{translate("Download")}</button>}
+                  {appUpdate.status === "downloaded" && <button className="mini primary-mini" disabled={bulkUpdating || runtimeOperation.status === "installing" || nextctlUpdating} onClick={onInstallUpdate}>{translate("Restart and update")}</button>}
                 </>}
                 runtimes={browserRuntimeUpdates} operation={runtimeOperation}
                 nextctlVersion={nextctlVersion} cliUpdating={nextctlUpdating} cliError={nextctlUpdateError || nextctlCompatibilityError} cliStatus={nextctlUpdateStatus}
@@ -609,11 +612,11 @@ function SettingsModal({
                 {errorReporting && (
                   <div className="settings-group">
                     <div className="settings-row">
-                      <span className="small">Send error reports</span>
-                      <Tooltip content={errorReporting.available ? ERROR_REPORTING_HINT : "Development builds do not send error reports."}><label className="toggle">
+                      <span className="small">{translate("Send error reports")}</span>
+                      <Tooltip content={errorReporting.available ? ERROR_REPORTING_HINT : translate("Development builds do not send error reports.")}><label className="toggle">
                         <input
                           type="checkbox"
-                          aria-label="Send error reports"
+                          aria-label={translate("Send error reports")}
                           checked={errorReporting.enabled}
                           onChange={(event) => changeErrorReporting(event.target.checked)}
                         />
@@ -622,7 +625,7 @@ function SettingsModal({
                     </div>
                     <p className="muted small settings-group-note">
                       {ERROR_REPORTING_HINT}
-                      {!errorReporting.available && " Development builds do not send error reports."}
+                      {!errorReporting.available && translate(" Development builds do not send error reports.")}
                     </p>
                   </div>
                 )}
@@ -639,41 +642,34 @@ function SettingsModal({
                   <span className="settings-feature-copy">
                     <strong>{agentName}</strong>
                     <span className="muted small">
-                      {agentReady ? agentVersion || "connected" : agentNeedsLogin ? `${agentName} is signed out` : builtinAgent ? "Free and paid models, no install" : `${agentName} is not connected`}
+                      {agentReady ? agentVersion || translate("connected") : agentNeedsLogin ? translate("%1 is signed out", agentName) : builtinAgent ? translate("Free and paid models, no install") : translate("%1 is not connected", agentName)}
                     </span>
                   </span>
                   <span className={"agent-state-pill" + (agentReady ? " is-ready" : "")}>
-                    {agentReady ? "Ready" : agentNeedsLogin ? "Login required" : builtinAgent ? "Not set up" : "Offline"}
+                    {agentReady ? translate("Ready") : agentNeedsLogin ? translate("Login required") : builtinAgent ? translate("Not set up") : translate("Offline")}
                   </span>
                 </div>
                 <div className="settings-agent-picker-row">
-                  <AgentPicker label="Active" />
+                  <AgentPicker label={translate("Active")} />
                   {!builtinAgent && <div className="settings-agent-actions">
                     {!agentDetected && (
-                      <Tooltip content={`Connect ${agentName}`}><button className="mini primary-mini" onClick={() => authorizeAgent()}>
-                        Connect
-                      </button></Tooltip>
+                      <Tooltip content={translate("Connect %1", agentName)}><button className="mini primary-mini" onClick={() => authorizeAgent()}>{translate("Connect")}</button></Tooltip>
                     )}
                     {agentDetected && agentLoggedIn !== true && !agentLogoutPending && (
-                      <Tooltip content={`Open ${agentName} login`}><button className="mini" onClick={() => loginAgent()}>
-                        Login
-                      </button></Tooltip>
+                      <Tooltip content={translate("Open %1 login", agentName)}><button className="mini" onClick={() => loginAgent()}>{translate("Login")}</button></Tooltip>
                     )}
                     {agentDetected && agentLogoutPending && (
                       <button className="mini" disabled aria-live="polite">
-                        <Spinner size={12} /> Signing out…
-                      </button>
+                        <Spinner size={12} /> {translate("Signing out…")}</button>
                     )}
                     {agentReady && agentLoggedIn === true && !agentLogoutPending && agentById(agentId).logoutArgs.length > 0 && (
-                      <Tooltip content={`Sign out of ${agentName}`}><button className="mini" onClick={() => void handleAgentLogout()}>
-                        Log out
-                      </button></Tooltip>
+                      <Tooltip content={translate("Sign out of %1", agentName)}><button className="mini" onClick={() => void handleAgentLogout()}>{translate("Log out")}</button></Tooltip>
                     )}
                   </div>}
                 </div>
                 <div className="settings-group">
                   <div className="settings-row">
-                    <label htmlFor="prefer-tab-tools" className="small">Prefer WebMCP</label>
+                    <label htmlFor="prefer-tab-tools" className="small">{translate("Prefer WebMCP")}</label>
                     <label className="toggle">
                       <input id="prefer-tab-tools" type="checkbox" role="switch" checked={preferTabTools}
                         aria-describedby="tab-tools-help" onChange={event => {
@@ -684,14 +680,11 @@ function SettingsModal({
                       <span className="toggle-track"><span className="toggle-knob" /></span>
                     </label>
                   </div>
-                  <p id="tab-tools-help" className="muted small settings-group-note">
-                    Use the active site's tools when available, with standard browser controls as a fallback.
-                    Applies to new Nextbrowser and Codex chat turns and new Codex terminals.
-                  </p>
+                  <p id="tab-tools-help" className="muted small settings-group-note">{translate("Use the active site's tools when available, with standard browser controls as a fallback. Applies to new Nextbrowser and Codex chat turns and new Codex terminals.")}</p>
                 </div>
                 <div className="settings-group">
                   <div className="settings-row">
-                    <label htmlFor="use-harness2" className="small">Use Harness²</label>
+                    <label htmlFor="use-harness2" className="small">{translate("Use Harness²")}</label>
                     <label className="toggle">
                       <input id="use-harness2" type="checkbox" role="switch" checked={useHarness2}
                         aria-describedby="harness2-help" onChange={event => {
@@ -702,9 +695,7 @@ function SettingsModal({
                       <span className="toggle-track"><span className="toggle-knob" /></span>
                     </label>
                   </div>
-                  <p id="harness2-help" className="muted small settings-group-note">
-                    Let the agent compare two approaches with the current model at any point in a task, from planning to choosing the next step. Applies to new chat turns.
-                  </p>
+                  <p id="harness2-help" className="muted small settings-group-note">{translate("Let the agent compare two approaches with the current model at any point in a task, from planning to choosing the next step. Applies to new chat turns.")}</p>
                 </div>
                 {activeWorkspaceId && <StockMcpPermissions key={activeWorkspaceId} workspaceId={activeWorkspaceId} />}
                 {builtinAgent && <BuiltinAgentSetup />}
@@ -721,11 +712,11 @@ function SettingsModal({
               <>
                 <div className="settings-group">
                   <div className="settings-row">
-                    <span className="muted small">Profiles</span>
+                    <span className="muted small">{translate("Profiles")}</span>
                     <strong>{profiles}</strong>
                   </div>
                 </div>
-                <button className="settings-feature-link" onClick={() => setSection("updates")}><Icon name="arrow.down.circle" size={17} /><span className="settings-feature-copy"><strong>Browser toolsets and updates</strong><span className="muted small">Manage installed versions in Updates</span></span><Icon name="chevron.right" size={14} /></button>
+                <button className="settings-feature-link" onClick={() => setSection("updates")}><Icon name="arrow.down.circle" size={17} /><span className="settings-feature-copy"><strong>{translate("Browser toolsets and updates")}</strong><span className="muted small">{translate("Manage installed versions in Updates")}</span></span><Icon name="chevron.right" size={14} /></button>
               </>
             )}
 
@@ -733,13 +724,13 @@ function SettingsModal({
               <>
                 <div className="settings-group">
                   <div className="settings-row">
-                    <span className="muted small">Proxy</span>
+                    <span className="muted small">{translate("Proxy")}</span>
                     {proxy ? (
                       <span className={`status-pill proxy-state ${trafficGateStateTone(proxy)}`}>
                         {trafficGateStateLabel(proxy)}
                       </span>
                     ) : (
-                      <span className="muted small">locked</span>
+                      <span className="muted small">{translate("locked")}</span>
                     )}
                   </div>
                 </div>
@@ -754,9 +745,9 @@ function SettingsModal({
                     <Icon name="chart.bar.fill" size={17} />
                   </span>
                   <span className="settings-feature-copy">
-                    <strong>Proxy usage</strong>
+                    <strong>{translate("Proxy usage")}</strong>
                     <span className="muted small">
-                      {proxy ? `${proxyUsed} / ${proxyLimit}` : "Traffic, allocation, and usage history"}
+                      {proxy ? `${proxyUsed} / ${proxyLimit}` : translate("Traffic, allocation, and usage history")}
                     </span>
                   </span>
                   {proxyPercent != null && (
@@ -769,7 +760,7 @@ function SettingsModal({
               </>
             )}
             {usageVisited && <div className="settings-proxy-usage" hidden={section !== "proxy" || !usageOpen}>
-              <button className="secondary small" onClick={() => setUsageOpen(false)}><Icon name="chevron.left" size={12} /> Proxy settings</button>
+              <button className="secondary small" onClick={() => setUsageOpen(false)}><Icon name="chevron.left" size={12} /> {translate("Proxy settings")}</button>
               <UsageView />
             </div>}
           </SettingsPanel>
@@ -811,27 +802,27 @@ function AppUpdatePrompt({
         <div className="modal-title-row">
           <Icon name="sparkles" size={18} className="warn" />
           <div>
-            <strong id="app-update-title">New Nextbrowser version available</strong>
+            <strong id="app-update-title">{translate("New Nextbrowser version available")}</strong>
             <div className="muted small">
-              {status.version ? `Version ${status.version} is ready.` : "A newer build is available."}
+              {status.version ? translate("Version %1 is ready.", status.version) : translate("A newer build is available.")}
             </div>
           </div>
         </div>
         <p className="muted">
           {manual
-            ? "Download and install the new version."
+            ? translate("Download and install the new version.")
             : downloaded
-              ? "The update is downloaded. Restart to finish installing."
+              ? translate("The update is downloaded. Restart to finish installing.")
               : downloading
-                ? "Downloading the update — you can keep working."
-                : "Update now, or keep working and install it later from Settings."}
+                ? translate("Downloading the update — you can keep working.")
+                : translate("Update now, or keep working and install it later from Settings.")}
         </p>
-        {downloading && <InstallationProgress label={`Downloading Nextbrowser ${status.percent ?? 0}%`} />}
+        {downloading && <InstallationProgress label={translate("Downloading Nextbrowser %1%", status.percent ?? 0)} />}
         {manual ? (
           <ManualReleaseDownload onOpen={onOpenRelease} version={status.version} onLater={onLater} />
         ) : (
           <div className="row settings-actions">
-            <button className="secondary" autoFocus onClick={onLater}>Later</button>
+            <button className="secondary" autoFocus onClick={onLater}>{translate("Later")}</button>
             <span className="spacer" />
             <button
               className="primary"
@@ -839,10 +830,10 @@ function AppUpdatePrompt({
               onClick={downloaded ? onInstall : onDownload}
             >
               {downloaded
-                ? "Restart and update"
+                ? translate("Restart and update")
                 : downloading
-                  ? `Downloading ${status.percent ?? 0}%`
-                  : "Download update"}
+                  ? translate("Downloading %1%", status.percent ?? 0)
+                  : translate("Download update")}
             </button>
           </div>
         )}
@@ -902,10 +893,10 @@ export function App() {
   const activityOwner = useStore(s => s.accountOwnerId);
   const startupPhase = useStore((s) => s.startupPhase);
   const startupLabel = startupPhase === "local"
-    ? "Loading saved projects"
+    ? translate("Loading saved projects")
     : startupPhase === "setup"
-      ? "Setting up Nextbrowser for first use"
-      : "Checking account access";
+      ? translate("Setting up Nextbrowser for first use")
+      : translate("Checking account access");
   const startupError = useStore((s) => s.startupError);
   const feedbackAvailable = authed && !checking && !startupError;
   // Background sync happens constantly and isn't something the user needs
@@ -1647,7 +1638,7 @@ export function App() {
     <>
       {runtimeUpdateInstall.status === "installing" && runtimeUpdateProgressHidden && (
         <BackgroundTaskPill
-          label={`Setting up ${runtimeUpdateInstall.currentName ?? "browsers"}${runtimeUpdateInstall.percent === undefined ? "" : ` · ${runtimeUpdateInstall.percent}%`}`}
+          label={translate("Setting up %1%2", runtimeUpdateInstall.currentName ?? "browsers", runtimeUpdateInstall.percent === undefined ? "" : ` · ${runtimeUpdateInstall.percent}%`)}
           onShow={() => setRuntimeUpdateProgressHidden(false)}
         />
       )}
@@ -1666,7 +1657,7 @@ export function App() {
 
   const titlebarActions = <>
     {permission && (tab !== 'chat' || selectedConversation !== permission.conversationId || settingsOpen || utilityDialog || feedbackOpen) &&
-      <TitlebarActions placement="workspace"><Button onClick={() => openPermissionChat(permission.conversationId)}>Review agent request</Button></TitlebarActions>}
+      <TitlebarActions placement="workspace"><Button onClick={() => openPermissionChat(permission.conversationId)}>{translate("Review agent request")}</Button></TitlebarActions>}
     {feedbackAvailable && <TitlebarActions placement="workspace"><FeedbackButton onClick={() => setFeedbackOpen(true)} /></TitlebarActions>}
     <TitlebarActions>
       <CommunityControls />
@@ -1716,13 +1707,13 @@ export function App() {
           {startupError ? (
             <div className="startup-recovery" role="alert">
               <p className="muted small">{startupError}</p>
-              <button className="primary" onClick={() => window.location.reload()}>Restart check</button>
+              <button className="primary" onClick={() => window.location.reload()}>{translate("Restart check")}</button>
             </div>
           ) : (
             <>
               <InstallationSpinner />
               <div className="muted small">{startupLabel}…</div>
-              {startupPhase === "setup" && <div className="muted small">Nextbrowser is installing its command-line tool. This can take a few minutes on a slow connection.</div>}
+              {startupPhase === "setup" && <div className="muted small">{translate("Nextbrowser is installing its command-line tool. This can take a few minutes on a slow connection.")}</div>}
               <div className="startup-progress"><InstallationProgress label={startupLabel} /></div>
             </>
           )}
@@ -1772,8 +1763,7 @@ export function App() {
       <div ref={setProjectsDock} className="projects-dock-slot" />
       <main className={"content" + (chatWorkspace ? " content-chat" : "")}>
         {tab !== "live" && workspaceSyncing && <div className="workspace-sync-status muted small" role="status">
-          <Spinner size={12} /> Syncing workspace…
-        </div>}
+          <Spinner size={12} /> {translate("Syncing workspace…")}</div>}
         <div className={"tab-content" + (tab === "skills" ? " tab-content-bleed" : "")}>
           <ChatLiveWorkspace visible={chatWorkspace} live={liveWorkspace} browserOpen={browserOpen}
             focus={liveFocus} onFocusPanel={focusLivePanel} projectsRef={setLiveProjectsSlot}

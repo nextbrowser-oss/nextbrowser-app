@@ -8,6 +8,7 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -556,6 +557,29 @@ func (a *attachment) detach() error {
 }
 
 func main() {
+	if len(os.Args) == 3 && os.Args[1] == "--input-language" {
+		window, err := strconv.ParseUint(os.Args[2], 10, 64)
+		if err != nil {
+			return
+		}
+		if window == 0 {
+			foreground, _, _ := getForeground.Call()
+			window = uint64(foreground)
+		}
+		thread, _, _ := getPID.Call(uintptr(window), 0)
+		if thread == 0 {
+			return
+		}
+		layout, _, _ := user32.NewProc("GetKeyboardLayout").Call(thread)
+		var tag [85]uint16 // LOCALE_NAME_MAX_LENGTH
+		if layout != 0 {
+			size, _, _ := kernel32.NewProc("LCIDToLocaleName").Call(layout&0xffff, uintptr(unsafe.Pointer(&tag[0])), uintptr(len(tag)), 0)
+			if size > 0 {
+				fmt.Println(syscall.UTF16ToString(tag[:]))
+			}
+		}
+		return
+	}
 	// Use the host monitor's physical client coordinates.
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()

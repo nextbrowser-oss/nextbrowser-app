@@ -1,3 +1,4 @@
+import { translate } from "../../shared/lib/i18n";
 import { useRef, useState } from 'react';
 import { OpenInSession } from '../../components/SessionMiniApps';
 import { OpenGuest } from '../../components/MiniAppGuest';
@@ -19,7 +20,7 @@ type Review = { action: 'install' | 'remove'; app: AppInfo; raw?: string; previo
 
 export function MiniAppsPage() {
   const scope = useMiniAppsOwner();
-  if (!scope) return <section className="mini-apps"><h1>Mini Apps</h1><p>Sign in to manage your mini apps.</p></section>;
+  if (!scope) return <section className="mini-apps"><h1>{translate("Mini Apps")}</h1><p>{translate("Sign in to manage your mini apps.")}</p></section>;
   return <LibraryView key={scope} owner={scope} />;
 }
 
@@ -44,7 +45,7 @@ function LibraryView({ owner }: { owner: string }) {
     locked.current = true;
     setBusy(true); setError('');
     try { await action(); }
-    catch (e) { setError(e instanceof Error ? e.message.replace(/^Error invoking remote method .*?: Error: /, '') : 'Mini app action failed.'); }
+    catch (e) { setError(e instanceof Error ? e.message.replace(/^Error invoking remote method .*?: Error: /, '') : translate("Mini app action failed.")); }
     finally { locked.current = false; setBusy(false); }
   }
   function open(id?: string) { setTab('mini-apps', id ? { owner, id } : undefined); }
@@ -76,38 +77,38 @@ function LibraryView({ owner }: { owner: string }) {
   }
   const current = selected?.owner === owner ? library?.installed.find(app => app.id === selected.id) : undefined;
   return <section className={current ? 'mini-apps mini-apps-open' : 'mini-apps'} data-rail-hidden={current && railHidden || undefined}>
-    {!current && <header className="mini-apps-header"><h1>Mini Apps</h1>
-      <div className="mini-apps-header-actions"><Button onClick={() => setPublishing(true)}>Publish mini app</Button><Button onClick={() => setGuide(true)}>Build a mini app</Button>
-        <Button disabled={busy} onClick={() => file.current?.click()}>Install from file</Button></div>
-      <input ref={file} type="file" hidden accept=".json" aria-label="Mini app package" onChange={e => {
+    {!current && <header className="mini-apps-header"><h1>{translate("Mini Apps")}</h1>
+      <div className="mini-apps-header-actions"><Button onClick={() => setPublishing(true)}>{translate("Publish mini app")}</Button><Button onClick={() => setGuide(true)}>{translate("Build a mini app")}</Button>
+        <Button disabled={busy} onClick={() => file.current?.click()}>{translate("Install from file")}</Button></div>
+      <input ref={file} type="file" hidden accept=".json" aria-label={translate("Mini app package")} onChange={e => {
         const selected = e.target.files?.[0]; e.target.value = '';
         if (selected) void run(() => importFile(selected));
       }} /></header>}
-    {(error || loadError) && !review && <p role="alert">{error || loadError} <Button onClick={() => void run(refresh)}>Refresh</Button></p>}
-    {!library && !error && !loadError && <p role="status">Loading mini apps…</p>}
-    {community.error && !current && <p role="status">Community catalog unavailable. {community.error} <Button onClick={community.refresh}>Retry catalog</Button></p>}
-    {published && !current && <p role="status">{published} published.</p>}
+    {(error || loadError) && !review && <p role="alert">{error || loadError} <Button onClick={() => void run(refresh)}>{translate("Refresh")}</Button></p>}
+    {!library && !error && !loadError && <p role="status">{translate("Loading mini apps…")}</p>}
+    {community.error && !current && <p role="status">{translate("Community catalog unavailable.")} {community.error} <Button onClick={community.refresh}>{translate("Retry catalog")}</Button></p>}
+    {published && !current && <p role="status">{published} {translate("published.")}</p>}
     {library && <>
-      {!current && <nav className="mini-apps-tabs" aria-label="Installed mini apps">
-        <Button aria-pressed={!widgetsOnly} onClick={() => setWidgetsOnly(false)}>Catalog</Button>
-        <Button aria-pressed={widgetsOnly} onClick={() => setWidgetsOnly(true)}>Widgets</Button>
+      {!current && <nav className="mini-apps-tabs" aria-label={translate("Installed mini apps")}>
+        <Button aria-pressed={!widgetsOnly} onClick={() => setWidgetsOnly(false)}>{translate("Catalog")}</Button>
+        <Button aria-pressed={widgetsOnly} onClick={() => setWidgetsOnly(true)}>{translate("Widgets")}</Button>
         {library.installed.map(app => <Button key={app.id} disabled={busy}
           onClick={() => open(app.id)}>{app.name}</Button>)}
       </nav>}
       {current ? <>
         <TitlebarActions><div className="mini-app-titlebar">
-          <IconButton label={railHidden ? 'Show navigation rail' : 'Hide navigation rail'} appearance="plain" size="small"
+          <IconButton label={railHidden ? translate("Show navigation rail") : translate("Hide navigation rail")} appearance="plain" size="small"
             aria-controls="app-sidebar" aria-expanded={!railHidden} onClick={() => {
               setRailHidden(!railHidden);
               settingsStorage.setItem('miniAppRailHidden', String(!railHidden));
             }}>
             {railHidden ? <PanelLeftOpen size={16} aria-hidden="true" /> : <PanelLeftClose size={16} aria-hidden="true" />}
           </IconButton>
-          <IconButton label="Back to Mini Apps" text="Mini Apps" appearance="plain" size="small" onClick={() => open()}>
+          <IconButton label={translate("Back to Mini Apps")} text="Mini Apps" appearance="plain" size="small" onClick={() => open()}>
             <ChevronLeft size={16} aria-hidden="true" />
           </IconButton>
           <MiniAppIcon app={current} /><h2>{current.name}</h2>
-          <label className="mini-apps-pin">Show in rail <span className="toggle">
+          <label className="mini-apps-pin">{translate("Show in rail")} <span className="toggle">
             <input type="checkbox" role="switch" checked={current.pinned} disabled={busy}
               onChange={event => { const pinned = event.target.checked; void run(async () => {
                 await invoke('mini_apps_set_pinned', { owner, id: current.id, pinned });
@@ -116,7 +117,7 @@ function LibraryView({ owner }: { owner: string }) {
             <span className="toggle-track"><span className="toggle-knob" /></span></span>
           </label>
           <OpenInSession id={current.id} />
-          <Button onClick={() => setReview({ action: 'remove', app: current })}>Uninstall</Button>
+          <Button onClick={() => setReview({ action: 'remove', app: current })}>{translate("Uninstall")}</Button>
         </div></TitlebarActions>
         <OpenGuest key={current.id} id={current.id} owner={owner} name={current.name} />
       </> : <div className="mini-apps-catalog">{[...library.catalog, ...community.apps].filter(app => !widgetsOnly || app.widgets?.length || app.hasWidgets).map(app => {
@@ -128,11 +129,11 @@ function LibraryView({ owner }: { owner: string }) {
             <CatalogImage owner={owner} app={app} shot={{...cover, alt:text.screenshots[cover.file] ?? cover.alt}} />
           </button>
           <div className="catalog-app-title"><MiniAppIcon app={app} /><h2><button onClick={() => setDetails(app)}>{app.name}</button></h2></div>
-          <small className="catalog-author">By {app.listing.author}</small>
+          <small className="catalog-author">{translate("By")} {app.listing.author}</small>
           <p>{text.description}</p>
-          <div className="catalog-card-actions"><Button disabled={busy} onClick={() => installed ? open(app.id) : void run(() => chooseInstall(app))}>{installed ? 'Open' : 'Install'}</Button>
-          {app.community && library.installed.some(item => item.id === app.id && item.sourcePublication === app.publicationId && item.version.localeCompare(app.version, 'en', {numeric:true}) < 0) && <Button disabled={busy} onClick={() => void run(() => chooseInstall(app))}>Update</Button>}
-          <Button disabled={busy} onClick={() => void run(async () => invoke('mini_apps_download', { owner, id: app.id, raw: app.community ? await catalogPackage(owner, app) : undefined }))}>Download package</Button>
+          <div className="catalog-card-actions"><Button disabled={busy} onClick={() => installed ? open(app.id) : void run(() => chooseInstall(app))}>{installed ? translate("Open") : translate("Install")}</Button>
+          {app.community && library.installed.some(item => item.id === app.id && item.sourcePublication === app.publicationId && item.version.localeCompare(app.version, 'en', {numeric:true}) < 0) && <Button disabled={busy} onClick={() => void run(() => chooseInstall(app))}>{translate("Update")}</Button>}
+          <Button disabled={busy} onClick={() => void run(async () => invoke('mini_apps_download', { owner, id: app.id, raw: app.community ? await catalogPackage(owner, app) : undefined }))}>{translate("Download package")}</Button>
           </div></article>;
       })}</div>}
     </>}
@@ -142,24 +143,24 @@ function LibraryView({ owner }: { owner: string }) {
       if (library?.installed.some(a => a.id === details.id)) open(details.id);
       else void run(() => chooseInstall(details));
     }} />}
-    {guide && <Dialog title="Build a mini app" onClose={() => setGuide(false)}>
-      <ol><li>Download the Kanban package from the catalog.</li>
-        <li>Give it a unique ID and name. Put your interface, scripts and styles in the HTML field.</li>
-        <li>Declare every app action in <code>tools</code> and register each with <code>document.modelContext.registerTool()</code>.</li>
-        <li>To embed a widget, declare its surfaces, grid limits and a skill explaining how to use its WebMCP tools. Download Music Player for a working example.</li>
-        <li>For a catalog listing, credit the author and include two or more screenshots of real screens, descriptive captions, requirements and an example agent request alongside the package.</li>
-        <li>Choose Install from file to validate the WebMCP tools and install. Request storage to persist data using <code>/state</code>.</li></ol>
-      <Button onClick={() => void run(() => invoke('mini_apps_download', { owner, id: 'kanban' }))}>Download Kanban package</Button>
+    {guide && <Dialog title={translate("Build a mini app")} onClose={() => setGuide(false)}>
+      <ol><li>{translate("Download the Kanban package from the catalog.")}</li>
+        <li>{translate("Give it a unique ID and name. Put your interface, scripts and styles in the HTML field.")}</li>
+        <li>{translate("Declare every app action in")} <code>tools</code> {translate("and register each with")} <code>document.modelContext.registerTool()</code>.</li>
+        <li>{translate("To embed a widget, declare its surfaces, grid limits and a skill explaining how to use its WebMCP tools. Download Music Player for a working example.")}</li>
+        <li>{translate("For a catalog listing, credit the author and include two or more screenshots of real screens, descriptive captions, requirements and an example agent request alongside the package.")}</li>
+        <li>{translate("Choose Install from file to validate the WebMCP tools and install. Request storage to persist data using")} <code>/state</code>.</li></ol>
+      <Button onClick={() => void run(() => invoke('mini_apps_download', { owner, id: 'kanban' }))}>{translate("Download Kanban package")}</Button>
     </Dialog>}
     {review && <Dialog title={(review.action === 'install' ? 'Install ' : 'Uninstall ') + review.app.name + '?'} onClose={() => { if (!busy) { setReview(undefined); setError(''); } }}>
-      <p>{review.app.id} · v{review.app.version}</p>
-      {review.action === 'install' && <p>Agent actions: {review.app.tools?.join(', ')}</p>}
+      <p>{review.app.id} {translate("· v")}{review.app.version}</p>
+      {review.action === 'install' && <p>{translate("Agent actions:")} {review.app.tools?.join(', ')}</p>}
       {review.action === 'install' && review.app.skill && <p>{review.app.skill}</p>}
-      {review.previousGeneration && <p>This updates the installed app. The new version can access its existing saved data.</p>}
-      <p>{review.action === 'remove' ? 'This removes the app and its saved data from this account on this device.'
-        : review.app.permissions.includes('storage') ? 'Permission requested: save and read its own data on this device.' : 'No host permissions requested.'}</p>
+      {review.previousGeneration && <p>{translate("This updates the installed app. The new version can access its existing saved data.")}</p>}
+      <p>{review.action === 'remove' ? translate("This removes the app and its saved data from this account on this device.")
+        : review.app.permissions.includes('storage') ? translate("Permission requested: save and read its own data on this device.") : translate("No host permissions requested.")}</p>
       {error && <p role="alert">{error}</p>}
-      <Button disabled={busy} onClick={() => void run(applyReview)}>{review.action === 'remove' ? 'Uninstall and delete data' : review.previousGeneration ? 'Upgrade and keep data' : 'Install mini app'}</Button>
+      <Button disabled={busy} onClick={() => void run(applyReview)}>{review.action === 'remove' ? translate("Uninstall and delete data") : review.previousGeneration ? translate("Upgrade and keep data") : translate("Install mini app")}</Button>
     </Dialog>}
   </section>;
 }

@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { Tooltip } from "../shared/ui";
 import type { MultiloginProfileSelection } from "../lib/multiloginSelection";
 import { useEffect, useRef, useState } from "react";
@@ -504,33 +505,31 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
   };
 
   return (
-    <section className="agent-terminal-panel" aria-label={`${agentName} terminal`}>
+    <section className="agent-terminal-panel" aria-label={translate("%1 terminal", agentName)}>
       <header className="agent-terminal-header">
         <Icon name="terminal" size={13} />
-        <strong>{agentName} terminal</strong>
-        <span className="experimental-pill">Experimental</span>
+        <strong>{agentName} {translate("terminal")}</strong>
+        <span className="experimental-pill">{translate("Experimental")}</span>
         <span className="spacer" />
         {status === "starting" && <Spinner size={12} />}
-        {status === "running" && <Tooltip content="Running"><span className="terminal-status-dot"  /></Tooltip>}
-        {status === "exited" && <span className="muted small">Exited</span>}
-        {status === "failed" && <Tooltip content={error}><span className="error small">Failed</span></Tooltip>}
-        <Tooltip content="Attach local files to the next terminal prompt"><button
+        {status === "running" && <Tooltip content={translate("Running")}><span className="terminal-status-dot"  /></Tooltip>}
+        {status === "exited" && <span className="muted small">{translate("Exited")}</span>}
+        {status === "failed" && <Tooltip content={error}><span className="error small">{translate("Failed")}</span></Tooltip>}
+        <Tooltip content={translate("Attach local files to the next terminal prompt")}><button
           className="mini terminal-attach-file"
           disabled={status !== "running"}
           onClick={() => void attachFiles()}
-          aria-label="Attach local files to the next terminal prompt"
+          aria-label={translate("Attach local files to the next terminal prompt")}
         >
           <Icon name="paperclip" size={13} />
         </button></Tooltip>
         {(status === "exited" || status === "failed") && (
-          <Tooltip content={`Restart ${agentName} terminal`}><button
+          <Tooltip content={translate("Restart %1 terminal", agentName)}><button
             className="mini"
             onClick={() => setRestartNonce((value) => value + 1)}
-          >
-            Restart
-          </button></Tooltip>
+          >{translate("Restart")}</button></Tooltip>
         )}
-        <Tooltip content="Save this terminal browser workflow as a private skill"><button
+        <Tooltip content={translate("Save this terminal browser workflow as a private skill")}><button
           className="mini terminal-save-skill"
           disabled={status !== "running" || savingWorkflow}
           onClick={() => {
@@ -538,18 +537,18 @@ export function AgentTerminal({ agentId, agentName, conversationId, workspaceId,
             if (value) onSaveWorkflow(value);
           }}
         >
-          {savingWorkflow && <Spinner size={11} />} {savingWorkflow ? "Preparing…" : "Save as skill"}
+          {savingWorkflow && <Spinner size={11} />} {savingWorkflow ? translate("Preparing…") : translate("Save as skill")}
         </button></Tooltip>
       </header>
       {attachments.length > 0 && (
-        <div className="terminal-attachments" aria-label="Files attached to the next terminal prompt">
+        <div className="terminal-attachments" aria-label={translate("Files attached to the next terminal prompt")}>
           {attachments.map((file) => (
             <Tooltip key={file.path} content={file.path}><span className="attachment-chip">
               <Icon name="paperclip" size={12} />
               <span>{file.name}</span>
               <button
                 className="attachment-remove"
-                aria-label={`Remove ${file.name}`}
+                aria-label={translate("Remove %1", file.name)}
                 onClick={() => void removeAttachment(file)}
               >×</button>
             </span></Tooltip>

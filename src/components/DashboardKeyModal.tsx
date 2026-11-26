@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { Tooltip } from "../shared/ui";
 import { useEffect, useRef } from "react";
 import { useStore } from "../store";
@@ -80,45 +81,39 @@ export function DashboardKeyModal() {
       <div className="modal-card dashboard-key-modal" role="dialog" aria-modal="true" aria-labelledby="dashboard-key-title" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-title-row">
           <Icon name="lock.open" size={18} />
-          <strong id="dashboard-key-title">Sign in to Nextbrowser</strong>
+          <strong id="dashboard-key-title">{translate("Sign in to Nextbrowser")}</strong>
         </div>
-        <p className="muted small">
-          Managed profiles, proxy traffic, Remote Control, and skills need a connected account.
-        </p>
+        <p className="muted small">{translate("Managed profiles, proxy traffic, Remote Control, and skills need a connected account.")}</p>
         <div className="pairing-status">
           <div className="pairing-ring" data-state={pairing ? "waiting" : "opening"} aria-hidden="true">
             <Icon name="globe.americas.fill" size={26} className="pairing-ring-icon" />
           </div>
           {pairing ? (
             <div className="pairing-copy">
-              <strong>{pairing.status === "pending" ? "Waiting for browser sign-in…" : pairing.status}</strong>
-              <p className="muted small">Nextbrowser connects automatically when you finish in the browser.</p>
+              <strong>{pairing.status === "pending" ? translate("Waiting for browser sign-in…") : pairing.status}</strong>
+              <p className="muted small">{translate("Nextbrowser connects automatically when you finish in the browser.")}</p>
               {pairingFailed ? (
-                <Tooltip content="Start a new sign-in request"><button
+                <Tooltip content={translate("Start a new sign-in request")}><button
                   type="button"
                   className="pairing-reopen"
                   disabled={loading}
                   onClick={startAgain}
                 >
-                  <Icon name="arrow.clockwise" size={13} />
-                  Start again
-                </button></Tooltip>
+                  <Icon name="arrow.clockwise" size={13} />{translate("Start again")}</button></Tooltip>
               ) : (
-                <Tooltip content="Open the sign-in page again"><button
+                <Tooltip content={translate("Open the sign-in page again")}><button
                   type="button"
                   className="pairing-reopen"
                   disabled={loading}
                   onClick={() => void reopenPairing()}
                 >
-                  <Icon name="arrow.clockwise" size={13} />
-                  Reopen sign-in page
-                </button></Tooltip>
+                  <Icon name="arrow.clockwise" size={13} />{translate("Reopen sign-in page")}</button></Tooltip>
               )}
             </div>
           ) : (
             <div className="pairing-copy">
-              <strong>Opening your browser…</strong>
-              <p className="muted small">Continue sign-in in the page that just opened.</p>
+              <strong>{translate("Opening your browser…")}</strong>
+              <p className="muted small">{translate("Continue sign-in in the page that just opened.")}</p>
             </div>
           )}
         </div>
@@ -130,7 +125,7 @@ export function DashboardKeyModal() {
         <div className="row" style={{ marginTop: 12, gap: 8 }}>
           <span className="spacer" />
           <button className="secondary" autoFocus onClick={close}>
-            {pairing ? "Cancel sign-in" : "Cancel"}
+            {pairing ? translate("Cancel sign-in") : translate("Cancel")}
           </button>
         </div>
       </div>

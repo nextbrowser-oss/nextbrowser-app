@@ -1,3 +1,4 @@
+const { translate } = require("./interface-messages.cjs");
 const fs = require('node:fs/promises');
 const { createReadStream } = require('node:fs');
 const path = require('node:path');
@@ -343,7 +344,7 @@ async function personalCommand({base, scope, current, dialog, shell, command, ar
     if (!catalogue) { catalogue = new Map(); sourceCatalogues.set(scope,catalogue); }
     const profiles = await localProfiles(root);
     if (command === 'personal_profiles_choose_source') {
-      const picked = await dialog.showOpenDialog(scope.window,{title:'Choose a browser profile folder',properties:['openDirectory']});
+      const picked = await dialog.showOpenDialog(scope.window,{title:translate("Choose a browser profile folder"),properties:['openDirectory']});
       if (picked.canceled || !picked.filePaths.length) return null;
       if (!current()) throw Error('The active account changed.');
       const source = await inspectSource(picked.filePaths[0],'Selected folder');
@@ -393,7 +394,7 @@ async function personalCommand({base, scope, current, dialog, shell, command, ar
     } finally { importingSources.delete(lock); }
   }
   if (command === 'personal_profiles_import') {
-    const {canceled,filePaths} = await dialog.showOpenDialog(scope.window, { title:'Choose a browser profile folder', properties:['openDirectory'] });
+    const {canceled,filePaths} = await dialog.showOpenDialog(scope.window, { title:translate("Choose a browser profile folder"), properties:['openDirectory'] });
     if (canceled || !filePaths.length) return null;
     if (!current()) throw Error('The active account changed.');
     const source = await inspectSource(filePaths[0],'Selected folder');
@@ -405,9 +406,9 @@ async function personalCommand({base, scope, current, dialog, shell, command, ar
       if (!current()) throw Error('The active account changed.');
       return result.canceled ? undefined : result.filePaths[0];
     };
-    const archive = await choose('Choose your encrypted profile archive','nbarchive');
+    const archive = await choose(translate("Choose your encrypted profile archive"),'nbarchive');
     if (!archive) return null;
-    const key = await choose('Choose the recovery key for this archive','nbkey');
+    const key = await choose(translate("Choose the recovery key for this archive"),'nbkey');
     return key ? restoreProfile(root,archive,key,current) : null;
   }
   if (command === 'personal_profiles_backup' && uuid.test(args.id)) return backupExisting(root,args.id,current);

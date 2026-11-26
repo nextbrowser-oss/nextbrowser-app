@@ -182,7 +182,7 @@ test("profile starts require visible first-install consent and every browser run
   assert.match(main, /await ensureClawbrowserRuntime\(options\.requestId\)/);
   assert.match(main, /ensureDasbrowserRuntime\(\{ requestId: options\.requestId \}\)/);
   assert.match(main, /cancelBrowserRuntimeInstall/);
-  assert.match(sidebar, /Download &amp; start/);
+  assert.match(sidebar, /translate\("Download & start"\)/);
   assert.match(sidebar, /browser_runtime_available/);
   assert.match(app, /Stop download/);
   assert.match(app, /nextctl_cancel/);
@@ -265,7 +265,7 @@ test("unfinished recording attempts are never persisted as library entities", ()
   assert.match(studio, /Start recording/);
   assert.match(studio, /Stop recording/);
   assert.match(studio, /Capture from Project Chat/);
-  assert.match(studio, /Stop &amp; open workflow/);
+  assert.match(studio, /translate\("Stop & open workflow"\)/);
   assert.match(studio, /startRecording\("workflow", "hybrid"\)/);
   assert.match(studio, /automation_page_recording_start/);
   assert.match(studio, /automation_page_recording_stop/);
@@ -290,7 +290,7 @@ test("automation studio gives newcomers a complete path and runs unsaved edits s
   assert.match(studio, /Record a task you can perform once/);
   assert.match(studio, /Build an editable, predictable automation/);
   assert.match(studio, /Keep automation files on this computer/);
-  assert.match(studio, /Save &amp; run/);
+  assert.match(studio, /translate\("Save & run"\)/);
   assert.match(studio, /min_rows: count/);
   assert.match(studio, /replaceTopCount\(artifactArguments\.name\)/);
   assert.match(studio, /const workflow = draftDirty \? await saveDraft\(\) : draft/);
@@ -315,8 +315,8 @@ test("workflow list exposes the same actions from a right-click menu", () => {
   const styles = fs.readFileSync(path.join(__dirname, "..", "src", "styles.css"), "utf8");
   assert.match(studio, /onContextMenu=\{\(event\) => openWorkflowContextMenu\(event, skill\.id\)\}/);
   assert.match(studio, /className="workflow-context-menu" role="menu"/);
-  assert.match(studio, /Duplicate workflow<\/button>/);
-  assert.match(studio, /Delete workflow<\/button>/);
+  assert.match(studio, /\{translate\("Duplicate workflow"\)\}<\/button>/);
+  assert.match(studio, /\{translate\("Delete workflow"\)\}<\/button>/);
   assert.match(styles, /\.workflow-context-menu/);
 });
 
@@ -336,7 +336,7 @@ test("recordings and workflows replay deterministically with explicit AI repair"
   assert.match(studio, /Repair & run with AI/);
   assert.match(studio, /AI is adding the missing starting page before this automation runs/);
   assert.match(studio, /Automatic repair could not start\. Original failure:/);
-  assert.match(studio, /canRepairMissingStart \? "Repair & run" : "Run again"/);
+  assert.match(studio, /canRepairMissingStart \? translate\("Repair & run"\) : translate\("Run again"\)/);
   assert.match(studio, /runLocalSkill\(repairWorkflow, repairTask\)/);
   assert.match(studio, /workflowSnapshot: workflow/);
   assert.match(studio, /failedExecution\.workflowSnapshot/);

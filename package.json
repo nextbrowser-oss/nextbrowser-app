@@ -91,6 +91,7 @@
     ],
     "files": [
       "dist/**/*",
+      "src/shared/lib/i18n/messages/*.json",
       "electron/**/*",
       "package.json"
     ],
@@ -107,6 +108,7 @@
       }
     ],
     "mac": {
+      "extraResources": [{ "from": "build/input-language", "to": "input-language" }],
       "target": [
         "dmg",
         "zip"

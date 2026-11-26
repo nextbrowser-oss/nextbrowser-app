@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useState } from 'react';
 import { invoke } from '../electronBridge';
 import { MiniAppIcon } from './MiniAppIcon';
@@ -48,12 +49,12 @@ function Shortcuts({ owner }: { owner: string }) {
           event.preventDefault();
           endDrag();
           void invoke('mini_apps_move_pinned', { owner, source: dragged, target: app.generation, position })
-            .catch(() => setError('Could not save the rail order. Try moving the icon again.'));
+            .catch(() => setError(translate("Could not save the rail order. Try moving the icon again.")));
         }}
         onClick={() => select('mini-apps', { owner, id: app.id })}>
         <MiniAppIcon app={app} />
       </button></Tooltip>;
     })}
-    {error && <Dialog title="Mini app order" onClose={() => setError('')}><p role="alert">{error}</p></Dialog>}
+    {error && <Dialog title={translate("Mini app order")} onClose={() => setError('')}><p role="alert">{error}</p></Dialog>}
   </>;
 }

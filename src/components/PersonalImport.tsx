@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useId, useRef, useState } from "react";
 import { ArchiveRestore, Bookmark, Check, ChevronRight, Clock3, Download, Flame, FolderOpen, Globe, Image, PanelsTopLeft, RefreshCw, TrendingUp } from "lucide-react";
 import { invoke } from "../electronBridge";
@@ -83,26 +84,26 @@ export function PersonalImport({workspaceId,owner,initialSource,disabled,onSaved
     finally { if (ticket === generation.current) setPending(false); }
   }
 
-  return <form className="personal-import" aria-label="Import browser data" aria-busy={pending} onSubmit={e => { e.preventDefault(); void save(); }}>
+  return <form className="personal-import" aria-label={translate("Import browser data")} aria-busy={pending} onSubmit={e => { e.preventDefault(); void save(); }}>
     <div className="personal-profile-actions">
-      <Button disabled={locked} onClick={() => void scan(active)}><RefreshCw/>Scan again</Button>
-      <Button disabled={locked} onClick={() => void pickFolder()}><FolderOpen/>Choose another folder…</Button>
-      <Button disabled={locked} onClick={onRestore}><ArchiveRestore/>Restore from archive…</Button>
+      <Button disabled={locked} onClick={() => void scan(active)}><RefreshCw/>{translate("Scan again")}</Button>
+      <Button disabled={locked} onClick={() => void pickFolder()}><FolderOpen/>{translate("Choose another folder…")}</Button>
+      <Button disabled={locked} onClick={onRestore}><ArchiveRestore/>{translate("Restore from archive…")}</Button>
     </div>
-    {unavailable.length > 0 && <p>Could not scan {unavailable.join(", ")}.</p>}
-    {unsupported.length > 0 && <p>Automatic import is unavailable for {unsupported.join(", ")}.</p>}
+    {unavailable.length > 0 && <p>{translate("Could not scan")} {unavailable.join(", ")}.</p>}
+    {unsupported.length > 0 && <p>{translate("Automatic import is unavailable for")} {unsupported.join(", ")}.</p>}
     {source ? <div className="personal-source-layout">
       <div className="personal-source-column">
-        <h4>Browser profiles <span>{sources.length}</span></h4>
-        <ul aria-label="Browser profiles on this device" className="personal-source-list">
+        <h4>{translate("Browser profiles")} <span>{sources.length}</span></h4>
+        <ul aria-label={translate("Browser profiles on this device")} className="personal-source-list">
           {sources.map(s => {
             const Icon = s.browser === "Firefox" ? Flame : Globe;
             return <li key={s.id}><button type="button" aria-pressed={s.id === active} disabled={locked}
               onClick={() => { if (s.id !== active) choose(s); setError(""); }}>
               <Icon size={17} aria-hidden="true"/>
-              <span><strong>{s.name}</strong><small>{s.browser} · {readyCount(s)} available</small></span>
+              <span><strong>{s.name}</strong><small>{s.browser} · {readyCount(s)} {translate("available")}</small></span>
               {s.previouslyImported || Object.values(s.items).some(item => item?.imported)
-                ? <small className="personal-imported-badge"><Check size={12} aria-hidden="true"/>Imported</small>
+                ? <small className="personal-imported-badge"><Check size={12} aria-hidden="true"/>{translate("Imported")}</small>
                 : s.id === active && <ChevronRight size={15} aria-hidden="true"/>}
             </button></li>;
           })}
@@ -110,7 +111,7 @@ export function PersonalImport({workspaceId,owner,initialSource,disabled,onSaved
       </div>
       <div className="personal-source-detail">
         <fieldset className="personal-source-items">
-          <legend>Data to import</legend>
+          <legend>{translate("Data to import")}</legend>
           {kinds.filter(kind => source.browser !== "Firefox" || ["bookmarks","history","tabs"].includes(kind)).map(kind => {
             const item = source.items[kind];
             const title = categoryLabel(kind,source.browser);
@@ -126,15 +127,14 @@ export function PersonalImport({workspaceId,owner,initialSource,disabled,onSaved
             </label>;
           })}
         </fieldset>
-        <label className="personal-profile-name">New personal profile name
-          <input className="shared-text-field" maxLength={80} required value={name} disabled={locked} onChange={e => setName(e.target.value)}/>
+        <label className="personal-profile-name">{translate("New personal profile name")}<input className="shared-text-field" maxLength={80} required value={name} disabled={locked} onChange={e => setName(e.target.value)}/>
         </label>
         <div className="personal-import-footer">
-          <p>Saved on this device with an encrypted backup. Websites will ask you to sign in again.</p>
-          <Button type="submit" className="primary" disabled={locked || !name.trim() || !selected.length}><Download/>Import selected data</Button>
+          <p>{translate("Saved on this device with an encrypted backup. Websites will ask you to sign in again.")}</p>
+          <Button type="submit" className="primary" disabled={locked || !name.trim() || !selected.length}><Download/>{translate("Import selected data")}</Button>
         </div>
       </div>
-    </div> : <p>{pending ? "Scanning local browser profiles…" : "No browser profiles found. Choose a Firefox or Chromium profile folder to scan."}</p>}
+    </div> : <p>{pending ? translate("Scanning local browser profiles…") : translate("No browser profiles found. Choose a Firefox or Chromium profile folder to scan.")}</p>}
     {error && <p role="alert">{error}</p>}
   </form>;
 }

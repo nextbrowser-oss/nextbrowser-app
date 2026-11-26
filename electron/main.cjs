@@ -1,3 +1,4 @@
+const { translate } = require("./interface-messages.cjs");
 const { readCLIVersion } = require("./cli-version.cjs");
 const { MIN_WINDOW_SIZE, interfaceZoomShortcut, restoredWindowSize, fitWindowSize, saveWindowSize, rememberWindowSize,
   windowChromeOptions, applyWindowChrome, applyWindowZoom, windowState, controlWindow, watchWindowState } = require("./window-chrome.cjs");
@@ -2924,6 +2925,17 @@ async function invokeCommand(command, args = {}, sender) {
     }
     case "nodemaven_send_invite": return sendNodeMavenInvite({ env: childEnv() });
     case "app_platform": return { platform: process.platform, arch: process.arch };
+    case "app_set_interface_language":
+      return require("./interface-messages.cjs").setInterfaceLanguage(args.language);
+    case "app_input_languages": {
+      const window = sender && BrowserWindow.fromWebContents(sender);
+      const handle = process.platform === "win32" && window?.getNativeWindowHandle();
+      const helper = process.platform === "win32" ? liveWindowHelper
+        : path.join(app.isPackaged ? process.resourcesPath : path.join(__dirname, "..", "build"), "input-language");
+      return require("./input-language.cjs").inputLanguages({ platform: process.platform, helper,
+        windowHandle: handle ? (handle.length === 8 ? handle.readBigUInt64LE() : handle.readUInt32LE()).toString() : undefined,
+        preferredLanguages: () => app.getPreferredSystemLanguages() });
+    }
     case "error_reporting_status": return errorReporter.status();
     case "error_reporting_set": return errorReporter.setUserEnabled(args.enabled !== false);
     case "product_journey": {
@@ -3072,12 +3084,12 @@ async function invokeCommand(command, args = {}, sender) {
     case "select_ssh_config": {
       const owner = desktopDialogOwner();
       const options = {
-        title: "Choose SSH config",
+        title: translate("Choose SSH config"),
         defaultPath: defaultSSHConfigPath(home()),
         properties: ["openFile"],
         filters: [
-          { name: "SSH config", extensions: ["conf", "config"] },
-          { name: "All files", extensions: ["*"] },
+          { name: translate("SSH config"), extensions: ["conf", "config"] },
+          { name: translate("All files"), extensions: ["*"] },
         ],
       };
       const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options);
@@ -3094,7 +3106,7 @@ async function invokeCommand(command, args = {}, sender) {
     case "select_chat_files": {
       const owner = desktopDialogOwner();
       const result = await dialog.showOpenDialog(owner, {
-        title: "Attach files to chat",
+        title: translate("Attach files to chat"),
         properties: ["openFile", "multiSelections"],
       });
       if (result.canceled) return [];
@@ -3113,7 +3125,7 @@ async function invokeCommand(command, args = {}, sender) {
       const workspaceId = String(args.workspaceId || "");
       const owner = desktopDialogOwner();
       const result = await dialog.showOpenDialog(owner, {
-        title: "Add artifacts",
+        title: translate("Add artifacts"),
         properties: ["openFile", "multiSelections"],
       });
       if (result.canceled) return { artifacts: await localAutomationArtifacts().list(workspaceId), imported: 0, failed: [], skipped: 0 };
@@ -3254,7 +3266,7 @@ async function invokeCommand(command, args = {}, sender) {
     case "select_terminal_files": {
       const owner = desktopDialogOwner();
       const result = await dialog.showOpenDialog(owner, {
-        title: "Attach files to terminal",
+        title: translate("Attach files to terminal"),
         properties: ["openFile", "multiSelections"],
       });
       if (result.canceled) return [];
@@ -3726,7 +3738,7 @@ async function invokeCommand(command, args = {}, sender) {
       const text = typeof args.text === "string" ? args.text.slice(0, 1024 * 1024) : "";
       const window = sender ? BrowserWindow.fromWebContents(sender) : undefined;
       const menu = Menu.buildFromTemplate([{
-        label: "Copy",
+        label: translate("Copy"),
         enabled: text.length > 0,
         accelerator: "CmdOrCtrl+C",
         click: () => clipboard.writeText(text),
@@ -4181,6 +4193,12 @@ if (!gotLock) {
     }
     ipcMain.handle("nextbrowser:invoke", async (event, command, args) => {
       if (miniApps().isGuest(event.sender)) throw Error("Desktop commands are unavailable.");
+      if (command === "app_input_languages" || command === "app_set_interface_language") {
+        const owner = BrowserWindow.fromWebContents(event.sender);
+        if (!chromeWindows.has(owner) || event.sender !== owner.webContents || event.senderFrame !== event.sender.mainFrame) {
+          throw Error("Interface language settings require the desktop window.");
+        }
+      }
       if (command === "account_github_profile" || command === "account_manage_identity") {
         const window = BrowserWindow.fromWebContents(event.sender);
         if (!chromeWindows.has(window) || event.sender !== window.webContents || event.senderFrame !== event.sender.mainFrame) {

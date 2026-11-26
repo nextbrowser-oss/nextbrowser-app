@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect } from "react";
 import { useStore } from "../store";
 import { discordUrl, repoUrl } from "../constants";
@@ -60,36 +61,22 @@ export function TrafficGateModal() {
         <div className="modal-title-row">
           <Icon name="lock.fill" size={18} />
           <div>
-            <strong id="traffic-gate-title">Get 1 GB of free proxy traffic</strong>
+            <strong id="traffic-gate-title">{translate("Get 1 GB of free proxy traffic")}</strong>
             <div className="muted small">
-              {proxy ? `${humanBytes(proxy.used_bytes)} used · ` : ""}
-              free traffic is paused
-            </div>
+              {proxy ? translate("%1 used · ", humanBytes(proxy.used_bytes)) : ""}{translate("free traffic is paused")}</div>
           </div>
         </div>
-        <p className="traffic-gate-modal-copy">
-          Connect GitHub and star <strong>nextbrowser-oss/nextbrowser-app</strong>. Your 1 GB
-          unlocks once the star is checked. If you remove the star later, the bonus pauses again.
-        </p>
+        <p className="traffic-gate-modal-copy">{translate("Connect GitHub and star")} <strong>{translate("nextbrowser-oss/nextbrowser-app")}</strong>{translate(". Your 1 GB unlocks once the star is checked. If you remove the star later, the bonus pauses again.")} </p>
         <div className="traffic-gate-modal-effect">
           <Icon name="exclamationmark.triangle.fill" size={14} />
-          <span>
-            Until then profiles on the managed proxy will not start and pages will not load
-            through it. Profiles on a direct connection or your own proxy keep working.
-          </span>
+          <span>{translate("Until then profiles on the managed proxy will not start and pages will not load through it. Profiles on a direct connection or your own proxy keep working.")}</span>
         </div>
         <div className="modal-actions">
-          <button className="link small" type="button" onClick={askInDiscord}>
-            Questions? Ask in Discord
-          </button>
+          <button className="link small" type="button" onClick={askInDiscord}>{translate("Questions? Ask in Discord")}</button>
           <span className="spacer" />
-          <button className="btn-bordered" type="button" autoFocus onClick={() => setOpen(false)}>
-            Later
-          </button>
+          <button className="btn-bordered" type="button" autoFocus onClick={() => setOpen(false)}>{translate("Later")}</button>
           <button className="primary" type="button" onClick={openGitHub}>
-            <Icon name="star.fill" size={13} />
-            Open GitHub
-          </button>
+            <Icon name="star.fill" size={13} />{translate("Open GitHub")}</button>
         </div>
       </section>
     </div>

@@ -3,6 +3,7 @@ import type { BrowserToolset, Conversation, Profile, Workspace } from '../types'
 export type StartScope = { workspaceId: string; profile: string; runtime: BrowserToolset };
 export type StartPin = { id: string; name: string; url: string };
 export type StartSnapshot = {
+  language?: string;
   profile: string; workspace: string; runtime: string; theme: string; agent: string;
   connection: string; country?: string; ip?: string; verified: boolean; status: string;
   sessions: { id: string; title: string; updatedAt: number; preview: string; messages: number }[];

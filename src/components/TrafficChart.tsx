@@ -1,3 +1,4 @@
+import { formattingLocale, translate } from "../shared/lib/i18n";
 import { useEffect, useId, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { TooltipContent, type TooltipAnchor } from "../shared/ui";
 import {
@@ -11,7 +12,7 @@ import { humanBytes, type ProxyTrafficHistoryPoint } from "../types";
 const plotLeft = 60;
 const plotTop = 8;
 const gridFractions = [0, 0.25, 0.5, 0.75, 1];
-const numberFormatter = new Intl.NumberFormat();
+
 
 type PositionedTrafficPoint = ProxyTrafficHistoryPoint & {
   x: number;
@@ -85,7 +86,7 @@ export function TrafficChart({ points }: { points: ProxyTrafficHistoryPoint[] })
       ref={container}
       className="proxy-traffic-chart"
       role="img"
-      aria-label="Proxy traffic trend by date"
+      aria-label={translate("Proxy traffic trend by date")}
       aria-describedby={activePoint ? tooltipId : undefined}
       onPointerMove={updateHoveredPoint}
       onPointerLeave={() => setHoveredIndex(undefined)}
@@ -159,12 +160,12 @@ export function TrafficChart({ points }: { points: ProxyTrafficHistoryPoint[] })
           <div className="traffic-tooltip-details">
             <strong>{formatHistoryDateLabel(activePoint.label)}</strong>
             <span>
-              <span>Traffic</span>
+              <span>{translate("Traffic")}</span>
               <b>{humanBytes(activePoint.used_bytes)}</b>
             </span>
             <span>
-              <span>Requests</span>
-              <b>{numberFormatter.format(activePoint.requests)}</b>
+              <span>{translate("Requests")}</span>
+              <b>{activePoint.requests.toLocaleString(formattingLocale())}</b>
             </span>
           </div>
         </TooltipContent>

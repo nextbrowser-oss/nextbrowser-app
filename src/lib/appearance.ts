@@ -1,8 +1,9 @@
+import { translate } from "../shared/lib/i18n";
 export const colorFields = {
-  accent: { label: "App accent", token: "--accent" },
-  background: { label: "App background", token: "--bg" },
-  outgoing: { label: "Your messages", token: "--primary-action" },
-  incoming: { label: "Agent messages", token: "--bg-elevated" },
+  accent: { get label() { return translate("App accent"); }, token: "--accent" },
+  background: { get label() { return translate("App background"); }, token: "--bg" },
+  outgoing: { get label() { return translate("Your messages"); }, token: "--primary-action" },
+  incoming: { get label() { return translate("Agent messages"); }, token: "--bg-elevated" },
 } as const;
 
 export type ColorField = keyof typeof colorFields;

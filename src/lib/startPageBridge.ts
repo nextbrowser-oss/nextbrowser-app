@@ -1,3 +1,4 @@
+import { getLanguage, translate } from '../shared/lib/i18n';
 import { useStore } from '../store';
 import { invoke } from '../electronBridge';
 import { agentById } from '../agents';
@@ -40,10 +41,10 @@ export async function handleStartPageRequest(scope: StartScope, action: { type: 
   const profile = state.profiles.find(p => p.name === scope.profile);
   const identity = state.profileIdentities[scope.profile];
   return {
-    profile: profile?.display_name || profile?.name || 'Default browser', workspace: workspace.name,
+    language: getLanguage(), profile: profile?.display_name || profile?.name || translate('Default browser'), workspace: workspace.name,
     runtime: { clawbrowser: 'ClawBrowser', camoufox: 'Camoufox', dasbrowser: 'DasBrowser' }[scope.runtime],
     theme: document.documentElement.dataset.theme || 'dark', agent: agentById(conversations[0]?.agent || state.agentId).name,
-    connection: profile?.proxy_mode === 'direct' ? 'Direct connection' : profile?.proxy_mode === 'manual' ? 'Personal proxy' : 'Managed proxy',
+    connection: profile?.proxy_mode === 'direct' ? translate('Direct connection') : profile?.proxy_mode === 'manual' ? translate('Personal proxy') : translate('Managed proxy'),
     country: identity?.country || profile?.country || undefined, ip: identity?.ip,
     verified: !!identity?.ip && !identity.unverified,
     status: state.statuses[scope.profile] || state.profileSessions[scope.profile]?.status || (scope.profile === '__default' ? state.defaultSession?.status : undefined) || 'unknown',

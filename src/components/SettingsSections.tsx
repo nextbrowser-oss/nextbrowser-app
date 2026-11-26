@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { Tooltip } from "../shared/ui";
 import { useRef, type KeyboardEvent, type ReactNode } from "react";
 import { Icon } from "./Icon";
@@ -31,7 +32,7 @@ export function SettingsRail({
     tabs.current[next]?.focus();
   };
   return (
-    <div className="settings-rail" role="tablist" aria-orientation="vertical" aria-label="Settings sections" onKeyDown={move}>
+    <div className="settings-rail" role="tablist" aria-orientation="vertical" aria-label={translate("Settings sections")} onKeyDown={move}>
       {SETTINGS_SECTIONS.map((item) => {
         const selected = item.id === section;
         const note = attention[item.id];

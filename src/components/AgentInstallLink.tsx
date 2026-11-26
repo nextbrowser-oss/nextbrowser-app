@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import {
   agentInstallName,
   isMissingAgentInstallError,
@@ -24,8 +25,7 @@ export function AgentInstallLink({
       target="_blank"
       rel="noreferrer"
       onClick={() => trackEvent("agent_install_opened", { agent: agent.id, surface })}
-    >
-      Install {agentInstallName(agent)}
+    >{translate("Install")} {agentInstallName(agent)}
       <Icon name="arrow.up.forward.app" size={12} />
     </a>
   );

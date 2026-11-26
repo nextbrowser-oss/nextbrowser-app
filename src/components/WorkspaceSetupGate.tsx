@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useRef, useState, type FormEvent } from "react";
 import { ROTATION_COUNTRIES } from "../lib/countryFlag";
 import { internalError } from "../lib/userFacingError";
@@ -65,46 +66,46 @@ export function WorkspaceSetupGate() {
   return (
     <div className="modal-overlay workspace-setup-overlay">
       <form className="modal-card workspace-setup-card" onSubmit={submit}>
-        <div className="workspace-setup-progress" aria-label={`Setup step ${step} of 3`}>
+        <div className="workspace-setup-progress" aria-label={translate("Setup step %1 of 3", step)}>
           {[1, 2, 3].map((value) => <span key={value} className={value <= step ? "active" : ""} />)}
         </div>
         <div className="workspace-setup-heading">
           <Icon name={step === 1 ? "square.grid.2x2.fill" : step === 2 ? "bubble.left.and.bubble.right.fill" : "globe"} size={20} />
           <div>
-            <small>Step {step} of 3</small>
-            <h2>{step === 1 ? "Create your workspace" : step === 2 ? "Create the first project" : "Create the first browser profile"}</h2>
+            <small>{translate("Step")} {step} {translate("of 3")}</small>
+            <h2>{step === 1 ? translate("Create your workspace") : step === 2 ? translate("Create the first project") : translate("Create the first browser profile")}</h2>
           </div>
         </div>
         <p className="muted workspace-setup-copy">
-          {step === 1 && "A workspace keeps related chats and browser profiles together."}
-          {step === 2 && "Each project has its own agent context inside this workspace."}
-          {step === 3 && "Profiles belong to the workspace and can be used by one running chat at a time."}
+          {step === 1 && translate("A workspace keeps related chats and browser profiles together.")}
+          {step === 2 && translate("Each project has its own agent context inside this workspace.")}
+          {step === 3 && translate("Profiles belong to the workspace and can be used by one running chat at a time.")}
         </p>
-        {step === 1 && <label className="modal-field"><span className="modal-field-heading"><span>Workspace name</span><small>Max {entityNameLimits.workspace}</small></span><input autoFocus value={workspaceName} maxLength={entityNameLimits.workspace} onChange={(event) => { setWorkspaceName(event.target.value); setError(undefined); }} placeholder="My workspace" /></label>}
+        {step === 1 && <label className="modal-field"><span className="modal-field-heading"><span>{translate("Workspace name")}</span><small>{translate("Max")} {entityNameLimits.workspace}</small></span><input autoFocus value={workspaceName} maxLength={entityNameLimits.workspace} onChange={(event) => { setWorkspaceName(event.target.value); setError(undefined); }} placeholder={translate("My workspace")} /></label>}
         {step === 2 && <>
-          <label className="modal-field"><span className="modal-field-heading"><span>Project name</span><small>Max {entityNameLimits.project}</small></span><input autoFocus value={chatName} maxLength={entityNameLimits.project} onChange={(event) => { setChatName(event.target.value); setError(undefined); }} placeholder="First project" /></label>
-          <fieldset className="project-mode-field"><legend>Interface</legend>
-            <label className={"project-mode-option" + (chatMode === "chat" ? " is-selected" : "")}><input type="radio" checked={chatMode === "chat"} onChange={() => setChatMode("chat")} /><Icon name="bubble.left.and.bubble.right.fill" size={16} /><span><strong>Chat</strong><small>Regular conversation UI</small></span></label>
-            <label className={"project-mode-option" + (chatMode === "terminal" ? " is-selected" : "") + (agentSupportsTerminal(s.agentId) ? "" : " is-disabled")}><input type="radio" disabled={!agentSupportsTerminal(s.agentId)} checked={chatMode === "terminal" && agentSupportsTerminal(s.agentId)} onChange={() => setChatMode("terminal")} /><Icon name="terminal" size={16} /><span><strong>Terminal</strong><small>Persistent agent terminal</small></span></label>
+          <label className="modal-field"><span className="modal-field-heading"><span>{translate("Project name")}</span><small>{translate("Max")} {entityNameLimits.project}</small></span><input autoFocus value={chatName} maxLength={entityNameLimits.project} onChange={(event) => { setChatName(event.target.value); setError(undefined); }} placeholder={translate("First project")} /></label>
+          <fieldset className="project-mode-field"><legend>{translate("Interface")}</legend>
+            <label className={"project-mode-option" + (chatMode === "chat" ? " is-selected" : "")}><input type="radio" checked={chatMode === "chat"} onChange={() => setChatMode("chat")} /><Icon name="bubble.left.and.bubble.right.fill" size={16} /><span><strong>{translate("Chat")}</strong><small>{translate("Regular conversation UI")}</small></span></label>
+            <label className={"project-mode-option" + (chatMode === "terminal" ? " is-selected" : "") + (agentSupportsTerminal(s.agentId) ? "" : " is-disabled")}><input type="radio" disabled={!agentSupportsTerminal(s.agentId)} checked={chatMode === "terminal" && agentSupportsTerminal(s.agentId)} onChange={() => setChatMode("terminal")} /><Icon name="terminal" size={16} /><span><strong>{translate("Terminal")}</strong><small>{translate("Persistent agent terminal")}</small></span></label>
           </fieldset>
         </>}
         {step === 3 && <>
-          <label className="modal-field workspace-setup-profile-name"><span className="modal-field-heading"><span>Profile name</span><small>Max {entityNameLimits.profile}</small></span><input autoFocus value={profileName} maxLength={entityNameLimits.profile} onChange={(event) => { setProfileName(event.target.value); setError(undefined); }} placeholder="Browser profile" /></label>
-          <fieldset className="project-mode-field"><legend>Connection</legend>
-            <label className={"project-mode-option" + (direct ? " is-selected" : "")}><input type="radio" checked={direct} onChange={() => setDirect(true)} /><Icon name="network" size={16} /><span><strong>No proxy</strong><small>Direct internet connection</small></span></label>
-            <label className={"project-mode-option" + (!direct ? " is-selected" : "")}><input type="radio" checked={!direct} onChange={() => setDirect(false)} /><Icon name="globe" size={16} /><span><strong>Managed proxy</strong><small>Choose a country</small></span></label>
+          <label className="modal-field workspace-setup-profile-name"><span className="modal-field-heading"><span>{translate("Profile name")}</span><small>{translate("Max")} {entityNameLimits.profile}</small></span><input autoFocus value={profileName} maxLength={entityNameLimits.profile} onChange={(event) => { setProfileName(event.target.value); setError(undefined); }} placeholder={translate("Browser profile")} /></label>
+          <fieldset className="project-mode-field"><legend>{translate("Connection")}</legend>
+            <label className={"project-mode-option" + (direct ? " is-selected" : "")}><input type="radio" checked={direct} onChange={() => setDirect(true)} /><Icon name="network" size={16} /><span><strong>{translate("No proxy")}</strong><small>{translate("Direct internet connection")}</small></span></label>
+            <label className={"project-mode-option" + (!direct ? " is-selected" : "")}><input type="radio" checked={!direct} onChange={() => setDirect(false)} /><Icon name="globe" size={16} /><span><strong>{translate("Managed proxy")}</strong><small>{translate("Choose a country")}</small></span></label>
           </fieldset>
-          {!direct && <div className="modal-field"><span>Proxy country</span><CountrySelect countries={s.proxyCountries.length ? s.proxyCountries : ROTATION_COUNTRIES} value={country} onChange={setCountry} ariaLabel="Proxy country" /></div>}
-          <fieldset className="project-mode-field"><legend>Browser</legend>
-            <label className={"project-mode-option" + (toolset === "clawbrowser" ? " is-selected" : "")}><input type="radio" checked={toolset === "clawbrowser"} onChange={() => setToolset("clawbrowser")} /><Icon name="globe" size={16} /><span><strong>Clawbrowser</strong><small>Managed browser runtime</small></span></label>
-            <label className={"project-mode-option" + (toolset === "dasbrowser" ? " is-selected" : "")}><input type="radio" checked={toolset === "dasbrowser"} onChange={() => setToolset("dasbrowser")} /><Icon name="safari" size={16} /><span><strong>DasBrowser</strong><small>Multi-account browser</small></span></label>
-            <label className={"project-mode-option" + (toolset === "camoufox" ? " is-selected" : "")}><input type="radio" checked={toolset === "camoufox"} onChange={() => setToolset("camoufox")} /><Icon name="shield" size={16} /><span><strong>Camoufox</strong><small>Firefox anti-detect browser</small></span></label>
+          {!direct && <div className="modal-field"><span>{translate("Proxy country")}</span><CountrySelect countries={s.proxyCountries.length ? s.proxyCountries : ROTATION_COUNTRIES} value={country} onChange={setCountry} ariaLabel="Proxy country" /></div>}
+          <fieldset className="project-mode-field"><legend>{translate("Browser")}</legend>
+            <label className={"project-mode-option" + (toolset === "clawbrowser" ? " is-selected" : "")}><input type="radio" checked={toolset === "clawbrowser"} onChange={() => setToolset("clawbrowser")} /><Icon name="globe" size={16} /><span><strong>Clawbrowser</strong><small>{translate("Managed browser runtime")}</small></span></label>
+            <label className={"project-mode-option" + (toolset === "dasbrowser" ? " is-selected" : "")}><input type="radio" checked={toolset === "dasbrowser"} onChange={() => setToolset("dasbrowser")} /><Icon name="safari" size={16} /><span><strong>DasBrowser</strong><small>{translate("Multi-account browser")}</small></span></label>
+            <label className={"project-mode-option" + (toolset === "camoufox" ? " is-selected" : "")}><input type="radio" checked={toolset === "camoufox"} onChange={() => setToolset("camoufox")} /><Icon name="shield" size={16} /><span><strong>Camoufox</strong><small>{translate("Firefox anti-detect browser")}</small></span></label>
           </fieldset>
         </>}
         {error && <div className="error small"><UserFacingError message={error} surface="workspace_setup" /></div>}
         <button className="primary workspace-setup-submit" disabled={saving || (step === 1 ? !workspaceName.trim() : step === 2 ? !chatName.trim() : !profileName.trim())}>
           {saving ? <Spinner size={13} /> : <Icon name="arrow.right" size={13} />}
-          {step === 3 ? "Finish setup" : "Continue"}
+          {step === 3 ? translate("Finish setup") : translate("Continue")}
         </button>
       </form>
     </div>

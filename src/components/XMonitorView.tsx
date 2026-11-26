@@ -1,3 +1,4 @@
+import { formattingLocale, translate } from "../shared/lib/i18n";
 import { Tooltip } from "../shared/ui";
 import { useEffect, useState } from "react";
 import type { FeedPost } from "@nextbrowser-oss/x-monitoring";
@@ -23,7 +24,7 @@ function since(timestamp?: number): string {
 }
 
 function count(value?: number): string {
-  return value === undefined ? "—" : value.toLocaleString();
+  return value === undefined ? "—" : value.toLocaleString(formattingLocale());
 }
 
 function openUrl(url: string) {
@@ -110,22 +111,20 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
   const hasData = !!account || hasStats || feed.posts.length > 0;
   const notes = !busy ? lastPass?.notes ?? [] : [];
   const logLink = (
-    <Tooltip content="Reveal the monitor's log file"><button className="link small"
-      onClick={() => void invoke("app_data_reveal", { name: X_MONITOR_LOG_FILE })}>
-      Show log
-    </button></Tooltip>
+    <Tooltip content={translate("Reveal the monitor's log file")}><button className="link small"
+      onClick={() => void invoke("app_data_reveal", { name: X_MONITOR_LOG_FILE })}>{translate("Show log")}</button></Tooltip>
   );
 
   return (
     <>
       <div className="row watchlist-profile">
-        <label className="muted small">Profile</label>
-        <Tooltip content={running ? "Stop monitoring to change the profile" : "The browser profile signed in to x.com"}><select
+        <label className="muted small">{translate("Profile")}</label>
+        <Tooltip content={running ? translate("Stop monitoring to change the profile") : translate("The browser profile signed in to x.com")}><select
           value={profileAvailable ? profile : "__choose_profile__"}
           disabled={busy || running}
           onChange={(event) => chooseProfile(event.target.value)}
         >
-          {!profileAvailable && <option value="__choose_profile__" disabled>Choose a profile in this workspace</option>}
+          {!profileAvailable && <option value="__choose_profile__" disabled>{translate("Choose a profile in this workspace")}</option>}
           {browserProfiles.map((item) => (
             <option key={item.name} value={item.name}>
               {item.name}{item.country ? ` · ${item.country.toUpperCase()}` : ""}
@@ -133,13 +132,12 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
           ))}
         </select></Tooltip>
         <span className="spacer" />
-        <Tooltip content={`Open ${site} in this profile to sign in or switch account`}><button className="mini" disabled={busy || !profileAvailable}
-          onClick={() => void openSite(entry, profile)}>
-          Open {site}
+        <Tooltip content={translate("Open %1 in this profile to sign in or switch account", site)}><button className="mini" disabled={busy || !profileAvailable}
+          onClick={() => void openSite(entry, profile)}>{translate("Open")} {site}
         </button></Tooltip>
       </div>
       {!profileAvailable && (
-        <p className="muted small" role="status">Choose a browser profile from this workspace to monitor its X account.</p>
+        <p className="muted small" role="status">{translate("Choose a browser profile from this workspace to monitor its X account.")}</p>
       )}
 
       {(running || hasData) && (
@@ -148,20 +146,20 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
             {handle ? handle.slice(0, 1).toUpperCase() : <Icon name="person.crop.circle" size={16} />}
           </span>
           <div className="xmon-account-text">
-            <strong>{handle ? `@${handle}` : account ? "No X account" : "Reading the account…"}</strong>
+            <strong>{handle ? `@${handle}` : account ? translate("No X account") : translate("Reading the account…")}</strong>
             <span className="muted small">
               <span className={"status-dot " + (signedIn ? "ok-dot" : "muted-dot")} />
               {signedIn
-                ? `Signed in${account?.checkedAt ? ` · checked ${since(account.checkedAt)}` : ""}`
+                ? translate("Signed in%1", account?.checkedAt ? ` · checked ${since(account.checkedAt)}` : "")
                 : account
-                  ? `Not signed in to ${site} — open it and sign in`
-                  : "The first check is on its way"}
+                  ? translate("Not signed in to %1 — open it and sign in", site)
+                  : translate("The first check is on its way")}
             </span>
           </div>
           <span className="spacer" />
           {!running && (
-            <Tooltip content="Read the signed-in account again"><button className="plain-icon-btn" disabled={busy || !profileAvailable}
-               aria-label="Read the signed-in account again"
+            <Tooltip content={translate("Read the signed-in account again")}><button className="plain-icon-btn" disabled={busy || !profileAvailable}
+               aria-label={translate("Read the signed-in account again")}
               onClick={() => void openSite(entry, profile)}>
               <Icon name="arrow.clockwise" size={14} />
             </button></Tooltip>
@@ -172,7 +170,7 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
       {!running && (
         <div className="xmon-setup">
           <div className="xmon-setup-head">
-            <strong className="small">Schedule</strong>
+            <strong className="small">{translate("Schedule")}</strong>
             {busy && step && <span className="muted small">{`${step}…`}</span>}
           </div>
           <IntervalDial
@@ -186,13 +184,12 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
           <div className="row xmon-setup-actions">
             {hasData ? logLink : <span />}
             <span className="spacer" />
-            <Tooltip content="Read the account now and then on this interval"><button
+            <Tooltip content={translate("Read the account now and then on this interval")}><button
               className="btn-bordered-prominent"
               disabled={!profileAvailable || busy}
               onClick={() => void startSchedule(entry, { intervalMinutes: interval, profileName: profile })}
             >
-              <Icon name="play.fill" size={13} /> Start
-            </button></Tooltip>
+              <Icon name="play.fill" size={13} /> {translate("Start")}</button></Tooltip>
           </div>
         </div>
       )}
@@ -200,26 +197,25 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
       {hasStats && (
         <div className="xmon-stats">
           <div className="xmon-stat xmon-stat-main">
-            <span className="muted small">Followers</span>
+            <span className="muted small">{translate("Followers")}</span>
             <div className="xmon-stat-row">
               <strong className="xmon-value">{count(own?.followers)}</strong>
               {trend.delta !== undefined && trend.delta !== 0 && (
                 <span className={"xmon-delta " + (trend.delta > 0 ? "up" : "down")}>
                   <Icon name={trend.delta > 0 ? "arrow.up.circle" : "arrow.down.circle"} size={11} />
-                  {trend.delta > 0 ? "+" : "−"}{Math.abs(trend.delta).toLocaleString()} · 7d
-                </span>
+                  {trend.delta > 0 ? "+" : "−"}{Math.abs(trend.delta).toLocaleString(formattingLocale())} {translate("· 7d")}</span>
               )}
             </div>
-            {own?.exact === false && <span className="muted small">Rounded by x.com</span>}
-            <Sparkline points={trend.points} label="Followers over time" />
+            {own?.exact === false && <span className="muted small">{translate("Rounded by x.com")}</span>}
+            <Sparkline points={trend.points} label={translate("Followers over time")} />
           </div>
           <div className="xmon-stat">
-            <span className="muted small">Following</span>
+            <span className="muted small">{translate("Following")}</span>
             <strong className="xmon-value">{count(own?.following)}</strong>
           </div>
           <div className="xmon-stat">
-            <span className="muted small">New posts · 24h</span>
-            <strong className="xmon-value">{feed.readAt ? fresh.toLocaleString() : "—"}</strong>
+            <span className="muted small">{translate("New posts · 24h")}</span>
+            <strong className="xmon-value">{feed.readAt ? fresh.toLocaleString(formattingLocale()) : "—"}</strong>
           </div>
         </div>
       )}
@@ -227,9 +223,9 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
       {hasData && feed.posts.length > 0 && (
         <div className="xmon-feed">
           <div className="row xmon-feed-head">
-            <strong className="small">From your Following feed</strong>
+            <strong className="small">{translate("From your Following feed")}</strong>
             <span className="spacer" />
-            {feed.readAt && <span className="muted small">Updated {since(feed.readAt)}</span>}
+            {feed.readAt && <span className="muted small">{translate("Updated")} {since(feed.readAt)}</span>}
           </div>
           <div className="xmon-posts">
             {feed.posts.map((post) => <PostRow key={post.key} post={post} fresh={isNew(feed, post.key)} />)}
@@ -242,18 +238,17 @@ export function XMonitorView({ entry }: { entry: SkillEntry }) {
           <div className="row xmon-running-row">
             <span className={"status-dot " + (busy ? "warn-dot" : "ok-dot")} />
             <div className="xmon-running-text">
-              <strong className="small">{busy ? "Working" : `Running · every ${formatInterval(schedule?.intervalMinutes ?? interval)}`}</strong>
+              <strong className="small">{busy ? translate("Working") : translate("Running · every %1", formatInterval(schedule?.intervalMinutes ?? interval))}</strong>
               <span className="muted small">
                 {busy && step
                   ? `${step}…`
-                  : `Next check ${until(nextRunAt)}${lastPass ? ` · last ${since(lastPass.at)}` : ""}`}
+                  : translate("Next check %1%2", until(nextRunAt), lastPass ? ` · last ${since(lastPass.at)}` : "")}
               </span>
             </div>
             <span className="spacer" />
             {logLink}
-            <Tooltip content="Stop monitoring"><button className="btn-bordered" onClick={() => stopSchedule(entry.id)}>
-              <Icon name="stop" size={14} /> Stop
-            </button></Tooltip>
+            <Tooltip content={translate("Stop monitoring")}><button className="btn-bordered" onClick={() => stopSchedule(entry.id)}>
+              <Icon name="stop" size={14} /> {translate("Stop")}</button></Tooltip>
           </div>
           {notes.map((text) => <div key={text} className="small watchlist-pass-note"><UserFacingError message={text} surface="x_monitor" /></div>)}
         </div>
@@ -273,12 +268,12 @@ function PostRow({ post, fresh }: { post: FeedPost; fresh: boolean }) {
       <span className="xmon-post-avatar" aria-hidden>{post.author.slice(0, 1).toUpperCase()}</span>
       <div className="xmon-post-body">
         <div className="xmon-post-head small">
-          <Tooltip content={`Open @${post.author}`}><button className="watchlist-handle" onClick={() => openUrl(`https://x.com/${post.author}`)}>
+          <Tooltip content={translate("Open @%1", post.author)}><button className="watchlist-handle" onClick={() => openUrl(`https://x.com/${post.author}`)}>
             @{post.author}
           </button></Tooltip>
-          {post.repost && post.repostedBy && <span className="muted">reposted by @{post.repostedBy}</span>}
-          {post.reply && <span className="watchlist-chip">Reply</span>}
-          {fresh && <span className="watchlist-chip ok">New</span>}
+          {post.repost && post.repostedBy && <span className="muted">{translate("reposted by @")}{post.repostedBy}</span>}
+          {post.reply && <span className="watchlist-chip">{translate("Reply")}</span>}
+          {fresh && <span className="watchlist-chip ok">{translate("New")}</span>}
           <span className="spacer" />
           <span className="muted">{since(post.createdAt)}</span>
         </div>
@@ -286,11 +281,11 @@ function PostRow({ post, fresh }: { post: FeedPost; fresh: boolean }) {
         {(media.length > 0 || post.quotedUrl) && (
           <div className="watchlist-chips">
             {media.map((item) => <span key={item} className="watchlist-chip">{item}</span>)}
-            {post.quotedUrl && <span className="watchlist-chip">Quote</span>}
+            {post.quotedUrl && <span className="watchlist-chip">{translate("Quote")}</span>}
           </div>
         )}
       </div>
-      <Tooltip content="Open the post on x.com"><button className="plain-icon-btn" onClick={() => openUrl(post.url)}>
+      <Tooltip content={translate("Open the post on x.com")}><button className="plain-icon-btn" onClick={() => openUrl(post.url)}>
         <Icon name="arrow.up.right.square" size={14} />
       </button></Tooltip>
     </div>
@@ -318,7 +313,7 @@ export function Sparkline({ points, label }: { points: number[]; label: string }
         viewBox={`0 0 ${width} ${height}`}
         preserveAspectRatio="none"
         role="img"
-        aria-label={`${label}: ${points.map((value) => value.toLocaleString()).join(", ")}`}
+        aria-label={`${label}: ${points.map((value) => value.toLocaleString(formattingLocale())).join(", ")}`}
         onMouseMove={(event) => {
           const box = event.currentTarget.getBoundingClientRect();
           const ratio = (event.clientX - box.left) / box.width;
@@ -335,7 +330,7 @@ export function Sparkline({ points, label }: { points: number[]; label: string }
           </>
         )}
       </svg>
-      {active !== undefined && <span className="xmon-spark-tip small">{series[active].toLocaleString()}</span>}
+      {active !== undefined && <span className="xmon-spark-tip small">{series[active].toLocaleString(formattingLocale())}</span>}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { invoke } from '../electronBridge';
 import { Button } from '../shared/ui';
@@ -16,8 +17,8 @@ export function OpenGuest({ id, owner, name, blockId, surface, popover = false, 
     }).catch(() => { if (active) setFailed(true); });
     return () => { active = false; };
   }, [id, owner, blockId, surface, popover, attempt]);
-  if (failed) return <p role="alert">Could not open {name}. <Button onClick={() => { setFailed(false); setAttempt(n => n + 1); }}>Retry</Button></p>;
-  return guest ? <GuestView guest={guest} name={name} popover={popover} onReady={onReady} /> : <p role="status">Opening {name}…</p>;
+  if (failed) return <p role="alert">{translate("Could not open")} {name}. <Button onClick={() => { setFailed(false); setAttempt(n => n + 1); }}>{translate("Retry")}</Button></p>;
+  return guest ? <GuestView guest={guest} name={name} popover={popover} onReady={onReady} /> : <p role="status">{translate("Opening")} {name}…</p>;
 }
 
 function GuestView({ guest, name, popover, onReady }: { guest: Guest; name: string; popover: boolean; onReady?: (id: string) => void }) {
@@ -47,6 +48,6 @@ function GuestView({ guest, name, popover, onReady }: { guest: Guest; name: stri
       view?.removeEventListener('did-fail-load', fail);
     };
   }, [attempt]);
-  return failed ? <p role="alert">Could not load {name}. <Button onClick={() => { setFailed(false); setAttempt(a => a + 1); }}>Retry</Button></p>
+  return failed ? <p role="alert">{translate("Could not load")} {name}. <Button onClick={() => { setFailed(false); setAttempt(a => a + 1); }}>{translate("Retry")}</Button></p>
     : <webview key={attempt} ref={ref} className="mini-apps-guest" aria-label={name} style={height ? {height:'min(' + height + 'px, calc(100dvh - 70px))'} : undefined} partition={guest.partition} src={guest.src} />;
 }

@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { glassSurfaceClassName, Glyph, Tooltip } from "../shared/ui";
@@ -9,9 +10,9 @@ import { AddMiniAppTab } from "./SessionMiniApps";
 import "./mainViewNavigation.css";
 
 const views = [
-  { id: "chat", label: "Project", icon: "folder" },
-  { id: "live", label: "Processes", icon: "activity" },
-  { id: "automation", label: "Automation", icon: "branch" },
+  { id: "chat", get label() { return translate("Project"); }, icon: "folder" },
+  { id: "live", get label() { return translate("Processes"); }, icon: "activity" },
+  { id: "automation", get label() { return translate("Automation"); }, icon: "branch" },
 ] as const;
 
 type ViewId = typeof views[number]["id"];
@@ -96,11 +97,11 @@ export function MainViewNavigation({ onSelectPrimary, primaryActive = true }: { 
   function pill(group: Group, i: number) {
     return <div key={i} className={`${glassSurfaceClassName} main-view-navigation`} data-main-pill={i}
       data-drop={drag?.target === i || undefined} hidden={i !== 0 && !group.tabs.length && !drag}
-      style={group.position && positionStyle(group.position)} role="tablist" aria-label={i === 0 ? "Main views" : "Detached views"}>
+      style={group.position && positionStyle(group.position)} role="tablist" aria-label={i === 0 ? translate("Main views") : translate("Detached views")}>
       {group.tabs.map(id => {
         const view = views.find(v => v.id === id)!;
-        return <Tooltip key={id} content={`${view.label} · Drag to detach or group`}><button type="button" role="tab"
-          aria-label={`Open ${view.label}`} aria-selected={primaryActive && tab === id} data-moving={drag?.tab === id || undefined}
+        return <Tooltip key={id} content={translate("%1 · Drag to detach or group", view.label)}><button type="button" role="tab"
+          aria-label={translate("Open %1", view.label)} aria-selected={primaryActive && tab === id} data-moving={drag?.tab === id || undefined}
           onPointerDown={e => start(e, id)} onPointerMove={e => move(e, false)} onPointerUp={e => move(e, true)}
           onPointerCancel={cancel} onLostPointerCapture={() => { if (gesture.current) cancel(); }}
           onClick={e => { if (e.detail && suppressClick.current) return; onSelectPrimary?.(); id === "live" ? openBrowser() : select(id); }}>

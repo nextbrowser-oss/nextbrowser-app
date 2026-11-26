@@ -1,18 +1,19 @@
+import { translate } from "../shared/lib/i18n";
 export const agentChatCommands = [
-  { name: "help", description: "Show available chat commands" },
-  { name: "new", description: "Start a fresh project; keep the previous history", args: "[name]" },
-  { name: "sessions", description: "Switch between recent projects" },
-  { name: "title", description: "Show or rename this project", args: "[name]" },
-  { name: "stop", description: "Interrupt this project's running response" },
-  { name: "retry", description: "Send the last user message again" },
-  { name: "history", description: "Scroll to the beginning of this conversation" },
-  { name: "model", description: "Open agent and model settings" },
-  { name: "config", description: "Open agent settings" },
-  { name: "skills", description: "Browse available skills" },
-  { name: "scripts", description: "Open this chat's scripts" },
-  { name: "usage", description: "Open account usage" },
-  { name: "status", description: "Show this project's agent and activity" },
-  { name: "version", description: "Show the connected agent version" },
+  { name: "help", get description() { return translate("Show available chat commands"); } },
+  { name: "new", get description() { return translate("Start a fresh project; keep the previous history"); }, args: "[name]" },
+  { name: "sessions", get description() { return translate("Switch between recent projects"); } },
+  { name: "title", get description() { return translate("Show or rename this project"); }, args: "[name]" },
+  { name: "stop", get description() { return translate("Interrupt this project's running response"); } },
+  { name: "retry", get description() { return translate("Send the last user message again"); } },
+  { name: "history", get description() { return translate("Scroll to the beginning of this conversation"); } },
+  { name: "model", get description() { return translate("Open agent and model settings"); } },
+  { name: "config", get description() { return translate("Open agent settings"); } },
+  { name: "skills", get description() { return translate("Browse available skills"); } },
+  { name: "scripts", get description() { return translate("Open this chat's scripts"); } },
+  { name: "usage", get description() { return translate("Open account usage"); } },
+  { name: "status", get description() { return translate("Show this project's agent and activity"); } },
+  { name: "version", get description() { return translate("Show the connected agent version"); } },
 ] as const;
 export type AgentChatCommand = typeof agentChatCommands[number]["name"];
 const aliases: Record<string, AgentChatCommand> = { reset: "new", clear: "new" };

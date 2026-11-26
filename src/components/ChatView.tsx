@@ -1,3 +1,4 @@
+import { formattingLocale, translate } from "../shared/lib/i18n";
 import { glassSurfaceClassName, CommandList, FileDropArea, IconButton, OverlayScrollArea, Tooltip } from "../shared/ui";
 import "./chat.css";
 import { type ClipboardEvent, useEffect, useLayoutEffect, useRef, useState, useId, type ReactNode } from "react";
@@ -72,25 +73,25 @@ async function authorWorkflowWithAgent(agent: AgentSpec, workingDir: string, fal
 }
 
 function formatTime(ts: number) {
-  return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date(ts).toLocaleTimeString(formattingLocale(), { hour: "2-digit", minute: "2-digit" });
 }
 
 function statusLabel(m: ChatMessage): string {
   switch (m.status) {
     case "queued":
-      return "Queued";
+      return translate("Queued");
     case "streaming":
-      return m.activityLabel ?? "Streaming…";
+      return m.activityLabel ?? translate("Streaming…");
     case "done":
-      return "agent";
+      return translate("agent");
     case "failed":
-      return "Couldn’t finish";
+      return translate("Couldn’t finish");
     case "needsAttention":
-      return "Needs attention";
+      return translate("Needs attention");
     case "cancelled":
-      return "Stopped";
+      return translate("Stopped");
     case "timedOut":
-      return "Timed out";
+      return translate("Timed out");
     default:
       return "";
   }
@@ -298,7 +299,7 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
   };
   const runChatCommand = (parsed: NonNullable<ReturnType<typeof parseAgentChatCommand>>) => {
     setActionError(undefined); setCommandNotice(undefined);
-    if (attachments.length) { setActionError("Send or remove attached files before using a chat command."); return; }
+    if (attachments.length) { setActionError(translate("Send or remove attached files before using a chat command.")); return; }
     const { name, args, rawName } = parsed;
     if (!name) { setActionError("/" + rawName + " is not supported by this chat adapter. Use /help for available commands."); return; }
     if (args && !["new", "title", "help"].includes(name)) { setActionError("Use /" + name + " without arguments in this chat."); return; }
@@ -316,12 +317,12 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
         break;
       case "stop":
         if (running) s.stopRunning();
-        else setCommandNotice("This project has no running response.");
+        else setCommandNotice(translate("This project has no running response."));
         break;
       case "retry": {
-        if (running) { setActionError("Wait for this response or use /stop before retrying."); return; }
+        if (running) { setActionError(translate("Wait for this response or use /stop before retrying.")); return; }
         const last = [...messages].reverse().find(message => message.role === "user");
-        if (!last) { setActionError("There is no user message to retry yet."); return; }
+        if (!last) { setActionError(translate("There is no user message to retry yet.")); return; }
         enqueueInChat(last.text, last.attachments); break;
       }
       case "history": composerRef.current?.closest(".chat")?.querySelector<HTMLElement>(".messages")?.scrollTo({ top: 0 }); break;
@@ -366,7 +367,7 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
         return [...byPath.values()];
       });
     } catch {
-      setActionError("Could not attach files. Try again.");
+      setActionError(translate("Could not attach files. Try again."));
     }
   };
 
@@ -402,7 +403,7 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
 
   const handleDroppedFiles = (files: File[]) => {
     setActionError(undefined);
-    if (!addAttachmentFiles(files, "drop")) setActionError("Could not attach these files. Try the Attach button.");
+    if (!addAttachmentFiles(files, "drop")) setActionError(translate("Could not attach these files. Try the Attach button."));
   };
 
   const looksLikeDomain = (text: string) =>
@@ -484,15 +485,15 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
         unavailableLabel="Connect an agent to attach files">
         <div className="chat-header">
           {s.tab !== "live" && <div className={`${glassSurfaceClassName} chat-project-title`}>
-            <strong>{project?.title ?? "New project"}</strong>
+            <strong>{project?.title ?? translate("New project")}</strong>
             {conv && <SessionTitle />}
           </div>}
           {showSessionNavigation && project && !s.utilityDialog && <MainViewNavigation />}
           <span className="spacer" />
           {remoteOnly && (
             <Tooltip content={conv?.vpsConnectionLabel
-                ? `Remote target: ${conv.vpsConnectionLabel}`
-                : "This chat runs Clawbrowser commands on a VPS"}><span
+                ? translate("Remote target: %1", conv.vpsConnectionLabel)
+                : translate("This chat runs Clawbrowser commands on a VPS")}><span
               className="vps-target-pill"
             >
               <Icon name="terminal" size={12} />
@@ -509,13 +510,11 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
             />
           )}
           {!remoteOnly && showDefaultSession && (
-            <Tooltip content="Local browser session without a named profile"><span
+            <Tooltip content={translate("Local browser session without a named profile")}><span
               className="default-session-pill"
               tabIndex={0}
             >
-              <Icon name="globe" size={12} />
-              default
-            </span></Tooltip>
+              <Icon name="globe" size={12} />{translate("default")}</span></Tooltip>
           )}
           {headerAccessory && <div className="chat-header-accessories">{headerAccessory}</div>}
         </div>
@@ -523,13 +522,13 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
             <>
               {!ready && messages.length > 0 && (
                 <div className="chat-agent-error small" role="status">
-                  <span>{agentName} · {agentNeedsLogin ? "Sign-in required" : builtinAgent ? "Not set up" : "Not connected"}</span>{" "}
+                  <span>{agentName} · {agentNeedsLogin ? translate("Sign-in required") : builtinAgent ? translate("Not set up") : translate("Not connected")}</span>{" "}
                   {builtinAgent ? (
-                    <button className="btn-bordered" onClick={openAgentSettings}>Set up {agentName}</button>
+                    <button className="btn-bordered" onClick={openAgentSettings}>{translate("Set up")} {agentName}</button>
                   ) : (
                     <button className="btn-bordered" disabled={s.runtime[agentId]?.authorizing}
                       onClick={() => agentNeedsLogin ? s.loginAgent() : s.authorizeAgent()}>
-                      {s.runtime[agentId]?.authorizing ? "Checking…" : agentNeedsLogin ? `Sign in to ${agentName}` : `Connect ${agentName}`}
+                      {s.runtime[agentId]?.authorizing ? translate("Checking…") : agentNeedsLogin ? translate("Sign in to %1", agentName) : translate("Connect %1", agentName)}
                     </button>
                   )}
                 </div>
@@ -544,8 +543,8 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
                 <div className="guide-draft-notice" role="status">
                   <Icon name="doc.text" size={14} />
                   <span>
-                    <strong>Example loaded.</strong>{" "}
-                    {ready ? "Review it, then send when ready." : "Connect an agent before sending."}
+                    <strong>{translate("Example loaded.")}</strong>{" "}
+                    {ready ? translate("Review it, then send when ready.") : translate("Connect an agent before sending.")}
                   </span>
                   <button
                     type="button"
@@ -553,9 +552,7 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
                       setDraft("");
                       setGuideDraftLoaded(false);
                     }}
-                  >
-                    Clear
-                  </button>
+                  >{translate("Clear")}</button>
                 </div>
               )}
               {attachments.length > 0 && (
@@ -566,7 +563,7 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
                       <span>{file.name}</span>
                       <button
                         className="attachment-remove"
-                        aria-label={`Remove ${file.name}`}
+                        aria-label={translate("Remove %1", file.name)}
                         onClick={() => {
                           trackEvent("chat_file_removed");
                           setAttachments((items) => items.filter((item) => item.path !== file.path));
@@ -582,12 +579,12 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
               {commandNotice && <div className="chat-command-notice" role="status">{commandNotice}</div>}
               {permission && permission.conversationId === conv?.id && <AgentPermissionCard key={permission.id} request={permission} />}
               <ComposerSurface skin={skin}>
-                {activeCommand && <CommandList id={commandMenuId} label="Agent commands" activeId={activeCommand.name} anchor={composerRef.current?.closest<HTMLElement>(".composer")}
+                {activeCommand && <CommandList id={commandMenuId} label={translate("Agent commands")} activeId={activeCommand.name} anchor={composerRef.current?.closest<HTMLElement>(".composer")}
                   options={commandMatches.map(command => ({ id: command.name, title: "/" + command.name, description: command.description }))}
                   onChoose={acceptCommand} />}
                 <textarea
                   ref={composerRef}
-                  aria-label={`Message ${agentName}`}
+                  aria-label={translate("Message %1", agentName)}
                   rows={2}
                   role={activeCommand ? "combobox" : undefined}
                   aria-autocomplete="list"
@@ -598,8 +595,8 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
                   value={draft}
                   placeholder={
                     ready
-                      ? `Message ${agentName} — / for commands`
-                      : "Connect an agent first"
+                      ? translate("Message %1 — / for commands", agentName)
+                      : translate("Connect an agent first")
                   }
                   disabled={!ready}
                   onChange={(e) => { setDraft(e.target.value); setCommandIndex(0); setCommandMenuDismissed(false); }}
@@ -625,7 +622,7 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
                   <PanelWidgets surface="chat.panel" editing={editingGrid} controls={[
                     { key: 'attach', name: 'Attach', content: (
                         <IconButton
-                          label="Attach local files to the next message"
+                          label={translate("Attach local files to the next message")}
                           appearance="embedded"
                           size="small"
                           text="Attach"
@@ -638,7 +635,7 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
                     { key: 'scripts', name: 'Scripts', content: (
                         <div className="script-wrap" ref={scriptWrapRef}>
                           <IconButton
-                            label="Open scripts menu"
+                            label={translate("Open scripts menu")}
                             appearance="embedded"
                             size="small"
                             text="Scripts"
@@ -650,9 +647,9 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
                           </IconButton>
                           {scriptOpen && (
                             <div className={`${glassSurfaceClassName} script-menu`} ref={scriptMenuRef}>
-                              {officialScripts.length > 0 && <div className="section">OFFICIAL SCRIPTS</div>}
+                              {officialScripts.length > 0 && <div className="section">{translate("OFFICIAL SCRIPTS")}</div>}
                               {officialScripts.map((sc) => (
-                                <Tooltip key={sc.id} content={`Run ${sc.title}`}><button
+                                <Tooltip key={sc.id} content={translate("Run %1", sc.title)}><button
                                   onClick={() => {
                                     setScriptOpen(false);
                                     const domain = looksLikeDomain(draft.trim()) ? draft.trim() : "";
@@ -665,9 +662,9 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
                               ))}
                               {customScripts.length > 0 && (
                                 <>
-                                  <div className="section">MY SCRIPTS</div>
+                                  <div className="section">{translate("MY SCRIPTS")}</div>
                                   {customScripts.map((cs) => (
-                                    <Tooltip key={cs.id} content={`Run ${cs.title}`}><button
+                                    <Tooltip key={cs.id} content={translate("Run %1", cs.title)}><button
                                       onClick={() => {
                                         setScriptOpen(false);
                                         const domain = looksLikeDomain(draft.trim()) ? draft.trim() : "";
@@ -681,14 +678,12 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
                                 </>
                               )}
                               {officialScripts.length === 0 && customScripts.length === 0 && (
-                                <Tooltip content="Create a custom script"><button onClick={openScriptCreator}>
-                                  <Icon name="plus" size={13} /> Create script
-                                </button></Tooltip>
+                                <Tooltip content={translate("Create a custom script")}><button onClick={openScriptCreator}>
+                                  <Icon name="plus" size={13} /> {translate("Create script")}</button></Tooltip>
                               )}
                               {(officialScripts.length > 0 || customScripts.length > 0) && (
-                                <Tooltip content="Create a new custom script"><button onClick={openScriptCreator}>
-                                  <Icon name="plus" size={13} /> Create script
-                                </button></Tooltip>
+                                <Tooltip content={translate("Create a new custom script")}><button onClick={openScriptCreator}>
+                                  <Icon name="plus" size={13} /> {translate("Create script")}</button></Tooltip>
                               )}
                             </div>
                           )}
@@ -704,18 +699,18 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
                       content: <ComposerPermissionMode key={s.activeWorkspaceId} workspaceId={s.activeWorkspaceId} />,
                     }] : []),
                   ]} />
-                  <IconButton label={editingGrid ? 'Finish editing grid' : 'Edit widget grid'} aria-pressed={editingGrid}
+                  <IconButton label={editingGrid ? translate("Finish editing grid") : translate("Edit widget grid")} aria-pressed={editingGrid}
                     className="composer-grid-trigger" appearance="embedded" size="small" onClick={() => setEditingGrid(value => !value)}>
                     {editingGrid ? <GridCheck size={15} /> : <Grid2X2 size={15} />}
                   </IconButton>
                   <ComposerSkinPicker skin={skin} onApply={applySkin} />
                   {running ? (
-                    <IconButton label="Stop the running agent response" appearance="embedded" onClick={() => s.stopRunning()}>
+                    <IconButton label={translate("Stop the running agent response")} appearance="embedded" onClick={() => s.stopRunning()}>
                       <Icon name="stop.fill" size={16} />
                     </IconButton>
                   ) : (
                     <IconButton
-                      label="Send message to the selected agent"
+                      label={translate("Send message to the selected agent")}
                       appearance="embedded"
                       disabled={!ready || (!draft.trim() && attachments.length === 0)}
                       onClick={send}
@@ -728,7 +723,7 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
             </>
           }>
           {conv?.terminalPreview && <details className="chat-legacy-activity">
-            <summary>Previous terminal activity</summary><pre>{conv.terminalPreview}</pre>
+            <summary>{translate("Previous terminal activity")}</summary><pre>{conv.terminalPreview}</pre>
           </details>}
           {messages.length === 0 && (
             <div className="empty-state chat-empty-state">
@@ -736,10 +731,8 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
                 <Icon name="cursorarrow" size={24} />
               </div>
               <div>
-                <strong>{agentNeedsLogin ? `Sign in to ${agentName}` : ready ? "Agent connected" : `Connect ${agentName}`}</strong>
-                <p className="muted">
-                  Choose a browser profile and start it. Website actions stay blocked until its connection check passes.
-                </p>
+                <strong>{agentNeedsLogin ? translate("Sign in to %1", agentName) : ready ? translate("Agent connected") : translate("Connect %1", agentName)}</strong>
+                <p className="muted">{translate("Choose a browser profile and start it. Website actions stay blocked until its connection check passes.")}</p>
               </div>
               {!ready && agentError && <div className="error small" role="status">
                 <UserFacingError message={agentError} surface="agent_chat" />
@@ -747,52 +740,45 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
               </div>}
               {conv && !remoteOnly && conv.chatMode !== "terminal" && !conv.terminalPreview && (
                 <label className="modal-field">
-                  <span>Agent for this project</span>
-                  <select aria-label="Agent for this project" value={agentId} disabled={s.runtime[agentId]?.authorizing}
+                  <span>{translate("Agent for this project")}</span>
+                  <select aria-label={translate("Agent for this project")} value={agentId} disabled={s.runtime[agentId]?.authorizing}
                     onChange={(event) => s.changeEmptyProjectAgent(conv.id, event.target.value)}>
                     {AGENTS.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
                   </select>
-                  <small className="muted">You can change the agent while this chat is empty.</small>
+                  <small className="muted">{translate("You can change the agent while this chat is empty.")}</small>
                 </label>
               )}
               <div className="empty-actions">
                 {!ready && builtinAgent && (
-                  <Tooltip content="Choose a model provider and add its key"><button
+                  <Tooltip content={translate("Choose a model provider and add its key")}><button
                     className="btn-bordered-prominent"
                     onClick={openAgentSettings}
                   >
-                    <Icon name="bolt.fill" size={14} />
-                    Set up {agentName}
+                    <Icon name="bolt.fill" size={14} />{translate("Set up")} {agentName}
                   </button></Tooltip>
                 )}
                 {!ready && !builtinAgent && (
-                  <Tooltip content={agentNeedsLogin ? `Log in to ${agentName}` : "Connect the selected agent CLI"}><button
+                  <Tooltip content={agentNeedsLogin ? translate("Log in to %1", agentName) : translate("Connect the selected agent CLI")}><button
                     className="btn-bordered-prominent"
                     disabled={s.runtime[agentId]?.authorizing}
                     onClick={() => agentNeedsLogin ? s.loginAgent() : s.authorizeAgent()}
                   >
                     <Icon name="bolt.fill" size={14} />
-                    {s.runtime[agentId]?.authorizing ? "Checking…" : agentNeedsLogin ? `Sign in to ${agentName}` : agentError ? "Check again" : `Connect ${agentName}`}
+                    {s.runtime[agentId]?.authorizing ? translate("Checking…") : agentNeedsLogin ? translate("Sign in to %1", agentName) : agentError ? translate("Check again") : translate("Connect %1", agentName)}
                   </button></Tooltip>
                 )}
-                <Tooltip content="Open Skills"><button className="btn-bordered" onClick={() => s.setTab("skills")}>
-                  <Icon name="square.grid.2x2.fill" size={14} />
-                  Open Skills
-                </button></Tooltip>
+                <Tooltip content={translate("Open Skills")}><button className="btn-bordered" onClick={() => s.setTab("skills")}>
+                  <Icon name="square.grid.2x2.fill" size={14} />{translate("Open Skills")}</button></Tooltip>
                 {s.proxy ? (
-                  <Tooltip content="Choose a profile in this workspace"><button className="btn-bordered" onClick={() => window.dispatchEvent(new CustomEvent("nextbrowser:start-selected-profile"))}>
-                    <Icon name="play.fill" size={14} />
-                    Start session
-                  </button></Tooltip>
+                  <Tooltip content={translate("Choose a profile in this workspace")}><button className="btn-bordered" onClick={() => window.dispatchEvent(new CustomEvent("nextbrowser:start-selected-profile"))}>
+                    <Icon name="play.fill" size={14} />{translate("Start session")}</button></Tooltip>
                 ) : (
-                  <Tooltip content="Sign in to create managed profiles"><button className="btn-bordered" onClick={() => s.setDashboardKeyPromptOpen(true)}>
-                    <Icon name="lock" size={14} />
-                    Create first profile
-                  </button></Tooltip>
+                  <Tooltip content={translate("Sign in to create managed profiles")}><button className="btn-bordered" onClick={() => s.setDashboardKeyPromptOpen(true)}>
+                    <Icon name="lock" size={14} />{translate("Create first profile")}</button></Tooltip>
                 )}
               </div>
               <div className="empty-suggestion-grid">
-                <Tooltip content="Start the active browser profile and verify its connection country and IP"><button
+                <Tooltip content={translate("Start the active browser profile and verify its connection country and IP")}><button
                   className="empty-suggestion"
                   onClick={() =>
                     s.tryGuidePrompt(
@@ -802,18 +788,18 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
                 >
                   <Icon name="globe" size={15} />
                   <span>
-                    <strong>Proxy check</strong>
-                    <span className="muted small">Verify proxy country and IP</span>
+                    <strong>{translate("Proxy check")}</strong>
+                    <span className="muted small">{translate("Verify proxy country and IP")}</span>
                   </span>
                 </button></Tooltip>
-                <Tooltip content="Open Processes to inspect a running browser session"><button
+                <Tooltip content={translate("Open Processes to inspect a running browser session")}><button
                   className="empty-suggestion"
                   onClick={s.showLiveOverview}
                 >
                   <Icon name="waveform" size={15} />
                   <span>
-                    <strong>Open Processes</strong>
-                    <span className="muted small">Inspect the running browser</span>
+                    <strong>{translate("Open Processes")}</strong>
+                    <span className="muted small">{translate("Inspect the running browser")}</span>
                   </span>
                 </button></Tooltip>
               </div>
@@ -883,37 +869,35 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
                 window.dispatchEvent(new CustomEvent("nextbrowser:project-created", { detail: { id: projectId } }));
                 setProjectCreatorOpen(false);
               } catch (error) {
-                setProjectCreateError(error instanceof Error ? error.message : "We couldn't create the project. Please try again.");
+                setProjectCreateError(error instanceof Error ? error.message : translate("We couldn't create the project. Please try again."));
               }
             }}
           >
             <div className="profile-menu-head">
-              <span id="project-create-title" className="profile-menu-name">New project</span>
+              <span id="project-create-title" className="profile-menu-name">{translate("New project")}</span>
               <span className="spacer" />
-              <button type="button" className="plain-icon-btn" aria-label="Close" onClick={() => setProjectCreatorOpen(false)}>
+              <button type="button" className="plain-icon-btn" aria-label={translate("Close")} onClick={() => setProjectCreatorOpen(false)}>
                 <Icon name="xmark" size={17} />
               </button>
             </div>
-            <p className="muted small project-create-explainer">
-              Each project has its own agent chat and context. Browser profiles are shared by projects in this workspace.
-            </p>
+            <p className="muted small project-create-explainer">{translate("Each project has its own agent chat and context. Browser profiles are shared by projects in this workspace.")}</p>
             <label className="modal-field">
-              <span className="modal-field-heading"><span>Project name</span><small>Max {entityNameLimits.project}</small></span>
-              <input autoFocus value={projectName} maxLength={entityNameLimits.project} onChange={(event) => { setProjectName(event.target.value); setProjectCreateError(undefined); }} placeholder="Product research" />
+              <span className="modal-field-heading"><span>{translate("Project name")}</span><small>{translate("Max")} {entityNameLimits.project}</small></span>
+              <input autoFocus value={projectName} maxLength={entityNameLimits.project} onChange={(event) => { setProjectName(event.target.value); setProjectCreateError(undefined); }} placeholder={translate("Product research")} />
             </label>
             <label className="modal-field">
-              <span>Agent</span>
+              <span>{translate("Agent")}</span>
               <select value={projectAgentId} onChange={(event) => { setProjectAgentId(event.target.value); setProjectCreateError(undefined); }}>
                 {AGENTS.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
               </select>
               <small className="muted">{s.runtime[projectAgentId]?.ready && s.runtime[projectAgentId]?.loggedIn !== false
-                ? "Connected" : s.runtime[projectAgentId]?.loggedIn === false ? "Sign-in required — you can sign in after creating the project."
-                : "Not connected — you can connect after creating the project."}</small>
+                ? translate("Connected") : s.runtime[projectAgentId]?.loggedIn === false ? translate("Sign-in required — you can sign in after creating the project.")
+                : translate("Not connected — you can connect after creating the project.")}</small>
             </label>
             {projectCreateError && <div className="error small" role="alert">{projectCreateError}</div>}
             <div className="modal-actions">
-              <button type="button" className="secondary" onClick={() => setProjectCreatorOpen(false)}>Cancel</button>
-              <button type="submit" className="primary" disabled={!projectName.trim()}>Create project</button>
+              <button type="button" className="secondary" onClick={() => setProjectCreatorOpen(false)}>{translate("Cancel")}</button>
+              <button type="submit" className="primary" disabled={!projectName.trim()}>{translate("Create project")}</button>
             </div>
           </form>
         </div>
@@ -921,26 +905,22 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
 
       {editingReply && (
         <div className="modal-overlay">
-          <div className="modal-card" role="dialog" aria-modal="true" aria-label="Edit queued message">
+          <div className="modal-card" role="dialog" aria-modal="true" aria-label={translate("Edit queued message")}>
             <textarea value={editText} onChange={(e) => setEditText(e.target.value)} rows={4} />
             {actionError && <div className="error small" role="alert">{actionError}</div>}
             <div className="row" style={{ marginTop: 8, gap: 8 }}>
-              <button className="secondary" onClick={() => { setActionError(undefined); setEditingReply(null); }}>
-                Cancel
-              </button>
+              <button className="secondary" onClick={() => { setActionError(undefined); setEditingReply(null); }}>{translate("Cancel")}</button>
               <button
                 className="primary"
                 onClick={() => {
                   if (!s.editQueuedReply(editingReply, editText)) {
-                    setActionError("Could not update this queued message. It may have already started or been removed.");
+                    setActionError(translate("Could not update this queued message. It may have already started or been removed."));
                     return;
                   }
                   setActionError(undefined);
                   setEditingReply(null);
                 }}
-              >
-                Save
-              </button>
+              >{translate("Save")}</button>
             </div>
           </div>
         </div>
@@ -948,12 +928,12 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
 
       {promptDetail !== null && (
         <div className="modal-overlay" onMouseDown={() => setPromptDetail(null)}>
-          <div className="modal-card prompt-detail-card" role="dialog" aria-modal="true" aria-label="Prompt sent to agent" onMouseDown={(e) => e.stopPropagation()}>
-            <strong>Prompt sent to agent</strong>
+          <div className="modal-card prompt-detail-card" role="dialog" aria-modal="true" aria-label={translate("Prompt sent to agent")} onMouseDown={(e) => e.stopPropagation()}>
+            <strong>{translate("Prompt sent to agent")}</strong>
             <pre className="prompt-detail-text">{promptDetail}</pre>
             <div className="row" style={{ marginTop: 8, gap: 8 }}>
               <span className="spacer" />
-              <button className="secondary" onClick={() => setPromptDetail(null)}>Close</button>
+              <button className="secondary" onClick={() => setPromptDetail(null)}>{translate("Close")}</button>
             </div>
           </div>
         </div>
@@ -985,9 +965,9 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
       {workflowRejection && (
         <div className="modal-overlay" onMouseDown={() => setWorkflowRejection(null)}>
           <div className="modal-card workflow-quality-modal" onMouseDown={(event) => event.stopPropagation()}>
-            <strong>Nothing reusable to save yet</strong>
+            <strong>{translate("Nothing reusable to save yet")}</strong>
             <p className="muted">{workflowRejection}</p>
-            <p className="muted small">Complete a browser search, extraction, form, or posting task successfully, then try again.</p>
+            <p className="muted small">{translate("Complete a browser search, extraction, form, or posting task successfully, then try again.")}</p>
             <div className="row"><span className="spacer" /><button className="primary" onClick={() => setWorkflowRejection(null)}>OK</button></div>
           </div>
         </div>
@@ -1064,7 +1044,7 @@ function MessageBubble({
       <div className="msg-user-wrap">
         <div className="msg-user-inner">
           {m.commandChip ? (
-            <Tooltip content="Show full prompt sent to the agent"><button className="user-command-chip" onClick={onShowPrompt}>
+            <Tooltip content={translate("Show full prompt sent to the agent")}><button className="user-command-chip" onClick={onShowPrompt}>
               <span className="user-command-icon">
                 <Icon
                   name={m.commandChip.kind === "skill" ? "sparkles" : "scroll.fill"}
@@ -1073,7 +1053,7 @@ function MessageBubble({
               </span>
               <div>
                 <div className="chip-kind">
-                  {m.commandChip.kind === "skill" ? "Use skill" : "Run script"}
+                  {m.commandChip.kind === "skill" ? translate("Use skill") : translate("Run script")}
                 </div>
                 <strong>{m.commandChip.title}</strong>
                 {m.commandChip.detail && (
@@ -1102,20 +1082,20 @@ function MessageBubble({
             {actionError && <span role="alert">{actionError}</span>}
             {queuedReplyId && (
               <>
-                <span className="queue-badge">Waiting</span>
+                <span className="queue-badge">{translate("Waiting")}</span>
                 {canQueue && (
                   <>
-                    <Tooltip content="Edit queued message"><button className="plain-icon-btn plain-icon-btn-compact" onClick={onEdit}>
+                    <Tooltip content={translate("Edit queued message")}><button className="plain-icon-btn plain-icon-btn-compact" onClick={onEdit}>
                       <Icon name="pencil" size={12} />
                     </button></Tooltip>
-                    <Tooltip content="Remove queued message"><button className="plain-icon-btn plain-icon-btn-compact" onClick={onCancel}>
+                    <Tooltip content={translate("Remove queued message")}><button className="plain-icon-btn plain-icon-btn-compact" onClick={onCancel}>
                       <Icon name="trash" size={12} className="error" />
                     </button></Tooltip>
                   </>
                 )}
               </>
             )}
-            <Tooltip content="Copy message"><button
+            <Tooltip content={translate("Copy message")}><button
               className="plain-icon-btn plain-icon-btn-compact"
               onClick={() => void runMessageAction(() => navigator.clipboard.writeText(m.text), "Could not copy the message. Try again.")}
             >
@@ -1146,19 +1126,19 @@ function MessageBubble({
               ? verificationNeedsAttention
                 ? BROWSER_VERIFICATION_ATTENTION
                 : m.stalled
-                ? `Still working · ${elapsed(m.runStartedAt)}`
+                ? translate("Still working · %1", elapsed(m.runStartedAt))
                 : `${m.activityLabel ?? "Thinking"} · ${elapsed(m.runStartedAt)}`
               : statusLabel(m)}
           </span>
           {running && m.status === "streaming" && (
-            <Tooltip content="Stop this request"><button className="stop-inline" onClick={onStop} aria-label="Stop this request">
+            <Tooltip content={translate("Stop this request")}><button className="stop-inline" onClick={onStop} aria-label={translate("Stop this request")}>
               <Icon name="stop.fill" size={9} />
-              <span>Stop</span>
+              <span>{translate("Stop")}</span>
             </button></Tooltip>
           )}
         </div>
-        {m.runReport && <section className="agent-run-report" aria-label="Task progress">
-          {m.runReport.plan.length > 0 && <><strong>Plan</strong><ol>{m.runReport.plan.map((item, i) => <li key={i}>{item}</li>)}</ol></>}
+        {m.runReport && <section className="agent-run-report" aria-label={translate("Task progress")}>
+          {m.runReport.plan.length > 0 && <><strong>{translate("Plan")}</strong><ol>{m.runReport.plan.map((item, i) => <li key={i}>{item}</li>)}</ol></>}
           <p aria-live={m.status === "streaming" ? "polite" : "off"}>{m.runReport.progress}</p>
         </section>}
         {m.toolEvents && m.toolEvents.length > 0 && (
@@ -1177,7 +1157,7 @@ function MessageBubble({
                 <span>{errorSummary(visibleText)}</span>
               </div>
               <button className="error-toggle" onClick={() => setShowErrorDetails((v) => !v)}>
-                {showErrorDetails ? "Hide details" : "Show details"}
+                {showErrorDetails ? translate("Hide details") : translate("Show details")}
               </button>
               {showErrorDetails && <pre className="error-details">{visibleText}</pre>}
             </div>
@@ -1189,23 +1169,23 @@ function MessageBubble({
       {m.text && (
         <div className="msg-assistant-meta muted small">
           {actionError && <span role="alert">{actionError}</span>}
-          <Tooltip content="Copy message"><button
+          <Tooltip content={translate("Copy message")}><button
             className="plain-icon-btn plain-icon-btn-compact"
             onClick={() => void runMessageAction(() => navigator.clipboard.writeText(visibleText), "Could not copy the message. Try again.")}
           >
             <Icon name="doc.on.doc" size={12} />
           </button></Tooltip>
           {m.status === "done" && showSaveWorkflow && (
-            <Tooltip content="Save this browser workflow as a local skill"><button className="save-workflow-btn" disabled={savingWorkflow} onClick={onSaveWorkflow}>
-              {savingWorkflow && <Spinner size={11} />} {savingWorkflow ? "Preparing…" : "Save as skill"}
+            <Tooltip content={translate("Save this browser workflow as a local skill")}><button className="save-workflow-btn" disabled={savingWorkflow} onClick={onSaveWorkflow}>
+              {savingWorkflow && <Spinner size={11} />} {savingWorkflow ? translate("Preparing…") : translate("Save as skill")}
             </button></Tooltip>
           )}
           {(m.status === "failed" || m.status === "timedOut" || m.status === "needsAttention") && (
-            <Tooltip content="Review the request before sending it"><button className="save-workflow-btn" onClick={onRetry}>{m.status === "needsAttention" ? "Continue" : "Retry"}</button></Tooltip>
+            <Tooltip content={translate("Review the request before sending it")}><button className="save-workflow-btn" onClick={onRetry}>{m.status === "needsAttention" ? translate("Continue") : translate("Retry")}</button></Tooltip>
           )}
           {m.runIssue && <button className="save-workflow-btn" onClick={() => void runMessageAction(
             () => navigator.clipboard.writeText(`Nextbrowser agent · ${m.runIssue!.code}\nRef: ${m.runIssue!.ref}\n${new Date(m.createdAt).toISOString()}`),
-            "Could not copy the report.")}>Copy error report</button>}
+            "Could not copy the report.")}>{translate("Copy error report")}</button>}
           <span>{formatTime(m.createdAt)}</span>
         </div>
       )}
@@ -1222,14 +1202,14 @@ function AgentSteps({ steps, live }: { steps: NonNullable<ChatMessage["toolEvent
   const failed = (detail?: string) => /^Failed:/.test(detail ?? "");
   return (
     <div className={"agent-steps" + (live ? " is-live" : "")}>
-      <Tooltip content={open ? "Hide the agent's steps" : "Show every step the agent took"}><button
+      <Tooltip content={open ? translate("Hide the agent's steps") : translate("Show every step the agent took")}><button
         type="button"
         className="agent-steps-toggle"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
         <Icon name={open ? "chevron.down" : "chevron.right"} size={11} />
-        <span className="agent-steps-count">{steps.length} {steps.length === 1 ? "step" : "steps"}</span>
+        <span className="agent-steps-count">{steps.length} {steps.length === 1 ? translate("step") : translate("steps")}</span>
         {!open && (
           <Tooltip content={latest.detail}><span className={"agent-steps-latest" + (failed(latest.detail) ? " is-failed" : "")}>
             {latest.detail ?? latest.name}
@@ -1263,18 +1243,18 @@ function SaveWorkflowModal({ prepared, onClose, onSave }: {
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
       <div className="modal-card workflow-save-modal" onMouseDown={(event) => event.stopPropagation()}>
-        <strong>Save as skill</strong>
-        <p className="muted small">Saved locally first, then backed up privately to your account.</p>
-        <label className="field-label">Skill name</label>
+        <strong>{translate("Save as skill")}</strong>
+        <p className="muted small">{translate("Saved locally first, then backed up privately to your account.")}</p>
+        <label className="field-label">{translate("Skill name")}</label>
         <input value={title} autoFocus onChange={(event) => setTitle(event.target.value)} />
-        <label className="field-label">Website</label>
-        <input value={domain} placeholder="example.com (optional)" onChange={(event) => setDomain(event.target.value)} />
-        <label className="field-label">Reusable instructions</label>
+        <label className="field-label">{translate("Website")}</label>
+        <input value={domain} placeholder={translate("example.com (optional)")} onChange={(event) => setDomain(event.target.value)} />
+        <label className="field-label">{translate("Reusable instructions")}</label>
         <textarea rows={10} value={instructions} onChange={(event) => setInstructions(event.target.value)} />
         <div className="row" style={{ marginTop: 10, gap: 8 }}>
           <span className="spacer" />
-          <button className="secondary" onClick={onClose}>Cancel</button>
-          <button className="primary" disabled={!title.trim() || !instructions.trim()} onClick={() => onSave(title.trim(), domain.trim(), instructions.trim())}>Save skill</button>
+          <button className="secondary" onClick={onClose}>{translate("Cancel")}</button>
+          <button className="primary" disabled={!title.trim() || !instructions.trim()} onClick={() => onSave(title.trim(), domain.trim(), instructions.trim())}>{translate("Save skill")}</button>
         </div>
       </div>
     </div>

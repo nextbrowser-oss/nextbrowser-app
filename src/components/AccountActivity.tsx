@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useId, useRef, useState } from "react";
 import { Clock3, Activity } from "lucide-react";
 import { activityChanged, recentActivity } from "../lib/accountActivity";
@@ -63,7 +64,7 @@ function ActivityCard({ days, metric }: { days: ReturnType<typeof recentActivity
   return <section className="account-activity-card" aria-label={title}>
     <div className="account-metric">
       <Tooltip content={detail}><header tabIndex={0}>{time ? <Clock3 size={14} /> : <Activity size={14} />}<h3>{title}</h3></header></Tooltip>
-      <div className="account-metric-value"><b>{format(value)}</b><small>{date ? formatHistoryDateLabel(date) : "Last 14 days"}</small></div>
+      <div className="account-metric-value"><b>{format(value)}</b><small>{date ? formatHistoryDateLabel(date) : translate("Last 14 days")}</small></div>
     </div>
     <div className="account-trend" ref={plot}>
       <svg viewBox={`0 0 ${size.width} ${size.height}`} aria-label={title + " by day"} role="group"
@@ -83,7 +84,7 @@ function ActivityCard({ days, metric }: { days: ReturnType<typeof recentActivity
           <line x1={x(i)} x2={x(i)} y1={bottom} y2={bottom + 4} className="account-chart-axis" />
           <text x={x(i)} y={bottom + 16} textAnchor={days.length === 1 ? "middle" : i === 0 ? "start" : i === days.length - 1 ? "end" : "middle"} className="account-chart-label">{formatHistoryDateLabel(days[i].label)}</text>
         </g>)}
-        <text x={(left + right) / 2} y={size.height - 3} textAnchor="middle" className="account-chart-axis-title">Date</text>
+        <text x={(left + right) / 2} y={size.height - 3} textAnchor="middle" className="account-chart-axis-title">{translate("Date")}</text>
         {days.length > 1 && <path d={`${line} L${right} ${bottom} L${left} ${bottom} Z`} fill={`url(#${id})`} />}
         <path d={line} className="proxy-traffic-chart-line" />
         {days.map((day, i) => (

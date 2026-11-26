@@ -1,3 +1,4 @@
+import { translate } from "../../shared/lib/i18n";
 "use client";
 
 import { useEffect, useState } from 'react';
@@ -34,19 +35,19 @@ function ReviewFeed({ id }: { id: string }) {
     return () => { active = false; clearTimeout(timeout); abort.abort(); };
   }, [attempt, query, marker]);
 
-  return <section className="catalog-reviews" aria-label="Community reviews">
-    <h3>Community reviews</h3>
+  return <section className="catalog-reviews" aria-label={translate("Community reviews")}>
+    <h3>{translate("Community reviews")}</h3>
     <div aria-live="polite">
-      {failed ? <p>The review feed is unavailable. <button type="button" onClick={() => { setFailed(false); setAttempt(n => n + 1); }}>Retry</button></p> :
-        reviews === undefined ? <p>Loading reviews…</p> :
-        reviews.length === 0 ? <p>No reviews yet.</p> :
+      {failed ? <p>{translate("The review feed is unavailable.")} <button type="button" onClick={() => { setFailed(false); setAttempt(n => n + 1); }}>{translate("Retry")}</button></p> :
+        reviews === undefined ? <p>{translate("Loading reviews…")}</p> :
+        reviews.length === 0 ? <p>{translate("No reviews yet.")}</p> :
         reviews.map(issue => <article key={issue.number}>
-          <a href={issues + '/' + issue.number} target="_blank" rel="noreferrer">{issue.title.slice(marker.length + 1).trim() || 'Review'}</a>
-          <small>{issue.user?.login || 'GitHub user'}</small>
+          <a href={issues + '/' + issue.number} target="_blank" rel="noreferrer">{issue.title.slice(marker.length + 1).trim() || translate("Review")}</a>
+          <small>{issue.user?.login || translate("GitHub user")}</small>
           {issue.body && <p>{issue.body.slice(0, 360)}{issue.body.length > 360 ? '…' : ''}</p>}
         </article>)}
     </div>
     <div className="catalog-review-links">
-      <a href={issues + '?q=' + encodeURIComponent(query)} target="_blank" rel="noreferrer">View all reviews</a></div>
+      <a href={issues + '?q=' + encodeURIComponent(query)} target="_blank" rel="noreferrer">{translate("View all reviews")}</a></div>
   </section>;
 }

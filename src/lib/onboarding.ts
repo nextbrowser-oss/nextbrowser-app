@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { guideSessionState, type GuideSessionState } from "./guideQuickStart";
 import type { BrowserToolset } from "../types";
 
@@ -17,41 +18,41 @@ export interface OnboardingStep {
 export const ONBOARDING_STEPS: OnboardingStep[] = [
   {
     id: "workspace",
-    label: "How it works",
-    title: "How it works",
-    description: "Set the goal. The agent uses your selected profile, and Live shows the browser.",
+    get label() { return translate("How it works"); },
+    get title() { return translate("How it works"); },
+    get description() { return translate("Set the goal. The agent uses your selected profile, and Live shows the browser."); },
     icon: "sparkles",
     tint: "var(--accent)",
   },
   {
     id: "agent",
-    label: "Your agent",
-    title: "Setup agent",
+    get label() { return translate("Your agent"); },
+    get title() { return translate("Setup agent"); },
     description: "",
     icon: "cpu.fill",
     tint: "var(--purple)",
   },
   {
     id: "profile",
-    label: "Browser profile",
-    title: "Setup profile",
-    description: "Choose the profile the agent should use, then start it.",
+    get label() { return translate("Browser profile"); },
+    get title() { return translate("Setup profile"); },
+    get description() { return translate("Choose the profile the agent should use, then start it."); },
     icon: "person.2.fill",
     tint: "var(--success)",
   },
   {
     id: "prompt",
-    label: "First task",
-    title: "Try your first task",
-    description: "Tell the agent what to do and what result you want.",
+    get label() { return translate("First task"); },
+    get title() { return translate("Try your first task"); },
+    get description() { return translate("Tell the agent what to do and what result you want."); },
     icon: "scroll.fill",
     tint: "var(--warn)",
   },
   {
     id: "control",
-    label: "Live Streaming",
-    title: "Watch the browser live",
-    description: "When you ask the agent to use the browser, Live Streaming starts automatically.",
+    get label() { return translate("Live Streaming"); },
+    get title() { return translate("Watch the browser live"); },
+    get description() { return translate("When you ask the agent to use the browser, Live Streaming starts automatically."); },
     icon: "video.fill",
     tint: "var(--info)",
   },

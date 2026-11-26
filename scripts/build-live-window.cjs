@@ -2,9 +2,15 @@ const { spawnSync } = require("node:child_process");
 const { existsSync, mkdirSync } = require("node:fs");
 const path = require("node:path");
 
-if (process.platform !== "win32") process.exit(0);
-
 const root = path.resolve(__dirname, "..");
+if (process.platform === "darwin") {
+  mkdirSync(path.join(root, "build"), { recursive: true });
+  const result = spawnSync("xcrun", ["clang", "-arch", "arm64", "-arch", "x86_64", "-framework", "Carbon",
+    "electron/native/input_language_mac.c", "-o", "build/input-language"], { cwd: root, stdio: "inherit" });
+  if (result.error) console.error(result.error.message);
+  process.exit(result.status ?? 1);
+}
+if (process.platform !== "win32") process.exit(0);
 const workspaceGo = path.join(root, "..", "..", ".tools", "go", "bin", "go.exe");
 const go = process.env.NEXTBROWSER_GO || (existsSync(workspaceGo) ? workspaceGo : "go");
 mkdirSync(path.join(root, "build"), { recursive: true });

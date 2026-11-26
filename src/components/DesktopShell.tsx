@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { IconButton, WindowControls } from "../shared/ui";
@@ -38,8 +39,8 @@ export function DesktopShell({ children }: { children: ReactNode }) {
   const control = (action: string) => { void invoke("app_window_control", { action }).catch(() => undefined); };
   return (
     <div className="desktop-shell" data-platform={platform} data-custom-caption={customControls || undefined}>
-      <header className="app-titlebar" aria-label="Application toolbar">
-        <IconButton appearance="plain" size="small" className="app-titlebar-logo" label="Back to main view"
+      <header className="app-titlebar" aria-label={translate("Application toolbar")}>
+        <IconButton appearance="plain" size="small" className="app-titlebar-logo" label={translate("Back to main view")}
           disabled={!available} onClick={() => setTab("chat")}><BrandLogo size={24} /></IconButton>
         <span className="app-titlebar-brand"><span className="app-titlebar-name">Nextbrowser</span><span className="app-titlebar-version">({__APP_VERSION__})</span></span>
         <WorkspaceSwitcher disabled={!available} />

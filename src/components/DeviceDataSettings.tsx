@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { Tooltip } from "../shared/ui";
 import { useEffect, useState } from "react";
 import { invoke } from "../electronBridge";
@@ -18,12 +19,10 @@ export function DeviceDataGroups({
   return (
     <div className="settings-device-data">
       <div className="settings-device-data-head">
-        <span className="muted small">Device data</span>
-        <a className="small" href={PRIVACY_POLICY_URL} target="_blank" rel="noreferrer">Privacy Policy</a>
+        <span className="muted small">{translate("Device data")}</span>
+        <a className="small" href={PRIVACY_POLICY_URL} target="_blank" rel="noreferrer">{translate("Privacy Policy")}</a>
       </div>
-      <div className="muted small settings-device-data-note">
-        Sent with your account to speed up support and plan product work. Turning a group off also deletes what was stored for it.
-        {!status.available && " This build does not send device data."}
+      <div className="muted small settings-device-data-note">{translate("Sent with your account to speed up support and plan product work. Turning a group off also deletes what was stored for it.")}{!status.available && translate(" This build does not send device data.")}
       </div>
       <div className="settings-device-data-list">
         {DEVICE_DATA_GROUPS.map((group) => (
@@ -35,7 +34,7 @@ export function DeviceDataGroups({
             <label className="toggle">
               <input
                 type="checkbox"
-                aria-label={`Send ${group.label.toLowerCase()} data`}
+                aria-label={translate("Send %1 data", group.label.toLowerCase())}
                 checked={status.groups[group.key]}
                 onChange={(event) => onChange(group.key, event.target.checked)}
               />

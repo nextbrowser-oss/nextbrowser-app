@@ -1,3 +1,4 @@
+const { translate } = require("./interface-messages.cjs");
 const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs/promises');
@@ -142,13 +143,13 @@ function createStockMcp({ dataRoot, dialog, requestApproval, isCurrent, searchCa
       if (!['auto', ...Object.keys(shells())].includes(args.shell)) throw Error('Choose an installed shell.');
       patch = { preferredShell: args.shell };
     } else if (command === 'stock_mcp_android_sdk') {
-      const result = await dialog.showOpenDialog(scope.window, { title: 'Choose Android SDK or platform-tools folder', properties: ['openDirectory'] });
+      const result = await dialog.showOpenDialog(scope.window, { title: translate("Choose Android SDK or platform-tools folder"), properties: ['openDirectory'] });
       if (result.canceled || !result.filePaths[0]) return policy(scope);
       const dir = await fs.realpath(result.filePaths[0]);
       if (!adbExecutable(dir)) throw Error('This folder does not contain Android SDK Platform-Tools (adb).');
       patch = { androidSdkFolder: dir };
     } else if (command === 'stock_mcp_folder') {
-      const result = await dialog.showOpenDialog(scope.window, { title: 'Choose the agent working folder', properties: ['openDirectory'] });
+      const result = await dialog.showOpenDialog(scope.window, { title: translate("Choose the agent working folder"), properties: ['openDirectory'] });
       if (result.canceled || !result.filePaths[0]) return policy(scope);
       patch = { folder: await fs.realpath(result.filePaths[0]) };
     } else throw Error('Unknown permission setting.');

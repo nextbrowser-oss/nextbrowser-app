@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useMemo, useState } from "react";
 import { cancelNextctlRun, nextctlRun, type Envelope } from "../nextctl";
 import { liveRuntimeLabel, type LiveSessionOption } from "../lib/liveSessions";
@@ -19,7 +20,7 @@ function ScreenIcon({ session, size }: { session: LiveSessionOption; size: numbe
 function SessionSearch({ query, onChange }: { query: string; onChange: (query: string) => void }) {
   return <label className="live-session-search">
     <Icon name="magnifyingglass" size={14} />
-    <input type="search" aria-label="Search profiles" placeholder="Search profiles" value={query}
+    <input type="search" aria-label={translate("Search profiles")} placeholder={translate("Search profiles")} value={query}
       onChange={event => onChange(event.target.value)} />
   </label>;
 }
@@ -52,13 +53,13 @@ function ProfileListTools({ query, onChange, onCreate, compact = false }: {
   return <div className="profile-list-tools">
     <div className="live-session-tools">
       <SessionSearch query={query} onChange={onChange} />
-      <IconButton label="Create browser profile" text={compact ? undefined : "Create profile"}
+      <IconButton label={translate("Create browser profile")} text={compact ? undefined : "Create profile"}
         appearance={compact ? "plain" : "glass"} size="small" onClick={onCreate}>
         <Icon name="plus" size={compact ? 15 : 14} />
       </IconButton>
     </div>
     <IconButton className="profile-name-sort" data-direction={direction} label={sortLabel}
-      text="Sort" hint={`Sort by name ${nextOrder}`}
+      text="Sort" hint={translate("Sort by name %1", nextOrder)}
       size="small" appearance="plain" onClick={toggleSort}>
       <Glyph name="arrow-down" size={12} />
     </IconButton>
@@ -69,7 +70,7 @@ function SessionRows({ sessions, onOpen }: { sessions: LiveSessionOption[]; onOp
   return <div className="live-session-rows">
     {sessions.map(session => <button type="button" className="live-session-row" key={session.key} onClick={() => onOpen(session.key)}>
       <ScreenIcon session={session} size={15} />
-      <span><strong>{session.label}</strong><small>{liveRuntimeLabel(session.target)} · {session.running ? "Running" : "Stopped"}</small></span>
+      <span><strong>{session.label}</strong><small>{liveRuntimeLabel(session.target)} · {session.running ? translate("Running") : translate("Stopped")}</small></span>
     </button>)}
   </div>;
 }
@@ -86,19 +87,19 @@ export function LiveSessionsPopover({ sessions, selected, onOverview, onOpen }: 
     if (!next) setQuery("");
   };
   const choose = (key: string) => { changeOpen(false); onOpen(key); };
-  return <Popover label="Processes" open={open} onOpenChange={changeOpen} openOnHover side="right" align="start"
+  return <Popover label={translate("Processes")} open={open} onOpenChange={changeOpen} openOnHover side="right" align="start"
     className="live-sessions-popover shared-scrollbarless" trigger={props => <button {...props}
       className={`sidebar-destination${selected ? " active" : ""}`}
-      aria-current={selected ? "page" : undefined} aria-label="Open Processes"
+      aria-current={selected ? "page" : undefined} aria-label={translate("Open Processes")}
       onClick={() => { changeOpen(false); onOverview(); }}>
       <Glyph name="activity" />
       {sessions.length > 0 && <span className="sidebar-destination-count" aria-hidden="true">{active.length}/{sessions.length}</span>}
     </button>}>
-    <div className="rail-popover-heading">Processes</div>
+    <div className="rail-popover-heading">{translate("Processes")}</div>
     <ProfileListTools query={query} onChange={setQuery} compact onCreate={() => { changeOpen(false); createLiveProfile(); }} />
     {filtered.length > 0
         ? <SessionRows sessions={filtered} onOpen={choose} />
-        : <p className="live-session-empty">{query.trim() ? "No matching profiles" : "No profiles yet"}</p>}
+        : <p className="live-session-empty">{query.trim() ? translate("No matching profiles") : translate("No profiles yet")}</p>}
   </Popover>;
 }
 
@@ -156,9 +157,9 @@ function SessionPreview({ session }: { session: LiveSessionOption }) {
   }, [args]);
 
   return <div className="live-session-preview">
-    {image ? <><img alt="" src={image} draggable={false} />{failed && <small>Last available preview</small>}</> : <span>
+    {image ? <><img alt="" src={image} draggable={false} />{failed && <small>{translate("Last available preview")}</small>}</> : <span>
       <ScreenIcon session={session} size={26} />
-      {failed ? "Preview unavailable" : "Loading preview…"}
+      {failed ? translate("Preview unavailable") : translate("Loading preview…")}
     </span>}
   </div>;
 }
@@ -166,14 +167,14 @@ function SessionPreview({ session }: { session: LiveSessionOption }) {
 export function LiveSessionsGrid({ sessions, onOpen }: { sessions: LiveSessionOption[]; onOpen: (key: string) => void }) {
   const [query, setQuery] = useState("");
   const filtered = useVisibleProfiles(sessions, query);
-  return <section className="live-sessions-overview" aria-label="Processes">
+  return <section className="live-sessions-overview" aria-label={translate("Processes")}>
     <header className="live-sessions-header">
-      <h1>Processes</h1>
+      <h1>{translate("Processes")}</h1>
       <ProfileListTools query={query} onChange={setQuery} onCreate={createLiveProfile} />
     </header>
     {filtered.length > 0 ? <div className="live-sessions-grid">
       {filtered.map(session => <ProfileCard key={session.key} session={session} onOpen={onOpen} />)}
-    </div> : <p className="live-session-empty">{query.trim() ? "No matching profiles" : "No profiles yet. Create a browser profile to get started."}</p>}
+    </div> : <p className="live-session-empty">{query.trim() ? translate("No matching profiles") : translate("No profiles yet. Create a browser profile to get started.")}</p>}
   </section>;
 }
 
@@ -196,14 +197,14 @@ function ProfileCard({ session, onOpen }: { session: LiveSessionOption; onOpen: 
       event.preventDefault(); settings(event.currentTarget.querySelector<HTMLButtonElement>(".live-session-open")!);
     }
   }}>
-    <button type="button" className="live-session-open" data-profile-key={session.key} aria-label={`Open ${session.label}`} onClick={() => onOpen(session.key)}>
-      {session.running ? <SessionPreview session={session} /> : <div className="live-session-preview"><span><ScreenIcon session={session} size={26} />Stopped · Click to open</span></div>}
-      <span className="live-session-card-label"><strong>{session.label}</strong><small>{liveRuntimeLabel(session.target)} · {session.running ? "Running" : "Stopped"}{selected ? " · Selected for chat" : ""}</small>
+    <button type="button" className="live-session-open" data-profile-key={session.key} aria-label={translate("Open %1", session.label)} onClick={() => onOpen(session.key)}>
+      {session.running ? <SessionPreview session={session} /> : <div className="live-session-preview"><span><ScreenIcon session={session} size={26} />{translate("Stopped · Click to open")}</span></div>}
+      <span className="live-session-card-label"><strong>{session.label}</strong><small>{liveRuntimeLabel(session.target)} · {session.running ? translate("Running") : translate("Stopped")}{selected ? translate(" · Selected for chat") : ""}</small>
         {connection && <small>{connection}{profile?.country ? ` · ${profile.country.toUpperCase()}` : ""}</small>}
       </span>
     </button>
-    <IconButton label={`Settings for ${session.label}`} appearance="plain" size="small" className="profile-card-settings" onClick={event => settings(event.currentTarget)}><Glyph name="sliders" size={17} /></IconButton>
-    {session.target.runtime === "multilogin" && <Popover label={`Profile actions for ${session.label}`} open={menuOpen} onOpenChange={setMenuOpen}
+    <IconButton label={translate("Settings for %1", session.label)} appearance="plain" size="small" className="profile-card-settings" onClick={event => settings(event.currentTarget)}><Glyph name="sliders" size={17} /></IconButton>
+    {session.target.runtime === "multilogin" && <Popover label={translate("Profile actions for %1", session.label)} open={menuOpen} onOpenChange={setMenuOpen}
       anchorElement={anchor} trigger={() => null} className="profile-actions-popover" side="bottom" align="end">
       <strong>{session.label}</strong>
       <button className="live-session-row" onClick={() => {
@@ -213,14 +214,14 @@ function ProfileCard({ session, onOpen }: { session: LiveSessionOption; onOpen: 
         useStore.getState().selectProfile(undefined);
         setMultiloginSelection(workspaceId, { ...session.target.selection, active: true });
         setMenuOpen(false);
-      }}>Use in chat</button>
-      <button className="live-session-row" onClick={() => { setMenuOpen(false); useStore.getState().setTab("connectors"); }}>Connection settings</button>
+      }}>{translate("Use in chat")}</button>
+      <button className="live-session-row" onClick={() => { setMenuOpen(false); useStore.getState().setTab("connectors"); }}>{translate("Connection settings")}</button>
       {session.running && <button className="live-session-row" onClick={async () => {
         if (session.target.runtime !== "multilogin") return;
         try { await useStore.getState().setMultiloginRunning(session.target.selection, false); setMenuOpen(false); }
-        catch { setError("Could not stop this profile. Try again."); }
-      }}>Stop profile</button>}
-      {!session.running && <button className="live-session-row" onClick={() => { clearMultiloginSelection(useStore.getState().activeWorkspaceId); setMenuOpen(false); }}>Remove from workspace</button>}
+        catch { setError(translate("Could not stop this profile. Try again.")); }
+      }}>{translate("Stop profile")}</button>}
+      {!session.running && <button className="live-session-row" onClick={() => { clearMultiloginSelection(useStore.getState().activeWorkspaceId); setMenuOpen(false); }}>{translate("Remove from workspace")}</button>}
       {error && <p role="alert">{error}</p>}
     </Popover>}
   </article>;

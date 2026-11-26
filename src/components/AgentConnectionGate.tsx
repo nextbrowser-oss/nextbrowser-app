@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { Tooltip } from "../shared/ui";
 import { useEffect, useState } from "react";
 import { PRIMARY_AGENTS, ADDITIONAL_AGENTS, BUILTIN_AGENT_ID, agentById, isBuiltinAgent, isMissingAgentInstallError } from "../agents";
@@ -60,21 +61,21 @@ export function AgentConnectionGate({ onDismiss }: { onDismiss: () => void }) {
   return (
     <div className="agent-gate-overlay">
       <div className="agent-gate-card" role="dialog" aria-modal="true" aria-labelledby="agent-gate-title">
-        <Tooltip content="Close"><button
+        <Tooltip content={translate("Close")}><button
           type="button"
           className="agent-gate-close"
-          aria-label="Close agent setup"
+          aria-label={translate("Close agent setup")}
           onClick={onDismiss}
         >
           <Icon name="xmark" size={18} />
         </button></Tooltip>
         <BrandLogo size={44} />
         <div className="agent-gate-copy">
-          <h2 id="agent-gate-title">Connect an agent to continue</h2>
+          <h2 id="agent-gate-title">{translate("Connect an agent to continue")}</h2>
           {s.startupAgentSuggestion === "codex" && selectedAgentId === "codex" && (
-            <p role="status">Codex is available on this computer. You can continue with Codex. Your existing chats keep their original agent.</p>
+            <p role="status">{translate("Codex is available on this computer. You can continue with Codex. Your existing chats keep their original agent.")}</p>
           )}
-          <p className="muted">Every project keeps one agent context. Choose the agent that will run its chats, terminal sessions, and browser profiles.</p>
+          <p className="muted">{translate("Every project keeps one agent context. Choose the agent that will run its chats, terminal sessions, and browser profiles.")}</p>
         </div>
         <div className="agent-gate-options">
           {PRIMARY_AGENTS.map((candidate) => (
@@ -99,19 +100,18 @@ export function AgentConnectionGate({ onDismiss }: { onDismiss: () => void }) {
         >
           <Icon name="bolt.fill" size={17} />
           <span>
-            <strong>Use a free model</strong>
+            <strong>{translate("Use a free model")}</strong>
             <span className="muted small">
-              {noCLI ? "No agent CLI on this computer? " : ""}Your Nextbrowser account includes Nemotron 3.5 Super on OpenRouter. Sign in to use it.
-            </span>
+              {noCLI ? translate("No agent CLI on this computer? ") : ""}{translate("Your Nextbrowser account includes Nemotron 3.5 Super on OpenRouter. Sign in to use it.")}</span>
           </span>
           {builtin && <Icon name="checkmark.circle.fill" size={16} className="ok" />}
         </button>
         <label className="modal-field">
-          <span>Other agents</span>
+          <span>{translate("Other agents")}</span>
           <select value={agent.primary ? "" : selectedAgentId} onChange={(event) => {
             if (event.target.value) selectAgent(event.target.value);
           }}>
-            <option value="" disabled>Choose another agent</option>
+            <option value="" disabled>{translate("Choose another agent")}</option>
             {ADDITIONAL_AGENTS.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
           </select>
         </label>
@@ -123,7 +123,7 @@ export function AgentConnectionGate({ onDismiss }: { onDismiss: () => void }) {
             onClick={connect}
           >
             {authorizing && <Spinner size={14} />}
-            {authorizing ? "Checking…" : needsLogin ? `Sign in to ${agent.name}` : `Connect ${agent.name}`}
+            {authorizing ? translate("Checking…") : needsLogin ? translate("Sign in to %1", agent.name) : translate("Connect %1", agent.name)}
           </button>
         )}
         {error && !builtin && (

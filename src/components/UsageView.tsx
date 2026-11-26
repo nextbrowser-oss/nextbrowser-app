@@ -1,3 +1,4 @@
+import { formattingLocale, translate } from "../shared/lib/i18n";
 import { DateRangePicker, IconButton, Tooltip } from "../shared/ui";
 import { trafficTrends } from "../lib/trafficTrends";
 import { useEffect, useMemo, useState } from "react";
@@ -32,7 +33,7 @@ import { shouldAskForGitHubStar } from "../lib/githubStarReward";
 
 type RangePreset = ProxyTrafficHistoryPreset | "custom" | "all";
 
-const numberFormatter = new Intl.NumberFormat();
+
 const historyRequestConcurrency = 3;
 
 interface BackendHistoryResult {
@@ -149,13 +150,13 @@ export function UsageView() {
   useEffect(() => {
     if (!s.authed) {
       setHistory(undefined);
-      setHistoryNotice("Sign in to view proxy usage.");
+      setHistoryNotice(translate("Sign in to view proxy usage."));
       setHistoryLoading(false);
       return;
     }
     if (!(preset === "all" && accountStart && from === accountStart && to <= today) && !isProxyTrafficHistoryRangeValid(from, to)) {
       setHistory(undefined);
-      setHistoryNotice("Choose a valid range of up to 1 year.");
+      setHistoryNotice(translate("Choose a valid range of up to 1 year."));
       setHistoryLoading(false);
       return;
     }
@@ -170,16 +171,16 @@ export function UsageView() {
         setHistory(result.history);
         if (result.coverage === "partial") {
           setHistoryNotice(
-            `Some periods couldn't load (${result.loadedWindows} of ${result.requestedWindows}). Totals exclude them; gaps may appear as zero.`,
+            translate("Some periods couldn't load (%1 of %2). Totals exclude them; gaps may appear as zero.", result.loadedWindows, result.requestedWindows),
           );
         } else if (result.coverage === "unavailable") {
-          setHistoryNotice("Usage history is unavailable. No history data is shown.");
+          setHistoryNotice(translate("Usage history is unavailable. No history data is shown."));
         }
       })
       .catch(() => {
         if (cancelled) return;
         setHistory(undefined);
-        setHistoryNotice("Usage history is unavailable. Try again.");
+        setHistoryNotice(translate("Usage history is unavailable. Try again."));
       })
       .finally(() => {
         if (!cancelled) setHistoryLoading(false);
@@ -200,7 +201,7 @@ export function UsageView() {
     try {
       await s.refreshProxyData();
     } catch {
-      setRefreshError("Could not refresh your traffic allowance. Any previously loaded values may be out of date. Try Refresh again.");
+      setRefreshError(translate("Could not refresh your traffic allowance. Any previously loaded values may be out of date. Try Refresh again."));
     } finally {
       setHistoryReload((value) => value + 1);
     }
@@ -225,7 +226,7 @@ export function UsageView() {
     const url = kind === "access" ? s.proxy.provider_access_url
       : kind === "dashboard" ? s.proxy.dashboard_url : s.proxy.pricing_url;
     if (!isTrustedNodeMavenURL(url)) {
-      setHandoffNotice("The NodeMaven link is unavailable. Refresh and try again.");
+      setHandoffNotice(translate("The NodeMaven link is unavailable. Refresh and try again."));
       return;
     }
     setHandoffLoading(true);
@@ -234,12 +235,12 @@ export function UsageView() {
     try {
       await invoke("open_external", { url });
       setHandoffNotice(kind === "access"
-        ? "NodeMaven account setup opened in your browser."
+        ? translate("NodeMaven account setup opened in your browser.")
         : kind === "dashboard"
-          ? "NodeMaven dashboard opened in your browser."
-          : "NodeMaven pricing opened. After checkout, return here and refresh your usage.");
+          ? translate("NodeMaven dashboard opened in your browser.")
+          : translate("NodeMaven pricing opened. After checkout, return here and refresh your usage."));
     } catch {
-      setHandoffNotice("We couldn't open NodeMaven. Try again.");
+      setHandoffNotice(translate("We couldn't open NodeMaven. Try again."));
     } finally {
       setHandoffLoading(false);
     }
@@ -257,7 +258,7 @@ export function UsageView() {
       setHandoffInviteSent(true);
       setHandoffInviteEmail(result.email);
       setHandoffInviteUnavailable(false);
-      setHandoffNotice(`The password setup link expires in ${result.expiresInDays} days.`);
+      setHandoffNotice(translate("The password setup link expires in %1 days.", result.expiresInDays));
       trackEvent("nodemaven_invite_sent", { proxy_state: s.proxy.state });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not send the NodeMaven email. Try again.";
@@ -291,25 +292,18 @@ export function UsageView() {
               <div className="proxy-traffic-gate" role="status">
                 <div className="proxy-traffic-gate-heading">
                   <Icon name="lock.fill" size={16} />
-                  <strong>Get 1 GB of free proxy traffic</strong>
+                  <strong>{translate("Get 1 GB of free proxy traffic")}</strong>
                 </div>
-                {proxyExhausted && <p className="muted small">Free traffic is paused · {humanBytes(s.proxy.remaining_bytes ?? 0)} remaining</p>}
-                <p className="muted small">
-                  Connect GitHub and star nextbrowser-oss/nextbrowser-app. Your 1 GB unlocks
-                  once the star is checked. If you remove the star later, the bonus pauses again.
-                </p>
+                {proxyExhausted && <p className="muted small">{translate("Free traffic is paused ·")} {humanBytes(s.proxy.remaining_bytes ?? 0)} {translate("remaining")}</p>}
+                <p className="muted small">{translate("Connect GitHub and star nextbrowser-oss/nextbrowser-app. Your 1 GB unlocks once the star is checked. If you remove the star later, the bonus pauses again.")}</p>
                 <div className="proxy-traffic-gate-actions">
                   <button
                     className="btn-bordered-prominent"
                     type="button"
                     onClick={openTrafficGateGitHub}
                   >
-                    <Icon name="star.fill" size={13} />
-                    Open GitHub
-                  </button>
-                  <button className="link small" type="button" onClick={openTrafficGateDiscord}>
-                    Questions? Ask in Discord
-                  </button>
+                    <Icon name="star.fill" size={13} />{translate("Open GitHub")}</button>
+                  <button className="link small" type="button" onClick={openTrafficGateDiscord}>{translate("Questions? Ask in Discord")}</button>
                 </div>
               </div>
             )}
@@ -318,57 +312,49 @@ export function UsageView() {
                 <div className="nodemaven-handoff-copy">
                   <Icon name={proxyExhausted ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"} size={18} />
                   <div>
-                    <strong>{gateState === "blocked" ? "NodeMaven dashboard access" : proxyExhausted
-                      ? dashboardReady || s.proxy.legacy_migrated ? "Proxy traffic has run out" : "Your free 1 GB has been used"
-                      : "Your NodeMaven account is ready"}</strong>
+                    <strong>{gateState === "blocked" ? translate("NodeMaven dashboard access") : proxyExhausted
+                      ? dashboardReady || s.proxy.legacy_migrated ? translate("Proxy traffic has run out") : translate("Your free 1 GB has been used")
+                      : translate("Your NodeMaven account is ready")}</strong>
                     <p>
-                      {gateState === "blocked" ? "Your dashboard remains available. Contact support about the paused proxy allowance before continuing browser work."
+                      {gateState === "blocked" ? translate("Your dashboard remains available. Contact support about the paused proxy allowance before continuing browser work.")
                         : proxyExhausted
                         ? dashboardReady
-                          ? "Buy more traffic in NodeMaven to continue. Your proxy credentials stay the same."
-                          : "Buy more traffic in NodeMaven to continue. We'll email you a link to set your password. Your proxy credentials stay the same."
+                          ? translate("Buy more traffic in NodeMaven to continue. Your proxy credentials stay the same.")
+                          : translate("Buy more traffic in NodeMaven to continue. We'll email you a link to set your password. Your proxy credentials stay the same.")
                         : dashboardReady
-                          ? "Your NodeMaven dashboard is ready whenever you need more traffic."
+                          ? translate("Your NodeMaven dashboard is ready whenever you need more traffic.")
                           : s.proxy.legacy_migrated
-                            ? "Your previous traffic balance is available. When it runs out, we'll email you a link to set up your NodeMaven account."
-                            : "Your free 1 GB is active. When you need more, we'll email you a link to set up your NodeMaven account."}
+                            ? translate("Your previous traffic balance is available. When it runs out, we'll email you a link to set up your NodeMaven account.")
+                            : translate("Your free 1 GB is active. When you need more, we'll email you a link to set up your NodeMaven account.")}
                     </p>
-                    {s.proxy.provider_account_email && <span>NodeMaven account: {s.proxy.provider_account_email}</span>}
+                    {s.proxy.provider_account_email && <span>{translate("NodeMaven account:")} {s.proxy.provider_account_email}</span>}
                   </div>
                 </div>
                 {dashboardReady && (
                   <div className="nodemaven-account-email" role="status">
-                    <strong>We've prepared your NodeMaven account</strong>
-                    <p>
-                      A link to set your password has been sent to{" "}
-                      <strong>{handoffInviteEmail || s.proxy.provider_account_email || "your email address"}</strong>.
-                      {" "}Check your inbox and spam folder, set your password, then sign in to NodeMaven to buy traffic.
-                    </p>
+                    <strong>{translate("We've prepared your NodeMaven account")}</strong>
+                    <p>{translate("A link to set your password has been sent to")}{" "}
+                      <strong>{handoffInviteEmail || s.proxy.provider_account_email || translate("your email address")}</strong>.
+                      {" "}{translate("Check your inbox and spam folder, set your password, then sign in to NodeMaven to buy traffic.")}</p>
                   </div>
                 )}
                 <div className="nodemaven-handoff-actions">
                   {dashboardReady && isTrustedNodeMavenURL(s.proxy.dashboard_url) && (
                     <button className="btn-bordered" disabled={handoffLoading} type="button" onClick={() => void openNodeMaven("dashboard")}>
-                      <Icon name="arrow.up.right" size={13} />
-                      Open NodeMaven dashboard
-                    </button>
+                      <Icon name="arrow.up.right" size={13} />{translate("Open NodeMaven dashboard")}</button>
                   )}
                   {handoffInviteUnavailable && isTrustedNodeMavenURL(s.proxy.provider_access_url) && (
                     <button className={proxyExhausted ? "btn-bordered" : "btn-bordered-prominent"} disabled={handoffLoading} type="button" onClick={() => void openNodeMaven("access")}>
-                      <Icon name="person.crop.circle" size={13} />
-                      Set up account access
-                    </button>
+                      <Icon name="person.crop.circle" size={13} />{translate("Set up account access")}</button>
                   )}
                   {canBuyNodeMavenTraffic && (
                     <button className="btn-bordered-prominent" disabled={handoffLoading} type="button" onClick={() => void buyNodeMavenTraffic()}>
                       {handoffLoading ? <Spinner size={13} /> : <Icon name="arrow.up.right" size={13} />}
-                      {dashboardReady ? "Buy more traffic in NodeMaven" : "Buy traffic in NodeMaven"}
+                      {dashboardReady ? translate("Buy more traffic in NodeMaven") : translate("Buy traffic in NodeMaven")}
                     </button>
                   )}
                   {canBuyNodeMavenTraffic && (
-                    <button className="btn-bordered" disabled={s.isRefreshing} type="button" onClick={() => void refreshUsage()}>
-                      I’ve added traffic — Refresh
-                    </button>
+                    <button className="btn-bordered" disabled={s.isRefreshing} type="button" onClick={() => void refreshUsage()}>{translate("I’ve added traffic — Refresh")}</button>
                   )}
                 </div>
                 {handoffNotice && <p className="nodemaven-handoff-notice" role="status">{handoffNotice}</p>}
@@ -379,24 +365,24 @@ export function UsageView() {
           <div className="proxy-locked" role="status">
             <Icon name="info.circle.fill" size={16} />
             <span>
-              <strong>Allocation unavailable</strong>
-              <span className="muted small">Refresh to try loading the latest proxy allocation.</span>
+              <strong>{translate("Allocation unavailable")}</strong>
+              <span className="muted small">{translate("Refresh to try loading the latest proxy allocation.")}</span>
             </span>
           </div>
         ) : (
           <button className="proxy-locked" onClick={() => s.setDashboardKeyPromptOpen(true)}>
             <Icon name="lock.fill" size={16} />
             <span>
-              <strong>Sign in required</strong>
-              <span className="muted small">Unlock proxy traffic analytics and the enforced traffic limit.</span>
+              <strong>{translate("Sign in required")}</strong>
+              <span className="muted small">{translate("Unlock proxy traffic analytics and the enforced traffic limit.")}</span>
             </span>
           </button>
         )}
       </div>
 
-      <section className="proxy-usage-analytics" aria-label="Proxy usage">
+      <section className="proxy-usage-analytics" aria-label={translate("Proxy usage")}>
         <div className="proxy-usage-toolbar">
-          <div className="proxy-usage-presets" role="group" aria-label="Usage range">
+          <div className="proxy-usage-presets" role="group" aria-label={translate("Usage range")}>
             {proxyTrafficHistoryPresetDays.map((days) => (
               <button
                 key={days}
@@ -404,23 +390,23 @@ export function UsageView() {
                 aria-pressed={preset === days}
                 onClick={() => applyPreset(days)}
               >
-                {days === proxyTrafficHistoryMaxDays ? "1 year" : `${days} days`}
+                {days === proxyTrafficHistoryMaxDays ? translate("1 year") : translate("%1 days", days)}
               </button>
             ))}
             <DateRangePicker from={from} to={to} latest={today} selected={preset === "custom"} validRange={isProxyTrafficHistoryRangeValid}
               onApply={(start,end) => { setPreset("custom"); setFrom(start); setTo(end); }}/>
             {accountStart && <button className={preset === "all" ? "active" : ""} aria-pressed={preset === "all"} onClick={() => {
               setPreset("all"); setFrom(accountStart); setTo(today);
-            }}>All time</button>}
+            }}>{translate("All time")}</button>}
           </div>
-          <IconButton label="Refresh proxy usage" hint={s.authed ? "Refresh proxy usage" : "Sign in to refresh proxy usage"}
+          <IconButton label={translate("Refresh proxy usage")} hint={s.authed ? translate("Refresh proxy usage") : translate("Sign in to refresh proxy usage")}
             size="small" appearance="plain" className="proxy-usage-refresh" disabled={s.isRefreshing || !s.authed}
             onClick={() => void refreshUsage()}>
             {s.isRefreshing ? <Spinner size={15} /> : <Icon name="arrow.clockwise" size={15} />}
           </IconButton>
         </div>
 
-        {(historyLoading || !history) && <h2>Proxy usage</h2>}
+        {(historyLoading || !history) && <h2>{translate("Proxy usage")}</h2>}
         {refreshError && <div role="alert" className="muted small">{refreshError}</div>}
         {historyNotice && (
           <div className="proxy-usage-notice">
@@ -430,33 +416,33 @@ export function UsageView() {
         )}
 
         {historyLoading ? (
-          <div className="proxy-usage-loading"><Spinner size={18} /> Loading usage history…</div>
+          <div className="proxy-usage-loading"><Spinner size={18} /> {translate("Loading usage history…")}</div>
         ) : history ? (
           <>
 
             <div className="claw-card proxy-usage-chart-card">
               <div className="proxy-usage-card-heading">
                 <div>
-                  <h2>Proxy usage</h2>
-                  <span className="muted small">Traffic over time · {history.timezone}</span>
+                  <h2>{translate("Proxy usage")}</h2>
+                  <span className="muted small">{translate("Traffic over time ·")} {history.timezone}</span>
                 </div>
-                <span className="proxy-usage-source-badge">NodeMaven data</span>
+                <span className="proxy-usage-source-badge">{translate("NodeMaven data")}</span>
               </div>
               <dl className="proxy-usage-kpis chart-stats">
                 <div className="proxy-usage-kpi">
-                  <dt>Traffic in range</dt>
+                  <dt>{translate("Traffic in range")}</dt>
                   <dd>{trendMark(trends?.traffic)}{humanBytes(history.total_bytes)}</dd>
                 </div>
                 <div className="proxy-usage-kpi">
-                  <dt>Requests</dt>
-                  <dd>{trendMark(trends?.requests)}{numberFormatter.format(history.total_requests)}</dd>
+                  <dt>{translate("Requests")}</dt>
+                  <dd>{trendMark(trends?.requests)}{history.total_requests.toLocaleString(formattingLocale())}</dd>
                 </div>
                 <div className="proxy-usage-kpi">
-                  <dt>Daily average</dt>
+                  <dt>{translate("Daily average")}</dt>
                   <dd>{trendMark(trends?.traffic)}{humanBytes(averageBytes)}</dd>
                 </div>
                 <div className="proxy-usage-kpi">
-                  <dt>Peak day</dt>
+                  <dt>{translate("Peak day")}</dt>
                   <dd>{trendMark(trends?.peak)}{peak ? humanBytes(peak.used_bytes) : "—"}
                     {peak && <small>{formatHistoryDateLabel(peak.label)}</small>}
                   </dd>
@@ -465,18 +451,17 @@ export function UsageView() {
               {points.length ? (
                 <TrafficChart points={points} />
               ) : (
-                <div className="proxy-usage-empty">No traffic recorded in this range.</div>
+                <div className="proxy-usage-empty">{translate("No traffic recorded in this range.")}</div>
               )}
               {history.sources.length > 0 && (
-                <details className="proxy-usage-source-totals"><summary>Traffic source totals</summary>
+                <details className="proxy-usage-source-totals"><summary>{translate("Traffic source totals")}</summary>
                   {history.sources.map((source) => (
                     <span key={source.source}>
-                      <strong>{source.source === "browser" ? "Browser" : "Proxy"}</strong>
+                      <strong>{source.source === "browser" ? translate("Browser") : translate("Proxy")}</strong>
                       {" "}
                       {humanBytes(source.used_bytes)}
                       {" · "}
-                      {numberFormatter.format(source.requests)} req
-                    </span>
+                      {source.requests.toLocaleString(formattingLocale())} {translate("req")}</span>
                   ))}
                 </details>
               )}

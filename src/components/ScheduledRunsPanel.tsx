@@ -1,3 +1,4 @@
+import { formattingLocale, translate } from "../shared/lib/i18n";
 import { Tooltip } from "../shared/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import { useStore } from "../store";
@@ -74,33 +75,32 @@ export function ScheduledRunsPanel({ asPage = false, embedded = false }: { asPag
       {asPage && (
         <div className="page-head scheduled-page-head">
           {!embedded && <div>
-            <h2>Scheduled runs</h2>
-            <p className="muted">Run recurring tasks in the background while this device is awake.</p>
+            <h2>{translate("Scheduled runs")}</h2>
+            <p className="muted">{translate("Run recurring tasks in the background while this device is awake.")}</p>
           </div>}
           <button className="btn-bordered-prominent" onClick={() => { setExpanded(true); setEditor("new"); }}>
-            <Icon name="plus" size={14} /> New schedule
-          </button>
+            <Icon name="plus" size={14} /> {translate("New schedule")}</button>
         </div>
       )}
       {!asPage && <div className="row scheduled-panel-head">
-        <Tooltip content={expanded ? "Hide scheduled runs" : "Show scheduled runs"}><button
+        <Tooltip content={expanded ? translate("Hide scheduled runs") : translate("Show scheduled runs")}><button
           className="scheduled-panel-toggle"
           aria-expanded={expanded}
           onClick={() => !asPage && setExpanded((value) => !value)}
         >
           {!asPage && <Icon name={expanded ? "chevron.down" : "chevron.right"} size={13} />}
-          <span className="section">Scheduled runs</span>
-          {runs.length > 0 && <Tooltip content="Scheduled runs"><span className="profiles-count">{runs.length}</span></Tooltip>}
+          <span className="section">{translate("Scheduled runs")}</span>
+          {runs.length > 0 && <Tooltip content={translate("Scheduled runs")}><span className="profiles-count">{runs.length}</span></Tooltip>}
         </button></Tooltip>
-        <Tooltip content="New schedule"><button className="plain-icon-btn" onClick={() => { setExpanded(true); setEditor("new"); }}>
+        <Tooltip content={translate("New schedule")}><button className="plain-icon-btn" onClick={() => { setExpanded(true); setEditor("new"); }}>
           <Icon name="plus.circle" size={18} />
         </button></Tooltip>
       </div>}
       {expanded && (runs.length === 0 ? (
           <div className="scheduled-empty-state">
             <span className="scheduled-empty-icon"><Icon name="clock.arrow.circlepath" size={22} /></span>
-            <strong>No scheduled runs yet</strong>
-            <span className="muted small">Create a recurring browser task. Closing Nextbrowser keeps enabled schedules running in the background.</span>
+            <strong>{translate("No scheduled runs yet")}</strong>
+            <span className="muted small">{translate("Create a recurring browser task. Closing Nextbrowser keeps enabled schedules running in the background.")}</span>
           </div>
         ) : (
           runs.map((run) => isMonitorSchedule(run) ? (
@@ -124,29 +124,28 @@ export function ScheduledRunsPanel({ asPage = false, embedded = false }: { asPag
             <div className="schedule-info">
               <div className="schedule-title">{run.title}</div>
               <div className="muted small">
-                {run.intervalMinutes ? `Every ${run.intervalMinutes} minute${run.intervalMinutes === 1 ? "" : "s"}` : `${String(run.hour).padStart(2, "0")}:${String(run.minute).padStart(2, "0")} · ${weekdaysSummary(run.weekdays)}`}
+                {run.intervalMinutes ? translate("Every %1 minute%2", run.intervalMinutes, run.intervalMinutes === 1 ? "" : "s") : `${String(run.hour).padStart(2, "0")}:${String(run.minute).padStart(2, "0")} · ${weekdaysSummary(run.weekdays)}`}
               </div>
-              {run.lastFiredAt && <div className="muted small">Last started {lastStarted(run.lastFiredAt)}</div>}
+              {run.lastFiredAt && <div className="muted small">{translate("Last started")} {lastStarted(run.lastFiredAt)}</div>}
               {run.lastError && (
-                <div className="error small">
-                  Could not start: {run.lastError}{run.enabled ? " It retries automatically while this device is awake." : ""}
+                <div className="error small">{translate("Could not start:")} {run.lastError}{run.enabled ? translate(" It retries automatically while this device is awake.") : ""}
                 </div>
               )}
               <div className="muted small">
-                {chatTitle(run) ?? "New chat each run"}
+                {chatTitle(run) ?? translate("New chat each run")}
               </div>
-              <div className="muted small">Profile: {run.profileName || "Unassigned"}</div>
+              <div className="muted small">{translate("Profile:")} {run.profileName || translate("Unassigned")}</div>
             </div>
             <label className="toggle">
               <input
                 type="checkbox"
-                aria-label={run.enabled ? "Disable scheduled run" : "Enable scheduled run"}
+                aria-label={run.enabled ? translate("Disable scheduled run") : translate("Enable scheduled run")}
                 checked={run.enabled}
                 onChange={(e) => setEnabled(run.id, e.target.checked)}
               />
               <span className="toggle-track"><span className="toggle-knob" /></span>
             </label>
-            <Tooltip content="Edit or delete scheduled run"><button
+            <Tooltip content={translate("Edit or delete scheduled run")}><button
               className="plain-icon-btn schedule-menu-button"
               onClick={() => setMenuRunId(menuRunId === run.id ? null : run.id)}
             >
@@ -156,20 +155,18 @@ export function ScheduledRunsPanel({ asPage = false, embedded = false }: { asPag
               <>
                 <button
                   className="menu-dismiss-layer"
-                  aria-label="Close schedule menu"
+                  aria-label={translate("Close schedule menu")}
                   onClick={() => setMenuRunId(null)}
                 />
                 <div className="schedule-action-menu" ref={menuRef}>
                   <button onClick={() => { setEditor(run); setMenuRunId(null); }}>
-                    <Icon name="pencil" size={13} /> Edit
-                  </button>
+                    <Icon name="pencil" size={13} /> {translate("Edit")}</button>
                   <hr className="divider" />
                   <button
                     className="danger-text"
                     onClick={() => { setPendingDelete(run); setMenuRunId(null); }}
                   >
-                    <Icon name="trash" size={13} /> Delete
-                  </button>
+                    <Icon name="trash" size={13} /> {translate("Delete")}</button>
                 </div>
               </>
             )}
@@ -202,21 +199,17 @@ export function ScheduledRunsPanel({ asPage = false, embedded = false }: { asPag
       {pendingDelete && (
         <div className="modal-overlay">
           <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="schedule-delete-title">
-            <p id="schedule-delete-title">Delete “{pendingDelete.title}”?</p>
-            <p className="muted small">This schedule will stop running. Existing chats are kept.</p>
+            <p id="schedule-delete-title">{translate("Delete “")}{pendingDelete.title}”?</p>
+            <p className="muted small">{translate("This schedule will stop running. Existing chats are kept.")}</p>
             <div className="row" style={{ marginTop: 12, gap: 8 }}>
-              <button className="secondary" autoFocus onClick={() => setPendingDelete(null)}>
-                Cancel
-              </button>
+              <button className="secondary" autoFocus onClick={() => setPendingDelete(null)}>{translate("Cancel")}</button>
               <button
                 className="primary danger"
                 onClick={() => {
                   deleteRun(pendingDelete.id);
                   setPendingDelete(null);
                 }}
-              >
-                Delete
-              </button>
+              >{translate("Delete")}</button>
             </div>
           </div>
         </div>
@@ -227,10 +220,10 @@ export function ScheduledRunsPanel({ asPage = false, embedded = false }: { asPag
 
 function lastStarted(timestamp: number): string {
   const date = new Date(timestamp);
-  const time = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const time = date.toLocaleTimeString(formattingLocale(), { hour: "2-digit", minute: "2-digit" });
   return date.toDateString() === new Date().toDateString()
     ? `today at ${time}`
-    : `${date.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} at ${time}`;
+    : `${date.toLocaleDateString(formattingLocale(), { weekday: "short", month: "short", day: "numeric" })} at ${time}`;
 }
 
 function since(timestamp?: number): string {
@@ -267,35 +260,32 @@ function MonitorScheduleRow({ run, entry, lastPassAt, note, busy, menuOpen, menu
       <div className="schedule-info">
         <div className="schedule-title">{run.title}</div>
         <div className="muted small">
-          {every} · Profile: {run.profileName || "Unassigned"}
+          {every} {translate("· Profile:")} {run.profileName || translate("Unassigned")}
         </div>
         <div className="muted small">
           {run.enabled
-            ? (busy ? "Checking now…" : lastPassAt ? `Last check ${since(lastPassAt)}` : "Starting…")
-            : "Stopped"}
+            ? (busy ? translate("Checking now…") : lastPassAt ? translate("Last check %1", since(lastPassAt)) : translate("Starting…"))
+            : translate("Stopped")}
         </div>
         {note && run.enabled && <div className="small watchlist-pass-note">{note}</div>}
-        {!entry && <div className="error small">The skill for this schedule is not installed.</div>}
+        {!entry && <div className="error small">{translate("The skill for this schedule is not installed.")}</div>}
       </div>
       {run.enabled ? (
-        <Tooltip content="Stop monitoring"><button className="btn-bordered schedule-monitor-action" onClick={onStop}>
-          <Icon name="stop" size={13} /> Stop
-        </button></Tooltip>
+        <Tooltip content={translate("Stop monitoring")}><button className="btn-bordered schedule-monitor-action" onClick={onStop}>
+          <Icon name="stop" size={13} /> {translate("Stop")}</button></Tooltip>
       ) : (
-        <Tooltip content="Start monitoring"><button className="btn-bordered-prominent schedule-monitor-action" disabled={!entry} onClick={() => entry && onStart(entry)}>
-          <Icon name="play.fill" size={12} /> Start
-        </button></Tooltip>
+        <Tooltip content={translate("Start monitoring")}><button className="btn-bordered-prominent schedule-monitor-action" disabled={!entry} onClick={() => entry && onStart(entry)}>
+          <Icon name="play.fill" size={12} /> {translate("Start")}</button></Tooltip>
       )}
-      <Tooltip content="Delete this schedule"><button className="plain-icon-btn schedule-menu-button" onClick={onMenu}>
+      <Tooltip content={translate("Delete this schedule")}><button className="plain-icon-btn schedule-menu-button" onClick={onMenu}>
         <Icon name="ellipsis.circle" size={16} />
       </button></Tooltip>
       {menuOpen && (
         <>
-          <button className="menu-dismiss-layer" aria-label="Close schedule menu" onClick={onCloseMenu} />
+          <button className="menu-dismiss-layer" aria-label={translate("Close schedule menu")} onClick={onCloseMenu} />
           <div className="schedule-action-menu" ref={menuRef}>
             <button className="danger-text" onClick={onDelete}>
-              <Icon name="trash" size={13} /> Delete
-            </button>
+              <Icon name="trash" size={13} /> {translate("Delete")}</button>
           </div>
         </>
       )}
@@ -355,36 +345,32 @@ export function ScheduleEditor({
   return (
     <div className="modal-overlay">
       <div className="modal-card schedule-editor" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-        <h3 id={titleId}>{run ? "Edit scheduled run" : "New scheduled run"}</h3>
-        <p className="muted small">Runs with {agentName} while this device is awake, even after you close Nextbrowser.</p>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Daily listing check" autoFocus />
+        <h3 id={titleId}>{run ? translate("Edit scheduled run") : translate("New scheduled run")}</h3>
+        <p className="muted small">{translate("Runs with")} {agentName} {translate("while this device is awake, even after you close Nextbrowser.")}</p>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={translate("e.g. Daily listing check")} autoFocus />
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Describe what the agent should do each time"
+          placeholder={translate("Describe what the agent should do each time")}
           rows={3}
         />
-        <label>Browser profile
-          <select value={availableProfiles.includes(profileName) ? profileName : ""} onChange={(event) => setProfileName(event.target.value)}>
-            <option value="">{availableProfiles.length ? "Choose a profile" : "No profiles in this workspace"}</option>
+        <label>{translate("Browser profile")}<select value={availableProfiles.includes(profileName) ? profileName : ""} onChange={(event) => setProfileName(event.target.value)}>
+            <option value="">{availableProfiles.length ? translate("Choose a profile") : translate("No profiles in this workspace")}</option>
             {availableProfiles.map((name) => <option key={name} value={name}>{name}</option>)}
           </select>
         </label>
-        {availableProfiles.length > 1 && !profileName && <p className="muted small">Choose the profile this task must use. The current sidebar selection may change before the run.</p>}
-        <label>Repeat
-          <select value={repeat} onChange={(event) => setRepeat(event.target.value)}>
-            <option value="daily">Daily / selected days</option>
-            <option value="hourly">Hourly</option>
-            <option value="minutely">Minutely</option>
+        {availableProfiles.length > 1 && !profileName && <p className="muted small">{translate("Choose the profile this task must use. The current sidebar selection may change before the run.")}</p>}
+        <label>{translate("Repeat")}<select value={repeat} onChange={(event) => setRepeat(event.target.value)}>
+            <option value="daily">{translate("Daily / selected days")}</option>
+            <option value="hourly">{translate("Hourly")}</option>
+            <option value="minutely">{translate("Minutely")}</option>
           </select>
         </label>
-        {repeat !== "daily" && <label>Every {repeat === "hourly" ? "hours" : "minutes"}
+        {repeat !== "daily" && <label>{translate("Every")} {repeat === "hourly" ? translate("hours") : translate("minutes")}
           <input type="number" min={1} max={repeat === "hourly" ? 168 : 10080} value={interval} onChange={(event) => setInterval(Math.max(1, Math.min(repeat === "hourly" ? 168 : 10080, Math.floor(Number(event.target.value)) || 1)))} />
         </label>}
         {repeat === "daily" && <><div className="schedule-time-row">
-          <label className="schedule-time-field">
-            Hour
-            <input
+          <label className="schedule-time-field">{translate("Hour")}<input
               type="number"
               min={0}
               max={23}
@@ -393,9 +379,7 @@ export function ScheduleEditor({
             />
           </label>
           <span className="schedule-time-separator" aria-hidden>:</span>
-          <label className="schedule-time-field">
-            Min
-            <input
+          <label className="schedule-time-field">{translate("Min")}<input
               type="number"
               min={0}
               max={59}
@@ -405,7 +389,7 @@ export function ScheduleEditor({
             />
           </label>
         </div>
-        <div className="field-label">Days</div>
+        <div className="field-label">{translate("Days")}</div>
         <div className="weekday-row">
           {WEEKDAY_ORDER.map((d) => (
             <button
@@ -420,24 +404,18 @@ export function ScheduleEditor({
           ))}
         </div>
         <div className="preset-row">
-          <button type="button" className="mini" onClick={() => setWeekdays([2, 3, 4, 5, 6])}>
-            Weekdays
-          </button>
-          <button type="button" className="mini" onClick={() => setWeekdays([...DAILY_WEEKDAYS])}>
-            Daily
-          </button>
-          <button type="button" className="mini" onClick={() => setWeekdays([1, 7])}>
-            Weekends
-          </button>
+          <button type="button" className="mini" onClick={() => setWeekdays([2, 3, 4, 5, 6])}>{translate("Weekdays")}</button>
+          <button type="button" className="mini" onClick={() => setWeekdays([...DAILY_WEEKDAYS])}>{translate("Daily")}</button>
+          <button type="button" className="mini" onClick={() => setWeekdays([1, 7])}>{translate("Weekends")}</button>
         </div>
         </>}
-        <div className="field-label">Session (chat)</div>
+        <div className="field-label">{translate("Session (chat)")}</div>
         <select
           value={conversationId ?? ""}
           onChange={(e) => setConversationId(e.target.value || undefined)}
         >
-          <option value="">New chat each run</option>
-          <option value={NEW_DEDICATED_CHAT}>➕ Create a dedicated chat for this task</option>
+          <option value="">{translate("New chat each run")}</option>
+          <option value={NEW_DEDICATED_CHAT}>{translate("➕ Create a dedicated chat for this task")}</option>
           {conversations.map((c) => (
             <option key={c.id} value={c.id}>
               {c.title}
@@ -445,14 +423,10 @@ export function ScheduleEditor({
           ))}
         </select>
         {conversationId === NEW_DEDICATED_CHAT && (
-          <p className="muted small" style={{ marginTop: 4 }}>
-            A new chat named “{title.trim() || "Scheduled"}” will be created and every run posts into it.
-          </p>
+          <p className="muted small" style={{ marginTop: 4 }}>{translate("A new chat named “")}{title.trim() || translate("Scheduled")}{translate("” will be created and every run posts into it.")}</p>
         )}
         <div className="row" style={{ marginTop: 12, gap: 8 }}>
-          <button className="secondary" onClick={onClose}>
-            Cancel
-          </button>
+          <button className="secondary" onClick={onClose}>{translate("Cancel")}</button>
           <button
             className="primary"
             disabled={!weekdays.length || !title.trim() || !prompt.trim() || (profileName ? !availableProfiles.includes(profileName) : availableProfiles.length > 0)}
@@ -460,7 +434,7 @@ export function ScheduleEditor({
               onSave({ title: title.trim(), prompt: prompt.trim(), profileName: profileName || undefined, hour, minute, weekdays, conversationId, intervalMinutes: repeat === "daily" ? undefined : interval * (repeat === "hourly" ? 60 : 1), createdAt: Date.now() })
             }
           >
-            {run ? "Save" : "Add"}
+            {run ? translate("Save") : translate("Add")}
           </button>
         </div>
       </div>

@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useId, useRef } from "react";
 import { Icon } from "./Icon";
 
@@ -102,9 +103,7 @@ export function GuideActionModal({
           <h3 id={titleId}>{confirmation.title}</h3>
         </div>
         <div className="modal-actions guide-action-modal-actions">
-          <button ref={cancelRef} type="button" className="secondary" onClick={onCancel}>
-            Cancel
-          </button>
+          <button ref={cancelRef} type="button" className="secondary" onClick={onCancel}>{translate("Cancel")}</button>
           <button type="button" className="primary" onClick={onConfirm}>
             {confirmation.confirmLabel}
             <Icon name="chevron.right" size={14} />

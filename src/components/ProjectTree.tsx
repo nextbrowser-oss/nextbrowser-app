@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useState } from "react";
 import { canDropProject, projectFolders, type ProjectSort } from "../lib/projectTree";
 import { Glyph, IconButton, Tree, type TreeNode } from "../shared/ui";
@@ -22,7 +23,7 @@ export function ProjectTree({ query, sort, onSelect }: { query: string; sort: Pr
   const expanded = folders.filter(folder => !(collapsed[folder.project.id] ?? !folder.sessions.some(session => session.id === activeId))).map(folder => `folder:${folder.project.id}`);
   const nodes: TreeNode[] = folders.map(({ project, sessions }) => ({
     id: `folder:${project.id}`, label: project.title, ariaLabel: `project ${project.title}`, icon: <Glyph name="folder" size={15} />,
-    meta: <><small>{sessions.length}</small><IconButton label={`New session in ${project.title}`} appearance="plain" size="small" onClick={event => { event.stopPropagation(); if (createSession(project.id)) onSelect?.(); }}><Icon name="plus" size={12} /></IconButton></>,
+    meta: <><small>{sessions.length}</small><IconButton label={translate("New session in %1", project.title)} appearance="plain" size="small" onClick={event => { event.stopPropagation(); if (createSession(project.id)) onSelect?.(); }}><Icon name="plus" size={12} /></IconButton></>,
     children: sessions.map(session => ({ id: `session:${session.id}`, label: sessionName(session),
       ariaLabel: `Open ${sessionName(session)} in ${project.title}`, icon: <Icon name="bubble.left.and.bubble.right.fill" size={12} />,
       data: { kind: "session", id: session.id, main: session.id === project.id },
@@ -35,8 +36,8 @@ export function ProjectTree({ query, sort, onSelect }: { query: string; sort: Pr
     return next;
   });
   return <div className="project-tree">
-    <Tree label="Project folders" nodes={nodes} selectedId={activeId ? `session:${activeId}` : undefined} expandedIds={expanded} onExpandedChange={expand}
-      query={query} emptyText="No matching projects."
+    <Tree label={translate("Project folders")} nodes={nodes} selectedId={activeId ? `session:${activeId}` : undefined} expandedIds={expanded} onExpandedChange={expand}
+      query={query} emptyText={translate("No matching projects.")}
       renderSwitcher={open => <Icon name={open ? "chevron.down" : "chevron.right"} size={10} />}
       onSelect={node => {
         const data = node.data as { kind: string; id: string };
@@ -53,7 +54,7 @@ export function ProjectTree({ query, sort, onSelect }: { query: string; sort: Pr
           move(event); setError(undefined);
           const target = folders.find(folder => `folder:${folder.project.id}` === event.targetId || folder.sessions.some(session => `session:${session.id}` === event.targetId));
           if (target) expand([...new Set([...expanded, `folder:${target.project.id}`])]);
-        } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not move this item."); }
+        } catch (failure) { setError(failure instanceof Error ? failure.message : translate("Could not move this item.")); }
       }} />
     {error && <p className="error small" role="alert">{error}</p>}
   </div>;

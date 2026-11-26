@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { Tooltip } from "../shared/ui";
 import { useState, type MouseEvent, type ReactNode } from "react";
 import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
@@ -61,17 +62,17 @@ function LocalFileCard({ path, label }: { path: string; label: string }) {
   const open = async (target: string) => {
     setError(undefined);
     try { await invoke("open_path", { path: target }); }
-    catch { setError("Could not open this location. Check that it still exists."); }
+    catch { setError(translate("Could not open this location. Check that it still exists.")); }
   };
   return (
     <Tooltip content={path}><span className="local-file-card">
       <Icon name="doc" size={15} />
       <span className="local-file-name">{label || fileNameFromPath(path)}</span>
       {error && <span role="alert">{error}</span>}
-      <button className="local-file-open" onClick={() => void open(path)}>Open</button>
-      <Tooltip content="Show in Finder / Explorer"><button
+      <button className="local-file-open" onClick={() => void open(path)}>{translate("Open")}</button>
+      <Tooltip content={translate("Show in Finder / Explorer")}><button
         className="local-file-reveal plain-icon-btn plain-icon-btn-compact"
-        aria-label={`Show ${label || fileNameFromPath(path)} in folder`}
+        aria-label={translate("Show %1 in folder", label || fileNameFromPath(path))}
         onClick={() => void open(containingFolderPath(path))}
       >
         <Icon name="folder" size={13} />

@@ -1,4 +1,5 @@
 import React from "react";
+import { I18nProvider } from "react-aria-components";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
@@ -15,6 +16,8 @@ import "@fontsource/inter/600.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "./styles.css";
 import { TooltipProvider } from "./shared/ui";
+import { getLanguage, subscribeLanguage } from "./shared/lib/i18n";
+import { resolveInterfaceLanguage } from "./lib/interfaceLanguage";
 import { installStartPageBridge } from './lib/startPageBridge';
 installStartPageBridge();
 
@@ -25,10 +28,19 @@ window.nextbrowser?.on("schedule:flush", () => {
 });
 window.nextbrowser?.on("schedule:foreground", enterScheduleForeground);
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <AppErrorBoundary>
-      <TooltipProvider><DesktopShell><App /></DesktopShell></TooltipProvider>
-    </AppErrorBoundary>
-  </React.StrictMode>,
-);
+function Desktop() {
+  const language = React.useSyncExternalStore(subscribeLanguage, getLanguage);
+  return (
+    <React.StrictMode>
+      <AppErrorBoundary>
+        <I18nProvider locale={language}>
+          <TooltipProvider><DesktopShell><App /></DesktopShell></TooltipProvider>
+        </I18nProvider>
+      </AppErrorBoundary>
+    </React.StrictMode>
+  );
+}
+const root = ReactDOM.createRoot(document.getElementById("root")!);
+void resolveInterfaceLanguage()
+  .catch(error => console.warn("Could not load interface language", error))
+  .then(() => root.render(<Desktop />));
