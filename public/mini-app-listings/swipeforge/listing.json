@@ -1,4 +1,5 @@
 {
+  "author": "lrdoflnlss",
   "useCases": [
     "Prepare a video, image, audio clip or social post from a prompt.",
     "Track a generation and approve a post before publishing to a connected account."

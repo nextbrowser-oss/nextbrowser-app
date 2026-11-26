@@ -4,20 +4,22 @@ import { Dialog, IconButton, Button } from '../../shared/ui';
 import type { CatalogApp } from '../../lib/miniAppLibrary';
 import { CatalogReviews } from './CatalogReviews';
 
-export function screenshotUrl(id: string, file: string) {
-  return './mini-app-listings/' + id + '/' + file;
-}
+import { CatalogImage } from './CommunityCatalog';
+import { AccountReviews } from './AccountReviews';
 
-export function CatalogDetails({ app, installed, busy, launch, onClose }: {
+export function CatalogDetails({ owner, app, installed, busy, launch, onClose }: {
+  owner: string;
   app: CatalogApp; installed: boolean; busy: boolean; launch: () => void; onClose: () => void;
 }) {
   const [index, setIndex] = useState(0);
+  const [archive, setArchive] = useState(false);
   const { screenshots, useCases, requirements, example } = app.listing;
   const shot = screenshots[index];
   return <Dialog title={app.name} onClose={onClose} className="catalog-detail">
+    <small className="catalog-author">By {app.listing.author}</small>
     <p>{app.description}</p>
     <figure className="catalog-gallery">
-      <img src={screenshotUrl(app.id, shot.file)} alt={shot.alt} />
+      <CatalogImage owner={owner} app={app} shot={shot} />
       <figcaption>
         <IconButton label="Previous screenshot" appearance="plain" onClick={() => setIndex((index + screenshots.length - 1) % screenshots.length)}><ChevronLeft size={16} /></IconButton>
         <span aria-live="polite">{index + 1} / {screenshots.length} · {shot.alt}</span>
@@ -29,6 +31,7 @@ export function CatalogDetails({ app, installed, busy, launch, onClose }: {
     </div>
     <ul>{useCases.map(line => <li key={line}>{line}</li>)}</ul><p>{requirements}</p>
     <h3>Ask your agent</h3><p>{example}</p>
-    <CatalogReviews id={app.id} />
+    <AccountReviews owner={owner} id={app.id} />
+    {!app.community && <details onToggle={e => setArchive(e.currentTarget.open)}><summary>Archived GitHub reviews</summary>{archive && <CatalogReviews id={app.id} />}</details>}
   </Dialog>;
 }

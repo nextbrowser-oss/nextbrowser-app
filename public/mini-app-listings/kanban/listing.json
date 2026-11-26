@@ -1,4 +1,5 @@
 {
+  "author": "0nliner",
   "useCases": [
     "Plan a sprint on a three-column task board.",
     "Ask the agent to create a task, edit its notes or move it to Done."

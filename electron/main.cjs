@@ -28,6 +28,15 @@ function miniApps() {
   return miniAppsHost ??= require('./mini-apps/host.cjs').createHost({
     root: path.join(dataDir(), 'mini-apps-v1'), session, dialog, WebContentsView, BrowserWindow, libraryChanged: () => emit('mini-apps:changed'),
     safeStorage, openExternal: url => shell.openExternal(url),
+    catalogRequest: async (owner, route, body) => {
+      const { apiKey, baseURL } = await runtimeBackendEndpoint();
+      if (!apiKey) throw Error('Sign in to Nextbrowser to use the community catalog.');
+      return apiFetchJSON(baseURL, route, {
+        method: body === undefined ? 'GET' : 'PUT', redirect: 'error', signal: AbortSignal.timeout(30000),
+        headers: { authorization: 'Bearer ' + apiKey, 'X-Nextbrowser-Account': owner.slice('account/'.length) },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    },
   });
 }
 const { createStartPageServer } = require('./start-page-server.cjs');

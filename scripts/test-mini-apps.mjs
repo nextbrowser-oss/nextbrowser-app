@@ -85,8 +85,10 @@ try {
     await detail.getByRole('button',{name:'Next screenshot'}).click();
     await until(() => image.evaluate(img => img.naturalWidth === 1200));
     assert.notEqual(await image.getAttribute('src'), first);
+    await detail.getByText('Sign in to Nextbrowser to rate this mini app.').waitFor();
+    await detail.getByText('Archived GitHub reviews').click();
     await detail.getByText('No reviews yet.').waitFor();
-    assert.match(await detail.getByRole('link',{name:'Write a review on GitHub'}).getAttribute('href'), /NBReview-/);
+    assert.match(await detail.getByRole('link',{name:'View all reviews'}).getAttribute('href'), /NBReview-/);
     await page.keyboard.press('Escape');
     await detail.waitFor({state:'detached'});
   }

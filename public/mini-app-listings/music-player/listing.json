@@ -1,4 +1,5 @@
 {
+  "author": "0nliner",
   "useCases": [
     "Control playback from the chat panel while working.",
     "Switch between named music accounts and open the service player to sign in."

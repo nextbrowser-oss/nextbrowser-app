@@ -45,7 +45,7 @@ async function readStateRequest(request) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
-function createHost({ root, session, dialog, WebContentsView, BrowserWindow, libraryChanged, safeStorage, openExternal }) {
+function createHost({ root, session, dialog, WebContentsView, BrowserWindow, libraryChanged, safeStorage, openExternal, catalogRequest }) {
   const { catalog, catalogIds, catalogEntry } = require('./catalog.cjs');
   const store = createStore(root, id => parsePackage(catalog(id)));
   const bindings = new Map();
@@ -269,6 +269,18 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
   async function command(name, args, window) {
     const { owner, id } = args;
     switch (name) {
+      case 'mini_apps_reviews':
+      case 'mini_apps_review_save':
+      case 'mini_apps_community_list':
+      case 'mini_apps_community_file':
+      case 'mini_apps_publish': {
+        if (!owner?.startsWith('account/') || scopes.get(window.webContents.id)?.owner !== owner) throw Error('Sign in to Nextbrowser to use the community catalog.');
+        if (name === 'mini_apps_publish') {
+          await validateInstallation(parsePackage(args.publication?.package));
+          if (window.isDestroyed() || scopes.get(window.webContents.id)?.owner !== owner) throw Error('Your account changed.');
+        }
+        return require('./community.cjs').catalogCommand(name, args, (route, body) => catalogRequest(owner, route, body));
+      }
       case 'mini_apps_context': return setScope(window, owner, args.workspaceId);
       case 'mini_apps_list': return { installed: store.list(owner), catalog: catalogIds.map(catalogEntry) };
       case 'mini_apps_set_widget':
@@ -292,9 +304,14 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
         if (catalogIds.includes(candidate.id) && !isDeepStrictEqual(candidate, parsePackage(catalog(candidate.id)))) {
           throw Error('This ID belongs to the catalog app. Choose a different ID in your manifest.');
         }
+        if (args.publicationId) {
+          if (!owner?.startsWith('account/') || scope?.owner !== owner || !/^[a-f0-9-]{36}$/i.test(args.publicationId)) throw Error('Invalid catalog installation.');
+          const route = '/v1/catalog/apps/' + candidate.id + '/' + candidate.version + '/package?publication=' + encodeURIComponent(args.publicationId);
+          if (await catalogRequest(owner, route) !== raw) throw Error('The catalog package changed. Refresh your listing.');
+        }
         await validateInstallation(candidate);
         if (window.isDestroyed() || scopes.get(shellId) !== scope || (scope && scope.owner !== owner)) throw Error('The account or workspace changed during installation.');
-        const installed = store.install(owner, raw, args.previousGeneration);
+        const installed = store.install(owner, raw, args.previousGeneration, args.publicationId);
         libraryChanged();
         return installed;
       }
@@ -314,7 +331,8 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
         return;
       }
       case 'mini_apps_download': {
-        const raw = catalog(id);
+        const raw = args.raw === undefined ? catalog(id) : args.raw;
+        if (parsePackage(raw).id !== id) throw Error('Package ID changed.');
         const { canceled, filePath } = await dialog.showSaveDialog(window, { defaultPath: (id ?? 'kanban') + '.nbmini.json', filters: [{ name: 'Mini app package', extensions: ['json'] }] });
         if (!canceled && filePath) await fs.promises.writeFile(filePath, raw, 'utf8');
         return;

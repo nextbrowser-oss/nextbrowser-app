@@ -33,7 +33,7 @@ function ReviewFeed({ id }: { id: string }) {
     void load();
     return () => { active = false; clearTimeout(timeout); abort.abort(); };
   }, [attempt, query, marker]);
-  const compose = new URLSearchParams({title: marker + ': My experience', body: ''});
+
   return <section className="catalog-reviews" aria-label="Community reviews">
     <h3>Community reviews</h3>
     <div aria-live="polite">
@@ -46,7 +46,7 @@ function ReviewFeed({ id }: { id: string }) {
           {issue.body && <p>{issue.body.slice(0, 360)}{issue.body.length > 360 ? '…' : ''}</p>}
         </article>)}
     </div>
-    <div className="catalog-review-links"><a href={issues + '/new?' + compose} target="_blank" rel="noreferrer">Write a review on GitHub</a>
+    <div className="catalog-review-links">
       <a href={issues + '?q=' + encodeURIComponent(query)} target="_blank" rel="noreferrer">View all reviews</a></div>
   </section>;
 }

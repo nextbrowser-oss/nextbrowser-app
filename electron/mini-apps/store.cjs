@@ -117,23 +117,24 @@ function createStore(root, catalog) {
       .map((name, index) => {
         const record = read(owner, name.slice(4, -5));
         const position = order.indexOf(record.generation);
-        return { ...metadata(record.pkg), generation: record.generation, pinned: record.pinned === true,
+        return { ...metadata(record.pkg), generation: record.generation, sourcePublication: record.sourcePublication, pinned: record.pinned === true,
           railIndex: position < 0 ? order.length + index : position, placements: record.placements ?? {} };
       });
   }
-  function install(owner, raw, previousGeneration) {
+  function install(owner, raw, previousGeneration, sourcePublication) {
     const pkg = parsePackage(raw);
     const file = location(owner, pkg.id);
     if (fs.existsSync(file)) {
       const old = read(owner, pkg.id);
-      if (previousGeneration !== old.generation || old.pkg.apiVersion !== 1) throw Error('This app ID is already installed.');
-      write(file, { ...old, pkg, generation: randomUUID() });
+      const update = sourcePublication && old.sourcePublication === sourcePublication && pkg.version.localeCompare(old.pkg.version, 'en', {numeric:true}) > 0;
+      if (previousGeneration !== old.generation || (old.pkg.apiVersion !== 1 && !update)) throw Error('This app ID is already installed.');
+      write(file, { ...old, pkg, generation: randomUUID(), sourcePublication });
       return metadata(pkg);
     }
     if (previousGeneration) throw Error('The previous installation changed.');
     fs.mkdirSync(directory(owner), { recursive: true, mode: 0o700 });
     if (list(owner).length >= 32) throw Error('The limit is 32 installed mini apps.');
-    write(file, { pkg, generation: randomUUID(), revision: 0, value: null });
+    write(file, { pkg, generation: randomUUID(), revision: 0, value: null, sourcePublication });
     return metadata(pkg);
   }
   function save(owner, id, generation, expected, value) {

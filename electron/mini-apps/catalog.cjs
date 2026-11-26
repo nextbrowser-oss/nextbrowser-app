@@ -18,7 +18,7 @@ function catalogEntry(id) {
   const dir = path.join(assets, 'mini-app-listings', id);
   const listing = JSON.parse(fs.readFileSync(path.join(dir, 'listing.json'), 'utf8'));
   const text = v => typeof v === 'string' && v.trim().length > 0;
-  if (!Array.isArray(listing.useCases) || !listing.useCases.length || !listing.useCases.every(text) ||
+  if (!text(listing.author) || !Array.isArray(listing.useCases) || !listing.useCases.length || !listing.useCases.every(text) ||
       !text(listing.requirements) || !text(listing.example) || !Array.isArray(listing.screenshots) ||
       listing.screenshots.length < 2 || listing.screenshots.length > 8 ||
       new Set(listing.screenshots.map(s => s.file)).size !== listing.screenshots.length ||

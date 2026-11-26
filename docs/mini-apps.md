@@ -17,9 +17,9 @@ At installation Nextbrowser compares the native tool registry to the manifest in
 
 Ship `public/mini-app-listings/<id>/listing.json` and 2–8 distinct PNG or WebP screenshots beside the executable package. The cover is the first image. Capture the real interface at 16:9 (recommended 1200 × 675), including an overview and a second task, workflow or setup screen. Use a clean demo account. Remove private data; identify sample content in the captions. The store bundles these assets so every gallery works offline.
 
-The listing requires `screenshots` (each with a unique lowercase filename and descriptive `alt`), `useCases` (specific tasks), `requirements` (accounts, permissions or cost constraints) and `example` (a request the published tools support). Keep editorial metadata outside the portable package so older v2 installers can still read it. See the [Kanban listing](../public/mini-app-listings/kanban/listing.json).
+Bundled listings require an `author` credit, `screenshots` (each with a unique lowercase filename and descriptive `alt`), `useCases`, `requirements` and an `example` request the tools support. Keep listing metadata outside the portable package for compatibility with existing v2 installers. See the [Kanban listing](../public/mini-app-listings/kanban/listing.json).
 
-The desktop catalog opens the listing in a dialog. Users can browse the screenshots before installing and read community reviews. The official catalog links each app to GitHub issues whose title begins with `NBReview-<id>:`. Authors post under their own account.
+The desktop catalog opens the listing in a dialog. Users can browse the screenshots, rate the app and leave a comment. Older GitHub reviews for bundled apps are available in the archive.
 
 From the desktop repo, run `node scripts/capture-mini-app-gallery.mjs` to refresh the bundled examples. Review the images and their captions together before committing.
 
@@ -109,6 +109,12 @@ When adding a feature, add its UI outcome and tool to this mapping for your own 
 
 The reference project includes source and a dependency-free package builder. Run `npm run build` with Node.js 22, then import the generated file. [Kanban project](https://github.com/0nliner/kanban-mini-app)
 
+## Publishing to the community catalog
+
+In **Mini Apps → Publish mini app**, sign in with your Nextbrowser account and choose a v2 `.nbmini.json` package (up to 256 KiB). Include 2–8 real 16:9 PNG screenshots, up to 2400 × 1350 and 512 KiB each. The first screenshot is the cover. Describe each screen, list use cases and requirements, and include an example agent request. The catalog credits your account display name.
+
+A package ID belongs to its original publisher. Publish a higher numeric `major.minor.patch` version under the same ID to update it. Users review the package permissions before installing or updating. A catalog update from the same publication keeps saved app data. Signed-in users can save or edit one 1–5 star rating and an optional comment per app. Historical GitHub reviews remain available in the gallery's archive.
+
 ## Updating v1 apps
 
-New installations require v2. The desktop recognizes the bundled Kanban 1.0.0 and upgrades its code while preserving the board and rail preference. Other installed v1 apps remain usable through their UI. To upgrade one, import its author's v2 package with the same ID and select **Upgrade and keep data**. Review the code publisher and requested permission because the replacement will inherit the installation's state. Test schema compatibility against saved v1 data. A v2 package cannot overwrite an existing v2 installation.
+New installations require v2. The desktop recognizes the bundled Kanban 1.0.0 and upgrades its code while preserving the board and rail preference. Other installed v1 apps remain usable through their UI. To upgrade one, import its author's v2 package with the same ID and select **Upgrade and keep data**. Review the publisher and requested permissions because the replacement inherits saved state. File imports cannot overwrite an existing v2 installation.
