@@ -243,7 +243,8 @@ test('secure storage is required before a sign-in starts', async t => {
 
 test('production sign-in goes through the Nextbrowser connection, then the same consent page', async t => {
   const fake = await fakeSwipeForge(t);
-  const { sf } = client(t, fake, { signInConnection: 'Nextbrowser' });
+  let focused = 0;
+  const { sf } = client(t, fake, { signInConnection: 'Nextbrowser', onConnected: () => { focused++; } });
   await sf.action(binding, { action: 'connect' }, active);
   const opened = new URL(fake.opened[0]);
   assert.equal(opened.pathname, '/api/session/login');
@@ -251,5 +252,6 @@ test('production sign-in goes through the Nextbrowser connection, then the same 
   assert.match(opened.searchParams.get('next'), /^\/mcp\/consent\?request=intent-0$/);
   assert.equal((await fake.browser(fake.opened[0])).status, 200);
   assert.equal((await sf.action(binding, { action: 'status' }, active)).connected, true);
+  assert.equal(focused, 1, 'Nextbrowser comes back in front once the sign-in finishes');
   assert.throws(() => createSwipeForge({ root: fixture(t), safeStorage, baseUrl: fake.base, openExternal: async () => {}, signInConnection: 'x&prompt=none' }), /Invalid SwipeForge sign-in connection/);
 });

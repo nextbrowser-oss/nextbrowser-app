@@ -1,19 +1,7 @@
 {
   "author": "0nliner",
-  "useCases": [
-    "Control playback from the chat panel while working.",
-    "Switch between named music accounts and open the service player to sign in."
-  ],
-  "requirements": "Sign in on the music service’s website. Playback controls need a service window with an active media session.",
-  "example": "List my music accounts and show what is playing on the selected account.",
   "screenshots": [
-    {
-      "file": "player.png",
-      "alt": "Playback controls for a sample music account"
-    },
-    {
-      "file": "account.png",
-      "alt": "Adding a music account and choosing how to sign in"
-    }
+    "player.png",
+    "account.png"
   ]
 }

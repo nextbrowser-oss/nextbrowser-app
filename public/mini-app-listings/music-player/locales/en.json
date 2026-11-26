@@ -1,0 +1,13 @@
+{
+  "description": "Music controls in the chat panel.",
+  "useCases": [
+    "Play, pause and switch tracks without leaving the chat.",
+    "Add several music accounts and switch between them."
+  ],
+  "requirements": "Sign in on the music service's website. Controls work while its player window is open.",
+  "example": "What's playing? Skip to the next track.",
+  "screenshots": {
+    "player.png": "Player with a sample account",
+    "account.png": "Adding a music account"
+  }
+}

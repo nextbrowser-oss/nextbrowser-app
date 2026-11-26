@@ -12,7 +12,7 @@ import './mini-apps.css';
 import { CatalogDetails } from './CatalogDetails';
 import { CatalogImage, catalogPackage, useCommunityCatalog } from './CommunityCatalog';
 import { PublishMiniApp } from './PublishMiniApp';
-import type { CatalogApp } from '../../lib/miniAppLibrary';
+import { listingText, type CatalogApp } from '../../lib/miniAppLibrary';
 
 type Review = { action: 'install' | 'remove'; app: AppInfo; raw?: string; previousGeneration?: string; publicationId?: string };
 
@@ -120,13 +120,14 @@ function LibraryView({ owner }: { owner: string }) {
       </> : <div className="mini-apps-catalog">{[...library.catalog, ...community.apps].filter(app => !widgetsOnly || app.widgets?.length || app.hasWidgets).map(app => {
         const installed = library.installed.some(item => item.id === app.id);
         const cover = app.listing.screenshots[0];
+        const text = listingText(app);
         return <article key={app.id} className="catalog-card">
           <button className="catalog-card-preview" aria-label={'Preview ' + app.name} onClick={() => setDetails(app)}>
-            <CatalogImage owner={owner} app={app} shot={cover} />
+            <CatalogImage owner={owner} app={app} shot={{...cover, alt:text.screenshots[cover.file] ?? cover.alt}} />
           </button>
           <div className="catalog-app-title"><MiniAppIcon app={app} /><h2><button onClick={() => setDetails(app)}>{app.name}</button></h2></div>
           <small className="catalog-author">By {app.listing.author}</small>
-          <p>{app.description}</p>
+          <p>{text.description}</p>
           <div className="catalog-card-actions"><Button disabled={busy} onClick={() => installed ? open(app.id) : void run(() => chooseInstall(app))}>{installed ? 'Open' : 'Install'}</Button>
           {app.community && library.installed.some(item => item.id === app.id && item.sourcePublication === app.publicationId && item.version.localeCompare(app.version, 'en', {numeric:true}) < 0) && <Button disabled={busy} onClick={() => void run(() => chooseInstall(app))}>Update</Button>}
           <Button disabled={busy} onClick={() => void run(async () => invoke('mini_apps_download', { owner, id: app.id, raw: app.community ? await catalogPackage(owner, app) : undefined }))}>Download package</Button>

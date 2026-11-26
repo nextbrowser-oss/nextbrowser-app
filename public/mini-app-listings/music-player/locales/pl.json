@@ -1,0 +1,13 @@
+{
+  "description": "Sterowanie muzyką w panelu czatu.",
+  "useCases": [
+    "Odtwarzaj, pauzuj i zmieniaj utwory bez wychodzenia z czatu.",
+    "Dodaj kilka kont muzycznych i przełączaj się między nimi."
+  ],
+  "requirements": "Zaloguj się na stronie serwisu muzycznego. Sterowanie działa, dopóki okno odtwarzacza jest otwarte.",
+  "example": "Co teraz gra? Następny utwór.",
+  "screenshots": {
+    "player.png": "Odtwarzacz z przykładowym kontem",
+    "account.png": "Dodawanie konta muzycznego"
+  }
+}

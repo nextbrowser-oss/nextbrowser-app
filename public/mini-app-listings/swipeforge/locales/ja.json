@@ -1,0 +1,13 @@
+{
+  "description": "SwipeForge で AI 動画・画像・投稿を作成し、SNS アカウントに公開。",
+  "useCases": [
+    "テキストから動画、画像、投稿、ナレーションを生成します。",
+    "レンダリングの進行を確認し、TikTok、Instagram、YouTube、X に公開できます。"
+  ],
+  "requirements": "Nextbrowser アカウントでサインインします。生成の上限は SwipeForge のレベルに従います。投稿はあなたが承認してから公開されます。",
+  "example": "5秒の縦長動画を作って：雨のネオン街に浮かぶ紙の船。",
+  "screenshots": {
+    "workspace.png": "動画の作成",
+    "connect.png": "SwipeForge の接続"
+  }
+}

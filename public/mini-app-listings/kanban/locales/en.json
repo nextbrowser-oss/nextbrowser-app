@@ -1,0 +1,13 @@
+{
+  "description": "Task board with To do, In progress and Done columns.",
+  "useCases": [
+    "Keep tasks in three columns and move them as work progresses.",
+    "The agent can add tasks, edit notes and move cards."
+  ],
+  "requirements": "Tasks are stored locally in your Nextbrowser account. No extra sign-in needed.",
+  "example": "Move the release checklist to In progress.",
+  "screenshots": {
+    "board.png": "Board with sample tasks",
+    "editor.png": "Task editor"
+  }
+}

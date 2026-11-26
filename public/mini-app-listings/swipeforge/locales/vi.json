@@ -1,0 +1,13 @@
+{
+  "description": "Video, hình ảnh và bài đăng AI từ SwipeForge, đăng lên tài khoản mạng xã hội của bạn.",
+  "useCases": [
+    "Tạo video, hình ảnh, bài đăng hoặc lồng tiếng từ mô tả văn bản.",
+    "Theo dõi quá trình render và đăng lên TikTok, Instagram, YouTube hoặc X."
+  ],
+  "requirements": "Đăng nhập bằng tài khoản Nextbrowser. Giới hạn tạo nội dung theo cấp SwipeForge của bạn. Bài đăng chỉ được đăng sau khi bạn duyệt.",
+  "example": "Làm video dọc 5 giây: chiếc thuyền giấy trên phố neon mưa.",
+  "screenshots": {
+    "workspace.png": "Tạo video",
+    "connect.png": "Kết nối SwipeForge"
+  }
+}

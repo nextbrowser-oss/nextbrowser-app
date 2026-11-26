@@ -1,0 +1,13 @@
+{
+  "description": "To do, In progress, Done 세 열로 된 작업 보드.",
+  "useCases": [
+    "작업을 세 열로 관리하고 진행에 따라 옮기세요.",
+    "에이전트가 작업을 추가하고 메모를 수정하고 카드를 옮길 수 있습니다."
+  ],
+  "requirements": "작업은 Nextbrowser 계정에 로컬로 저장됩니다. 별도 로그인은 필요 없습니다.",
+  "example": "출시 체크리스트를 In progress로 옮겨 줘.",
+  "screenshots": {
+    "board.png": "샘플 작업이 있는 보드",
+    "editor.png": "작업 편집기"
+  }
+}

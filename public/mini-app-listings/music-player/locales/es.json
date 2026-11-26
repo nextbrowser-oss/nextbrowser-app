@@ -1,0 +1,13 @@
+{
+  "description": "Controles de música en el panel de chat.",
+  "useCases": [
+    "Reproduce, pausa y cambia de canción sin salir del chat.",
+    "Añade varias cuentas de música y cambia entre ellas."
+  ],
+  "requirements": "Inicia sesión en la web del servicio de música. Los controles funcionan mientras su reproductor está abierto.",
+  "example": "¿Qué está sonando? Pasa a la siguiente.",
+  "screenshots": {
+    "player.png": "Reproductor con una cuenta de ejemplo",
+    "account.png": "Añadir una cuenta de música"
+  }
+}

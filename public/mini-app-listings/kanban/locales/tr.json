@@ -1,0 +1,13 @@
+{
+  "description": "To do, In progress ve Done sütunlu görev panosu.",
+  "useCases": [
+    "Görevleri üç sütunda tutun, iş ilerledikçe taşıyın.",
+    "Ajan görev ekleyebilir, notları düzenleyebilir ve kartları taşıyabilir."
+  ],
+  "requirements": "Görevler Nextbrowser hesabınızda yerel olarak saklanır. Ayrıca giriş yapmanız gerekmez.",
+  "example": "Sürüm kontrol listesini In progress’e taşı.",
+  "screenshots": {
+    "board.png": "Örnek görevli pano",
+    "editor.png": "Görev düzenleyici"
+  }
+}

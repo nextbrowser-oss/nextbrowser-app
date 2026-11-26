@@ -1,0 +1,13 @@
+{
+  "description": "Controles de música no painel de chat.",
+  "useCases": [
+    "Toque, pause e troque de faixa sem sair do chat.",
+    "Adicione várias contas de música e alterne entre elas."
+  ],
+  "requirements": "Entre no site do serviço de música. Os controles funcionam enquanto o player estiver aberto.",
+  "example": "O que está tocando? Pula para a próxima.",
+  "screenshots": {
+    "player.png": "Player com uma conta de exemplo",
+    "account.png": "Adicionar uma conta de música"
+  }
+}

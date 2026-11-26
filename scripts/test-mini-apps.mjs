@@ -79,10 +79,10 @@ try {
   for (const name of ['Kanban', 'Music Player', 'SwipeForge']) {
     await page.getByRole('button', {name:'Preview ' + name, exact:true}).click();
     const detail = page.getByRole('dialog', {name,exact:true});
-    const image = detail.locator('figure img');
+    const image = detail.locator('.catalog-gallery-frame img');
     await until(() => image.evaluate(img => img.naturalWidth === 1200));
     const first = await image.getAttribute('src');
-    await detail.getByRole('button',{name:'Next screenshot'}).click();
+    await detail.getByRole('group',{name:'Screenshots'}).getByRole('button').nth(1).click();
     await until(() => image.evaluate(img => img.naturalWidth === 1200));
     assert.notEqual(await image.getAttribute('src'), first);
     await detail.getByText('Sign in to Nextbrowser to rate this mini app.').waitFor();
