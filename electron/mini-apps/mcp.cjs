@@ -19,8 +19,8 @@ const tools = [
     ['app_id', 'instance', 'tool', 'input_json']),
 ];
 function sessionSettings(agent, values, hasMiniApps, hasHarnessScope = hasMiniApps) {
-  const harness = values['nextbrowser.useHarness2'] === '1';
-  const prefer = values['nextbrowser.preferTabTools'] === '1';
+  const harness = values['nextbrowser.useHarness2'] !== '0';
+  const prefer = values['nextbrowser.preferTabTools'] !== '0';
   return {
     agent, settingsAtLaunch: { useHarness2: harness, preferWebMCP: prefer },
     effective: {

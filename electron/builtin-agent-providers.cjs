@@ -14,11 +14,11 @@ const PROVIDERS = Object.freeze({
   gemini: Object.freeze({ id: "gemini", name: "Google Gemini", baseURL: "https://generativelanguage.googleapis.com/v1beta/openai", keyRequired: true }),
   custom: Object.freeze({ id: "custom", name: "Custom provider", baseURL: "", keyRequired: false }),
 });
-const DEFAULT_PROVIDER = "nvidia";
+const DEFAULT_PROVIDER = "openrouter";
 // Used when the provider's model list cannot be read.
 const FALLBACK_MODELS = Object.freeze({
   nvidia: "nvidia/nemotron-3.5-super-vl-120b-a12b",
-  openrouter: "openrouter/free",
+  openrouter: "nvidia/nemotron-3.5-super-vl:free",
   gemini: "gemini-2.5-flash",
   deepseek: "deepseek-flash",
 });
@@ -79,6 +79,7 @@ function resolveProviderSettings(settings = {}, managedProviderURL) {
   }
   const savedModel = cleanModelId(settings.model);
   const model = preset.id === "nvidia" && (managedNvidia || !savedModel) ? FALLBACK_MODELS.nvidia
+    : preset.id === "openrouter" && !savedModel ? FALLBACK_MODELS.openrouter
     : preset.id === "openrouter" && !isFreeOpenRouterModel(savedModel) ? OPENROUTER_FREE_ROUTER : savedModel;
   if (!model) {
     throw new ProviderError("not_configured", "Pick a model for the Nextbrowser agent in Settings → Agent.", { expected: true });
@@ -322,7 +323,7 @@ function nvidiaRank(id) {
 /**
  * The model to preselect from a provider's list. NVIDIA: a chat Nemotron
  * model, Super before Ultra before Nano, the newest of that size first.
- * OpenRouter: its free router, else a free model that lists tool support.
+ * OpenRouter: prefer Nemotron Super when available, then its free router.
  * Gemini: the newest plain Flash model.
  */
 function defaultModelFor(provider, models = []) {
@@ -336,7 +337,8 @@ function defaultModelFor(provider, models = []) {
     return nemotron[0]?.id || FALLBACK_MODELS.nvidia;
   }
   if (provider === "openrouter") {
-    if (!ids.length || ids.includes(OPENROUTER_FREE_ROUTER)) return OPENROUTER_FREE_ROUTER;
+    if (!ids.length || models.some(item => item.id === FALLBACK_MODELS.openrouter && item.tools !== false)) return FALLBACK_MODELS.openrouter;
+    if (ids.includes(OPENROUTER_FREE_ROUTER)) return OPENROUTER_FREE_ROUTER;
     const free = models.filter((item) => item.free && item.tools !== false);
     return free.find((item) => item.tools)?.id || free[0]?.id || OPENROUTER_FREE_ROUTER;
   }

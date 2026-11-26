@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { agentById, isBuiltinAgent } from "../agents";
 import { invoke } from "../electronBridge";
-import { BUILTIN_PROVIDERS, builtinAgentSettings, builtinProvider, freeOpenRouterOptions, type BuiltinAgentStatus, type BuiltinModelList, type BuiltinModelOption, type BuiltinProviderId } from "../lib/builtinAgent";
+import { DEFAULT_BUILTIN_PROVIDER, BUILTIN_PROVIDERS, builtinAgentSettings, builtinProvider, freeOpenRouterOptions, type BuiltinAgentStatus, type BuiltinModelList, type BuiltinModelOption, type BuiltinProviderId } from "../lib/builtinAgent";
 import { Dialog, Glyph, IconButton, Popover, Select } from "../shared/ui";
 import { BuiltinAgentSetup } from "./BuiltinAgentSetup";
 import "./agent-model-picker.css";
@@ -16,7 +16,7 @@ export function AgentModelPicker({ agentId, version, disabled, onActivate, onRef
   const [open, setOpen] = useState(false);
   const [setup, setSetup] = useState<BuiltinProviderId>();
   const [status, setStatus] = useState<BuiltinAgentStatus>();
-  const [provider, setProvider] = useState<BuiltinProviderId>("nvidia");
+  const [provider, setProvider] = useState<BuiltinProviderId>(DEFAULT_BUILTIN_PROVIDER);
   const [model, setModel] = useState("");
   const [models, setModels] = useState<BuiltinModelOption[]>([]);
   const [loading, setLoading] = useState(false);

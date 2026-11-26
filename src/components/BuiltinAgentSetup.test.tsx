@@ -13,14 +13,14 @@ vi.mock("../electronBridge", () => ({ invoke: vi.fn(() => new Promise(() => unde
 import { BuiltinAgentSetup } from "./BuiltinAgentSetup";
 
 describe("BuiltinAgentSetup", () => {
-  it("offers the managed NVIDIA provider first and leaves personal credentials optional", () => {
+  it("offers the managed OpenRouter provider first and leaves personal credentials optional", () => {
     const html = renderToStaticMarkup(<BuiltinAgentSetup />);
     for (const name of ["NVIDIA", "OpenRouter", "DeepSeek", "Anthropic", "Google Gemini", "Custom"]) expect(html).toContain(`<strong>${name}</strong>`);
-    expect(html).toMatch(/role="radio" aria-checked="true" class="builtin-agent-provider is-selected" disabled=""><span class="builtin-agent-provider-head"><strong>NVIDIA<\/strong>/);
+    expect(html).toMatch(/role="radio" aria-checked="true" class="builtin-agent-provider is-selected" disabled=""><span class="builtin-agent-provider-head"><strong>OpenRouter<\/strong>/);
     expect(html).toContain("Nemotron is included with your Nextbrowser account.");
     expect(html).toContain("Free models are available through your Nextbrowser account, subject to shared capacity.");
-    expect(html).toContain("Use a personal NVIDIA key");
-    expect(html).toContain("Your tasks and the page text the agent reads are sent to NVIDIA.");
+    expect(html).toContain("Free OpenRouter model");
+    expect(html).toContain("Your tasks and the page text the agent reads are sent to OpenRouter.");
   });
 
   it("requires no personal key and waits for a model before enabling Test and Save", () => {

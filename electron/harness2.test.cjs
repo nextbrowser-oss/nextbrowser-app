@@ -19,6 +19,10 @@ test('disabled comparison tools cannot be discovered or invoked; a comparison-on
   assert.equal((await request('tools/call',{name:'call_app_tool'},enabled)).isError,true);
 });
 test('native, MCP and inline chat modes respect the saved switch and current scope', () => {
+  const defaults = desktop.sessionSettings('nextbrowser',{},true);
+  assert.equal(defaults.effective.harness2Mode,'native');
+  assert.equal(defaults.effective.preferWebsiteWebMCP,true);
+  assert.equal(desktop.sessionSettings('nextbrowser',{'nextbrowser.preferTabTools':'0'},true).effective.preferWebsiteWebMCP,false);
   for (const [agent, expected] of [['nextbrowser','native'],['codex','mcp'],['claude','mcp'],['hermes','inline']]) {
     const settings = desktop.sessionSettings(agent,{'nextbrowser.useHarness2':'1'},false,true);
     assert.equal(settings.effective.harness2Mode,expected);

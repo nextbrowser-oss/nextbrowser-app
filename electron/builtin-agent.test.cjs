@@ -297,18 +297,19 @@ test("OpenRouter chat uses the Nextbrowser backend and its runtime token", async
   assert.equal(backend.requests[0].body.model, model);
 });
 
-test("a fresh account uses managed NVIDIA without saving a personal key or choosing a model", async (t) => {
+test("a fresh account uses managed OpenRouter without saving a personal key or choosing a model", async (t) => {
   const backend = await fakeProvider(() => reply({content:"OK"}));
   t.after(() => backend.close());
-  const options = { settings:{}, plain:true, managedProviderURL:backend.baseURL + "/agent/nvidia" };
+  const options = { settings:{}, plain:true, managedProviderURL:backend.baseURL + "/agent/openrouter" };
   const signedOut = await turn(backend, null, {...options, loadKey:async () => ""}).promise;
   assert.match(signedOut.reason, /Sign in to Nextbrowser/);
   assert.equal(backend.requests.length, 0);
   const signedIn = await turn(backend, null, {...options, loadKey:async () => "fixture-account-token"}).promise;
   assert.equal(signedIn.status, "completed");
-  assert.equal(backend.requests[0].url, "/v1/agent/nvidia/chat/completions");
+  assert.equal(backend.requests[0].url, "/v1/agent/openrouter/chat/completions");
   assert.equal(backend.requests[0].headers.authorization, "Bearer fixture-account-token");
-  assert.equal(backend.requests[0].body.model, "nvidia/nemotron-3.5-super-vl-120b-a12b");
+  assert.equal(backend.requests[0].body.model, "nvidia/nemotron-3.5-super-vl:free");
+  assert.equal(resolveProviderSettings({provider:"nvidia"}, backend.baseURL + "/agent/nvidia").model, "nvidia/nemotron-3.5-super-vl-120b-a12b");
   assert.throws(() => resolveProviderSettings({provider:"nvidia"}, ""));
 });
 
@@ -1056,7 +1057,16 @@ test("Managed OpenRouter offers free tool models and maps a saved paid model to 
   assert.deepEqual(offeredModels("openrouter", openrouter).map((model) => model.id), [OPENROUTER_FREE_ROUTER, "meta-llama/llama-3.3-70b-instruct:free"]);
   assert.equal(resolveProviderSettings({ provider: "openrouter", model: "openai/gpt-4o" }, "https://api.example.test/v1/agent/openrouter").model, OPENROUTER_FREE_ROUTER);
   assert.equal(openrouter[2].vision, true);
-  assert.equal(defaultModelFor("openrouter", []), OPENROUTER_FREE_ROUTER);
+  const nemotron = "nvidia/nemotron-3.5-super-vl:free";
+  assert.equal(defaultModelFor("openrouter", []), nemotron);
+  const endpoint = "https://api.example.test/v1/agent/openrouter";
+  assert.equal(resolveProviderSettings({}, endpoint).model, nemotron);
+  assert.equal(resolveProviderSettings({}, endpoint).provider, "openrouter");
+  assert.equal(resolveProviderSettings({ provider: "openrouter", model: OPENROUTER_FREE_ROUTER }, endpoint).model, OPENROUTER_FREE_ROUTER);
+  const catalog = [{ id: OPENROUTER_FREE_ROUTER, free: true }, { id: nemotron, free: true, tools: true }];
+  assert.equal(defaultModelFor("openrouter", catalog), nemotron);
+  catalog[1].tools = false;
+  assert.equal(defaultModelFor("openrouter", catalog), OPENROUTER_FREE_ROUTER);
   const gemini = ["models/gemini-2.0-flash", "models/gemini-2.5-flash", "models/gemini-2.5-flash-lite", "models/text-embedding-004"].map((id) => describeModel("gemini", { id }));
   assert.equal(defaultModelFor("gemini", gemini), "gemini-2.5-flash");
   assert.ok(!offeredModels("gemini", gemini).some((model) => /embedding/.test(model.id)));

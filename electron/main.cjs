@@ -292,7 +292,7 @@ const { describeNbcResult, isNextctlBinary } = require("./nbc-failure-report.cjs
 const { describeAgentResult, reportBuiltinRun, describeTerminalExit } = require("./agent-failure-report.cjs");
 const { BUILTIN_AGENT_ID } = require("./builtin-agent.cjs");
 const { BUILTIN_AGENT_SETTINGS_KEY, isStatusFollowUp, parseBuiltinAgentSettings, runBuiltinAgentTurn } = require("./builtin-agent-run.cjs");
-const { PROVIDERS: BUILTIN_AGENT_PROVIDERS, ProviderError, cleanModelId, createProviderClient, defaultModelFor, isFreeOpenRouterModel, normalizeBaseURL, offeredModels, resolveProviderSettings, testProvider } = require("./builtin-agent-providers.cjs");
+const { PROVIDERS: BUILTIN_AGENT_PROVIDERS, DEFAULT_PROVIDER, ProviderError, cleanModelId, createProviderClient, defaultModelFor, isFreeOpenRouterModel, normalizeBaseURL, offeredModels, resolveProviderSettings, testProvider } = require("./builtin-agent-providers.cjs");
 const { createBuiltinAgentKeyStore } = require("./builtin-agent-credential.cjs");
 const { describeInvokeFailure, describeMainFailure } = require("./invoke-failure-report.cjs");
 const { describeAutomationResult } = require("./automation-failure-report.cjs");
@@ -543,7 +543,7 @@ function builtinAgentKeys() {
 }
 function builtinAgentSettings() {
   const settings = parseBuiltinAgentSettings(appSettings().snapshot().values[BUILTIN_AGENT_SETTINGS_KEY]);
-  return { ...settings, provider: settings.provider || "nvidia" };
+  return { ...settings, provider: settings.provider || DEFAULT_PROVIDER };
 }
 async function managedAgentEndpoint(provider, savedKeys) {
   if (provider !== "openrouter" && provider !== "nvidia") return undefined;

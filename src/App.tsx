@@ -497,8 +497,8 @@ function SettingsModal({
   };
 
   const [section, setSection] = useState<SettingsSection>(requestedSection ?? "general");
-  const [preferTabTools, setPreferTabTools] = useState(() => settingsStorage.getItem("nextbrowser.preferTabTools") === "1");
-  const [useHarness2, setUseHarness2] = useState(() => settingsStorage.getItem("nextbrowser.useHarness2") === "1");
+  const [preferTabTools, setPreferTabTools] = useState(() => settingsStorage.getItem("nextbrowser.preferTabTools") !== "0");
+  const [useHarness2, setUseHarness2] = useState(() => settingsStorage.getItem("nextbrowser.useHarness2") !== "0");
   const [usageOpen, setUsageOpen] = useState(false);
   const [usageVisited, setUsageVisited] = useState(false);
   useEffect(() => {

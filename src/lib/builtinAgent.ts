@@ -24,6 +24,14 @@ export interface BuiltinProviderPreset {
 // main process actually calls; a node test keeps the two in step.
 export const BUILTIN_PROVIDERS: readonly BuiltinProviderPreset[] = [
   {
+    id: "openrouter",
+    name: "OpenRouter",
+    baseURL: "",
+    keyRequired: false,
+    limits: "Free models are available through your Nextbrowser account, subject to shared capacity.",
+    dataUse: "Free models can come from providers that log or train on prompts.",
+  },
+  {
     id: "nvidia",
     name: "NVIDIA",
     baseURL: "https://integrate.api.nvidia.com/v1",
@@ -31,14 +39,6 @@ export const BUILTIN_PROVIDERS: readonly BuiltinProviderPreset[] = [
     keyRequired: true,
     limits: "Nemotron is included with your Nextbrowser account. Shared capacity applies.",
     dataUse: "Nextbrowser provides access to the hosted model. You can also use a personal NVIDIA key.",
-  },
-  {
-    id: "openrouter",
-    name: "OpenRouter",
-    baseURL: "",
-    keyRequired: false,
-    limits: "Free models are available through your Nextbrowser account, subject to shared capacity.",
-    dataUse: "Free models can come from providers that log or train on prompts.",
   },
   {
     id: "deepseek",
@@ -77,7 +77,7 @@ export const BUILTIN_PROVIDERS: readonly BuiltinProviderPreset[] = [
   },
 ];
 
-export const DEFAULT_BUILTIN_PROVIDER: BuiltinProviderId = "nvidia";
+export const DEFAULT_BUILTIN_PROVIDER: BuiltinProviderId = "openrouter";
 
 export function builtinProvider(id: string | undefined): BuiltinProviderPreset {
   return BUILTIN_PROVIDERS.find((provider) => provider.id === id) ?? BUILTIN_PROVIDERS[0];
