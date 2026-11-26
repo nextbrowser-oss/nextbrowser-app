@@ -142,9 +142,9 @@ async function runBuiltinAgentTurn({
         onStep("Checking current workspace permissions");
         const result = await userTools.call("workspace_get_permissions", {});
         if (!result.isError) {
-          const { terminal, shells, files, android, setup, adbAvailable, commandAccess, fileToolScope } = JSON.parse(result.text);
-          if (['ask', 'off'].includes(terminal) && Array.isArray(shells)) {
-            workspaceStatus = "Current permissions verified by Nextbrowser: " + JSON.stringify({ terminal, shells, files, android, setup, adbAvailable, commandAccess, fileToolScope });
+          const { terminal, shells, files, edits, android, setup, adbAvailable, commandAccess, fileToolScope } = JSON.parse(result.text);
+          if (['ask', 'trusted', 'off'].includes(terminal) && Array.isArray(shells)) {
+            workspaceStatus = "Current permissions verified by Nextbrowser: " + JSON.stringify({ terminal, shells, files, edits, android, setup, adbAvailable, commandAccess, fileToolScope });
           }
         }
       } catch {

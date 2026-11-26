@@ -58,6 +58,7 @@ import { shouldDismissModalWithEscape, wrappedFocusTarget } from "./lib/modalKey
 import { invoke, listen } from "./electronBridge";
 import { agentById, isBuiltinAgent } from "./agents";
 import { BuiltinAgentSetup } from "./components/BuiltinAgentSetup";
+import { StockMcpPermissions } from "./components/StockMcpPermissions";
 import { releaseDownloadUrl } from "./lib/releaseDownload";
 import { UserFacingError } from "./components/UserFacingError";
 import { AgentConnectionGate, agentGateVisible } from "./components/AgentConnectionGate";
@@ -702,6 +703,7 @@ function SettingsModal({
                     Let the agent compare two approaches with the current model at any point in a task, from planning to choosing the next step. Applies to new chat turns.
                   </p>
                 </div>
+                {activeWorkspaceId && <StockMcpPermissions key={activeWorkspaceId} workspaceId={activeWorkspaceId} />}
                 {builtinAgent && <BuiltinAgentSetup />}
                 {agentError && !builtinAgent && (
                   <div className="error small settings-agent-error">

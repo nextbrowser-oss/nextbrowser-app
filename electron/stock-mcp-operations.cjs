@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { createHash, randomUUID } = require('node:crypto');
 const { serverEnvironment } = require('./mcp-environment.cjs');
 const { terminateProcessTree } = require('./process-tree.cjs');
 
@@ -81,8 +82,65 @@ async function readEntry(root, relative, list, offset = 0) {
     const content = new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, used));
     if (content.includes('\0')) throw Error('Choose a UTF-8 text file.');
     const text = content.slice(offset, offset + 4000);
-    return { text, nextOffset: offset + text.length < content.length ? offset + text.length : null };
+    return { text, sha256: createHash('sha256').update(bytes.subarray(0, used)).digest('hex'), nextOffset: offset + text.length < content.length ? offset + text.length : null };
   } finally { await file.close(); }
+}
+
+const activeWorkspaceWrites = new Set();
+
+async function editEntry(root, relative, directory, content, expected, check) {
+  if (!safeText(relative, 600) || relative.includes('\n')) throw Error('Choose a workspace path.');
+  const parts = relative.split(/[\\/]/).filter(part => part !== '.');
+  if (!parts.length || parts.some(part => !part || /[<>:"|?*]|[. ]$/.test(part) || /^(con|prn|aux|nul|conin\$|conout\$|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(part))) throw Error('Choose a relative workspace path with a valid name.');
+  const name = parts.pop();
+  const parentPath = parts.join('/') || '.';
+  const parent = await resolveEntry(root, parentPath);
+  const target = path.join(parent, name);
+  if (directory) {
+    check();
+    try { await fs.promises.mkdir(target); }
+    catch (error) {
+      if (error.code !== 'EEXIST' || !(await fs.promises.lstat(target)).isDirectory()) throw error;
+      return { existing: relative };
+    }
+    return { created: relative };
+  }
+  if (typeof content !== 'string' || content.includes('\0') || Buffer.byteLength(content) > 64 * 1024) throw Error('Write at most 64 KiB of UTF-8 text at once.');
+  if (expected !== undefined && (typeof expected !== 'string' || !/^[a-f0-9]{64}$/.test(expected))) throw Error('Use the sha256 returned by read_text_file.');
+  const key = process.platform === 'win32' ? target.toLowerCase() : target;
+  if (activeWorkspaceWrites.has(key)) throw Error('Another edit is in progress. Read the file again.');
+  activeWorkspaceWrites.add(key);
+  try {
+    await writeWorkspaceText(root, relative, parentPath, parent, target, content, expected, check);
+    return { path: relative, sha256: createHash('sha256').update(content).digest('hex') };
+  } finally { activeWorkspaceWrites.delete(key); }
+}
+
+async function writeWorkspaceText(root, relative, parentPath, parent, target, content, expected, check) {
+  // Stage a replacement next to its destination. Never open an existing link
+  // for writing, and never overwrite an existing file in create mode.
+  let mode = 0o600;
+  if (expected !== undefined) {
+    const stat = await fs.promises.lstat(target);
+    if (!stat.isFile()) throw Error('Choose a regular workspace file.');
+    mode = stat.mode & 0o777;
+  }
+  const temp = path.join(parent, '.nextbrowser-' + randomUUID());
+  check();
+  const file = await fs.promises.open(temp, 'wx', mode);
+  try {
+    try { await file.writeFile(content, 'utf8'); } finally { await file.close(); }
+    if (await resolveEntry(root, parentPath) !== parent) throw Error('The destination moved.');
+    if (expected === undefined) {
+      check();
+      await fs.promises.copyFile(temp, target, fs.constants.COPYFILE_EXCL);
+    } else {
+      const current = await readEntry(root, relative, false);
+      if (current.sha256 !== expected) throw Error('File changed. Read it again before editing.');
+      check();
+      await fs.promises.rename(temp, target);
+    }
+  } finally { await fs.promises.unlink(temp).catch(() => {}); }
 }
 
 function runShell(file, shell, command, cwd, signal) {
@@ -119,4 +177,4 @@ function runProgram(file, args, cwd, signal, timeoutMs = 25_000) {
     });
   });
 }
-module.exports = { shells, adbExecutable, safeText, readEntry, resolveEntry, runShell, runProgram };
+module.exports = { shells, adbExecutable, safeText, readEntry, editEntry, resolveEntry, runShell, runProgram };

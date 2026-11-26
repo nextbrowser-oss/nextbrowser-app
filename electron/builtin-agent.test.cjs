@@ -178,7 +178,7 @@ test("a bare follow-up checks the current workspace policy without exposing exec
     { role: "user", content: "Уверен?" },
     { role: "assistant", content: "Да." },
   ];
-  for (const terminal of ["ask", "off", null]) {
+  for (const terminal of ["ask", "trusted", "off", null]) {
     const workspace = fakeMCP(() => terminal === null
       ? { isError: true, content: [{ type: "text", text: "internal-fixture-detail" }] }
       : { content: [{ type: "text", text: JSON.stringify({ terminal, shells: ["powershell"], folder: "private-path-fixture" }) }] },

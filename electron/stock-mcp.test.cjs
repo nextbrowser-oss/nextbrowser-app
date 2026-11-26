@@ -74,6 +74,58 @@ test('a pending approval becomes unusable when the user changes permissions', as
   decide({ response: 1 });
   assert.equal((await call).isError, true);
 });
+test('Autonomous edits create a folder and version-checked files without prompting, only inside the workspace', async t => {
+  const { host, scope, client, dataRoot } = await fixture(t, () => { throw Error('Unexpected approval'); });
+  const edit = (name, args) => client.callTool(name, args);
+  assert.equal((await edit('create_directory', { path: 'example' })).isError, true);
+  const { folder, preset } = await host.settings(scope, 'stock_mcp_preset', { preset: 'autonomous' });
+  assert.equal(preset, 'autonomous');
+  assert.equal(JSON.parse((await edit('get_permissions', {})).content[0].text).edits, 'allow');
+  assert.ok(!(await edit('create_directory', { path: 'example' })).isError);
+  const file = { path: 'example/demo.txt', content: 'first' };
+  assert.ok(!(await edit('write_text_file', file)).isError);
+  assert.equal((await edit('write_text_file', { ...file, content: 'replace' })).isError, true);
+  const read = JSON.parse((await edit('read_text_file', { path: file.path })).content[0].text);
+  assert.ok(!(await edit('write_text_file', { ...file, content: 'second', expected_sha256: read.sha256 })).isError);
+  assert.equal((await edit('write_text_file', { ...file, expected_sha256: read.sha256 })).isError, true);
+  assert.equal(await fs.readFile(path.join(folder, file.path), 'utf8'), 'second');
+  await fs.symlink(dataRoot, path.join(folder, 'outside'), process.platform === 'win32' ? 'junction' : 'dir');
+  for (const input of ['../escape', 'outside/escape', '/escape']) {
+    assert.equal((await edit('create_directory', { path: input })).isError, true);
+    assert.equal((await edit('write_text_file', { path: input, content: 'blocked' })).isError, true);
+  }
+  assert.equal((await edit('stock_mcp_preset', { preset: 'manual' })).isError, true);
+  await host.settings(scope, 'stock_mcp_preset', { preset: 'manual' });
+  assert.equal((await edit('write_text_file', file)).isError, true);
+});
+test('remembering an exact shell command survives restart, respects changes and can be revoked', async t => {
+  let prompts = 0, response = 2;
+  const { scope, client, host, dataRoot } = await fixture(t, (_win, options) => {
+    prompts++;
+    assert.deepEqual(options.buttons, ['Deny', 'Allow once', 'Remember this exact command']);
+    return { response };
+  });
+  const { defaultShell } = await host.settings(scope, 'stock_mcp_preset', { preset: 'autonomous' });
+  assert.ok(defaultShell);
+  const command = defaultShell === 'bash' ? 'echo test' : 'Write-Output test';
+  const run = line => client.callTool('run_command', { command: line });
+  assert.equal(JSON.parse((await run(command)).content[0].text).output.trim(), 'test');
+  response = 0;
+  assert.equal(JSON.parse((await run(command)).content[0].text).output.trim(), 'test');
+  assert.equal(prompts, 1);
+  const reopened = createStockMcp({ dataRoot, isCurrent: () => true });
+  assert.equal((await reopened.settings(scope, 'stock_mcp_get')).trustedCount, 1);
+  assert.equal((await reopened.settings({ ...scope, workspaceId: 'other' }, 'stock_mcp_get')).trustedCount, 0);
+  assert.equal((await run(command + '2')).isError, true);
+  assert.equal(prompts, 2);
+  await host.settings(scope, 'stock_mcp_forget_commands');
+  assert.equal((await run(command)).isError, true);
+  response = 2;
+  assert.equal(JSON.parse((await run(command)).content[0].text).exitCode, 0);
+  assert.equal((await host.settings(scope, 'stock_mcp_folder')).trustedCount, 0);
+  response = 0;
+  assert.equal((await run(command)).isError, true);
+});
 test('permission choices persist only for the selected account and workspace', async t => {
   const { scope, host, dataRoot } = await fixture(t);
   await host.settings(scope, 'stock_mcp_set', { group: 'terminal', mode: 'off' });
@@ -122,9 +174,12 @@ test('Android uses the selected SDK and explicit device, and honours workspace p
   assert.equal((await client.callTool('android_install_apk', {device, path:'../demo.apk'})).isError, true);
   approve = false;
   assert.equal((await client.callTool('android_devices', {})).isError, true);
+  await host.settings(scope, 'stock_mcp_set', {group:'android', mode:'inspect'});
+  assert.ok(!(await client.callTool('android_devices', {})).isError);
+  assert.equal((await client.callTool('android_install_apk', {device, path:'demo.apk'})).isError, true);
   await host.settings(scope, 'stock_mcp_set', {group:'android', mode:'off'});
   assert.ok(!(await client.listTools()).some(tool => tool.name.startsWith('android_')));
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 5);
 });
 test('workspace file tools stay inside the selected folder and page UTF-8 text', async t => {
   const { scope, host, client, dataRoot } = await fixture(t);
@@ -132,7 +187,10 @@ test('workspace file tools stay inside the selected folder and page UTF-8 text',
   await fs.mkdir(prefs.folder, { recursive: true });
   await fs.writeFile(path.join(prefs.folder, 'note.txt'), 'a'.repeat(4000) + 'дальше');
   const second = await client.callTool('read_text_file', { path: 'note.txt', offset: 4000 });
-  assert.deepEqual(JSON.parse(second.content[0].text), { text: 'дальше', nextOffset: null });
+  const page = JSON.parse(second.content[0].text);
+  assert.equal(page.text, 'дальше');
+  assert.equal(page.nextOffset, null);
+  assert.match(page.sha256, /^[a-f0-9]{64}$/);
   await assert.rejects(readEntry(prefs.folder, '../outside.txt', false));
   await fs.symlink(dataRoot, path.join(prefs.folder, 'outside'), process.platform === 'win32' ? 'junction' : 'dir');
   await assert.rejects(readEntry(prefs.folder, 'outside', true), /outside/);

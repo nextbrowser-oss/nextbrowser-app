@@ -16,6 +16,7 @@ const folder = path.join(data, 'approved-folder');
 await mkdir(folder);
 let step = 0, error, shell, page, androidChecked = false;
 let shellLine, deniedLine;
+let autonomousStep = 0;
 const registryFixture = { instructions: '', serverInfo: { name: 'fixture', version: '1' },
   tools: [{ name: 'fixture_ping', description: 'Read a local test value.', inputSchema: { type: 'object', properties: {} } }] };
 const service = http.createServer(async (req, res) => {
@@ -33,6 +34,20 @@ const service = http.createServer(async (req, res) => {
     let message;
     if (!tools && messages[0]?.content.startsWith('Respond to the latest user message')) {
       message = reply('Check workspace tools');
+    } else if (autonomousStep) {
+      switch (autonomousStep++) {
+        case 1: message = call('get_permissions', {}); break;
+        case 2:
+          assert.equal(JSON.parse(last).edits, 'allow');
+          message = call('create_directory', { path: 'demo' }); break;
+        case 3:
+          assert.equal(JSON.parse(last).created, 'demo');
+          message = call('write_text_file', { path: 'demo/example.txt', content: 'autonomous workspace' }); break;
+        case 4:
+          assert.ok(JSON.parse(last).sha256);
+          message = reply('Created demo/example.txt'); break;
+        default: throw Error('Unexpected autonomous turn.');
+      }
     } else switch (step++) {
       case 0: message = call('get_permissions', {}); break;
       case 1: {
@@ -118,6 +133,22 @@ try {
   const next = await turn();
   if (error) throw error;
   assert.equal(next.stdout, 'Connected', next.stderr);
+  await page.goto(pathToFileURL(path.join(root, 'dist/index.html')).href + '?preview=main');
+  await page.getByRole('button', { name: /^Settings(?:,|$)/ }).first().click();
+  const settings = page.getByRole('dialog', { name: 'Settings', exact: true });
+  await settings.getByRole('tab', { name: /^Agent\b/ }).click();
+  const preset = settings.getByRole('combobox', { name: 'Permission preset' });
+  await preset.click();
+  await settings.getByRole('option', { name: 'Autonomous', exact: true }).click();
+  await settings.getByRole('combobox', { name: 'Workspace edits permission' }).getByText('Allow in selected folder').waitFor();
+  const before = await app.evaluate(() => globalThis.stockFixturePrompts.length);
+  autonomousStep = 1;
+  const autonomous = await turn();
+  if (error) throw error;
+  assert.equal(autonomous.stdout, 'Created demo/example.txt', autonomous.stderr);
+  assert.equal(await readFile(path.join(folder, 'demo/example.txt'), 'utf8'), 'autonomous workspace');
+  assert.equal(await app.evaluate(() => globalThis.stockFixturePrompts.length), before);
+  console.log('Settings → Agent: autonomous mode created demo/example.txt through the agent without a dialog.');
   console.log('Passed desktop permissions, denied and approved ' + shell + ', scoped reads, reviewed MCP setup and next-turn tools.' +
     (androidChecked ? ' Verified android_devices with real adb.' : ''));
 } finally { await app?.close(); service.closeAllConnections(); await new Promise(resolve => service.close(resolve)); }

@@ -5,14 +5,18 @@ const { createHash, randomUUID } = require('node:crypto');
 const { createAppSettings } = require('./app-settings.cjs');
 const { serveLocalMcp } = require('./local-mcp-transport.cjs');
 const { normalizeServer } = require('./user-mcp.cjs');
-const { shells, adbExecutable, safeText, readEntry, resolveEntry, runShell, runProgram } = require('./stock-mcp-operations.cjs');
+const { shells, adbExecutable, safeText, readEntry, editEntry, resolveEntry, runShell, runProgram } = require('./stock-mcp-operations.cjs');
 
 const endpoint = '/stock/mcp';
 function toolInstructions(prefix = '') {
-  return `For local computer tasks, including creating a file or folder, check ${prefix}get_permissions for the available shells and permissions before reporting that you lack access. File listing and reading are scoped to the selected folder. ${prefix}run_command starts there and runs as the OS user after desktop approval. Use it for the specific path the user requested. Ask for a missing name or destination when needed. Check the command result before reporting success. A denial is final for that action. For Android development use ${prefix}android_devices before selecting a device. To connect another MCP use ${prefix}propose_mcp_server and wait for Connect & save. Its tools become available on the next turn.`;
+  return `For local computer tasks check ${prefix}get_permissions before reporting that you lack access. Use workspace file tools for paths inside the selected folder. For a requested OS path such as the Desktop, use ${prefix}run_command if available. Commands run as the OS user under the workspace approval settings. The desktop handles approvals. Ask for a missing name or destination when needed. Check the tool result before reporting success. A denial is final for that action. For Android development use ${prefix}android_devices before selecting a device. To connect another MCP use ${prefix}propose_mcp_server and wait for Connect & save. Its tools become available on the next turn.`;
 }
-const modes = { files: ['ask', 'allow', 'off'], terminal: ['ask', 'off'], android: ['ask', 'off'], setup: ['review', 'off'] };
-const defaults = { files: 'ask', terminal: 'ask', android: 'ask', setup: 'review' };
+const modes = { files: ['ask', 'allow', 'off'], edits: ['ask', 'allow', 'off'], terminal: ['ask', 'trusted', 'off'], android: ['ask', 'inspect', 'off'], setup: ['review', 'off'] };
+const defaults = { files: 'ask', edits: 'off', terminal: 'ask', android: 'ask', setup: 'review' };
+const presets = {
+  manual: defaults,
+  autonomous: { files: 'allow', edits: 'allow', terminal: 'trusted', android: 'inspect', setup: 'review' },
+};
 const string = description => ({ type: 'string', description });
 const relativePath = string('Path relative to the selected folder. Use "." for its root.');
 const offset = { type: 'integer', minimum: 0, description: 'Continuation offset from a previous result.' };
@@ -24,7 +28,11 @@ const catalog = [
   tool('get_permissions', null, 'Read workspace permissions, working directory and available shell names.', {}),
   tool('list_directory', 'files', 'List entries in the workspace folder.', { path: relativePath, offset }, ['path']),
   tool('read_text_file', 'files', 'Read a page of a UTF-8 file in the workspace folder.', { path: relativePath, offset }, ['path']),
-  tool('run_command', 'terminal', 'Ask the user to execute one foreground command under their OS account. Returns output and exit code.', {
+  tool('create_directory', 'edits', 'Create a directory inside an existing workspace directory.', { path: relativePath }, ['path']),
+  tool('write_text_file', 'edits', 'Create a UTF-8 file (up to 64 KiB). To replace an existing file, first read it and supply its sha256.', {
+    path: relativePath, content: string('Full new file contents.'), expected_sha256: string('Current file hash for replacement. Omit to create a new file.'),
+  }, ['path', 'content']),
+  tool('run_command', 'terminal', 'Run one foreground command under the OS account according to the workspace approval policy. Returns output and exit code.', {
     shell: { type: 'string', enum: ['bash', 'powershell'] }, command: string('The exact command to display and execute.'),
   }, ['command']),
   tool('android_devices', 'android', 'List attached Android devices and emulators and their authorization status.', {}),
@@ -70,7 +78,9 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid
     for (const [group, options] of Object.entries(modes)) effective[group] = options.includes(saved[group]) ? saved[group] : group in saved ? 'off' : defaults[group];
     const available = Object.keys(shells());
     const preferredShell = saved.preferredShell || 'auto';
-    return { ...effective, folder: saved.folder || defaultFolder(key), customFolder: Boolean(saved.folder),
+    const preset = Object.keys(presets).find(name => Object.keys(modes).every(group => effective[group] === presets[name][group])) || 'custom';
+    const trustedCount = JSON.parse(store.snapshot().values[key + '.trusted'] || '[]').length;
+    return { ...effective, preset, trustedCount, folder: saved.folder || defaultFolder(key), customFolder: Boolean(saved.folder),
       revision: saved.revision || '', shells: available, preferredShell,
       defaultShell: preferredShell === 'auto' ? available[0] : available.find(shell => shell === preferredShell),
       adb: adbExecutable(saved.androidSdkFolder) || null };
@@ -85,6 +95,11 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid
     if (command === 'stock_mcp_set') {
       if (!Object.hasOwn(modes, args.group) || !modes[args.group].includes(args.mode)) throw Error('Invalid permission.');
       patch = { [args.group]: args.mode };
+    } else if (command === 'stock_mcp_preset') {
+      if (!Object.hasOwn(presets, args.preset)) throw Error('Unknown permissions preset.');
+      patch = presets[args.preset];
+    } else if (command === 'stock_mcp_forget_commands') {
+      patch = {};
     } else if (command === 'stock_mcp_shell') {
       if (!['auto', ...Object.keys(shells())].includes(args.shell)) throw Error('Choose an installed shell.');
       patch = { preferredShell: args.shell };
@@ -102,7 +117,9 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid
     assertCurrent(scope);
     const key = scopeKey(scope);
     const saved = JSON.parse(store.snapshot().values[key] || '{}');
-    await store.update({ values: { [key]: JSON.stringify({ ...saved, ...patch, revision: randomUUID() }) } });
+    const values = { [key]: JSON.stringify({ ...saved, ...patch, revision: randomUUID() }) };
+    if ((patch.folder && saved.folder !== patch.folder) || (patch.terminal && patch.terminal !== 'trusted') || command === 'stock_mcp_forget_commands') values[key + '.trusted'] = null;
+    await store.update({ values });
     return policy(scope);
   }
   async function execute(scope, name, args, signal) {
@@ -120,11 +137,11 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid
     }
     check();
     if (name === 'get_permissions') {
-      const { files, terminal, android, setup, folder, shells, defaultShell } = prefs;
-      return { files, terminal, android, setup, folder, platform: process.platform, shells, defaultShell, adbAvailable: Boolean(prefs.adb),
-        fileToolScope: 'The built-in file tools only list directories and read files inside the workspace. They cannot create a directory or write a file.',
-        commandAccess: terminal === 'off' ? 'Terminal disabled. Workspace tools cannot create folders in the workspace or on the Desktop.' : !shells.length ? 'No supported shell installed.'
-          : 'Terminal commands start in the workspace and can use OS-accessible paths, including the Desktop, after the user approves the command.' };
+      const { files, edits, terminal, android, setup, folder, shells, defaultShell } = prefs;
+      return { files, edits, terminal, android, setup, folder, platform: process.platform, shells, defaultShell, adbAvailable: Boolean(prefs.adb),
+        fileToolScope: 'Read and edit permissions apply only inside the selected workspace folder. Edits cover directory creation and writing text files.',
+        commandAccess: terminal === 'off' ? 'Terminal disabled.' : !shells.length ? 'No supported shell installed.'
+          : 'Terminal commands can use OS-accessible paths, including the Desktop. ' + (terminal === 'trusted' ? 'Previously approved exact commands run automatically. Other commands prompt.' : 'Each command prompts for approval.') };
     }
     if (name === 'search_mcp_catalog') {
       if (!safeText(args.search, 100) || args.search.includes('\n')) throw Error('Enter a short public search term.');
@@ -143,7 +160,8 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid
       return { status: 'awaiting_user_review', next: 'The user can edit the configuration and select Connect & save. Start a new turn after connecting.' };
     }
     const android = group === 'android';
-    if (!android && !['run_command', 'list_directory', 'read_text_file'].includes(name)) throw Error('Unknown workspace tool.');
+    const edit = group === 'edits';
+    if (!android && !edit && !['run_command', 'list_directory', 'read_text_file'].includes(name)) throw Error('Unknown workspace tool.');
     const terminal = name === 'run_command';
     const command = typeof args.command === 'string' ? args.command.replace(/\r\n/g, '\n') : '';
     const available = shells();
@@ -158,13 +176,22 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid
     const poll = setInterval(() => { try { check(); } catch { controller.abort(); } }, 150);
     try {
       const argv = android && await androidArgs(name, args, prefs.folder);
-      if (prefs[group] === 'ask') {
-        const action = android ? 'Run this Android development command?' : terminal ? 'Run a terminal command as your OS user?' : name === 'list_directory' ? 'Share a directory listing with the agent?' : 'Share this file’s text with the agent?';
-        const detail = android ? [prefs.adb, ...argv].map(arg => JSON.stringify(arg)).join(' ')
+      const trustKey = key + '.trusted';
+      const trustedCommands = () => JSON.parse(store.snapshot().values[trustKey] || '[]');
+      const fingerprint = terminal && prefs.terminal === 'trusted' && createHash('sha256').update(JSON.stringify([prefs.folder, available[shell], shell, command])).digest('hex');
+      const androidWrite = name === 'android_install_apk' || name === 'android_run_tests';
+      if (prefs[group] === 'ask' || (fingerprint && !trustedCommands().includes(fingerprint)) || (prefs.android === 'inspect' && androidWrite)) {
+        const action = android ? 'Run this Android development command?' : terminal ? 'Run a terminal command as your OS user?' : edit ? 'Allow this workspace edit?' : name === 'list_directory' ? 'Share a directory listing with the agent?' : 'Share this file’s text with the agent?';
+        let detail = android ? [prefs.adb, ...argv].map(arg => JSON.stringify(arg)).join(' ')
           : terminal ? `Shell: ${available[shell]}\nWorking folder: ${prefs.folder}\n\n${command}` : `Working folder: ${prefs.folder}\nRelative path: ${args.path}`;
+        if (edit) detail += name === 'create_directory' ? '\nCreate directory' : (args.expected_sha256 ? '\nReplace file' : '\nCreate file') + '\n\n' + String(args.content ?? '').slice(0, 1500) + (args.content?.length > 1500 ? '\n… (preview truncated)' : '');
         const answer = await dialog.showMessageBox(scope.window, { type: 'question', title: 'Nextbrowser agent permission', message: action, detail,
-          buttons: ['Deny', 'Allow once'], defaultId: 0, cancelId: 0, noLink: true, signal: operation });
-        if (answer.response !== 1) throw Error('The user denied this request. Do not retry it.');
+          buttons: fingerprint ? ['Deny', 'Allow once', 'Remember this exact command'] : ['Deny', 'Allow once'], defaultId: 0, cancelId: 0, noLink: true, signal: operation });
+        if (answer.response === 2 && fingerprint) {
+          operation.throwIfAborted();
+          check();
+          await store.update({ values: { [trustKey]: JSON.stringify([...new Set([...trustedCommands(), fingerprint])].slice(-256)) } });
+        } else if (answer.response !== 1) throw Error('The user denied this request. Do not retry it.');
       }
       operation.throwIfAborted();
       check();
@@ -180,6 +207,8 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid
         const cwd = await resolveEntry(prefs.folder, '.');
         check();
         result = await runShell(available[shell], shell, command, cwd, operation);
+      } else if (edit) {
+        result = await editEntry(prefs.folder, args.path, name === 'create_directory', args.content, args.expected_sha256, check);
       } else {
         result = await readEntry(prefs.folder, args.path, name === 'list_directory', args.offset ?? 0);
       }
