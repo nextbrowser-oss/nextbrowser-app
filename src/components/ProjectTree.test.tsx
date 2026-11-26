@@ -83,7 +83,7 @@ it("keeps the dock open across selection, restores pin and sort, and returns to 
     expect((within(panel).getByRole("searchbox") as HTMLInputElement).value).toBe("Research");
     fireEvent.change(within(panel).getByRole("searchbox"), { target: { value: "" } });
     fireEvent.click(within(panel).getByRole("combobox"));
-    fireEvent.click(screen.getByRole("option", { name: "По имени · А → Я" }));
+    fireEvent.click(screen.getByRole("option", { name: "Name · A to Z" }));
     const folders = () => within(dock).getAllByRole("treeitem").filter(item => item.getAttribute("aria-level") === "1");
     expect(folders()[0].textContent).toContain("Marketing");
     fireEvent.click(within(panel).getByRole("treeitem", { name: "Open Main session in Research" }));

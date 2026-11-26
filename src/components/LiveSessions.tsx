@@ -47,8 +47,8 @@ function ProfileListTools({ query, onChange, onCreate, compact = false }: {
 }) {
   const direction = useStore(s => s.profileNameSort);
   const toggleSort = useStore(s => s.toggleProfileNameSort);
-  const nextOrder = direction === "asc" ? "от Я до А" : "от А до Я";
-  const sortLabel = direction ? `Сортировать · ${direction === "asc" ? "А → Я" : "Я → А"}` : "Сортировать";
+  const nextOrder = direction === "asc" ? "Z to A" : "A to Z";
+  const sortLabel = direction ? `Sort · ${direction === "asc" ? "A to Z" : "Z to A"}` : "Sort";
   return <div className="profile-list-tools">
     <div className="live-session-tools">
       <SessionSearch query={query} onChange={onChange} />
@@ -58,7 +58,7 @@ function ProfileListTools({ query, onChange, onCreate, compact = false }: {
       </IconButton>
     </div>
     <IconButton className="profile-name-sort" data-direction={direction} label={sortLabel}
-      text="Сортировать" hint={`Сортировать по имени ${nextOrder}`}
+      text="Sort" hint={`Sort by name ${nextOrder}`}
       size="small" appearance="plain" onClick={toggleSort}>
       <Glyph name="arrow-down" size={12} />
     </IconButton>

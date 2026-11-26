@@ -11,7 +11,7 @@ const labels: Record<string, string> = { ask: 'Ask every time', off: 'Off', allo
 const presetOptions = [
   { value: 'manual', label: 'Default', description: 'Review terminal commands and file reads.' },
   { value: 'autonomous', label: 'Autonomous', description: 'Edit workspace files and ask before new commands.' },
-  { value: 'autopilot', label: 'Автопилот', description: 'Run new Bash and PowerShell commands in the workspace sandbox without prompts.' },
+  { value: 'autopilot', label: 'Autopilot', description: 'Run new Bash and PowerShell commands in the workspace sandbox without prompts.' },
 ];
 const groups: { id: Group; title: string; description: string; modes: string[] }[] = [
   { id: 'files', title: 'Workspace files', description: 'List folders and send text file contents to the agent’s model.', modes: ['ask', 'allow', 'off'] },

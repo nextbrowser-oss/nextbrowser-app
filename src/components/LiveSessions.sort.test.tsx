@@ -25,14 +25,14 @@ it("sorts both profile views by display name while preserving search and profile
   const cards = () => grid.getAllByRole("button", { name: /^Open / }).map(card => card.getAttribute("data-profile-key"));
   expect(cards()).toEqual(["0", "1", "2"]);
   fireEvent.change(grid.getByRole("searchbox"), { target: { value: "профиль" } });
-  fireEvent.click(grid.getByRole("button", { name: "Сортировать" }));
+  fireEvent.click(grid.getByRole("button", { name: "Sort" }));
   expect(cards()).toEqual(["2", "0"]);
 
   fireEvent.pointerEnter(screen.getByRole("button", { name: "Open Processes" }), { pointerType: "mouse" });
   const flyout = within(screen.getByRole("dialog", { name: "Processes" }));
   const names = () => flyout.getAllByRole("button", { name: /Stopped/ }).map(b => b.querySelector("strong")?.textContent);
   expect(names()).toEqual(["Альфа", "профиль 2", "Профиль 10"]);
-  fireEvent.click(flyout.getByRole("button", { name: "Сортировать · А → Я" }));
+  fireEvent.click(flyout.getByRole("button", { name: "Sort · A to Z" }));
   expect(names()).toEqual(["Профиль 10", "профиль 2", "Альфа"]);
   expect(cards()).toEqual(["0", "2"]);
   expect(settingsStorage.getItem("nextbrowser.profileNameSort")).toBe("desc");

@@ -15,10 +15,10 @@ export function projectRoot(conversation: Conversation, conversations: readonly 
 }
 
 export const projectSortOptions = [
-  { value: "manual", label: "Вручную" },
-  { value: "recent", label: "По последней активности" },
-  { value: "name-asc", label: "По имени · А → Я" },
-  { value: "name-desc", label: "По имени · Я → А" },
+  { value: "manual", label: "Manual order" },
+  { value: "recent", label: "Recent activity" },
+  { value: "name-asc", label: "Name · A to Z" },
+  { value: "name-desc", label: "Name · Z to A" },
 ] as const;
 export type ProjectSort = typeof projectSortOptions[number]["value"];
 export function projectSortMode(value: string | null): ProjectSort {

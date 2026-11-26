@@ -353,7 +353,7 @@ export function Tree({
   searchable,
   query: controlledQuery,
   onQueryChange,
-  searchPlaceholder = 'Поиск',
+  searchPlaceholder = 'Search',
   facets,
   filterIcon,
   onDrop,
@@ -361,7 +361,7 @@ export function Tree({
   dragData,
   onRename,
   menuItems,
-  emptyText = 'Пусто',
+  emptyText = 'No items',
   renderSwitcher = DEFAULT_SWITCHER,
 }: TreeProps) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -806,7 +806,7 @@ export function Tree({
               type="button"
               className={s.filterButton}
               data-active={facetsActive ? 'true' : undefined}
-              aria-label="Фильтры"
+              aria-label="Filters"
               aria-expanded={panelOpen}
               onClick={() => setPanelOpen((o) => !o)}
             >
@@ -835,7 +835,7 @@ export function Tree({
                 ) : null,
               )}
               {facetsActive && (
-                <button type="button" className={s.facetReset} onClick={resetFacets} aria-label="Сбросить фильтры">
+                <button type="button" className={s.facetReset} onClick={resetFacets} aria-label="Reset filters">
                   {CLOSE_ICON}
                 </button>
               )}
@@ -883,7 +883,7 @@ export function Tree({
                     {sel.map((tag) => (
                       <span key={tag} className={s.tagChip}>
                         {tag}
-                        <button type="button" className={s.tagChipRemove} onClick={() => removeFacetTag(f.id, tag)} aria-label="Убрать тег">
+                        <button type="button" className={s.tagChipRemove} onClick={() => removeFacetTag(f.id, tag)} aria-label="Remove tag">
                           {CLOSE_ICON}
                         </button>
                       </span>
@@ -894,7 +894,7 @@ export function Tree({
                   <input
                     className={s.tagInput}
                     value={draft}
-                    placeholder={f.placeholder ?? '+ тег'}
+                    placeholder={f.placeholder ?? '+ tag'}
                     onChange={(e) => setTagDraft((d) => ({ ...d, [f.id]: e.target.value }))}
                     onFocus={() => setTagFocus(f.id)}
                     onKeyDown={(e) => {
@@ -995,10 +995,10 @@ function TreeContextMenu({
                 onClose();
               }}
             >
-              Да
+              Yes
             </button>
             <button className={s.menuButton} style={{ width: 'auto' }} onClick={() => setConfirming(null)}>
-              Нет
+              No
             </button>
           </div>
         ) : it.items && it.items.length > 0 ? (

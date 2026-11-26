@@ -64,7 +64,7 @@ try {
   assert.equal((await dock.boundingBox()).width, chosenWidth);
   await dock.getByRole("combobox").click();
   assert.equal(await dock.getByRole("option").count(), 4);
-  await dock.getByRole("option", { name: "По имени · Я → А" }).click();
+  await dock.getByRole("option", { name: "Name · Z to A" }).click();
   await page.getByRole("button", { name: "Open Profile", exact: true }).click();
   assert.ok(await dock.isVisible());
   await app.close();
@@ -77,7 +77,7 @@ try {
   await edge.press("End");
   assert.equal((await dock.boundingBox()).width, Number(await edge.getAttribute("aria-valuemax")));
   await dock.getByRole("combobox").click();
-  assert.equal(await dock.getByRole("option", { selected: true }).innerText(), "По имени · Я → А");
+  assert.equal(await dock.getByRole("option", { selected: true }).innerText(), "Name · Z to A");
   await page.keyboard.press("Escape");
   await dock.getByRole("button", { name: "Unpin Projects" }).click();
   const restored = page.getByRole("dialog", { name: "Projects" });

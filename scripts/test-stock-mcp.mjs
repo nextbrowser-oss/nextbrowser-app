@@ -214,8 +214,8 @@ try {
   const permissions = await selector.boundingBox();
   assert(agent && permissions && permissions.x >= agent.x + agent.width - 1 && Math.abs(agent.y - permissions.y) < 8, 'Permission selector follows the model on the same row');
   await selector.click();
-  await page.getByRole('option', {name: /^Автопилот/}).click();
-  await selector.getByText('Автопилот', {exact: true}).waitFor();
+  await page.getByRole('option', {name: /^Autopilot/}).click();
+  await selector.getByText('Autopilot', {exact: true}).waitFor();
   autopilotStep = 1;
   const result = await turn();
   if (error) throw error;
@@ -224,12 +224,12 @@ try {
   assert.equal(await card.count(), 0);
   await page.getByRole('button', { name: /^Settings(?:,|$)/ }).first().click();
   await settings.getByRole('tab', { name: /^Agent\b/ }).click();
-  await preset.getByText('Автопилот', {exact: true}).waitFor();
+  await preset.getByText('Autopilot', {exact: true}).waitFor();
   await preset.click();
   await settings.getByRole('option', {name: /^Default\b/}).click();
   await page.keyboard.press('Escape');
   await selector.getByText('Default', {exact: true}).waitFor();
-  console.log('Composer → Автопилот: app.py ran in every available shell without prompts. Settings and composer stayed in sync.');
+  console.log('Composer → Autopilot: app.py ran in every available shell without prompts. Settings and composer stayed in sync.');
   console.log('Passed desktop permissions, denied and approved ' + shell + ', scoped reads, reviewed MCP setup and next-turn tools.' +
     (androidChecked ? ' Verified android_devices with real adb.' : ''));
 } finally { await app?.close(); service.closeAllConnections(); await new Promise(resolve => service.close(resolve)); }

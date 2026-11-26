@@ -56,7 +56,7 @@ export function RecentProjects({ activeId, open: controlledOpen, onOpenChange, b
     <div className="profile-list-tools project-list-tools">
       <label className="project-search"><input ref={docked ? search : undefined} type="search" data-autofocus aria-label="Search projects"
         placeholder="Search projects" value={query} onChange={event => setQuery(event.target.value)} /></label>
-      <Select label="Сортировать проекты" triggerContent={<><Glyph name="arrow-down" size={12} /><span>Сортировать</span></>}
+      <Select label="Sort projects" triggerContent={<><Glyph name="arrow-down" size={12} /><span>Sort</span></>}
         value={sort} options={projectSortOptions} onChange={value => {
           const next = projectSortMode(value);
           setSort(next);
