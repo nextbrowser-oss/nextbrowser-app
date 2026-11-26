@@ -31,6 +31,19 @@
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   pointer-events: none;
 }
+.live-mini-pane { position: absolute; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.live-mini-pane[hidden] { display: none; }
+.live-mini-pane .mini-apps-guest { width: 100%; height: 100%; }
+.chat-live-workspace:is([data-dock-dragging], [data-dock-resizing]) .mini-apps-guest { pointer-events: none; }
+.live-workspace-pill:has(.main-view-anchor) { flex-wrap: wrap; }
+.live-workspace-pill .main-view-navigation { background: transparent; box-shadow: none; backdrop-filter: none; }
+.live-workspace-tabs:empty { display: none; }
+.live-workspace-tabs .mini-app-brand-icon { width: 16px; height: 16px; }
+.session-mini-picker { display: grid; min-width: 150px; padding: 4px; }
+.session-mini-picker button { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border: 0; border-radius: 7px; color: inherit; font: inherit; background: transparent; text-align: left; }
+.session-mini-picker button:is(:hover,:focus-visible) { background: var(--glass-inverse-control); }
+.session-mini-picker > span { padding: 7px 9px; font-size: 12px; }
+.session-mini-picker .mini-app-brand-icon { width: 18px; height: 18px; }
 .live-dock-preview span {
   padding: 5px 10px;
   border-radius: 8px;

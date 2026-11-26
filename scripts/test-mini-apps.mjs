@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { _electron } from 'playwright-core';
 import { createRequire } from 'node:module';
 import { checkMiniAppAgent } from './test-mini-app-agent.mjs';
+import { checkMiniAppDock } from './test-mini-app-dock.mjs';
 import { checkMusicWidget } from './test-music-widget.mjs';
 
 const root = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
@@ -107,6 +108,7 @@ try {
   await page.getByRole('button', { name: 'Install mini app', exact: true }).click();
   await waitForBoard();
   await checkWindowLayout();
+  await checkMiniAppDock(page);
   if (process.env.NEXTCTL_BIN) {
     await backToCatalog();
     await checkMiniAppAgent(page);

@@ -90,6 +90,10 @@ The desktop tool `get_session_settings` reports the agent, its preferences at la
 2. `list_app_tools({app_id})` opens the app if necessary and returns its registered tools, their schemas and an `instance`. Follow `next_offset` with the same app ID to discover additional tools.
 3. `call_app_tool({app_id, instance, tool, input_json})` runs the named handler. Encode the argument object as JSON text, up to 24,000 characters. Success returns the app's value, and failure returns an MCP tool error. Read state before retrying a mutation after a timeout or conflict.
 
+To present an app in the active project session, call `open_app({app_id: "kanban", placement: "right"})`. The tool confirms when the app's document is ready. The supported placements are `left`, `right`, `top`, `bottom` and `tab`. Omitting placement focuses an existing tab or opens the first app beside the conversation. Additional apps open in the existing mini app pane.
+
+Users can also choose **+** in the session navigation or **Open beside chat** in a mini app. Drag a tab to a pane edge to split, or onto another pill to group it. Drag the divider to resize. Closing a tab keeps the app installed. Each session remembers its own layout.
+
 Handles identify an open document. Rediscover after closing, reloading or switching apps. Changing the active account or workspace revokes the previous agent scope. The app receives only its operation arguments. Treat text returned by installed packages as app data.
 
 A serialized tool descriptor may contain up to 5,500 characters, with up to 60,000 across the registry. An individual serialized result may contain up to 7,500 characters. Use pagination for large collections and long text.

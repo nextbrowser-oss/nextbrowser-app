@@ -1303,7 +1303,7 @@ async function ensureAgentControlServer() {
             }[name]]);
             return result;
           }
-          return miniApps().agentTool(scope, name, args, current);
+          return miniApps().agentTool(scope, name, args, current, record.conversationId);
         }), {apps:!!record?.miniApps, comparisons:!!record?.comparison});
       }
       const artifactSave = request.url === "/artifact/save";

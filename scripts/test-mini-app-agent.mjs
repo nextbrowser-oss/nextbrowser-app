@@ -77,7 +77,19 @@ export async function checkMiniAppAgent(page) {
           msg = run('delete_task', { id, revision, confirm: true }); break;
         case 11:
           assert.equal(JSON.parse(last).deleted, id);
+          msg = ask('open_app', { app_id: 'kanban', placement: 'left' }); break;
+        case 12: {
+          assert.deepEqual(JSON.parse(last), { app_id: 'kanban', opened: true });
+          const pane = page.getByRole('tabpanel', { name: 'Kanban' });
+          const board = await pane.boundingBox(), chat = await page.locator('#live-side-chat').boundingBox();
+          assert(board && chat && board.x < chat.x);
+          // Restore the standalone board for callers that continue testing its title bar.
+          await page.getByRole('button', { name: 'Close Kanban', exact: true }).click();
+          await page.getByRole('button', { name: 'Open Extensions', exact: true }).click();
+          await page.getByRole('dialog', { name: 'Extensions' }).getByRole('button', { name: 'Open Mini Apps', exact: true }).click();
+          await page.getByRole('navigation', { name: 'Installed mini apps' }).getByRole('button', { name: 'Kanban', exact: true }).click();
           msg = reply('Board verified'); break;
+        }
         default: throw Error('Unexpected model turn');
       }
       res.setHeader('Content-Type', 'application/json');
@@ -91,7 +103,7 @@ export async function checkMiniAppAgent(page) {
       'nextbrowser.builtinAgent': JSON.stringify({ provider: 'custom', model: 'fixture', baseURL: url }),
     } }), 'http://127.0.0.1:' + server.address().port + '/v1');
     const turn = workspaceId => page.evaluate(workspaceId => window.nextbrowser.invoke('agent_run', {
-      agentId: 'nextbrowser', replyId: crypto.randomUUID(), workspaceId, conversationId: 'qa', browserProfiles: [], stdinText: 'Exercise the Kanban board.',
+      agentId: 'nextbrowser', replyId: crypto.randomUUID(), workspaceId, conversationId: 'preview-conv-1', browserProfiles: [], stdinText: 'Exercise the Kanban board.',
     }), workspaceId);
     const result = await turn('preview-workspace');
     if (failure) throw failure;

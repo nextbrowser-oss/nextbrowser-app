@@ -15,7 +15,9 @@ import { SkillsView } from "./components/SkillsView";
 import { MiniAppsPage } from "./pages/mini-apps";
 import { LiveView } from "./components/LiveView";
 import { ChatLiveWorkspace } from "./components/ChatLiveWorkspace";
-import { dockFocusKey, readDockFocus, type LivePanel } from "./lib/liveDock";
+import { isMiniPanel, miniPanel, panelIds, type Edge } from "./lib/liveDock";
+import { useSessionDock } from "./lib/sessionDock";
+import { SessionMiniApps } from "./components/SessionMiniApps";
 import { LiveSessionsGrid, LiveSessionsPopover } from "./components/LiveSessions";
 import { useLiveSessions } from "./lib/useLiveSessions";
 import { UsageView } from "./components/UsageView";
@@ -78,7 +80,7 @@ import { FeedbackModal } from "./components/FeedbackModal";
 import { feedbackPromptBlocked, feedbackPromptConfig, markFeedbackSubmitted, shouldPromptForFeedback } from "./lib/feedbackPrompt";
 import { multiloginSelectionForWorkspace } from "./lib/multiloginSelection";
 import { settingsStorage } from "./lib/settingsStorage";
-import { useMiniAppsOwner } from "./lib/miniAppLibrary";
+import { useMiniAppLibrary, useMiniAppsOwner } from "./lib/miniAppLibrary";
 import { countWorkspaceProfiles } from "./lib/workspaceProfiles";
 
 const PREVIEW_TABS = new Set<string>(["chat", "automation", "mini-apps", "skills", "connectors", "live", "usage", "guide", "scheduled"]);
@@ -946,15 +948,49 @@ export function App() {
   const liveWorkspace = tab === "live" && !!liveSession && liveSession.workspaceId === activeWorkspaceId;
   const [hiddenBrowser, setHiddenBrowser] = useState<typeof liveSession>();
   const browserOpen = liveWorkspace && hiddenBrowser !== liveSession;
-  const [liveFocus, setLiveFocus] = useState<LivePanel[]>(() => readDockFocus(settingsStorage.getItem(dockFocusKey)));
-  const focusLivePanel = (panel: LivePanel) => setLiveFocus(current =>
-    current[0] === panel ? current : [panel, ...current.filter(item => item !== panel)]);
+  const dock = useSessionDock(miniAppOwner, activeWorkspaceId, selectedConversation);
+  const { focus: liveFocus, focusPanel: focusLivePanel } = dock;
+  const { library } = useMiniAppLibrary(miniAppOwner);
+  const installed = library?.installed ?? [];
+  const panels = panelIds(dock.layout);
+  const hasSessionApps = installed.some(app => panels.includes(miniPanel(app.id)));
+  useEffect(() => {
+    if (!library) return;
+    const removed = panels.filter(panel => isMiniPanel(panel) && !library.installed.some(app => miniPanel(app.id) === panel));
+    if (removed.length) dock.remove(removed);
+  }, [library, dock.layout]);
+  function openSessionApp(id: string, edge?: Edge) {
+    if (!miniAppOwner || !activeWorkspaceId) return;
+    dock.open(id, edge);
+    if (!liveWorkspace && tab !== "automation") setTab("chat");
+  }
+  const [, refreshPanelRequest] = useState(0);
+  const pendingPanels = useRef(new Map<string, string>());
+  useEffect(() => {
+    pendingPanels.current.clear();
+  }, [miniAppOwner, activeWorkspaceId, selectedConversation]);
+  useEffect(() => window.nextbrowser?.on("mini-apps:open-panel", payload => {
+    const target = payload as { owner: string; workspaceId: string; conversationId?: string; id: string; requestId: string; edge?: Edge };
+    if (!miniAppOwner || target.owner !== miniAppOwner || target.workspaceId !== activeWorkspaceId ||
+      (target.conversationId && target.conversationId !== selectedConversation)) return;
+    pendingPanels.current.set(target.requestId, target.id);
+    refreshPanelRequest(n => n + 1);
+    setSettingsOpen(false);
+    useStore.getState().closeUtilityDialog();
+    openSessionApp(target.id, target.edge);
+  }), [miniAppOwner, activeWorkspaceId, selectedConversation, liveWorkspace, tab, dock.open]);
+  function guestReady(id: string) {
+    for (const [requestId, requested] of pendingPanels.current) if (requested === id) {
+      pendingPanels.current.delete(requestId);
+      void invoke("mini_apps_panel_ready", { owner: miniAppOwner, workspaceId: activeWorkspaceId, id, requestId }).catch(console.warn);
+    }
+  }
   const [liveProjectsSlot, setLiveProjectsSlot] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!liveWorkspace) setHiddenBrowser(undefined);
   }, [liveWorkspace]);
-  useEffect(() => { settingsStorage.setItem(dockFocusKey, liveFocus.join(",")); }, [liveFocus]);
-  const chatWorkspace = tab === "chat" || liveWorkspace;
+  const automationDock = tab === "automation" && hasSessionApps;
+  const chatWorkspace = tab === "chat" || liveWorkspace || automationDock;
   const bootstrap = useStore((s) => s.bootstrap);
   const showOnboarding = useStore((s) => s.showOnboarding);
   const agentReady = useStore((s) => s.agentReady());
@@ -1715,6 +1751,7 @@ export function App() {
   }
 
   return (
+    <SessionMiniApps.Provider value={miniAppOwner && activeWorkspaceId ? { apps: installed, open: openSessionApp } : null}>
     <div className="app">
       {titlebarActions}
       {!chatWorkspace && <TitlebarActions>{backgroundTaskPills}</TitlebarActions>}
@@ -1740,11 +1777,13 @@ export function App() {
         <div className={"tab-content" + (tab === "skills" ? " tab-content-bleed" : "")}>
           <ChatLiveWorkspace visible={chatWorkspace} live={liveWorkspace} browserOpen={browserOpen}
             focus={liveFocus} onFocusPanel={focusLivePanel} projectsRef={setLiveProjectsSlot}
+            layout={dock.layout} setLayout={dock.setLayout} owner={miniAppOwner} apps={installed}
+            onCloseApp={panel => dock.remove([panel])} onGuestReady={guestReady}
             onToggle={() => {
               if (browserOpen) setLiveControlsOpen(false);
               setHiddenBrowser(browserOpen ? liveSession : undefined);
             }}
-            chat={<ChatView permission={permission} headerAccessory={backgroundTaskPills} showSessionNavigation={tab === "chat" && !settingsOpen} />}>
+            chat={automationDock ? <AutomationStudio /> : <ChatView permission={permission} headerAccessory={backgroundTaskPills} showSessionNavigation={tab === "chat" && !hasSessionApps && !settingsOpen} />}>
             {liveWorkspace && !focusedLive && <LiveSessionsGrid key={activeWorkspaceId} sessions={liveSessions} onOpen={openLiveSession} />}
             <div className={"persistent-tab-panel" + (focusedLive ? "" : " is-hidden")}>
               <LiveView active={focusedLive} requestedKey={liveKey ?? ""} profileOptions={liveSessions}
@@ -1753,7 +1792,7 @@ export function App() {
           </ChatLiveWorkspace>
           {tab === "skills" && <SkillsView onOpenAgentSettings={() => openSettings("agent")} />}
           {tab === "mini-apps" && <MiniAppsPage />}
-          {tab === "automation" && <>
+          {tab === "automation" && !automationDock && <>
             {!settingsOpen && !utilityDialog && <MainViewNavigation />}
             <AutomationStudio />
           </>}
@@ -1835,6 +1874,6 @@ export function App() {
       )}
       {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
       {feedbackModal}
-    </div>
+    </div></SessionMiniApps.Provider>
   );
 }

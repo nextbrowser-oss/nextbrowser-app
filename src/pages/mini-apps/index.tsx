@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { OpenInSession } from '../../components/SessionMiniApps';
 import { OpenGuest } from '../../components/MiniAppGuest';
 import { Button, Dialog, IconButton } from '../../shared/ui';
 import { ChevronLeft, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
@@ -114,6 +115,7 @@ function LibraryView({ owner }: { owner: string }) {
               }); }} />
             <span className="toggle-track"><span className="toggle-knob" /></span></span>
           </label>
+          <OpenInSession id={current.id} />
           <Button onClick={() => setReview({ action: 'remove', app: current })}>Uninstall</Button>
         </div></TitlebarActions>
         <OpenGuest key={current.id} id={current.id} owner={owner} name={current.name} />

@@ -52,6 +52,7 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
   const { catalog, catalogIds, catalogEntry } = require('./catalog.cjs');
   const store = createStore(root, id => parsePackage(catalog(id)));
   const bindings = new Map();
+  const pendingPanels = new Map();
   const scopes = new Map();
   const sessionBindings = new WeakMap();
   const guestSessions = new WeakSet();
@@ -230,7 +231,7 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
     if (scopes.get(scope.shellId) !== scope) throw Error('The account or workspace changed. Start a new agent turn.');
     return store.list(scope.owner).filter(app => app.apiVersion === 2);
   }
-  async function agentTool(scope, name, args, authorized) {
+  async function agentTool(scope, name, args, authorized, conversationId) {
     const alive = () => authorized() && scopes.get(scope.shellId) === scope;
     if (!alive()) throw Error('The account or workspace changed. Start a new agent turn.');
     const installed = installedApps(scope);
@@ -245,9 +246,28 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
     }
     const app = installed.find(a => a.id === args.app_id);
     if (!app) throw Error('This mini app is not installed for the current account.');
-    const live = () => [...bindings.values()].find(b => b.shellId === scope.shellId && b.owner === scope.owner
-      && b.id === app.id && b.generation === app.generation && b.guest && !b.guest.isDestroyed()
-      && (name !== 'call_app_tool' || b.instance === args.instance));
+    if (name === 'open_app') {
+      const { placement } = args;
+      if (placement !== undefined && !['left', 'right', 'top', 'bottom', 'tab'].includes(placement)) throw Error('Unknown mini app placement.');
+      const requestId = randomUUID();
+      let timer;
+      try {
+        await new Promise((resolve, reject) => {
+          timer = setTimeout(() => reject(Error('The mini app did not open in the active session.')), 8000);
+          pendingPanels.set(requestId, { scope, id: app.id, resolve });
+          scope.window.webContents.send('mini-apps:open-panel', { requestId, owner: scope.owner, workspaceId: scope.workspaceId,
+            conversationId, id: app.id, edge: placement === 'tab' ? 'center' : placement });
+        });
+        if (!alive()) throw Error('The account or workspace changed.');
+        return { app_id: app.id, opened: true };
+      } finally { clearTimeout(timer); pendingPanels.delete(requestId); }
+    }
+    const live = () => {
+      const matches = [...bindings.values()].filter(b => b.shellId === scope.shellId && b.owner === scope.owner
+        && b.id === app.id && b.generation === app.generation && b.guest && !b.guest.isDestroyed()
+        && (name !== 'call_app_tool' || b.instance === args.instance));
+      return matches.find(binding => !binding.blockId) ?? matches[0];
+    };
     if (name === 'list_app_tools') {
       let binding = live();
       if (!binding) {
@@ -288,6 +308,12 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
           if (window.isDestroyed() || scopes.get(window.webContents.id)?.owner !== owner) throw Error('Your account changed.');
         }
         return require('./community.cjs').catalogCommand(name, args, (route, body) => catalogRequest(owner, route, body));
+      }
+      case 'mini_apps_panel_ready': {
+        const pending = pendingPanels.get(args.requestId);
+        const scope = agentScope(window.webContents, args.workspaceId);
+        if (scope && scope.owner === owner && pending?.scope === scope && pending.id === id) pending.resolve();
+        return;
       }
       case 'mini_apps_context': return setScope(window, owner, args.workspaceId);
       case 'mini_apps_list': return { installed: store.list(owner), catalog: catalogIds.map(catalogEntry) };

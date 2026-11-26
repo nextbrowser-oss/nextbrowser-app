@@ -39,15 +39,16 @@ export function useMiniAppsOwner() {
 }
 
 export function useMiniAppLibrary(owner?: string) {
-  const [library, setLibrary] = useState<Library>();
+  const [result, setResult] = useState<{ owner: string; library: Library }>();
+  const library = result?.owner === owner ? result?.library : undefined;
   const [loadError, setLoadError] = useState('');
   const request = useRef(0);
   const refresh = useCallback(async () => {
     const seq = ++request.current;
-    if (!owner) { setLibrary(undefined); setLoadError(''); return; }
+    if (!owner) { setResult(undefined); setLoadError(''); return; }
     try {
       const next = await invoke<Library>('mini_apps_list', { owner });
-      if (seq === request.current) { setLibrary(next); setLoadError(''); }
+      if (seq === request.current) { setResult({ owner, library: next }); setLoadError(''); }
     } catch (error) {
       if (seq === request.current) setLoadError(error instanceof Error ? error.message : 'Could not load mini apps.');
     }

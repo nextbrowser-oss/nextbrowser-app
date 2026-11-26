@@ -3,7 +3,7 @@ import { invoke } from '../electronBridge';
 import { Button } from '../shared/ui';
 type Guest = { id: string; src: string; partition: string };
 
-export function OpenGuest({ id, owner, name, blockId, surface, popover = false }: { id: string; owner: string; name: string; blockId?: string; surface?: string; popover?: boolean }) {
+export function OpenGuest({ id, owner, name, blockId, surface, popover = false, onReady }: { id: string; owner: string; name: string; blockId?: string; surface?: string; popover?: boolean; onReady?: (id: string) => void }) {
   const [guest, setGuest] = useState<Guest>();
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -17,10 +17,10 @@ export function OpenGuest({ id, owner, name, blockId, surface, popover = false }
     return () => { active = false; };
   }, [id, owner, blockId, surface, popover, attempt]);
   if (failed) return <p role="alert">Could not open {name}. <Button onClick={() => { setFailed(false); setAttempt(n => n + 1); }}>Retry</Button></p>;
-  return guest ? <GuestView guest={guest} name={name} popover={popover} /> : <p role="status">Opening {name}…</p>;
+  return guest ? <GuestView guest={guest} name={name} popover={popover} onReady={onReady} /> : <p role="status">Opening {name}…</p>;
 }
 
-function GuestView({ guest, name, popover }: { guest: Guest; name: string; popover: boolean }) {
+function GuestView({ guest, name, popover, onReady }: { guest: Guest; name: string; popover: boolean; onReady?: (id: string) => void }) {
   const [height, setHeight] = useState<number>();
   useLayoutEffect(() => {
     if (!popover) return;
@@ -30,14 +30,19 @@ function GuestView({ guest, name, popover }: { guest: Guest; name: string; popov
     });
   }, [guest.partition, popover]);
   const ref = useRef<HTMLElement>(null);
+  const [ready, setReady] = useState(false);
+  useEffect(() => { if (ready) onReady?.(guest.id); }, [ready, guest.id, onReady]);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     const view = ref.current;
-    const fail = () => setFailed(true);
+    const loaded = () => setReady(true);
+    const fail = () => { setReady(false); setFailed(true); };
+    view?.addEventListener('dom-ready', loaded);
     view?.addEventListener('render-process-gone', fail);
     view?.addEventListener('did-fail-load', fail);
     return () => {
+      view?.removeEventListener('dom-ready', loaded);
       view?.removeEventListener('render-process-gone', fail);
       view?.removeEventListener('did-fail-load', fail);
     };

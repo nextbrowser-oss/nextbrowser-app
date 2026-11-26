@@ -5,6 +5,7 @@ import { settingsStorage } from "../lib/settingsStorage";
 import { useStore } from "../store";
 import { useLiveSessions } from "../lib/useLiveSessions";
 import { chatLiveSession } from "../lib/profileNavigation";
+import { AddMiniAppTab } from "./SessionMiniApps";
 import "./mainViewNavigation.css";
 
 const views = [
@@ -32,7 +33,7 @@ function positionStyle({ x, y }: Position): CSSProperties {
   return { left: x * 100 + "%", top: y * 100 + "%", transform: `translate(${-x * 100}%, ${-y * 100}%)` };
 }
 
-export function MainViewNavigation() {
+export function MainViewNavigation({ onSelectPrimary, primaryActive = true }: { onSelectPrimary?: () => void; primaryActive?: boolean } = {}) {
   const tab = useStore(state => state.tab);
   const select = useStore(state => state.setTab);
   const sessions = useLiveSessions();
@@ -94,18 +95,19 @@ export function MainViewNavigation() {
   };
   function pill(group: Group, i: number) {
     return <div key={i} className={`${glassSurfaceClassName} main-view-navigation`} data-main-pill={i}
-      data-drop={drag?.target === i || undefined} hidden={!group.tabs.length && !drag}
+      data-drop={drag?.target === i || undefined} hidden={i !== 0 && !group.tabs.length && !drag}
       style={group.position && positionStyle(group.position)} role="tablist" aria-label={i === 0 ? "Main views" : "Detached views"}>
       {group.tabs.map(id => {
         const view = views.find(v => v.id === id)!;
         return <Tooltip key={id} content={`${view.label} · Drag to detach or group`}><button type="button" role="tab"
-          aria-label={`Open ${view.label}`} aria-selected={tab === id} data-moving={drag?.tab === id || undefined}
+          aria-label={`Open ${view.label}`} aria-selected={primaryActive && tab === id} data-moving={drag?.tab === id || undefined}
           onPointerDown={e => start(e, id)} onPointerMove={e => move(e, false)} onPointerUp={e => move(e, true)}
           onPointerCancel={cancel} onLostPointerCapture={() => { if (gesture.current) cancel(); }}
-          onClick={e => { if (e.detail && suppressClick.current) return; id === "live" ? openBrowser() : select(id); }}>
+          onClick={e => { if (e.detail && suppressClick.current) return; onSelectPrimary?.(); id === "live" ? openBrowser() : select(id); }}>
           <Glyph name={view.icon} size={14} /><span>{view.label}</span>
         </button></Tooltip>;
       })}
+      {i === 0 && <AddMiniAppTab />}
     </div>;
   }
   const moving = views.find(v => v.id === drag?.tab);
