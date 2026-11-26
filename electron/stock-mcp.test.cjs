@@ -127,6 +127,37 @@ test('remembering an exact shell command survives restart, respects changes and 
   response = 'deny';
   assert.equal((await run(command)).isError, true);
 });
+test('Autopilot runs workspace edits and remembered commands without prompting, and declines new host commands', async t => {
+  let prompts = 0;
+  const { host, scope, client, dataRoot } = await fixture(t, () => { prompts++; return 'remember'; });
+  await host.settings(scope, 'stock_mcp_preset', { preset: 'autonomous' });
+  const command = { command: 'echo autopilot-ok' };
+  assert.equal(JSON.parse((await client.callTool('run_command', command)).content[0].text).exitCode, 0);
+  assert.equal(prompts, 1);
+
+  const settings = await host.settings(scope, 'stock_mcp_preset', { preset: 'autopilot' });
+  assert.equal(settings.trustedCount, 1);
+  const reopened = createStockMcp({ dataRoot, isCurrent: () => true });
+  assert.equal((await reopened.settings(scope, 'stock_mcp_get')).preset, 'autopilot');
+  assert.equal((await reopened.settings({ ...scope, owner: 'other' }, 'stock_mcp_get')).preset, 'manual');
+  assert.equal(JSON.parse((await client.callTool('get_permissions', {})).content[0].text).preset, 'autopilot');
+  assert.equal(JSON.parse((await client.callTool('run_command', command)).content[0].text).output.trim(), 'autopilot-ok');
+  const denied = await client.callTool('run_command', { command: 'echo new' });
+  assert.equal(denied.isError, true);
+  assert.match(denied.content[0].text, /no saved approval/);
+  assert.equal(JSON.parse((await client.callTool('create_directory', { path: 'sample' })).content[0].text).created, 'sample');
+  assert.ok(!(await client.callTool('write_text_file', { path: 'sample/test.txt', content: 'written' })).isError);
+  assert.equal(JSON.parse((await client.callTool('read_text_file', { path: 'sample/test.txt' })).content[0].text).text, 'written');
+  const tools = (await client.listTools()).map(tool => tool.name);
+  assert.ok(tools.includes('search_mcp_catalog'));
+  for (const name of ['android_run_tests', 'android_install_apk', 'propose_mcp_server']) {
+    assert.ok(!tools.includes(name));
+    assert.equal((await client.callTool(name, {})).isError, true);
+  }
+  await host.settings(scope, 'stock_mcp_forget_commands');
+  assert.equal((await client.callTool('run_command', command)).isError, true);
+  assert.equal(prompts, 1);
+});
 test('permission choices persist only for the selected account and workspace', async t => {
   const { scope, host, dataRoot } = await fixture(t);
   await host.settings(scope, 'stock_mcp_set', { group: 'terminal', mode: 'off' });

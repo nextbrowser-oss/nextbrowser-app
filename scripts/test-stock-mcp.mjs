@@ -17,10 +17,15 @@ await mkdir(folder);
 let step = 0, error, shell, page, androidChecked = false;
 let shellLine, deniedLine;
 let autonomousStep = 0;
+let autopilotStep = 0;
 const registryFixture = { instructions: '', serverInfo: { name: 'fixture', version: '1' },
   tools: [{ name: 'fixture_ping', description: 'Read a local test value.', inputSchema: { type: 'object', properties: {} } }] };
 const service = http.createServer(async (req, res) => {
   if (req.url === '/fixture') return transport.serveLocalMcp(req, res, async () => 'pong', registryFixture);
+  if (req.method === 'GET' && req.url === '/v1/models') {
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ data: [{ id: 'fixture' }] }));
+  }
   try {
     let body = ''; for await (const chunk of req) body += chunk;
     const { messages, tools } = JSON.parse(body);
@@ -34,6 +39,20 @@ const service = http.createServer(async (req, res) => {
     let message;
     if (!tools && messages[0]?.content.startsWith('Respond to the latest user message')) {
       message = reply('Check workspace tools');
+    } else if (autopilotStep) {
+      switch (autopilotStep++) {
+        case 1: message = call('get_permissions', {}); break;
+        case 2:
+          assert.equal(JSON.parse(last).preset, 'autopilot');
+          message = call('create_directory', { path: 'autopilot' }); break;
+        case 3:
+          assert.equal(JSON.parse(last).created, 'autopilot');
+          message = call('run_command', { command: 'echo test-unapproved' }); break;
+        case 4:
+          assert.match(last, /no saved approval/);
+          message = reply('Finished without prompts'); break;
+        default: throw Error('Unexpected autopilot turn.');
+      }
     } else if (autonomousStep) {
       switch (autonomousStep++) {
         case 1: message = call('get_permissions', {}); break;
@@ -166,7 +185,7 @@ try {
   await settings.getByRole('tab', { name: /^Agent\b/ }).click();
   const preset = settings.getByRole('combobox', { name: 'Permission preset' });
   await preset.click();
-  await settings.getByRole('option', { name: 'Autonomous', exact: true }).click();
+  await settings.getByRole('option', { name: /^Autonomous\b/ }).click();
   await settings.getByRole('combobox', { name: 'Workspace edits permission' }).getByText('Allow in selected folder').waitFor();
   autonomousStep = 1;
   const autonomous = await turn();
@@ -175,6 +194,31 @@ try {
   assert.equal(await readFile(path.join(folder, 'demo/example.txt'), 'utf8'), 'autonomous workspace');
   assert.equal(await card.count(), 0);
   console.log('Settings → Agent: autonomous mode created demo/example.txt through the agent without a dialog.');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', {name: 'Choose agent provider and model'}).click();
+  await page.getByRole('button', {name: 'Use model', exact: true}).click();
+  const selector = page.getByRole('combobox', {name: 'Agent permission mode'});
+  await selector.getByText('Autonomous', {exact: true}).waitFor();
+  const agent = await page.locator('.panel-widget[data-tile="Agent"]').boundingBox();
+  const permissions = await selector.boundingBox();
+  assert(agent && permissions && permissions.x >= agent.x + agent.width - 1 && Math.abs(agent.y - permissions.y) < 8, 'Permission selector follows the model on the same row');
+  await selector.click();
+  await page.getByRole('option', {name: /^Автопилот/}).click();
+  await selector.getByText('Автопилот', {exact: true}).waitFor();
+  autopilotStep = 1;
+  const result = await turn();
+  if (error) throw error;
+  assert.equal(result.stdout, 'Finished without prompts', result.stderr);
+  assert.ok((await stat(path.join(folder, 'autopilot'))).isDirectory());
+  assert.equal(await card.count(), 0);
+  await page.getByRole('button', { name: /^Settings(?:,|$)/ }).first().click();
+  await settings.getByRole('tab', { name: /^Agent\b/ }).click();
+  await preset.getByText('Автопилот', {exact: true}).waitFor();
+  await preset.click();
+  await settings.getByRole('option', {name: /^Default\b/}).click();
+  await page.keyboard.press('Escape');
+  await selector.getByText('Default', {exact: true}).waitFor();
+  console.log('Composer → Автопилот: real workspace edit completed, new command declined immediately, Settings and composer stayed in sync.');
   console.log('Passed desktop permissions, denied and approved ' + shell + ', scoped reads, reviewed MCP setup and next-turn tools.' +
     (androidChecked ? ' Verified android_devices with real adb.' : ''));
 } finally { await app?.close(); service.closeAllConnections(); await new Promise(resolve => service.close(resolve)); }

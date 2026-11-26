@@ -66,6 +66,14 @@
 .chat .chat-empty-state { background-color: var(--chat-empty-surface, var(--surface-1)); }
 
 :root { --chat-bottom-inset: 18px; }
+.composer-permission-mode { min-width: 0; max-width: 100%; }
+.composer-permission-mode .shared-select-trigger {
+  height: 28px; padding: 0 9px; gap: 5px; border: 0; border-radius: 999px;
+  background: var(--composer-control-bg); color: var(--glass-inverse-text); font: inherit; font-size: 12px; cursor: pointer;
+}
+.composer-permission-mode .shared-select-flyout { min-width: min(244px, 88vw); position-area: top; }
+.panel-widget[data-icon-only] .composer-permission-mode .shared-select-trigger :is(span,svg:last-child) { display: none; }
+.composer-permission-error { position: absolute; bottom: 100%; left: 0; width: max-content; max-width: 240px; padding: 6px; background: var(--bg-elevated); color: var(--text); }
 .agent-permission-card {
   display: grid; gap: 8px; padding: 12px 16px; min-width: 0;
   border-radius: 16px; color: var(--text); background: var(--bg-elevated);

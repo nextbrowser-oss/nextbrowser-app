@@ -10,6 +10,7 @@ import type { ChatAttachment, ChatMessage } from "../types";
 import { filePathForFile, invoke } from "../electronBridge";
 import { AGENTS, BUILTIN_AGENT_ID, agentById, agentInvocation, isBuiltinAgent, type AgentSpec } from "../agents";
 import { AgentModelPicker } from "./AgentModelPicker";
+import { ComposerPermissionMode } from "./StockMcpPermissions";
 import { AgentPermissionCard, type AgentPermissionRequest } from "./AgentPermissionCard";
 import { ComposerSkinPicker, ComposerSurface, useComposerSkin } from "./composer-skins/ComposerSkins";
 import { PanelWidgets } from "./PanelWidgets";
@@ -698,6 +699,10 @@ export function ChatView({ headerAccessory, showSessionNavigation, permission }:
                           disabled={running || remoteOnly || !!s.runtime[BUILTIN_AGENT_ID]?.runningReplyId}
                           onActivate={activateApiAgent} onRefresh={s.refreshBuiltinAgent} />
                     ) },
+                    ...(builtinAgent && !remoteOnly && s.activeWorkspaceId ? [{
+                      key: 'permissions', name: 'Permissions',
+                      content: <ComposerPermissionMode key={s.activeWorkspaceId} workspaceId={s.activeWorkspaceId} />,
+                    }] : []),
                   ]} />
                   <IconButton label={editingGrid ? 'Finish editing grid' : 'Edit widget grid'} aria-pressed={editingGrid}
                     className="composer-grid-trigger" appearance="embedded" size="small" onClick={() => setEditingGrid(value => !value)}>

@@ -4169,7 +4169,7 @@ if (!gotLock) {
     } else if (!scheduleWorker) {
       app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
     }
-    ipcMain.handle("nextbrowser:invoke", (event, command, args) => {
+    ipcMain.handle("nextbrowser:invoke", async (event, command, args) => {
       if (miniApps().isGuest(event.sender)) throw Error("Desktop commands are unavailable.");
       if (command === "account_github_profile" || command === "account_manage_identity") {
         const window = BrowserWindow.fromWebContents(event.sender);
@@ -4189,15 +4189,24 @@ if (!gotLock) {
         const window = BrowserWindow.fromWebContents(event.sender);
         if (!chromeWindows.has(window) || event.sender !== window.webContents || event.senderFrame !== event.sender.mainFrame) throw Error('Permissions require the main desktop window.');
         const scope = miniApps().agentScope(event.sender, args?.workspaceId);
+        if (args?.owner !== undefined && args.owner !== scope?.owner) throw Error('The active account or workspace changed.');
         if (command === 'stock_mcp_pending') return agentPermissions().get(scope);
         if (command === 'stock_mcp_answer') return agentPermissions().answer(scope, args);
-        return stockTools().settings(scope, command, args);
+        const result = await stockTools().settings(scope, command, args);
+        if (command !== 'stock_mcp_get' && currentAgentScope(scope)) {
+          window.webContents.send('stock-mcp:settings-changed', { owner: scope.owner, workspaceId: scope.workspaceId });
+        }
+        return result;
       }
       if ((command === 'agent_run' || command === 'terminal_start') && event.senderFrame !== event.sender.mainFrame) throw Error('Agent sessions require the desktop window.');
       if (typeof command === "string" && command.startsWith("mini_apps_")) {
         const window = BrowserWindow.fromWebContents(event.sender);
         if (!chromeWindows.has(window) || event.senderFrame !== event.sender.mainFrame || window.webContents !== event.sender) throw Error("Mini apps require the desktop window.");
-        return miniApps().command(command, args ?? {}, window);
+        const result = await miniApps().command(command, args ?? {}, window);
+        if (command === 'mini_apps_context' && args?.owner && !window.isDestroyed()) {
+          window.webContents.send('stock-mcp:settings-changed', { owner: args.owner, workspaceId: args.workspaceId });
+        }
+        return result;
       }
       if (command === "product_journey") {
         if (event.senderFrame !== event.sender.mainFrame || event.sender.getType() !== "window") return;
