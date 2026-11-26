@@ -15,6 +15,9 @@ const swipeforgeURL = origin + '/swipeforge';
 const { createMusicPlayer } = require('./music-player.cjs');
 const { createSwipeForge } = require('./swipeforge.cjs');
 const csp = "sandbox allow-scripts allow-same-origin allow-forms; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'";
+// The official SwipeForge app also plays its creations, streamed by the host from its own origin.
+const swipeforgeMediaURL = swipeforgeURL + '/media/';
+const swipeforgeCsp = csp.replace("img-src data:;", "img-src data: 'self'; media-src 'self';");
 const json = (data, status = 200) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
 function pageOf(items, requestedOffset) {
   const offset = requestedOffset ?? 0;
@@ -82,7 +85,8 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
     isolated.setDevicePermissionHandler(() => false);
     isolated.on('will-download', event => event.preventDefault());
     isolated.webRequest.onBeforeRequest((details, done) => {
-      done({ cancel: !bindings.has(partition) || ![entry,stateURL,contextURL,musicURL,swipeforgeURL].includes(details.url) });
+      done({ cancel: !bindings.has(partition) || !([entry,stateURL,contextURL,musicURL,swipeforgeURL].includes(details.url) ||
+        (binding.swipeforge && details.url.startsWith(swipeforgeMediaURL))) });
     });
     isolated.protocol.handle('https', async request => {
       if (!bindings.has(partition)) return json(null, 410);
@@ -119,9 +123,13 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
           try { return json(await swipeforge.action(binding, payload, active)); }
           catch (e) { return json({ error: e.message }, 400); }
         }
+        if (request.url.startsWith(swipeforgeMediaURL) && request.method === 'GET') {
+          if (!binding.swipeforge || scopes.get(binding.shellId)?.owner !== binding.owner) return json(null, 403);
+          return await swipeforge.media(binding, request.url.slice(swipeforgeMediaURL.length), request.headers.get('range'));
+        }
         if (request.url === entry && request.method === 'GET') {
           return new Response(record.pkg.html, { headers: { 'Content-Type': 'text/html; charset=utf-8',
-            'Content-Security-Policy': csp, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store',
+            'Content-Security-Policy': binding.swipeforge ? swipeforgeCsp : csp, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store',
             'Referrer-Policy': 'no-referrer', 'X-DNS-Prefetch-Control': 'off' } });
         }
         if (request.url !== stateURL || !record.pkg.permissions.includes('storage')) return json(null, 403);

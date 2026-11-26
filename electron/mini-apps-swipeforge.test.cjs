@@ -255,3 +255,31 @@ test('production sign-in goes through the Nextbrowser connection, then the same 
   assert.equal(focused, 1, 'Nextbrowser comes back in front once the sign-in finishes');
   assert.throws(() => createSwipeForge({ root: fixture(t), safeStorage, baseUrl: fake.base, openExternal: async () => {}, signInConnection: 'x&prompt=none' }), /Invalid SwipeForge sign-in connection/);
 });
+
+test('creations play through the host with Range, without exposing the storage address', async t => {
+  const clip = Buffer.from('0123456789');
+  const files = http.createServer((request, response) => {
+    if (request.url !== '/clip.mp4') { response.writeHead(404); return response.end(); }
+    const range = /^bytes=(\d+)-(\d+)$/.exec(request.headers.range ?? '');
+    if (!range) { response.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': clip.length }); return response.end(clip); }
+    const [from, to] = [Number(range[1]), Number(range[2])];
+    response.writeHead(206, { 'Content-Type': 'video/mp4', 'Content-Length': to - from + 1, 'Content-Range': `bytes ${from}-${to}/${clip.length}` });
+    response.end(clip.subarray(from, to + 1));
+  });
+  await new Promise(resolve => files.listen(0, '127.0.0.1', resolve));
+  t.after(() => files.close());
+  const id = '00000000-0000-4000-8000-000000000001';
+  const fake = await fakeSwipeForge(t, { onCall: params => params.name === 'list_media' ? { structuredContent: { status: 200, data: {
+    items: params.arguments.query.contentId === id ? [{ id: 'm1', contentId: id, format: 'mp4', processedUrl: `http://127.0.0.1:${files.address().port}/clip.mp4` }] : [] } } } : null });
+  const { sf } = await connected(t, fake);
+  const whole = await sf.media(binding, id, null);
+  assert.equal(whole.status, 200);
+  assert.equal(whole.headers.get('content-type'), 'video/mp4');
+  assert.equal(Buffer.from(await whole.arrayBuffer()).toString(), '0123456789');
+  const part = await sf.media(binding, id, 'bytes=2-5');
+  assert.equal(part.status, 206);
+  assert.equal(part.headers.get('content-range'), 'bytes 2-5/10');
+  assert.equal(Buffer.from(await part.arrayBuffer()).toString(), '2345');
+  assert.equal((await sf.media(binding, 'not-a-uuid', null)).status, 400);
+  assert.equal((await sf.media(binding, '00000000-0000-4000-8000-000000000002', null)).status, 404);
+});

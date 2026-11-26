@@ -320,6 +320,34 @@ function createSwipeForge({ root, safeStorage, openExternal, fetch: fetchImpl = 
     if (thumbs.size > 60) thumbs.delete(thumbs.keys().next().value);
     return { image };
   }
+  // Plays a creation inside the mini app: the host streams the stored file and passes Range
+  // through, so the guest seeks without ever holding a storage URL or the access token.
+  const mediaUrls = new Map();
+  const MEDIA = /^(mp4|mov|webm|m4v|mp3|m4a|wav|ogg|aac|jpe?g|png|webp|gif)$/i;
+  async function mediaUrl(key, contentId) {
+    const cached = mediaUrls.get(contentId);
+    if (cached && cached.until > now()) return cached.url;
+    const media = await callTool(key, 'list_media', { query: { contentId, limit: '10' } });
+    const items = (media.value?.data?.items ?? []).filter(item => item?.contentId === contentId && typeof (item.processedUrl ?? item.originalUrl) === 'string');
+    const asset = items.find(item => item.format && MEDIA.test(item.format)) ?? items[0];
+    if (!asset) return null;
+    const url = new URL(asset.processedUrl ?? asset.originalUrl);
+    if (!['https:', 'http:'].includes(url.protocol) || (url.protocol === 'http:' && new URL(base).protocol !== 'http:')) return null;
+    mediaUrls.set(contentId, { url: url.href, until: now() + 5 * 60_000 });
+    if (mediaUrls.size > 100) mediaUrls.delete(mediaUrls.keys().next().value);
+    return url.href;
+  }
+  async function media(binding, contentId, range) {
+    if (typeof contentId !== 'string' || !/^[0-9a-f-]{36}$/i.test(contentId)) return new Response(null, { status: 400 });
+    const url = await mediaUrl(keyOf(binding), contentId).catch(() => null);
+    if (!url) return new Response(null, { status: 404 });
+    const upstream = await fetchImpl(url, { redirect: 'follow', headers: /^bytes=\d*-\d*$/.test(range ?? '') ? { Range: range } : {} });
+    const type = upstream.headers.get('content-type')?.split(';')[0].trim() ?? '';
+    if (!upstream.ok || !/^(video|audio|image)\//.test(type)) { mediaUrls.delete(contentId); return new Response(null, { status: 502 }); }
+    const headers = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
+    for (const name of ['content-length', 'content-range']) if (upstream.headers.get(name)) headers[name] = upstream.headers.get(name);
+    return new Response(upstream.body, { status: upstream.status, headers });
+  }
   function target(input) {
     if (typeof input.url === 'string') {
       let url;
@@ -367,6 +395,7 @@ function createSwipeForge({ root, safeStorage, openExternal, fetch: fetchImpl = 
   }
   return {
     action,
+    media,
     base,
     clear: binding => disconnect(keyOf(binding)),
     close() { for (const key of pending.keys()) cancel(key); },
