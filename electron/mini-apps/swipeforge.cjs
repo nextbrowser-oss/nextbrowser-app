@@ -51,7 +51,7 @@ function errorText(value, fallback) {
 }
 
 function createSwipeForge({ root, safeStorage, openExternal, fetch: fetchImpl = globalThis.fetch, baseUrl = process.env.NEXTBROWSER_SWIPEFORGE_URL || DEFAULT_BASE,
-  platform = process.platform, now = Date.now, clientName = 'Nextbrowser', signInConnection = process.env.NEXTBROWSER_SWIPEFORGE_CONNECTION }) {
+  platform = process.platform, now = Date.now, clientName = 'Nextbrowser', signInConnection = process.env.NEXTBROWSER_SWIPEFORGE_CONNECTION, onConnected = () => {} }) {
   const base = resolveBase(baseUrl);
   // Production SwipeForge signs people in through their Nextbrowser account
   // (the Auth0 "Nextbrowser" connection). A loopback development stack has
@@ -160,7 +160,9 @@ function createSwipeForge({ root, safeStorage, openExternal, fetch: fetchImpl = 
       const scopes = typeof value.scope === 'string' ? value.scope.split(' ').filter(Boolean) : [];
       await serialize(key, () => store(key, { clientId: flow.clientId, scopes, connectedAt: new Date(now()).toISOString() }, tokens));
       problems.delete(key);
-      reply(200, 'SwipeForge is connected', 'You can close this tab and return to Nextbrowser.');
+      reply(200, 'SwipeForge is connected', 'Nextbrowser is back in front. You can close this tab.');
+      // A web page cannot switch to a desktop app, so Nextbrowser comes forward itself.
+      try { onConnected(); } catch { /* Focus is a convenience. */ }
     } catch (error) {
       problems.set(key, error.message);
       reply(500, 'Not connected', 'Nextbrowser could not finish the sign-in. Return to Nextbrowser and connect again.');

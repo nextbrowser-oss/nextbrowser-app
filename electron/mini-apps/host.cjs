@@ -45,7 +45,7 @@ async function readStateRequest(request) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
-function createHost({ root, session, dialog, WebContentsView, BrowserWindow, libraryChanged, safeStorage, openExternal }) {
+function createHost({ root, session, dialog, WebContentsView, BrowserWindow, libraryChanged, safeStorage, openExternal, focusApp }) {
   const { catalog, catalogIds, catalogEntry } = require('./catalog.cjs');
   const store = createStore(root, id => parsePackage(catalog(id)));
   const bindings = new Map();
@@ -55,7 +55,7 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
   const music = createMusicPlayer({ session, BrowserWindow, dialog, guestSessions, store, browserRoot: path.join(root,'music-browsers') });
   const officialPlayer = parsePackage(catalog('music-player'));
   // Only the bundled package reaches the SwipeForge bridge; its tokens stay in this process.
-  const swipeforge = createSwipeForge({ root: path.join(root, 'swipeforge'), safeStorage, openExternal });
+  const swipeforge = createSwipeForge({ root: path.join(root, 'swipeforge'), safeStorage, openExternal, onConnected: focusApp });
   const officialSwipeForge = parsePackage(catalog('swipeforge'));
   function prepare(window, owner, id, blockId, surface, popover = false) {
     if (typeof popover !== 'boolean' || (popover && !blockId)) throw Error('Invalid widget view.');

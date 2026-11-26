@@ -23,11 +23,20 @@ function stockTools() {
     isCurrent: currentAgentScope, requestApproval: agentPermissions().request,
     searchCatalog: search => searchCatalog({ search }, (...request) => systemProxy.fetch(...request)) });
 }
+// Brings Nextbrowser back in front after a sign-in finished in the system browser.
+function focusMainWindow() {
+  const window = BrowserWindow.getAllWindows().find(candidate => chromeWindows.has(candidate) && !candidate.isDestroyed());
+  if (!window) return;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  if (process.platform === 'darwin') app.focus({ steal: true });
+  else { window.setAlwaysOnTop(true); window.focus(); window.setAlwaysOnTop(false); }
+}
 let miniAppsHost;
 function miniApps() {
   return miniAppsHost ??= require('./mini-apps/host.cjs').createHost({
     root: path.join(dataDir(), 'mini-apps-v1'), session, dialog, WebContentsView, BrowserWindow, libraryChanged: () => emit('mini-apps:changed'),
-    safeStorage, openExternal: url => shell.openExternal(url),
+    safeStorage, openExternal: url => shell.openExternal(url), focusApp: focusMainWindow,
   });
 }
 const { createStartPageServer } = require('./start-page-server.cjs');
