@@ -18,6 +18,7 @@ let step = 0, error, shell, page, androidChecked = false;
 let shellLine, deniedLine;
 let autonomousStep = 0;
 let autopilotStep = 0;
+let autopilotShells = [];
 const registryFixture = { instructions: '', serverInfo: { name: 'fixture', version: '1' },
   tools: [{ name: 'fixture_ping', description: 'Read a local test value.', inputSchema: { type: 'object', properties: {} } }] };
 const service = http.createServer(async (req, res) => {
@@ -44,14 +45,24 @@ const service = http.createServer(async (req, res) => {
         case 1: message = call('get_permissions', {}); break;
         case 2:
           assert.equal(JSON.parse(last).preset, 'autopilot');
+          autopilotShells = JSON.parse(last).shells;
           message = call('create_directory', { path: 'autopilot' }); break;
         case 3:
           assert.equal(JSON.parse(last).created, 'autopilot');
-          message = call('run_command', { command: 'echo test-unapproved' }); break;
+          message = call('write_text_file', { path: 'app.py', content: "print('autopilot-python-ok')" }); break;
         case 4:
-          assert.match(last, /no saved approval/);
-          message = reply('Finished without prompts'); break;
-        default: throw Error('Unexpected autopilot turn.');
+          assert.ok(JSON.parse(last).sha256);
+          message = call('run_command', { shell: autopilotShells[0], command: process.platform === 'win32' ? 'python app.py' : 'python3 app.py' }); break;
+        default: {
+          const result = JSON.parse(last);
+          assert.equal(result.exitCode, 0, result.output);
+          assert.equal(result.output.trim(), 'autopilot-python-ok');
+          autopilotShells.shift();
+          message = autopilotShells.length
+            ? call('run_command', { shell: autopilotShells[0], command: process.platform === 'win32' ? 'python app.py' : 'python3 app.py' })
+            : reply('Finished without prompts');
+          break;
+        }
       }
     } else if (autonomousStep) {
       switch (autonomousStep++) {
@@ -218,7 +229,7 @@ try {
   await settings.getByRole('option', {name: /^Default\b/}).click();
   await page.keyboard.press('Escape');
   await selector.getByText('Default', {exact: true}).waitFor();
-  console.log('Composer → Автопилот: real workspace edit completed, new command declined immediately, Settings and composer stayed in sync.');
+  console.log('Composer → Автопилот: app.py ran in every available shell without prompts. Settings and composer stayed in sync.');
   console.log('Passed desktop permissions, denied and approved ' + shell + ', scoped reads, reviewed MCP setup and next-turn tools.' +
     (androidChecked ? ' Verified android_devices with real adb.' : ''));
 } finally { await app?.close(); service.closeAllConnections(); await new Promise(resolve => service.close(resolve)); }

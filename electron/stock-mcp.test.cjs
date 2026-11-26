@@ -127,24 +127,24 @@ test('remembering an exact shell command survives restart, respects changes and 
   response = 'deny';
   assert.equal((await run(command)).isError, true);
 });
-test('Autopilot runs workspace edits and remembered commands without prompting, and declines new host commands', async t => {
+test('Autopilot routes previously unseen commands to the workspace sandbox without asking', async t => {
   let prompts = 0;
-  const { host, scope, client, dataRoot } = await fixture(t, () => { prompts++; return 'remember'; });
-  await host.settings(scope, 'stock_mcp_preset', { preset: 'autonomous' });
+  const runs = [];
+  const { host, scope, client, dataRoot } = await fixture(t, () => { prompts++; return 'deny'; }, {
+    sandboxShell: async (file, shell, command, cwd) => { runs.push({ file, shell, command, cwd }); return { exitCode: 0, output: 'sandbox' }; },
+  });
   const command = { command: 'echo autopilot-ok' };
-  assert.equal(JSON.parse((await client.callTool('run_command', command)).content[0].text).exitCode, 0);
-  assert.equal(prompts, 1);
 
   const settings = await host.settings(scope, 'stock_mcp_preset', { preset: 'autopilot' });
-  assert.equal(settings.trustedCount, 1);
+  assert.equal(settings.trustedCount, 0);
   const reopened = createStockMcp({ dataRoot, isCurrent: () => true });
   assert.equal((await reopened.settings(scope, 'stock_mcp_get')).preset, 'autopilot');
   assert.equal((await reopened.settings({ ...scope, owner: 'other' }, 'stock_mcp_get')).preset, 'manual');
   assert.equal(JSON.parse((await client.callTool('get_permissions', {})).content[0].text).preset, 'autopilot');
-  assert.equal(JSON.parse((await client.callTool('run_command', command)).content[0].text).output.trim(), 'autopilot-ok');
-  const denied = await client.callTool('run_command', { command: 'echo new' });
-  assert.equal(denied.isError, true);
-  assert.match(denied.content[0].text, /no saved approval/);
+  for (const [shell, file] of Object.entries(shells())) {
+    assert.equal(JSON.parse((await client.callTool('run_command', { ...command, shell })).content[0].text).output, 'sandbox');
+    assert.deepEqual(runs.at(-1), { file, shell, command: command.command, cwd: settings.folder });
+  }
   assert.equal(JSON.parse((await client.callTool('create_directory', { path: 'sample' })).content[0].text).created, 'sample');
   assert.ok(!(await client.callTool('write_text_file', { path: 'sample/test.txt', content: 'written' })).isError);
   assert.equal(JSON.parse((await client.callTool('read_text_file', { path: 'sample/test.txt' })).content[0].text).text, 'written');
@@ -154,9 +154,42 @@ test('Autopilot runs workspace edits and remembered commands without prompting, 
     assert.ok(!tools.includes(name));
     assert.equal((await client.callTool(name, {})).isError, true);
   }
-  await host.settings(scope, 'stock_mcp_forget_commands');
+  await host.settings(scope, 'stock_mcp_set', { group: 'terminal', mode: 'approved' });
   assert.equal((await client.callTool('run_command', command)).isError, true);
-  assert.equal(prompts, 1);
+  assert.equal(prompts, 0);
+});
+test('Autopilot uses a project sandbox when the user selected a whole drive', async t => {
+  const drive = path.parse(os.homedir()).root;
+  const { host, scope, client } = await fixture(t, () => { throw Error('Unexpected approval'); }, {
+    dialog: { showOpenDialog: async () => ({ filePaths: [drive] }) },
+    sandboxShell: async (_file, _shell, _command, cwd) => ({ exitCode: 0, output: cwd }),
+  });
+  const initial = await host.settings(scope, 'stock_mcp_get');
+  await host.settings(scope, 'stock_mcp_folder', {});
+  await host.settings(scope, 'stock_mcp_preset', { preset: 'autopilot' });
+  const {folder, commandFolder} = JSON.parse((await client.callTool('get_permissions', {})).content[0].text);
+  assert.equal(folder, await fs.realpath(drive));
+  assert.equal(commandFolder, initial.folder);
+  assert.equal(JSON.parse((await client.callTool('run_command', { command: 'echo ready' })).content[0].text).output, commandFolder);
+});
+test('the previous Autopilot selection upgrades and an explicitly customised remembered-only policy stays restricted', async t => {
+  const { host, scope, dataRoot } = await fixture(t);
+  await host.settings(scope, 'stock_mcp_preset', { preset: 'autopilot' });
+  const file = path.join(dataRoot, 'stock-mcp-permissions.json');
+  const state = JSON.parse(await fs.readFile(file, 'utf8'));
+  const key = Object.keys(state.values).find(key => !key.includes('.'));
+  const saved = JSON.parse(state.values[key]);
+  delete saved.version;
+  saved.terminal = 'approved';
+  state.values[key] = JSON.stringify(saved);
+  await fs.writeFile(file, JSON.stringify(state));
+  const reopen = () => createStockMcp({ dataRoot, isCurrent: () => true });
+  const migrated = reopen();
+  assert.equal((await migrated.settings(scope, 'stock_mcp_get')).preset, 'autopilot');
+  await migrated.settings(scope, 'stock_mcp_shell', { shell: 'auto' });
+  assert.equal((await reopen().settings(scope, 'stock_mcp_get')).terminal, 'sandbox');
+  await migrated.settings(scope, 'stock_mcp_set', { group: 'terminal', mode: 'approved' });
+  assert.equal((await reopen().settings(scope, 'stock_mcp_get')).preset, 'custom');
 });
 test('permission choices persist only for the selected account and workspace', async t => {
   const { scope, host, dataRoot } = await fixture(t);

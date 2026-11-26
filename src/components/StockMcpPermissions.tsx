@@ -5,18 +5,18 @@ import { invoke } from '../electronBridge';
 import { useMiniAppsOwner } from '../lib/miniAppLibrary';
 
 type Group = 'terminal' | 'android' | 'files' | 'edits' | 'setup';
-type Permissions = Record<Group, string> & { preset: string; trustedCount: number; commandPreviews: boolean; folder: string; shells: string[]; preferredShell: string; defaultShell?: string; adb: string | null };
+type Permissions = Record<Group, string> & { preset: string; trustedCount: number; commandPreviews: boolean; folder: string; commandFolder: string; shells: string[]; preferredShell: string; defaultShell?: string; adb: string | null };
 const shellNames: Record<string, string> = { bash: 'Bash', powershell: 'PowerShell' };
-const labels: Record<string, string> = { ask: 'Ask every time', off: 'Off', allow: 'Allow in selected folder', review: 'Review before connecting', trusted: 'Remember approved commands', approved: 'Remembered commands only', inspect: 'Allow device inspection', 'read-only': 'Device inspection only', catalog: 'Search catalog only' };
+const labels: Record<string, string> = { ask: 'Ask every time', off: 'Off', allow: 'Allow in selected folder', review: 'Review before connecting', trusted: 'Remember approved commands', approved: 'Remembered commands only', sandbox: 'Run new commands in workspace sandbox', inspect: 'Allow device inspection', 'read-only': 'Device inspection only', catalog: 'Search catalog only' };
 const presetOptions = [
   { value: 'manual', label: 'Default', description: 'Review terminal commands and file reads.' },
   { value: 'autonomous', label: 'Autonomous', description: 'Edit workspace files and ask before new commands.' },
-  { value: 'autopilot', label: 'Автопилот', description: 'No prompts. Edit workspace files, run remembered commands and inspect devices.' },
+  { value: 'autopilot', label: 'Автопилот', description: 'Run new Bash and PowerShell commands in the workspace sandbox without prompts.' },
 ];
 const groups: { id: Group; title: string; description: string; modes: string[] }[] = [
   { id: 'files', title: 'Workspace files', description: 'List folders and send text file contents to the agent’s model.', modes: ['ask', 'allow', 'off'] },
   { id: 'edits', title: 'Workspace edits', description: 'Create directories and write text files in the selected folder.', modes: ['ask', 'allow', 'off'] },
-  { id: 'terminal', title: 'Terminal', description: 'Commands run with your OS permissions. You can remember an exact command for this folder and shell, including commands that run project scripts.', modes: ['ask', 'trusted', 'approved', 'off'] },
+  { id: 'terminal', title: 'Terminal', description: 'Autopilot runs project commands in the local Codex CLI workspace sandbox. Other enabled modes run approved commands as your OS user.', modes: ['ask', 'trusted', 'approved', 'sandbox', 'off'] },
   { id: 'android', title: 'Android', description: 'Inspect attached devices, install an APK or run instrumentation tests, depending on the selected mode.', modes: ['ask', 'inspect', 'read-only', 'off'] },
   { id: 'setup', title: 'MCP setup', description: 'Search the registry and prepare a server configuration. You choose Connect & save to activate it.', modes: ['review', 'catalog', 'off'] },
 ];
@@ -82,7 +82,9 @@ export function StockMcpPermissions({ workspaceId }: { workspaceId: string }) {
       <article className="mcp-card"><div className="mcp-card-head"><strong>Working folder</strong>
         <Button disabled={busy} onClick={() => void change('stock_mcp_folder')}>Choose folder</Button></div>
         <code className="stock-mcp-folder">{settings.folder}</code>
-        <p className="muted small">File tools stay inside this folder. Shell commands start here and can access other paths.</p>
+        {settings.commandFolder && settings.commandFolder !== settings.folder
+          ? <p className="muted small">Autopilot runs in <code className="stock-mcp-folder">{settings.commandFolder}</code>. Choose a project folder to run and write there.</p>
+          : <p className="muted small">File tools stay inside this folder. Shell commands start here.</p>}
       </article>
       {groups.map(group => <article className="mcp-card" key={group.id}><div className="stock-mcp-permission">
         <div><strong>{group.title}</strong><p className="muted small">{group.description}</p></div>

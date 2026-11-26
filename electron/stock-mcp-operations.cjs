@@ -4,6 +4,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { createHash, randomUUID } = require('node:crypto');
 const { serverEnvironment } = require('./mcp-environment.cjs');
+const { resolveBinary } = require('./binary-resolver.cjs');
 const { terminateProcessTree } = require('./process-tree.cjs');
 
 function executable(files) {
@@ -143,13 +144,55 @@ async function writeWorkspaceText(root, relative, parentPath, parent, target, co
   } finally { await fs.promises.unlink(temp).catch(() => {}); }
 }
 
-function runShell(file, shell, command, cwd, signal) {
-  const args = shell === 'bash' ? ['--noprofile', '--norc', '-c', command] : ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command];
-  return runProgram(file, args, cwd, signal);
+function shellArgs(shell, command) {
+  return shell === 'bash' ? ['--noprofile', '--norc', '-c', command] : ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command];
 }
-function runProgram(file, args, cwd, signal, timeoutMs = 25_000) {
+function runShell(file, shell, command, cwd, signal) {
+  return runProgram(file, shellArgs(shell, command), cwd, signal);
+}
+
+function workspaceShellEnvironment() {
+  const env = serverEnvironment(process.env);
+  for (const key of Object.keys(env)) {
+    if (/^(http|https|all|no)_proxy$/i.test(key)) delete env[key];
+  }
+  if (process.platform !== 'win32' || !process.env.LOCALAPPDATA) return env;
+  // The Windows Store launcher belongs to the interactive user. The sandbox
+  // can run python.org installs directly, including those missing from PATH.
+  const installs = path.join(process.env.LOCALAPPDATA, 'Programs', 'Python');
+  let dirs;
+  try { dirs = fs.readdirSync(installs, { withFileTypes: true }); } catch { return env; }
+  const installed = dirs.filter(d => d.isDirectory() && /^Python\d+$/i.test(d.name))
+    .sort((a, b) => b.name.localeCompare(a.name, 'en', { numeric: true }))
+    .map(d => path.join(installs, d.name)).find(dir => executable([path.join(dir, 'python.exe')]));
+  if (!installed) return env;
+  const key = Object.keys(env).find(k => k.toLowerCase() === 'path') || 'PATH';
+  const parts = (env[key] || '').split(path.delimiter).filter(Boolean);
+  const alias = parts.findIndex(dir => /[\\/]Microsoft[\\/]WindowsApps[\\/]?$/i.test(dir));
+  if (!parts.slice(0, alias < 0 ? parts.length : alias).some(dir => dir.toLowerCase() === installed.toLowerCase())) {
+    parts.splice(alias < 0 ? parts.length : alias, 0, installed);
+    env[key] = parts.join(path.delimiter);
+  }
+  return env;
+}
+
+async function runWorkspaceShell(file, shell, command, cwd, signal) {
+  if (cwd === path.parse(cwd).root || path.relative(cwd, os.homedir()) === '') {
+    throw Error('Choose a project folder in Agent permissions before running Autopilot commands.');
+  }
+  const runner = resolveBinary('codex');
+  if (!runner || (process.platform === 'win32' && path.extname(runner).toLowerCase() !== '.exe')) {
+    throw Error('Autopilot needs the native Codex CLI sandbox. Install or update Codex CLI to run commands in this workspace.');
+  }
+  const args = ['sandbox', '-C', cwd, '--include-managed-config', '-P', ':workspace',
+    '-c', 'sandbox_workspace_write.network_access=false'];
+  if (process.platform === 'win32') args.push('-c', 'windows.sandbox=elevated');
+  args.push('--', file, ...shellArgs(shell, command));
+  return runProgram(runner, args, cwd, signal, 25_000, workspaceShellEnvironment());
+}
+function runProgram(file, args, cwd, signal, timeoutMs = 25_000, env = serverEnvironment(process.env)) {
   signal.throwIfAborted();
-  const child = spawn(file, args, { cwd, shell: false, windowsHide: true, env: serverEnvironment(process.env), stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(file, args, { cwd, shell: false, windowsHide: true, env, stdio: ['ignore', 'pipe', 'pipe'] });
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0, truncated = false, stopping = false;
@@ -177,4 +220,4 @@ function runProgram(file, args, cwd, signal, timeoutMs = 25_000) {
     });
   });
 }
-module.exports = { shells, adbExecutable, safeText, readEntry, editEntry, resolveEntry, runShell, runProgram };
+module.exports = { shells, adbExecutable, safeText, readEntry, editEntry, resolveEntry, runShell, runWorkspaceShell, runProgram };
