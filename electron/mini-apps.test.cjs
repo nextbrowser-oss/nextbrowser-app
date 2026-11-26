@@ -72,6 +72,29 @@ test('unsupported packages cannot be installed and duplicate IDs preserve state'
   assert.throws(() => store.install('a', raw), /already installed/);
   assert.deepEqual(store.list('b'), []);
 });
+test('a catalog update requires the same listing and preserves account data', t => {
+  const store = createStore(fixture(t));
+  const id = 'published-board';
+  const publication = 'c4ab1798-0116-40a9-96db-452540ead930';
+  const packageAt = version => JSON.stringify({ ...pkg, id, version });
+  store.install('reader', packageAt('1.0.0'), undefined, publication);
+  const previous = store.read('reader', id).generation;
+  store.save('reader', id, previous, 0, { cards: ['keep me'] });
+  store.setPinned('reader', id, true);
+  assert.throws(() => store.install('reader', packageAt('1.1.0'), previous, 'another-listing'));
+  assert.throws(() => store.install('reader', packageAt('1.0.0'), previous, publication));
+  assert.throws(() => store.install('reader', packageAt('0.9.0'), previous, publication));
+  store.install('reader', packageAt('1.1.0'), previous, publication);
+  const updated = store.read('reader', id);
+  assert.equal(updated.pkg.version, '1.1.0');
+  assert.equal(updated.sourcePublication, publication);
+  assert.equal(updated.pinned, true);
+  assert.deepEqual(updated.value, { cards: ['keep me'] });
+  assert.notEqual(updated.generation, previous);
+  assert.throws(() => store.install('reader', packageAt('1.2.0'), previous, publication));
+  assert.deepEqual(store.list('another-account'), []);
+});
+
 test('state writes are bounded, scoped and reject a stale revision or installation', t => {
   const store = createStore(fixture(t));
   store.install('a', raw);
